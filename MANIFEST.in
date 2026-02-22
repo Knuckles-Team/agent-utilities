@@ -1,1 +1,1 @@
-include README.md include requirements.txt recursive-include adguard_home_agent *.py
+include README.md include requirements.txt recursive-include agent_utilities *.py
