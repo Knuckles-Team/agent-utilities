@@ -1,0 +1,105 @@
+check for added large files..............................................Passed
+check python ast.........................................................Passed
+check yaml...............................................................Passed
+check toml...............................................................Passed
+check json...............................................................Passed
+fix utf-8 byte order marker..............................................Passed
+check for merge conflicts................................................Passed
+detect private key.......................................................Passed
+trim trailing whitespace.................................................Passed
+fix end of files.........................................................Passed
+don't commit to branch...................................................Failed
+- hook id: no-commit-to-branch
+- exit code: 1
+black....................................................................Passed
+ruff (legacy alias)......................................................Failed
+- hook id: ruff
+- exit code: 1
+
+F811 Redefinition of unused `Iterable` from line 6
+  --> agent_utilities/base_utilities.py:17:5
+   |
+15 |     TypeVar,
+16 |     Generic,
+17 |     Iterable,
+   |     ^^^^^^^^ `Iterable` redefined here
+18 |     TYPE_CHECKING,
+19 | )
+   |
+  ::: agent_utilities/base_utilities.py:6:50
+   |
+ 4 | import inspect
+ 5 | from abc import ABC, abstractmethod
+ 6 | from collections.abc import Callable, Generator, Iterable
+   |                                                  -------- previous definition of `Iterable` here
+ 7 | from contextlib import contextmanager, suppress
+ 8 | from dataclasses import dataclass
+   |
+help: Remove definition: `Iterable`
+
+F821 Undefined name `json`
+   --> agent_utilities/base_utilities.py:100:16
+    |
+ 98 |         return []
+ 99 |     try:
+100 |         return json.loads(string)
+    |                ^^^^
+101 |     except Exception:
+102 |         return string.split(",")
+    |
+
+F821 Undefined name `json`
+   --> agent_utilities/base_utilities.py:111:16
+    |
+109 |         return {}
+110 |     try:
+111 |         return json.loads(string)
+    |                ^^^^
+112 |     except Exception:
+113 |         raise ValueError(f"Cannot convert '{string}' to dict")
+    |
+
+F821 Undefined name `os`
+   --> agent_utilities/base_utilities.py:117:19
+    |
+116 | def save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:
+117 |     pickle_file = os.path.join(file_path, f"{file_name}.pkl")
+    |                   ^^
+118 |     with open(pickle_file, "wb") as file:
+119 |         pickle.dump(model, file)
+    |
+
+F821 Undefined name `pickle`
+   --> agent_utilities/base_utilities.py:119:9
+    |
+117 |     pickle_file = os.path.join(file_path, f"{file_name}.pkl")
+118 |     with open(pickle_file, "wb") as file:
+119 |         pickle.dump(model, file)
+    |         ^^^^^^
+120 |     return pickle_file
+    |
+
+F821 Undefined name `pickle`
+   --> agent_utilities/base_utilities.py:125:17
+    |
+123 | def load_model(file: str) -> Any:
+124 |     with open(file, "rb") as model_file:
+125 |         model = pickle.load(model_file)
+    |                 ^^^^^^
+126 |     return model
+    |
+
+F821 Undefined name `Path`
+   --> agent_utilities/base_utilities.py:142:21
+    |
+141 |     try:
+142 |         file_path = Path(__file__).resolve()
+    |                     ^^^^
+143 |         for parent in file_path.parents:
+144 |             if (
+    |
+
+Found 7 errors.
+
+codespell................................................................Passed
+nbqa-black...............................................................Passed
