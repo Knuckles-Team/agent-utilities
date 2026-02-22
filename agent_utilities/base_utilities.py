@@ -36,6 +36,8 @@ except ImportError:
     AnthropicProvider = None
 
 __version__ = "0.1.1"
+
+
 def to_float(string=None):
     if isinstance(string, float):
         return string

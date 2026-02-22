@@ -48,6 +48,8 @@ except ImportError:
     AnthropicProvider = None
 
 __version__ = "0.1.1"
+
+
 def create_embedding_model(
     provider: Optional[str] = os.environ.get("EMBEDDING_PROVIDER", "openai").lower(),
     model: Optional[str] = os.environ.get(

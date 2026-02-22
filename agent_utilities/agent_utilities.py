@@ -182,10 +182,6 @@ def initialize_workspace(overwrite: bool = False):
             path.write_text(content.strip() + "\n", encoding="utf-8")
             logger.info(f"Initialized {path}")
 
-    # Also ensure skills directory exists
-    skills_dir = get_workspace_path("skills")
-    skills_dir.mkdir(parents=True, exist_ok=True)
-
 
 def load_workspace_file(filename: str, default: str = "") -> str:
     """Read markdown file content. Returns default if missing."""
@@ -217,24 +213,83 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     return "\n\n".join(parts).strip()
 
 
-def load_identity() -> Dict[str, str]:
-    """Parse IDENTITY.md to extract name, description (Role), and system prompt."""
+def parse_identity_md(content: str) -> Dict[str, Dict[str, str]]:
+    """
+    Parse IDENTITY.md into a dictionary of agent definitions.
+    Supports tagged sections: ## [tag]
+    Each section parses bullet points for Name, Role, Emoji, Vibe.
+    """
     import re
 
-    content = load_workspace_file("IDENTITY.md")
+    # Split into sections by ## [tag]
+    sections = re.split(r"^##\s+\[(.*?)\]", content, flags=re.MULTILINE)
 
-    name = "Agent"
-    desc = "An AI agent."
+    identities = {}
 
+    if len(sections) <= 1:
+        # Backward compatibility: treat entire file as single 'default' agent
+        identities["default"] = _parse_section_content(content)
+    else:
+        # First part before any ## [tag] is skipped (usually headers/intro)
+        for i in range(1, len(sections), 2):
+            tag = sections[i].strip()
+            section_content = sections[i + 1]
+            identities[tag] = _parse_section_content(section_content)
+
+    return identities
+
+
+def _parse_section_content(content: str) -> Dict[str, str]:
+    """Helper to extract metadata and prompt from a Markdown section."""
+    import re
+
+    data = {
+        "name": "Agent",
+        "description": "An AI agent.",
+        "emoji": "🤖",
+        "vibe": "",
+        "content": content.strip(),
+    }
+
+    # Extract bullet points
     name_match = re.search(r"\* \*\*Name:\*\* (.*)", content)
     if name_match:
-        name = name_match.group(1).strip()
+        data["name"] = name_match.group(1).strip()
 
-    desc_match = re.search(r"\* \*\*Role:\*\* (.*)", content)
-    if desc_match:
-        desc = desc_match.group(1).strip()
+    role_match = re.search(r"\* \*\*Role:\*\* (.*)", content)
+    if role_match:
+        data["description"] = role_match.group(1).strip()
 
-    return {"name": name, "description": desc, "content": content}
+    emoji_match = re.search(r"\* \*\*Emoji:\*\* (.*)", content)
+    if emoji_match:
+        data["emoji"] = emoji_match.group(1).strip()
+
+    vibe_match = re.search(r"\* \*\*Vibe:\*\* (.*)", content)
+    if vibe_match:
+        data["vibe"] = vibe_match.group(1).strip()
+
+    return data
+
+
+def load_identity(tag: Optional[str] = None) -> Dict[str, str]:
+    """
+    Load IDENTITY.md and return metadata for a specific agent tag.
+    If no tag is provided, returns the first identity found.
+    """
+    content = load_workspace_file("IDENTITY.md")
+    identities = parse_identity_md(content)
+
+    if not identities:
+        return {"name": "Agent", "description": "AI Agent", "content": ""}
+
+    if tag and tag in identities:
+        return identities[tag]
+
+    # Return 'default' if it exists, otherwise the first entry
+    if "default" in identities:
+        return identities["default"]
+
+    return next(iter(identities.values()))
 
 
 # --- GLOBAL CONFIGURATIONS ---

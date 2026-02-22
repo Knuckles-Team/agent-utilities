@@ -43,6 +43,8 @@ DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:12
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "llama")
 
 __version__ = "0.1.1"
+
+
 def create_mcp_parser():
     parser = argparse.ArgumentParser(add_help=False, description="Vector MCP")
     parser.add_argument(
