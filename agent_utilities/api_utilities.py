@@ -2,7 +2,9 @@
 # coding: utf-8
 
 import functools
+
 __version__ = "0.1.1"
+
 
 class AuthError(Exception):
     """

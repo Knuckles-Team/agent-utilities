@@ -1,62 +1,40 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import importlib
-import inspect
-from typing import List
+from .agent_utilities import (
+    create_agent,
+    create_agent_server,
+    create_model,
+    build_system_prompt_from_workspace,
+    load_identity,
+    initialize_workspace,
+    CORE_FILES,
+)
+from .base_utilities import (
+    to_boolean,
+    to_integer,
+    to_float,
+    to_list,
+    to_dict,
+    retrieve_package_name,
+)
+from .models import PeriodicTask
 
-__all__: List[str] = []
+__version__ = "0.1.1"
 
-CORE_MODULES = [
-    "adguard_home_agent.adguard_api",
+__all__ = [
+    "create_agent",
+    "create_agent_server",
+    "create_model",
+    "build_system_prompt_from_workspace",
+    "load_identity",
+    "initialize_workspace",
+    "CORE_FILES",
+    "to_boolean",
+    "to_integer",
+    "to_float",
+    "to_list",
+    "to_dict",
+    "retrieve_package_name",
+    "PeriodicTask",
 ]
-
-OPTIONAL_MODULES = {
-    "adguard_home_agent.adguard_agent": "a2a",
-    "adguard_home_agent.adguard_mcp": "mcp",
-}
-
-
-def _import_module_safely(module_name: str):
-    """Try to import a module and return it, or None if not available."""
-    try:
-        return importlib.import_module(module_name)
-    except ImportError:
-        return None
-
-
-def _expose_members(module):
-    """Expose public classes and functions from a module into globals and __all__."""
-    for name, obj in inspect.getmembers(module):
-        if (inspect.isclass(obj) or inspect.isfunction(obj)) and not name.startswith(
-            "_"
-        ):
-            globals()[name] = obj
-            __all__.append(name)
-
-
-for module_name in CORE_MODULES:
-    module = importlib.import_module(module_name)
-    _expose_members(module)
-
-for module_name, extra_name in OPTIONAL_MODULES.items():
-    module = _import_module_safely(module_name)
-    if module is not None:
-        _expose_members(module)
-        globals()[f"_{extra_name.upper()}_AVAILABLE"] = True
-    else:
-        globals()[f"_{extra_name.upper()}_AVAILABLE"] = False
-
-_MCP_AVAILABLE = OPTIONAL_MODULES.get("adguard_home_agent.adguard_mcp") in [
-    m.__name__ for m in globals().values() if hasattr(m, "__name__")
-]
-_A2A_AVAILABLE = "adguard_home_agent.adguard_agent" in globals()
-
-__all__.extend(["_MCP_AVAILABLE", "_A2A_AVAILABLE"])
-
-
-"""
-Adguard Home Agent
-
-Manage your Adguard Home instance
-"""

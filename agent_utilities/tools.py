@@ -30,6 +30,8 @@ DEFAULT_DYNAMIC_TOOLS = to_boolean(string=os.environ.get("DYNAMIC_TOOLS", "True"
 logger = logging.getLogger(__name__)
 
 __version__ = "0.1.1"
+
+
 def register_agent_tools(agent: Agent):
     """Register universal workspace, A2A, and scheduler tools to the agent."""
 
