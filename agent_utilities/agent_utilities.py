@@ -95,7 +95,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 
 def get_skills_path() -> str:
@@ -269,6 +269,14 @@ def _parse_section_content(content: str) -> Dict[str, str]:
         data["vibe"] = vibe_match.group(1).strip()
 
     return data
+
+
+def load_identities() -> Dict[str, Dict[str, str]]:
+    """
+    Load IDENTITY.md and return all identity definitions as a dictionary.
+    """
+    content = load_workspace_file("IDENTITY.md")
+    return parse_identity_md(content)
 
 
 def load_identity(tag: Optional[str] = None) -> Dict[str, str]:
