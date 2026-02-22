@@ -95,7 +95,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 
 def get_skills_path() -> str:
@@ -764,6 +764,9 @@ def create_agent_server(
     port: Optional[int] = DEFAULT_PORT,
     enable_web_ui: bool = DEFAULT_ENABLE_WEB_UI,
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
+    name: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    agent_defs: Optional[Dict[str, tuple]] = None,
 ):
     import uvicorn
     from fastapi import FastAPI, Request
@@ -779,6 +782,9 @@ def create_agent_server(
         f"\tssl_verify={ssl_verify}"
     )
 
+    _name = name or DEFAULT_AGENT_NAME
+    _system_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
+
     agent = create_agent(
         provider=provider,
         model_id=model_id,
@@ -788,8 +794,9 @@ def create_agent_server(
         mcp_config=mcp_config,
         custom_skills_directory=custom_skills_directory,
         ssl_verify=ssl_verify,
-        name=DEFAULT_AGENT_NAME,
-        system_prompt=DEFAULT_AGENT_SYSTEM_PROMPT,
+        name=_name,
+        system_prompt=_system_prompt,
+        agent_defs=agent_defs,
     )
 
     # Always load default skills
@@ -807,17 +814,17 @@ def create_agent_server(
     if not skills:
         skills = [
             Skill(
-                id="searxng_agent",
-                name="Vector Agent Agent",
-                description="General access to Vector Agent search tools",
-                tags=["searxng", "search"],
+                id="agent",
+                name=_name,
+                description=f"General access to {_name} tools",
+                tags=["agent"],
                 input_modes=["text"],
                 output_modes=["text"],
             )
         ]
 
     a2a_app = agent.to_a2a(
-        name=DEFAULT_AGENT_NAME,
+        name=_name,
         description=DEFAULT_AGENT_DESCRIPTION,
         version=__version__,
         skills=skills,
@@ -884,7 +891,7 @@ def create_agent_server(
         )
 
     if enable_web_ui:
-        web_ui = agent.to_web(instructions=DEFAULT_AGENT_SYSTEM_PROMPT)
+        web_ui = agent.to_web(instructions=_system_prompt)
         app.mount("/", web_ui)
         logger.info(
             "Starting server on %s:%s (A2A at /a2a, AG-UI at /ag-ui, Web UI: %s)",
