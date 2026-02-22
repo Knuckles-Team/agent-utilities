@@ -95,7 +95,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 
 def get_skills_path() -> str:
@@ -526,12 +526,12 @@ def create_agent(
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: Optional[str] = DEFAULT_AGENT_NAME,
     system_prompt: Optional[str] = DEFAULT_AGENT_SYSTEM_PROMPT,
-    agent_defs: Optional[Dict[str, tuple[str, str]]] = None,
+    agent_definitions: Optional[Dict[str, tuple[str, str]]] = None,
 ) -> Agent:
     """
     Create a Pydantic AI Agent with optional multi-agent supervisor support.
 
-    If agent_defs is provided, it creates a supervisor agent that can delegate tasks
+    If agent_definitions is provided, it creates a supervisor agent that can delegate tasks
     to child agents specified in the dictionary.
 
     Args:
@@ -545,7 +545,7 @@ def create_agent(
         ssl_verify: Whether to verify SSL certificates
         name: Name of the agent (or supervisor)
         system_prompt: System prompt for the agent (or supervisor)
-        agent_defs: Dictionary of child agent definitions:
+        agent_definitions: Dictionary of child agent definitions:
                    {"tag": (child_prompt, child_name)}
                    If provided, triggers multi-agent supervisor pattern.
 
@@ -610,12 +610,14 @@ def create_agent(
         extra_body=DEFAULT_EXTRA_BODY,
     )
 
-    if agent_defs:
+    if agent_definitions:
         from universal_skills.skill_utilities import get_universal_skills_path
         from pydantic_ai_skills import SkillsToolset
 
         # ── Multi-Agent Pattern ──
-        logger.info(f"Initializing Multi-Agent System with {len(agent_defs)} agents")
+        logger.info(
+            f"Initializing Multi-Agent System with {len(agent_definitions)} agents"
+        )
 
         # 1. Identify Universal Skills
         universal_skills_path = get_universal_skills_path()
@@ -630,7 +632,7 @@ def create_agent(
         child_agents = {}
         package_prefix = retrieve_package_name().replace("_", "-") + "-"
 
-        for tag, (child_prompt, child_name) in agent_defs.items():
+        for tag, (child_prompt, child_name) in agent_definitions.items():
             tag_toolsets = []
 
             # Filter MCP servers by tag
@@ -706,7 +708,7 @@ def create_agent(
             return delegate
 
         for tag, child_agent in child_agents.items():
-            _, child_name = agent_defs[tag]
+            _, child_name = agent_definitions[tag]
             tool_func = create_delegation_tool(tag, child_agent, child_name)
             supervisor.tool(tool_func)
 
@@ -766,7 +768,7 @@ def create_agent_server(
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: Optional[str] = None,
     system_prompt: Optional[str] = None,
-    agent_defs: Optional[Dict[str, tuple]] = None,
+    agent_definitions: Optional[Dict[str, tuple]] = None,
 ):
     import uvicorn
     from fastapi import FastAPI, Request
@@ -796,7 +798,7 @@ def create_agent_server(
         ssl_verify=ssl_verify,
         name=_name,
         system_prompt=_system_prompt,
-        agent_defs=agent_defs,
+        agent_definitions=agent_definitions,
     )
 
     # Always load default skills

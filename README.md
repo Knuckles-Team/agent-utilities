@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 0.1.4*
+*Version: 0.1.5*
 
 ## Overview
 
@@ -64,6 +64,6 @@ agent = create_agent(name="MyAgent")
 # Or create a multi-agent supervisor
 agent = create_agent(
     name="Supervisor",
-    agent_defs=[{"name": "Researcher", "description": "Search the web"}]
+    agent_definitions=[{"name": "Researcher", "description": "Search the web"}]
 )
 ```
