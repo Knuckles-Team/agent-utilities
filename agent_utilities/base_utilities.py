@@ -137,6 +137,23 @@ def retrieve_package_name() -> str:
     Works reliably when utils.py is inside a proper package (with __init__.py or
     implicit namespace package) and the caller does normal imports.
     """
+    try:
+        for frame_info in inspect.stack():
+            module = inspect.getmodule(frame_info.frame)
+            if module:
+                pkg = getattr(module, "__package__", None)
+                if pkg:
+                    top = pkg.partition(".")[0]
+                    if top and top != "agent_utilities":
+                        return top
+                name = getattr(module, "__name__", None)
+                if name:
+                    top = name.partition(".")[0]
+                    if top and top not in ("agent_utilities", "__main__"):
+                        return top
+    except Exception:
+        pass
+
     if __package__:
         top = __package__.partition(".")[0]
         if top and top != "__main__":
