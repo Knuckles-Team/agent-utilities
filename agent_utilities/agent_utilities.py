@@ -95,7 +95,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 
 
 def get_skills_path() -> str:
@@ -620,14 +620,9 @@ def create_agent(
         )
 
         # 1. Identify Universal Skills
-        universal_skills_path = get_universal_skills_path()
-        universal_skill_dirs = []
-        if os.path.exists(universal_skills_path):
-            for item in os.listdir(universal_skills_path):
-                item_path = os.path.join(universal_skills_path, item)
-                if os.path.isdir(item_path):
-                    universal_skill_dirs.append(item_path)
-                    logger.debug(f"Identified universal skill: {item}")
+        universal_skill_dirs = get_universal_skills_path()
+        for item_path in universal_skill_dirs:
+            logger.debug(f"Identified universal skill: {os.path.basename(item_path)}")
 
         child_agents = {}
         package_prefix = retrieve_package_name().replace("_", "-") + "-"
@@ -723,7 +718,8 @@ def create_agent(
     from pydantic_ai_skills import SkillsToolset
 
     # Always load default skills
-    skill_dirs = [get_skills_path(), get_universal_skills_path()]
+    skill_dirs = [get_skills_path()]
+    skill_dirs.extend(get_universal_skills_path())
 
     # Load custom skills if provided
     if custom_skills_directory and os.path.exists(custom_skills_directory):

@@ -25,24 +25,12 @@ DEFAULT_TRANSPORT = os.environ.get("TRANSPORT", "stdio")
 DEFAULT_HOST = os.environ.get("HOST", "0.0.0.0")
 DEFAULT_PORT = to_integer(os.environ.get("PORT", "8000"))
 DEFAULT_SSL_VERIFY = to_boolean(os.environ.get("SSL_VERIFY", "False"))
-DEFAULT_DB_HOST = os.environ.get("DB_HOST", None)
-DEFAULT_DB_PORT = os.environ.get("DB_PORT", None)
-DEFAULT_DATABASE_TYPE = os.environ.get("DATABASE_TYPE", "chromadb").lower()
-DEFAULT_DATABASE_PATH = os.environ.get("DATABASE_PATH", os.path.expanduser("~"))
-DEFAULT_DBNAME = os.environ.get("DBNAME", "memory")
-DEFAULT_USERNAME = os.environ.get("USERNAME", None)
-DEFAULT_PASSWORD = os.environ.get("PASSWORD", None)
-DEFAULT_API_TOKEN = os.environ.get("API_TOKEN", None)
-DEFAULT_COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "memory")
-DEFAULT_DOCUMENT_DIRECTORY = os.environ.get(
-    "DOCUMENT_DIRECTORY", os.path.normpath("/documents")
-)
 DEFAULT_PROVIDER = os.getenv("PROVIDER", "openai")
 DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "text-embedding-nomic-embed-text-v2-moe")
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "llama")
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 
 
 def create_mcp_parser():
