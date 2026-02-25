@@ -95,7 +95,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.1.8"
+__version__ = "0.1.9"
 
 
 def get_skills_path() -> str:
@@ -202,6 +202,7 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     Order matters — IDENTITY → USER → AGENTS → MEMORY → custom fallback
     """
     parts = []
+
     for key in ["IDENTITY", "USER", "AGENTS", "MEMORY"]:
         content = load_workspace_file(CORE_FILES[key])
         if content.strip():
@@ -770,6 +771,44 @@ def create_agent_server(
     from fastapi import FastAPI, Request
     from starlette.responses import Response, StreamingResponse
     from fasta2a import Skill
+
+    try:
+        from pydantic_ai.ui.ag_ui import AGUIAdapter
+
+        if not getattr(AGUIAdapter, "_encode_stream_patched", False):
+            _original_encode_stream = AGUIAdapter.encode_stream
+
+            def _safe_encode_stream(self, events):
+                async def wrapper():
+                    has_seen_text = False
+                    async for chunk in _original_encode_stream(self, events):
+                        if isinstance(chunk, bytes):
+                            chunk_str = chunk.decode("utf-8", errors="ignore")
+                            if "TOOL_CALL_START" in chunk_str and not has_seen_text:
+                                import time
+                                import uuid
+                                import json
+
+                                msg_id = str(uuid.uuid4())
+                                ts = int(time.time() * 1000)
+                                dummy_start = f'data: {json.dumps({"type":"TEXT_MESSAGE_CONTENT","timestamp":ts,"messageId":msg_id,"delta":"Executing tool..."})}\\n\\n'
+                                dummy_end = f'data: {json.dumps({"type":"TEXT_MESSAGE_END","timestamp":ts,"messageId":msg_id})}\\n\\n'
+                                yield dummy_start.encode("utf-8")
+                                yield dummy_end.encode("utf-8")
+                                has_seen_text = True
+                            elif (
+                                "TEXT_MESSAGE_CONTENT" in chunk_str
+                                or "TEXT_MESSAGE_START" in chunk_str
+                            ):
+                                has_seen_text = True
+                        yield chunk
+
+                return wrapper()
+
+            AGUIAdapter.encode_stream = _safe_encode_stream
+            AGUIAdapter._encode_stream_patched = True
+    except ImportError:
+        pass
 
     print(
         f"Starting {DEFAULT_AGENT_NAME}:"
