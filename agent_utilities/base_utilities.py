@@ -61,7 +61,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 
 def to_float(string=None):
@@ -143,6 +143,8 @@ def retrieve_package_name() -> str:
         "agent-utilities",
         "universal-skills",
     )
+    first_external_frame_package = None
+
     try:
         for frame_info in inspect.stack():
             frame_file = frame_info.filename
@@ -161,6 +163,11 @@ def retrieve_package_name() -> str:
                 continue
 
             # If we are here, we are in a file NOT in a skipped package
+            if not first_external_frame_package:
+                # Try to get the package name from the file's parent directory
+                # as a fallback if no project marker is found.
+                first_external_frame_package = path.parent.name.replace("-", "_")
+
             for parent in path.parents:
                 if (
                     (parent / "pyproject.toml").is_file()
@@ -173,6 +180,12 @@ def retrieve_package_name() -> str:
                         return parent.name.replace("-", "_")
     except Exception:
         pass
+
+    if (
+        first_external_frame_package
+        and first_external_frame_package not in skip_packages
+    ):
+        return first_external_frame_package
 
     if __package__:
         top = __package__.partition(".")[0]
