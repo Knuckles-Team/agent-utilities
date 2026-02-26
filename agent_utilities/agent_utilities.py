@@ -95,7 +95,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 
 def get_skills_path() -> str:
@@ -659,7 +659,6 @@ def create_agent(
             logger.debug(f"Identified universal skill: {os.path.basename(item_path)}")
 
         child_agents = {}
-        package_prefix = retrieve_package_name().replace("_", "-") + "-"
 
         for tag, (child_prompt, child_name) in agent_definitions.items():
             tag_toolsets = []
@@ -674,7 +673,9 @@ def create_agent(
                     )
 
             # Specialized skills for this tag
-            child_skills_directories = get_skill_directories_by_tag(get_skills_path(), tag)
+            child_skills_directories = get_skill_directories_by_tag(
+                get_skills_path(), tag
+            )
 
             # Check custom skills directory
             if custom_skills_directory:
@@ -685,7 +686,9 @@ def create_agent(
             # Append Universal Skills to ALL child agents
             if universal_skill_dirs:
                 child_skills_directories.extend(universal_skill_dirs)
-                logger.debug(f"Loaded universal skills for {tag} from {universal_skill_dirs}")
+                logger.debug(
+                    f"Loaded universal skills for {tag} from {universal_skill_dirs}"
+                )
 
             if child_skills_directories:
                 ts = SkillsToolset(directories=child_skills_directories)
@@ -706,10 +709,14 @@ def create_agent(
         supervisor_skills_dirs = [get_skills_path()]
         if custom_skills_directory:
             supervisor_skills_dirs.append(custom_skills_directory)
-            logger.debug(f"Loaded custom skills for Supervisor from {custom_skills_directory}")
+            logger.debug(
+                f"Loaded custom skills for Supervisor from {custom_skills_directory}"
+            )
         if universal_skill_dirs:
             supervisor_skills_dirs.extend(universal_skill_dirs)
-            logger.debug(f"Loaded universal skills for Supervisor from {universal_skill_dirs}")
+            logger.debug(
+                f"Loaded universal skills for Supervisor from {universal_skill_dirs}"
+            )
 
         supervisor = Agent(
             model=model,
