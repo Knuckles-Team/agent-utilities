@@ -95,7 +95,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 
 def get_skills_path() -> str:
@@ -152,6 +152,39 @@ def load_skills_from_directory(directory: str) -> List[Skill]:
                     print(f"Error loading skill from {skill_file}: {e}")
 
     return skills
+
+
+def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
+    """
+    Finds all skill directories within base_dir that have the specified tag in their SKILL.md.
+    """
+    skill_dirs = []
+    base_path = Path(base_dir)
+
+    if not base_path.exists() or not base_path.is_dir():
+        return skill_dirs
+
+    for item in base_path.iterdir():
+        if item.is_dir():
+            skill_file = item / "SKILL.md"
+            if skill_file.exists():
+                try:
+                    with open(skill_file, "r") as f:
+                        content = f.read()
+                        if content.startswith("---"):
+                            parts = content.split("---", 2)
+                            if len(parts) >= 3:
+                                frontmatter = parts[1]
+                                data = yaml.safe_load(frontmatter)
+                                tags = data.get("tags", [])
+                                if isinstance(tags, str):
+                                    tags = [tags]
+                                if tag in tags:
+                                    skill_dirs.append(str(item))
+                except Exception as e:
+                    logger.debug(f"Error reading tags from {skill_file}: {e}")
+
+    return skill_dirs
 
 
 def get_http_client(
@@ -641,25 +674,18 @@ def create_agent(
                     )
 
             # Specialized skills for this tag
-            skill_dir_name = f"{package_prefix}{tag.replace('_', '-')}"
-            child_skills_directories = []
-
-            # Check default skills directory
-            default_skill_path = os.path.join(get_skills_path(), skill_dir_name)
-            if os.path.exists(default_skill_path):
-                child_skills_directories.append(default_skill_path)
+            child_skills_directories = get_skill_directories_by_tag(get_skills_path(), tag)
 
             # Check custom skills directory
             if custom_skills_directory:
-                custom_skill_path = os.path.join(
-                    custom_skills_directory, skill_dir_name
+                child_skills_directories.extend(
+                    get_skill_directories_by_tag(custom_skills_directory, tag)
                 )
-                if os.path.exists(custom_skill_path):
-                    child_skills_directories.append(custom_skill_path)
 
             # Append Universal Skills to ALL child agents
             if universal_skill_dirs:
                 child_skills_directories.extend(universal_skill_dirs)
+                logger.debug(f"Loaded universal skills for {tag} from {universal_skill_dirs}")
 
             if child_skills_directories:
                 ts = SkillsToolset(directories=child_skills_directories)
@@ -680,8 +706,10 @@ def create_agent(
         supervisor_skills_dirs = [get_skills_path()]
         if custom_skills_directory:
             supervisor_skills_dirs.append(custom_skills_directory)
+            logger.debug(f"Loaded custom skills for Supervisor from {custom_skills_directory}")
         if universal_skill_dirs:
             supervisor_skills_dirs.extend(universal_skill_dirs)
+            logger.debug(f"Loaded universal skills for Supervisor from {universal_skill_dirs}")
 
         supervisor = Agent(
             model=model,
@@ -991,8 +1019,8 @@ def extract_tool_tags(tool_def: Any) -> List[str]:
             return tags_list
 
     tags_list = getattr(tool_def, "tags", [])
-    if isinstance(tags_list, list) and tags_list:
-        return tags_list
+    if isinstance(tags_list, (list, set, tuple)) and tags_list:
+        return list(tags_list)
 
     return []
 
