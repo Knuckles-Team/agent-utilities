@@ -44,7 +44,7 @@ from pydantic_ai.models.mistral import MistralModel
 # from fasta2a import Skill  # Optional
 # from pydantic_ai_skills import SkillsToolset  # Optional
 # from universal_skills.skill_utilities import get_universal_skills_path  # Optional
-from agent_utilities.base_utilities import (
+from .base_utilities import (
     to_boolean,
     to_integer,
     to_float,
@@ -95,7 +95,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.1.11"
+__version__ = "0.1.12"
 
 
 def get_skills_path() -> str:

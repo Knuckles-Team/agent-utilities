@@ -61,7 +61,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.1.11"
+__version__ = "0.1.12"
 
 
 def to_float(string=None):
@@ -137,39 +137,47 @@ def retrieve_package_name() -> str:
     Works reliably when utils.py is inside a proper package (with __init__.py or
     implicit namespace package) and the caller does normal imports.
     """
+    skip_packages = (
+        "agent_utilities",
+        "universal_skills",
+        "agent-utilities",
+        "universal-skills",
+    )
     try:
         for frame_info in inspect.stack():
-            module = inspect.getmodule(frame_info.frame)
-            if module:
-                pkg = getattr(module, "__package__", None)
-                if pkg:
-                    top = pkg.partition(".")[0]
-                    if top and top != "agent_utilities":
-                        return top
-                name = getattr(module, "__name__", None)
-                if name:
-                    top = name.partition(".")[0]
-                    if top and top not in ("agent_utilities", "__main__"):
-                        return top
+            frame_file = frame_info.filename
+            if not frame_file or not os.path.exists(frame_file):
+                continue
+
+            path = Path(frame_file).resolve()
+
+            # Check if this file belongs to a skipped package
+            is_skipped = False
+            for parent in path.parents:
+                if parent.name in skip_packages:
+                    is_skipped = True
+                    break
+            if is_skipped:
+                continue
+
+            # If we are here, we are in a file NOT in a skipped package
+            for parent in path.parents:
+                if (
+                    (parent / "pyproject.toml").is_file()
+                    or (parent / "setup.py").is_file()
+                    or (parent / "__init__.py").is_file()
+                    or (parent / "MANIFEST.in").is_file()
+                ):
+                    if parent.name not in skip_packages:
+                        # Success! Found a project root
+                        return parent.name.replace("-", "_")
     except Exception:
         pass
 
     if __package__:
         top = __package__.partition(".")[0]
-        if top and top != "__main__":
+        if top and top not in skip_packages and top != "__main__":
             return top
-
-    try:
-        file_path = Path(__file__).resolve()
-        for parent in file_path.parents:
-            if (
-                (parent / "pyproject.toml").is_file()
-                or (parent / "setup.py").is_file()
-                or (parent / "__init__.py").is_file()
-            ):
-                return parent.name
-    except Exception:
-        pass
 
     return "unknown_package"
 
