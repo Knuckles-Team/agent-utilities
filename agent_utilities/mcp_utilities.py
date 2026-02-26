@@ -30,7 +30,7 @@ DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "text-embedding-nomic-embed-text-v2-moe
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "llama")
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 
 def create_mcp_parser():
