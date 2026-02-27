@@ -114,7 +114,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 
 
 def get_skills_path() -> str:
@@ -403,6 +403,7 @@ DEFAULT_MCP_CONFIG = os.getenv("MCP_CONFIG", get_mcp_config_path())
 DEFAULT_CUSTOM_SKILLS_DIRECTORY = os.getenv("CUSTOM_SKILLS_DIRECTORY", None)
 DEFAULT_ENABLE_WEB_UI = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
 DEFAULT_ENABLE_OTEL = to_boolean(os.getenv("ENABLE_OTEL", "False"))
+DEFAULT_ENABLE_OTEL = to_boolean(os.getenv("ENABLE_OTEL", "False"))
 DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", None)
 DEFAULT_OTEL_EXPORTER_OTLP_HEADERS = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", None)
 DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY = os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY", None)
@@ -427,10 +428,15 @@ DEFAULT_EXTRA_HEADERS = to_dict(os.getenv("EXTRA_HEADERS", None))
 DEFAULT_EXTRA_BODY = to_dict(os.getenv("EXTRA_BODY", None))
 
 
+_otel_initialized = False
+
+
 def setup_otel(service_name: Optional[str] = None):
     """
     Setup OpenTelemetry tracing using Logfire and instrument pydantic_ai.
     """
+    global _otel_initialized
+
     if not HAS_LOGFIRE:
         logger.warning(
             "OpenTelemetry is enabled but logfire is not installed. Trace logging is disabled."
@@ -451,6 +457,17 @@ def setup_otel(service_name: Optional[str] = None):
 
     # Use logfire for instrumentation
     target_service_name = service_name or retrieve_package_name()
+
+    if _otel_initialized:
+        logger.debug(f"Re-configuring OTel for service: {target_service_name}")
+
+    # Log configuration for debugging (masked)
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    headers = os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
+    logger.debug(
+        f"OTel Config: endpoint={endpoint}, headers={'REDACTED' if headers else 'None'}"
+    )
+
     logfire.configure(
         send_to_logfire=False,
         service_name=target_service_name,
@@ -460,13 +477,15 @@ def setup_otel(service_name: Optional[str] = None):
     # Instrument pydantic_ai
     logfire.instrument_pydantic_ai()
     Agent.instrument_all()
+
+    _otel_initialized = True
     logger.info(
         f"OpenTelemetry logging enabled via logfire for service: {target_service_name}"
     )
 
 
-if DEFAULT_ENABLE_OTEL:
-    setup_otel()
+# if DEFAULT_ENABLE_OTEL:
+#     setup_otel()
 
 
 def create_agent_parser():
@@ -907,44 +926,6 @@ def create_agent_server(
     from fastapi import FastAPI, Request
     from starlette.responses import Response, StreamingResponse
     from fasta2a import Skill
-
-    try:
-        from pydantic_ai.ui.ag_ui import AGUIAdapter
-
-        if not getattr(AGUIAdapter, "_encode_stream_patched", False):
-            _original_encode_stream = AGUIAdapter.encode_stream
-
-            def _safe_encode_stream(self, events):
-                async def wrapper():
-                    has_seen_text = False
-                    async for chunk in _original_encode_stream(self, events):
-                        if isinstance(chunk, bytes):
-                            chunk_str = chunk.decode("utf-8", errors="ignore")
-                            if "TOOL_CALL_START" in chunk_str and not has_seen_text:
-                                import time
-                                import uuid
-                                import json
-
-                                msg_id = str(uuid.uuid4())
-                                ts = int(time.time() * 1000)
-                                dummy_start = f'data: {json.dumps({"type":"TEXT_MESSAGE_CONTENT","timestamp":ts,"messageId":msg_id,"delta":"Executing tool..."})}\\n\\n'
-                                dummy_end = f'data: {json.dumps({"type":"TEXT_MESSAGE_END","timestamp":ts,"messageId":msg_id})}\\n\\n'
-                                yield dummy_start.encode("utf-8")
-                                yield dummy_end.encode("utf-8")
-                                has_seen_text = True
-                            elif (
-                                "TEXT_MESSAGE_CONTENT" in chunk_str
-                                or "TEXT_MESSAGE_START" in chunk_str
-                            ):
-                                has_seen_text = True
-                        yield chunk
-
-                return wrapper()
-
-            AGUIAdapter.encode_stream = _safe_encode_stream
-            AGUIAdapter._encode_stream_patched = True
-    except ImportError:
-        pass
 
     print(
         f"Starting {DEFAULT_AGENT_NAME}:"
