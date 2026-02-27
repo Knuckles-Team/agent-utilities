@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.2.6"
+version = "0.2.7"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -38,8 +38,8 @@ mcp = [
     "httpx>=0.28.1",
 ]
 agent = [
-    "agent-utilities[mcp]>=0.2.6",
-    "universal-skills>=0.1.13",
+    "agent-utilities[mcp]>=0.2.7",
+    "universal-skills>=0.1.14",
     "pydantic-ai-skills>=0.4.1",
     "pydantic-ai-slim[fastmcp,openai,anthropic,groq,mistral,google,huggingface,a2a,ag-ui,web]>=1.60.0",
 ]
@@ -47,23 +47,23 @@ embeddings = [
     "llama-index-core>=0.14.15",
 ]
 embeddings-openai = [
-    "agent-utilities[embeddings]>=0.2.6",
+    "agent-utilities[embeddings]>=0.2.7",
     "llama-index-embeddings-openai>=0.5.1",
 ]
 embeddings-huggingface = [
-    "agent-utilities[embeddings]>=0.2.6",
+    "agent-utilities[embeddings]>=0.2.7",
     "llama-index-embeddings-huggingface>=0.6.1",
 ]
 embeddings-ollama = [
-    "agent-utilities[embeddings]>=0.2.6",
+    "agent-utilities[embeddings]>=0.2.7",
     "llama-index-embeddings-ollama>=0.8.6",
 ]
 logfire = [
-    "agent-utilities[agent]>=0.2.6",
+    "agent-utilities[agent]>=0.2.7",
     "pydantic-ai-slim[logfire]>=1.60.0"
 ]
 all = [
-    "agent-utilities[mcp,agent,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire]>=0.2.6",
+    "agent-utilities[mcp,agent,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire]>=0.2.7",
 ]
 
 [tool.setuptools]
