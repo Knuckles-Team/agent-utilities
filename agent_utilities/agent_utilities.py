@@ -114,7 +114,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.6"
+__version__ = "0.2.7"
 
 
 def get_skills_path() -> str:
