@@ -5,6 +5,7 @@ import os
 import pickle
 import re
 import sys
+from importlib.resources import as_file, files
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager, suppress
@@ -61,7 +62,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 
 def to_float(string=None):
@@ -193,6 +194,13 @@ def retrieve_package_name() -> str:
             return top
 
     return "unknown_package"
+
+
+def get_library_file_path(file: str) -> str:
+    library_file = os.path.join(files(retrieve_package_name()), file)
+    with as_file(library_file) as path:
+        library_file_path = str(path)
+    return library_file_path
 
 
 def get_logger(name: str):

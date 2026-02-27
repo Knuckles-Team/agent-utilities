@@ -11,6 +11,7 @@ import asyncio
 import yaml
 import httpx
 import argparse
+import base64
 
 # import uvicorn  # Optional
 from typing import List, Any, Optional, Dict, TYPE_CHECKING
@@ -32,18 +33,8 @@ from pydantic_ai.mcp import (
     MCPServerStreamableHTTP,
     MCPServerSSE,
 )
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.models.google import GoogleModel
-from pydantic_ai.models.huggingface import HuggingFaceModel
-from pydantic_ai.models.groq import GroqModel
-from pydantic_ai.models.mistral import MistralModel
 
-# from pydantic_ai.ui import SSE_CONTENT_TYPE  # Optional
-# from pydantic_ai.ui.ag_ui import AGUIAdapter  # Optional
 
-# from fasta2a import Skill  # Optional
-# from pydantic_ai_skills import SkillsToolset  # Optional
-# from universal_skills.skill_utilities import get_universal_skills_path  # Optional
 from .base_utilities import (
     to_boolean,
     to_integer,
@@ -65,23 +56,51 @@ from .agent.templates import (
 )
 
 try:
+    from pydantic_ai.models.openai import OpenAIChatModel
     from openai import AsyncOpenAI
     from pydantic_ai.providers.openai import OpenAIProvider
 except ImportError:
+    print("Unable to import OpenAI Chat Model / OpenAI Provider from agent-utilities")
+    OpenAIModel = None
     AsyncOpenAI = None
     OpenAIProvider = None
 
 try:
+    import logfire
+
+    HAS_LOGFIRE = True
+except ImportError:
+    HAS_LOGFIRE = False
+
+try:
+    from pydantic_ai.models.google import GoogleModel
+    from pydantic_ai.providers.mistral import GoogleProvider
+except ImportError:
+    GoogleModel = None
+    GoogleProvider = None
+
+try:
+    from pydantic_ai.models.huggingface import HuggingFaceModel
+    from pydantic_ai.providers.huggingface import HuggingFaceProvider
+except ImportError:
+    HuggingFaceModel = None
+    HuggingFaceProvider = None
+
+try:
+    from pydantic_ai.models.groq import GroqModel
     from groq import AsyncGroq
     from pydantic_ai.providers.groq import GroqProvider
 except ImportError:
+    GroqModel = None
     AsyncGroq = None
     GroqProvider = None
 
 try:
+    from pydantic_ai.models.mistral import MistralModel
     from mistralai import Mistral
     from pydantic_ai.providers.mistral import MistralProvider
 except ImportError:
+    MistralModel = None
     Mistral = None
     MistralProvider = None
 
@@ -95,7 +114,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 
 def get_skills_path() -> str:
@@ -154,6 +173,48 @@ def load_skills_from_directory(directory: str) -> List[Skill]:
     return skills
 
 
+def extract_skill_tags(skill_path: str) -> List[str]:
+    """
+    Extracts tags from the frontmatter of a skill's SKILL.md.
+    """
+    skill_file = Path(skill_path) / "SKILL.md"
+    if not skill_file.exists():
+        return []
+
+    try:
+        with open(skill_file, "r") as f:
+            content = f.read()
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    frontmatter = parts[1]
+                    data = yaml.safe_load(frontmatter)
+                    tags = data.get("tags", [])
+                    if isinstance(tags, str):
+                        return [tags]
+                    if isinstance(tags, list):
+                        return [str(t) for t in tags]
+    except Exception as e:
+        logger.debug(f"Error reading tags from {skill_file}: {e}")
+
+    return []
+
+
+def skill_in_tag(skill_path: str, tag: str) -> bool:
+    """
+    Checks if a skill belongs to a specific tag.
+    """
+    skill_tags = extract_skill_tags(skill_path)
+    return tag in skill_tags
+
+
+def filter_skills_by_tag(skills: List[str], tag: str) -> List[str]:
+    """
+    Filters a list of skill paths for a given tag.
+    """
+    return [s for s in skills if skill_in_tag(s, tag)]
+
+
 def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
     """
     Finds all skill directories within base_dir that have the specified tag in their SKILL.md.
@@ -165,24 +226,8 @@ def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
         return skill_dirs
 
     for item in base_path.iterdir():
-        if item.is_dir():
-            skill_file = item / "SKILL.md"
-            if skill_file.exists():
-                try:
-                    with open(skill_file, "r") as f:
-                        content = f.read()
-                        if content.startswith("---"):
-                            parts = content.split("---", 2)
-                            if len(parts) >= 3:
-                                frontmatter = parts[1]
-                                data = yaml.safe_load(frontmatter)
-                                tags = data.get("tags", [])
-                                if isinstance(tags, str):
-                                    tags = [tags]
-                                if tag in tags:
-                                    skill_dirs.append(str(item))
-                except Exception as e:
-                    logger.debug(f"Error reading tags from {skill_file}: {e}")
+        if item.is_dir() and skill_in_tag(str(item), tag):
+            skill_dirs.append(str(item))
 
     return skill_dirs
 
@@ -357,6 +402,14 @@ DEFAULT_MCP_URL = os.getenv("MCP_URL", None)
 DEFAULT_MCP_CONFIG = os.getenv("MCP_CONFIG", get_mcp_config_path())
 DEFAULT_CUSTOM_SKILLS_DIRECTORY = os.getenv("CUSTOM_SKILLS_DIRECTORY", None)
 DEFAULT_ENABLE_WEB_UI = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
+DEFAULT_ENABLE_OTEL = to_boolean(os.getenv("ENABLE_OTEL", "False"))
+DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+DEFAULT_OTEL_EXPORTER_OTLP_HEADERS = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", None)
+DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY = os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY", None)
+DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY = os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY", None)
+DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL = os.getenv(
+    "OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf"
+)
 DEFAULT_SSL_VERIFY = to_boolean(os.getenv("SSL_VERIFY", "True"))
 
 DEFAULT_MAX_TOKENS = to_integer(os.getenv("MAX_TOKENS", "16384"))
@@ -372,6 +425,48 @@ DEFAULT_LOGIT_BIAS = to_dict(os.getenv("LOGIT_BIAS", None))
 DEFAULT_STOP_SEQUENCES = to_list(os.getenv("STOP_SEQUENCES", None))
 DEFAULT_EXTRA_HEADERS = to_dict(os.getenv("EXTRA_HEADERS", None))
 DEFAULT_EXTRA_BODY = to_dict(os.getenv("EXTRA_BODY", None))
+
+
+def setup_otel(service_name: Optional[str] = None):
+    """
+    Setup OpenTelemetry tracing using Logfire and instrument pydantic_ai.
+    """
+    if not HAS_LOGFIRE:
+        logger.warning(
+            "OpenTelemetry is enabled but logfire is not installed. Trace logging is disabled."
+        )
+        return
+
+    # Helper for Langfuse OTLP headers
+    if not os.getenv("OTEL_EXPORTER_OTLP_HEADERS") and (
+        os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY")
+        and os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY")
+    ):
+        pk = os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY")
+        sk = os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY")
+        auth_string = f"{pk}:{sk}"
+        auth_encoded = base64.b64encode(auth_string.encode("utf-8")).decode("utf-8")
+        os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Basic {auth_encoded}"
+        logger.debug("Generated OTLP Basic Auth headers from public/secret keys")
+
+    # Use logfire for instrumentation
+    target_service_name = service_name or retrieve_package_name()
+    logfire.configure(
+        send_to_logfire=False,
+        service_name=target_service_name,
+        distributed_tracing=True,
+    )
+
+    # Instrument pydantic_ai
+    logfire.instrument_pydantic_ai()
+    Agent.instrument_all()
+    logger.info(
+        f"OpenTelemetry logging enabled via logfire for service: {target_service_name}"
+    )
+
+
+if DEFAULT_ENABLE_OTEL:
+    setup_otel()
 
 
 def create_agent_parser():
@@ -429,6 +524,13 @@ def create_agent_parser():
         "--insecure",
         action="store_true",
         help="Disable SSL verification for LLM requests (Use with caution)",
+    )
+
+    parser.add_argument(
+        "--otel",
+        action="store_true",
+        default=DEFAULT_ENABLE_OTEL,
+        help="Enable OpenTelemetry tracing",
     )
 
     parser.add_argument("--help", action="store_true", help="Show usage")
@@ -679,9 +781,7 @@ def create_agent(
 
             # Check custom skills directory
             if custom_skills_directory:
-                child_skills_directories.extend(
-                    get_skill_directories_by_tag(custom_skills_directory, tag)
-                )
+                child_skills_directories.extend(custom_skills_directory)
 
             # Append Universal Skills to ALL child agents
             if universal_skill_dirs:
@@ -801,6 +901,7 @@ def create_agent_server(
     name: Optional[str] = None,
     system_prompt: Optional[str] = None,
     agent_definitions: Optional[Dict[str, tuple]] = None,
+    enable_otel: bool = DEFAULT_ENABLE_OTEL,
 ):
     import uvicorn
     from fastapi import FastAPI, Request
@@ -856,6 +957,9 @@ def create_agent_server(
 
     _name = name or DEFAULT_AGENT_NAME
     _system_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
+
+    if enable_otel:
+        setup_otel(_name)
 
     agent = create_agent(
         provider=provider,
