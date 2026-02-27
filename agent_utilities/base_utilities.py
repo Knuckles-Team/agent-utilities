@@ -62,7 +62,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 
 
 def to_float(string=None):
