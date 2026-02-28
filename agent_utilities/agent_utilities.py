@@ -42,6 +42,8 @@ from .base_utilities import (
     to_list,
     to_dict,
     retrieve_package_name,
+    GET_DEFAULT_SSL_VERIFY,
+    load_env_vars,
 )
 
 # from .tools import register_agent_tools  # Breaks circular import
@@ -114,7 +116,10 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.7"
+__version__ = "0.2.8"
+
+# Load environment variables early
+load_env_vars()
 
 
 def get_skills_path() -> str:
@@ -411,7 +416,7 @@ DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY = os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY
 DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL = os.getenv(
     "OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf"
 )
-DEFAULT_SSL_VERIFY = to_boolean(os.getenv("SSL_VERIFY", "True"))
+DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 
 DEFAULT_MAX_TOKENS = to_integer(os.getenv("MAX_TOKENS", "16384"))
 DEFAULT_TEMPERATURE = to_float(os.getenv("TEMPERATURE", "0.7"))

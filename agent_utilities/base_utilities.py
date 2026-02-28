@@ -24,6 +24,7 @@ from typing import (
 
 from packaging import version
 from typing_extensions import ParamSpec
+from dotenv import load_dotenv
 
 if TYPE_CHECKING:
     pass
@@ -62,7 +63,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.7"
+__version__ = "0.2.8"
 
 
 def to_float(string=None):
@@ -118,6 +119,50 @@ def to_dict(string: Union[str, dict] = None) -> dict:
         raise ValueError(f"Cannot convert '{string}' to dict")
 
 
+def GET_DEFAULT_SSL_VERIFY() -> bool:
+    """Returns the default SSL verification setting from the SSL_VERIFY env var."""
+    return to_boolean(os.getenv("SSL_VERIFY", "True"))
+
+
+def load_env_vars(override: bool = False):
+    """
+    Loads environment variables from a .env file in the calling package's directory.
+    Uses find_dotenv to locate the .env file.
+    """
+    try:
+        package_name = retrieve_package_name()
+        if package_name and package_name != "unknown_package":
+            # Try to find .env starting from the directory of the caller
+            stack = inspect.stack()
+            caller_file = None
+            for frame in stack:
+                if "agent_utilities" not in frame.filename:
+                    caller_file = frame.filename
+                    break
+
+            if caller_file:
+                start_dir = Path(caller_file).parent
+                dotenv_path = None
+                curr = start_dir
+                # Search up to 5 levels up
+                for _ in range(5):
+                    candidate = curr / ".env"
+                    if candidate.exists():
+                        dotenv_path = str(candidate)
+                        break
+                    if curr == curr.parent:
+                        break
+                    curr = curr.parent
+
+                if dotenv_path:
+                    load_dotenv(dotenv_path, override=override)
+                    # logging.getLogger(__name__).info(f"Loaded .env from {dotenv_path}")
+                else:
+                    pass
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Error loading .env file: {e}")
+
+
 def save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:
     pickle_file = os.path.join(file_path, f"{file_name}.pkl")
     with open(pickle_file, "wb") as file:
@@ -143,6 +188,10 @@ def retrieve_package_name() -> str:
         "universal_skills",
         "agent-utilities",
         "universal-skills",
+        "tmp",
+        "__main__",
+        "env",
+        "venv",
     )
     first_external_frame_package = None
 
@@ -167,7 +216,9 @@ def retrieve_package_name() -> str:
             if not first_external_frame_package:
                 # Try to get the package name from the file's parent directory
                 # as a fallback if no project marker is found.
-                first_external_frame_package = path.parent.name.replace("-", "_")
+                pkg_name = path.parent.name.replace("-", "_")
+                if pkg_name not in skip_packages:
+                    first_external_frame_package = pkg_name
 
             for parent in path.parents:
                 if (
@@ -176,9 +227,10 @@ def retrieve_package_name() -> str:
                     or (parent / "__init__.py").is_file()
                     or (parent / "MANIFEST.in").is_file()
                 ):
-                    if parent.name not in skip_packages:
+                    parent_name = parent.name.replace("-", "_")
+                    if parent_name not in skip_packages:
                         # Success! Found a project root
-                        return parent.name.replace("-", "_")
+                        return parent_name
     except Exception:
         pass
 
@@ -193,7 +245,7 @@ def retrieve_package_name() -> str:
         if top and top not in skip_packages and top != "__main__":
             return top
 
-    return "unknown_package"
+    return "agent_utilities"  # Safe default within agent-utilities
 
 
 def get_library_file_path(file: str) -> str:
