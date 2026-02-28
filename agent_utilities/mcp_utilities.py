@@ -3,7 +3,7 @@
 import os
 import argparse
 
-from .base_utilities import to_integer, to_boolean
+from .base_utilities import to_integer, to_boolean, GET_DEFAULT_SSL_VERIFY
 
 config = {
     "enable_delegation": to_boolean(os.environ.get("ENABLE_DELEGATION", "False")),
@@ -24,13 +24,13 @@ config = {
 DEFAULT_TRANSPORT = os.environ.get("TRANSPORT", "stdio")
 DEFAULT_HOST = os.environ.get("HOST", "0.0.0.0")
 DEFAULT_PORT = to_integer(os.environ.get("PORT", "8000"))
-DEFAULT_SSL_VERIFY = to_boolean(os.environ.get("SSL_VERIFY", "False"))
+DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 DEFAULT_PROVIDER = os.getenv("PROVIDER", "openai")
 DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "text-embedding-nomic-embed-text-v2-moe")
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "llama")
 
-__version__ = "0.2.7"
+__version__ = "0.2.8"
 
 
 def create_mcp_parser():
