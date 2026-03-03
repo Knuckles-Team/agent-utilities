@@ -116,7 +116,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.9"
+__version__ = "0.2.10"
 
 # Load environment variables early
 load_env_vars()
@@ -418,6 +418,11 @@ DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL = os.getenv(
 )
 DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 
+DEFAULT_A2A_BROKER = os.getenv("A2A_BROKER", "in-memory")
+DEFAULT_A2A_BROKER_URL = os.getenv("A2A_BROKER_URL", None)
+DEFAULT_A2A_STORAGE = os.getenv("A2A_STORAGE", "in-memory")
+DEFAULT_A2A_STORAGE_URL = os.getenv("A2A_STORAGE_URL", None)
+
 DEFAULT_MAX_TOKENS = to_integer(os.getenv("MAX_TOKENS", "16384"))
 DEFAULT_TEMPERATURE = to_float(os.getenv("TEMPERATURE", "0.7"))
 DEFAULT_TOP_P = to_float(os.getenv("TOP_P", "1.0"))
@@ -555,6 +560,29 @@ def create_agent_parser():
         action="store_true",
         default=DEFAULT_ENABLE_OTEL,
         help="Enable OpenTelemetry tracing",
+    )
+
+    parser.add_argument(
+        "--a2a-broker",
+        default=DEFAULT_A2A_BROKER,
+        choices=["in-memory", "redis", "postgres"],
+        help="FastA2A Broker type",
+    )
+    parser.add_argument(
+        "--a2a-broker-url",
+        default=DEFAULT_A2A_BROKER_URL,
+        help="Connection URL for the FastA2A Broker",
+    )
+    parser.add_argument(
+        "--a2a-storage",
+        default=DEFAULT_A2A_STORAGE,
+        choices=["in-memory", "redis", "postgres"],
+        help="FastA2A Storage type",
+    )
+    parser.add_argument(
+        "--a2a-storage-url",
+        default=DEFAULT_A2A_STORAGE_URL,
+        help="Connection URL for the FastA2A Storage",
     )
 
     parser.add_argument("--help", action="store_true", help="Show usage")
@@ -926,6 +954,10 @@ def create_agent_server(
     system_prompt: Optional[str] = None,
     agent_definitions: Optional[Dict[str, tuple]] = None,
     enable_otel: bool = DEFAULT_ENABLE_OTEL,
+    a2a_broker: str = DEFAULT_A2A_BROKER,
+    a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
+    a2a_storage: str = DEFAULT_A2A_STORAGE,
+    a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
 ):
     import uvicorn
     from fastapi import FastAPI, Request
@@ -985,12 +1017,61 @@ def create_agent_server(
             )
         ]
 
+    a2a_kwargs = {}
+
+    if a2a_broker == "redis":
+        try:
+            from a2a_redis import RedisBroker
+
+            a2a_kwargs["broker"] = RedisBroker(
+                url=a2a_broker_url or "redis://localhost:6379"
+            )
+            logger.info(f"Using FastA2A RedisBroker at {a2a_broker_url}")
+        except ImportError:
+            logger.warning("a2a-redis not installed. Falling back to InMemoryBroker.")
+    elif a2a_broker == "postgres":
+        try:
+            from a2a_postgres import PostgresBroker
+
+            a2a_kwargs["broker"] = PostgresBroker(
+                url=a2a_broker_url or "postgresql+asyncpg://localhost:5432/a2a"
+            )
+            logger.info(f"Using FastA2A PostgresBroker at {a2a_broker_url}")
+        except ImportError:
+            logger.warning(
+                "a2a-postgres not installed. Falling back to InMemoryBroker."
+            )
+
+    if a2a_storage == "redis":
+        try:
+            from a2a_redis import RedisStorage
+
+            a2a_kwargs["storage"] = RedisStorage(
+                url=a2a_storage_url or "redis://localhost:6379"
+            )
+            logger.info(f"Using FastA2A RedisStorage at {a2a_storage_url}")
+        except ImportError:
+            logger.warning("a2a-redis not installed. Falling back to InMemoryStorage.")
+    elif a2a_storage == "postgres":
+        try:
+            from a2a_postgres import PostgresStorage
+
+            a2a_kwargs["storage"] = PostgresStorage(
+                url=a2a_storage_url or "postgresql+asyncpg://localhost:5432/a2a"
+            )
+            logger.info(f"Using FastA2A PostgresStorage at {a2a_storage_url}")
+        except ImportError:
+            logger.warning(
+                "a2a-postgres not installed. Falling back to InMemoryStorage."
+            )
+
     a2a_app = agent.to_a2a(
         name=_name,
         description=DEFAULT_AGENT_DESCRIPTION,
         version=__version__,
         skills=skills,
         debug=debug,
+        **a2a_kwargs,
     )
 
     @asynccontextmanager
