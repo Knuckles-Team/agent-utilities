@@ -9,6 +9,8 @@ from .agent_utilities import (
     load_identity,
     load_identities,
     initialize_workspace,
+    create_agent_parser,
+    get_mcp_config_path,
     CORE_FILES,
 )
 from .base_utilities import (
@@ -25,7 +27,7 @@ from .base_utilities import (
 from .embedding_utilities import create_embedding_model
 from .models import PeriodicTask
 
-__version__ = "0.2.10"
+__version__ = "0.2.11"
 
 __all__ = [
     "create_agent",
@@ -35,6 +37,8 @@ __all__ = [
     "load_identity",
     "load_identities",
     "initialize_workspace",
+    "create_agent_parser",
+    "get_mcp_config_path",
     "CORE_FILES",
     "to_boolean",
     "to_integer",
