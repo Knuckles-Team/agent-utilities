@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.2.11"
+version = "0.2.12"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -12,8 +12,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Environment :: Console",
     "Operating System :: POSIX :: Linux",
-    "Programming Language :: Python :: 3",
-]
+    "Programming Language :: Python :: 3"]
 requires-python = ">=3.10"
 dependencies = [
     "tree-sitter>=0.23.2",
@@ -21,8 +20,7 @@ dependencies = [
     "urllib3>=2.3.0",
     "pydantic[email]>=2.8.2",
     "PyYAML>=6.0.0",
-    "python-dotenv>=1.2.1",
-]
+    "python-dotenv>=1.2.1"]
 
 [[project.authors]]
 name = "Audel Rouhi"
@@ -36,42 +34,35 @@ mcp = [
     "fastmcp>=3.0.2",
     "eunomia-mcp>=0.3.10",
     "fastapi>=0.131.0",
-    "httpx>=0.28.1",
-]
+    "httpx>=0.28.1"]
 agent = [
-    "agent-utilities[mcp]>=0.2.11",
-    "universal-skills>=0.1.22",
+    "agent-utilities[mcp]>=0.2.12",
+    "universal-skills>=0.1.23",
     "pydantic-ai-skills>=0.4.1",
-    "pydantic-ai-slim[fastmcp,openai,anthropic,groq,mistral,google,huggingface,a2a,ag-ui,web]>=1.60.0",
-]
+    "pydantic-ai-slim[fastmcp,openai,anthropic,groq,mistral,google,huggingface,a2a,ag-ui,web]>=1.60.0"]
 embeddings = [
-    "llama-index-core>=0.14.15",
-]
+    "llama-index-core>=0.14.15"]
 embeddings-openai = [
-    "agent-utilities[embeddings]>=0.2.11",
-    "llama-index-embeddings-openai>=0.5.1",
-]
+    "agent-utilities[embeddings]>=0.2.12",
+    "llama-index-embeddings-openai>=0.5.1"]
 embeddings-huggingface = [
-    "agent-utilities[embeddings]>=0.2.11",
-    "llama-index-embeddings-huggingface>=0.6.1",
-]
+    "agent-utilities[embeddings]>=0.2.12",
+    "llama-index-embeddings-huggingface>=0.6.1"]
 embeddings-ollama = [
-    "agent-utilities[embeddings]>=0.2.11",
-    "llama-index-embeddings-ollama>=0.8.6",
-]
+    "agent-utilities[embeddings]>=0.2.12",
+    "llama-index-embeddings-ollama>=0.8.6"]
 logfire = [
-    "agent-utilities[agent]>=0.2.11",
+    "agent-utilities[agent]>=0.2.12",
     "pydantic-ai-slim[logfire]>=1.60.0"
 ]
 all = [
-    "agent-utilities[mcp,agent,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire]>=0.2.11",
-]
+    "agent-utilities[mcp,agent,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire]>=0.2.12"]
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.package-data]
-agent_utilities = ["agent/**", "skills/**"]
+agent_utilities = ["agent/**"]
 
 [tool.setuptools.packages.find]
 where = ["."]
