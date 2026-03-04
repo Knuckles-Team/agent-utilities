@@ -27,7 +27,7 @@ from importlib.resources import files, as_file
 # from starlette.responses import Response, StreamingResponse  # Optional
 from pydantic import ValidationError
 
-from pydantic_ai import Agent, ModelSettings, RunContext
+from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.mcp import (
     load_mcp_servers,
     MCPServerStreamableHTTP,
@@ -116,7 +116,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.11"
+__version__ = "0.2.12"
 
 # Load environment variables early
 load_env_vars()
@@ -746,13 +746,9 @@ def create_agent(
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: Optional[str] = DEFAULT_AGENT_NAME,
     system_prompt: Optional[str] = DEFAULT_AGENT_SYSTEM_PROMPT,
-    agent_definitions: Optional[Dict[str, tuple[str, str]]] = None,
 ) -> Agent:
     """
-    Create a Pydantic AI Agent with optional multi-agent supervisor support.
-
-    If agent_definitions is provided, it creates a supervisor agent that can delegate tasks
-    to child agents specified in the dictionary.
+    Create a Pydantic AI Agent
 
     Args:
         provider: LLM provider (openai, anthropic, google, etc.)
@@ -765,12 +761,9 @@ def create_agent(
         ssl_verify: Whether to verify SSL certificates
         name: Name of the agent (or supervisor)
         system_prompt: System prompt for the agent (or supervisor)
-        agent_definitions: Dictionary of child agent definitions:
-                   {"tag": (child_prompt, child_name)}
-                   If provided, triggers multi-agent supervisor pattern.
 
     Returns:
-        A Pydantic AI Agent instance (can be a supervisor or a single agent).
+        A Pydantic AI Agent instance
     """
 
     # ── Static MCP toolsets (created once, reused across runs) ──
@@ -830,116 +823,11 @@ def create_agent(
         extra_body=DEFAULT_EXTRA_BODY,
     )
 
-    if agent_definitions:
-        from universal_skills.skill_utilities import get_universal_skills_path
-        from pydantic_ai_skills import SkillsToolset
-
-        # ── Multi-Agent Pattern ──
-        logger.info(
-            f"Initializing Multi-Agent System with {len(agent_definitions)} agents"
-        )
-
-        # 1. Identify Universal Skills
-        universal_skill_dirs = get_universal_skills_path()
-        for item_path in universal_skill_dirs:
-            logger.debug(f"Identified universal skill: {os.path.basename(item_path)}")
-
-        child_agents = {}
-
-        for tag, (child_prompt, child_name) in agent_definitions.items():
-            tag_toolsets = []
-
-            # Filter MCP servers by tag
-            for ts in agent_toolsets:
-                if hasattr(ts, "filtered"):
-                    tag_toolsets.append(
-                        ts.filtered(
-                            lambda ctx, tool_def, t=tag: tool_in_tag(tool_def, t)
-                        )
-                    )
-
-            # Specialized skills for this tag
-            child_skills_directories = get_skill_directories_by_tag(
-                get_skills_path(), tag
-            )
-
-            # Check custom skills directory
-            if custom_skills_directory:
-                child_skills_directories.extend(custom_skills_directory)
-
-            # Append Universal Skills to ALL child agents
-            if universal_skill_dirs:
-                child_skills_directories.extend(universal_skill_dirs)
-                logger.debug(
-                    f"Loaded universal skills for {tag} from {universal_skill_dirs}"
-                )
-
-            if child_skills_directories:
-                ts = SkillsToolset(directories=child_skills_directories)
-                tag_toolsets.append(ts)
-                logger.debug(f"Loaded skills for {tag} from {child_skills_directories}")
-
-            child_agent = Agent(
-                name=child_name,
-                system_prompt=child_prompt,
-                model=model,
-                model_settings=settings,
-                toolsets=tag_toolsets,
-                tool_timeout=DEFAULT_TOOL_TIMEOUT,
-            )
-            child_agents[tag] = child_agent
-
-        # Create Supervisor Agent
-        supervisor_skills_dirs = [get_skills_path()]
-        if custom_skills_directory:
-            supervisor_skills_dirs.append(custom_skills_directory)
-            logger.debug(
-                f"Loaded custom skills for Supervisor from {custom_skills_directory}"
-            )
-        if universal_skill_dirs:
-            supervisor_skills_dirs.extend(universal_skill_dirs)
-            logger.debug(
-                f"Loaded universal skills for Supervisor from {universal_skill_dirs}"
-            )
-
-        supervisor = Agent(
-            model=model,
-            model_settings=settings,
-            system_prompt=system_prompt,
-            name=name,
-            toolsets=[SkillsToolset(directories=supervisor_skills_dirs)],
-            tool_timeout=DEFAULT_TOOL_TIMEOUT,
-            deps_type=Any,
-        )
-
-        # Register Delegation Tools
-        def create_delegation_tool(tag, child_agent, child_name):
-            async def delegate(ctx: RunContext[Any], task: str) -> str:
-                result = await child_agent.run(task, usage=ctx.usage, deps=ctx.deps)
-                return str(result.output)
-
-            delegate.__name__ = f"assign_task_to_{tag}_agent"
-            delegate.__doc__ = f"Assign a task related to {tag} to the {child_name}."
-            return delegate
-
-        for tag, child_agent in child_agents.items():
-            _, child_name = agent_definitions[tag]
-            tool_func = create_delegation_tool(tag, child_agent, child_name)
-            supervisor.tool(tool_func)
-
-        # Register Universal Tools (Workspace, A2A, Scheduler)
-        from .tools import register_agent_tools
-
-        register_agent_tools(supervisor)
-        return supervisor
-
-    # ── Single Agent Pattern ──
     from universal_skills.skill_utilities import get_universal_skills_path
     from pydantic_ai_skills import SkillsToolset
 
     # Always load default skills
-    skill_dirs = [get_skills_path()]
-    skill_dirs.extend(get_universal_skills_path())
+    skill_dirs = [get_universal_skills_path()]
 
     # Load custom skills if provided
     if custom_skills_directory and os.path.exists(custom_skills_directory):
@@ -949,7 +837,7 @@ def create_agent(
 
     skills = SkillsToolset(directories=skill_dirs)
     agent_toolsets.append(skills)
-    logger.info(f"Loaded Default Skills at {get_skills_path()}")
+    logger.info(f"Loaded Skills at {get_universal_skills_path()}")
 
     agent = Agent(
         model=model,
@@ -984,7 +872,6 @@ def create_agent_server(
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: Optional[str] = None,
     system_prompt: Optional[str] = None,
-    agent_definitions: Optional[Dict[str, tuple]] = None,
     enable_otel: bool = DEFAULT_ENABLE_OTEL,
     otel_endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
     otel_headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
@@ -1034,7 +921,6 @@ def create_agent_server(
         ssl_verify=ssl_verify,
         name=_name,
         system_prompt=_system_prompt,
-        agent_definitions=agent_definitions,
     )
 
     # Always load default skills
