@@ -116,7 +116,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.10"
+__version__ = "0.2.11"
 
 # Load environment variables early
 load_env_vars()
@@ -441,7 +441,14 @@ DEFAULT_EXTRA_BODY = to_dict(os.getenv("EXTRA_BODY", None))
 _otel_initialized = False
 
 
-def setup_otel(service_name: Optional[str] = None):
+def setup_otel(
+    service_name: Optional[str] = None,
+    endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+):
     """
     Setup OpenTelemetry tracing using Logfire and instrument pydantic_ai.
     """
@@ -454,12 +461,12 @@ def setup_otel(service_name: Optional[str] = None):
         return
 
     # Helper for Langfuse OTLP headers
-    if not os.getenv("OTEL_EXPORTER_OTLP_HEADERS") and (
-        os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY")
-        and os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY")
+    if not (headers or os.getenv("OTEL_EXPORTER_OTLP_HEADERS")) and (
+        (public_key or os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY"))
+        and (secret_key or os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY"))
     ):
-        pk = os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY")
-        sk = os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY")
+        pk = public_key or os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY")
+        sk = secret_key or os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY")
         auth_string = f"{pk}:{sk}"
         auth_encoded = base64.b64encode(auth_string.encode("utf-8")).decode("utf-8")
         os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Basic {auth_encoded}"
@@ -472,10 +479,10 @@ def setup_otel(service_name: Optional[str] = None):
         logger.debug(f"Re-configuring OTel for service: {target_service_name}")
 
     # Log configuration for debugging (masked)
-    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-    headers = os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
+    target_endpoint = endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    target_headers = headers or os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
     logger.debug(
-        f"OTel Config: endpoint={endpoint}, headers={'REDACTED' if headers else 'None'}"
+        f"OTel Config: endpoint={target_endpoint}, headers={'REDACTED' if target_headers else 'None'}"
     )
 
     logfire.configure(
@@ -560,6 +567,31 @@ def create_agent_parser():
         action="store_true",
         default=DEFAULT_ENABLE_OTEL,
         help="Enable OpenTelemetry tracing",
+    )
+    parser.add_argument(
+        "--otel-endpoint",
+        default=DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+        help="OpenTelemetry OTLP endpoint",
+    )
+    parser.add_argument(
+        "--otel-headers",
+        default=DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+        help="OpenTelemetry OTLP headers",
+    )
+    parser.add_argument(
+        "--otel-public-key",
+        default=DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+        help="OpenTelemetry OTLP public key (for Basic Auth)",
+    )
+    parser.add_argument(
+        "--otel-secret-key",
+        default=DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+        help="OpenTelemetry OTLP secret key (for Basic Auth)",
+    )
+    parser.add_argument(
+        "--otel-protocol",
+        default=DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+        help="OpenTelemetry OTLP protocol",
     )
 
     parser.add_argument(
@@ -954,6 +986,11 @@ def create_agent_server(
     system_prompt: Optional[str] = None,
     agent_definitions: Optional[Dict[str, tuple]] = None,
     enable_otel: bool = DEFAULT_ENABLE_OTEL,
+    otel_endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    otel_headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    otel_public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    otel_secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    otel_protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     a2a_broker: str = DEFAULT_A2A_BROKER,
     a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
@@ -977,7 +1014,14 @@ def create_agent_server(
     _system_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
 
     if enable_otel:
-        setup_otel(_name)
+        setup_otel(
+            _name,
+            endpoint=otel_endpoint,
+            headers=otel_headers,
+            public_key=otel_public_key,
+            secret_key=otel_secret_key,
+            protocol=otel_protocol,
+        )
 
     agent = create_agent(
         provider=provider,
@@ -1700,3 +1744,24 @@ def write_skill_md(name: str, content: str) -> str:
         return f"✅ Updated SKILL.md for skill '{safe_name}'."
     except Exception as e:
         return f"❌ Error writing SKILL.md for skill '{safe_name}': {e}"
+
+
+async def chat(agent: Agent, prompt: str):
+    result = await agent.run(prompt)
+    print(f"Response:\n\n{result.output}")
+
+
+async def node_chat(agent: Agent, prompt: str) -> List:
+    nodes = []
+    async with agent.iter(prompt) as agent_run:
+        async for node in agent_run:
+            nodes.append(node)
+            print(node)
+    return nodes
+
+
+async def stream_chat(agent: Agent, prompt: str) -> None:
+    async with agent.run_stream(prompt) as result:
+        async for text_chunk in result.stream_text(delta=True):
+            print(text_chunk, end="", flush=True)
+        print("\nDone!")
