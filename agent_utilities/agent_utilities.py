@@ -14,7 +14,7 @@ import argparse
 import base64
 
 # import uvicorn  # Optional
-from typing import List, Any, Optional, Dict, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fasta2a import Skill
@@ -116,17 +116,25 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.12"
+__version__ = "0.2.13"
 
 # Load environment variables early
 load_env_vars()
 
+# Global override for workspace directory
+WORKSPACE_DIR: Optional[str] = None
 
-def get_skills_path() -> str:
-    skills_dir = files(retrieve_package_name()) / "skills"
-    with as_file(skills_dir) as path:
-        skills_path = str(path)
-    return skills_path
+
+def get_skills_path() -> Optional[str]:
+    try:
+        skills_dir = files(retrieve_package_name()) / "skills"
+        if not skills_dir.is_dir():
+            return None
+        with as_file(skills_dir) as path:
+            return str(path)
+    except Exception as e:
+        logger.debug(f"Error accessing skills path: {e}")
+        return None
 
 
 def get_mcp_config_path() -> str:
@@ -136,45 +144,66 @@ def get_mcp_config_path() -> str:
     return mcp_config_path
 
 
-def load_skills_from_directory(directory: str) -> List[Skill]:
+def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
     from fasta2a import Skill
+    import yaml
+    import re
+
+    try:
+        with open(skill_file, "r") as f:
+            content = f.read()
+
+            fm_match = re.search(
+                r"^---\s*\n(.*?)\n---", content, re.DOTALL | re.MULTILINE
+            )
+            if fm_match:
+                frontmatter = fm_match.group(1)
+                data = yaml.safe_load(frontmatter)
+
+                skill_name = data.get("name", skill_id)
+                skill_desc = data.get("description", f"Access to {skill_name} tools")
+                skill_version = str(data.get("version", "0.1.0"))
+
+                return Skill(
+                    id=skill_id,
+                    name=skill_name,
+                    description=skill_desc,
+                    version=skill_version,
+                    tags=[skill_id],
+                    input_modes=["text"],
+                    output_modes=["text"],
+                )
+    except Exception as e:
+        logger.debug(f"Error parsing skill from {skill_file}: {e}")
+    return None
+
+
+def load_skills_from_directory(directory: str) -> List[Skill]:
 
     skills = []
     base_path = Path(directory)
 
     if not base_path.exists():
-        print(f"Skills directory not found: {directory}")
+        logger.debug(f"Skills directory not found: {directory}")
         return skills
 
-    for item in base_path.iterdir():
-        if item.is_dir():
-            skill_file = item / "SKILL.md"
-            if skill_file.exists():
-                try:
-                    with open(skill_file, "r") as f:
-                        content = f.read()
-                        if content.startswith("---"):
-                            _, frontmatter, _ = content.split("---", 2)
-                            data = yaml.safe_load(frontmatter)
+    # 1. Check if the directory itself is a skill
+    skill_file = base_path / "SKILL.md"
+    if skill_file.exists():
+        skill = _parse_skill_from_md(skill_file, base_path.name)
+        if skill:
+            skills.append(skill)
+            return skills
 
-                            skill_id = item.name
-                            skill_name = data.get("name", skill_id)
-                            skill_desc = data.get(
-                                "description", f"Access to {skill_name} tools"
-                            )
-                            skills.append(
-                                Skill(
-                                    id=skill_id,
-                                    name=skill_name,
-                                    description=skill_desc,
-                                    tags=[skill_id],
-                                    input_modes=["text"],
-                                    output_modes=["text"],
-                                )
-                            )
-                except Exception as e:
-                    print(f"Error loading skill from {skill_file}: {e}")
-
+    # 2. Check subdirectories
+    if base_path.is_dir():
+        for item in base_path.iterdir():
+            if item.is_dir():
+                sub_skill_file = item / "SKILL.md"
+                if sub_skill_file.exists():
+                    skill = _parse_skill_from_md(sub_skill_file, item.name)
+                    if skill:
+                        skills.append(skill)
     return skills
 
 
@@ -245,11 +274,77 @@ def get_http_client(
     return None
 
 
-def get_workspace_path(filename: str) -> Path:
-    """Return full path for a file in workspace."""
-    workspace_dir = files(retrieve_package_name()) / "agent"
+def get_agent_workspace() -> Path:
+    """
+    Dynamically discover the agent workspace path.
+    Tiers:
+    1. Global WORKSPACE_DIR override (from CLI)
+    2. AGENT_WORKSPACE environment variable
+    3. Calling package's /agent directory (via retrieve_package_name)
+    4. Current directory's /agent folder
+    5. Internal agent-utilities/agent resource (fallback)
+    """
+    # 1. Explicit global override
+    if WORKSPACE_DIR:
+        p = Path(WORKSPACE_DIR).resolve()
+        logger.debug(f"Discovery Tier 1 (Override): {p}")
+        return p
+
+    # 2. Environment variable
+    env_workspace = os.getenv("AGENT_WORKSPACE")
+    if env_workspace:
+        p = Path(env_workspace).resolve()
+        logger.debug(f"Discovery Tier 2 (Env): {p}")
+        return p
+
+    # 3. Discovery via caller package
+    pkg = retrieve_package_name()
+    if pkg and pkg != "agent_utilities":
+        try:
+            pkg_agent_dir = files(pkg) / "agent"
+            # If it's already a Path object (local install), just use it
+            if hasattr(pkg_agent_dir, "joinpath") and hasattr(pkg_agent_dir, "resolve"):
+                p = Path(str(pkg_agent_dir)).resolve()
+                if p.is_dir():
+                    logger.debug(f"Discovery Tier 3 (Package {pkg}): {p}")
+                    return p
+
+            # Fallback to as_file for non-local resources
+            with as_file(pkg_agent_dir) as path:
+                if path.is_dir():
+                    p = path.resolve()
+                    # We return the path here. If it was a temp dir, it MIGHT be deleted,
+                    # but for most agent use cases it shouldn't be.
+                    logger.debug(f"Discovery Tier 3 (Package Resource {pkg}): {p}")
+                    return p
+        except (ImportError, ModuleNotFoundError, Exception):
+            pass
+
+    # 4. Local fallback
+    local_agent = Path.cwd() / "agent"
+    if local_agent.is_dir():
+        p = local_agent.resolve()
+        logger.debug(f"Discovery Tier 4 (Local): {p}")
+        return p
+
+    # 5. Native fallback
+    native_path = Path(__file__).parent / "agent"
+    if native_path.is_dir():
+        p = native_path.resolve()
+        logger.debug(f"Discovery Tier 5 (Native): {p}")
+        return p
+
+    # Ultimate fallback (resource-based)
+    workspace_dir = files("agent_utilities") / "agent"
     with as_file(workspace_dir) as path:
-        return path / filename
+        p = path.resolve()
+        logger.debug(f"Discovery Tier 6 (Fallback Resource): {p}")
+        return p
+
+
+def get_workspace_path(filename: str) -> Path:
+    """Return full path for a file in discovered workspace."""
+    return get_agent_workspace() / filename
 
 
 def initialize_workspace(overwrite: bool = False):
@@ -404,7 +499,7 @@ DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "qwen/qwen3-coder-next")
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "ollama")
 DEFAULT_MCP_URL = os.getenv("MCP_URL", None)
-DEFAULT_MCP_CONFIG = os.getenv("MCP_CONFIG", get_mcp_config_path())
+DEFAULT_MCP_CONFIG = os.getenv("MCP_CONFIG", None)
 DEFAULT_CUSTOM_SKILLS_DIRECTORY = os.getenv("CUSTOM_SKILLS_DIRECTORY", None)
 DEFAULT_ENABLE_WEB_UI = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
 DEFAULT_ENABLE_OTEL = to_boolean(os.getenv("ENABLE_OTEL", "False"))
@@ -505,6 +600,25 @@ def setup_otel(
 #     setup_otel()
 
 
+class ReloadableApp:
+    """
+    ASGI wrapper that allows hot-swapping the underlying FastAPI application.
+    Used for dynamic reloading of agents, skills, and MCP servers.
+    """
+
+    def __init__(self, factory: Callable[[], FastAPI]):
+        self.factory = factory
+        self.app: FastAPI = self.factory()
+
+    async def __call__(self, scope, receive, sender):
+        await self.app(scope, receive, sender)
+
+    def reload(self):
+        """Re-run the factory to create a fresh app instance."""
+        logger.info("Hot-reloading agent application...")
+        self.app = self.factory()
+
+
 def create_agent_parser():
     parser = argparse.ArgumentParser(
         add_help=False, description=f"Run the {DEFAULT_AGENT_NAME} A2A + AG-UI Server"
@@ -548,12 +662,15 @@ def create_agent_parser():
         default=DEFAULT_CUSTOM_SKILLS_DIRECTORY,
         help="Directory containing additional custom agent skills",
     )
+    parser.add_argument(
+        "--workspace",
+        help="Explicit path to the agent workspace directory (contains IDENTITY.md, etc.)",
+    )
 
     parser.add_argument(
         "--web",
         action="store_true",
-        default=DEFAULT_ENABLE_WEB_UI,
-        help="Enable Pydantic AI Web UI",
+        help="Enable Agent Web UI",
     )
 
     parser.add_argument(
@@ -617,7 +734,7 @@ def create_agent_parser():
         help="Connection URL for the FastA2A Storage",
     )
 
-    parser.add_argument("--help", action="store_true", help="Show usage")
+    parser.add_argument("--help", action="help", help="Show usage")
     return parser
 
 
@@ -786,7 +903,7 @@ def create_agent(
             )
         agent_toolsets.append(server)
         logger.info(f"Connected to MCP Server: {mcp_url}")
-    elif mcp_config:
+    if mcp_config:
         try:
             mcp_toolset = load_mcp_servers(mcp_config)
             for server in mcp_toolset:
@@ -827,7 +944,10 @@ def create_agent(
     from pydantic_ai_skills import SkillsToolset
 
     # Always load default skills
-    skill_dirs = [get_universal_skills_path()]
+    skill_dirs = []
+    if skills_path := get_skills_path():
+        skill_dirs.append(skills_path)
+    skill_dirs.extend(get_universal_skills_path())
 
     # Load custom skills if provided
     if custom_skills_directory and os.path.exists(custom_skills_directory):
@@ -869,6 +989,9 @@ def create_agent_server(
     host: Optional[str] = DEFAULT_HOST,
     port: Optional[int] = DEFAULT_PORT,
     enable_web_ui: bool = DEFAULT_ENABLE_WEB_UI,
+    custom_web_app: Optional[Callable[[Agent], Any]] = None,
+    custom_web_mount_path: str = "/",
+    web_ui_instructions: Optional[str] = None,
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: Optional[str] = None,
     system_prompt: Optional[str] = None,
@@ -878,6 +1001,7 @@ def create_agent_server(
     otel_public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
     otel_secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
     otel_protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+    workspace: Optional[str] = None,
     a2a_broker: str = DEFAULT_A2A_BROKER,
     a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
@@ -898,183 +1022,236 @@ def create_agent_server(
     )
 
     _name = name or DEFAULT_AGENT_NAME
-    _system_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
 
-    if enable_otel:
-        setup_otel(
-            _name,
-            endpoint=otel_endpoint,
-            headers=otel_headers,
-            public_key=otel_public_key,
-            secret_key=otel_secret_key,
-            protocol=otel_protocol,
+    # Set global workspace override if provided
+    if workspace:
+        global WORKSPACE_DIR
+        WORKSPACE_DIR = workspace
+        logger.info(f"Workspace override set to: {workspace}")
+
+    def app_factory() -> FastAPI:
+        """Internal factory to build the agent and its web apps."""
+        _system_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
+
+        if enable_otel:
+            setup_otel(
+                _name,
+                endpoint=otel_endpoint,
+                headers=otel_headers,
+                public_key=otel_public_key,
+                secret_key=otel_secret_key,
+                protocol=otel_protocol,
+            )
+
+        # Create fresh agent instance
+        agent_instance = create_agent(
+            provider=provider,
+            model_id=model_id,
+            base_url=base_url,
+            api_key=api_key,
+            mcp_url=mcp_url,
+            mcp_config=mcp_config,
+            custom_skills_directory=custom_skills_directory,
+            ssl_verify=ssl_verify,
+            name=_name,
+            system_prompt=_system_prompt,
         )
 
-    agent = create_agent(
-        provider=provider,
-        model_id=model_id,
-        base_url=base_url,
-        api_key=api_key,
-        mcp_url=mcp_url,
-        mcp_config=mcp_config,
-        custom_skills_directory=custom_skills_directory,
-        ssl_verify=ssl_verify,
-        name=_name,
-        system_prompt=_system_prompt,
-    )
+        # Always load default skills for A2A metadata
+        skills_list = []
+        if default_skills_path := get_skills_path():
+            skills_list = load_skills_from_directory(default_skills_path)
 
-    # Always load default skills
-    skills = load_skills_from_directory(get_skills_path())
-    logger.info(f"Loaded {len(skills)} default skills from {get_skills_path()}")
+        if custom_skills_directory and os.path.exists(custom_skills_directory):
+            skills_list.extend(load_skills_from_directory(custom_skills_directory))
 
-    # Load custom skills if provided
-    if custom_skills_directory and os.path.exists(custom_skills_directory):
-        custom_skills = load_skills_from_directory(custom_skills_directory)
-        skills.extend(custom_skills)
-        logger.info(
-            f"Loaded {len(custom_skills)} custom skills from {custom_skills_directory}"
-        )
+        # Filter skills based on env vars
+        enabled_skills = []
+        for s in skills_list:
+            sid = s.id if hasattr(s, "id") else s.get("id")
+            if sid:
+                env_var = f"ENABLE_{sid.upper().replace('-', '_')}"
+                if os.environ.get(env_var, "true").lower() != "false":
+                    enabled_skills.append(s)
+        skills_list = enabled_skills
 
-    if not skills:
-        skills = [
-            Skill(
-                id="agent",
-                name=_name,
-                description=f"General access to {_name} tools",
-                tags=["agent"],
-                input_modes=["text"],
-                output_modes=["text"],
-            )
-        ]
+        if not skills_list:
+            skills_list = [
+                Skill(
+                    id="agent",
+                    name=_name,
+                    description=f"General access to {_name} tools",
+                    tags=["agent"],
+                    input_modes=["text"],
+                    output_modes=["text"],
+                )
+            ]
 
-    a2a_kwargs = {}
-
-    if a2a_broker == "redis":
-        try:
-            from a2a_redis import RedisBroker
-
-            a2a_kwargs["broker"] = RedisBroker(
-                url=a2a_broker_url or "redis://localhost:6379"
-            )
-            logger.info(f"Using FastA2A RedisBroker at {a2a_broker_url}")
-        except ImportError:
-            logger.warning("a2a-redis not installed. Falling back to InMemoryBroker.")
-    elif a2a_broker == "postgres":
-        try:
-            from a2a_postgres import PostgresBroker
-
-            a2a_kwargs["broker"] = PostgresBroker(
-                url=a2a_broker_url or "postgresql+asyncpg://localhost:5432/a2a"
-            )
-            logger.info(f"Using FastA2A PostgresBroker at {a2a_broker_url}")
-        except ImportError:
-            logger.warning(
-                "a2a-postgres not installed. Falling back to InMemoryBroker."
-            )
-
-    if a2a_storage == "redis":
-        try:
-            from a2a_redis import RedisStorage
-
-            a2a_kwargs["storage"] = RedisStorage(
-                url=a2a_storage_url or "redis://localhost:6379"
-            )
-            logger.info(f"Using FastA2A RedisStorage at {a2a_storage_url}")
-        except ImportError:
-            logger.warning("a2a-redis not installed. Falling back to InMemoryStorage.")
-    elif a2a_storage == "postgres":
-        try:
-            from a2a_postgres import PostgresStorage
-
-            a2a_kwargs["storage"] = PostgresStorage(
-                url=a2a_storage_url or "postgresql+asyncpg://localhost:5432/a2a"
-            )
-            logger.info(f"Using FastA2A PostgresStorage at {a2a_storage_url}")
-        except ImportError:
-            logger.warning(
-                "a2a-postgres not installed. Falling back to InMemoryStorage."
-            )
-
-    a2a_app = agent.to_a2a(
-        name=_name,
-        description=DEFAULT_AGENT_DESCRIPTION,
-        version=__version__,
-        skills=skills,
-        debug=debug,
-        **a2a_kwargs,
-    )
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        processor_task = asyncio.create_task(background_processor(agent))
-        try:
-            if hasattr(a2a_app, "router") and hasattr(
-                a2a_app.router, "lifespan_context"
-            ):
-                async with a2a_app.router.lifespan_context(a2a_app):
-                    yield
-            else:
-                yield
-        finally:
-            processor_task.cancel()
+        # A2A Setup
+        a2a_kwargs = {}
+        if a2a_broker == "redis":
             try:
-                await processor_task
-            except asyncio.CancelledError:
+                from a2a_redis import RedisBroker
+
+                a2a_kwargs["broker"] = RedisBroker(
+                    url=a2a_broker_url or "redis://localhost:6379"
+                )
+            except ImportError:
                 pass
-            logger.info("In-memory periodic processor stopped")
+        elif a2a_broker == "postgres":
+            try:
+                from a2a_postgres import PostgresBroker
 
-    app = FastAPI(
-        title=f"{DEFAULT_AGENT_NAME} - A2A + AG-UI Server",
-        description=DEFAULT_AGENT_DESCRIPTION,
-        debug=debug,
-        lifespan=lifespan,
-    )
+                a2a_kwargs["broker"] = PostgresBroker(
+                    url=a2a_broker_url or "postgresql+asyncpg://localhost:5432/a2a"
+                )
+            except ImportError:
+                pass
 
-    @app.get("/health")
-    async def health_check():
-        return {"status": "OK"}
+        if a2a_storage == "redis":
+            try:
+                from a2a_redis import RedisStorage
 
-    app.mount("/a2a", a2a_app)
+                a2a_kwargs["storage"] = RedisStorage(
+                    url=a2a_storage_url or "redis://localhost:6379"
+                )
+            except ImportError:
+                pass
+        elif a2a_storage == "postgres":
+            try:
+                from a2a_postgres import PostgresStorage
 
-    @app.post("/ag-ui")
-    async def ag_ui_endpoint(request: Request) -> Response:
-        from pydantic_ai.ui import SSE_CONTENT_TYPE
-        from pydantic_ai.ui.ag_ui import AGUIAdapter
+                a2a_kwargs["storage"] = PostgresStorage(
+                    url=a2a_storage_url or "postgresql+asyncpg://localhost:5432/a2a"
+                )
+            except ImportError:
+                pass
 
-        accept = request.headers.get("accept", SSE_CONTENT_TYPE)
-        try:
-            run_input = AGUIAdapter.build_run_input(await request.body())
-        except ValidationError as e:
-            return Response(
-                content=json.dumps(e.json()),
-                media_type="application/json",
-                status_code=422,
+        a2a_app = agent_instance.to_a2a(
+            name=_name,
+            description=DEFAULT_AGENT_DESCRIPTION,
+            version=__version__,
+            skills=skills_list,
+            debug=debug,
+            **a2a_kwargs,
+        )
+
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            # Pass BOTH agent_instance and reload_callback to background_processor if needed
+            # For now, reload_cron_tasks handles the global 'tasks' list
+            processor_task = asyncio.create_task(background_processor(agent_instance))
+            try:
+                if hasattr(a2a_app, "router") and hasattr(
+                    a2a_app.router, "lifespan_context"
+                ):
+                    async with a2a_app.router.lifespan_context(a2a_app):
+                        yield
+                else:
+                    yield
+            finally:
+                processor_task.cancel()
+                try:
+                    await processor_task
+                except asyncio.CancelledError:
+                    pass
+
+        app = FastAPI(
+            title=f"{DEFAULT_AGENT_NAME} - A2A + AG-UI Server",
+            description=DEFAULT_AGENT_DESCRIPTION,
+            debug=debug,
+            lifespan=lifespan,
+        )
+
+        # Store reload_app reference in state if needed
+        # We'll set this later in create_agent_server
+        app.state.reload_app = None
+
+        @app.get("/health")
+        async def health_check():
+            return {"status": "OK"}
+
+        app.mount("/a2a", a2a_app)
+
+        @app.post("/ag-ui")
+        async def ag_ui_endpoint(request: Request) -> Response:
+            from pydantic_ai.ui import SSE_CONTENT_TYPE
+            from pydantic_ai.ui.ag_ui import AGUIAdapter
+
+            accept = request.headers.get("accept", SSE_CONTENT_TYPE)
+            try:
+                run_input = AGUIAdapter.build_run_input(await request.body())
+            except ValidationError as e:
+                return Response(
+                    content=json.dumps(e.json()),
+                    media_type="application/json",
+                    status_code=422,
+                )
+
+            if hasattr(run_input, "messages"):
+                run_input.messages = prune_large_messages(run_input.messages)
+
+            adapter = AGUIAdapter(
+                agent=agent_instance, run_input=run_input, accept=accept
+            )
+            event_stream = adapter.run_stream()
+            sse_stream = adapter.encode_stream(event_stream)
+
+            return StreamingResponse(
+                sse_stream,
+                media_type=accept,
             )
 
-        if hasattr(run_input, "messages"):
-            run_input.messages = prune_large_messages(run_input.messages)
+        # Mount Web UI
+        if custom_web_app is not None:
+            web_app = custom_web_app(agent_instance)
+            app.mount(custom_web_mount_path, web_app)
+            logger.info(f"Mounted custom web UI at {custom_web_mount_path}")
+        elif enable_web_ui:
+            # We ONLY support the enhanced dashboard now as default
+            from .web_app import create_enhanced_web_app
 
-        adapter = AGUIAdapter(agent=agent, run_input=run_input, accept=accept)
-        event_stream = adapter.run_stream()
-        sse_stream = adapter.encode_stream(event_stream)
+            identity_meta = load_identity()
+            web_app = create_enhanced_web_app(
+                agent_instance,
+                name=_name,
+                description=identity_meta.get("description", DEFAULT_AGENT_DESCRIPTION),
+                emoji=identity_meta.get("emoji", "🤖"),
+            )
+            # Inject reload callback into the web app's state
+            web_app.state.reload_app = None  # Will be set below
+            app.mount("/", web_app)
+            logger.info("Mounted enhanced agent web UI dashboard at /")
 
-        return StreamingResponse(
-            sse_stream,
-            media_type=accept,
-        )
+        return app
 
-    if enable_web_ui:
-        web_ui = agent.to_web(instructions=_system_prompt)
-        app.mount("/", web_ui)
-        logger.info(
-            "Starting server on %s:%s (A2A at /a2a, AG-UI at /ag-ui, Web UI: %s)",
-            host,
-            port,
-            "Enabled at /" if enable_web_ui else "Disabled",
-        )
+    # Create the reloadable wrapper
+    reloadable = ReloadableApp(app_factory)
+
+    # Recursive injection of the reloadable reference into all mounted app states
+    def inject_reload_app(fast_app: FastAPI, wrapper: ReloadableApp):
+        fast_app.state.reload_app = wrapper
+        from fastapi.routing import Mount
+
+        for route in fast_app.routes:
+            if (
+                isinstance(route, Mount)
+                and hasattr(route, "app")
+                and isinstance(route.app, FastAPI)
+            ):
+                inject_reload_app(route.app, wrapper)
+
+    inject_reload_app(reloadable.app, reloadable)
+
+    logger.info(
+        "Starting server on %s:%s (A2A at /a2a, AG-UI at /ag-ui, Web UI: %s)",
+        host,
+        port,
+        "Enabled (Dashboard)" if enable_web_ui else "Disabled",
+    )
 
     uvicorn.run(
-        app,
+        reloadable,
         host=host,
         port=port,
         timeout_keep_alive=1800,

@@ -36,7 +36,7 @@ repos:
         args: ["--fix", "--ignore=E402"]
         exclude: ^(tests/|test/|scripts/|script/)
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
+    rev: v2.4.2
     hooks:
       - id: codespell
         args: ["-L", "ans,linar,nam,tread,ot,"]
@@ -45,3 +45,13 @@ repos:
     rev: 1.9.1
     hooks:
       - id: nbqa-black
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true

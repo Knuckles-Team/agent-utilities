@@ -63,7 +63,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.12"
+__version__ = "0.2.13"
 
 
 def to_float(string=None):
@@ -192,6 +192,16 @@ def retrieve_package_name() -> str:
         "__main__",
         "env",
         "venv",
+        "fastapi",
+        "starlette",
+        "uvicorn",
+        "pydantic",
+        "pydantic_ai",
+        "inspect",
+        "importlib",
+        "contextlib",
+        "logging",
+        "asyncio",
     )
     first_external_frame_package = None
 
