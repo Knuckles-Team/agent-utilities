@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict
@@ -63,10 +64,20 @@ def create_enhanced_web_app(
 
     @app.get("/api/enhanced/info")
     async def get_info():
+        user_emoji = "👤"
+        try:
+            content = load_workspace_file("USER.md")
+            match = re.search(r"\* \*\*Emoji:\*\* (.*)", content)
+            if match:
+                user_emoji = match.group(1).strip()
+        except Exception:
+            pass
+
         return {
             "name": name,
             "description": description,
             "emoji": emoji,
+            "user_emoji": user_emoji,
         }
 
     @app.get("/api/enhanced/files")
@@ -137,12 +148,12 @@ def create_enhanced_web_app(
             logging.error(f"Error loading universal skills: {e}")
 
         import os
-        
+
         # Deduplicate by ID
         seen = set()
         deduped = []
         for s in all_skills:
-            sid = s.get('id')
+            sid = s.get("id")
             if sid and sid not in seen:
                 deduped.append(s)
                 seen.add(sid)
@@ -153,39 +164,46 @@ def create_enhanced_web_app(
             # Default to true unless explicitly disabled
             env_var = f"ENABLE_{sid.upper().replace('-', '_')}"
             enabled = os.environ.get(env_var, "true").lower() != "false"
-            
-            result.append({
-                "id": sid,
-                "name": s.get("name"),
-                "description": s.get("description"),
-                "version": s.get("version", "0.1.0"),
-                "enabled": enabled
-            })
-            
+
+            result.append(
+                {
+                    "id": sid,
+                    "name": s.get("name"),
+                    "description": s.get("description"),
+                    "version": s.get("version", "0.1.0"),
+                    "tags": s.get("tags", []),
+                    "enabled": enabled,
+                }
+            )
+
         return result
 
     @app.post("/api/enhanced/skills/{skill_id}/toggle")
     async def toggle_skill(skill_id: str):
         import os
+
         env_var = f"ENABLE_{skill_id.upper().replace('-', '_')}"
         current = os.environ.get(env_var, "true").lower() != "false"
         new_state = not current
         os.environ[env_var] = "true" if new_state else "false"
-        
+
         return {"status": "success", "skill_id": skill_id, "enabled": new_state}
 
     @app.post("/api/enhanced/reload")
     async def reload_agent(request: Request):
         try:
             from .agent_utilities import initialize_workspace
+
             initialize_workspace()
-            
+
             # Find the reloadable app wrapper in the state
             # In FastAPI, request.app is the current sub-app
             # We injected reload_app recursively, so it should be there.
             reloadable = getattr(request.app.state, "reload_app", None)
             if not reloadable:
-                raise HTTPException(status_code=501, detail="Reloadable wrapper not found in app state")
+                raise HTTPException(
+                    status_code=501, detail="Reloadable wrapper not found in app state"
+                )
 
             reloadable.reload()
             return {"status": "success", "message": "Agent reloaded successfully"}
@@ -196,7 +214,6 @@ def create_enhanced_web_app(
     @app.get("/api/enhanced/cron/calendar")
     async def get_cron_calendar():
         res = []
-        now = datetime.now()
         # Use agent_utilities.tasks to avoid stale reference
         for t in agent_utilities.tasks:
             next_run = t.last_run + timedelta(minutes=t.interval_minutes)
@@ -220,6 +237,13 @@ def create_enhanced_web_app(
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         return {"filename": file.filename}
+
+    @app.get("/api/enhanced/agent-icon")
+    async def get_agent_icon():
+        icon_path = Path(__file__).parent / "geniusbot.png"
+        if not icon_path.exists():
+            raise HTTPException(status_code=404, detail="Icon not found")
+        return FileResponse(path=icon_path)
 
     @app.get("/api/enhanced/download/{filename}")
     async def download_file(filename: str):
@@ -248,9 +272,9 @@ def create_enhanced_web_app(
                         {
                             "id": cf.stem,
                             "title": data.get("title", "Untitled Chat"),
-                            "last_updated": datetime.fromtimestamp(
+                            "updated_at": datetime.fromtimestamp(
                                 cf.stat().st_mtime
-                            ).strftime("%Y-%m-%d %H:%M"),
+                            ).isoformat(),
                             "message_count": len(data.get("messages", [])),
                         }
                     )
@@ -330,6 +354,20 @@ def create_enhanced_web_app(
             json.dump(chat_data, f, indent=2)
 
         return {"status": "success", "title": new_title}
+
+    @app.delete("/api/enhanced/chats/{chat_id}")
+    async def delete_chat(chat_id: str):
+        chats_dir = get_workspace_path("chats")
+        chat_file = chats_dir / f"{chat_id}.json"
+
+        if not chat_file.exists():
+            return {"status": "error", "message": "Chat not found"}
+
+        try:
+            chat_file.unlink()
+            return {"status": "success"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
     # Finally mount the Pydantic AI API at /api
     from pydantic_ai.ui._web.api import create_api_app

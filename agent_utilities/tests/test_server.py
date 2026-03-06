@@ -54,16 +54,8 @@ def test_server_creation_logic(dummy_agent):
 
     os.environ["OPENAI_API_KEY"] = "sk-dummy"
 
-    # Test default web UI
-    create_agent_server(enable_web_ui=True, use_dashboard=False)
-    app = uvicorn.run.call_args[0][0]
-    client = TestClient(app)
-    response = client.get("/")
-    assert response.status_code == 200
-
-    # Test enhanced dashboard
-    uvicorn.run.reset_mock()
-    create_agent_server(enable_web_ui=True, use_dashboard=True)
+    # Test default web UI (Dashboard is the default)
+    create_agent_server(enable_web_ui=True)
     app = uvicorn.run.call_args[0][0]
     client = TestClient(app)
     response = client.get("/")

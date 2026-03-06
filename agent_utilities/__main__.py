@@ -44,9 +44,6 @@ def agent_server():
     meta = load_identity()
 
     agent_name = os.getenv("DEFAULT_AGENT_NAME", meta.get("name", "AI Agent"))
-    agent_description = os.getenv(
-        "AGENT_DESCRIPTION", meta.get("description", "Agent Utilities")
-    )
     system_prompt = os.getenv(
         "AGENT_SYSTEM_PROMPT",
         meta.get("content") or build_system_prompt_from_workspace(),
