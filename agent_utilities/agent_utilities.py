@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fasta2a import Skill
+    from fastapi import FastAPI
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -49,13 +50,87 @@ from .base_utilities import (
 # from .tools import register_agent_tools  # Breaks circular import
 
 from .models import PeriodicTask
-from .agent.templates import (
-    CORE_FILES,
-    tasks,
-    lock,
-    TEMPLATES,
-    NEW_SKILL_TEMPLATE,
-)
+
+# Global state for periodic tasks
+tasks: List[PeriodicTask] = []
+lock = asyncio.Lock()
+
+CORE_FILES = {
+    "IDENTITY": "IDENTITY.md",
+    "USER": "USER.md",
+    "AGENTS": "AGENTS.md",
+    "MEMORY": "MEMORY.md",
+    "CRON": "CRON.md",
+    "CRON_LOG": "CRON_LOG.md",
+    "MCP_CONFIG": "mcp_config.json",
+}
+
+TEMPLATES = {
+    "IDENTITY": """# IDENTITY.md - Who I Am, Core Personality, & Boundaries
+
+## [default]
+ * **Name:** AI Agent
+ * **Role:** A versatile AI agent capable of research, task delegation, and workspace management.
+ * **Emoji:** 🤖
+ * **Vibe:** Professional, efficient, helpful
+
+ ### System Prompt
+ You are a highly capable AI Agent.
+ You have access to various tools and MCP servers to assist the user.
+ Your responsibilities:
+ 1. Analyze the user's request.
+ 2. Use available tools and skills to gather information or perform actions.
+ Synthesize findings into clear, well-structured responses.
+""",
+    "USER": """# USER.md - About the Human
+
+* **Name:** User
+* **Emoji:** 👤
+""",
+    "AGENTS": """# AGENTS.md - Known A2A Peer Agents
+
+This file is the local registry of other A2A agents this agent can discover and call.
+
+## Registered A2A Peers
+
+| Name | Endpoint URL | Description | Capabilities | Auth | Notes / Last Connected |
+|------|--------------|-------------|--------------|------|------------------------|
+""",
+    "MEMORY": """# MEMORY.md - Long-term Memory
+
+This file stores important decisions, user preferences, and historical outcomes.
+
+## Log of Important Events
+- [{now}] Workspace initialized.
+""",
+    "CRON": """# CRON.md - Persistent Scheduled Tasks
+
+## Active Tasks
+
+| ID | Name | Interval (min) | Prompt | Last run | Next approx |
+|----|------|----------------|--------|----------|-------------|
+| log-cleanup | Log Cleanup | 720 | __internal:cleanup_cron_log | — | — |
+""",
+    "CRON_LOG": """# CRON_LOG.md - Scheduled Task History
+
+| Timestamp | Task ID | Status | Message |
+|-----------|---------|--------|---------|
+""",
+    "MCP_CONFIG": """{
+    "mcpServers": {}
+}
+""",
+}
+
+NEW_SKILL_TEMPLATE = """---
+name: {skill_name}
+description: {skill_description}
+version: '0.1.0'
+---
+# {skill_name}
+
+{skill_description}
+"""
 
 try:
     from pydantic_ai.models.openai import OpenAIChatModel
@@ -116,7 +191,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.13"
+__version__ = "0.2.14"
 
 # Load environment variables early
 load_env_vars()
@@ -162,14 +237,25 @@ def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
 
                 skill_name = data.get("name", skill_id)
                 skill_desc = data.get("description", f"Access to {skill_name} tools")
-                skill_version = str(data.get("version", "0.1.0"))
+
+                # Support version in top-level or metadata
+                skill_version = str(
+                    data.get(
+                        "version", data.get("metadata", {}).get("version", "0.1.0")
+                    )
+                )
+
+                # Extract tags from frontmatter if available
+                skill_tags = data.get("tags", [skill_id])
+                if not isinstance(skill_tags, list):
+                    skill_tags = [str(skill_tags)]
 
                 return Skill(
                     id=skill_id,
                     name=skill_name,
                     description=skill_desc,
                     version=skill_version,
-                    tags=[skill_id],
+                    tags=skill_tags,
                     input_modes=["text"],
                     output_modes=["text"],
                 )
@@ -968,6 +1054,13 @@ def create_agent(
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
         deps_type=Any,
     )
+
+    # Dynamic system prompt if none provided or using default
+    if system_prompt == DEFAULT_AGENT_SYSTEM_PROMPT:
+
+        @agent.system_prompt
+        def dynamic_context() -> str:
+            return build_system_prompt_from_workspace()
 
     # Register Universal Tools (Workspace, A2A, Scheduler)
     from .tools import register_agent_tools

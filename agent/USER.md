@@ -5,3 +5,4 @@
 * **Timezone:** America/Chicago
 * **Location:** Chicago, Illinois
 * **Style:** Technical, concise, no fluff
+* **Emoji:** ✈️

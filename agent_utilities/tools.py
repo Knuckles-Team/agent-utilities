@@ -18,8 +18,9 @@ from .agent_utilities import (
     delete_skill_from_disk,
     read_skill_md,
     write_skill_md,
+    tasks,
+    lock,
 )
-from .agent.templates import tasks, lock
 from .base_utilities import to_boolean
 
 DEFAULT_WORKSPACE_TOOLS = to_boolean(string=os.environ.get("WORKSPACE_TOOLS", "True"))
@@ -29,7 +30,7 @@ DEFAULT_DYNAMIC_TOOLS = to_boolean(string=os.environ.get("DYNAMIC_TOOLS", "True"
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.2.13"
+__version__ = "0.2.14"
 
 
 def register_agent_tools(agent: Agent):

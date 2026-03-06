@@ -89,15 +89,30 @@ DASHBOARD_HTML = """
             padding: 0.5rem;
         }}
 
+        .agent-brand .agent-emoji-small {{
+            background: var(--primary);
+        }}
+
         .agent-emoji-small {{
             font-size: 1.75rem;
             background: rgba(99, 102, 241, 0.1);
             width: 48px;
             height: 48px;
+            min-width: 48px;
+            min-height: 48px;
+            flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
             border-radius: 12px;
+            overflow: hidden;
+        }}
+
+        .agent-emoji-small img {{
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }}
             border: 1px solid rgba(99, 102, 241, 0.15);
         }}
 
@@ -110,10 +125,8 @@ DASHBOARD_HTML = """
         .agent-brand-text p {{
             font-size: 0.7rem;
             color: var(--text-muted);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 150px;
+            line-height: 1.2;
+            margin-top: 0.2rem;
         }}
 
         nav {{
@@ -152,30 +165,73 @@ DASHBOARD_HTML = """
             box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
         }}
 
-        /* Navbar Dropdown */
-        .nav-dropdown {{
+        .sidebar-sub-item-list {{
+            display: none;
+            flex-direction: column;
+            gap: 2px;
+            padding: 0.25rem 0 0.5rem 1.25rem;
+            animation: fadeIn 0.2s ease;
+        }}
+
+        .sidebar-sub-item-list.show {{
+            display: flex;
+        }}
+
+        .history-item {{
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: all 0.15s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.5rem;
             position: relative;
         }}
 
-        .nav-dropdown-content {{
-            display: none;
-            position: absolute;
-            left: 100%;
-            top: 0;
-            background: var(--sidebar-bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            min-width: 240px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
-            z-index: 100;
-            margin-left: 0.5rem;
-            max-height: 400px;
-            overflow-y: auto;
-            padding: 0.5rem;
+        .history-item:hover {{
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text);
         }}
 
-        .nav-dropdown:hover .nav-dropdown-content {{
-            display: block;
+        .history-item.active {{
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--primary);
+            font-weight: 600;
+        }}
+
+        .rename-btn, .delete-btn {{
+            opacity: 0;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+
+        .history-item:hover .rename-btn,
+        .history-item:hover .delete-btn {{
+            opacity: 0.6;
+        }}
+
+        .rename-btn:hover {{
+            opacity: 1 !important;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text);
+        }}
+
+        .delete-btn:hover {{
+            opacity: 1 !important;
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
         }}
 
         .theme-toggle {{
@@ -366,6 +422,17 @@ DASHBOARD_HTML = """
             font-size: 1rem;
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid var(--border);
+            overflow: hidden;
+        }}
+
+        .message-avatar img {{
+            width: 100%;
+            height: 100%;
+            max-width: 28px;
+            max-height: 28px;
+            object-fit: cover;
+            border-radius: inherit;
+            display: block;
         }}
 
         .message-assistant .message-avatar {{
@@ -923,6 +990,24 @@ DASHBOARD_HTML = """
             font-weight: 500;
         }}
 
+        .skill-tags-container {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-top: 0.75rem;
+            margin-bottom: 0.75rem;
+        }}
+
+        .skill-tag-badge {{
+            padding: 0.15rem 0.5rem;
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--primary);
+            border-radius: 20px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }}
+
         .markdown-preview {{
             padding: 2rem;
             margin: 1.5rem 0;
@@ -1011,7 +1096,7 @@ DASHBOARD_HTML = """
     <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
     <aside id="sidebar">
         <div class="agent-brand">
-            <div class="agent-emoji-small">{agent_emoji}</div>
+            <div class="agent-emoji-small"><img src="/api/enhanced/agent-icon" alt="Agent"></div>
             <div class="agent-brand-text">
                 <h2>{agent_name}</h2>
                 <p title="{agent_description}">{agent_description}</p>
@@ -1019,20 +1104,20 @@ DASHBOARD_HTML = """
         </div>
 
         <nav>
-            <div class="nav-dropdown">
-                <button class="nav-item active-primary" data-tab="chat" onclick="showTab('chat')">
+            <div class="nav-group">
+                <button class="nav-item active-primary" data-tab="chat" onclick="showTab('chat'); toggleChatList()">
                     <span>💬</span> Chat
                 </button>
-                <div class="nav-dropdown-content">
-                    <button class="nav-item focus-ring" onclick="newChat()" style="border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0;">
+                <div id="sidebar-chat-list" class="sidebar-sub-item-list">
+                    <button class="nav-item focus-ring" onclick="newChat()" style="padding: 0.4rem 0.75rem; font-size: 0.78rem; opacity: 0.8;">
                         <span>+</span> New Chat
                     </button>
-                    <div id="chat-history-dropdown" style="padding-top: 0.5rem;">
-                        <!-- Chat history items will be moved here -->
+                    <div id="chat-history-sidebar">
+                        <!-- History items -->
                     </div>
                 </div>
             </div>
-             <button class="nav-item" data-tab="knowledge" onclick="showTab('knowledge')"><span>📚</span> Knowledge</button>
+            <button class="nav-item" data-tab="knowledge" onclick="showTab('knowledge')"><span>📚</span> Knowledge</button>
             <button class="nav-item" data-tab="skills" onclick="showTab('skills')"><span>⚡</span> Skills</button>
             <button class="nav-item" data-tab="schedule" onclick="showTab('schedule')"><span>📅</span> Scheduled Tasks</button>
             <button class="nav-item" data-tab="files" onclick="showTab('files')"><span>📂</span> Files</button>
@@ -1057,18 +1142,11 @@ DASHBOARD_HTML = """
             <div style="width: 40px;"></div> <!-- Spacer for balance -->
         </div>
         <section id="chat-tab" class="tab-content" style="display: flex; flex-direction: column;">
-            <div id="chat-history-container" style="padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.02); display: none;">
-                <h4 style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem;">Previous Chats</h4>
-                <div id="chat-history-list" style="display: flex; gap: 0.5rem; overflow-x: auto; padding-bottom: 0.5rem;">
-                    <!-- Chat history items will be loaded here -->
-                </div>
-            </div>
-            
             <div id="chat-messages" style="flex-grow: 1;">
                 <!-- Initial Welcome will be cleared when loading history -->
                 <div class="message message-assistant" id="welcome-message">
                     <div class="message-header">
-                        <div class="message-avatar">{agent_emoji}</div>
+                        <div class="message-avatar"><img src="/api/enhanced/agent-icon" alt="Agent"></div>
                     </div>
                     <div class="message-body">
                         <div class="message-bubble">
@@ -1120,6 +1198,15 @@ DASHBOARD_HTML = """
                         </button>
                     </div>
                 </div>
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <h3>👤 User Profile</h3>
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-top: 1rem;">
+                        <input type="text" id="user-emoji-input" class="focus-ring" placeholder="Paste your favorite emoji (e.g. 🦊)"
+                               style="flex-grow: 1; background: var(--input-bg); border: 1px solid var(--border); padding: 0.75rem; border-radius: 8px; color: var(--text);">
+                        <button class="btn btn-primary" onclick="saveUserEmoji()" style="padding: 0.75rem 1.5rem;">Save Info</button>
+                    </div>
+                </div>
+
                 <div class="card">
                     <h3>📄 System Files</h3>
                     <div id="config-files" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;"></div>
@@ -1351,6 +1438,22 @@ DASHBOARD_HTML = """
             }}
         }}
 
+        // User Profile & Emoji
+        let userEmoji = localStorage.getItem('user_emoji') || '👤';
+
+        function saveUserEmoji() {{
+            const input = document.getElementById('user-emoji-input');
+            if (input && input.value.trim()) {{
+                userEmoji = input.value.trim();
+                localStorage.setItem('user_emoji', userEmoji);
+                alert('User profile updated!');
+                // Update existing message avatars
+                document.querySelectorAll('.message-user .message-avatar').forEach(el => {{
+                    el.innerText = userEmoji;
+                }});
+            }}
+        }}
+
         function addMessage(role, content) {{
             const container = document.getElementById('chat-messages');
             const msgObj = {{ role: role, content: content, parts: [], id: Date.now() }};
@@ -1360,7 +1463,7 @@ DASHBOARD_HTML = """
             div.className = `message message-${{role}}`;
             div.innerHTML = `
                 <div class="message-header">
-                    <div class="message-avatar">${{role === 'user' ? '👤' : AGENT_EMOJI}}</div>
+                    <div class="message-avatar">${{role === 'user' ? userEmoji : '<img src="/api/enhanced/agent-icon" alt="Agent">'}}</div>
                 </div>
                 <div class="message-body">
                     <div class="message-bubble">
@@ -1444,45 +1547,68 @@ DASHBOARD_HTML = """
             if (data.status === 'success') {{
                 currentChatId = data.id;
             }}
+        }}
+
+        function formatDate(dateStr) {{
+            const date = new Date(dateStr);
+            if (isNaN(date)) return 'Unknown';
+            // Output format: 3/6/2026 11:53PM
+            const mm = date.getMonth() + 1;
+            const dd = date.getDate();
+            const yyyy = date.getFullYear();
+            let hours = date.getHours();
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12; // the hour '0' should be '12'
+            return `${{mm}}/${{dd}}/${{yyyy}} ${{hours}}:${{minutes}}${{ampm}}`;
+        }}
+
         async function loadHistory() {{
             const res = await fetch('/api/enhanced/chats');
             const data = await res.json();
-            
-            // 1. Sidebar Dropdown (Legacy support)
-            const dropdown = document.getElementById('chat-history-dropdown');
-            if (dropdown) {{
+
+            // 1. Sidebar List
+            const sidebarList = document.getElementById('chat-history-sidebar');
+            if (sidebarList) {{
                 if (!data || data.length === 0) {{
-                    dropdown.innerHTML = '<div style="font-size: 0.75rem; color: var(--text-muted); padding: 0.5rem 1rem;">No history yet</div>';
+                    sidebarList.innerHTML = '<div style="font-size: 0.7rem; color: var(--text-muted); padding: 0.4rem 0.75rem;">No history</div>';
                 }} else {{
-                    dropdown.innerHTML = data.map(chat => `
-                        <div class="history-item ${{currentChatId === chat.id ? 'active' : ''}}"
-                             onclick="loadChat('${{chat.id}}')"
-                             style="padding-left: 1rem; font-size: 0.78rem;">
-                            <span style="flex-grow: 1; overflow: hidden; text-overflow: ellipsis;">${{chat.title}}</span>
+                    sidebarList.innerHTML = data.map(chat => `
+                        <div class="history-item ${{currentChatId === chat.id ? 'active' : ''}}" onclick="loadChat('${{chat.id}}')">
+                            <div style="display: flex; flex-direction: column; overflow: hidden; flex-grow: 1;">
+                                <span style="font-weight: 600; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis;">${{chat.title}}</span>
+                                <span style="font-size: 0.65rem; opacity: 0.6;">${{formatDate(chat.updated_at)}}</span>
+                            </div>
+                            <div class="history-actions" style="display: flex; gap: 4px;">
+                                <span class="rename-btn" onclick="event.stopPropagation(); renameChat('${{chat.id}}', '${{chat.title.replace(/'/g, "\\'")}}')" title="Rename">✏️</span>
+                                <span class="delete-btn" onclick="event.stopPropagation(); deleteChat('${{chat.id}}')" title="Delete">🗑️</span>
+                            </div>
                         </div>
                     `).join('');
                 }}
             }}
+        }}
 
-            // 2. Chat Tab Integrated List
-            const historyList = document.getElementById('chat-history-list');
-            const historyContainer = document.getElementById('chat-history-container');
-            if (historyList) {{
-                if (!data || data.length === 0) {{
-                    historyContainer.style.display = 'none';
-                }} else {{
-                    historyContainer.style.display = 'block';
-                    historyList.innerHTML = data.map(chat => `
-                        <div class="card history-card ${{currentChatId === chat.id ? 'active' : ''}}" 
-                             onclick="loadChat('${{chat.id}}')"
-                             style="padding: 0.75rem 1rem; min-width: 180px; cursor: pointer; border: 1px solid var(--border); background: var(--card-bg); border-radius: 8px; flex-shrink: 0; position: relative;">
-                            <div style="font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${{chat.title}}</div>
-                            <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.25rem;">${{new Date(chat.updated_at).toLocaleDateString()}}</div>
-                            <button class="rename-btn" style="position: absolute; top: 5px; right: 5px; font-size: 0.6rem; opacity:0; transition: opacity 0.2s;" 
-                                onclick="event.stopPropagation(); renameChat('${{chat.id}}', '${{chat.title.replace(/'/g, "\\'")}}')">✏️</button>
-                        </div>
-                    `).join('');
+        function toggleChatList() {{
+            const el = document.getElementById('sidebar-chat-list');
+            if (el) el.classList.toggle('show');
+        }}
+
+        async function deleteChat(chatId) {{
+            if (!confirm('Are you sure you want to delete this chat?')) return;
+            try {{
+                const res = await fetch(`/api/enhanced/chats/${{chatId}}`, {{ method: 'DELETE' }});
+                const data = await res.json();
+                if (data.status === 'success') {{
+                    if (currentChatId === chatId) {{
+                        newChat();
+                    }} else {{
+                        loadHistory();
+                    }}
                 }}
+            }} catch (e) {{
+                console.error('Delete failed:', e);
             }}
         }}
 
@@ -1517,7 +1643,7 @@ DASHBOARD_HTML = """
                 div.className = `message message-${{m.role}}`;
                 div.innerHTML = `
                     <div class="message-header">
-                        <div class="message-avatar">${{m.role === 'user' ? '👤' : AGENT_EMOJI}}</div>
+                        <div class="message-avatar">${{m.role === 'user' ? userEmoji : '<img src="/api/enhanced/agent-icon" alt="Agent">'}}</div>
                     </div>
                     <div class="message-body">
                         <div class="message-bubble">
@@ -1541,7 +1667,7 @@ DASHBOARD_HTML = """
             document.getElementById('chat-messages').innerHTML = `
                 <div class="message message-assistant" id="welcome-message">
                     <div class="message-header">
-                        <div class="message-avatar">${{AGENT_EMOJI}}</div>
+                        <div class="message-avatar"><img src="/api/enhanced/agent-icon" alt="Agent"></div>
                     </div>
                     <div class="message-body">
                         <div class="message-bubble">
@@ -1587,40 +1713,45 @@ DASHBOARD_HTML = """
                 const data = await fetchAPI('skills');
                 const skillsContainer = document.getElementById('skills-container');
                 const knowledgeContainer = document.getElementById('knowledge-container');
-                
+
                 if (!skillsContainer || !knowledgeContainer) return;
 
                 const skills = data.filter(s => !s.id.endsWith('-docs'));
                 const knowledge = data.filter(s => s.id.endsWith('-docs'));
 
                 const renderSkill = (s) => `
-                    <div class="card skill-card" style="padding: 1.25rem; background: var(--card-bg);">
+                    <div class="card skill-card" style="padding: 1.25rem; background: var(--card-bg); display: flex; flex-direction: column;">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
                             <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                <div style="font-size: 1.5rem;">\${s.id.endsWith('-docs') ? '📚' : '⚡'}</div>
+                                <div style="font-size: 1.5rem;">${{s.id.endsWith('-docs') ? '📚' : '⚡'}}</div>
                                 <div>
-                                    <h4 style="margin: 0; font-size: 0.95rem;">\${s.name}</h4>
-                                    <span class="skill-version-badge">v\${s.version || '0.1.0'}</span>
+                                    <h4 style="margin: 0; font-size: 0.95rem;">${{s.name}}</h4>
+                                    <span class="skill-version-badge">v${{s.version || '0.1.0'}}</span>
                                 </div>
                             </div>
                             <label class="switch">
-                                <input type="checkbox" \${s.enabled ? 'checked' : ''} onclick="toggleSkill('\${s.id}')">
+                                <input type="checkbox" ${{s.enabled ? 'checked' : ''}} onclick="toggleSkill('${{s.id}}')">
                                 <span class="slider"></span>
                             </label>
                         </div>
-                        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0; flex-grow: 1;">\${s.description}</p>
-                        <div class="skill-id-badge">ID: \${s.id}</div>
+                        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0; flex-grow: 1;">${{s.description}}</p>
+
+                        <div class="skill-tags-container">
+                            ${{(s.tags || []).map(tag => `<span class="skill-tag-badge">${{tag}}</span>`).join('')}}
+                        </div>
+
+                        <div class="skill-id-badge">ID: ${{s.id}}</div>
                     </div>
                 `;
 
-                skillsContainer.innerHTML = skills.length > 0 
-                    ? `<div class="grid">\${skills.map(renderSkill).join('')}</div>`
+                skillsContainer.innerHTML = skills.length > 0
+                    ? `<div class="grid">${{skills.map(renderSkill).join('')}}</div>`
                     : '<p style="text-align: center; color: var(--text-muted); padding: 2rem;">No capability skills loaded.</p>';
 
                 knowledgeContainer.innerHTML = knowledge.length > 0
-                    ? `<div class="grid">\${knowledge.map(renderSkill).join('')}</div>`
+                    ? `<div class="grid">${{knowledge.map(renderSkill).join('')}}</div>`
                     : '<p style="text-align: center; color: var(--text-muted); padding: 2rem;">No knowledge bases (skill graphs) found.</p>';
-                
+
             }} catch (e) {{
                 console.error('Failed to load skills/knowledge:', e);
             }}
@@ -1638,7 +1769,7 @@ DASHBOARD_HTML = """
             }}
         }}
 
-        async function reloadAgent() {
+        async function reloadAgent() {{
             if (!confirm('Are you sure you want to re-sync the workspace and reload the agent?')) return;
             try {{
                 const res = await fetch('/api/enhanced/reload', {{ method: 'POST' }});
@@ -1735,24 +1866,24 @@ DASHBOARD_HTML = """
         async function loadCron() {{
             const data = await fetchAPI('cron/calendar');
             const logData = await fetchAPI('files/CRON_LOG.md');
-            
+
             const logEl = document.getElementById('cron-log-content');
             if (logEl) logEl.innerText = logData.content || 'No log history found.';
 
             const calView = document.getElementById('cron-calendar-view');
             if (calView) {{
                 calView.innerHTML = '';
-                
+
                 if (calendarView === 'week') {{ calView.removeAttribute('style');
                     calView.className = 'timeline-grid';
                     const days = ['Time', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-                    
+
                     // Find start of week for currentScheduleDate
                     const startOfWeek = new Date(currentScheduleDate);
                     const day = startOfWeek.getDay();
                     const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
                     startOfWeek.setDate(diff);
-                    
+
                     days.forEach((dayName, idx) => {{
                         const header = document.createElement('div');
                         header.className = 'timeline-header';
@@ -1777,11 +1908,11 @@ DASHBOARD_HTML = """
                         for (let dayIdx = 0; dayIdx < 7; dayIdx++) {{
                             const slot = document.createElement('div');
                             slot.className = 'hour-slot';
-                            
+
                             const slotDate = new Date(startOfWeek);
                             slotDate.setDate(startOfWeek.getDate() + dayIdx);
                             if (slotDate.toDateString() === new Date().toDateString()) slot.classList.add('hour-slot-today');
-                            
+
                             const activeTasks = data.filter(t => t.active);
                             activeTasks.forEach((t) => {{
                                 const intervalHours = Math.max(1, Math.floor(t.interval_min / 60));
@@ -1807,7 +1938,7 @@ DASHBOARD_HTML = """
                     calView.style.borderRadius = '12px';
                     calView.style.overflow = 'hidden';
                     calView.style.border = '1px solid var(--border)';
-                    
+
                     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
                     const monthTitle = document.createElement('div');
                     monthTitle.style.gridColumn = 'span 7';
@@ -1852,11 +1983,11 @@ DASHBOARD_HTML = """
                         dayCell.style.display = 'flex';
                         dayCell.style.flexDirection = 'column';
                         dayCell.style.gap = '0.4rem';
-                        
+
                         const isToday = new Date().toDateString() === new Date(currentScheduleDate.getFullYear(), currentScheduleDate.getMonth(), d).toDateString();
-                        
+
                         dayCell.innerHTML = `<div style="font-size: 0.75rem; font-weight: 700; color: ${{isToday ? 'var(--primary)' : 'var(--text-muted)'}}; margin-bottom: 0.2rem;">${{d}}</div>`;
-                        
+
                         const activeTasks = data.filter(t => t.active);
                         if (activeTasks.length > 0) {{
                             // Deduplicate by name for month view summary
@@ -1885,15 +2016,15 @@ DASHBOARD_HTML = """
 
             const listContainer = document.getElementById('cron-task-list');
             if (listContainer) {{
-                if (data.length === 0) {{ 
-                    listContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 2rem;">No active tasks found in CRON.md.</p>'; 
-                    return; 
+                if (data.length === 0) {{
+                    listContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 2rem;">No active tasks found in CRON.md.</p>';
+                    return;
                 }}
                 listContainer.innerHTML = data.map(t => `
                     <div class="list-item" style="border-left: 3px solid ${{t.active ? 'var(--accent)' : 'var(--error)'}};">
                         <div style="flex-grow: 1;">
                             <div style="font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
-                                ${{t.name}} 
+                                ${{t.name}}
                                 <span class="badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted);">${{t.id}}</span>
                                 ${{t.active ? '<span style="color: var(--accent); font-size: 0.7rem;">● Active</span>' : '<span style="color: var(--error); font-size: 0.7rem;">○ Inactive</span>'}}
                             </div>
@@ -1910,8 +2041,24 @@ DASHBOARD_HTML = """
             }}
         }}
 
+        async function loadInfo() {{
+            try {{
+                const info = await fetchAPI('info');
+                if (info.user_emoji && !localStorage.getItem('user_emoji')) {{
+                    userEmoji = info.user_emoji;
+                    // Update any user avatars already on page
+                    document.querySelectorAll('.message-user .message-avatar').forEach(el => {{
+                        el.innerText = userEmoji;
+                    }});
+                }}
+            }} catch (e) {{
+                console.error('Failed to load info:', e);
+            }}
+        }}
+
         window.onload = () => {{
             initTheme();
+            loadInfo();
             loadHistory();
             changeCalendarView('week');
         }};
