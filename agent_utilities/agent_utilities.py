@@ -191,7 +191,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.14"
+__version__ = "0.2.15"
 
 # Load environment variables early
 load_env_vars()
@@ -755,8 +755,9 @@ def create_agent_parser():
 
     parser.add_argument(
         "--web",
-        action="store_true",
-        help="Enable Agent Web UI",
+        action=argparse.BooleanOptionalAction,
+        default=to_boolean(os.getenv("ENABLE_WEB_UI", "False")),
+        help="Enable/Disable Agent Web UI",
     )
 
     parser.add_argument(
@@ -767,9 +768,9 @@ def create_agent_parser():
 
     parser.add_argument(
         "--otel",
-        action="store_true",
-        default=DEFAULT_ENABLE_OTEL,
-        help="Enable OpenTelemetry tracing",
+        action=argparse.BooleanOptionalAction,
+        default=to_boolean(os.getenv("ENABLE_OTEL", "False")),
+        help="Enable/Disable OpenTelemetry tracing",
     )
     parser.add_argument(
         "--otel-endpoint",
@@ -1081,14 +1082,14 @@ def create_agent_server(
     debug: Optional[bool] = DEFAULT_DEBUG,
     host: Optional[str] = DEFAULT_HOST,
     port: Optional[int] = DEFAULT_PORT,
-    enable_web_ui: bool = DEFAULT_ENABLE_WEB_UI,
+    enable_web_ui: Optional[bool] = DEFAULT_ENABLE_WEB_UI,
     custom_web_app: Optional[Callable[[Agent], Any]] = None,
     custom_web_mount_path: str = "/",
     web_ui_instructions: Optional[str] = None,
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: Optional[str] = None,
     system_prompt: Optional[str] = None,
-    enable_otel: bool = DEFAULT_ENABLE_OTEL,
+    enable_otel: Optional[bool] = DEFAULT_ENABLE_OTEL,
     otel_endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
     otel_headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
     otel_public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
@@ -1124,7 +1125,11 @@ def create_agent_server(
 
     def app_factory() -> FastAPI:
         """Internal factory to build the agent and its web apps."""
+        nonlocal enable_otel, enable_web_ui
         _system_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
+
+        if enable_otel is None:
+            enable_otel = to_boolean(os.getenv("ENABLE_OTEL", "False"))
 
         if enable_otel:
             setup_otel(
@@ -1296,6 +1301,9 @@ def create_agent_server(
             )
 
         # Mount Web UI
+        if enable_web_ui is None:
+            enable_web_ui = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
+
         if custom_web_app is not None:
             web_app = custom_web_app(agent_instance)
             app.mount(custom_web_mount_path, web_app)

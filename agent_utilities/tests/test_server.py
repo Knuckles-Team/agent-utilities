@@ -85,3 +85,33 @@ def test_enhanced_api_endpoints(dummy_agent):
     # Verify IDENTITY.md was generated and is returned
     config_files = response.json()["config"]
     assert "IDENTITY.md" in config_files
+
+
+def test_cli_parser(monkeypatch):
+    from agent_utilities.agent_utilities import create_agent_parser
+
+    # 1. Test default behavior (False)
+    monkeypatch.setenv("ENABLE_WEB_UI", "False")
+    monkeypatch.setenv("ENABLE_OTEL", "False")
+    parser = create_agent_parser()
+    args = parser.parse_args([])
+    assert args.web is False
+    assert args.otel is False
+
+    # 2. Test explicit flag enables
+    args = parser.parse_args(["--web", "--otel"])
+    assert args.web is True
+    assert args.otel is True
+
+    # 3. Test environment variable default (True)
+    monkeypatch.setenv("ENABLE_WEB_UI", "True")
+    monkeypatch.setenv("ENABLE_OTEL", "True")
+    parser = create_agent_parser()
+    args = parser.parse_args([])
+    assert args.web is True
+    assert args.otel is True
+
+    # 4. Test explicit disable overrides env var (using BooleanOptionalAction)
+    args = parser.parse_args(["--no-web", "--no-otel"])
+    assert args.web is False
+    assert args.otel is False
