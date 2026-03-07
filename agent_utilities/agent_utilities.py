@@ -192,7 +192,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.17"
+__version__ = "0.2.18"
 
 # Load environment variables early
 load_env_vars()
@@ -1421,7 +1421,7 @@ def create_agent_server(
             logger.info(f"Mounted custom web UI at {custom_web_mount_path}")
         elif enable_web_ui:
             try:
-                from agent_web.server import create_agent_web_app
+                from agent_webui.server import create_agent_web_app
 
                 identity_meta = load_identity()
                 helpers = {
