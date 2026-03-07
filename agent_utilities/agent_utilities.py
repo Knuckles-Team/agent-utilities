@@ -63,6 +63,7 @@ CORE_FILES = {
     "CRON": "CRON.md",
     "CRON_LOG": "CRON_LOG.md",
     "MCP_CONFIG": "mcp_config.json",
+    "ICON": "icon.png",
 }
 
 TEMPLATES = {
@@ -387,6 +388,7 @@ def get_agent_workspace() -> Path:
     pkg = retrieve_package_name()
     if pkg and pkg != "agent_utilities":
         try:
+            # First try built-in resources
             pkg_agent_dir = files(pkg) / "agent"
             # If it's already a Path object (local install), just use it
             if hasattr(pkg_agent_dir, "joinpath") and hasattr(pkg_agent_dir, "resolve"):
@@ -399,10 +401,26 @@ def get_agent_workspace() -> Path:
             with as_file(pkg_agent_dir) as path:
                 if path.is_dir():
                     p = path.resolve()
-                    # We return the path here. If it was a temp dir, it MIGHT be deleted,
-                    # but for most agent use cases it shouldn't be.
                     logger.debug(f"Discovery Tier 3 (Package Resource {pkg}): {p}")
                     return p
+
+            # Alternative: find spec and check parent
+            import importlib.util
+
+            spec = importlib.util.find_spec(pkg)
+            if spec and spec.origin:
+                origin_path = Path(spec.origin).resolve()
+                # Check if it's package/sub/file.py or package/file.py
+                candidates = [
+                    origin_path.parent / "agent",
+                    origin_path.parent.parent / "agent",
+                ]
+                for candidate in candidates:
+                    if candidate.is_dir():
+                        logger.debug(
+                            f"Discovery Tier 3.5 (Package Spec {pkg}): {candidate}"
+                        )
+                        return candidate.resolve()
         except (ImportError, ModuleNotFoundError, Exception):
             pass
 
@@ -458,6 +476,87 @@ def load_workspace_file(filename: str, default: str = "") -> str:
 def load_all_core_files() -> Dict[str, str]:
     """Load all core markdown files into a dict."""
     return {k: load_workspace_file(v) for k, v in CORE_FILES.items()}
+
+
+def write_workspace_file(filename: str, content: str):
+    """Write content to a file in the workspace."""
+    path = get_workspace_path(filename)
+    path.write_text(content, encoding="utf-8")
+    logger.info(f"Updated {filename}")
+
+
+def list_workspace_files() -> List[str]:
+    """List all files in the agent workspace."""
+    workspace = get_agent_workspace()
+    if not workspace.exists():
+        return []
+    return [f.name for f in workspace.iterdir() if f.is_file()]
+
+
+def get_agent_icon_path() -> Optional[str]:
+    """Get the absolute path to the agent icon if it exists."""
+    icon_path = get_workspace_path(CORE_FILES["ICON"])
+    if icon_path.exists():
+        return str(icon_path)
+    return None
+
+
+def get_cron_tasks_from_md() -> List[Dict[str, Any]]:
+    """Parse CRON.md and return active tasks."""
+    content = load_workspace_file(CORE_FILES["CRON"])
+    tasks = []
+    # Simple markdown table parser
+    lines = content.split("\n")
+    for line in lines:
+        if "|" in line and "ID" not in line and "---" not in line:
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) >= 3:
+                tasks.append(
+                    {
+                        "id": parts[0],
+                        "name": parts[1],
+                        "schedule": parts[2],  # Interval in minutes or cron string
+                    }
+                )
+    return tasks
+
+
+def get_cron_logs_from_md() -> List[Dict[str, Any]]:
+    """Parse CRON_LOG.md and return recent history."""
+    content = load_workspace_file(CORE_FILES["CRON_LOG"])
+    logs = []
+    # Each entry starts with "### ["
+    parts = re.split(r"(?=^### \[)", content, flags=re.MULTILINE)
+
+    for part in parts:
+        if not part.strip() or not part.startswith("### ["):
+            continue
+
+        try:
+            # Format: ### [2026-03-07 05:32:11] Log Cleanup (`log-cleanup`)
+            header_match = re.search(r"^### \[(.*?)\] (.*?) \(`(.*?)`\)", part)
+            if header_match:
+                ts = header_match.group(1)
+                name = header_match.group(2)
+                tid = header_match.group(3)
+
+                # Output is after the header line, up to the separator "---"
+                body = part.split("\n\n", 1)[1] if "\n\n" in part else ""
+                output = body.split("\n---")[0].strip()
+
+                logs.append(
+                    {
+                        "timestamp": ts,
+                        "task_id": tid,
+                        "task_name": name,
+                        "status": "success",  # Default for now
+                        "output": output,
+                    }
+                )
+        except Exception as e:
+            logger.debug(f"Error parsing log entry: {e}")
+
+    return logs[::-1]  # Newest first
 
 
 def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
@@ -1086,6 +1185,7 @@ def create_agent_server(
     custom_web_app: Optional[Callable[[Agent], Any]] = None,
     custom_web_mount_path: str = "/",
     web_ui_instructions: Optional[str] = None,
+    html_source: Optional[str | Path] = None,
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: Optional[str] = None,
     system_prompt: Optional[str] = None,
@@ -1155,13 +1255,24 @@ def create_agent_server(
             system_prompt=_system_prompt,
         )
 
-        # Always load default skills for A2A metadata
-        skills_list = []
+        # Unify skill discovery
+        skill_dirs = []
         if default_skills_path := get_skills_path():
-            skills_list = load_skills_from_directory(default_skills_path)
+            skill_dirs.append(default_skills_path)
+
+        try:
+            from universal_skills.skill_utilities import get_universal_skills_path
+
+            skill_dirs.extend(get_universal_skills_path())
+        except ImportError:
+            pass
 
         if custom_skills_directory and os.path.exists(custom_skills_directory):
-            skills_list.extend(load_skills_from_directory(custom_skills_directory))
+            skill_dirs.append(str(custom_skills_directory))
+
+        skills_list = []
+        for d in skill_dirs:
+            skills_list.extend(load_skills_from_directory(d))
 
         # Filter skills based on env vars
         enabled_skills = []
@@ -1309,20 +1420,58 @@ def create_agent_server(
             app.mount(custom_web_mount_path, web_app)
             logger.info(f"Mounted custom web UI at {custom_web_mount_path}")
         elif enable_web_ui:
-            # We ONLY support the enhanced dashboard now as default
-            from .web_app import create_enhanced_web_app
+            try:
+                from agent_web.server import create_agent_web_app
 
-            identity_meta = load_identity()
-            web_app = create_enhanced_web_app(
-                agent_instance,
-                name=_name,
-                description=identity_meta.get("description", DEFAULT_AGENT_DESCRIPTION),
-                emoji=identity_meta.get("emoji", "🤖"),
-            )
-            # Inject reload callback into the web app's state
-            web_app.state.reload_app = None  # Will be set below
-            app.mount("/", web_app)
-            logger.info("Mounted enhanced agent web UI dashboard at /")
+                identity_meta = load_identity()
+                helpers = {
+                    "agent_name": _name,
+                    "agent_description": identity_meta.get(
+                        "description", DEFAULT_AGENT_DESCRIPTION
+                    ),
+                    "agent_emoji": identity_meta.get("emoji", "🤖"),
+                    "get_workspace_path": get_workspace_path,
+                    "load_workspace_file": load_workspace_file,
+                    "write_workspace_file": write_workspace_file,
+                    "write_md_file": write_md_file,
+                    "list_workspace_files": list_workspace_files,
+                    "initialize_workspace": initialize_workspace,
+                    "toggle_skill": lambda sid: f"Skill {sid} toggled (not implemented)",
+                    "list_skills": lambda: [
+                        {
+                            "id": s.id if hasattr(s, "id") else s.get("id"),
+                            "name": s.name if hasattr(s, "name") else s.get("name"),
+                            "description": (
+                                s.description
+                                if hasattr(s, "description")
+                                else s.get("description")
+                            ),
+                            "enabled": True,  # For now
+                        }
+                        for s in skills_list
+                    ],
+                    "get_cron_calendar": get_cron_tasks_from_md,
+                    "get_cron_logs": get_cron_logs_from_md,
+                    "get_agent_icon_path": get_agent_icon_path,
+                    "reload_callback": lambda: (
+                        reloadable.reload() if reloadable else None
+                    ),
+                }
+
+                web_app = create_agent_web_app(
+                    agent_instance,
+                    workspace_helpers=helpers,
+                    html_source=html_source,
+                )
+                # Inject reload callback into the web app's state if needed
+                web_app.state.reload_app = None  # Will be set below
+                app.mount("/", web_app)
+                logger.info("Mounted new standalone agent-web UI dashboard at /")
+            except ImportError:
+                logger.error(
+                    "agent-web package not found. Enhanced UI dashboard disabled."
+                )
+                # Fallback or error
 
         return app
 
@@ -1809,6 +1958,24 @@ async def background_processor(agent: Any):
                 output = str(result.output or "")
                 if output:
                     logger.info(f"Task result: {output[:200]}...")
+
+                # Sync with chat if output exists
+                if output:
+                    try:
+                        # We use a specialized marker [CRON] so the UI can style it
+                        cron_msg = f"[CRON] **{task.name}** executed:\n\n{output}"
+                        # In this architecture, chats are in localStorage on the client.
+                        # However, we can also 'post' them to a dedicated log or a
+                        # 'system' conversation if the backend supports it.
+                        # For now, we'll append it to the CRON_LOG.md which the
+                        # 24-hour view reads.
+                        # To sync with the ACTIVE chat, we'd need a websocket or
+                        # a shared backend-store for messages.
+                        # Let's check if we have a 'broadcast' or 'save_chat' helper.
+                        pass
+                    except Exception as e:
+                        logger.error(f"Failed to sync cron result to chat: {e}")
+
                 append_cron_log(
                     task_id=task.id,
                     task_name=task.name,

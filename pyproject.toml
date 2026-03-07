@@ -20,7 +20,8 @@ dependencies = [
     "urllib3>=2.3.0",
     "pydantic[email]>=2.8.2",
     "PyYAML>=6.0.0",
-    "python-dotenv>=1.2.1"]
+    "python-dotenv>=1.2.1",
+    "agent-web>=0.1.0"]
 
 [[project.authors]]
 name = "Audel Rouhi"
@@ -39,7 +40,7 @@ agent = [
     "agent-utilities[mcp]>=0.2.15",
     "universal-skills>=0.1.26",
     "pydantic-ai-skills>=0.4.1",
-    "pydantic-ai-slim[fastmcp,openai,anthropic,groq,mistral,google,huggingface,a2a,ag-ui,web]>=1.60.0"]
+    "pydantic-ai-slim[fastmcp,openai,anthropic,groq,mistral,google,huggingface,a2a,ag-ui,web,cli]>=1.60.0"]
 embeddings = [
     "llama-index-core>=0.14.15"]
 embeddings-openai = [
