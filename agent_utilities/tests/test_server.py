@@ -8,7 +8,7 @@ from agent_utilities.agent_utilities import (
     create_agent,
     initialize_workspace,
 )
-from agent_utilities.web_app import create_enhanced_web_app
+from agent_web.server import create_agent_web_app as create_enhanced_web_app
 
 
 @pytest.fixture
@@ -23,9 +23,6 @@ def dummy_workspace(tmp_path, monkeypatch):
         return res
 
     monkeypatch.setattr(agent_utilities, "get_workspace_path", mock_get_workspace_path)
-    from agent_utilities import web_app
-
-    monkeypatch.setattr(web_app, "get_workspace_path", mock_get_workspace_path)
 
     yield tmp_path
 
@@ -67,7 +64,13 @@ def test_server_creation_logic(dummy_agent):
 
 def test_enhanced_api_endpoints(dummy_agent):
     # Directly test the enhanced web app
-    app = create_enhanced_web_app(dummy_agent, name="TestBot", emoji="🤖")
+    helpers = {
+        "agent_name": "TestBot",
+        "agent_emoji": "🤖",
+        "get_workspace_path": lambda x="": x,
+        "list_workspace_files": lambda: ["IDENTITY.md"],
+    }
+    app = create_enhanced_web_app(dummy_agent, workspace_helpers=helpers)
     client = TestClient(app)
 
     # Test info endpoint
@@ -80,11 +83,8 @@ def test_enhanced_api_endpoints(dummy_agent):
     # Test files endpoint
     response = client.get("/api/enhanced/files")
     assert response.status_code == 200
-    assert "config" in response.json()
-
-    # Verify IDENTITY.md was generated and is returned
-    config_files = response.json()["config"]
-    assert "IDENTITY.md" in config_files
+    files = response.json()
+    assert "IDENTITY.md" in files
 
 
 def test_cli_parser(monkeypatch):
