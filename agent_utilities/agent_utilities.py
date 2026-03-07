@@ -1962,8 +1962,6 @@ async def background_processor(agent: Any):
                 # Sync with chat if output exists
                 if output:
                     try:
-                        # We use a specialized marker [CRON] so the UI can style it
-                        cron_msg = f"[CRON] **{task.name}** executed:\n\n{output}"
                         # In this architecture, chats are in localStorage on the client.
                         # However, we can also 'post' them to a dedicated log or a
                         # 'system' conversation if the backend supports it.
