@@ -8,7 +8,7 @@ from agent_utilities.agent_utilities import (
     create_agent,
     initialize_workspace,
 )
-from agent_web.server import create_agent_web_app as create_enhanced_web_app
+from agent_webui.server import create_agent_web_app as create_enhanced_web_app
 
 
 @pytest.fixture
