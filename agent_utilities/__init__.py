@@ -27,7 +27,7 @@ from .base_utilities import (
 from .embedding_utilities import create_embedding_model
 from .models import PeriodicTask
 
-__version__ = "0.2.18"
+__version__ = "0.2.19"
 
 __all__ = [
     "create_agent",
