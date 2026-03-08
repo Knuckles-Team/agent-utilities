@@ -12,6 +12,7 @@ import yaml
 import httpx
 import argparse
 import base64
+import contextvars
 
 # import uvicorn  # Optional
 from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
@@ -24,8 +25,8 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from importlib.resources import files, as_file
 
-# from fastapi import FastAPI, Request  # Optional
-# from starlette.responses import Response, StreamingResponse  # Optional
+from fastapi import FastAPI, Request
+from starlette.responses import Response, StreamingResponse
 from pydantic import ValidationError
 
 from pydantic_ai import Agent, ModelSettings
@@ -55,6 +56,217 @@ from .models import PeriodicTask
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
+
+elicitation_queue_var = contextvars.ContextVar("elicitation_queue", default=None)
+
+
+class ElicitationManager:
+    """
+    Manages active elicitation requests between MCP servers and the web frontends.
+    """
+
+    def __init__(self):
+        self.pending_requests: Dict[str, asyncio.Future] = {}
+        self.lock = asyncio.Lock()
+
+    async def create_request(
+        self, message: str, schema: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        import uuid
+
+        request_id = str(uuid.uuid4())
+        future = asyncio.get_running_loop().create_future()
+
+        async with self.lock:
+            self.pending_requests[request_id] = future
+
+        # Get the queue for the current session if it exists
+        queue = elicitation_queue_var.get()
+        logger.info(
+            f"ElicitationManager.create_request: queue is {'NOT ' if queue is None else ''}None (ID: {id(queue) if queue else 'N/A'})"
+        )
+        if queue:
+            await queue.put(
+                {
+                    "type": "elicitation",
+                    "id": request_id,
+                    "message": message,
+                    "schema": schema,
+                }
+            )
+
+        try:
+            logger.info(f"Elicitation requested: {message} (ID: {request_id})")
+            # Wait for the future to be resolved by the POST /api/elicit endpoint
+            return await future
+        finally:
+            async with self.lock:
+                self.pending_requests.pop(request_id, None)
+
+    async def resolve_request(self, request_id: str, result: Any):
+        async with self.lock:
+            if request_id in self.pending_requests:
+                # result should be pydantic-ai ElicitResult or similar
+                if not self.pending_requests[request_id].done():
+                    self.pending_requests[request_id].set_result(result)
+                    return True
+        return False
+
+
+elicitation_manager = ElicitationManager()
+
+
+async def global_elicitation_callback(context, params):
+    """
+    Global callback for MCP elicitation.
+    """
+    import asyncio
+
+    current_task = asyncio.current_task()
+    q = elicitation_queue_var.get()
+    logger.info(
+        f"global_elicitation_callback: task={current_task.get_name() if current_task else 'N/A'}, queue={'set' if q else 'None'}"
+    )
+
+    # FastMCP uses params.message and params.requestedSchema (raw JSON schema)
+    # pydantic-ai's ElicitResult expects data to be a content dict or object.
+    from mcp.types import ElicitResult
+
+    result_data = await elicitation_manager.create_request(
+        message=params.message, schema=params.requestedSchema
+    )
+
+    # result_data is expected to be a dict or object from the frontend
+    # If the user declined or cancelled, result_data should indicate that.
+    action = "accept"
+    content = result_data
+
+    if isinstance(result_data, dict):
+        if "_action" in result_data:
+            action = result_data.pop("_action")
+            content = result_data.get("content")
+
+    return ElicitResult(action=action, content=content)
+
+
+SENSITIVE_TOOL_PATTERNS = [
+    # Destructive Ops
+    r".*delete.*",
+    r".*remove.*",
+    r".*rm_.*",
+    r".*rmdir.*",
+    r".*drop.*",
+    r".*truncate.*",
+    r".*prune.*",
+    # Process/System Interrupts
+    r".*kill.*",
+    r".*terminate.*",
+    r".*reboot.*",
+    r".*shutdown.*",
+    # Deployment & Versioning
+    r".*install.*",
+    r".*uninstall.*",
+    r".*redeploy.*",
+    r".*bump.*",
+    # Resource Creation
+    r".*create.*",
+    r".*add.*",
+    r".*post.*",
+    r".*put.*",
+    r".*insert.*",
+    r".*upload.*",
+    r".*ingest.*",
+    r".*write.*",
+    # State Modifications
+    r".*update.*",
+    r".*patch.*",
+    r".*set.*",
+    r".*reset.*",
+    r".*clear.*",
+    r".*revert.*",
+    r".*replace.*",
+    r".*rename.*",
+    r".*move.*",
+    r".*rotate.*",
+    # Lifecycle Management
+    r".*start.*",
+    r".*stop.*",
+    r".*restart.*",
+    r".*pause.*",
+    r".*unpause.*",
+    # Command/Script Execution
+    r".*execute.*",
+    r".*shell.*",
+    r".*run_.*",
+    r".*git_.*",
+    # Access & Features
+    r".*enable.*",
+    r".*disable.*",
+    r".*activate.*",
+    r".*approve.*",
+    # Direct Data Protocols
+    r".*graphql.*",
+    r".*mutation.*",
+]
+
+
+async def global_tool_guard(ctx, call_tool, name, tool_args):
+    """
+    Global tool guard that intercepts sensitive tool calls and requires elicitation.
+    """
+    import re
+    import json
+
+    # Check if guard is disabled
+    if to_boolean(os.getenv("DISABLE_TOOL_GUARD", "False")):
+        return await call_tool(name, tool_args)
+
+    # Check if tool name matches any sensitive pattern
+    is_sensitive = any(
+        re.match(pattern, name.lower()) for pattern in SENSITIVE_TOOL_PATTERNS
+    )
+
+    if is_sensitive:
+        logger.info(f"Universal Tool Guard: Intercepted sensitive tool '{name}'")
+
+        # Trigger elicitation for confirmation
+        params = type(
+            "obj",
+            (object,),
+            {
+                "message": f"Tool **{name}** is marked as sensitive. Do you want to proceed with the following arguments?\n\n```json\n{json.dumps(tool_args, indent=2)}\n```",
+                "requestedSchema": {
+                    "type": "object",
+                    "properties": {
+                        "confirm": {
+                            "type": "boolean",
+                            "description": "Confirm execution",
+                        }
+                    },
+                    "required": ["confirm"],
+                },
+            },
+        )
+
+        # Use our own callback directly to bridge to the UI
+        try:
+            result = await global_elicitation_callback(None, params)
+            if result.action != "accept" or not (
+                isinstance(result.content, dict) and result.content.get("confirm")
+            ):
+                logger.info(
+                    f"Universal Tool Guard: User rejected execution of '{name}'"
+                )
+                return "Execution rejected by user."
+        except Exception as e:
+            logger.error(f"Universal Tool Guard: Elicitation failed: {e}")
+            # Fallback to safety: if elicitation fails, we block sensitive calls
+            return f"Execution blocked due to elicitation failure: {e}"
+
+    # Proceed with the original tool call
+    return await call_tool(name, tool_args)
+
+
 CORE_FILES = {
     "IDENTITY": "IDENTITY.md",
     "USER": "USER.md",
@@ -62,6 +274,7 @@ CORE_FILES = {
     "MEMORY": "MEMORY.md",
     "CRON": "CRON.md",
     "CRON_LOG": "CRON_LOG.md",
+    "CHATS": "chats",
     "MCP_CONFIG": "mcp_config.json",
     "ICON": "icon.png",
 }
@@ -533,12 +746,15 @@ def get_cron_logs_from_md() -> List[Dict[str, Any]]:
             continue
 
         try:
-            # Format: ### [2026-03-07 05:32:11] Log Cleanup (`log-cleanup`)
-            header_match = re.search(r"^### \[(.*?)\] (.*?) \(`(.*?)`\)", part)
+            # Format: ### [2026-03-07 05:32:11] Log Cleanup (`log-cleanup`) | [View Chat](/chat_id)
+            header_match = re.search(
+                r"^### \[(.*?)\] (.*?) \(`(.*?)`\)(?: \| \[View Chat\]\((.*?)\))?", part
+            )
             if header_match:
                 ts = header_match.group(1)
                 name = header_match.group(2)
                 tid = header_match.group(3)
+                cid = header_match.group(4) if header_match.lastindex >= 4 else None
 
                 # Output is after the header line, up to the separator "---"
                 body = part.split("\n\n", 1)[1] if "\n\n" in part else ""
@@ -551,12 +767,88 @@ def get_cron_logs_from_md() -> List[Dict[str, Any]]:
                         "task_name": name,
                         "status": "success",  # Default for now
                         "output": output,
+                        "chat_id": cid.lstrip("/") if cid else None,
                     }
                 )
         except Exception as e:
             logger.debug(f"Error parsing log entry: {e}")
 
     return logs[::-1]  # Newest first
+
+
+def save_chat_to_disk(chat_id: str, messages: List[Dict[str, Any]]):
+    """Save a chat conversation to a JSON file in the chats directory."""
+    chats_dir = get_workspace_path(CORE_FILES["CHATS"])
+    chats_dir.mkdir(parents=True, exist_ok=True)
+    path = chats_dir / f"{chat_id}.json"
+
+    # Add a timestamp if not present in metadata
+    chat_data = {
+        "id": chat_id,
+        "timestamp": datetime.now().isoformat(),
+        "messages": messages,
+    }
+
+    path.write_text(json.dumps(chat_data, indent=2), encoding="utf-8")
+    logger.info(f"Saved chat {chat_id} to disk")
+
+
+def list_chats_from_disk() -> List[Dict[str, Any]]:
+    """List all chats stored in the workspace."""
+    chats_dir = get_workspace_path(CORE_FILES["CHATS"])
+    if not chats_dir.exists():
+        return []
+
+    chats = []
+    for f in chats_dir.glob("*.json"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            message_text = ""
+            if data.get("messages") and len(data["messages"]) > 0:
+                first_msg = data["messages"][0]
+                if isinstance(first_msg.get("content"), str):
+                    message_text = first_msg["content"]
+                elif isinstance(first_msg.get("content"), list):
+                    # Handle multimodal or complex content
+                    message_text = str(first_msg["content"][0])
+
+            chats.append(
+                {
+                    "id": data.get("id", f.stem),
+                    "firstMessage": message_text[:100],
+                    "timestamp": data.get(
+                        "timestamp",
+                        datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+                    ),
+                }
+            )
+        except Exception as e:
+            logger.debug(f"Error loading chat file {f}: {e}")
+
+    return sorted(chats, key=lambda x: x["timestamp"], reverse=True)
+
+
+def get_chat_from_disk(chat_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a specific chat from disk."""
+    path = get_workspace_path(CORE_FILES["CHATS"]) / f"{chat_id}.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.error(f"Error reading chat {chat_id}: {e}")
+    return None
+
+
+def delete_chat_from_disk(chat_id: str) -> bool:
+    """Delete a chat file from workspace."""
+    path = get_workspace_path(CORE_FILES["CHATS"]) / f"{chat_id}.json"
+    if path.exists():
+        try:
+            path.unlink()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting chat {chat_id}: {e}")
+    return False
 
 
 def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
@@ -680,7 +972,7 @@ DEFAULT_HOST = os.getenv("HOST", "0.0.0.0")
 DEFAULT_PORT = to_integer(os.getenv("PORT", "9000"))
 DEFAULT_DEBUG = to_boolean(os.getenv("DEBUG", "False"))
 DEFAULT_PROVIDER = os.getenv("PROVIDER", "openai")
-DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "qwen/qwen3-coder-next")
+DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "qwen/qwen3.5-35b-a3b")
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "ollama")
 DEFAULT_MCP_URL = os.getenv("MCP_URL", None)
@@ -1049,6 +1341,7 @@ def create_agent(
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: Optional[str] = DEFAULT_AGENT_NAME,
     system_prompt: Optional[str] = DEFAULT_AGENT_SYSTEM_PROMPT,
+    elicitation_callback: Optional[Callable] = None,
 ) -> Agent:
     """
     Create a Pydantic AI Agent
@@ -1079,6 +1372,8 @@ def create_agent(
                 http_client=httpx.AsyncClient(
                     verify=ssl_verify, timeout=DEFAULT_TIMEOUT
                 ),
+                elicitation_callback=elicitation_callback,
+                process_tool_call=global_tool_guard,
             )
         else:
             server = MCPServerStreamableHTTP(
@@ -1086,6 +1381,8 @@ def create_agent(
                 http_client=httpx.AsyncClient(
                     verify=ssl_verify, timeout=DEFAULT_TIMEOUT
                 ),
+                elicitation_callback=elicitation_callback,
+                process_tool_call=global_tool_guard,
             )
         agent_toolsets.append(server)
         logger.info(f"Connected to MCP Server: {mcp_url}")
@@ -1096,6 +1393,19 @@ def create_agent(
                 if hasattr(server, "http_client"):
                     server.http_client = httpx.AsyncClient(
                         verify=ssl_verify, timeout=DEFAULT_TIMEOUT
+                    )
+                if hasattr(server, "elicitation_callback"):
+                    server.elicitation_callback = elicitation_callback
+                    logger.info(f"Set elicitation_callback on MCP Server: {server}")
+
+                if hasattr(server, "process_tool_call"):
+                    server.process_tool_call = global_tool_guard
+                    logger.info(
+                        f"Set process_tool_call (Tool Guard) on MCP Server: {server}"
+                    )
+                else:
+                    logger.warning(
+                        f"MCP Server {server} does not have process_tool_call attribute"
                     )
             agent_toolsets.extend(mcp_toolset)
             logger.info(f"Connected to MCP Config: {mcp_config}")
@@ -1202,8 +1512,6 @@ def create_agent_server(
     a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
 ):
     import uvicorn
-    from fastapi import FastAPI, Request
-    from starlette.responses import Response, StreamingResponse
     from fasta2a import Skill
 
     print(
@@ -1253,6 +1561,7 @@ def create_agent_server(
             ssl_verify=ssl_verify,
             name=_name,
             system_prompt=_system_prompt,
+            elicitation_callback=global_elicitation_callback,
         )
 
         # Unify skill discovery
@@ -1266,6 +1575,16 @@ def create_agent_server(
             skill_dirs.extend(get_universal_skills_path())
         except ImportError:
             pass
+
+        # Load skill-graphs if available
+        try:
+            from skill_graphs.skill_graph_utilities import get_skill_graphs_path
+
+            skill_dirs.extend(get_skill_graphs_path())
+        except ImportError:
+            logger.debug(
+                "skill-graphs package not found, skipping skill-graphs loading."
+            )
 
         if custom_skills_directory and os.path.exists(custom_skills_directory):
             skill_dirs.append(str(custom_skills_directory))
@@ -1382,6 +1701,19 @@ def create_agent_server(
 
         app.mount("/a2a", a2a_app)
 
+        @app.post("/api/elicit")
+        async def resolve_elicit(request: Request):
+            data = await request.json()
+            rid = data.get("id")
+            result = data.get("result")
+            if await elicitation_manager.resolve_request(rid, result):
+                return {"status": "OK"}
+            return Response(
+                content=json.dumps({"error": "Request not found"}),
+                status_code=404,
+                media_type="application/json",
+            )
+
         @app.post("/ag-ui")
         async def ag_ui_endpoint(request: Request) -> Response:
             from pydantic_ai.ui import SSE_CONTENT_TYPE
@@ -1403,8 +1735,82 @@ def create_agent_server(
             adapter = AGUIAdapter(
                 agent=agent_instance, run_input=run_input, accept=accept
             )
-            event_stream = adapter.run_stream()
-            sse_stream = adapter.encode_stream(event_stream)
+
+            async def merged_event_stream():
+                queue = asyncio.Queue()
+                logger.info(f"merged_event_stream: created queue with ID: {id(queue)}")
+                output_queue = asyncio.Queue()
+
+                async def run_agent():
+                    token = elicitation_queue_var.set(queue)
+                    logger.info(
+                        f"run_agent: set elicitation_queue_var to ID: {id(queue)}"
+                    )
+                    try:
+                        logger.info("run_agent task started")
+                        async for event in adapter.run_stream():
+                            logger.info(
+                                f"run_agent yielded event: {getattr(event, 'type', type(event))}"
+                            )
+                            await output_queue.put(event)
+                    except Exception as e:
+                        logger.error(f"Error in agent run task: {e}")
+                    finally:
+                        elicitation_queue_var.reset(token)
+                        logger.info("run_agent task finished")
+                        await output_queue.put(None)
+
+                async def listen_queue():
+                    try:
+                        logger.info("listen_queue task started")
+                        while True:
+                            event = await queue.get()
+                            logger.info(
+                                f"listen_queue received item: {event.get('type')}"
+                            )
+                            await output_queue.put(event)
+                    except asyncio.CancelledError:
+                        logger.info("listen_queue task cancelled")
+                    except Exception as e:
+                        logger.error(f"Error in queue listener task: {e}")
+
+                agent_task = asyncio.create_task(run_agent())
+                queue_task = asyncio.create_task(listen_queue())
+
+                try:
+                    while True:
+                        event = await output_queue.get()
+                        logger.info(
+                            f"merged_event_stream: got event from output_queue: {getattr(event, 'type', event.get('type') if isinstance(event, dict) else type(event))}"
+                        )
+                        if event is None:
+                            break
+                        yield event
+                finally:
+                    agent_task.cancel()
+                    queue_task.cancel()
+
+            event_stream = merged_event_stream()
+
+            async def custom_encode_stream(stream):
+                async for event in stream:
+                    logger.info(
+                        f"custom_encode_stream processing event type: {getattr(event, 'type', event.get('type') if isinstance(event, dict) else type(event))}"
+                    )
+                    if isinstance(event, dict):
+                        # Handle our custom elicitation event
+                        # ...
+                        yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
+                    else:
+                        # Handle pydantic-ai events (use their encoding logic if possible, or manual)
+                        # We can't easily call adapter.encode_stream on a single event
+                        # But we can see what it does.
+                        if hasattr(event, "model_dump_json"):
+                            yield f"data: {event.model_dump_json()}\n\n".encode("utf-8")
+                        else:
+                            yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
+
+            sse_stream = custom_encode_stream(event_stream)
 
             return StreamingResponse(
                 sse_stream,
@@ -1453,6 +1859,10 @@ def create_agent_server(
                     "get_cron_calendar": get_cron_tasks_from_md,
                     "get_cron_logs": get_cron_logs_from_md,
                     "get_agent_icon_path": get_agent_icon_path,
+                    "save_chat": save_chat_to_disk,
+                    "list_chats": list_chats_from_disk,
+                    "get_chat": get_chat_from_disk,
+                    "delete_chat": delete_chat_from_disk,
                     "reload_callback": lambda: (
                         reloadable.reload() if reloadable else None
                     ),
@@ -1826,15 +2236,20 @@ def resolve_prompt(prompt_str: str) -> str:
 DEFAULT_MAX_CRON_LOG_ENTRIES = 50
 
 
-def append_cron_log(task_id: str, task_name: str, output: str):
+def append_cron_log(
+    task_id: str, task_name: str, output: str, chat_id: Optional[str] = None
+):
     """Append a timestamped entry to CRON_LOG.md."""
     path = get_workspace_path("CRON_LOG.md")
     if not path.exists():
         initialize_workspace()
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    chat_info = f" | [View Chat](/{chat_id})" if chat_id else ""
     entry = (
-        f"\n### [{ts}] {task_name} (`{task_id}`)\n\n" f"{output.strip()}\n\n" f"---\n"
+        f"\n### [{ts}] {task_name} (`{task_id}`){chat_info}\n\n"
+        f"{output.strip()}\n\n"
+        f"---\n"
     )
     with open(path, "a", encoding="utf-8") as f:
         f.write(entry)
@@ -1955,29 +2370,49 @@ async def background_processor(agent: Any):
 
                 logger.info(f"Running periodic task → {task.name} (ID: {task.id})")
                 result = await agent.run(resolved_prompt)
+
+                # Capture output
                 output = str(result.output or "")
                 if output:
                     logger.info(f"Task result: {output[:200]}...")
 
-                # Sync with chat if output exists
-                if output:
-                    try:
-                        # In this architecture, chats are in localStorage on the client.
-                        # However, we can also 'post' them to a dedicated log or a
-                        # 'system' conversation if the backend supports it.
-                        # For now, we'll append it to the CRON_LOG.md which the
-                        # 24-hour view reads.
-                        # To sync with the ACTIVE chat, we'd need a websocket or
-                        # a shared backend-store for messages.
-                        # Let's check if we have a 'broadcast' or 'save_chat' helper.
-                        pass
-                    except Exception as e:
-                        logger.error(f"Failed to sync cron result to chat: {e}")
+                # Create a persistent chat entry for this run
+                try:
+                    chat_id = (
+                        f"cron-{task.id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+                    )
+                    messages = []
+
+                    # Add user message (the prompt)
+                    messages.append(
+                        {
+                            "id": "msg-u-1",
+                            "role": "user",
+                            "content": resolved_prompt,
+                            "parts": [{"type": "text", "text": resolved_prompt}],
+                        }
+                    )
+
+                    # Add assistant response
+                    messages.append(
+                        {
+                            "id": "msg-a-1",
+                            "role": "assistant",
+                            "content": output,
+                            "parts": [{"type": "text", "text": output}],
+                        }
+                    )
+
+                    save_chat_to_disk(chat_id, messages)
+                except Exception as e:
+                    logger.error(f"Failed to save cron chat: {e}")
+                    chat_id = None
 
                 append_cron_log(
                     task_id=task.id,
                     task_name=task.name,
                     output=output or "(no output)",
+                    chat_id=chat_id,
                 )
             except Exception as e:
                 logger.error(f"Error running periodic task {task.id}: {e}")
