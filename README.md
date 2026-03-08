@@ -32,6 +32,7 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 - **Agent Creation**: Streamlined `create_agent` function that handles MCP servers, skills, and model configuration automatically.
 - **Multi-Agent Support**: Native support for the supervisor pattern, allowing complex tasks to be delegated to specialized child agents.
 - **Agent Server**: Built-in FastAPI server (`create_agent_server`) with SSE support for easy integration into web UIs and A2A networks.
+- **Elicitation Support**: Built-in flow for handling structured user input requests from MCP servers, seamlessly integrated with the Web UI.
 - **Workspace Management**: Automated management of agent state through standard markdown files (`IDENTITY.md`, `MEMORY.md`, `USER.md`).
 - **A2A Integration**: Seamless discovery and communication between agents in a distributed network.
 - **Periodic Scheduler**: In-memory task scheduler for running background agent jobs.
