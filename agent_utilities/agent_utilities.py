@@ -416,7 +416,7 @@ WORKSPACE_DIR: Optional[str] = None
 
 def get_skills_path() -> Optional[str]:
     try:
-        skills_dir = files(retrieve_package_name()) / "skills"
+        skills_dir = os.path.join(files(retrieve_package_name()), "skills")
         if not skills_dir.is_dir():
             return None
         with as_file(skills_dir) as path:
@@ -426,11 +426,19 @@ def get_skills_path() -> Optional[str]:
         return None
 
 
-def get_mcp_config_path() -> str:
-    mcp_config_file = files(retrieve_package_name()) / "mcp_config.json"
-    with as_file(mcp_config_file) as path:
-        mcp_config_path = str(path)
-    return mcp_config_path
+def get_mcp_config_path() -> Optional[str]:
+    """Find mcp_config.json in the calling package's resources."""
+    try:
+        mcp_config_file = os.path.join(
+            files(retrieve_package_name()), "agent", "mcp_config.json"
+        )
+        if not mcp_config_file.is_file():
+            return None
+        with as_file(mcp_config_file) as path:
+            return str(path)
+    except Exception as e:
+        logger.debug(f"Error accessing mcp_config path: {e}")
+        return None
 
 
 def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
@@ -601,23 +609,23 @@ def get_agent_workspace() -> Path:
     pkg = retrieve_package_name()
     if pkg and pkg != "agent_utilities":
         try:
-            # First try built-in resources
+            # A. Check for local dev structure: Path.cwd() / pkg / "agent"
+            # This is critical for users running from source without -e install
+            pkg_local_agent = Path.cwd() / pkg / "agent"
+            if pkg_local_agent.is_dir():
+                p = pkg_local_agent.resolve()
+                logger.debug(f"Discovery Tier 3A (Local Package Dev {pkg}): {p}")
+                return p
+
+            # B. Try built-in resources (for installed packages)
             pkg_agent_dir = files(pkg) / "agent"
-            # If it's already a Path object (local install), just use it
-            if hasattr(pkg_agent_dir, "joinpath") and hasattr(pkg_agent_dir, "resolve"):
-                p = Path(str(pkg_agent_dir)).resolve()
-                if p.is_dir():
-                    logger.debug(f"Discovery Tier 3 (Package {pkg}): {p}")
-                    return p
-
-            # Fallback to as_file for non-local resources
-            with as_file(pkg_agent_dir) as path:
-                if path.is_dir():
+            if pkg_agent_dir.is_dir():
+                with as_file(pkg_agent_dir) as path:
                     p = path.resolve()
-                    logger.debug(f"Discovery Tier 3 (Package Resource {pkg}): {p}")
+                    logger.debug(f"Discovery Tier 3B (Package Resource {pkg}): {p}")
                     return p
 
-            # Alternative: find spec and check parent
+            # C. Alternative: find spec and check parent
             import importlib.util
 
             spec = importlib.util.find_spec(pkg)
@@ -631,13 +639,13 @@ def get_agent_workspace() -> Path:
                 for candidate in candidates:
                     if candidate.is_dir():
                         logger.debug(
-                            f"Discovery Tier 3.5 (Package Spec {pkg}): {candidate}"
+                            f"Discovery Tier 3C (Package Spec {pkg}): {candidate}"
                         )
                         return candidate.resolve()
-        except (ImportError, ModuleNotFoundError, Exception):
-            pass
+        except (ImportError, ModuleNotFoundError, Exception) as e:
+            logger.debug(f"Discovery Tier 3 error for {pkg}: {e}")
 
-    # 4. Local fallback
+    # 4. Local fallback (Current directory / agent)
     local_agent = Path.cwd() / "agent"
     if local_agent.is_dir():
         p = local_agent.resolve()
@@ -976,7 +984,7 @@ DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "qwen/qwen3.5-35b-a3b")
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "ollama")
 DEFAULT_MCP_URL = os.getenv("MCP_URL", None)
-DEFAULT_MCP_CONFIG = os.getenv("MCP_CONFIG", None)
+DEFAULT_MCP_CONFIG = os.getenv("MCP_CONFIG", get_mcp_config_path())
 DEFAULT_CUSTOM_SKILLS_DIRECTORY = os.getenv("CUSTOM_SKILLS_DIRECTORY", None)
 DEFAULT_ENABLE_WEB_UI = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
 DEFAULT_ENABLE_OTEL = to_boolean(os.getenv("ENABLE_OTEL", "False"))
@@ -1388,6 +1396,15 @@ def create_agent(
         logger.info(f"Connected to MCP Server: {mcp_url}")
     if mcp_config:
         try:
+            # Prioritize local package config if mcp_config is just a filename
+            if not os.path.isabs(mcp_config) and "/" not in mcp_config:
+                pkg = retrieve_package_name()
+                if pkg and pkg != "agent_utilities":
+                    local_pkg_config = Path.cwd() / pkg / mcp_config
+                    if local_pkg_config.exists():
+                        mcp_config = str(local_pkg_config)
+                        logger.info(f"Prioritizing Local Package Config: {mcp_config}")
+
             mcp_toolset = load_mcp_servers(mcp_config)
             for server in mcp_toolset:
                 if hasattr(server, "http_client"):
