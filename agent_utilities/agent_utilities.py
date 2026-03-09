@@ -690,7 +690,9 @@ def load_workspace_file(filename: str, default: str = "") -> str:
     """Read markdown file content. Returns default if missing."""
     path = get_workspace_path(filename)
     if path.exists():
+        logger.debug(f"Loading workspace file: {path}")
         return path.read_text(encoding="utf-8").strip()
+    logger.debug(f"Workspace file not found: {path} (using default)")
     return default
 
 
@@ -865,16 +867,21 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     Order matters — IDENTITY → USER → AGENTS → MEMORY → custom fallback
     """
     parts = []
+    included_files = []
 
     for key in ["IDENTITY", "USER", "AGENTS", "MEMORY"]:
         content = load_workspace_file(CORE_FILES[key])
         if content.strip():
             parts.append(f"---\n# {CORE_FILES[key]}\n{content}\n---")
+            included_files.append(CORE_FILES[key])
 
     if fallback_prompt:
         parts.append(fallback_prompt)
+        included_files.append("fallback_prompt")
 
-    return "\n\n".join(parts).strip()
+    prompt = "\n\n".join(parts).strip()
+    logger.info(f"Built System Prompt from files: {', '.join(included_files)}")
+    return prompt
 
 
 def parse_identity_md(content: str) -> Dict[str, Dict[str, str]]:
@@ -973,9 +980,8 @@ except Exception:
 
 DEFAULT_AGENT_NAME = os.getenv("DEFAULT_AGENT_NAME", meta["name"])
 DEFAULT_AGENT_DESCRIPTION = os.getenv("AGENT_DESCRIPTION", meta["description"])
-DEFAULT_AGENT_SYSTEM_PROMPT = os.getenv(
-    "AGENT_SYSTEM_PROMPT", build_system_prompt_from_workspace()
-)
+# Don't call build_system_prompt_from_workspace() at module level to allow logging setup first
+DEFAULT_AGENT_SYSTEM_PROMPT = os.getenv("AGENT_SYSTEM_PROMPT", None)
 DEFAULT_HOST = os.getenv("HOST", "0.0.0.0")
 DEFAULT_PORT = to_integer(os.getenv("PORT", "9000"))
 DEFAULT_DEBUG = to_boolean(os.getenv("DEBUG", "False"))
@@ -1114,7 +1120,12 @@ def create_agent_parser():
     parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT, help="Port to bind the server to"
     )
-    parser.add_argument("--debug", type=bool, default=DEFAULT_DEBUG, help="Debug mode")
+    parser.add_argument(
+        "--debug",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_DEBUG,
+        help="Enable/disable debug mode",
+    )
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
 
     parser.add_argument(
@@ -1350,6 +1361,7 @@ def create_agent(
     name: Optional[str] = DEFAULT_AGENT_NAME,
     system_prompt: Optional[str] = DEFAULT_AGENT_SYSTEM_PROMPT,
     elicitation_callback: Optional[Callable] = None,
+    debug: bool = DEFAULT_DEBUG,
 ) -> Agent:
     """
     Create a Pydantic AI Agent
@@ -1471,6 +1483,11 @@ def create_agent(
     skills = SkillsToolset(directories=skill_dirs)
     agent_toolsets.append(skills)
     logger.info(f"Loaded Skills at {get_universal_skills_path()}")
+    # Finalize prompt if not provided
+    if system_prompt is None:
+        system_prompt = build_system_prompt_from_workspace()
+    elif debug:
+        logger.info(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
 
     agent = Agent(
         model=model,
@@ -1482,12 +1499,23 @@ def create_agent(
         deps_type=Any,
     )
 
-    # Dynamic system prompt if none provided or using default
-    if system_prompt == DEFAULT_AGENT_SYSTEM_PROMPT:
+    # Dynamic system prompt if building from workspace files
+    # (Checking if it was initialized from build_system_prompt_from_workspace)
+    if system_prompt and "# IDENTITY.md" in system_prompt:
 
         @agent.system_prompt
         def dynamic_context() -> str:
-            return build_system_prompt_from_workspace()
+            prompt = build_system_prompt_from_workspace()
+            if debug:
+                logger.info(
+                    "DEBUG: Full Assembled System Prompt:\n"
+                    + "=" * 40
+                    + "\n"
+                    + prompt
+                    + "\n"
+                    + "=" * 40
+                )
+            return prompt
 
     # Register Universal Tools (Workspace, A2A, Scheduler)
     from .tools import register_agent_tools
@@ -1579,6 +1607,7 @@ def create_agent_server(
             name=_name,
             system_prompt=_system_prompt,
             elicitation_callback=global_elicitation_callback,
+            debug=debug,
         )
 
         # Unify skill discovery
