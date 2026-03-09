@@ -1,7 +1,7 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
 
-__version__ = "0.2.19"
+__version__ = "0.2.20"
 
 
 class PeriodicTask(BaseModel):
