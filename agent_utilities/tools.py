@@ -32,7 +32,7 @@ DEFAULT_DYNAMIC_TOOLS = to_boolean(string=os.environ.get("DYNAMIC_TOOLS", "True"
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.2.24"
+__version__ = "0.2.25"
 
 
 def register_agent_tools(agent: Agent):
