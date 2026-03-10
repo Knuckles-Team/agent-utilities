@@ -187,3 +187,12 @@ async def book_table(restaurant: str, ctx: Context) -> str:
 - Refer to `agent_utilities.py` for the implementation details of `create_agent`.
 - Review `mcp_utilities.py` for how tools are being registered and exposed to MCP.
 - Ask for clarification if the multi-agent supervisor logic is unclear.
+
+## Pydantic AI VercelAIAdapter Integration Notes
+When using `pydantic-ai` with the `VercelAIAdapter` (which handles `/api/chat` requests from the React frontend):
+- The frontend (Vercel AI SDK) provides the **entire conversation history** in every payload.
+- Pydantic AI's `UserPromptNode` logic assumes that if a `message_history` is provided, the conversation is simply being "resumed". 
+- As a result, Pydantic AI **skips** applying any static `system_prompt`s defined in `Agent.__init__` because it assumes the system prompt must have been added earlier in the history.
+- The `agent-webui` React application does *not* explicitly pass the system message in its payload. Therefore, static system prompts get silently dropped during `/api/chat` inferences.
+- **Solution:** Always use the dynamic `@agent.instructions` decorator for critical agent identity injection. Pydantic AI's graph evaluates dynamic instructions on *every* `ModelRequest` regardless of existing message history, ensuring the identity is always passed to the LLM.
+
