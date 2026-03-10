@@ -63,7 +63,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.23"
+__version__ = "0.2.24"
 
 
 def to_float(string=None):
@@ -183,6 +183,7 @@ def retrieve_package_name() -> str:
     Works reliably when utils.py is inside a proper package (with __init__.py or
     implicit namespace package) and the caller does normal imports.
     """
+    first_external_frame_package = None
     skip_packages = (
         "agent_utilities",
         "universal_skills",
@@ -203,51 +204,59 @@ def retrieve_package_name() -> str:
         "logging",
         "asyncio",
     )
-    first_external_frame_package = None
-
     try:
-        for frame_info in inspect.stack():
+        stack = inspect.stack()
+        for i, frame_info in enumerate(stack):
             frame_file = frame_info.filename
             if not frame_file or not os.path.exists(frame_file):
                 continue
 
             path = Path(frame_file).resolve()
 
-            # Check if this file belongs to a skipped package
+            # Logic: We want to find the first package in the stack that is NOT a skipped one.
+            # We look for markers (pyproject.toml, etc.) but also just the parent dir if it has an __init__.py
+
+            # Skip if file itself or any parent is in skip_packages
             is_skipped = False
-            for parent in path.parents:
-                if parent.name in skip_packages:
+            for part in path.parts:
+                if part in skip_packages:
                     is_skipped = True
                     break
             if is_skipped:
                 continue
 
-            # If we are here, we are in a file NOT in a skipped package
+            # Candidates for package name
+            # 1. The parent directory if it has __init__.py
+            # 2. Search upwards for a project root marker
+            curr = path.parent
+            for _ in range(4):  # Search up to 4 levels
+                if (curr / "pyproject.toml").is_file() or (curr / "setup.py").is_file():
+                    pkg_name = curr.name.replace("-", "_")
+                    if pkg_name not in skip_packages:
+                        return pkg_name
+
+                if (curr / "__init__.py").is_file():
+                    pkg_name = curr.name.replace("-", "_")
+                    if pkg_name not in skip_packages:
+                        # Keep searching up for pyproject.toml to be sure, but store this as a fallback
+                        if not first_external_frame_package:
+                            first_external_frame_package = pkg_name
+
+                if curr == curr.parent:
+                    break
+                curr = curr.parent
+
+            # If we are here, we are in a file that is not skipped.
+            # If it's a script in a directory, use the directory name as fallback.
             if not first_external_frame_package:
-                # Try to get the package name from the file's parent directory
-                # as a fallback if no project marker is found.
                 pkg_name = path.parent.name.replace("-", "_")
                 if pkg_name not in skip_packages:
                     first_external_frame_package = pkg_name
 
-            for parent in path.parents:
-                if (
-                    (parent / "pyproject.toml").is_file()
-                    or (parent / "setup.py").is_file()
-                    or (parent / "__init__.py").is_file()
-                    or (parent / "MANIFEST.in").is_file()
-                ):
-                    parent_name = parent.name.replace("-", "_")
-                    if parent_name not in skip_packages:
-                        # Success! Found a project root
-                        return parent_name
     except Exception:
         pass
 
-    if (
-        first_external_frame_package
-        and first_external_frame_package not in skip_packages
-    ):
+    if first_external_frame_package:
         return first_external_frame_package
 
     if __package__:
@@ -255,7 +264,7 @@ def retrieve_package_name() -> str:
         if top and top not in skip_packages and top != "__main__":
             return top
 
-    return "agent_utilities"  # Safe default within agent-utilities
+    return "agent_utilities"
 
 
 def get_library_file_path(file: str) -> str:
