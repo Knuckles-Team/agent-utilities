@@ -7,7 +7,6 @@ from .agent_utilities import (
     create_model,
     build_system_prompt_from_workspace,
     load_identity,
-    load_identities,
     initialize_workspace,
     create_agent_parser,
     get_mcp_config_path,
@@ -27,7 +26,7 @@ from .base_utilities import (
 from .embedding_utilities import create_embedding_model
 from .models import PeriodicTask
 
-__version__ = "0.2.23"
+__version__ = "0.2.24"
 
 __all__ = [
     "create_agent",
@@ -35,7 +34,6 @@ __all__ = [
     "create_model",
     "build_system_prompt_from_workspace",
     "load_identity",
-    "load_identities",
     "initialize_workspace",
     "create_agent_parser",
     "get_mcp_config_path",

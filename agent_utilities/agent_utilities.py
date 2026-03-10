@@ -21,12 +21,12 @@ from datetime import datetime, timedelta
 if TYPE_CHECKING:
     from fasta2a import Skill
     from fastapi import FastAPI
-from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
 from importlib.resources import files, as_file
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from starlette.responses import Response, StreamingResponse
 from pydantic import ValidationError
 
@@ -417,7 +417,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.23"
+__version__ = "0.2.24"
 
 # Load environment variables early
 load_env_vars()
@@ -446,9 +446,7 @@ def get_mcp_config_path() -> Optional[str]:
     try:
         package_name = retrieve_package_name()
         for sub in ["agent_data", "agent"]:
-            mcp_config_file = os.path.join(
-                files(package_name), sub, "mcp_config.json"
-            )
+            mcp_config_file = os.path.join(files(package_name), sub, "mcp_config.json")
             if os.path.isfile(mcp_config_file):
                 with as_file(Path(mcp_config_file)) as path:
                     return str(path)
@@ -591,7 +589,6 @@ def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
     return skill_dirs
 
 
-
 def get_http_client(
     ssl_verify: bool = True, timeout: float = 300.0
 ) -> httpx.AsyncClient | None:
@@ -638,28 +635,38 @@ def get_agent_workspace() -> Path:
             # This is critical for users running from source without -e install
             pkg_local_data = Path.cwd() / pkg / "agent_data"
             pkg_local_agent = Path.cwd() / pkg / "agent"
-            
-            logger.info(f"get_agent_workspace: Tier 3A Checking Local Dev: {pkg_local_data}, {pkg_local_agent}")
+
+            logger.info(
+                f"get_agent_workspace: Tier 3A Checking Local Dev: {pkg_local_data}, {pkg_local_agent}"
+            )
             for candidate in [pkg_local_data, pkg_local_agent]:
                 if candidate.is_dir():
                     p = candidate.resolve()
-                    logger.info(f"get_agent_workspace: Tier 3A SUCCESS (Local Package Dev {pkg}): {p}")
+                    logger.info(
+                        f"get_agent_workspace: Tier 3A SUCCESS (Local Package Dev {pkg}): {p}"
+                    )
                     WORKSPACE_DIR = str(p)
                     return p
 
             # B. Try built-in resources (for installed packages)
-            logger.info(f"get_agent_workspace: Tier 3B Checking Package Resources: {pkg}")
+            logger.info(
+                f"get_agent_workspace: Tier 3B Checking Package Resources: {pkg}"
+            )
             for sub in ["agent_data", "agent"]:
                 try:
                     pkg_resource_dir = files(pkg) / sub
                     if pkg_resource_dir.is_dir():
                         with as_file(pkg_resource_dir) as path:
                             p = path.resolve()
-                            logger.info(f"get_agent_workspace: Tier 3B SUCCESS (Package Resource {pkg} - {sub}): {p}")
+                            logger.info(
+                                f"get_agent_workspace: Tier 3B SUCCESS (Package Resource {pkg} - {sub}): {p}"
+                            )
                             WORKSPACE_DIR = str(p)
                             return p
                 except Exception as e:
-                    logger.info(f"get_agent_workspace: Tier 3B check failed for {pkg}/{sub}: {e}")
+                    logger.info(
+                        f"get_agent_workspace: Tier 3B check failed for {pkg}/{sub}: {e}"
+                    )
 
             # C. Alternative: find spec and check parent
             import importlib.util
@@ -702,7 +709,9 @@ def get_agent_workspace() -> Path:
                     candidate = entry / sub
                     if candidate.is_dir():
                         p = candidate.resolve()
-                        logger.info(f"get_agent_workspace: Tier 4.5 SUCCESS (Found nested {sub} in {entry.name}): {p}")
+                        logger.info(
+                            f"get_agent_workspace: Tier 4.5 SUCCESS (Found nested {sub} in {entry.name}): {p}"
+                        )
                         WORKSPACE_DIR = str(p)
                         return p
     except Exception as e:
@@ -761,6 +770,7 @@ def initialize_workspace(overwrite: bool = False):
     ]
     try:
         from importlib.resources import files, as_file
+
         with as_file(files("agent_utilities") / "agent_data") as p:
             internal_dirs.append(str(p.resolve()))
     except Exception:
@@ -956,13 +966,17 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     parts = []
     included_files = []
 
-    logger.debug(f"Building system prompt from workspace. Fallback provided: {bool(fallback_prompt)}")
+    logger.debug(
+        f"Building system prompt from workspace. Fallback provided: {bool(fallback_prompt)}"
+    )
     for key in ["IDENTITY", "USER", "AGENTS", "MEMORY"]:
         filename = CORE_FILES[key]
         logger.debug(f"Checking for {key} file: {filename}")
         content = load_workspace_file(filename)
         if content.strip():
-            logger.info(f"Including {filename} in system prompt (Snippet: {content[:50]}...)")
+            logger.info(
+                f"Including {filename} in system prompt (Snippet: {content[:50]}...)"
+            )
             parts.append(f"---\n# {filename}\n{content}\n---")
             included_files.append(filename)
         else:
@@ -1019,7 +1033,7 @@ def load_identity(tag: Optional[str] = None) -> Dict[str, str]:
 
 # --- GLOBAL CONFIGURATIONS ---
 # Note: initialize_workspace() is NO LONGER called at module level to avoid
-# global state poisoning during import. 
+# global state poisoning during import.
 meta = {"name": "Agent", "description": "AI Agent"}
 
 DEFAULT_AGENT_NAME = os.getenv("DEFAULT_AGENT_NAME", meta["name"])
@@ -1527,11 +1541,13 @@ def create_agent(
     skills = SkillsToolset(directories=skill_dirs)
     agent_toolsets.append(skills)
     logger.info(f"Loaded Skills at {get_universal_skills_path()}")
-    
-    # Finalize prompt if not provided statically. 
+
+    # Finalize prompt if not provided statically.
     # Note: registering a dynamic prompt function doesn't guarantee the LLM will see it if tools aren't invoked in some providers, it's safer to have a static base prompt.
     if system_prompt is None:
-        logger.info("No system_prompt provided to create_agent. Building from workspace...")
+        logger.info(
+            "No system_prompt provided to create_agent. Building from workspace..."
+        )
         system_prompt_str = build_system_prompt_from_workspace()
     else:
         logger.info(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
@@ -1545,8 +1561,8 @@ def create_agent(
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
         deps_type=Any,
     )
-    
-    # We use agent.instructions to ensure it is always injected into ModelRequests, 
+
+    # We use agent.instructions to ensure it is always injected into ModelRequests,
     # even when the frontend (e.g. Vercel SDK) provides a full message history.
     @agent.instructions
     def inject_system_prompt() -> str:
@@ -2202,7 +2218,7 @@ def schedule_task(task_id: str, name: str, interval_minutes: int, prompt: str) -
             t.last_run = datetime.now() - timedelta(minutes=interval_minutes + 1)
             found = True
             break
-    
+
     if not found:
         tasks.append(
             PeriodicTask(
@@ -2244,7 +2260,7 @@ def delete_scheduled_task(task_id: str) -> str:
             found_in_mem = True
             continue
         tasks_to_keep.append(t)
-    
+
     tasks[:] = tasks_to_keep  # Update global list in place
 
     if found_in_md or found_in_mem:
@@ -2257,7 +2273,7 @@ def list_scheduled_tasks() -> str:
     global tasks
     if not tasks:
         return "No periodic tasks scheduled."
-    
+
     lines = ["Active periodic tasks:"]
     now = datetime.now()
     for t in tasks:
@@ -2339,7 +2355,11 @@ def delete_memory_entry(index: int) -> str:
 
     # Validate that we are deleting an actual entry (starts with - or *)
     line_to_delete = lines[index - 1].strip()
-    if not (line_to_delete.startswith("-") or line_to_delete.startswith("*") or line_to_delete.startswith("|")):
+    if not (
+        line_to_delete.startswith("-")
+        or line_to_delete.startswith("*")
+        or line_to_delete.startswith("|")
+    ):
         return f"⚠️ Line {index} does not look like a data entry: '{line_to_delete}'. Deletion aborted for safety."
 
     deleted_text = lines.pop(index - 1)
@@ -2358,31 +2378,31 @@ def compress_memory(max_entries: int = 50) -> str:
 
     content = path.read_text(encoding="utf-8")
     lines = content.splitlines()
-    
+
     # Identify where the log starts (usually after ## Log of Important Events)
     log_start = -1
     for i, line in enumerate(lines):
         if "## Log of Important Events" in line:
             log_start = i
             break
-    
+
     if log_start == -1:
         return "❌ Could not find '## Log of Important Events' section in MEMORY.md"
 
-    header = lines[:log_start + 1]
-    entries = [l for l in lines[log_start + 1:] if l.strip()]
-    
+    header = lines[: log_start + 1]
+    entries = [line for line in lines[log_start + 1 :] if line.strip()]
+
     if len(entries) <= max_entries:
         return f"ℹ️ Memory consists of {len(entries)} entries, which is below the limit of {max_entries}. No compression needed."
 
     pruned = len(entries) - max_entries
     kept_entries = entries[-max_entries:]
-    
+
     new_content = "\n".join(header).strip() + "\n\n"
     new_content += "> [!NOTE]\n"
     new_content += f"> Memory was compressed on {datetime.now().strftime('%Y-%m-%d')}. {pruned} older entries were pruned.\n\n"
     new_content += "\n".join(kept_entries)
-    
+
     path.write_text(new_content.strip() + "\n", encoding="utf-8")
     return f"✅ Compressed memory. Pruned {pruned} old entries, kept the most recent {max_entries}."
 
@@ -2472,6 +2492,7 @@ def register_a2a_peer(
 
     path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return f"✅ Registered/updated A2A peer '{name}' at {url}"
+
 
 def get_a2a_peer(name: str) -> Optional[Dict[str, str]]:
     """Return single peer by name (case-insensitive)."""
