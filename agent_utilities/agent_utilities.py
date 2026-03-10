@@ -16,6 +16,7 @@ import contextvars
 
 # import uvicorn  # Optional
 from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
+from datetime import datetime, timedelta
 
 if TYPE_CHECKING:
     from fasta2a import Skill
@@ -270,12 +271,13 @@ async def global_tool_guard(ctx, call_tool, name, tool_args):
 CORE_FILES = {
     "IDENTITY": "IDENTITY.md",
     "USER": "USER.md",
-    "AGENTS": "AGENTS.md",
+    "AGENTS": "A2A_AGENTS.md",
     "MEMORY": "MEMORY.md",
     "CRON": "CRON.md",
     "CRON_LOG": "CRON_LOG.md",
     "CHATS": "chats",
     "MCP_CONFIG": "mcp_config.json",
+    "HEARTBEAT": "HEARTBEAT.md",
     "ICON": "icon.png",
 }
 
@@ -301,7 +303,7 @@ TEMPLATES = {
 * **Name:** User
 * **Emoji:** 👤
 """,
-    "AGENTS": """# AGENTS.md - Known A2A Peer Agents
+    "AGENTS": """# A2A_AGENTS.md - Known A2A Peer Agents
 
 This file is the local registry of other A2A agents this agent can discover and call.
 
@@ -329,6 +331,16 @@ This file stores important decisions, user preferences, and historical outcomes.
 
 | Timestamp | Task ID | Status | Message |
 |-----------|---------|--------|---------|
+""",
+    "HEARTBEAT": """# Heartbeat — Periodic Self-Check
+
+You are running a self-diagnostic heartbeat.
+Please verify that:
+1. Your core skills and MCP tools are responsive.
+2. The user's recent instructions are still being followed.
+3. Your long-term memory (MEMORY.md) is updated if necessary.
+
+No specific user input is required unless you detect an issue.
 """,
     "MCP_CONFIG": """{
     "mcpServers": {}
@@ -416,11 +428,14 @@ WORKSPACE_DIR: Optional[str] = None
 
 def get_skills_path() -> Optional[str]:
     try:
-        skills_dir = os.path.join(files(retrieve_package_name()), "skills")
-        if not skills_dir.is_dir():
-            return None
-        with as_file(skills_dir) as path:
-            return str(path)
+        package_name = retrieve_package_name()
+        # Check agent_data/skills first, then skills/
+        for sub in ["agent_data/skills", "agent/skills", "skills"]:
+            skills_dir = os.path.join(files(package_name), sub)
+            if os.path.isdir(skills_dir):
+                with as_file(Path(skills_dir)) as path:
+                    return str(path)
+        return None
     except Exception as e:
         logger.debug(f"Error accessing skills path: {e}")
         return None
@@ -429,13 +444,15 @@ def get_skills_path() -> Optional[str]:
 def get_mcp_config_path() -> Optional[str]:
     """Find mcp_config.json in the calling package's resources."""
     try:
-        mcp_config_file = os.path.join(
-            files(retrieve_package_name()), "agent", "mcp_config.json"
-        )
-        if not mcp_config_file.is_file():
-            return None
-        with as_file(mcp_config_file) as path:
-            return str(path)
+        package_name = retrieve_package_name()
+        for sub in ["agent_data", "agent"]:
+            mcp_config_file = os.path.join(
+                files(package_name), sub, "mcp_config.json"
+            )
+            if os.path.isfile(mcp_config_file):
+                with as_file(Path(mcp_config_file)) as path:
+                    return str(path)
+        return None
     except Exception as e:
         logger.debug(f"Error accessing mcp_config path: {e}")
         return None
@@ -574,6 +591,7 @@ def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
     return skill_dirs
 
 
+
 def get_http_client(
     ssl_verify: bool = True, timeout: float = 300.0
 ) -> httpx.AsyncClient | None:
@@ -588,42 +606,60 @@ def get_agent_workspace() -> Path:
     Tiers:
     1. Global WORKSPACE_DIR override (from CLI)
     2. AGENT_WORKSPACE environment variable
-    3. Calling package's /agent directory (via retrieve_package_name)
-    4. Current directory's /agent folder
-    5. Internal agent-utilities/agent resource (fallback)
+    3. Calling package's /agent_data or /agent directory (via retrieve_package_name)
+    4. Current directory's /agent_data or /agent folder
+    5. Internal agent-utilities/agent_data resource (fallback)
     """
+    global WORKSPACE_DIR
     # 1. Explicit global override
     if WORKSPACE_DIR:
         p = Path(WORKSPACE_DIR).resolve()
-        logger.debug(f"Discovery Tier 1 (Override): {p}")
+        logger.info(f"get_agent_workspace: Tier 1 SUCCESS (Override): {p}")
         return p
 
     # 2. Environment variable
     env_workspace = os.getenv("AGENT_WORKSPACE")
     if env_workspace:
         p = Path(env_workspace).resolve()
-        logger.debug(f"Discovery Tier 2 (Env): {p}")
+        logger.info(f"get_agent_workspace: Tier 2 Checking (Env AGENT_WORKSPACE): {p}")
+        # Only cache if it exists
+        if p.exists():
+            logger.info(f"get_agent_workspace: Tier 2 SUCCESS (Env exists): {p}")
+            WORKSPACE_DIR = str(p)
+        else:
+            logger.warning(f"get_agent_workspace: Tier 2 path does NOT exist: {p}")
         return p
 
     # 3. Discovery via caller package
     pkg = retrieve_package_name()
     if pkg and pkg != "agent_utilities":
         try:
-            # A. Check for local dev structure: Path.cwd() / pkg / "agent"
+            # A. Check for local dev structure: Path.cwd() / pkg / "agent_data" or "agent"
             # This is critical for users running from source without -e install
+            pkg_local_data = Path.cwd() / pkg / "agent_data"
             pkg_local_agent = Path.cwd() / pkg / "agent"
-            if pkg_local_agent.is_dir():
-                p = pkg_local_agent.resolve()
-                logger.debug(f"Discovery Tier 3A (Local Package Dev {pkg}): {p}")
-                return p
+            
+            logger.info(f"get_agent_workspace: Tier 3A Checking Local Dev: {pkg_local_data}, {pkg_local_agent}")
+            for candidate in [pkg_local_data, pkg_local_agent]:
+                if candidate.is_dir():
+                    p = candidate.resolve()
+                    logger.info(f"get_agent_workspace: Tier 3A SUCCESS (Local Package Dev {pkg}): {p}")
+                    WORKSPACE_DIR = str(p)
+                    return p
 
             # B. Try built-in resources (for installed packages)
-            pkg_agent_dir = files(pkg) / "agent"
-            if pkg_agent_dir.is_dir():
-                with as_file(pkg_agent_dir) as path:
-                    p = path.resolve()
-                    logger.debug(f"Discovery Tier 3B (Package Resource {pkg}): {p}")
-                    return p
+            logger.info(f"get_agent_workspace: Tier 3B Checking Package Resources: {pkg}")
+            for sub in ["agent_data", "agent"]:
+                try:
+                    pkg_resource_dir = files(pkg) / sub
+                    if pkg_resource_dir.is_dir():
+                        with as_file(pkg_resource_dir) as path:
+                            p = path.resolve()
+                            logger.info(f"get_agent_workspace: Tier 3B SUCCESS (Package Resource {pkg} - {sub}): {p}")
+                            WORKSPACE_DIR = str(p)
+                            return p
+                except Exception as e:
+                    logger.info(f"get_agent_workspace: Tier 3B check failed for {pkg}/{sub}: {e}")
 
             # C. Alternative: find spec and check parent
             import importlib.util
@@ -633,7 +669,9 @@ def get_agent_workspace() -> Path:
                 origin_path = Path(spec.origin).resolve()
                 # Check if it's package/sub/file.py or package/file.py
                 candidates = [
+                    origin_path.parent / "agent_data",
                     origin_path.parent / "agent",
+                    origin_path.parent.parent / "agent_data",
                     origin_path.parent.parent / "agent",
                 ]
                 for candidate in candidates:
@@ -645,31 +683,59 @@ def get_agent_workspace() -> Path:
         except (ImportError, ModuleNotFoundError, Exception) as e:
             logger.debug(f"Discovery Tier 3 error for {pkg}: {e}")
 
-    # 4. Local fallback (Current directory / agent)
-    local_agent = Path.cwd() / "agent"
-    if local_agent.is_dir():
-        p = local_agent.resolve()
-        logger.debug(f"Discovery Tier 4 (Local): {p}")
-        return p
+    # 4. Local fallback (Current directory / agent_data or agent)
+    for sub in ["agent_data", "agent"]:
+        local_dir = Path.cwd() / sub
+        if local_dir.is_dir():
+            p = local_dir.resolve()
+            logger.info(f"get_agent_workspace: Tier 4 SUCCESS ({sub}): {p}")
+            WORKSPACE_DIR = str(p)
+            return p
+
+    # 4.5. Deep Local Search (Search subdirectories of CWD for agent_data or agent)
+    # This helps when running from the root of a project with multiple packages
+    logger.info("get_agent_workspace: Tier 4.5 Checking Subdirectories of CWD...")
+    try:
+        for entry in Path.cwd().iterdir():
+            if entry.is_dir() and not entry.name.startswith("."):
+                for sub in ["agent_data", "agent"]:
+                    candidate = entry / sub
+                    if candidate.is_dir():
+                        p = candidate.resolve()
+                        logger.info(f"get_agent_workspace: Tier 4.5 SUCCESS (Found nested {sub} in {entry.name}): {p}")
+                        WORKSPACE_DIR = str(p)
+                        return p
+    except Exception as e:
+        logger.debug(f"Tier 4.5 check failed: {e}")
 
     # 5. Native fallback
-    native_path = Path(__file__).parent / "agent"
-    if native_path.is_dir():
-        p = native_path.resolve()
-        logger.debug(f"Discovery Tier 5 (Native): {p}")
-        return p
+    for sub in ["agent_data", "agent"]:
+        native_path = Path(__file__).parent / sub
+        if native_path.is_dir():
+            p = native_path.resolve()
+            logger.debug(f"Discovery Tier 5 (Native {sub}): {p}")
+            return p
 
-    # Ultimate fallback (resource-based)
-    workspace_dir = files("agent_utilities") / "agent"
-    with as_file(workspace_dir) as path:
-        p = path.resolve()
-        logger.debug(f"Discovery Tier 6 (Fallback Resource): {p}")
-        return p
+    # Discovery Tier 6: Fallback Resource
+    for sub in ["agent_data", "agent"]:
+        workspace_dir = files("agent_utilities") / sub
+        if workspace_dir.is_dir():
+            with as_file(workspace_dir) as path:
+                p = path.resolve()
+                logger.debug(f"Discovery Tier 6 (Fallback Resource {sub}): {p}")
+                # CAUTION: Do NOT set WORKSPACE_DIR global here to avoid poisoning
+                return p
+
+    # Absolute last resort
+    return Path(__file__).parent / "agent_data"
 
 
 def get_workspace_path(filename: str) -> Path:
     """Return full path for a file in discovered workspace."""
-    return get_agent_workspace() / filename
+    ws = get_agent_workspace()
+    path = ws / filename
+    logger.info(f"get_workspace_path: Resolved {filename} -> {path}")
+    return path
 
 
 def initialize_workspace(overwrite: bool = False):
@@ -685,14 +751,35 @@ def initialize_workspace(overwrite: bool = False):
             path.write_text(content.strip() + "\n", encoding="utf-8")
             logger.info(f"Initialized {path}")
 
+    # Set global workspace dir after initialization to ensure discovery is cached.
+    # We only cache if we found a non-fallback workspace.
+    discovered = get_agent_workspace()
+    # Check if discovered workspace is one of our internal fallbacks
+    internal_dirs = [
+        str(Path(__file__).parent / "agent_data"),
+        str(Path(__file__).parent / "agent"),
+    ]
+    try:
+        from importlib.resources import files, as_file
+        with as_file(files("agent_utilities") / "agent_data") as p:
+            internal_dirs.append(str(p.resolve()))
+    except Exception:
+        pass
+
+    if str(discovered.resolve()) not in internal_dirs:
+        global WORKSPACE_DIR
+        WORKSPACE_DIR = str(discovered)
+        logger.info(f"Workspace cached: {WORKSPACE_DIR}")
+
 
 def load_workspace_file(filename: str, default: str = "") -> str:
     """Read markdown file content. Returns default if missing."""
     path = get_workspace_path(filename)
+    logger.debug(f"Final resolution for {filename}: {path}")
     if path.exists():
-        logger.debug(f"Loading workspace file: {path}")
+        logger.info(f"Loading workspace file: {path}")
         return path.read_text(encoding="utf-8").strip()
-    logger.debug(f"Workspace file not found: {path} (using default)")
+    logger.warning(f"Workspace file not found: {path} (using default)")
     return default
 
 
@@ -869,11 +956,17 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     parts = []
     included_files = []
 
+    logger.debug(f"Building system prompt from workspace. Fallback provided: {bool(fallback_prompt)}")
     for key in ["IDENTITY", "USER", "AGENTS", "MEMORY"]:
-        content = load_workspace_file(CORE_FILES[key])
+        filename = CORE_FILES[key]
+        logger.debug(f"Checking for {key} file: {filename}")
+        content = load_workspace_file(filename)
         if content.strip():
-            parts.append(f"---\n# {CORE_FILES[key]}\n{content}\n---")
-            included_files.append(CORE_FILES[key])
+            logger.info(f"Including {filename} in system prompt (Snippet: {content[:50]}...)")
+            parts.append(f"---\n# {filename}\n{content}\n---")
+            included_files.append(filename)
+        else:
+            logger.debug(f"File {filename} is empty or missing content.")
 
     if fallback_prompt:
         parts.append(fallback_prompt)
@@ -884,99 +977,50 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     return prompt
 
 
-def parse_identity_md(content: str) -> Dict[str, Dict[str, str]]:
+def extract_agent_metadata(content: str) -> Dict[str, str]:
     """
-    Parse IDENTITY.md into a dictionary of agent definitions.
-    Supports tagged sections: ## [tag]
-    Each section parses bullet points for Name, Role, Emoji, Vibe.
+    Extracts basic agent metadata from IDENTITY.md or returns defaults.
     """
-    import re
-
-    # Split into sections by ## [tag]
-    sections = re.split(r"^##\s+\[(.*?)\]", content, flags=re.MULTILINE)
-
-    identities = {}
-
-    if len(sections) <= 1:
-        # Backward compatibility: treat entire file as single 'default' agent
-        identities["default"] = _parse_section_content(content)
-    else:
-        # First part before any ## [tag] is skipped (usually headers/intro)
-        for i in range(1, len(sections), 2):
-            tag = sections[i].strip()
-            section_content = sections[i + 1]
-            identities[tag] = _parse_section_content(section_content)
-
-    return identities
-
-
-def _parse_section_content(content: str) -> Dict[str, str]:
-    """Helper to extract metadata and prompt from a Markdown section."""
     import re
 
     data = {
         "name": "Agent",
-        "description": "An AI agent.",
+        "description": "AI Agent",
         "emoji": "🤖",
         "vibe": "",
         "content": content.strip(),
     }
 
-    # Extract bullet points
-    name_match = re.search(r"\* \*\*Name:\*\* (.*)", content)
-    if name_match:
-        data["name"] = name_match.group(1).strip()
+    metadata_patterns = {
+        "name": r"\* \*\*Name:\*\* (.*)",
+        "description": r"\* \*\*Role:\*\* (.*)",
+        "emoji": r"\* \*\*Emoji:\*\* (.*)",
+        "vibe": r"\* \*\*Vibe:\*\* (.*)",
+    }
 
-    role_match = re.search(r"\* \*\*Role:\*\* (.*)", content)
-    if role_match:
-        data["description"] = role_match.group(1).strip()
-
-    emoji_match = re.search(r"\* \*\*Emoji:\*\* (.*)", content)
-    if emoji_match:
-        data["emoji"] = emoji_match.group(1).strip()
-
-    vibe_match = re.search(r"\* \*\*Vibe:\*\* (.*)", content)
-    if vibe_match:
-        data["vibe"] = vibe_match.group(1).strip()
+    for key, pattern in metadata_patterns.items():
+        match = re.search(pattern, content)
+        if match:
+            data[key] = match.group(1).strip()
 
     return data
 
 
-def load_identities() -> Dict[str, Dict[str, str]]:
-    """
-    Load IDENTITY.md and return all identity definitions as a dictionary.
-    """
-    content = load_workspace_file("IDENTITY.md")
-    return parse_identity_md(content)
-
-
 def load_identity(tag: Optional[str] = None) -> Dict[str, str]:
     """
-    Load IDENTITY.md and return metadata for a specific agent tag.
-    If no tag is provided, returns the first identity found.
+    Load IDENTITY.md and return metadata for the agent.
     """
     content = load_workspace_file("IDENTITY.md")
-    identities = parse_identity_md(content)
-
-    if not identities:
+    if not content:
         return {"name": "Agent", "description": "AI Agent", "content": ""}
 
-    if tag and tag in identities:
-        return identities[tag]
-
-    # Return 'default' if it exists, otherwise the first entry
-    if "default" in identities:
-        return identities["default"]
-
-    return next(iter(identities.values()))
+    return extract_agent_metadata(content)
 
 
 # --- GLOBAL CONFIGURATIONS ---
-try:
-    initialize_workspace()
-    meta = load_identity()
-except Exception:
-    meta = {"name": "Agent", "description": "AI Agent"}
+# Note: initialize_workspace() is NO LONGER called at module level to avoid
+# global state poisoning during import. 
+meta = {"name": "Agent", "description": "AI Agent"}
 
 DEFAULT_AGENT_NAME = os.getenv("DEFAULT_AGENT_NAME", meta["name"])
 DEFAULT_AGENT_DESCRIPTION = os.getenv("AGENT_DESCRIPTION", meta["description"])
@@ -1483,41 +1527,33 @@ def create_agent(
     skills = SkillsToolset(directories=skill_dirs)
     agent_toolsets.append(skills)
     logger.info(f"Loaded Skills at {get_universal_skills_path()}")
-    # Finalize prompt if not provided
+    
+    # Finalize prompt if not provided statically. 
+    # Note: registering a dynamic prompt function doesn't guarantee the LLM will see it if tools aren't invoked in some providers, it's safer to have a static base prompt.
     if system_prompt is None:
-        system_prompt = build_system_prompt_from_workspace()
-    elif debug:
+        logger.info("No system_prompt provided to create_agent. Building from workspace...")
+        system_prompt_str = build_system_prompt_from_workspace()
+    else:
         logger.info(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
+        system_prompt_str = system_prompt
 
     agent = Agent(
         model=model,
         model_settings=settings,
-        system_prompt=system_prompt,
         name=name,
         toolsets=agent_toolsets,
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
         deps_type=Any,
     )
-
-    # Dynamic system prompt if building from workspace files
-    # (Checking if it was initialized from build_system_prompt_from_workspace)
-    if system_prompt and "# IDENTITY.md" in system_prompt:
-
-        @agent.system_prompt
-        def dynamic_context() -> str:
-            prompt = build_system_prompt_from_workspace()
-            if debug:
-                logger.info(
-                    "DEBUG: Full Assembled System Prompt:\n"
-                    + "=" * 40
-                    + "\n"
-                    + prompt
-                    + "\n"
-                    + "=" * 40
-                )
-            return prompt
+    
+    # We use agent.instructions to ensure it is always injected into ModelRequests, 
+    # even when the frontend (e.g. Vercel SDK) provides a full message history.
+    @agent.instructions
+    def inject_system_prompt() -> str:
+        return system_prompt_str
 
     # Register Universal Tools (Workspace, A2A, Scheduler)
+    # This also handles dynamic system prompt registration via register_agent_tools
     from .tools import register_agent_tools
 
     register_agent_tools(agent)
@@ -1749,16 +1785,20 @@ def create_agent_server(
 
         @app.post("/api/elicit")
         async def resolve_elicit(request: Request):
-            data = await request.json()
-            rid = data.get("id")
-            result = data.get("result")
-            if await elicitation_manager.resolve_request(rid, result):
-                return {"status": "OK"}
-            return Response(
-                content=json.dumps({"error": "Request not found"}),
-                status_code=404,
-                media_type="application/json",
-            )
+            try:
+                data = await request.json()
+                rid = data.get("id")
+                result = data.get("result")
+                if await elicitation_manager.resolve_request(rid, result):
+                    return {"status": "OK"}
+                return Response(
+                    content=json.dumps({"error": "Request not found"}),
+                    status_code=404,
+                    media_type="application/json",
+                )
+            except Exception as e:
+                logger.exception("Chat API Error")
+                return JSONResponse(status_code=500, content={"error": str(e)})
 
         @app.post("/ag-ui")
         async def ag_ui_endpoint(request: Request) -> Response:
@@ -2138,6 +2178,98 @@ def update_cron_task_in_cron_md(task: dict):
     path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
 
 
+def schedule_task(task_id: str, name: str, interval_minutes: int, prompt: str) -> str:
+    """Consolidated tool to schedule a task persistently."""
+    if interval_minutes < 1:
+        return "Interval must be ≥ 1 minute"
+
+    task_data = {
+        "id": task_id,
+        "name": name,
+        "interval_min": interval_minutes,
+        "prompt": prompt,
+    }
+    update_cron_task_in_cron_md(task_data)
+
+    # Immediately update memory for reactive execution
+    global tasks
+    found = False
+    for t in tasks:
+        if t.id == task_id:
+            t.name = name
+            t.interval_minutes = interval_minutes
+            t.prompt = prompt
+            t.last_run = datetime.now() - timedelta(minutes=interval_minutes + 1)
+            found = True
+            break
+    
+    if not found:
+        tasks.append(
+            PeriodicTask(
+                id=task_id,
+                name=name,
+                interval_minutes=interval_minutes,
+                prompt=prompt,
+                last_run=datetime.now() - timedelta(minutes=interval_minutes + 1),
+            )
+        )
+
+    return f"✅ Scheduled '{name}' (ID: {task_id}) every {interval_minutes} min"
+
+
+def delete_scheduled_task(task_id: str) -> str:
+    """Remove a task from CRON.md and memory."""
+    path = get_workspace_path("CRON.md")
+    if not path.exists():
+        return "CRON.md not found."
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    new_lines = []
+    found_in_md = False
+    for line in lines:
+        if line.strip().startswith(f"| {task_id} ") or f"| {task_id} |" in line:
+            found_in_md = True
+            continue
+        new_lines.append(line)
+
+    if found_in_md:
+        path.write_text("\n".join(new_lines).strip() + "\n", encoding="utf-8")
+
+    # Remove from memory
+    global tasks
+    found_in_mem = False
+    tasks_to_keep = []
+    for t in tasks:
+        if t.id == task_id:
+            found_in_mem = True
+            continue
+        tasks_to_keep.append(t)
+    
+    tasks[:] = tasks_to_keep  # Update global list in place
+
+    if found_in_md or found_in_mem:
+        return f"✅ Deleted scheduled task '{task_id}'"
+    return f"ℹ️ Task '{task_id}' not found."
+
+
+def list_scheduled_tasks() -> str:
+    """List all active periodic tasks from memory."""
+    global tasks
+    if not tasks:
+        return "No periodic tasks scheduled."
+    
+    lines = ["Active periodic tasks:"]
+    now = datetime.now()
+    for t in tasks:
+        if t.active:
+            mins_since = (now - t.last_run).total_seconds() / 60
+            next_in = max(0, int(t.interval_minutes - mins_since))
+            lines.append(
+                f"• {t.id}: {t.name} (every {t.interval_minutes} min, next ≈ {next_in} min)"
+            )
+    return "\n".join(lines)
+
+
 def read_md_file(filename: str) -> str:
     """Read any md file in workspace."""
     path = get_workspace_path(filename)
@@ -2164,9 +2296,100 @@ def append_to_md_file(filename: str, text: str):
     return f"Appended to {filename}"
 
 
+def create_memory(text: str) -> str:
+    """
+    Save important decisions, outcomes, user preferences, critical
+    information, or information the user explicitly requests to long-term memory (MEMORY.md).
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    note = f"- [{timestamp}] {text}"
+    append_to_md_file("MEMORY.md", note)
+    return "Saved to memory."
+
+
+def search_memory(query: str) -> str:
+    """Search MEMORY.md for a query string."""
+    content = load_workspace_file(CORE_FILES["MEMORY"])
+    if not content:
+        return "Memory is empty."
+
+    lines = content.splitlines()
+    results = []
+    # Identify entries, usually starting with "- [" or a bullet
+    for i, line in enumerate(lines):
+        if query.lower() in line.lower():
+            results.append(f"Line {i+1}: {line.strip()}")
+
+    if not results:
+        return f"No entries found matching '{query}' in memory."
+    return "\n".join(results)
+
+
+def delete_memory_entry(index: int) -> str:
+    """Delete a memory entry by line number (1-indexed)."""
+    path = get_workspace_path(CORE_FILES["MEMORY"])
+    if not path.exists():
+        return "Memory file not found."
+
+    content = path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+
+    if index < 1 or index > len(lines):
+        return f"❌ Invalid index {index}. Memory has {len(lines)} lines."
+
+    # Validate that we are deleting an actual entry (starts with - or *)
+    line_to_delete = lines[index - 1].strip()
+    if not (line_to_delete.startswith("-") or line_to_delete.startswith("*") or line_to_delete.startswith("|")):
+        return f"⚠️ Line {index} does not look like a data entry: '{line_to_delete}'. Deletion aborted for safety."
+
+    deleted_text = lines.pop(index - 1)
+    path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    return f"✅ Deleted memory entry {index}: {deleted_text}"
+
+
+def compress_memory(max_entries: int = 50) -> str:
+    """
+    Compress MEMORY.md by pruning old entries.
+    In a future version this could use an LLM to summarize.
+    """
+    path = get_workspace_path(CORE_FILES["MEMORY"])
+    if not path.exists():
+        return "Memory file not found."
+
+    content = path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    
+    # Identify where the log starts (usually after ## Log of Important Events)
+    log_start = -1
+    for i, line in enumerate(lines):
+        if "## Log of Important Events" in line:
+            log_start = i
+            break
+    
+    if log_start == -1:
+        return "❌ Could not find '## Log of Important Events' section in MEMORY.md"
+
+    header = lines[:log_start + 1]
+    entries = [l for l in lines[log_start + 1:] if l.strip()]
+    
+    if len(entries) <= max_entries:
+        return f"ℹ️ Memory consists of {len(entries)} entries, which is below the limit of {max_entries}. No compression needed."
+
+    pruned = len(entries) - max_entries
+    kept_entries = entries[-max_entries:]
+    
+    new_content = "\n".join(header).strip() + "\n\n"
+    new_content += "> [!NOTE]\n"
+    new_content += f"> Memory was compressed on {datetime.now().strftime('%Y-%m-%d')}. {pruned} older entries were pruned.\n\n"
+    new_content += "\n".join(kept_entries)
+    
+    path.write_text(new_content.strip() + "\n", encoding="utf-8")
+    return f"✅ Compressed memory. Pruned {pruned} old entries, kept the most recent {max_entries}."
+
+
 def load_a2a_peers() -> List[Dict[str, str]]:
-    """Parse AGENTS.md table into list of dicts."""
-    content = load_workspace_file("AGENTS.md")
+    """Parse A2A_AGENTS.md table into list of dicts."""
+    content = load_workspace_file(CORE_FILES["AGENTS"])
     if not content:
         return []
 
@@ -2211,8 +2434,8 @@ def register_a2a_peer(
     auth: str = "none",
     notes: str = "",
 ) -> str:
-    """Add or update a peer in AGENTS.md table."""
-    path = get_workspace_path("AGENTS.md")
+    """Add or update a peer in A2A_AGENTS.md table."""
+    path = get_workspace_path(CORE_FILES["AGENTS"])
     if not path.exists():
         initialize_workspace()
 
@@ -2250,7 +2473,6 @@ def register_a2a_peer(
     path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return f"✅ Registered/updated A2A peer '{name}' at {url}"
 
-
 def get_a2a_peer(name: str) -> Optional[Dict[str, str]]:
     """Return single peer by name (case-insensitive)."""
     peers = load_a2a_peers()
@@ -2259,6 +2481,41 @@ def get_a2a_peer(name: str) -> Optional[Dict[str, str]]:
         if p.get("name", "").lower() == name_lower:
             return p
     return None
+
+
+def list_a2a_peers() -> str:
+    """List all registered A2A peers formatted for the LLM."""
+    peers = load_a2a_peers()
+    if not peers:
+        return "No A2A peers registered yet."
+    lines = ["## Known A2A Peers"]
+    for p in peers:
+        lines.append(f"- **{p['name']}** → {p['url']}  ({p['capabilities']})")
+    return "\n".join(lines)
+
+
+def delete_a2a_peer(name: str) -> str:
+    """Remove a peer from A2A_AGENTS.md registry."""
+    path = get_workspace_path(CORE_FILES["AGENTS"])
+    if not path.exists():
+        return f"❌ {CORE_FILES['AGENTS']} not found."
+
+    content = path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    new_lines = []
+    found = False
+
+    for line in lines:
+        # Check if line is a table row for this peer name
+        if line.strip().startswith(f"| {name} ") or f"| {name} |" in line:
+            found = True
+            continue
+        new_lines.append(line)
+
+    if found:
+        path.write_text("\n".join(new_lines).strip() + "\n", encoding="utf-8")
+        return f"✅ Removed A2A peer '{name}' from registry."
+    return f"ℹ️ A2A peer '{name}' not found in registry."
 
 
 def resolve_prompt(prompt_str: str) -> str:
