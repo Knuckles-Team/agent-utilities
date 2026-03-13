@@ -63,7 +63,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.25"
+__version__ = "0.2.26"
 
 
 def to_float(string=None):
@@ -268,7 +268,7 @@ def retrieve_package_name() -> str:
 
 
 def get_library_file_path(file: str) -> str:
-    library_file = os.path.join(files(retrieve_package_name()), file)
+    library_file = files(retrieve_package_name()).joinpath(file)
     with as_file(library_file) as path:
         library_file_path = str(path)
     return library_file_path
