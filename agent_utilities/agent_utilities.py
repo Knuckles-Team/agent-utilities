@@ -125,7 +125,7 @@ async def global_elicitation_callback(context, params):
 
     current_task = asyncio.current_task()
     q = elicitation_queue_var.get()
-    logger.info(
+    logger.debug(
         f"global_elicitation_callback: task={current_task.get_name() if current_task else 'N/A'}, queue={'set' if q else 'None'}"
     )
 
@@ -417,7 +417,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.25"
+__version__ = "0.2.26"
 
 # Load environment variables early
 load_env_vars()
@@ -611,17 +611,17 @@ def get_agent_workspace() -> Path:
     # 1. Explicit global override
     if WORKSPACE_DIR:
         p = Path(WORKSPACE_DIR).resolve()
-        logger.info(f"get_agent_workspace: Tier 1 SUCCESS (Override): {p}")
+        logger.debug(f"get_agent_workspace: Tier 1 SUCCESS (Override): {p}")
         return p
 
     # 2. Environment variable
     env_workspace = os.getenv("AGENT_WORKSPACE")
     if env_workspace:
         p = Path(env_workspace).resolve()
-        logger.info(f"get_agent_workspace: Tier 2 Checking (Env AGENT_WORKSPACE): {p}")
+        logger.debug(f"get_agent_workspace: Tier 2 Checking (Env AGENT_WORKSPACE): {p}")
         # Only cache if it exists
         if p.exists():
-            logger.info(f"get_agent_workspace: Tier 2 SUCCESS (Env exists): {p}")
+            logger.debug(f"get_agent_workspace: Tier 2 SUCCESS (Env exists): {p}")
             WORKSPACE_DIR = str(p)
         else:
             logger.warning(f"get_agent_workspace: Tier 2 path does NOT exist: {p}")
@@ -636,20 +636,20 @@ def get_agent_workspace() -> Path:
             pkg_local_data = Path.cwd() / pkg / "agent_data"
             pkg_local_agent = Path.cwd() / pkg / "agent"
 
-            logger.info(
+            logger.debug(
                 f"get_agent_workspace: Tier 3A Checking Local Dev: {pkg_local_data}, {pkg_local_agent}"
             )
             for candidate in [pkg_local_data, pkg_local_agent]:
                 if candidate.is_dir():
                     p = candidate.resolve()
-                    logger.info(
+                    logger.debug(
                         f"get_agent_workspace: Tier 3A SUCCESS (Local Package Dev {pkg}): {p}"
                     )
                     WORKSPACE_DIR = str(p)
                     return p
 
             # B. Try built-in resources (for installed packages)
-            logger.info(
+            logger.debug(
                 f"get_agent_workspace: Tier 3B Checking Package Resources: {pkg}"
             )
             for sub in ["agent_data", "agent"]:
@@ -658,13 +658,13 @@ def get_agent_workspace() -> Path:
                     if pkg_resource_dir.is_dir():
                         with as_file(pkg_resource_dir) as path:
                             p = path.resolve()
-                            logger.info(
+                            logger.debug(
                                 f"get_agent_workspace: Tier 3B SUCCESS (Package Resource {pkg} - {sub}): {p}"
                             )
                             WORKSPACE_DIR = str(p)
                             return p
                 except Exception as e:
-                    logger.info(
+                    logger.debug(
                         f"get_agent_workspace: Tier 3B check failed for {pkg}/{sub}: {e}"
                     )
 
@@ -695,13 +695,13 @@ def get_agent_workspace() -> Path:
         local_dir = Path.cwd() / sub
         if local_dir.is_dir():
             p = local_dir.resolve()
-            logger.info(f"get_agent_workspace: Tier 4 SUCCESS ({sub}): {p}")
+            logger.debug(f"get_agent_workspace: Tier 4 SUCCESS ({sub}): {p}")
             WORKSPACE_DIR = str(p)
             return p
 
     # 4.5. Deep Local Search (Search subdirectories of CWD for agent_data or agent)
     # This helps when running from the root of a project with multiple packages
-    logger.info("get_agent_workspace: Tier 4.5 Checking Subdirectories of CWD...")
+    logger.debug("get_agent_workspace: Tier 4.5 Checking Subdirectories of CWD...")
     try:
         for entry in Path.cwd().iterdir():
             if entry.is_dir() and not entry.name.startswith("."):
@@ -709,7 +709,7 @@ def get_agent_workspace() -> Path:
                     candidate = entry / sub
                     if candidate.is_dir():
                         p = candidate.resolve()
-                        logger.info(
+                        logger.debug(
                             f"get_agent_workspace: Tier 4.5 SUCCESS (Found nested {sub} in {entry.name}): {p}"
                         )
                         WORKSPACE_DIR = str(p)
@@ -743,7 +743,7 @@ def get_workspace_path(filename: str) -> Path:
     """Return full path for a file in discovered workspace."""
     ws = get_agent_workspace()
     path = ws / filename
-    logger.info(f"get_workspace_path: Resolved {filename} -> {path}")
+    logger.debug(f"get_workspace_path: Resolved {filename} -> {path}")
     return path
 
 
@@ -758,7 +758,7 @@ def initialize_workspace(overwrite: bool = False):
                 content = content.format(now=now_str)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content.strip() + "\n", encoding="utf-8")
-            logger.info(f"Initialized {path}")
+            logger.debug(f"Initialized {path}")
 
     # Set global workspace dir after initialization to ensure discovery is cached.
     # We only cache if we found a non-fallback workspace.
@@ -779,7 +779,7 @@ def initialize_workspace(overwrite: bool = False):
     if str(discovered.resolve()) not in internal_dirs:
         global WORKSPACE_DIR
         WORKSPACE_DIR = str(discovered)
-        logger.info(f"Workspace cached: {WORKSPACE_DIR}")
+        logger.debug(f"Workspace cached: {WORKSPACE_DIR}")
 
 
 def load_workspace_file(filename: str, default: str = "") -> str:
@@ -787,7 +787,7 @@ def load_workspace_file(filename: str, default: str = "") -> str:
     path = get_workspace_path(filename)
     logger.debug(f"Final resolution for {filename}: {path}")
     if path.exists():
-        logger.info(f"Loading workspace file: {path}")
+        logger.debug(f"Loading workspace file: {path}")
         return path.read_text(encoding="utf-8").strip()
     logger.warning(f"Workspace file not found: {path} (using default)")
     return default
@@ -802,7 +802,7 @@ def write_workspace_file(filename: str, content: str):
     """Write content to a file in the workspace."""
     path = get_workspace_path(filename)
     path.write_text(content, encoding="utf-8")
-    logger.info(f"Updated {filename}")
+    logger.debug(f"Updated {filename}")
 
 
 def list_workspace_files() -> List[str]:
@@ -897,7 +897,7 @@ def save_chat_to_disk(chat_id: str, messages: List[Dict[str, Any]]):
     }
 
     path.write_text(json.dumps(chat_data, indent=2), encoding="utf-8")
-    logger.info(f"Saved chat {chat_id} to disk")
+    logger.debug(f"Saved chat {chat_id} to disk")
 
 
 def list_chats_from_disk() -> List[Dict[str, Any]]:
@@ -974,7 +974,7 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
         logger.debug(f"Checking for {key} file: {filename}")
         content = load_workspace_file(filename)
         if content.strip():
-            logger.info(
+            logger.debug(
                 f"Including {filename} in system prompt (Snippet: {content[:50]}...)"
             )
             parts.append(f"---\n# {filename}\n{content}\n---")
@@ -987,7 +987,7 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
         included_files.append("fallback_prompt")
 
     prompt = "\n\n".join(parts).strip()
-    logger.info(f"Built System Prompt from files: {', '.join(included_files)}")
+    logger.debug(f"Built System Prompt from files: {', '.join(included_files)}")
     return prompt
 
 
@@ -1044,7 +1044,7 @@ DEFAULT_HOST = os.getenv("HOST", "0.0.0.0")
 DEFAULT_PORT = to_integer(os.getenv("PORT", "9000"))
 DEFAULT_DEBUG = to_boolean(os.getenv("DEBUG", "False"))
 DEFAULT_PROVIDER = os.getenv("PROVIDER", "openai")
-DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "qwen/qwen3.5-35b-a3b")
+DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "nvidia/nemotron-3-super")
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "ollama")
 DEFAULT_MCP_URL = os.getenv("MCP_URL", None)
@@ -1550,7 +1550,7 @@ def create_agent(
         )
         system_prompt_str = build_system_prompt_from_workspace()
     else:
-        logger.info(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
+        logger.debug(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
         system_prompt_str = system_prompt
 
     agent = Agent(
@@ -1840,18 +1840,18 @@ def create_agent_server(
 
             async def merged_event_stream():
                 queue = asyncio.Queue()
-                logger.info(f"merged_event_stream: created queue with ID: {id(queue)}")
+                logger.debug(f"merged_event_stream: created queue with ID: {id(queue)}")
                 output_queue = asyncio.Queue()
 
                 async def run_agent():
                     token = elicitation_queue_var.set(queue)
-                    logger.info(
+                    logger.debug(
                         f"run_agent: set elicitation_queue_var to ID: {id(queue)}"
                     )
                     try:
-                        logger.info("run_agent task started")
+                        logger.debug("run_agent task started")
                         async for event in adapter.run_stream():
-                            logger.info(
+                            logger.debug(
                                 f"run_agent yielded event: {getattr(event, 'type', type(event))}"
                             )
                             await output_queue.put(event)
@@ -1859,20 +1859,20 @@ def create_agent_server(
                         logger.error(f"Error in agent run task: {e}")
                     finally:
                         elicitation_queue_var.reset(token)
-                        logger.info("run_agent task finished")
+                        logger.debug("run_agent task finished")
                         await output_queue.put(None)
 
                 async def listen_queue():
                     try:
-                        logger.info("listen_queue task started")
+                        logger.debug("listen_queue task started")
                         while True:
                             event = await queue.get()
-                            logger.info(
+                            logger.debug(
                                 f"listen_queue received item: {event.get('type')}"
                             )
                             await output_queue.put(event)
                     except asyncio.CancelledError:
-                        logger.info("listen_queue task cancelled")
+                        logger.debug("listen_queue task cancelled")
                     except Exception as e:
                         logger.error(f"Error in queue listener task: {e}")
 
@@ -1882,7 +1882,7 @@ def create_agent_server(
                 try:
                     while True:
                         event = await output_queue.get()
-                        logger.info(
+                        logger.debug(
                             f"merged_event_stream: got event from output_queue: {getattr(event, 'type', event.get('type') if isinstance(event, dict) else type(event))}"
                         )
                         if event is None:
@@ -1896,7 +1896,7 @@ def create_agent_server(
 
             async def custom_encode_stream(stream):
                 async for event in stream:
-                    logger.info(
+                    logger.debug(
                         f"custom_encode_stream processing event type: {getattr(event, 'type', event.get('type') if isinstance(event, dict) else type(event))}"
                     )
                     if isinstance(event, dict):
@@ -1978,7 +1978,7 @@ def create_agent_server(
                 # Inject reload callback into the web app's state if needed
                 web_app.state.reload_app = None  # Will be set below
                 app.mount("/", web_app)
-                logger.info("Mounted new standalone agent-web UI dashboard at /")
+                logger.debug("Mounted new standalone agent-web UI dashboard at /")
             except ImportError:
                 logger.error(
                     "agent-web package not found. Enhanced UI dashboard disabled."
@@ -2577,7 +2577,7 @@ def append_cron_log(
     )
     with open(path, "a", encoding="utf-8") as f:
         f.write(entry)
-    logger.info(f"Appended cron log entry for {task_id}")
+    logger.debug(f"Appended cron log entry for {task_id}")
 
 
 def cleanup_cron_log(max_entries: int = DEFAULT_MAX_CRON_LOG_ENTRIES):
@@ -2601,7 +2601,7 @@ def cleanup_cron_log(max_entries: int = DEFAULT_MAX_CRON_LOG_ENTRIES):
     pruned_count = len(entries) - max_entries
     new_content = header.rstrip() + "\n\n" + "".join(kept)
     path.write_text(new_content.strip() + "\n", encoding="utf-8")
-    logger.info(f"Pruned {pruned_count} old cron log entries, kept {max_entries}")
+    logger.debug(f"Pruned {pruned_count} old cron log entries, kept {max_entries}")
 
 
 async def reload_cron_tasks():
@@ -2659,7 +2659,7 @@ async def background_processor(agent: Any):
     """Background processor for periodic tasks."""
 
     logger = logging.getLogger(__name__)
-    logger.info("In-memory periodic processor started (checks every 60 s)")
+    logger.debug("In-memory periodic processor started (checks every 60 s)")
 
     while True:
         try:
@@ -2686,7 +2686,7 @@ async def background_processor(agent: Any):
                     cmd = task.prompt.split(":", 1)[1]
                     if cmd == "cleanup_cron_log":
                         cleanup_cron_log()
-                        logger.info("Cron log cleanup completed")
+                        logger.debug("Cron log cleanup completed")
                     continue
 
                 # Resolve @file references in prompts
