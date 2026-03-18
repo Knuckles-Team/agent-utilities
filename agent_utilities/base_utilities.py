@@ -5,6 +5,11 @@ import os
 import pickle
 import re
 import sys
+import warnings
+
+# Suppress RequestsDependencyWarning due to chardet 6.x / requests 2.32.x mismatch
+# We use a message-based filter to avoid importing from requests, which triggers the warning
+warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 from importlib.resources import as_file, files
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterable
@@ -63,7 +68,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.27"
+__version__ = "0.2.28"
 
 
 def to_float(string=None):
