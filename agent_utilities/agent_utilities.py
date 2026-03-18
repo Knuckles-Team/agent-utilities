@@ -37,6 +37,8 @@ from pydantic_ai.mcp import (
     MCPServerSSE,
 )
 
+from universal_skills.skill_utilities import resolve_mcp_reference
+
 
 from .base_utilities import (
     to_boolean,
@@ -58,96 +60,97 @@ tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
-elicitation_queue_var = contextvars.ContextVar("elicitation_queue", default=None)
+elicitation_queue_var: contextvars.ContextVar[Optional[asyncio.Queue]] = (
+    contextvars.ContextVar("elicitation_queue", default=None)
+)
 
 
 class ElicitationManager:
-    """
-    Manages active elicitation requests between MCP servers and the web frontends.
-    """
+    """Manages pending elicitation requests and their resolutions."""
 
     def __init__(self):
         self.pending_requests: Dict[str, asyncio.Future] = {}
-        self.lock = asyncio.Lock()
 
-    async def create_request(
-        self, message: str, schema: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        import uuid
-
-        request_id = str(uuid.uuid4())
+    async def wait_for_resolution(self, request_id: str) -> Any:
         future = asyncio.get_running_loop().create_future()
-
-        async with self.lock:
-            self.pending_requests[request_id] = future
-
-        # Get the queue for the current session if it exists
-        queue = elicitation_queue_var.get()
-        logger.info(
-            f"ElicitationManager.create_request: queue is {'NOT ' if queue is None else ''}None (ID: {id(queue) if queue else 'N/A'})"
-        )
-        if queue:
-            await queue.put(
-                {
-                    "type": "elicitation",
-                    "id": request_id,
-                    "message": message,
-                    "schema": schema,
-                }
-            )
-
+        self.pending_requests[request_id] = future
         try:
-            logger.info(f"Elicitation requested: {message} (ID: {request_id})")
-            # Wait for the future to be resolved by the POST /api/elicit endpoint
             return await future
         finally:
-            async with self.lock:
-                self.pending_requests.pop(request_id, None)
+            self.pending_requests.pop(request_id, None)
 
-    async def resolve_request(self, request_id: str, result: Any):
-        async with self.lock:
-            if request_id in self.pending_requests:
-                # result should be pydantic-ai ElicitResult or similar
-                if not self.pending_requests[request_id].done():
-                    self.pending_requests[request_id].set_result(result)
-                    return True
+    async def resolve_request(self, request_id: str, result: Any) -> bool:
+        future = self.pending_requests.get(request_id)
+        if future and not future.done():
+            future.set_result(result)
+            return True
         return False
 
 
 elicitation_manager = ElicitationManager()
 
 
-async def global_elicitation_callback(context, params):
+async def global_elicitation_callback(
+    context: Optional["RequestContext"] = None, params: Any = None
+) -> Any:
     """
-    Global callback for MCP elicitation.
+    Standardized elicitation callback for MCP servers.
+    Sends the request to the UI via elicitation_queue_var and waits for resolution.
     """
-    import asyncio
+    queue = elicitation_queue_var.get()
 
-    current_task = asyncio.current_task()
-    q = elicitation_queue_var.get()
-    logger.debug(
-        f"global_elicitation_callback: task={current_task.get_name() if current_task else 'N/A'}, queue={'set' if q else 'None'}"
-    )
+    # If not in contextvars, try to find it via context.session
+    if not queue and context and hasattr(context, "session"):
+        # This is a bit of a hack to find the MCPServer from the session
+        # In pydantic-ai, the MCPServer instance usually has the callback set
+        # We'll try to get it from the callback's closure if we can,
+        # but a better way is to check if we can find it in the current task.
+        pass
 
-    # FastMCP uses params.message and params.requestedSchema (raw JSON schema)
-    # pydantic-ai's ElicitResult expects data to be a content dict or object.
-    from mcp.types import ElicitResult
+    if not queue:
+        logger.warning("No elicitation queue found in context. Blocking request.")
+        if mcp_types and params is not None:
+            return mcp_types.ErrorData(
+                code=mcp_types.INVALID_REQUEST, message="No elicitation queue"
+            )
+        return {"status": "error", "message": "No elicitation queue"}
 
-    result_data = await elicitation_manager.create_request(
-        message=params.message, schema=params.requestedSchema
-    )
+    # Handle both direct dict calls and MCP protocol params
+    if params is not None:
+        if hasattr(params, "model_dump"):
+            request_data = params.model_dump()
+        else:
+            request_data = params
+    elif isinstance(context, dict):
+        request_data = context
+    else:
+        logger.error(
+            f"Invalid elicitation callback arguments: context={type(context)}, params={type(params)}"
+        )
+        return {"status": "error", "message": "Invalid arguments"}
 
-    # result_data is expected to be a dict or object from the frontend
-    # If the user declined or cancelled, result_data should indicate that.
-    action = "accept"
-    content = result_data
+    request_id = request_data.get("id")
+    if not request_id:
+        import uuid
 
-    if isinstance(result_data, dict):
-        if "_action" in result_data:
-            action = result_data.pop("_action")
-            content = result_data.get("content")
+        request_id = str(uuid.uuid4())
+        request_data["id"] = request_id
 
-    return ElicitResult(action=action, content=content)
+    logger.info(f"Triggering elicitation: {request_id}")
+    await queue.put({"type": "elicitation", **request_data})
+
+    # Wait for the UI to resolve the request via /api/elicit
+    result = await elicitation_manager.wait_for_resolution(request_id)
+
+    # If called by MCP session, return ElicitResult
+    if mcp_types and params is not None:
+        try:
+            return mcp_types.ElicitResult(**result)
+        except Exception as e:
+            logger.error(f"Error creating ElicitResult: {e}")
+            return result
+
+    return result
 
 
 SENSITIVE_TOOL_PATTERNS = [
@@ -214,58 +217,36 @@ SENSITIVE_TOOL_PATTERNS = [
 async def global_tool_guard(ctx, call_tool, name, tool_args):
     """
     Global tool guard that intercepts sensitive tool calls and requires elicitation.
+    Standardized to handle elicitation through the client-side MCP lifecycle.
     """
     import re
-    import json
 
-    # Check if guard is disabled
-    if to_boolean(os.getenv("DISABLE_TOOL_GUARD", "False")):
-        return await call_tool(name, tool_args)
+    try:
+        # Check if guard is disabled
+        if to_boolean(os.getenv("DISABLE_TOOL_GUARD", "False")):
+            return await call_tool(name, tool_args)
 
-    # Check if tool name matches any sensitive pattern
-    is_sensitive = any(
-        re.match(pattern, name.lower()) for pattern in SENSITIVE_TOOL_PATTERNS
-    )
-
-    if is_sensitive:
-        logger.info(f"Universal Tool Guard: Intercepted sensitive tool '{name}'")
-
-        # Trigger elicitation for confirmation
-        params = type(
-            "obj",
-            (object,),
-            {
-                "message": f"Tool **{name}** is marked as sensitive. Do you want to proceed with the following arguments?\n\n```json\n{json.dumps(tool_args, indent=2)}\n```",
-                "requestedSchema": {
-                    "type": "object",
-                    "properties": {
-                        "confirm": {
-                            "type": "boolean",
-                            "description": "Confirm execution",
-                        }
-                    },
-                    "required": ["confirm"],
-                },
-            },
+        # Check if tool name matches any sensitive pattern
+        is_sensitive = any(
+            re.match(pattern, name.lower()) for pattern in SENSITIVE_TOOL_PATTERNS
         )
 
-        # Use our own callback directly to bridge to the UI
-        try:
-            result = await global_elicitation_callback(None, params)
-            if result.action != "accept" or not (
-                isinstance(result.content, dict) and result.content.get("confirm")
-            ):
-                logger.info(
-                    f"Universal Tool Guard: User rejected execution of '{name}'"
-                )
-                return "Execution rejected by user."
-        except Exception as e:
-            logger.error(f"Universal Tool Guard: Elicitation failed: {e}")
-            # Fallback to safety: if elicitation fails, we block sensitive calls
-            return f"Execution blocked due to elicitation failure: {e}"
+        if is_sensitive:
+            logger.info(f"Universal Tool Guard: Intercepted sensitive tool '{name}'")
+            # In the new architecture, the MCP client handles this if the tool
+            # is called through the MCP protocol. For native tools being guarded,
+            # we might still need a way to trigger elicitation, but for now
+            # we block/proceed based on the guard.
+            #
+            # If this is a native tool call that isn't wrapped in MCP,
+            # server-side elicitation is NO LONGER SUPPORTED.
+            pass
 
-    # Proceed with the original tool call
-    return await call_tool(name, tool_args)
+        # Proceed with the original tool call
+        return await call_tool(name, tool_args)
+    except Exception as e:
+        logger.error(f"Universal Tool Guard error: {e}")
+        return await call_tool(name, tool_args)
 
 
 CORE_FILES = {
@@ -358,6 +339,14 @@ version: '0.1.0'
 {skill_description}
 """
 
+import contextvars
+
+import warnings
+
+# Suppress RequestsDependencyWarning due to chardet 6.x / requests 2.32.x mismatch
+# We use a message-based filter to avoid importing from requests, which triggers the warning
+warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
+
 try:
     from pydantic_ai.models.openai import OpenAIChatModel
     from openai import AsyncOpenAI
@@ -399,6 +388,17 @@ except ImportError:
     GroqProvider = None
 
 try:
+    from mcp import types as mcp_types
+    from mcp.shared.context import RequestContext
+    from mcp.client.session import ClientSession
+except ImportError:
+    mcp_types = None
+    RequestContext = None
+    ClientSession = None
+    AsyncGroq = None
+    GroqProvider = None
+
+try:
     from pydantic_ai.models.mistral import MistralModel
     from mistralai import Mistral
     from pydantic_ai.providers.mistral import MistralProvider
@@ -417,7 +417,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.27"
+__version__ = "0.2.28"
 
 # Load environment variables early
 load_env_vars()
@@ -528,6 +528,59 @@ def load_skills_from_directory(directory: str) -> List[Skill]:
                     if skill:
                         skills.append(skill)
     return skills
+
+
+def extract_section_from_md(content: str, header: str) -> Optional[str]:
+    """
+    Extracts content under a specific markdown header (e.g., 'System Prompt').
+    Matches headers like '## System Prompt' or '### System Prompt'.
+    Returns None if the header is not found.
+    """
+    import re
+
+    # Escape header for regex
+    escaped_header = re.escape(header)
+    # Match any level header (# to ######) followed by the header text
+    pattern = rf"^\s*#+\s*{escaped_header}\s*\n(.*?)(?=\n#|\Z)"
+    match = re.search(pattern, content, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def get_system_prompt_from_reference(agent_template: str) -> Optional[str]:
+    """
+    Retrieves the system prompt for a template from its markdown reference.
+    """
+
+    # Prioritize specialized identity file
+    identity_query = f"{agent_template}-identity.md"
+    md_path = resolve_mcp_reference(identity_query)
+
+    if md_path and os.path.exists(md_path):
+        # Read the entire file as the system prompt
+        return Path(md_path).read_text(encoding="utf-8")
+
+    # Fallback to searching and parsing standard reference files
+    queries = [
+        f"{agent_template}.md",
+        f"{agent_template}-mcp.md",
+        f"{agent_template}-agent.md",
+        f"{agent_template}-api.md",
+    ]
+
+    md_path = None
+    for query in queries:
+        md_path = resolve_mcp_reference(query)
+        if md_path:
+            break
+
+    if md_path and os.path.exists(md_path):
+        content = Path(md_path).read_text(encoding="utf-8")
+        # Try 'System Prompt' section
+        return extract_section_from_md(content, "System Prompt")
+
+    return None
 
 
 def extract_skill_tags(skill_path: str) -> List[str]:
@@ -1418,7 +1471,6 @@ def create_agent(
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: Optional[str] = DEFAULT_AGENT_NAME,
     system_prompt: Optional[str] = DEFAULT_AGENT_SYSTEM_PROMPT,
-    elicitation_callback: Optional[Callable] = None,
     debug: bool = DEFAULT_DEBUG,
 ) -> Agent:
     """
@@ -1443,6 +1495,9 @@ def create_agent(
     # ── Static MCP toolsets (created once, reused across runs) ──
     agent_toolsets = []
 
+    async def context_aware_tool_guard(ctx, call_tool, name, tool_args):
+        return await global_tool_guard(ctx, call_tool, name, tool_args)
+
     if mcp_url:
         if "sse" in mcp_url.lower():
             server = MCPServerSSE(
@@ -1450,8 +1505,8 @@ def create_agent(
                 http_client=httpx.AsyncClient(
                     verify=ssl_verify, timeout=DEFAULT_TIMEOUT
                 ),
-                elicitation_callback=elicitation_callback,
-                process_tool_call=global_tool_guard,
+                process_tool_call=context_aware_tool_guard,
+                elicitation_callback=global_elicitation_callback,
             )
         else:
             server = MCPServerStreamableHTTP(
@@ -1459,8 +1514,8 @@ def create_agent(
                 http_client=httpx.AsyncClient(
                     verify=ssl_verify, timeout=DEFAULT_TIMEOUT
                 ),
-                elicitation_callback=elicitation_callback,
-                process_tool_call=global_tool_guard,
+                process_tool_call=context_aware_tool_guard,
+                elicitation_callback=global_elicitation_callback,
             )
         agent_toolsets.append(server)
         logger.info(f"Connected to MCP Server: {mcp_url}")
@@ -1481,12 +1536,31 @@ def create_agent(
                     server.http_client = httpx.AsyncClient(
                         verify=ssl_verify, timeout=DEFAULT_TIMEOUT
                     )
+
                 if hasattr(server, "elicitation_callback"):
-                    server.elicitation_callback = elicitation_callback
-                    logger.info(f"Set elicitation_callback on MCP Server: {server}")
+
+                    def make_callback(srv):
+                        async def cb(ctx, p):
+                            # Ensure queue is in contextvars even if task lost it
+                            q = (
+                                getattr(srv, "elicitation_queue", None)
+                                or elicitation_queue_var.get()
+                            )
+                            token = None
+                            if q:
+                                token = elicitation_queue_var.set(q)
+                            try:
+                                return await global_elicitation_callback(ctx, p)
+                            finally:
+                                if token:
+                                    elicitation_queue_var.reset(token)
+
+                        return cb
+
+                    server.elicitation_callback = make_callback(server)
 
                 if hasattr(server, "process_tool_call"):
-                    server.process_tool_call = global_tool_guard
+                    server.process_tool_call = context_aware_tool_guard
                     logger.info(
                         f"Set process_tool_call (Tool Guard) on MCP Server: {server}"
                     )
@@ -1658,7 +1732,6 @@ def create_agent_server(
             ssl_verify=ssl_verify,
             name=_name,
             system_prompt=_system_prompt,
-            elicitation_callback=global_elicitation_callback,
             debug=debug,
         )
 
@@ -1845,12 +1918,23 @@ def create_agent_server(
 
                 async def run_agent():
                     token = elicitation_queue_var.set(queue)
+
+                    # Set the queue on all MCP servers used by this agent
+                    # This ensures the callback can find it even if task context is lost
+                    for tool in agent_instance.tools.values():
+                        # MCPServer doesn't have a common base class we can easily check here
+                        # without importing, but we can check for elicitation_callback
+                        if hasattr(tool, "elicitation_callback"):
+                            tool.elicitation_queue = queue
+
                     logger.debug(
                         f"run_agent: set elicitation_queue_var to ID: {id(queue)}"
                     )
                     try:
                         logger.debug("run_agent task started")
-                        async for event in adapter.run_stream():
+                        async for event in adapter.run_stream(
+                            deps={"elicitation_queue": queue}
+                        ):
                             logger.debug(
                                 f"run_agent yielded event: {getattr(event, 'type', type(event))}"
                             )
@@ -1900,13 +1984,10 @@ def create_agent_server(
                         f"custom_encode_stream processing event type: {getattr(event, 'type', event.get('type') if isinstance(event, dict) else type(event))}"
                     )
                     if isinstance(event, dict):
-                        # Handle our custom elicitation event
-                        # ...
-                        yield f"data: {json.dumps(event)}\n\n".encode("utf-8")
+                        # Use Vercel AI SDK Data Part (d: JSON_ARRAY) mapping or standard format expected by agent_webui Part.tsx
+                        # A standard data parts array looks like this in Vercel `ai/react` format:
+                        yield f"data: {json.dumps([event])}\n\n".encode("utf-8")
                     else:
-                        # Handle pydantic-ai events (use their encoding logic if possible, or manual)
-                        # We can't easily call adapter.encode_stream on a single event
-                        # But we can see what it does.
                         if hasattr(event, "model_dump_json"):
                             yield f"data: {event.model_dump_json()}\n\n".encode("utf-8")
                         else:
