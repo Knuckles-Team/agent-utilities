@@ -45,6 +45,22 @@ graph TD
     EQ -- 8. Result --> MCPServer
 ```
 
+## Graph Orchestration Architecture
+```mermaid
+graph TD
+    UserQuery([User Request]) --> RouterNode[RouterNode]
+    RouterNode -- "Classifies Request (gpt-4o-mini)" --> DomainChoice{Confidence > 0.6?}
+    DomainChoice -- "Yes -> Return DomainNode" --> DomainNode[DomainNode]
+    DomainChoice -- "No / Error" --> EndNode([End with Error])
+
+    subgraph Execution Phase
+        DomainNode -- "Applies Env Vars (Context isolation)" --> CreateAgent[create_agent (gpt-4o)]
+        CreateAgent -- "Executes Request" --> ToolExecution[Target Domain Tools]
+    end
+
+    ToolExecution --> EndResult([End with Domain Results])
+```
+
 ## Commands (run these exactly)
 # Development & Quality
 ruff check --fix .

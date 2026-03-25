@@ -30,7 +30,7 @@ DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "text-embedding-nomic-embed-text-v2-moe
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "llama")
 
-__version__ = "0.2.31"
+__version__ = "0.2.32"
 
 
 def create_mcp_parser():
@@ -254,7 +254,7 @@ def create_mcp_server(
         JWTClaimsLoggingMiddleware = None
 
     parser = create_mcp_parser()
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     if hasattr(args, "help") and args.help:
         parser.print_help()

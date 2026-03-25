@@ -7,9 +7,9 @@ import re
 import sys
 import warnings
 
-# Suppress RequestsDependencyWarning due to chardet 6.x / requests 2.32.x mismatch
-# We use a message-based filter to avoid importing from requests, which triggers the warning
+# Suppress RequestsDependencyWarning and FastMCP DeprecationWarnings
 warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastmcp")
 from importlib.resources import as_file, files
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterable
@@ -68,7 +68,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.31"
+__version__ = "0.2.32"
 
 
 def to_float(string=None):
@@ -164,6 +164,7 @@ def load_env_vars(override: bool = False):
                     # logging.getLogger(__name__).info(f"Loaded .env from {dotenv_path}")
                 else:
                     pass
+
     except Exception as e:
         logging.getLogger(__name__).error(f"Error loading .env file: {e}")
 
@@ -284,7 +285,7 @@ def get_logger(name: str):
     logger = getLogger(name)
     logger.setLevel(logging.INFO)
     if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
+        handler = logging.StreamHandler(sys.stderr)
         handler.setLevel(logging.INFO)
         formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

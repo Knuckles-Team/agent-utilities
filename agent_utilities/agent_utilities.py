@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import re
 import shutil
 import json
@@ -37,7 +38,10 @@ from pydantic_ai.mcp import (
     MCPServerSSE,
 )
 
-from universal_skills.skill_utilities import resolve_mcp_reference
+from universal_skills.skill_utilities import (
+    resolve_mcp_reference,
+    get_universal_skills_path,
+)
 
 
 from .base_utilities import (
@@ -59,6 +63,8 @@ from .models import PeriodicTask
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
+
+from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
 elicitation_queue_var: contextvars.ContextVar[Optional[asyncio.Queue]] = (
     contextvars.ContextVar("elicitation_queue", default=None)
@@ -352,7 +358,10 @@ try:
     from openai import AsyncOpenAI
     from pydantic_ai.providers.openai import OpenAIProvider
 except ImportError:
-    print("Unable to import OpenAI Chat Model / OpenAI Provider from agent-utilities")
+    print(
+        "Unable to import OpenAI Chat Model / OpenAI Provider from agent-utilities",
+        file=sys.stderr,
+    )
     OpenAIModel = None
     AsyncOpenAI = None
     OpenAIProvider = None
@@ -417,10 +426,10 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.31"
+__version__ = "0.2.32"
 
-# Load environment variables early
-load_env_vars()
+# Environment variables should be loaded by the entry point
+# load_env_vars()
 
 # Global override for workspace directory
 WORKSPACE_DIR: Optional[str] = None
@@ -802,6 +811,7 @@ def get_workspace_path(filename: str) -> Path:
 
 def initialize_workspace(overwrite: bool = False):
     """Create missing files with templates."""
+    load_env_vars()
     for key, fname in CORE_FILES.items():
         path = get_workspace_path(fname)
         if not path.exists() or overwrite:
@@ -1055,8 +1065,15 @@ def extract_agent_metadata(content: str) -> Dict[str, str]:
         "description": "AI Agent",
         "emoji": "🤖",
         "vibe": "",
-        "content": content.strip(),
     }
+    # Try to extract the "System Prompt" section specifically if it exists
+    system_prompt_match = re.search(
+        r"### System Prompt\n(.*?)(?=\n###|\n---|\Z)", content, re.DOTALL | re.MULTILINE
+    )
+    if system_prompt_match:
+        data["content"] = system_prompt_match.group(1).strip()
+    else:
+        data["content"] = content.strip()
 
     metadata_patterns = {
         "name": r"\* \*\*Name:\*\* (.*)",
@@ -1096,16 +1113,19 @@ DEFAULT_AGENT_SYSTEM_PROMPT = os.getenv("AGENT_SYSTEM_PROMPT", None)
 DEFAULT_HOST = os.getenv("HOST", "0.0.0.0")
 DEFAULT_PORT = to_integer(os.getenv("PORT", "9000"))
 DEFAULT_DEBUG = to_boolean(os.getenv("DEBUG", "False"))
-DEFAULT_PROVIDER = os.getenv("PROVIDER", "openai")
-DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "nvidia/nemotron-3-super")
-DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
-DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "ollama")
+DEFAULT_PROVIDER = None
+DEFAULT_MODEL_ID = None
+DEFAULT_LLM_BASE_URL = None
+DEFAULT_LLM_API_KEY = None
 DEFAULT_MCP_URL = os.getenv("MCP_URL", None)
 DEFAULT_MCP_CONFIG = os.getenv("MCP_CONFIG", get_mcp_config_path())
 DEFAULT_CUSTOM_SKILLS_DIRECTORY = os.getenv("CUSTOM_SKILLS_DIRECTORY", None)
+DEFAULT_LOAD_UNIVERSAL_SKILLS = to_boolean(os.getenv("LOAD_UNIVERSAL_SKILLS", "False"))
+DEFAULT_LOAD_SKILL_GRAPHS = to_boolean(os.getenv("LOAD_SKILL_GRAPHS", "False"))
 DEFAULT_ENABLE_WEB_UI = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
 DEFAULT_ENABLE_OTEL = to_boolean(os.getenv("ENABLE_OTEL", "False"))
-DEFAULT_ENABLE_OTEL = to_boolean(os.getenv("ENABLE_OTEL", "False"))
+if not DEFAULT_ENABLE_OTEL:
+    os.environ["OTEL_SDK_DISABLED"] = "true"
 DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", None)
 DEFAULT_OTEL_EXPORTER_OTLP_HEADERS = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", None)
 DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY = os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY", None)
@@ -1133,6 +1153,7 @@ DEFAULT_LOGIT_BIAS = to_dict(os.getenv("LOGIT_BIAS", None))
 DEFAULT_STOP_SEQUENCES = to_list(os.getenv("STOP_SEQUENCES", None))
 DEFAULT_EXTRA_HEADERS = to_dict(os.getenv("EXTRA_HEADERS", None))
 DEFAULT_EXTRA_BODY = to_dict(os.getenv("EXTRA_BODY", None))
+DEFAULT_MIN_CONFIDENCE = to_float(os.getenv("MIN_CONFIDENCE", "0.4"))
 
 
 _otel_initialized = False
@@ -1273,6 +1294,12 @@ def create_agent_parser():
         "--workspace",
         help="Explicit path to the agent workspace directory (contains IDENTITY.md, etc.)",
     )
+    parser.add_argument(
+        "--load-universal-skills",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_LOAD_UNIVERSAL_SKILLS,
+        help="Enable/Disable loading of all universal-skills by default",
+    )
 
     parser.add_argument(
         "--web",
@@ -1347,10 +1374,10 @@ def create_agent_parser():
 
 
 def create_model(
-    provider: str,
-    model_id: str,
-    base_url: Optional[str],
-    api_key: Optional[str],
+    provider: Optional[str] = None,
+    model_id: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
     ssl_verify: bool = True,
     timeout: float = 300.0,
 ):
@@ -1367,32 +1394,22 @@ def create_model(
     Returns:
         A Pydantic AI Model instance
     """
+    _provider = provider or os.environ.get("PROVIDER") or "openai"
+    _model_id = model_id or os.environ.get("MODEL_ID") or "nvidia/nemotron-3-super"
+
     http_client = None
     if not ssl_verify:
         http_client = httpx.AsyncClient(verify=False, timeout=timeout)
 
-    if provider == "openai":
-        target_base_url = base_url
-        target_api_key = api_key
-
-        if http_client and AsyncOpenAI and OpenAIProvider:
-            client = AsyncOpenAI(
-                api_key=target_api_key or os.environ.get("OPENAI_API_KEY"),
-                base_url=target_base_url or os.environ.get("OPENAI_BASE_URL"),
-                http_client=http_client,
-            )
-            provider_instance = OpenAIProvider(openai_client=client)
-            return OpenAIChatModel(model_name=model_id, provider=provider_instance)
-
-        if target_base_url:
-            os.environ["OPENAI_BASE_URL"] = target_base_url
-        if target_api_key:
-            os.environ["OPENAI_API_KEY"] = target_api_key
-        return OpenAIChatModel(model_name=model_id, provider="openai")
-
-    elif provider == "ollama":
-        target_base_url = base_url or "http://localhost:11434/v1"
-        target_api_key = api_key or "ollama"
+    if _provider == "openai":
+        target_base_url = (
+            base_url
+            or os.environ.get("LLM_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+        )
+        target_api_key = (
+            api_key or os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        )
 
         if http_client and AsyncOpenAI and OpenAIProvider:
             client = AsyncOpenAI(
@@ -1401,77 +1418,123 @@ def create_model(
                 http_client=http_client,
             )
             provider_instance = OpenAIProvider(openai_client=client)
-            return OpenAIChatModel(model_name=model_id, provider=provider_instance)
+            return OpenAIChatModel(model_name=_model_id, provider=provider_instance)
+
+        if target_base_url:
+            os.environ["OPENAI_BASE_URL"] = target_base_url
+        if target_api_key:
+            os.environ["OPENAI_API_KEY"] = target_api_key
+        return OpenAIChatModel(model_name=_model_id, provider="openai")
+
+    elif _provider == "ollama":
+        target_base_url = (
+            base_url or os.environ.get("LLM_BASE_URL") or "http://localhost:11434/v1"
+        )
+        target_api_key = api_key or os.environ.get("LLM_API_KEY") or "ollama"
+
+        if http_client and AsyncOpenAI and OpenAIProvider:
+            client = AsyncOpenAI(
+                api_key=target_api_key,
+                base_url=target_base_url,
+                http_client=http_client,
+            )
+            provider_instance = OpenAIProvider(openai_client=client)
+            return OpenAIChatModel(model_name=_model_id, provider=provider_instance)
 
         os.environ["OPENAI_BASE_URL"] = target_base_url
         os.environ["OPENAI_API_KEY"] = target_api_key
-        return OpenAIChatModel(model_name=model_id, provider="openai")
+        return OpenAIChatModel(model_name=_model_id, provider="openai")
 
-    elif provider == "anthropic":
-        if api_key:
-            os.environ["ANTHROPIC_API_KEY"] = api_key
+    elif _provider == "anthropic":
+        target_api_key = (
+            api_key
+            or os.environ.get("LLM_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY")
+        )
+        if target_api_key:
+            os.environ["ANTHROPIC_API_KEY"] = target_api_key
 
         try:
             if http_client and AsyncAnthropic and AnthropicProvider:
                 client = AsyncAnthropic(
-                    api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"),
+                    api_key=target_api_key,
                     http_client=http_client,
                 )
                 provider_instance = AnthropicProvider(anthropic_client=client)
-                return AnthropicModel(model_name=model_id, provider=provider_instance)
+                return AnthropicModel(model_name=_model_id, provider=provider_instance)
         except ImportError:
             pass
 
-        return AnthropicModel(model_name=model_id)
+        return AnthropicModel(model_name=_model_id)
 
-    elif provider == "google":
-        if api_key:
-            os.environ["GEMINI_API_KEY"] = api_key
-        return GoogleModel(model_name=model_id)
+    elif _provider == "google":
+        target_api_key = (
+            api_key or os.environ.get("LLM_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        )
+        if target_api_key:
+            os.environ["GEMINI_API_KEY"] = target_api_key
+        return GoogleModel(model_name=_model_id)
 
-    elif provider == "groq":
-        if api_key:
-            os.environ["GROQ_API_KEY"] = api_key
+    elif _provider == "groq":
+        target_api_key = (
+            api_key or os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY")
+        )
+        if target_api_key:
+            os.environ["GROQ_API_KEY"] = target_api_key
 
         if http_client and AsyncGroq and GroqProvider:
             client = AsyncGroq(
-                api_key=api_key or os.environ.get("GROQ_API_KEY"),
+                api_key=target_api_key,
                 http_client=http_client,
             )
             provider_instance = GroqProvider(groq_client=client)
-            return GroqModel(model_name=model_id, provider=provider_instance)
+            return GroqModel(model_name=_model_id, provider=provider_instance)
 
-        return GroqModel(model_name=model_id)
+        return GroqModel(model_name=_model_id)
 
-    elif provider == "mistral":
-        if api_key:
-            os.environ["MISTRAL_API_KEY"] = api_key
+    elif _provider == "mistral":
+        target_api_key = (
+            api_key
+            or os.environ.get("LLM_API_KEY")
+            or os.environ.get("MISTRAL_API_KEY")
+        )
+        if target_api_key:
+            os.environ["MISTRAL_API_KEY"] = target_api_key
 
-        if http_client and Mistral and MistralProvider:
-            pass
+        return MistralModel(model_name=_model_id)
 
-        return MistralModel(model_name=model_id)
+    elif _provider == "huggingface":
+        target_api_key = (
+            api_key
+            or os.environ.get("LLM_API_KEY")
+            or os.environ.get("HUGGING_FACE_API_KEY")
+        )
+        if target_api_key:
+            os.environ["HUGGING_FACE_API_KEY"] = target_api_key
+        return HuggingFaceModel(model_name=_model_id)
 
-    elif provider == "huggingface":
-        if api_key:
-            os.environ["HUGGING_FACE_API_KEY"] = api_key
-        return HuggingFaceModel(model_name=model_id)
-
-    return OpenAIChatModel(model_name=model_id, provider="openai")
+    return OpenAIChatModel(model_name=_model_id, provider="openai")
 
 
 def create_agent(
-    provider: str = DEFAULT_PROVIDER,
-    model_id: str = DEFAULT_MODEL_ID,
+    provider: Optional[str] = DEFAULT_PROVIDER,
+    model_id: Optional[str] = DEFAULT_MODEL_ID,
     base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
     api_key: Optional[str] = DEFAULT_LLM_API_KEY,
     mcp_url: str = DEFAULT_MCP_URL,
-    mcp_config: str = DEFAULT_MCP_CONFIG,
+    mcp_config: Optional[str] = None,
+    mcp_toolsets: Optional[list[Any]] = None,
     custom_skills_directory: Optional[str] = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
+    enable_skills: bool = True,
+    enable_universal_tools: bool = True,
     name: Optional[str] = DEFAULT_AGENT_NAME,
     system_prompt: Optional[str] = DEFAULT_AGENT_SYSTEM_PROMPT,
     debug: bool = DEFAULT_DEBUG,
+    load_universal_skills: bool = DEFAULT_LOAD_UNIVERSAL_SKILLS,
+    load_skill_graphs: bool = DEFAULT_LOAD_SKILL_GRAPHS,
+    skill_tags: Optional[List[str]] = None,
+    graph_bundle: Optional[tuple] = None,
 ) -> Agent:
     """
     Create a Pydantic AI Agent
@@ -1483,6 +1546,7 @@ def create_agent(
         api_key: Optional API key
         mcp_url: Optional single MCP server URL
         mcp_config: Path to MCP config file (JSON)
+        mcp_toolsets: Pre-loaded ToolSets to inject
         custom_skills_directory: Path to additional skills
         ssl_verify: Whether to verify SSL certificates
         name: Name of the agent (or supervisor)
@@ -1523,12 +1587,31 @@ def create_agent(
         try:
             # Prioritize local package config if mcp_config is just a filename
             if not os.path.isabs(mcp_config) and "/" not in mcp_config:
-                pkg = retrieve_package_name()
-                if pkg and pkg != "agent_utilities":
-                    local_pkg_config = Path.cwd() / pkg / mcp_config
-                    if local_pkg_config.exists():
-                        mcp_config = str(local_pkg_config)
-                        logger.info(f"Prioritizing Local Package Config: {mcp_config}")
+                ws_config = get_workspace_path(mcp_config)
+                if ws_config.exists():
+                    mcp_config = str(ws_config)
+                    logger.info(f"Loaded MCP config from workspace: {mcp_config}")
+                else:
+                    pkg = retrieve_package_name()
+                    if pkg and pkg != "agent_utilities":
+                        local_pkg_config = Path.cwd() / pkg / "agent_data" / mcp_config
+                        if local_pkg_config.exists():
+                            mcp_config = str(local_pkg_config)
+                            logger.info(
+                                f"Prioritizing Local Package Config (agent_data): {mcp_config}"
+                            )
+                        else:
+                            local_pkg_dir = Path.cwd() / pkg / mcp_config
+                            if local_pkg_dir.exists():
+                                mcp_config = str(local_pkg_dir)
+                                logger.info(
+                                    f"Prioritizing Local Package Config (root): {mcp_config}"
+                                )
+                    else:
+                        local_config = Path.cwd() / mcp_config
+                        if local_config.exists():
+                            mcp_config = str(local_config)
+                            logger.info(f"Loaded MCP config from cwd: {mcp_config}")
 
             mcp_toolset = load_mcp_servers(mcp_config)
             for server in mcp_toolset:
@@ -1573,6 +1656,52 @@ def create_agent(
         except Exception as e:
             logger.warning(f"Could not load MCP config {mcp_config}: {e}")
 
+    if mcp_toolsets:
+        for server in mcp_toolsets:
+            if server is None:
+                continue
+            if hasattr(server, "http_client") and not getattr(
+                server, "http_client", None
+            ):
+                server.http_client = httpx.AsyncClient(
+                    verify=ssl_verify, timeout=DEFAULT_TIMEOUT
+                )
+
+            if hasattr(server, "elicitation_callback"):
+
+                def make_callback(srv):
+                    async def cb(ctx, p):
+                        q = (
+                            getattr(srv, "elicitation_queue", None)
+                            or elicitation_queue_var.get()
+                        )
+                        token = None
+                        if q:
+                            token = elicitation_queue_var.set(q)
+                        try:
+                            return await global_elicitation_callback(ctx, p)
+                        finally:
+                            if token:
+                                elicitation_queue_var.reset(token)
+
+                    return cb
+
+                server.elicitation_callback = make_callback(server)
+
+            if hasattr(server, "process_tool_call"):
+                server.process_tool_call = context_aware_tool_guard
+                logger.info(
+                    f"Set process_tool_call (Tool Guard) on pre-filtered MCP Server: {server}"
+                )
+        for server in mcp_toolsets:
+            if server is None:
+                continue
+            # Wrap FastMCP instances in a Toolset adapter
+            if type(server).__name__ == "FastMCP":
+                agent_toolsets.append(FastMCPToolset(server))
+            else:
+                agent_toolsets.append(server)
+
     model = create_model(
         provider=provider,
         model_id=model_id,
@@ -1597,24 +1726,47 @@ def create_agent(
         extra_body=DEFAULT_EXTRA_BODY,
     )
 
-    from universal_skills.skill_utilities import get_universal_skills_path
     from pydantic_ai_skills import SkillsToolset
 
-    # Always load default skills
-    skill_dirs = []
-    if skills_path := get_skills_path():
-        skill_dirs.append(skills_path)
-    skill_dirs.extend(get_universal_skills_path())
+    # Always load default skills if enabled
+    if enable_skills:
+        skill_dirs = []
+        if skills_path := get_skills_path():
+            skill_dirs.append(skills_path)
 
-    # Load custom skills if provided
-    if custom_skills_directory and os.path.exists(custom_skills_directory):
-        logger.debug(f"Loading custom skills {custom_skills_directory}")
-        skill_dirs.append(str(custom_skills_directory))
-        logger.info(f"Loaded Custom Skills at {custom_skills_directory}")
+        if load_universal_skills:
+            skill_dirs.extend(get_universal_skills_path())
 
-    skills = SkillsToolset(directories=skill_dirs)
-    agent_toolsets.append(skills)
-    logger.info(f"Loaded Skills at {get_universal_skills_path()}")
+        if load_skill_graphs:
+            try:
+                from skill_graphs.skill_graph_utilities import get_skill_graphs_path
+
+                # We use default_enabled=True here because we want to load all graphs
+                # and then filter them by tag if skill_tags is provided.
+                skill_dirs.extend(get_skill_graphs_path(default_enabled=True))
+            except ImportError:
+                pass
+
+        # Filter skill directories by tag if provided
+        if skill_tags:
+            skill_dirs = [d for d in skill_dirs if skill_matches_tags(d, skill_tags)]
+
+        # Load custom skills if provided
+        if custom_skills_directory:
+            if isinstance(custom_skills_directory, (list, tuple)):
+                for d in custom_skills_directory:
+                    if d and os.path.exists(d):
+                        skill_dirs.append(str(d))
+                        logger.info(f"Loaded Custom Skills at {d}")
+            elif os.path.exists(custom_skills_directory):
+                logger.debug(f"Loading custom skills {custom_skills_directory}")
+                skill_dirs.append(str(custom_skills_directory))
+                logger.info(f"Loaded Custom Skills at {custom_skills_directory}")
+
+        skills = SkillsToolset(directories=skill_dirs)
+
+        agent_toolsets.append(skills)
+        logger.info(f"Loaded {len(skill_dirs)} Skills")
 
     # Finalize prompt if not provided statically.
     # Note: registering a dynamic prompt function doesn't guarantee the LLM will see it if tools aren't invoked in some providers, it's safer to have a static base prompt.
@@ -1642,11 +1794,13 @@ def create_agent(
     def inject_system_prompt() -> str:
         return system_prompt_str
 
-    # Register Universal Tools (Workspace, A2A, Scheduler)
-    # This also handles dynamic system prompt registration via register_agent_tools
-    from .tools import register_agent_tools
+    # Register Universal Tools (Workspace, A2A, Scheduler) if enabled
+    if enable_universal_tools:
+        # Register Universal Tools (Workspace, A2A, Scheduler)
+        # This also handles dynamic system prompt registration via register_agent_tools
+        from agent_utilities.tools import register_agent_tools
 
-    register_agent_tools(agent)
+        register_agent_tools(agent, graph_bundle=graph_bundle)
 
     return agent
 
@@ -1657,7 +1811,7 @@ def create_agent_server(
     base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
     api_key: Optional[str] = DEFAULT_LLM_API_KEY,
     mcp_url: str = DEFAULT_MCP_URL,
-    mcp_config: str = DEFAULT_MCP_CONFIG,
+    mcp_config: Optional[str] = None,
     custom_skills_directory: Optional[str] = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
     debug: Optional[bool] = DEFAULT_DEBUG,
     host: Optional[str] = DEFAULT_HOST,
@@ -1681,9 +1835,25 @@ def create_agent_server(
     a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
     a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
+    load_universal_skills: bool = DEFAULT_LOAD_UNIVERSAL_SKILLS,
+    load_skill_graphs: bool = DEFAULT_LOAD_SKILL_GRAPHS,
+    agent_instance: Optional[Agent] = None,
+    graph_bundle: Optional[tuple] = None,
 ):
+    """
+    Create and run an agent server with FastAPI and FastMCP.
+
+    If agent_instance is provided, generation attributes (provider, model_id, etc.)
+    are bypassed in favor of the existing instantiated agent.
+    """
     import uvicorn
     from fasta2a import Skill
+
+    import warnings
+
+    # Suppress RequestsDependencyWarning due to chardet 6.x / requests 2.32.x mismatch
+    # We use a message-based filter to avoid importing from requests, which triggers the warning
+    warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 
     print(
         f"Starting {DEFAULT_AGENT_NAME}:"
@@ -1691,7 +1861,8 @@ def create_agent_server(
         f"\tmodel={model_id}"
         f"\tbase_url={base_url}"
         f"\tmcp={mcp_url} | {mcp_config}"
-        f"\tssl_verify={ssl_verify}"
+        f"\tssl_verify={ssl_verify}",
+        file=sys.stderr,
     )
 
     _name = name or DEFAULT_AGENT_NAME
@@ -1705,7 +1876,7 @@ def create_agent_server(
     def app_factory() -> FastAPI:
         """Internal factory to build the agent and its web apps."""
         nonlocal enable_otel, enable_web_ui
-        _system_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
+        skill_dirs = []
 
         if enable_otel is None:
             enable_otel = to_boolean(os.getenv("ENABLE_OTEL", "False"))
@@ -1720,30 +1891,45 @@ def create_agent_server(
                 protocol=otel_protocol,
             )
 
-        # Create fresh agent instance
-        agent_instance = create_agent(
-            provider=provider,
-            model_id=model_id,
-            base_url=base_url,
-            api_key=api_key,
-            mcp_url=mcp_url,
-            mcp_config=mcp_config,
-            custom_skills_directory=custom_skills_directory,
-            ssl_verify=ssl_verify,
-            name=_name,
-            system_prompt=_system_prompt,
-            debug=debug,
-        )
+        # Create fresh agent instance OR use provided one
+        _agent_instance = agent_instance
+        if _agent_instance is None:
+            _agent_instance = create_agent(
+                provider=provider,
+                model_id=model_id,
+                base_url=base_url,
+                api_key=api_key,
+                mcp_url=mcp_url,
+                mcp_config=mcp_config,
+                custom_skills_directory=custom_skills_directory,
+                ssl_verify=ssl_verify,
+                name=_name,
+                system_prompt=system_prompt,
+                debug=debug,
+                load_universal_skills=load_universal_skills,
+                load_skill_graphs=load_skill_graphs,
+                graph_bundle=graph_bundle,
+            )
+
+        # Convert dictionary values to a list of instantiated tools for A2A
+        if hasattr(_agent_instance, "tools"):
+            skills_list = list(_agent_instance.tools.values())
+        elif hasattr(_agent_instance, "_function_toolset") and hasattr(
+            _agent_instance._function_toolset, "tools"
+        ):
+            skills_list = list(_agent_instance._function_toolset.tools.values())
+        else:
+            skills_list = []
 
         # Unify skill discovery
-        skill_dirs = []
         if default_skills_path := get_skills_path():
             skill_dirs.append(default_skills_path)
 
         try:
             from universal_skills.skill_utilities import get_universal_skills_path
 
-            skill_dirs.extend(get_universal_skills_path())
+            if load_universal_skills:
+                skill_dirs.extend(get_universal_skills_path())
         except ImportError:
             pass
 
@@ -1826,7 +2012,7 @@ def create_agent_server(
             except ImportError:
                 pass
 
-        a2a_app = agent_instance.to_a2a(
+        a2a_app = _agent_instance.to_a2a(
             name=_name,
             description=DEFAULT_AGENT_DESCRIPTION,
             version=__version__,
@@ -1839,7 +2025,7 @@ def create_agent_server(
         async def lifespan(app: FastAPI):
             # Pass BOTH agent_instance and reload_callback to background_processor if needed
             # For now, reload_cron_tasks handles the global 'tasks' list
-            processor_task = asyncio.create_task(background_processor(agent_instance))
+            processor_task = asyncio.create_task(background_processor(_agent_instance))
             try:
                 if hasattr(a2a_app, "router") and hasattr(
                     a2a_app.router, "lifespan_context"
@@ -1908,7 +2094,7 @@ def create_agent_server(
                 run_input.messages = prune_large_messages(run_input.messages)
 
             adapter = AGUIAdapter(
-                agent=agent_instance, run_input=run_input, accept=accept
+                agent=_agent_instance, run_input=run_input, accept=accept
             )
 
             async def merged_event_stream():
@@ -1921,7 +2107,7 @@ def create_agent_server(
 
                     # Set the queue on all MCP servers used by this agent
                     # This ensures the callback can find it even if task context is lost
-                    for tool in agent_instance.tools.values():
+                    for tool in _agent_instance.tools.values():
                         # MCPServer doesn't have a common base class we can easily check here
                         # without importing, but we can check for elicitation_callback
                         if hasattr(tool, "elicitation_callback"):
@@ -2005,12 +2191,18 @@ def create_agent_server(
             enable_web_ui = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
 
         if custom_web_app is not None:
-            web_app = custom_web_app(agent_instance)
+            web_app = custom_web_app(_agent_instance)
             app.mount(custom_web_mount_path, web_app)
             logger.info(f"Mounted custom web UI at {custom_web_mount_path}")
         elif enable_web_ui:
             try:
                 from agent_webui.server import create_agent_web_app
+
+                # Resolve provider/model for UI display
+                _provider_ui = provider or os.environ.get("PROVIDER") or "openai"
+                _model_id_ui = (
+                    model_id or os.environ.get("MODEL_ID") or "nvidia/nemotron-3-super"
+                )
 
                 identity_meta = load_identity()
                 helpers = {
@@ -2052,9 +2244,10 @@ def create_agent_server(
                 }
 
                 web_app = create_agent_web_app(
-                    agent_instance,
+                    _agent_instance,
                     workspace_helpers=helpers,
                     html_source=html_source,
+                    models={_model_id_ui: f"{_provider_ui}:{_model_id_ui}"},
                 )
                 # Inject reload callback into the web app's state if needed
                 web_app.state.reload_app = None  # Will be set below
@@ -2101,6 +2294,48 @@ def create_agent_server(
         timeout_graceful_shutdown=60,
         log_level="debug" if debug else "info",
     )
+
+
+def skill_matches_tags(skill_dir: str, tags: List[str]) -> bool:
+    """
+    Checks if a skill directory matches any of the given tags.
+    Reads SKILL.md frontmatter for 'tags' and 'categories'.
+    """
+    skill_md = os.path.join(skill_dir, "SKILL.md")
+    if not os.path.isfile(skill_md):
+        return False
+
+    try:
+        with open(skill_md, "r") as f:
+            content = f.read()
+
+        import re
+        import yaml
+
+        fm_match = re.search(r"^---\s*\n(.*?)\n---", content, re.DOTALL | re.MULTILINE)
+        if not fm_match:
+            return False
+
+        data = yaml.safe_load(fm_match.group(1)) or {}
+        skill_tags = data.get("tags", [])
+        if isinstance(skill_tags, str):
+            skill_tags = [skill_tags]
+
+        skill_categories = data.get("categories", [])
+        if isinstance(skill_categories, str):
+            skill_categories = [skill_categories]
+
+        all_skill_metadata = set(
+            [t.lower() for t in skill_tags] + [c.lower() for c in skill_categories]
+        )
+
+        # Also include the directory name itself as a tag
+        all_skill_metadata.add(os.path.basename(skill_dir).lower())
+
+        return any(tag.lower() in all_skill_metadata for tag in tags)
+    except Exception as e:
+        logger.debug(f"Error checking tags for skill {skill_dir}: {e}")
+        return False
 
 
 def extract_tool_tags(tool_def: Any) -> List[str]:
@@ -2164,11 +2399,34 @@ def tool_in_tag(tool_def: Any, tag: str) -> bool:
         return False
 
 
-def filter_tools_by_tag(tools: List[Any], tag: str) -> List[Any]:
+def filter_tools_by_tag(tools: Any, tags: Union[str, List[str]]) -> Any:
     """
-    Filters a list of tools for a given tag.
+    Filters a list of tools, or a ToolSet like MCPServer for a given tag(s).
+    If multiple tags are provided, it returns tools that match ANY of the tags.
     """
-    return [t for t in tools if tool_in_tag(t, tag)]
+    if isinstance(tags, str):
+        tag_list = [tags]
+    else:
+        tag_list = tags
+
+    if hasattr(tools, "filtered"):
+        return tools.filtered(
+            lambda ctx, tool_def: any(
+                tag
+                in (
+                    (getattr(tool_def, "metadata", {}) or {}).get("annotations") or {}
+                ).get("tags", set())
+                or tag
+                in ((getattr(tool_def, "metadata", {}) or {}).get("meta") or {}).get(
+                    "tags", []
+                )
+                or (getattr(tool_def, "metadata", {}) or {}).get("tags") == tag
+                for tag in tag_list
+            )
+        )
+    elif isinstance(tools, list):
+        return [t for t in tools if any(tool_in_tag(t, tag) for tag in tag_list)]
+    return tools
 
 
 def prune_large_messages(messages: list[Any], max_length: int = 5000) -> list[Any]:
@@ -2917,7 +3175,7 @@ def write_skill_md(name: str, content: str) -> str:
 
 async def chat(agent: Agent, prompt: str):
     result = await agent.run(prompt)
-    print(f"Response:\n\n{result.output}")
+    print(f"Response:\n\n{result.output}", file=sys.stderr)
 
 
 async def node_chat(agent: Agent, prompt: str) -> List:
@@ -2925,12 +3183,713 @@ async def node_chat(agent: Agent, prompt: str) -> List:
     async with agent.iter(prompt) as agent_run:
         async for node in agent_run:
             nodes.append(node)
-            print(node)
+            print(node, file=sys.stderr)
     return nodes
 
 
 async def stream_chat(agent: Agent, prompt: str) -> None:
     async with agent.run_stream(prompt) as result:
         async for text_chunk in result.stream_text(delta=True):
-            print(text_chunk, end="", flush=True)
-        print("\nDone!")
+            print(text_chunk, end="", flush=True, file=sys.stderr)
+        print("\nDone!", file=sys.stderr)
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# pydantic-graph Orchestration Utilities
+# ═════════════════════════════════════════════════════════════════════════
+# Provides create_graph_agent() / create_graph_agent_server() —
+# the graph equivalents of create_agent() / create_agent_server().
+# Each domain tag gets its own graph node with only the MCP tools
+# belonging to that tag, achieved via env-var gating at runtime.
+# ═════════════════════════════════════════════════════════════════════════
+
+from dataclasses import dataclass, field
+from uuid import uuid4
+
+from pydantic import BaseModel, Field
+
+try:
+    from pydantic_graph import BaseNode, End, Graph
+
+    _PYDANTIC_GRAPH_AVAILABLE = True
+except ImportError:
+    _PYDANTIC_GRAPH_AVAILABLE = False
+
+# ── Default graph models ──────────────────────────────────────────────
+DEFAULT_ROUTER_MODEL = os.getenv(
+    "GRAPH_ROUTER_MODEL", os.getenv("MODEL_ID", DEFAULT_MODEL_ID)
+)
+DEFAULT_GRAPH_AGENT_MODEL = os.getenv(
+    "GRAPH_AGENT_MODEL", os.getenv("MODEL_ID", DEFAULT_MODEL_ID)
+)
+DEFAULT_ROUTER_PROVIDER = os.getenv(
+    "GRAPH_ROUTER_PROVIDER", os.getenv("PROVIDER", "openai")
+)
+DEFAULT_ROUTER_BASE_URL = os.getenv("GRAPH_ROUTER_BASE_URL", os.getenv("LLM_BASE_URL"))
+DEFAULT_ROUTER_API_KEY = os.getenv("GRAPH_ROUTER_API_KEY", os.getenv("LLM_API_KEY"))
+
+
+@dataclass
+class GraphDeps:
+    """Configuration dependencies passed to graph nodes at runtime."""
+
+    tag_prompts: dict[str, str]
+    tag_env_vars: dict[str, str]
+    mcp_toolsets: list[Any]
+    mcp_url: str = ""
+    mcp_config: str = ""
+    router_model: str = DEFAULT_ROUTER_MODEL
+    agent_model: str = DEFAULT_GRAPH_AGENT_MODEL
+    min_confidence: float = 0.6
+    sub_agents: dict[str, str | Agent] = field(default_factory=dict)
+    provider: str = DEFAULT_PROVIDER
+    base_url: Optional[str] = DEFAULT_LLM_BASE_URL
+    api_key: Optional[str] = DEFAULT_LLM_API_KEY
+    ssl_verify: bool = DEFAULT_SSL_VERIFY
+
+
+@dataclass
+class GraphState:
+    """Universal graph state for all agent graph orchestrations."""
+
+    query: str
+    """The original user query."""
+
+    routed_domain: str = ""
+    """The domain tag this query was routed to."""
+
+    results: dict[str, Any] = field(default_factory=dict)
+    """Accumulated results keyed by domain."""
+
+    error: str | None = None
+    """Error message if something went wrong."""
+
+
+class DomainChoice(BaseModel):
+    """Structured output from the router LLM."""
+
+    domain: str = Field(description="The domain tag to route to")
+    confidence: float = Field(ge=0, le=1, description="Routing confidence 0-1")
+    reasoning: str = Field(description="Brief reasoning for the classification")
+
+
+# ── Node Classes ──────────────────────────────────────────────────────
+# Conditionally inherit from BaseNode when pydantic-graph is available.
+_RouterNodeBase = (
+    BaseNode[GraphState, GraphDeps, dict] if _PYDANTIC_GRAPH_AVAILABLE else object
+)
+_DomainNodeBase = (
+    BaseNode[GraphState, GraphDeps, dict] if _PYDANTIC_GRAPH_AVAILABLE else object
+)
+
+
+@dataclass
+class RouterNode(_RouterNodeBase):
+    """Classifies an incoming query into one of the valid domain tags.
+
+    Uses a lightweight LLM (e.g. gpt-4o-mini) for fast, cheap classification.
+    Returns a DomainNode on success, or End with an error if unroutable.
+    """
+
+    min_confidence: float = 0.6
+    """Minimum confidence threshold for routing. Kept for backwards compatibility."""
+
+    # All configuration is now passed via ctx.deps (GraphDeps)
+    # These fields are kept for backwards compatibility but default to GraphDeps values if available.
+
+    async def run(self, ctx) -> "DomainNode | End[dict]":
+        deps = ctx.deps
+        model = create_model(
+            provider=deps.provider,
+            model_id=(
+                deps.router_model.split(":")[-1]
+                if deps.router_model and ":" in deps.router_model
+                else deps.router_model
+            ),
+            base_url=deps.base_url,
+            api_key=deps.api_key,
+        )
+
+        router_agent = Agent(
+            model=model,
+            output_type=DomainChoice,
+            instructions=(
+                f"You are a domain classifier. Classify the user query into exactly "
+                f"ONE of these domains: {', '.join(deps.tag_prompts.keys())}.\n"
+                f"Return the domain name, a confidence score (0-1), and brief reasoning.\n"
+                f"If the query spans multiple domains, pick the PRIMARY one."
+            ),
+        )
+
+        try:
+            result = await router_agent.run(ctx.state.query)
+            choice = result.output
+        except Exception as e:
+            logger.error(f"Router classification failed: {e}")
+            return End({"error": f"Router failed: {e}", "domain": "", "results": {}})
+
+        if choice.domain not in deps.tag_prompts:
+            logger.warning(
+                f"Router returned invalid domain '{choice.domain}', "
+                f"valid: {list(deps.tag_prompts.keys())}"
+            )
+            return End(
+                {
+                    "error": f"Invalid domain: {choice.domain}",
+                    "reasoning": choice.reasoning,
+                    "domain": "",
+                    "results": {},
+                }
+            )
+
+        if choice.confidence < deps.min_confidence:
+            logger.warning(
+                f"Low confidence {choice.confidence} for domain '{choice.domain}'"
+            )
+            return End(
+                {
+                    "error": "low_confidence",
+                    "domain": choice.domain,
+                    "confidence": choice.confidence,
+                    "reasoning": choice.reasoning,
+                    "results": {},
+                }
+            )
+
+        logger.info(
+            f"Routed to '{choice.domain}' (confidence={choice.confidence:.2f}): "
+            f"{choice.reasoning}"
+        )
+        ctx.state.routed_domain = choice.domain
+        return DomainNode()
+
+
+@dataclass
+class DomainNode(_DomainNodeBase):
+    """Executes a query against a specific domain's MCP tools.
+
+    Uses env-var gating to restrict the MCP server to only register
+    the tools belonging to the routed domain tag. Works with both
+    stdio and HTTP-based MCP servers.
+    """
+
+    # All configuration is now passed via ctx.deps (GraphDeps)
+
+    async def run(self, ctx) -> "End[dict]":
+        deps = ctx.deps
+        domain = ctx.state.routed_domain
+
+        domain_prompt = deps.tag_prompts.get(
+            domain, f"You are a specialized assistant for the '{domain}' domain."
+        )
+
+        logger.info(f"DomainNode executing for domain='{domain}'")
+
+        # Env-var gating: kept for fallback native tools that spawn their own sub-process directly.
+        original_env = {}
+        for tag, env_var in deps.tag_env_vars.items():
+            original_env[env_var] = os.environ.get(env_var)
+            os.environ[env_var] = "True" if tag == domain else "False"
+
+        try:
+            # Instantiate dynamically filtered native toolsets for this specific domain node
+            domain_mcp_toolsets = []
+            for toolset in deps.mcp_toolsets:
+                if toolset is None:
+                    continue
+                filtered = filter_tools_by_tag(toolset, domain)
+                # If it's a FilteredToolset or MCPServer, we should include it and trust
+                # pydantic-ai to handle it lazily.
+                domain_mcp_toolsets.append(filtered)
+                logger.info(
+                    f"DomainNode: Injected filtered toolset for domain '{domain}'"
+                )
+
+            # Delegation Logic: Check if this domain is a sub-agent
+            sub_agent_target = deps.sub_agents.get(domain)
+
+            if sub_agent_target:
+                logger.info(
+                    f"DomainNode: Delegating to sub-agent for domain '{domain}'"
+                )
+                try:
+                    target = sub_agent_target
+                    if isinstance(target, str):
+                        # Dynamic import if package name string is provided
+                        import importlib
+
+                        module = importlib.import_module(f"{target}.agent_server")
+                        if hasattr(module, "agent_template"):
+                            target = module.agent_template()
+                        else:
+                            raise AttributeError(
+                                f"Package {target} is missing agent_template()"
+                            )
+
+                    # Check if it's a GraphAgent (tuple) or FlatAgent (pydantic_ai.Agent)
+                    if isinstance(target, tuple) and len(target) == 2:
+                        # Sub-Graph delegation
+                        sub_graph, sub_config = target
+                        logger.info(
+                            f"DomainNode: Delegating to Sub-Graph for domain '{domain}'"
+                        )
+                        res = await run_graph(
+                            graph=sub_graph, config=sub_config, query=ctx.state.query
+                        )
+                        output = res.get("results") or res.get("error")
+                        mermaid = res.get("mermaid")
+                        if mermaid and isinstance(output, str):
+                            output = f"{mermaid}\n\n{output}"
+                    else:
+                        # Flat agent delegation
+                        logger.info(
+                            f"DomainNode: Delegating to Flat Agent for domain '{domain}'"
+                        )
+                        res = await target.run(ctx.state.query)
+                        output = getattr(res, "output", None) or getattr(
+                            res, "data", res
+                        )
+
+                    ctx.state.results[domain] = str(output)
+                    logger.info(
+                        f"DomainNode: Delegation completed for domain '{domain}'"
+                    )
+                except Exception as e:
+                    logger.error(f"DomainNode delegation error for '{domain}': {e}")
+                    ctx.state.results[domain] = f"Delegation Error: {e}"
+            else:
+                # Default MCP Logic (from original implementation)
+                logger.info(
+                    f"DomainNode: Running standard MCP sub-agent for domain '{domain}'"
+                )
+                sub_agent = create_agent(
+                    provider=deps.provider,
+                    model_id=deps.agent_model,
+                    base_url=deps.base_url,
+                    api_key=deps.api_key,
+                    mcp_url=None,  # Avoid re-connecting the MCP layer inherently
+                    mcp_config=(
+                        None
+                        if domain_mcp_toolsets
+                        else (
+                            deps.mcp_config
+                            if deps.mcp_config and os.path.isabs(deps.mcp_config)
+                            else None
+                        )
+                    ),
+                    mcp_toolsets=domain_mcp_toolsets,
+                    name=f"Graph-{domain}",
+                    system_prompt=domain_prompt,
+                    enable_skills=False,
+                    enable_universal_tools=False,
+                    ssl_verify=deps.ssl_verify,
+                )
+
+                logger.info(
+                    f"DomainNode: Running sub-agent for domain '{domain}' with query: {ctx.state.query}"
+                )
+                result = await sub_agent.run(ctx.state.query)
+                logger.info(
+                    f"DomainNode: Sub-agent run completed for domain '{domain}'"
+                )
+                output = getattr(result, "output", None) or getattr(
+                    result, "data", result
+                )
+                ctx.state.results[domain] = str(output)
+            logger.info(f"DomainNode completed for '{domain}'")
+
+        except Exception as e:
+            import traceback
+
+            logger.error(
+                f"DomainNode error for '{domain}': {e}\n{traceback.format_exc()}"
+            )
+            ctx.state.results[domain] = f"Error: {e}"
+
+        finally:
+            # Restore environment variables
+            for env_var, value in original_env.items():
+                if value is None:
+                    os.environ.pop(env_var, None)
+                else:
+                    os.environ[env_var] = value
+
+        return End(
+            {
+                "domain": domain,
+                "results": ctx.state.results,
+                "error": ctx.state.error,
+            }
+        )
+
+
+def build_tag_env_map(tag_names: list[str]) -> dict[str, str]:
+    """Build a tag→env_var mapping following the standard convention.
+
+    Standard convention: tag "incidents" → env var "INCIDENTSTOOL"
+    (upper-cased tag + "TOOL" suffix).
+
+    Args:
+        tag_names: List of domain tag names.
+
+    Returns:
+        Dict mapping tag name → env var name.
+    """
+    result = {}
+    for tag in tag_names:
+        env_var = tag.upper().replace("-", "_") + "TOOL"
+        result[tag] = env_var
+    return result
+
+
+def create_graph_agent(
+    tag_prompts: dict[str, str],
+    tag_env_vars: dict[str, str] | None = None,
+    mcp_url: str | None = None,
+    mcp_config: str | None = None,
+    name: str = "GraphAgent",
+    router_model: str = DEFAULT_ROUTER_MODEL,
+    agent_model: str = DEFAULT_GRAPH_AGENT_MODEL,
+    min_confidence: float = DEFAULT_MIN_CONFIDENCE,
+    sub_agents: dict[str, str | Agent] | None = None,
+    mcp_toolsets: list[Any] | None = None,
+    **kwargs,
+) -> tuple[Graph, dict]:
+    """Factory to create a router-led graph assistant.
+
+    Args:
+        tag_prompts: Dict of domain tags → intent description prompts.
+        tag_env_vars: Dict of domain tags → env var gating names.
+        mcp_url: Optional base MCP URL for all nodes.
+        mcp_config: Optional path to JSON MCP config.
+        name: Name of the graph.
+        router_model: Model for the router node.
+        agent_model: Model for the domain nodes.
+        min_confidence: Confidence threshold for routing.
+        sub_agents: Dict of domain tags → sub-agent package name or instance.
+        mcp_toolsets: Optional list of pre-instantiated toolsets (e.g. FastMCP).
+
+    Returns:
+        Graph and config dict.
+    """
+    _sub_agents = sub_agents or {}
+    """Create a pydantic-graph based agent from a tag→prompt mapping.
+
+    This is the graph equivalent of create_agent(). Consumer packages
+    provide a tag→prompt dict and an MCP URL; this function builds the
+    full Graph with RouterNode and DomainNode.
+
+    Args:
+        tag_prompts: Maps domain tag → system prompt for that domain's sub-agent.
+        tag_env_vars: Maps domain tag → env var name that toggles that tool category.
+                      If None, auto-generated via build_tag_env_map().
+        mcp_url: URL of the MCP server to connect domain nodes to.
+        name: Name for the graph.
+        router_model: Model for the router node (cheap/fast recommended).
+        agent_model: Model for domain executor nodes.
+        min_confidence: Minimum confidence threshold for routing.
+
+    Returns:
+        (Graph, config_dict) — the graph and its runtime configuration.
+    """
+    if not _PYDANTIC_GRAPH_AVAILABLE:
+        raise ImportError(
+            "pydantic-graph is required for graph agents. "
+            "Install with: pip install 'agent-utilities[agent]'"
+        )
+
+    if tag_env_vars is None:
+        tag_env_vars = build_tag_env_map(list(tag_prompts.keys()))
+
+    graph = Graph(
+        nodes=(RouterNode, DomainNode),
+        name=name,
+    )
+    _mcp_toolsets = list(mcp_toolsets) if mcp_toolsets else []
+    if mcp_url:
+        import httpx
+        from pydantic_ai.mcp import MCPServerSSE, MCPServerStreamableHTTP
+
+        if "sse" in mcp_url.lower():
+            server = MCPServerSSE(
+                mcp_url, http_client=httpx.AsyncClient(verify=False, timeout=60)
+            )
+        else:
+            server = MCPServerStreamableHTTP(
+                mcp_url, http_client=httpx.AsyncClient(verify=False, timeout=60)
+            )
+        _mcp_toolsets.append(server)
+
+    if mcp_config:
+        from pydantic_ai.mcp import load_mcp_servers
+
+        try:
+            # Prioritize workspace/agent_data config if mcp_config is just a filename
+            if not os.path.isabs(mcp_config) and "/" not in mcp_config:
+                ws_config = get_workspace_path(mcp_config)
+                if ws_config.exists():
+                    mcp_config = str(ws_config)
+                else:
+                    local_config = Path.cwd() / mcp_config
+                    if local_config.exists():
+                        mcp_config = str(local_config)
+                    else:
+                        pkg = retrieve_package_name()
+                        if pkg and pkg != "agent_utilities":
+                            local_pkg_config = Path.cwd() / pkg / mcp_config
+                            if local_pkg_config.exists():
+                                mcp_config = str(local_pkg_config)
+            _mcp_toolsets.extend(load_mcp_servers(mcp_config))
+        except Exception as e:
+            logger.warning(f"Could not load MCP config in graph {mcp_config}: {e}")
+
+    config = {
+        "tag_prompts": tag_prompts,
+        "tag_env_vars": tag_env_vars,
+        "mcp_url": mcp_url,
+        "mcp_config": mcp_config,
+        "mcp_toolsets": _mcp_toolsets,
+        "router_model": router_model,
+        "agent_model": agent_model,
+        "min_confidence": min_confidence,
+        "valid_domains": tuple(tag_prompts.keys()),
+        "provider": kwargs.get("provider", DEFAULT_PROVIDER),
+        "base_url": kwargs.get("base_url", DEFAULT_LLM_BASE_URL),
+        "api_key": kwargs.get("api_key", DEFAULT_LLM_API_KEY),
+        "ssl_verify": kwargs.get("ssl_verify", DEFAULT_SSL_VERIFY),
+        "sub_agents": _sub_agents,
+    }
+
+    logger.info(
+        f"Created graph '{name}' with {len(tag_prompts)} domain nodes: "
+        f"{', '.join(tag_prompts.keys())}"
+    )
+
+    return graph, config
+
+
+async def run_graph(
+    graph,
+    config: dict,
+    query: str,
+    run_id: str | None = None,
+    persist: bool = False,
+    state_dir: str = "graph_state",
+    streamdown: bool = True,
+) -> dict:
+    """Execute a query through the graph orchestrator.
+
+    Args:
+        graph: The Graph object from create_graph_agent().
+        config: The config dict from create_graph_agent().
+        query: The user's query string.
+        run_id: Optional run ID for persistence. Auto-generated if None.
+        persist: Whether to persist state to disk via FileStatePersistence.
+        state_dir: Directory for state files when persist=True.
+        streamdown: Whether to prepend the mermaid diagram to the output.
+
+    Returns:
+        Dict with run_id, domain, results, and any error.
+    """
+    if run_id is None:
+        run_id = uuid4().hex
+
+    # Prepend mermaid if requested for agent-webui transparency
+    mermaid_prefix = ""
+    if streamdown:
+        try:
+            mermaid_prefix = f"```mermaid\n{get_graph_mermaid(graph, config)}\n```\n\n"
+        except Exception:
+            pass
+
+    state = GraphState(query=query)
+
+    # Create GraphDeps from run-time config
+    deps = GraphDeps(
+        tag_prompts=config.get("tag_prompts", {}),
+        tag_env_vars=config.get("tag_env_vars", {}),
+        mcp_toolsets=config.get("mcp_toolsets", []),
+        mcp_url=config.get("mcp_url", ""),
+        mcp_config=config.get("mcp_config", ""),
+        router_model=config.get("router_model", DEFAULT_ROUTER_MODEL),
+        agent_model=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
+        min_confidence=config.get("min_confidence", 0.6),
+        sub_agents=config.get("sub_agents", {}),
+        provider=config.get("provider", DEFAULT_PROVIDER),
+        base_url=config.get("base_url"),
+        api_key=config.get("api_key"),
+        ssl_verify=config.get("ssl_verify", DEFAULT_SSL_VERIFY),
+    )
+
+    start_node = RouterNode()
+
+    persistence = None
+    if persist:
+        from pydantic_graph.persistence.file import FileStatePersistence
+
+        path = Path(state_dir) / f"{run_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        persistence = FileStatePersistence(json_file=path)
+
+    # Pass deps to the graph run
+    result = await graph.run(
+        start_node, state=state, deps=deps, persistence=persistence
+    )
+
+    return {
+        "run_id": run_id,
+        "results": result.output,
+        "mermaid": mermaid_prefix if streamdown else None,
+    }
+
+
+def get_graph_mermaid(graph, config: dict) -> str:
+    """Generate a Mermaid diagram for the graph.
+
+    Args:
+        graph: The Graph object.
+        config: The config dict from create_graph_agent().
+
+    Returns:
+        Mermaid diagram string.
+    """
+    return graph.mermaid_code(start_node=RouterNode)
+
+
+def create_graph_agent_server(
+    tag_prompts: dict[str, str] | None = None,
+    tag_env_vars: dict[str, str] | None = None,
+    mcp_url: str | None = None,
+    graph_name: str = "GraphAgent",
+    router_model: str = DEFAULT_ROUTER_MODEL,
+    agent_model: str = DEFAULT_GRAPH_AGENT_MODEL,
+    min_confidence: float = 0.6,
+    # All standard create_agent_server kwargs below
+    provider: str = DEFAULT_PROVIDER,
+    model_id: str = DEFAULT_MODEL_ID,
+    base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
+    api_key: Optional[str] = DEFAULT_LLM_API_KEY,
+    mcp_config: Optional[str] = None,
+    custom_skills_directory: Optional[str] = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
+    debug: Optional[bool] = DEFAULT_DEBUG,
+    host: Optional[str] = DEFAULT_HOST,
+    port: Optional[int] = DEFAULT_PORT,
+    enable_web_ui: Optional[bool] = DEFAULT_ENABLE_WEB_UI,
+    custom_web_app: Optional[Callable[[Agent], Any]] = None,
+    custom_web_mount_path: str = "/",
+    web_ui_instructions: Optional[str] = None,
+    html_source: Optional[str | Path] = None,
+    ssl_verify: bool = DEFAULT_SSL_VERIFY,
+    name: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    enable_otel: Optional[bool] = DEFAULT_ENABLE_OTEL,
+    otel_endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    otel_headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    otel_public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    otel_secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    otel_protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+    workspace: Optional[str] = None,
+    a2a_broker: str = DEFAULT_A2A_BROKER,
+    a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
+    a2a_storage: str = DEFAULT_A2A_STORAGE,
+    a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
+    graph_bundle: Optional[tuple] = None,
+    sub_agents: Optional[dict] = None,
+):
+    """Create and start a graph-based agent server.
+
+    This is the graph equivalent of create_agent_server(). It builds a
+    pydantic-graph from the tag→prompt mapping, enhances the system prompt
+    with graph routing information, and delegates to create_agent_server().
+
+    Args:
+        tag_prompts: Maps domain tag → system prompt for the domain sub-agent.
+        tag_env_vars: Maps domain tag → env var name. Auto-generated if None.
+        mcp_url: URL of the MCP server. Defaults to http://localhost:{port}/mcp.
+        graph_name: Name for the graph.
+        router_model: Model for the router (cheap/fast).
+        agent_model: Model for domain executors.
+        min_confidence: Minimum confidence threshold for routing.
+        **kwargs: All remaining args are forwarded to create_agent_server().
+    """
+
+    import warnings
+
+    # Suppress RequestsDependencyWarning due to chardet 6.x / requests 2.32.x mismatch
+    # We use a message-based filter to avoid importing from requests, which triggers the warning
+    warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
+
+    _mcp_url = mcp_url or os.getenv(
+        "MCP_URL", f"http://localhost:{port or DEFAULT_PORT}/mcp"
+    )
+
+    if graph_bundle:
+        graph, graph_config = graph_bundle
+        tag_prompts = graph_config.get("tag_prompts", {})
+        tag_env_vars = graph_config.get("tag_env_vars", {})
+        sub_agents = graph_config.get("sub_agents", {})
+    else:
+        if tag_prompts is None:
+            raise ValueError("tag_prompts is required if graph_bundle is not provided")
+        graph, graph_config = create_graph_agent(
+            tag_prompts=tag_prompts,
+            tag_env_vars=tag_env_vars,
+            mcp_url=_mcp_url,
+            mcp_config=mcp_config,
+            name=graph_name,
+            router_model=router_model,
+            agent_model=agent_model,
+            min_confidence=min_confidence,
+            sub_agents=sub_agents,
+        )
+
+    logger.info(
+        f"Graph Agent '{graph_name}' initialized with "
+        f"{len(tag_prompts)} domain nodes"
+    )
+    logger.info(f"Mermaid diagram:\n{get_graph_mermaid(graph, graph_config)}")
+
+    # Enhance system prompt with graph routing info
+    domain_list = ", ".join(graph_config["valid_domains"])
+    base_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
+    graph_prompt = (
+        f"{base_prompt}\n\n"
+        f"## Graph Orchestration Mode\n"
+        f"You have a `run_graph_flow` tool that routes queries through a graph "
+        f"orchestrator with specialized domain nodes for: {domain_list}.\n"
+        f"Use this tool for domain-specific operations. The graph automatically "
+        f"classifies the query, routes to the correct domain node, and executes "
+        f"with only that domain's tools loaded for efficiency."
+    )
+
+    create_agent_server(
+        provider=provider,
+        model_id=model_id,
+        base_url=base_url,
+        api_key=api_key,
+        mcp_config=mcp_config,
+        custom_skills_directory=custom_skills_directory,
+        debug=debug,
+        host=host,
+        port=port,
+        enable_web_ui=enable_web_ui,
+        custom_web_app=custom_web_app,
+        custom_web_mount_path=custom_web_mount_path,
+        web_ui_instructions=web_ui_instructions,
+        html_source=html_source,
+        ssl_verify=ssl_verify,
+        name=name,
+        system_prompt=graph_prompt,
+        enable_otel=enable_otel,
+        otel_endpoint=otel_endpoint,
+        otel_headers=otel_headers,
+        otel_public_key=otel_public_key,
+        otel_secret_key=otel_secret_key,
+        otel_protocol=otel_protocol,
+        workspace=workspace,
+        a2a_broker=a2a_broker,
+        a2a_broker_url=a2a_broker_url,
+        a2a_storage=a2a_storage,
+        a2a_storage_url=a2a_storage_url,
+        graph_bundle=(graph, graph_config),
+    )
