@@ -426,7 +426,7 @@ except ImportError:
     AnthropicProvider = None
 
 logger = logging.getLogger(__name__)
-__version__ = "0.2.32"
+__version__ = "0.2.33"
 
 # Environment variables should be loaded by the entry point
 # load_env_vars()
