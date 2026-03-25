@@ -38,8 +38,8 @@ mcp = [
 ]
 agent = [
     "agent-utilities[mcp,ag-ui]>=0.2.33",
-    "universal-skills>=success",
-    "skill-graphs>=success",
+    "universal-skills>=0.1.50",
+    "skill-graphs>=0.1.32",
     "pydantic-ai-skills>=0.4.1",
     "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.60.0",
     "pydantic-graph>=0.1.8"
@@ -60,7 +60,7 @@ agent-huggingface = [
     "pydantic-ai-slim[huggingface]>=1.60.0"
 ]
 ag-ui = [
-    "agent-webui>=success"]
+    "agent-webui>=0.1.26"]
 embeddings = [
     "llama-index-core>=0.14.15"]
 embeddings-openai = [
