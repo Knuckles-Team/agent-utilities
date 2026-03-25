@@ -1,5 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
+import warnings
+
+# Suppress RequestsDependencyWarning due to chardet 6.x / requests 2.32.x mismatch
+# This must be done at the absolute top level to prevent early imports from triggering it.
+warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 
 from .agent_utilities import (
     create_agent,
@@ -11,6 +16,14 @@ from .agent_utilities import (
     create_agent_parser,
     get_mcp_config_path,
     CORE_FILES,
+    GraphState,
+    RouterNode,
+    DomainNode,
+    create_graph_agent,
+    create_graph_agent_server,
+    run_graph,
+    build_tag_env_map,
+    get_graph_mermaid,
 )
 from .base_utilities import (
     to_boolean,
@@ -26,7 +39,7 @@ from .base_utilities import (
 from .embedding_utilities import create_embedding_model
 from .models import PeriodicTask
 
-__version__ = "0.2.31"
+__version__ = "0.2.32"
 
 __all__ = [
     "create_agent",
@@ -48,5 +61,13 @@ __all__ = [
     "optional_import_block",
     "require_optional_import",
     "create_embedding_model",
+    "GraphState",
+    "RouterNode",
+    "DomainNode",
+    "create_graph_agent",
+    "create_graph_agent_server",
+    "run_graph",
+    "build_tag_env_map",
+    "get_graph_mermaid",
     "PeriodicTask",
 ]

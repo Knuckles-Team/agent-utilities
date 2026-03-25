@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.2.31"
+version = "0.2.32"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -37,11 +37,12 @@ mcp = [
     "httpx>=0.28.1"
 ]
 agent = [
-    "agent-utilities[mcp,ag-ui]>=0.2.31",
+    "agent-utilities[mcp,ag-ui]>=0.2.32",
     "universal-skills>=0.1.48",
     "skill-graphs>=0.1.29",
     "pydantic-ai-skills>=0.4.1",
-    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.60.0"
+    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.60.0",
+    "pydantic-graph>=0.1.8"
 ]
 agent-google = [
     "pydantic-ai-slim[google]>=1.60.0"
@@ -63,20 +64,20 @@ ag-ui = [
 embeddings = [
     "llama-index-core>=0.14.15"]
 embeddings-openai = [
-    "agent-utilities[embeddings]>=0.2.31",
+    "agent-utilities[embeddings]>=0.2.32",
     "llama-index-embeddings-openai>=0.5.1"]
 embeddings-huggingface = [
-    "agent-utilities[embeddings]>=0.2.31",
+    "agent-utilities[embeddings]>=0.2.32",
     "llama-index-embeddings-huggingface>=0.6.1"]
 embeddings-ollama = [
-    "agent-utilities[embeddings]>=0.2.31",
+    "agent-utilities[embeddings]>=0.2.32",
     "llama-index-embeddings-ollama>=0.8.6"]
 logfire = [
-    "agent-utilities[agent]>=0.2.31",
+    "agent-utilities[agent]>=0.2.32",
     "pydantic-ai-slim[logfire]>=1.60.0"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire]>=0.2.31"]
+    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire]>=0.2.32"]
 
 [tool.setuptools]
 include-package-data = true

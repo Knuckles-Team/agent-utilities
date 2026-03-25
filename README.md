@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 0.2.31*
+*Version: 0.2.32*
 
 ## Overview
 
@@ -30,13 +30,32 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 ## Key Features
 
 - **Agent Creation**: Streamlined `create_agent` function that handles MCP servers, skills, and model configuration automatically.
+- **Graph Orchestration**: Robust `pydantic-graph` based `create_graph_agent_server` mapping tools to generic domain nodes to isolate context and prevent hallucination.
 - **Multi-Agent Support**: Native support for the supervisor pattern, allowing complex tasks to be delegated to specialized child agents.
-- **Agent Server**: Built-in FastAPI server (`create_agent_server`) with SSE support for easy integration into web UIs and A2A networks.
+- **Agent Server**: Built-in FastAPI server (`create_agent_server` and `create_graph_agent_server`) with SSE support for easy integration into web UIs and A2A networks.
 - **Elicitation Support**: Built-in flow for handling structured user input requests from MCP servers, seamlessly integrated with the Web UI.
 - **Workspace Management**: Automated management of agent state through standard markdown files (`IDENTITY.md`, `MEMORY.md`, `USER.md`).
 - **A2A Integration**: Seamless discovery and communication between agents in a distributed network.
 - **Periodic Scheduler**: In-memory task scheduler for running background agent jobs.
 - **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies like FastAPI or LlamaIndex are lazy-loaded only when requested via optional extras.
+
+## General Graph Architecture
+
+`agent-utilities` implements a standardized graph structure via `pydantic-graph` to build context-efficient specialized agents.
+
+```mermaid
+graph TD
+  User([User Query]) --> RouterNode
+  RouterNode -- "Classifies into matching domain" --> DomainNode
+  RouterNode -- "Fails/Low Confidence" --> EndNode([End with Error])
+
+  subgraph Generic Domain Architecture
+      DomainNode -- "Applies OS Env Var Gates" --> ContextIsolation
+      ContextIsolation -- "Launches localized agent" --> DomainTools[Restricted Tool Context]
+  end
+  DomainTools --> EndNode2([End with Result])
+```
+
 
 ## Installation
 
