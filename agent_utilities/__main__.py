@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# coding: utf-8
+               
 import os
 import logging
 
@@ -11,7 +11,7 @@ from .agent_utilities import (
     load_identity,
 )
 
-__version__ = "0.2.12"
+__version__ = "0.2.33"
 
 
 def setup_logging(debug=False):
@@ -21,7 +21,7 @@ def setup_logging(debug=False):
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler()],
     )
-    # Ensure root logger is set if basicConfig didn't apply it (e.g. already configured)
+                                                                                        
     if debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
@@ -32,14 +32,14 @@ def agent_server():
 
     setup_logging(args.debug)
 
-    # Set workspace override if provided
+                                        
     if args.workspace:
         from . import agent_utilities
 
         agent_utilities.WORKSPACE_DIR = args.workspace
         logging.info(f"Workspace override set to: {args.workspace}")
 
-    # Load identity and system prompt from workspace
+                                                    
     initialize_workspace()
     meta = load_identity()
 

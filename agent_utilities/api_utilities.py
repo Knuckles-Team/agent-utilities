@@ -1,9 +1,10 @@
-#!/usr/bin/python
-# coding: utf-8
+from .config import *
+from .workspace import *
+
 
 import functools
 
-__version__ = "0.2.33"
+__version__ = "0.2.34"
 
 
 class AuthError(Exception):

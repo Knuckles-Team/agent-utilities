@@ -1,13 +1,13 @@
 import inspect
 import json
 import logging
+from urllib.parse import urlparse
 import os
 import pickle
 import re
 import sys
 import warnings
 
-# Suppress RequestsDependencyWarning and FastMCP DeprecationWarnings
 warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastmcp")
 from importlib.resources import as_file, files
@@ -68,7 +68,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.33"
+__version__ = "0.2.34"
 
 
 def to_float(string=None):
@@ -124,9 +124,127 @@ def to_dict(string: Union[str, dict] = None) -> dict:
         raise ValueError(f"Cannot convert '{string}' to dict")
 
 
+def expand_env_vars(text: str) -> str:
+    """Expand environment variables in a string, supporting ${VAR:-DEFAULT} syntax.
+
+    Args:
+        text: The string containing possible environment variables.
+
+    Returns:
+        The string with variables expanded.
+    """
+    if not text:
+        return text
+
+    pattern = re.compile(r"\$\{([A-Z0-9_]+)(?::-([^}]*))?\}")
+
+    def replace(match):
+        var_name = match.group(1)
+        default_value = match.group(2)
+
+        val = os.getenv(var_name)
+        if val is not None:
+            return val
+
+        if default_value is not None:
+            return default_value
+
+        # VALIDATION_MODE: Return a dummy value instead of the original placeholder
+        # to prevent startup crashes in environments where secrets are not set.
+        if to_boolean(os.getenv("VALIDATION_MODE", "False")):
+            # Check if this is likely a token or secret to provide a more realistic dummy
+            is_secret = any(
+                k in var_name.upper()
+                for k in ["TOKEN", "SECRET", "PASSWORD", "KEY", "AUTH", "API"]
+            )
+            return (
+                f"dummy_{var_name.lower()}"
+                if is_secret
+                else f"validation_{var_name.lower()}"
+            )
+
+        return match.group(0)
+
+    return pattern.sub(replace, text)
+
+
+def is_loopback_url(
+    url: str, current_host: str = None, current_port: int = None
+) -> bool:
+    """Check if a URL is a loopback to the current agent's process.
+
+    Args:
+        url: The candidate MCP URL.
+        current_host: The host addressing the current agent.
+        current_port: The port the current agent is running on.
+
+    Returns:
+        True if the URL is a loopback to this process, False otherwise.
+    """
+    if not url:
+        return False
+
+    try:
+        parsed = urlparse(url)
+        if not parsed.port or not current_port or parsed.port != int(current_port):
+            return False
+
+        hostname = parsed.hostname.lower() if parsed.hostname else ""
+        loopback_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
+        if hostname in loopback_hosts:
+            return True
+
+        if current_host and hostname == current_host.lower():
+            return True
+
+        return False
+    except Exception:
+        return False
+
+
 def GET_DEFAULT_SSL_VERIFY() -> bool:
-    """Returns the default SSL verification setting from the SSL_VERIFY env var."""
-    return to_boolean(os.getenv("SSL_VERIFY", "True"))
+    """Read SSL verification from environment."""
+    return to_boolean(os.getenv("SSL_VERIFY", "true"))
+
+
+def ensure_package_installed(package_name: str, auto_install: bool = False) -> bool:
+    """Check if a package is installed, optionally attempting to install it.
+
+    Args:
+        package_name: The name of the package to check (e.g. 'gitlab-api').
+        auto_install: Whether to attempt installation via pip if missing.
+
+    Returns:
+        True if installed (or successfully installed), False otherwise.
+    """
+    import importlib.util
+    import logging
+    import sys
+
+    logger = logging.getLogger(__name__)
+
+    spec = importlib.util.find_spec(package_name.replace("-", "_"))
+    if spec:
+        return True
+
+    if not auto_install:
+        logger.warning(f"Package '{package_name}' is not installed.")
+        return False
+
+    logger.info(f"Attempting to install package '{package_name}'...")
+    try:
+        import subprocess
+
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", package_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        logger.info(f"Successfully installed '{package_name}'.")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to install '{package_name}': {e}")
+        return False
 
 
 def load_env_vars(override: bool = False):
@@ -137,7 +255,7 @@ def load_env_vars(override: bool = False):
     try:
         package_name = retrieve_package_name()
         if package_name and package_name != "unknown_package":
-            # Try to find .env starting from the directory of the caller
+
             stack = inspect.stack()
             caller_file = None
             for frame in stack:
@@ -149,7 +267,7 @@ def load_env_vars(override: bool = False):
                 start_dir = Path(caller_file).parent
                 dotenv_path = None
                 curr = start_dir
-                # Search up to 5 levels up
+
                 for _ in range(5):
                     candidate = curr / ".env"
                     if candidate.exists():
@@ -161,7 +279,7 @@ def load_env_vars(override: bool = False):
 
                 if dotenv_path:
                     load_dotenv(dotenv_path, override=override)
-                    # logging.getLogger(__name__).info(f"Loaded .env from {dotenv_path}")
+
                 else:
                     pass
 
@@ -219,10 +337,6 @@ def retrieve_package_name() -> str:
 
             path = Path(frame_file).resolve()
 
-            # Logic: We want to find the first package in the stack that is NOT a skipped one.
-            # We look for markers (pyproject.toml, etc.) but also just the parent dir if it has an __init__.py
-
-            # Skip if file itself or any parent is in skip_packages
             is_skipped = False
             for part in path.parts:
                 if part in skip_packages:
@@ -231,11 +345,8 @@ def retrieve_package_name() -> str:
             if is_skipped:
                 continue
 
-            # Candidates for package name
-            # 1. The parent directory if it has __init__.py
-            # 2. Search upwards for a project root marker
             curr = path.parent
-            for _ in range(4):  # Search up to 4 levels
+            for _ in range(4):
                 if (curr / "pyproject.toml").is_file() or (curr / "setup.py").is_file():
                     pkg_name = curr.name.replace("-", "_")
                     if pkg_name not in skip_packages:
@@ -244,7 +355,7 @@ def retrieve_package_name() -> str:
                 if (curr / "__init__.py").is_file():
                     pkg_name = curr.name.replace("-", "_")
                     if pkg_name not in skip_packages:
-                        # Keep searching up for pyproject.toml to be sure, but store this as a fallback
+
                         if not first_external_frame_package:
                             first_external_frame_package = pkg_name
 
@@ -252,8 +363,6 @@ def retrieve_package_name() -> str:
                     break
                 curr = curr.parent
 
-            # If we are here, we are in a file that is not skipped.
-            # If it's a script in a directory, use the directory name as fallback.
             if not first_external_frame_package:
                 pkg_name = path.parent.name.replace("-", "_")
                 if pkg_name not in skip_packages:
@@ -461,7 +570,7 @@ class PatchObject(ABC, Generic[T]):
         if hasattr(o, "__doc__"):
             retval.__doc__ = o.__doc__
         if hasattr(o, "__name__"):
-            retval.__name__ = o.__name__  # type: ignore
+            retval.__name__ = o.__name__
         if hasattr(o, "__module__"):
             retval.__module__ = o.__module__
 
@@ -501,7 +610,7 @@ class PatchCallable(PatchObject[F]):
             raise ImportError(self.msg)
 
         self.copy_metadata(_call)
-        return _call  # type: ignore
+        return _call
 
 
 @PatchObject.register()

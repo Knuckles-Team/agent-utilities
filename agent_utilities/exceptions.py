@@ -1,10 +1,20 @@
-#!/usr/bin/python
-# coding: utf-8
+from .config import *
+from .workspace import *
+                 
+               
 
 
 class AuthError(Exception):
     """
     Authentication error
+    """
+
+    pass
+
+
+class ApiError(Exception):
+    """
+    General API error
     """
 
     pass

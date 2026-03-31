@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# coding: utf-8
+
 
 import os
 import httpx
@@ -7,10 +7,9 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from llama_index.core.embeddings import BaseEmbedding
+from .config import *
+from .workspace import *
 from .base_utilities import to_boolean
-
-# from llama_index.core.embeddings import BaseEmbedding  # Optional
-# from llama_index.embeddings.openai import OpenAIEmbedding  # Optional
 
 try:
     from llama_index.embeddings.ollama import OllamaEmbedding
@@ -47,7 +46,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.33"
+__version__ = "0.2.34"
 
 
 def create_embedding_model(
