@@ -1,5 +1,5 @@
 #!/usr/bin/python
-               
+
 import os
 import logging
 
@@ -21,7 +21,7 @@ def setup_logging(debug=False):
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler()],
     )
-                                                                                        
+
     if debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
@@ -32,14 +32,12 @@ def agent_server():
 
     setup_logging(args.debug)
 
-                                        
     if args.workspace:
         from . import agent_utilities
 
         agent_utilities.WORKSPACE_DIR = args.workspace
         logging.info(f"Workspace override set to: {args.workspace}")
 
-                                                    
     initialize_workspace()
     meta = load_identity()
 

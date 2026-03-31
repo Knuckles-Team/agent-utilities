@@ -1,75 +1,38 @@
 #!/usr/bin/python
-               
+
 from __future__ import annotations
 
-import os
 import sys
-import re
-import shutil
 import json
 import logging
 import asyncio
-import yaml
-import httpx
-import argparse
-import base64
-import contextvars
 
-                            
-from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
-from datetime import datetime, timedelta
+
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from datetime import datetime
 
 if TYPE_CHECKING:
-    from fasta2a import Skill
-    from fastapi import FastAPI
-from pathlib import Path
-from contextlib import asynccontextmanager
-from importlib.resources import files, as_file
+    pass
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.responses import Response, StreamingResponse
-from pydantic import ValidationError
 
-from pydantic_ai import Agent, ModelSettings
-from pydantic_ai.mcp import (
-    load_mcp_servers,
-    MCPServerStreamableHTTP,
-    MCPServerSSE,
-)
+from pydantic_ai import Agent
 
-from universal_skills.skill_utilities import (
-    resolve_mcp_reference,
-    get_universal_skills_path,
-)
 
 
 from .config import *
 from .workspace import *
-from .base_utilities import (
-    to_boolean,
-    to_integer,
-    to_float,
-    to_list,
-    to_dict,
-    retrieve_package_name,
-    GET_DEFAULT_SSL_VERIFY,
-    load_env_vars,
-)
 
-                                                                   
 
 from .models import PeriodicTask
 
-                                 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
-from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
-import logging
+
 logger = logging.getLogger(__name__)
+
 
 def save_chat_to_disk(chat_id: str, messages: List[Dict[str, Any]]):
     """Save a chat conversation to a JSON file in the chats directory."""
@@ -77,7 +40,6 @@ def save_chat_to_disk(chat_id: str, messages: List[Dict[str, Any]]):
     chats_dir.mkdir(parents=True, exist_ok=True)
     path = chats_dir / f"{chat_id}.json"
 
-                                                
     chat_data = {
         "id": chat_id,
         "timestamp": datetime.now().isoformat(),
@@ -86,7 +48,6 @@ def save_chat_to_disk(chat_id: str, messages: List[Dict[str, Any]]):
 
     path.write_text(json.dumps(chat_data, indent=2), encoding="utf-8")
     logger.debug(f"Saved chat {chat_id} to disk")
-
 
 
 def list_chats_from_disk() -> List[Dict[str, Any]]:
@@ -105,7 +66,7 @@ def list_chats_from_disk() -> List[Dict[str, Any]]:
                 if isinstance(first_msg.get("content"), str):
                     message_text = first_msg["content"]
                 elif isinstance(first_msg.get("content"), list):
-                                                          
+
                     message_text = str(first_msg["content"][0])
 
             chats.append(
@@ -124,7 +85,6 @@ def list_chats_from_disk() -> List[Dict[str, Any]]:
     return sorted(chats, key=lambda x: x["timestamp"], reverse=True)
 
 
-
 def get_chat_from_disk(chat_id: str) -> Optional[Dict[str, Any]]:
     """Retrieve a specific chat from disk."""
     path = get_workspace_path(CORE_FILES["CHATS"]) / f"{chat_id}.json"
@@ -134,7 +94,6 @@ def get_chat_from_disk(chat_id: str) -> Optional[Dict[str, Any]]:
         except Exception as e:
             logger.error(f"Error reading chat {chat_id}: {e}")
     return None
-
 
 
 def delete_chat_from_disk(chat_id: str) -> bool:
@@ -147,7 +106,6 @@ def delete_chat_from_disk(chat_id: str) -> bool:
         except Exception as e:
             logger.error(f"Error deleting chat {chat_id}: {e}")
     return False
-
 
 
 def prune_large_messages(messages: list[Any], max_length: int = 5000) -> list[Any]:
@@ -189,11 +147,9 @@ def prune_large_messages(messages: list[Any], max_length: int = 5000) -> list[An
     return pruned_messages
 
 
-
 async def chat(agent: Agent, prompt: str):
     result = await agent.run(prompt)
     print(f"Response:\n\n{result.output}", file=sys.stderr)
-
 
 
 async def node_chat(agent: Agent, prompt: str) -> List:
@@ -205,19 +161,8 @@ async def node_chat(agent: Agent, prompt: str) -> List:
     return nodes
 
 
-
 async def stream_chat(agent: Agent, prompt: str) -> None:
     async with agent.run_stream(prompt) as result:
         async for text_chunk in result.stream_text(delta=True):
             print(text_chunk, end="", flush=True, file=sys.stderr)
         print("\nDone!", file=sys.stderr)
-
-
-                                                                           
-                                        
-                                                                           
-                                                               
-                                                                  
-                                                                 
-                                                                
-                                                                           

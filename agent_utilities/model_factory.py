@@ -1,49 +1,21 @@
 #!/usr/bin/python
-               
+
 from __future__ import annotations
 
 import os
-import sys
-import re
-import shutil
-import json
 import logging
 import asyncio
-import yaml
 import httpx
-import argparse
-import base64
-import contextvars
 
-                            
-from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
-from datetime import datetime, timedelta
+
+from typing import List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from fasta2a import Skill
-    from fastapi import FastAPI
-from pathlib import Path
-from contextlib import asynccontextmanager
-from importlib.resources import files, as_file
+    pass
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.responses import Response, StreamingResponse
-from pydantic import ValidationError
 
-from pydantic_ai import Agent, ModelSettings
-from pydantic_ai.mcp import (
-    load_mcp_servers,
-    MCPServerStreamableHTTP,
-    MCPServerSSE,
-)
 
-from universal_skills.skill_utilities import (
-    resolve_mcp_reference,
-    get_universal_skills_path,
-)
 
-                           
 try:
     from pydantic_ai.models.openai import OpenAIChatModel
 except ImportError:
@@ -74,7 +46,7 @@ try:
 except ImportError:
     HuggingFaceModel = None
 
-                         
+
 try:
     from openai import AsyncOpenAI
     from pydantic_ai.models.openai import OpenAIProvider
@@ -99,30 +71,18 @@ except ImportError:
 
 from .config import *
 from .workspace import *
-from .base_utilities import (
-    to_boolean,
-    to_integer,
-    to_float,
-    to_list,
-    to_dict,
-    retrieve_package_name,
-    GET_DEFAULT_SSL_VERIFY,
-    load_env_vars,
-)
 
-                                                                   
 
 from .models import PeriodicTask
 
-                                 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
-from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
-import logging
+
 logger = logging.getLogger(__name__)
+
 
 def create_model(
     provider: Optional[str] = None,
@@ -150,11 +110,12 @@ def create_model(
 
     http_client = None
     if http_client is None:
-                                                                            
-                                                                  
+
         limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
-        timeout_obj = httpx.Timeout(timeout, connect=30.0) 
-        http_client = httpx.AsyncClient(verify=ssl_verify, timeout=timeout_obj, limits=limits)
+        timeout_obj = httpx.Timeout(timeout, connect=30.0)
+        http_client = httpx.AsyncClient(
+            verify=ssl_verify, timeout=timeout_obj, limits=limits
+        )
 
     if _provider == "openai":
         target_base_url = (
@@ -176,7 +137,6 @@ def create_model(
             provider_instance = OpenAIProvider(openai_client=client)
             return OpenAIChatModel(model_name=_model_id, provider=provider_instance)
 
-                                                                   
         if target_base_url:
             os.environ["OPENAI_BASE_URL"] = target_base_url
         if target_api_key:

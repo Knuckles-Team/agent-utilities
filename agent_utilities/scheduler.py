@@ -1,85 +1,44 @@
 #!/usr/bin/python
-               
+
 from __future__ import annotations
 
-import os
-import sys
 import re
-import shutil
-import json
 import logging
 import asyncio
-import yaml
-import httpx
-import argparse
-import base64
-import contextvars
 
-                            
-from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
+
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from datetime import datetime, timedelta
 
 if TYPE_CHECKING:
-    from fasta2a import Skill
-    from fastapi import FastAPI
-from pathlib import Path
-from contextlib import asynccontextmanager
-from importlib.resources import files, as_file
+    pass
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.responses import Response, StreamingResponse
-from pydantic import ValidationError
 
-from pydantic_ai import Agent, ModelSettings
-from pydantic_ai.mcp import (
-    load_mcp_servers,
-    MCPServerStreamableHTTP,
-    MCPServerSSE,
-)
 
-from universal_skills.skill_utilities import (
-    resolve_mcp_reference,
-    get_universal_skills_path,
-)
 
 
 from .config import *
 from .workspace import *
-from .base_utilities import (
-    to_boolean,
-    to_integer,
-    to_float,
-    to_list,
-    to_dict,
-    retrieve_package_name,
-    GET_DEFAULT_SSL_VERIFY,
-    load_env_vars,
-)
 
-                                                                   
 
 from .models import PeriodicTask
 
-                                 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
-from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 lock = asyncio.Lock()
-
 
 
 def get_cron_tasks_from_md() -> List[Dict[str, Any]]:
     """Parse CRON.md and return active tasks."""
     content = load_workspace_file(CORE_FILES["CRON"])
     tasks = []
-                                  
+
     lines = content.split("\n")
     for line in lines:
         if "|" in line and "ID" not in line and "---" not in line:
@@ -89,18 +48,17 @@ def get_cron_tasks_from_md() -> List[Dict[str, Any]]:
                     {
                         "id": parts[0],
                         "name": parts[1],
-                        "schedule": parts[2],                                      
+                        "schedule": parts[2],
                     }
                 )
     return tasks
-
 
 
 def get_cron_logs_from_md() -> List[Dict[str, Any]]:
     """Parse CRON_LOG.md and return recent history."""
     content = load_workspace_file(CORE_FILES["CRON_LOG"])
     logs = []
-                                    
+
     parts = re.split(r"(?=^### \[)", content, flags=re.MULTILINE)
 
     for part in parts:
@@ -108,7 +66,7 @@ def get_cron_logs_from_md() -> List[Dict[str, Any]]:
             continue
 
         try:
-                                                                                                   
+
             header_match = re.search(
                 r"^### \[(.*?)\] (.*?) \(`(.*?)`\)(?: \| \[View Chat\]\((.*?)\))?", part
             )
@@ -118,7 +76,6 @@ def get_cron_logs_from_md() -> List[Dict[str, Any]]:
                 tid = header_match.group(3)
                 cid = header_match.group(4) if header_match.lastindex >= 4 else None
 
-                                                                            
                 body = part.split("\n\n", 1)[1] if "\n\n" in part else ""
                 output = body.split("\n---")[0].strip()
 
@@ -127,7 +84,7 @@ def get_cron_logs_from_md() -> List[Dict[str, Any]]:
                         "timestamp": ts,
                         "task_id": tid,
                         "task_name": name,
-                        "status": "success",                   
+                        "status": "success",
                         "output": output,
                         "chat_id": cid.lstrip("/") if cid else None,
                     }
@@ -135,8 +92,7 @@ def get_cron_logs_from_md() -> List[Dict[str, Any]]:
         except Exception as e:
             logger.debug(f"Error parsing log entry: {e}")
 
-    return logs[::-1]                
-
+    return logs[::-1]
 
 
 def update_cron_task_in_cron_md(task: dict):
@@ -156,13 +112,13 @@ def update_cron_task_in_cron_md(task: dict):
             break
 
     if table_start == -1:
-                                      
+
         append_to_file(
             "CRON.md",
             "\n## Active Tasks\n\n| ID | Name | Interval (min) | Prompt starts with | Last run | Next approx |\n|----|------|----------------|--------------------|----------|-------------|",
         )
         lines = path.read_text(encoding="utf-8").splitlines()
-        table_start = len(lines) - 2                      
+        table_start = len(lines) - 2
 
     new_row = (
         f"| {task.get('id','?')} "
@@ -189,7 +145,6 @@ def update_cron_task_in_cron_md(task: dict):
     path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
 
 
-
 def schedule_task(task_id: str, name: str, interval_minutes: int, prompt: str) -> str:
     """Consolidated tool to schedule a task persistently."""
     if interval_minutes < 1:
@@ -203,7 +158,6 @@ def schedule_task(task_id: str, name: str, interval_minutes: int, prompt: str) -
     }
     update_cron_task_in_cron_md(task_data)
 
-                                                      
     global tasks
     found = False
     for t in tasks:
@@ -229,7 +183,6 @@ def schedule_task(task_id: str, name: str, interval_minutes: int, prompt: str) -
     return f"✅ Scheduled '{name}' (ID: {task_id}) every {interval_minutes} min"
 
 
-
 def delete_scheduled_task(task_id: str) -> str:
     """Remove a task from CRON.md and memory."""
     path = get_workspace_path("CRON.md")
@@ -248,7 +201,6 @@ def delete_scheduled_task(task_id: str) -> str:
     if found_in_md:
         path.write_text("\n".join(new_lines).strip() + "\n", encoding="utf-8")
 
-                        
     global tasks
     found_in_mem = False
     tasks_to_keep = []
@@ -258,12 +210,11 @@ def delete_scheduled_task(task_id: str) -> str:
             continue
         tasks_to_keep.append(t)
 
-    tasks[:] = tasks_to_keep                               
+    tasks[:] = tasks_to_keep
 
     if found_in_md or found_in_mem:
         return f"✅ Deleted scheduled task '{task_id}'"
     return f"ℹ️ Task '{task_id}' not found."
-
 
 
 def list_scheduled_tasks() -> str:
@@ -282,7 +233,6 @@ def list_scheduled_tasks() -> str:
                 f"• {t.id}: {t.name} (every {t.interval_minutes} min, next ≈ {next_in} min)"
             )
     return "\n".join(lines)
-
 
 
 def append_cron_log(
@@ -305,7 +255,6 @@ def append_cron_log(
     logger.debug(f"Appended cron log entry for {task_id}")
 
 
-
 def cleanup_cron_log(max_entries: int = DEFAULT_MAX_CRON_LOG_ENTRIES):
     """Keep only the last `max_entries` log entries in CRON_LOG.md."""
     path = get_workspace_path("CRON_LOG.md")
@@ -313,22 +262,20 @@ def cleanup_cron_log(max_entries: int = DEFAULT_MAX_CRON_LOG_ENTRIES):
         return
 
     content = path.read_text(encoding="utf-8")
-                                    
+
     parts = re.split(r"(?=^### \[)", content, flags=re.MULTILINE)
 
-                                                   
     header = parts[0] if parts else ""
     entries = [p for p in parts[1:] if p.strip()]
 
     if len(entries) <= max_entries:
-        return                    
+        return
 
     kept = entries[-max_entries:]
     pruned_count = len(entries) - max_entries
     new_content = header.rstrip() + "\n\n" + "".join(kept)
     path.write_text(new_content.strip() + "\n", encoding="utf-8")
     logger.debug(f"Pruned {pruned_count} old cron log entries, kept {max_entries}")
-
 
 
 async def reload_cron_tasks():
@@ -362,8 +309,7 @@ async def reload_cron_tasks():
                             name=parts[1],
                             interval_minutes=int(parts[2]),
                             prompt=parts[3],
-                            last_run=datetime.now(),                                           
-                                                                                                        
+                            last_run=datetime.now(),
                         )
                     )
                 except Exception:
@@ -373,14 +319,13 @@ async def reload_cron_tasks():
         global tasks
         new_list = []
         for pt in parsed_tasks:
-                                                                   
+
             existing = next((t for t in tasks if t.id == pt.id), None)
             if existing and existing.interval_minutes == pt.interval_minutes:
                 pt.last_run = existing.last_run
                 pt.active = existing.active
             new_list.append(pt)
         tasks = new_list
-
 
 
 async def background_processor(agent: Any):
@@ -405,11 +350,11 @@ async def background_processor(agent: Any):
                     and (now - t.last_run).total_seconds() / 60 >= t.interval_minutes
                 ):
                     due.append(t)
-                    t.last_run = now                          
+                    t.last_run = now
 
         for task in due:
             try:
-                                                                   
+
                 if task.prompt.startswith("__internal:"):
                     cmd = task.prompt.split(":", 1)[1]
                     if cmd == "cleanup_cron_log":
@@ -417,25 +362,21 @@ async def background_processor(agent: Any):
                         logger.debug("Cron log cleanup completed")
                     continue
 
-                                                     
                 resolved_prompt = resolve_prompt(task.prompt)
 
                 logger.info(f"Running periodic task → {task.name} (ID: {task.id})")
                 result = await agent.run(resolved_prompt)
 
-                                
                 output = str(result.output or "")
                 if output:
                     logger.info(f"Task result: {output[:200]}...")
 
-                                                             
                 try:
                     chat_id = (
                         f"cron-{task.id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
                     )
                     messages = []
 
-                                                   
                     messages.append(
                         {
                             "id": "msg-u-1",
@@ -445,7 +386,6 @@ async def background_processor(agent: Any):
                         }
                     )
 
-                                            
                     messages.append(
                         {
                             "id": "msg-a-1",

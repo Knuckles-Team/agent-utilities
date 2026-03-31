@@ -1,80 +1,42 @@
 #!/usr/bin/python
-               
+
 from __future__ import annotations
 
 import os
-import sys
 import re
-import shutil
-import json
 import logging
 import asyncio
 import yaml
-import httpx
-import argparse
-import base64
-import contextvars
 
-                            
-from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
-from datetime import datetime, timedelta
+
+from typing import Any, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fasta2a import Skill
-    from fastapi import FastAPI
 from pathlib import Path
-from contextlib import asynccontextmanager
-from importlib.resources import files, as_file
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.responses import Response, StreamingResponse
-from pydantic import ValidationError
 
-from pydantic_ai import Agent, ModelSettings
-from pydantic_ai.mcp import (
-    load_mcp_servers,
-    MCPServerStreamableHTTP,
-    MCPServerSSE,
-)
 
-from universal_skills.skill_utilities import (
-    resolve_mcp_reference,
-    get_universal_skills_path,
-)
 
 
 from .config import *
 from .workspace import *
-from .base_utilities import (
-    to_boolean,
-    to_integer,
-    to_float,
-    to_list,
-    to_dict,
-    retrieve_package_name,
-    GET_DEFAULT_SSL_VERIFY,
-    load_env_vars,
-)
 
-                                                                   
 
 from .models import PeriodicTask
 
-                                 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
-from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
-import logging
+
 logger = logging.getLogger(__name__)
+
 
 def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
     from fasta2a import Skill
     import yaml
-    import re
 
     try:
         with open(skill_file, "r") as f:
@@ -90,14 +52,12 @@ def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
                 skill_name = data.get("name", skill_id)
                 skill_desc = data.get("description", f"Access to {skill_name} tools")
 
-                                                          
                 skill_version = str(
                     data.get(
                         "version", data.get("metadata", {}).get("version", "0.1.0")
                     )
                 )
 
-                                                            
                 tool_tags = data.get("tags", [skill_id])
                 if not isinstance(tool_tags, list):
                     tool_tags = [str(tool_tags)]
@@ -116,7 +76,6 @@ def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
     return None
 
 
-
 def load_skills_from_directory(directory: str) -> List[Skill]:
 
     skills = []
@@ -126,7 +85,6 @@ def load_skills_from_directory(directory: str) -> List[Skill]:
         logger.debug(f"Skills directory not found: {directory}")
         return skills
 
-                                                 
     skill_file = base_path / "SKILL.md"
     if skill_file.exists():
         skill = _parse_skill_from_md(skill_file, base_path.name)
@@ -134,7 +92,6 @@ def load_skills_from_directory(directory: str) -> List[Skill]:
             skills.append(skill)
             return skills
 
-                             
     if base_path.is_dir():
         for item in base_path.iterdir():
             if item.is_dir():
@@ -144,7 +101,6 @@ def load_skills_from_directory(directory: str) -> List[Skill]:
                     if skill:
                         skills.append(skill)
     return skills
-
 
 
 def extract_tool_tags(skill_path: str) -> List[str]:
@@ -174,7 +130,6 @@ def extract_tool_tags(skill_path: str) -> List[str]:
     return []
 
 
-
 def skill_in_tag(skill_path: str, tag: str) -> bool:
     """
     Checks if a skill belongs to a specific tag.
@@ -183,13 +138,11 @@ def skill_in_tag(skill_path: str, tag: str) -> bool:
     return tag in tool_tags
 
 
-
 def filter_skills_by_tag(skills: List[str], tag: str) -> List[str]:
     """
     Filters a list of skill paths for a given tag.
     """
     return [s for s in skills if skill_in_tag(s, tag)]
-
 
 
 def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
@@ -207,7 +160,6 @@ def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
             skill_dirs.append(str(item))
 
     return skill_dirs
-
 
 
 def skill_matches_tags(skill_dir: str, tags: List[str]) -> bool:
@@ -243,14 +195,12 @@ def skill_matches_tags(skill_dir: str, tags: List[str]) -> bool:
             [t.lower() for t in tool_tags] + [c.lower() for c in skill_categories]
         )
 
-                                                         
         all_skill_metadata.add(os.path.basename(skill_dir).lower())
 
         return any(tag.lower() in all_skill_metadata for tag in tags)
     except Exception as e:
         logger.debug(f"Error checking tags for skill {skill_dir}: {e}")
         return False
-
 
 
 def extract_tool_tags(tool_def: Any) -> List[str]:
@@ -303,7 +253,6 @@ def extract_tool_tags(tool_def: Any) -> List[str]:
     return []
 
 
-
 def tool_in_tag(tool_def: Any, tag: str) -> bool:
     """
     Checks if a tool belongs to a specific tag.
@@ -313,7 +262,6 @@ def tool_in_tag(tool_def: Any, tag: str) -> bool:
         return True
     else:
         return False
-
 
 
 def filter_tools_by_tag(tools: Any, tags: Union[str, List[str]]) -> Any:

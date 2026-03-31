@@ -1,78 +1,41 @@
 #!/usr/bin/python
-               
+
 from __future__ import annotations
 
 import os
-import sys
-import re
-import shutil
-import json
 import logging
 import asyncio
-import yaml
-import httpx
-import argparse
 import base64
-import contextvars
 
-                            
-from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
-from datetime import datetime, timedelta
+
+from typing import List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from fasta2a import Skill
-    from fastapi import FastAPI
-from pathlib import Path
-from contextlib import asynccontextmanager
-from importlib.resources import files, as_file
+    pass
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.responses import Response, StreamingResponse
-from pydantic import ValidationError
 
-from pydantic_ai import Agent, ModelSettings
-from pydantic_ai.mcp import (
-    load_mcp_servers,
-    MCPServerStreamableHTTP,
-    MCPServerSSE,
-)
+from pydantic_ai import Agent
 
-from universal_skills.skill_utilities import (
-    resolve_mcp_reference,
-    get_universal_skills_path,
-)
 
 
 from .config import *
 from .workspace import *
 from .base_utilities import (
-    to_boolean,
-    to_integer,
-    to_float,
-    to_list,
-    to_dict,
     retrieve_package_name,
-    GET_DEFAULT_SSL_VERIFY,
-    load_env_vars,
 )
 
-                                                                   
 
 from .models import PeriodicTask
 
-                                 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
-from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 _otel_initialized = False
-
 
 
 def setup_otel(
@@ -94,7 +57,6 @@ def setup_otel(
         )
         return
 
-                                      
     if not (headers or os.getenv("OTEL_EXPORTER_OTLP_HEADERS")) and (
         (public_key or os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY"))
         and (secret_key or os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY"))
@@ -106,13 +68,11 @@ def setup_otel(
         os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Basic {auth_encoded}"
         logger.debug("Generated OTLP Basic Auth headers from public/secret keys")
 
-                                     
     target_service_name = service_name or retrieve_package_name()
 
     if _otel_initialized:
         logger.debug(f"Re-configuring OTel for service: {target_service_name}")
 
-                                              
     target_endpoint = endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     target_headers = headers or os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
     logger.debug(
@@ -125,7 +85,6 @@ def setup_otel(
         distributed_tracing=True,
     )
 
-                            
     logfire.instrument_pydantic_ai()
     Agent.instrument_all()
 
@@ -133,7 +92,3 @@ def setup_otel(
     logger.info(
         f"OpenTelemetry logging enabled via logfire for service: {target_service_name}"
     )
-
-
-                         
-                  

@@ -16,8 +16,8 @@ def dummy_workspace(tmp_path, monkeypatch):
     def mock_get_workspace_path(subpath=""):
         res = tmp_path / subpath if subpath else tmp_path
         if subpath and not res.exists() and "." not in subpath:
-                                                                                 
-                                                                                            
+
+
             if not res.suffix:
                 res.mkdir(parents=True, exist_ok=True)
         return res
@@ -30,11 +30,11 @@ def dummy_workspace(tmp_path, monkeypatch):
 @pytest.fixture
 def dummy_agent(dummy_workspace):
     os.environ["OPENAI_API_KEY"] = "sk-dummy"
-                                                          
+
 
     initialize_workspace()
 
-                                                           
+
     agent = create_agent(
         name="TestBot", system_prompt="Test description", model_id="gpt-4o"
     )
@@ -42,8 +42,8 @@ def dummy_agent(dummy_workspace):
 
 
 def test_server_creation_logic(dummy_agent):
-                                                                         
-                                                        
+
+
     import uvicorn
 
     original_run = uvicorn.run
@@ -51,7 +51,7 @@ def test_server_creation_logic(dummy_agent):
 
     os.environ["OPENAI_API_KEY"] = "sk-dummy"
 
-                                                    
+
     create_agent_server(enable_web_ui=True)
     app = uvicorn.run.call_args[0][0]
     client = TestClient(app)
@@ -63,7 +63,7 @@ def test_server_creation_logic(dummy_agent):
 
 
 def test_enhanced_api_endpoints(dummy_agent):
-                                        
+
     helpers = {
         "agent_name": "TestBot",
         "agent_emoji": "🤖",
@@ -73,14 +73,14 @@ def test_enhanced_api_endpoints(dummy_agent):
     app = create_enhanced_web_app(dummy_agent, workspace_helpers=helpers)
     client = TestClient(app)
 
-                        
+
     response = client.get("/api/enhanced/info")
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "TestBot"
     assert data["emoji"] == "🤖"
 
-                         
+
     response = client.get("/api/enhanced/files")
     assert response.status_code == 200
     files = response.json()
@@ -90,7 +90,7 @@ def test_enhanced_api_endpoints(dummy_agent):
 def test_cli_parser(monkeypatch):
     from agent_utilities.agent_utilities import create_agent_parser
 
-                                      
+
     monkeypatch.setenv("ENABLE_WEB_UI", "False")
     monkeypatch.setenv("ENABLE_OTEL", "False")
     parser = create_agent_parser()
@@ -98,12 +98,12 @@ def test_cli_parser(monkeypatch):
     assert args.web is False
     assert args.otel is False
 
-                                   
+
     args = parser.parse_args(["--web", "--otel"])
     assert args.web is True
     assert args.otel is True
 
-                                                 
+
     monkeypatch.setenv("ENABLE_WEB_UI", "True")
     monkeypatch.setenv("ENABLE_OTEL", "True")
     parser = create_agent_parser()
@@ -111,7 +111,7 @@ def test_cli_parser(monkeypatch):
     assert args.web is True
     assert args.otel is True
 
-                                                                              
+
     args = parser.parse_args(["--no-web", "--no-otel"])
     assert args.web is False
     assert args.otel is False

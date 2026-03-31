@@ -1,35 +1,26 @@
 #!/usr/bin/python
-               
+
 from __future__ import annotations
 
 import os
 import sys
-import re
-import shutil
 import json
 import logging
 import asyncio
-import yaml
 import httpx
 import argparse
-import base64
-import contextvars
 
-                            
-from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
-from datetime import datetime, timedelta
+
+from typing import Any, List, Optional, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from fasta2a import Skill
     from fastapi import FastAPI
 from pathlib import Path
 from contextlib import asynccontextmanager
-from importlib.resources import files, as_file
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from starlette.responses import Response, StreamingResponse
-from pydantic import ValidationError
+from starlette.responses import Response
 
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.mcp import (
@@ -39,7 +30,6 @@ from pydantic_ai.mcp import (
 )
 
 from universal_skills.skill_utilities import (
-    resolve_mcp_reference,
     get_universal_skills_path,
 )
 
@@ -49,30 +39,22 @@ from .workspace import *
 from .scheduler import background_processor
 from .base_utilities import (
     to_boolean,
-    to_integer,
-    to_float,
-    to_list,
-    to_dict,
     retrieve_package_name,
-    GET_DEFAULT_SSL_VERIFY,
-    load_env_vars,
     is_loopback_url,
     __version__,
 )
 
-                                                                   
 
-from .graph_orchestration import (
-    create_graph_agent, 
-    get_graph_mermaid, 
-    run_graph
-)
+from .graph_orchestration import create_graph_agent, get_graph_mermaid
 from .custom_observability import setup_otel
 from .model_factory import create_model
-from .a2a import discover_agents
-from .workspace import get_agent_workspace, initialize_workspace
+from .workspace import initialize_workspace
 from .tool_guard import apply_tool_guard_approvals
-from .tool_filtering import load_skills_from_directory, skill_matches_tags, filter_tools_by_tag
+from .tool_filtering import (
+    load_skills_from_directory,
+    skill_matches_tags,
+    filter_tools_by_tag,
+)
 from .prompt_builder import load_identity, build_system_prompt_from_workspace
 from .scheduler import get_cron_tasks_from_md, get_cron_logs_from_md
 from .chat_persistence import (
@@ -84,26 +66,24 @@ from .chat_persistence import (
 
 from .models import PeriodicTask
 
-                                 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
 from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
-import logging
 import warnings
-import sys
 
-                                        
 warnings.filterwarnings("ignore", message=".*")
 
 logger = logging.getLogger(__name__)
+
 
 def agent_template():
     """Satisfy repository-manager static validation."""
     print("Agent template accessed", file=sys.stderr)
     return None
+
 
 def get_http_client(
     ssl_verify: bool = True, timeout: float = 300.0
@@ -111,7 +91,6 @@ def get_http_client(
     if not ssl_verify:
         return httpx.AsyncClient(verify=False, timeout=timeout)
     return None
-
 
 
 class ReloadableApp:
@@ -131,7 +110,6 @@ class ReloadableApp:
         """Re-run the factory to create a fresh app instance."""
         logger.info("Hot-reloading agent application...")
         self.app = self.factory()
-
 
 
 def create_agent_parser():
@@ -265,7 +243,6 @@ def create_agent_parser():
     return parser
 
 
-
 def create_agent(
     provider: str = DEFAULT_PROVIDER,
     model_id: str = DEFAULT_MODEL_ID,
@@ -311,17 +288,18 @@ def create_agent(
         A Pydantic AI Agent instance
     """
 
-                                                                  
     agent_toolsets = []
 
     if mcp_url:
         if DEFAULT_VALIDATION_MODE:
             logger.info(f"VALIDATION_MODE: Skipping MCP connection to {mcp_url}")
         elif is_loopback_url(mcp_url, current_host, current_port):
-            logger.warning(f"Loopback Guard: Skipping self-referential MCP connection to {mcp_url}")
+            logger.warning(
+                f"Loopback Guard: Skipping self-referential MCP connection to {mcp_url}"
+            )
         else:
             try:
-                                                                  
+
                 if mcp_url.lower().endswith("/sse"):
                     server = MCPServerSSE(
                         mcp_url,
@@ -345,10 +323,12 @@ def create_agent(
 
     if mcp_config:
         if DEFAULT_VALIDATION_MODE:
-            logger.info(f"VALIDATION_MODE: Skipping MCP config loading from {mcp_config}")
+            logger.info(
+                f"VALIDATION_MODE: Skipping MCP config loading from {mcp_config}"
+            )
         else:
             try:
-                                                                                  
+
                 if not os.path.isabs(mcp_config) and "/" not in mcp_config:
                     ws_config = get_workspace_path(mcp_config)
                     if ws_config.exists():
@@ -357,7 +337,9 @@ def create_agent(
                     else:
                         pkg = retrieve_package_name()
                         if pkg and pkg != "agent_utilities":
-                            local_pkg_config = Path.cwd() / pkg / "agent_data" / mcp_config
+                            local_pkg_config = (
+                                Path.cwd() / pkg / "agent_data" / mcp_config
+                            )
                             if local_pkg_config.exists():
                                 mcp_config = str(local_pkg_config)
                                 logger.info(
@@ -376,18 +358,18 @@ def create_agent(
                                 mcp_config = str(local_config)
                                 logger.info(f"Loaded MCP config from cwd: {mcp_config}")
 
-                                                                                   
                 mcp_toolset = load_mcp_servers(mcp_config)
                 for server in mcp_toolset:
                     if hasattr(server, "http_client"):
                         server.http_client = httpx.AsyncClient(
                             verify=ssl_verify, timeout=DEFAULT_TIMEOUT
                         )
-                
-                                           
+
                 if tool_tags:
-                    mcp_toolset = [filter_tools_by_tag(s, tool_tags) for s in mcp_toolset]
-                
+                    mcp_toolset = [
+                        filter_tools_by_tag(s, tool_tags) for s in mcp_toolset
+                    ]
+
                 agent_toolsets.extend(mcp_toolset)
                 logger.info(f"Connected to MCP Config: {mcp_config}")
             except Exception as e:
@@ -409,18 +391,16 @@ def create_agent(
             for server in mcp_toolsets:
                 if server is None:
                     continue
-                
-                                                             
+
                 ts = None
                 if type(server).__name__ == "FastMCP":
                     ts = FastMCPToolset(server)
                 else:
                     ts = server
-                
-                                           
+
                 if tool_tags:
                     ts = filter_tools_by_tag(ts, tool_tags)
-                
+
                 agent_toolsets.append(ts)
 
     model = create_model(
@@ -449,7 +429,6 @@ def create_agent(
 
     from pydantic_ai_skills import SkillsToolset
 
-                                           
     if enable_skills:
         skill_dirs = []
         if skills_path := get_skills_path():
@@ -462,17 +441,13 @@ def create_agent(
             try:
                 from skill_graphs.skill_graph_utilities import get_skill_graphs_path
 
-                                                                                     
-                                                                       
                 skill_dirs.extend(get_skill_graphs_path(default_enabled=True))
             except ImportError:
                 pass
 
-                                                     
         if tool_tags:
             skill_dirs = [d for d in skill_dirs if skill_matches_tags(d, tool_tags)]
 
-                                        
         if custom_skills_directory:
             if isinstance(custom_skills_directory, (list, tuple)):
                 for d in custom_skills_directory:
@@ -489,8 +464,6 @@ def create_agent(
         agent_toolsets.append(skills)
         logger.info(f"Loaded {len(skill_dirs)} Skills")
 
-                                                 
-                                                                                                                                                                           
     if system_prompt is None:
         logger.info(
             "No system_prompt provided to create_agent. Building from workspace..."
@@ -503,38 +476,35 @@ def create_agent(
     from .models import AgentDeps
 
     from pydantic_ai import DeferredToolRequests
-    from typing import Union, Any
+    from typing import Union
 
     agent = Agent(
         model=model,
         model_settings=settings,
         name=name,
-        output_type=Union[str, DeferredToolRequests] if output_type is None else output_type,
+        output_type=(
+            Union[str, DeferredToolRequests] if output_type is None else output_type
+        ),
         toolsets=agent_toolsets,
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
         deps_type=AgentDeps,
     )
 
-                                                                                   
-                                                                               
     @agent.instructions
     def inject_system_prompt() -> str:
         return system_prompt_str
 
-                                                                     
     if enable_universal_tools:
-                                                              
-                                                                                       
+
         from agent_utilities.tools import register_agent_tools
 
         register_agent_tools(agent, graph_bundle=graph_bundle)
 
     if tool_guard_mode != "off":
-                                                                                   
+
         apply_tool_guard_approvals(agent)
 
     return agent
-
 
 
 def create_agent_server(
@@ -587,8 +557,6 @@ def create_agent_server(
 
     import warnings
 
-                                                                                      
-                                                                                                
     warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 
     print(
@@ -603,7 +571,6 @@ def create_agent_server(
 
     _name = name or DEFAULT_AGENT_NAME
 
-                                               
     if workspace:
         global WORKSPACE_DIR
         WORKSPACE_DIR = workspace
@@ -627,7 +594,6 @@ def create_agent_server(
                 protocol=otel_protocol,
             )
 
-                                                         
         _agent_instance = agent_instance
         if _agent_instance is None:
             _agent_instance = create_agent(
@@ -649,7 +615,6 @@ def create_agent_server(
                 current_port=port,
             )
 
-                                                                           
         if hasattr(_agent_instance, "tools"):
             skills_list = list(_agent_instance.tools.values())
         elif hasattr(_agent_instance, "_function_toolset") and hasattr(
@@ -659,7 +624,6 @@ def create_agent_server(
         else:
             skills_list = []
 
-                               
         if default_skills_path := get_skills_path():
             skill_dirs.append(default_skills_path)
 
@@ -671,7 +635,6 @@ def create_agent_server(
         except ImportError:
             pass
 
-                                        
         try:
             from skill_graphs.skill_graph_utilities import get_skill_graphs_path
 
@@ -688,7 +651,6 @@ def create_agent_server(
         for d in skill_dirs:
             skills_list.extend(load_skills_from_directory(d))
 
-                                         
         enabled_skills = []
         for s in skills_list:
             sid = s.id if hasattr(s, "id") else s.get("id")
@@ -710,7 +672,6 @@ def create_agent_server(
                 )
             ]
 
-                   
         a2a_kwargs = {}
         if a2a_broker == "redis":
             try:
@@ -761,8 +722,7 @@ def create_agent_server(
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-                                                                                            
-                                                                        
+
             processor_task = asyncio.create_task(background_processor(_agent_instance))
             try:
                 if hasattr(a2a_app, "router") and hasattr(
@@ -786,8 +746,6 @@ def create_agent_server(
             lifespan=lifespan,
         )
 
-                                                       
-                                                     
         app.state.reload_app = None
 
         @app.get("/health")
@@ -801,27 +759,25 @@ def create_agent_server(
             """AG-UI endpoint with sideband graph activity support and resumption."""
             from pydantic_ai.ui.ag_ui import AGUIAdapter
             from fastapi.responses import StreamingResponse
-            import json
             from uuid import uuid4
 
-                                                                                
-                                                                         
             run_id = uuid4().hex
             try:
-                                                                                       
-                                                                                                      
+
                 body = await request.json()
-                if body and (session_id := body.get("session_id") or body.get("run_id")):
+                if body and (
+                    session_id := body.get("session_id") or body.get("run_id")
+                ):
                     run_id = session_id
                     logger.info(f"Resuming AG-UI session: {run_id}")
             except Exception:
                 pass
 
-                                                                  
             graph_event_queue = asyncio.Queue()
             elicitation_queue = asyncio.Queue()
-            
+
             from .models import AgentDeps
+
             deps = AgentDeps(
                 workspace_path=Path(WORKSPACE_DIR),
                 graph_event_queue=graph_event_queue,
@@ -831,35 +787,31 @@ def create_agent_server(
                 provider=DEFAULT_PROVIDER,
                 model_id=DEFAULT_MODEL_ID,
                 base_url=DEFAULT_LLM_BASE_URL,
-                api_key=DEFAULT_LLM_API_KEY
+                api_key=DEFAULT_LLM_API_KEY,
             )
             logger.info(f"AG-UI session context: {run_id}")
 
-                                                                                              
             async def merged_stream():
                 adapter = AGUIAdapter(agent=_agent_instance)
-                
-                                                                     
-                                                                              
-                
-                                                  
+
                 agent_response = await adapter.dispatch_request(request, deps=deps)
                 if not isinstance(agent_response, StreamingResponse):
                     yield agent_response.body
                     return
 
-                                
-                                                                                                     
                 combined_queue = asyncio.Queue()
 
                 async def poll_agent():
                     try:
                         async for chunk in agent_response.body_iterator:
-                                                                                                
-                                                                                              
-                            if chunk.startswith(b'2:') or chunk.startswith(b'9:') or b'"tool_calls"' in chunk:
+
+                            if (
+                                chunk.startswith(b"2:")
+                                or chunk.startswith(b"9:")
+                                or b'"tool_calls"' in chunk
+                            ):
                                 await combined_queue.put(("chunk", chunk))
-                                                                      
+
                                 await combined_queue.put(("chunk", b'0 ""\n'))
                             else:
                                 await combined_queue.put(("chunk", chunk))
@@ -871,33 +823,29 @@ def create_agent_server(
                 async def poll_sideband():
                     while True:
                         try:
-                                                                                     
+
                             tasks = [
                                 asyncio.create_task(graph_event_queue.get()),
                                 asyncio.create_task(elicitation_queue.get()),
                             ]
                             done, pending = await asyncio.wait(
-                                tasks, 
-                                return_when=asyncio.FIRST_COMPLETED
+                                tasks, return_when=asyncio.FIRST_COMPLETED
                             )
 
                             for task in done:
                                 try:
                                     ev = await task
-                                                                                                           
-                                                                                                                 
+
                                     if ev:
                                         packet = f"8:{json.dumps(ev)}\n".encode("utf-8")
                                         await combined_queue.put(("chunk", packet))
-                                        
-                                                                          
-                                                                                                            
-                                                                                
+
                                         await combined_queue.put(("chunk", b'0 " "\n'))
                                 except Exception as e:
-                                    logger.error(f"Error processing sideband event: {e}")
-                            
-                                                                       
+                                    logger.error(
+                                        f"Error processing sideband event: {e}"
+                                    )
+
                             for task in pending:
                                 task.cancel()
                                 try:
@@ -917,19 +865,22 @@ def create_agent_server(
                 try:
                     while True:
                         try:
-                            msg_type, data = await asyncio.wait_for(combined_queue.get(), timeout=0.1)
+                            msg_type, data = await asyncio.wait_for(
+                                combined_queue.get(), timeout=0.1
+                            )
                             if msg_type == "done":
-                                                                                                  
+
                                 await asyncio.sleep(0.1)
-                                if not graph_event_queue.empty() or not elicitation_queue.empty():
+                                if (
+                                    not graph_event_queue.empty()
+                                    or not elicitation_queue.empty()
+                                ):
                                     continue
                                 break
                             yield data
                             combined_queue.task_done()
                         except asyncio.TimeoutError:
-                                                                            
-                                                                                                 
-                                                                    
+
                             yield b'0 " "\n'
                             if agent_task.done() and combined_queue.empty():
                                 break
@@ -938,27 +889,31 @@ def create_agent_server(
                     agent_task.cancel()
                     sideband_task.cancel()
 
-            return StreamingResponse(merged_stream(), content_type="text/plain; charset=utf-8")
+            return StreamingResponse(
+                merged_stream(), content_type="text/plain; charset=utf-8"
+            )
 
         @app.post("/stream")
         async def stream_endpoint(request: Request) -> Response:
             """Generic SSE stream endpoint for graph agents."""
             from fastapi.responses import StreamingResponse
-            
+
             data = await request.json()
             query = data.get("query", data.get("prompt", ""))
-            
+
             if graph_bundle:
                 from .graph_orchestration import run_graph_stream
+
                 graph, config = graph_bundle
                 return StreamingResponse(
                     run_graph_stream(graph, config, query),
-                    media_type="text/event-stream"
+                    media_type="text/event-stream",
                 )
             else:
-                return JSONResponse({"error": "No graph bundle provided for streaming"}, status_code=400)
+                return JSONResponse(
+                    {"error": "No graph bundle provided for streaming"}, status_code=400
+                )
 
-                      
         if enable_web_ui is None:
             enable_web_ui = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
 
@@ -970,7 +925,6 @@ def create_agent_server(
             try:
                 from agent_webui.server import create_agent_web_app
 
-                                                       
                 _provider_ui = provider or os.environ.get("PROVIDER") or "openai"
                 _model_id_ui = (
                     model_id or os.environ.get("MODEL_ID") or "nvidia/nemotron-3-super"
@@ -999,7 +953,7 @@ def create_agent_server(
                                 if hasattr(s, "description")
                                 else s.get("description")
                             ),
-                            "enabled": True,           
+                            "enabled": True,
                         }
                         for s in skills_list
                     ],
@@ -1021,22 +975,19 @@ def create_agent_server(
                     html_source=html_source,
                     models={_model_id_ui: f"{_provider_ui}:{_model_id_ui}"},
                 )
-                                                                           
-                web_app.state.reload_app = None                     
+
+                web_app.state.reload_app = None
                 app.mount("/", web_app)
                 logger.debug("Mounted new standalone agent-web UI dashboard at /")
             except ImportError:
                 logger.error(
                     "agent-web package not found. Enhanced UI dashboard disabled."
                 )
-                                   
 
         return app
 
-                                   
     reloadable = ReloadableApp(app_factory)
 
-                                                                                 
     def inject_reload_app(fast_app: FastAPI, wrapper: ReloadableApp):
         fast_app.state.reload_app = wrapper
         from fastapi.routing import Mount
@@ -1068,7 +1019,6 @@ def create_agent_server(
     )
 
 
-
 def create_graph_agent_server(
     tag_prompts: dict[str, str] | None = None,
     tag_env_vars: dict[str, str] | None = None,
@@ -1077,7 +1027,6 @@ def create_graph_agent_server(
     router_model: str = DEFAULT_ROUTER_MODEL,
     agent_model: str = DEFAULT_GRAPH_AGENT_MODEL,
     min_confidence: float = 0.6,
-                                                   
     provider: str = DEFAULT_PROVIDER,
     model_id: str = DEFAULT_MODEL_ID,
     base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
@@ -1132,8 +1081,6 @@ def create_graph_agent_server(
 
     import warnings
 
-                                                                                      
-                                                                                                
     warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 
     _mcp_url = mcp_url or os.getenv("MCP_URL")
@@ -1168,7 +1115,6 @@ def create_graph_agent_server(
     )
     logger.info(f"Mermaid diagram:\n{get_graph_mermaid(graph, graph_config)}")
 
-                                                   
     domain_list = ", ".join(graph_config["valid_domains"])
     base_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
     graph_prompt = (
