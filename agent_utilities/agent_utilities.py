@@ -23,4 +23,4 @@ from .models import *
 from .base_utilities import *
 from .embedding_utilities import *
 
-__version__ = "0.2.37"
+__version__ = "0.2.38"
