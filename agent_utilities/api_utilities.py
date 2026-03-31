@@ -4,7 +4,7 @@ from .workspace import *
 
 import functools
 
-__version__ = "0.2.35"
+__version__ = "0.2.36"
 
 
 class AuthError(Exception):
