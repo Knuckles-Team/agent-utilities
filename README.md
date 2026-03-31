@@ -21,39 +21,84 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 0.2.33*
+*Version: 0.2.34*
 
 ## Overview
 
-Agent Utilities provides a robust foundation for building production-ready Pydantic AI Agents. It simplifies agent creation, adds multi-agent supervisor patterns, and provides essential "operating system" tools for agents, including workspace management, scheduling, and discovery.
+Agent Utilities provides a robust foundation for building production-ready Pydantic AI Agents. Recently refactored into a high-performance **modular architecture**, it simplifies agent creation, adds advanced **Graph Orchestration**, and provides essential "operating system" tools including state persistence, resilience, and high-fidelity streaming.
 
 ## Key Features
 
 - **Agent Creation**: Streamlined `create_agent` function that handles MCP servers, skills, and model configuration automatically.
-- **Graph Orchestration**: Robust `pydantic-graph` based `create_graph_agent_server` mapping tools to generic domain nodes to isolate context and prevent hallucination.
+- **Advanced Graph Orchestration**: Multi-domain routing with `HybridRouterNode` (Rule-based + LLM) and **parallel execution** with `ParallelDomainNode`.
+- **Resilience & Accuracy**: Native support for **Error Recovery** (exponential backoff), **State Persistence** (checkpointing), and **Result Validation**.
+- **Observability**: Real-time **Graph Streaming** (SSE) and **Lifecycle Hooks** (`on_tool_start`, `on_tool_end`) for distributed telemetry.
+- **Typed Foundation**: Zero-config dependency injection using `AgentDeps`.
 - **Multi-Agent Support**: Native support for the supervisor pattern, allowing complex tasks to be delegated to specialized child agents.
-- **Agent Server**: Built-in FastAPI server (`create_agent_server` and `create_graph_agent_server`) with SSE support for easy integration into web UIs and A2A networks.
-- **Elicitation Support**: Built-in flow for handling structured user input requests from MCP servers, seamlessly integrated with the Web UI.
+- **Agent Server**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/ag-ui`, and `/stream` (SSE) endpoints.
 - **Workspace Management**: Automated management of agent state through standard markdown files (`IDENTITY.md`, `MEMORY.md`, `USER.md`).
-- **A2A Integration**: Seamless discovery and communication between agents in a distributed network.
-- **Periodic Scheduler**: In-memory task scheduler for running background agent jobs.
-- **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies like FastAPI or LlamaIndex are lazy-loaded only when requested via optional extras.
+- **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies are lazy-loaded only when requested via optional extras.
 
-## General Graph Architecture
+## Architecture & Orchestration
 
-`agent-utilities` implements a standardized graph structure via `pydantic-graph` to build context-efficient specialized agents.
+| `adguard-home-agent` | Graph |
+| `agent-utilities` | Library | Production-grade Orchestration. Supports Parallel execution, Real-time sub-agent streaming, High-fidelity observability, and Session Resumability |
+| `agent-webui` | Library | Cinematic Graph Activity Visualization. |
 
+`agent-utilities` implements a multi-stage execution pipeline using `pydantic-graph` for maximum precision and resilience.
+
+### C4 Container Diagram
+```mermaid
+C4Container
+    title Container diagram for Agent Orchestration System
+
+    Person(user, "User", "Interacts via Web UI")
+
+    Container_Boundary(c1, "Agent Ecosystem") {
+        Container(webui, "Agent WebUI", "React, Tailwind", "Renders streaming responses and graph activity visualization")
+        Container(gateway, "Agent Gateway (FastAPI)", "Python, Pydantic-AI", "Handles SSE streams, merges graph events into chat annotations")
+        Container(orchestrator, "Graph Orchestrator", "Pydantic-Graph", "Routes queries, executes parallel domains, validates results")
+        Container(subagent, "Domain Sub-Agents", "Pydantic-AI", "Specialized agents for Git, Web, Cloud, etc.")
+    }
+
+    System_Ext(mcp, "MCP Servers", "Contextual tools (GitHub, Slack, etc.)")
+    System_Ext(otel, "OpenTelemetry Collector", "Tracing and monitoring")
+
+    Rel(user, webui, "Uses", "HTTPS/WSS")
+    Rel(webui, gateway, "Queries", "POST /stream (SSE)")
+    Rel(gateway, orchestrator, "Dispatches", "Async Python")
+    Rel(orchestrator, subagent, "Delegates", "Parallel Execution")
+    Rel(subagent, mcp, "Invokes Tools", "JSON-RPC (stdio/SSE)")
+    Rel(orchestrator, otel, "Exports Spans", "OTLP")
+```
+
+### Execution Flow
 ```mermaid
 graph TD
-  User([User Query]) --> RouterNode
-  RouterNode -- "Classifies into matching domain" --> DomainNode
-  RouterNode -- "Fails/Low Confidence" --> EndNode([End with Error])
+  User([User Query]) --> HybridRouter{Hybrid Router}
 
-  subgraph Generic Domain Architecture
-      DomainNode -- "Applies OS Env Var Gates" --> ContextIsolation
-      ContextIsolation -- "Launches localized agent" --> DomainTools[Restricted Tool Context]
+  subgraph Routing Layer
+    HybridRouter -- "Cache/Regex" --> DomainNode
+    HybridRouter -- "LLM Classify" --> DomainNode
+    HybridRouter -- "Critical Failure" --> Recover[ErrorRecoveryNode]
   end
-  DomainTools --> EndNode2([End with Result])
+
+  subgraph Execution Layer
+    DomainNode -- "Isolated Context" --> SubAgent[Sub-Agent Execution]
+    SubAgent -- "Live Events" --> SSE((SSE Stream))
+  end
+
+  subgraph Validation Layer
+    SubAgent --> Validator{Validator}
+    Validator -- "Pass" --> EndNode([End with Result])
+    Validator -- "Fail / Too Short" --> DomainNode
+  end
+
+  subgraph Resilience Layer
+    Recover -- "Backoff/Retry" --> HybridRouter
+    Checkpoint[(Persistence Store)] -.-> Resume[ResumeNode]
+    Resume --> HybridRouter
+  end
 ```
 
 

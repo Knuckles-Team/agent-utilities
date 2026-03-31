@@ -1,8 +1,12 @@
 #!/usr/bin/python
-# coding: utf-8
+
 import os
 import argparse
+from typing import Union, Any
+from pathlib import Path
 
+from .config import *
+from .workspace import *
 from .base_utilities import to_integer, to_boolean, GET_DEFAULT_SSL_VERIFY
 
 config = {
@@ -30,7 +34,7 @@ DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "text-embedding-nomic-embed-text-v2-moe
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "llama")
 
-__version__ = "0.2.33"
+__version__ = "0.2.34"
 
 
 def create_mcp_parser():
@@ -268,7 +272,6 @@ def create_mcp_server(
 
         sys.exit(1)
 
-    # ── Update global config from parsed args ────────────────────────────
     config["enable_delegation"] = args.enable_delegation
     config["audience"] = args.audience or config["audience"]
     config["delegated_scopes"] = args.delegated_scopes or config["delegated_scopes"]
@@ -282,7 +285,6 @@ def create_mcp_server(
             args.oidc_client_secret or config["oidc_client_secret"]
         )
 
-    # ── Delegation validation ────────────────────────────────────────────
     if config["enable_delegation"]:
         import sys as _sys
 
@@ -312,7 +314,6 @@ def create_mcp_server(
             print(f"Failed to fetch OIDC configuration: {e}")
             _sys.exit(1)
 
-    # ── Auth setup ───────────────────────────────────────────────────────
     auth = None
     allowed_uris = (
         args.allowed_client_redirect_uris.split(",")
@@ -467,7 +468,6 @@ def create_mcp_server(
             base_url=args.remote_base_url,
         )
 
-    # ── Middleware assembly ───────────────────────────────────────────────
     middlewares = [
         ErrorHandlingMiddleware(include_traceback=True, transform_errors=True),
         RateLimitingMiddleware(max_requests_per_second=10.0, burst_capacity=20),
@@ -500,7 +500,45 @@ def create_mcp_server(
 
             sys.exit(1)
 
-    # ── Create FastMCP instance ──────────────────────────────────────────
     mcp = FastMCP(name, auth=auth, instructions=instructions)
 
     return args, mcp, middlewares
+
+
+def load_mcp_config(config_path: Union[str, Path]) -> list[Any]:
+    """Load and expand environment variables in an MCP config file.
+
+    Args:
+        config_path: Path to the mcp_config.json file.
+
+    Returns:
+        List of initialized MCPServer objects.
+    """
+    import tempfile
+    from .base_utilities import expand_env_vars
+    from pydantic_ai.mcp import load_mcp_servers
+
+    try:
+        path = Path(config_path)
+        if not path.exists():
+            return []
+
+        content = path.read_text()
+        expanded = expand_env_vars(content)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+            tmp.write(expanded)
+            tmp_path = tmp.name
+
+        try:
+            return load_mcp_servers(tmp_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).error(
+            f"Failed to load MCP config {config_path}: {e}"
+        )
+        return []
