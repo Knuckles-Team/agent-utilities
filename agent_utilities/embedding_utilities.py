@@ -46,7 +46,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.38"
+__version__ = "0.2.39"
 
 
 def create_embedding_model(
