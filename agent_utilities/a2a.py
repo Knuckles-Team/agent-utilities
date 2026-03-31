@@ -1,75 +1,35 @@
 #!/usr/bin/python
-               
+
 from __future__ import annotations
 
-import os
-import sys
-import re
-import shutil
-import json
 import logging
 import asyncio
-import yaml
-import httpx
-import argparse
-import base64
-import contextvars
 
-                            
-from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
-from datetime import datetime, timedelta
+
+from typing import Dict, List, Optional, TYPE_CHECKING
+from datetime import datetime
 
 if TYPE_CHECKING:
-    from fasta2a import Skill
-    from fastapi import FastAPI
-from pathlib import Path
-from contextlib import asynccontextmanager
-from importlib.resources import files, as_file
+    pass
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.responses import Response, StreamingResponse
-from pydantic import ValidationError
 
-from pydantic_ai import Agent, ModelSettings
-from pydantic_ai.mcp import (
-    load_mcp_servers,
-    MCPServerStreamableHTTP,
-    MCPServerSSE,
-)
 
-from universal_skills.skill_utilities import (
-    resolve_mcp_reference,
-    get_universal_skills_path,
-)
 
 
 from .config import *
 from .workspace import *
-from .base_utilities import (
-    to_boolean,
-    to_integer,
-    to_float,
-    to_list,
-    to_dict,
-    retrieve_package_name,
-    GET_DEFAULT_SSL_VERIFY,
-    load_env_vars,
-)
 
-                                                                   
 
 from .models import PeriodicTask
 
-                                 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
-from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
-import logging
+
 logger = logging.getLogger(__name__)
+
 
 def load_a2a_peers() -> List[Dict[str, str]]:
     """Parse A2A_AGENTS.md table into list of dicts."""
@@ -108,7 +68,6 @@ def load_a2a_peers() -> List[Dict[str, str]]:
                     }
                 )
     return peers
-
 
 
 def register_a2a_peer(
@@ -159,7 +118,6 @@ def register_a2a_peer(
     return f"✅ Registered/updated A2A peer '{name}' at {url}"
 
 
-
 def get_a2a_peer(name: str) -> Optional[Dict[str, str]]:
     """Return single peer by name (case-insensitive)."""
     peers = load_a2a_peers()
@@ -168,7 +126,6 @@ def get_a2a_peer(name: str) -> Optional[Dict[str, str]]:
         if p.get("name", "").lower() == name_lower:
             return p
     return None
-
 
 
 def list_a2a_peers() -> str:
@@ -180,7 +137,6 @@ def list_a2a_peers() -> str:
     for p in peers:
         lines.append(f"- **{p['name']}** → {p['url']}  ({p['capabilities']})")
     return "\n".join(lines)
-
 
 
 def delete_a2a_peer(name: str) -> str:
@@ -195,7 +151,7 @@ def delete_a2a_peer(name: str) -> str:
     found = False
 
     for line in lines:
-                                                         
+
         if line.strip().startswith(f"| {name} ") or f"| {name} |" in line:
             found = True
             continue
@@ -205,7 +161,6 @@ def delete_a2a_peer(name: str) -> str:
         path.write_text("\n".join(new_lines).strip() + "\n", encoding="utf-8")
         return f"✅ Removed A2A peer '{name}' from registry."
     return f"ℹ️ A2A peer '{name}' not found in registry."
-
 
 
 def discover_agents(
@@ -230,7 +185,6 @@ def discover_agents(
     agent_descriptions = {}
     processed_packages = set()
 
-                                                      
     _keywords = keywords or [
         "agent",
         "api",
@@ -245,7 +199,6 @@ def discover_agents(
         "genius-agent",
     ]
 
-                                                             
     if include_packages:
         for pkg in include_packages:
             if ensure_package_installed(pkg):
@@ -254,7 +207,6 @@ def discover_agents(
                 agent_descriptions[tag] = package_name
                 processed_packages.add(pkg)
 
-                                                       
     for dist in importlib.metadata.distributions():
         name = dist.metadata["Name"]
         if name in processed_packages or any(s in name.lower() for s in skip_packages):
@@ -264,16 +216,16 @@ def discover_agents(
         if any(keyword in name.lower() for keyword in _keywords):
             package_name = name.replace("-", "_")
             try:
-                                                                         
+
                 spec = importlib.util.find_spec(f"{package_name}.agent_server")
                 if spec:
-                                                               
+
                     with warnings.catch_warnings():
                         warnings.filterwarnings("ignore", category=DeprecationWarning)
                         module = importlib.import_module(f"{package_name}.agent_server")
 
                     if hasattr(module, "agent_template"):
-                                                                     
+
                         tag = name.replace("-agent", "").replace("-api", "").lower()
                         agent_descriptions[tag] = package_name
             except (ImportError, Exception):

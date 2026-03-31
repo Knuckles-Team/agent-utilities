@@ -11,7 +11,7 @@ from .base_utilities import retrieve_package_name, load_env_vars
 
 logger = logging.getLogger(__name__)
 
-                                         
+
 WORKSPACE_DIR: Optional[str] = None
 
 CORE_FILES = {
@@ -94,6 +94,7 @@ No specific user input is required unless you detect an issue.
 """,
 }
 
+
 def get_skills_path() -> Optional[str]:
     try:
         package_name = retrieve_package_name()
@@ -107,6 +108,7 @@ def get_skills_path() -> Optional[str]:
         logger.debug(f"Error accessing skills path: {e}")
         return None
 
+
 def get_mcp_config_path() -> Optional[str]:
     try:
         package_name = retrieve_package_name()
@@ -119,6 +121,7 @@ def get_mcp_config_path() -> Optional[str]:
     except Exception as e:
         logger.debug(f"Error accessing mcp_config path: {e}")
         return None
+
 
 def get_agent_workspace() -> Path:
     global WORKSPACE_DIR
@@ -159,6 +162,7 @@ def get_agent_workspace() -> Path:
                     pass
 
             import importlib.util
+
             spec = importlib.util.find_spec(pkg)
             if spec and spec.origin:
                 origin_path = Path(spec.origin).resolve()
@@ -206,10 +210,12 @@ def get_agent_workspace() -> Path:
 
     return Path(__file__).parent / "agent_data"
 
+
 def get_workspace_path(filename: str) -> Path:
     ws = get_agent_workspace()
     path = ws / filename
     return path
+
 
 def initialize_workspace(overwrite: bool = False):
     load_env_vars()
@@ -240,18 +246,22 @@ def initialize_workspace(overwrite: bool = False):
         WORKSPACE_DIR = str(discovered)
         logger.debug(f"Workspace cached: {WORKSPACE_DIR}")
 
+
 def load_workspace_file(filename: str, default: str = "") -> str:
     path = get_workspace_path(filename)
     if path.exists():
         return path.read_text(encoding="utf-8").strip()
     return default
 
+
 def load_all_core_files() -> Dict[str, str]:
     return {k: load_workspace_file(v) for k, v in CORE_FILES.items()}
+
 
 def write_workspace_file(filename: str, content: str):
     path = get_workspace_path(filename)
     path.write_text(content, encoding="utf-8")
+
 
 def list_workspace_files() -> List[str]:
     workspace = get_agent_workspace()
@@ -259,11 +269,13 @@ def list_workspace_files() -> List[str]:
         return []
     return [f.name for f in workspace.iterdir() if f.is_file()]
 
+
 def get_agent_icon_path() -> Optional[str]:
     icon_path = get_workspace_path(CORE_FILES["ICON"])
     if icon_path.exists():
         return str(icon_path)
     return None
+
 
 def read_md_file(filename: str) -> str:
     """Read any md file in workspace."""
@@ -272,6 +284,7 @@ def read_md_file(filename: str) -> str:
         return path.read_text(encoding="utf-8")
     return f"File not found or not markdown: {filename}"
 
+
 def write_md_file(filename: str, content: str):
     """Overwrite markdown file."""
     if not filename.lower().endswith(".md"):
@@ -279,6 +292,7 @@ def write_md_file(filename: str, content: str):
     path = get_workspace_path(filename)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
 
 def append_to_md_file(filename: str, text: str):
     """Append text to a markdown file."""
