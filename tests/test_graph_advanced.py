@@ -77,6 +77,7 @@ async def test_validator_node_llm_logic():
             self.base_url = None
             self.api_key = None
             self.enable_llm_validation = True
+            self.ssl_verify = True
             self.event_queue = None
 
 

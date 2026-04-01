@@ -5,8 +5,7 @@ import argparse
 from typing import Union, Any
 from pathlib import Path
 
-from .config import *
-from .workspace import *
+
 from .base_utilities import to_integer, to_boolean, GET_DEFAULT_SSL_VERIFY
 
 config = {

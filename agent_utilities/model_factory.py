@@ -14,8 +14,6 @@ if TYPE_CHECKING:
     pass
 
 
-
-
 try:
     from pydantic_ai.models.openai import OpenAIChatModel
 except ImportError:
@@ -69,16 +67,10 @@ except ImportError:
     GroqProvider = None
 
 
-from .config import *
-from .workspace import *
-
-
 from .models import PeriodicTask
 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
-
-
 
 
 logger = logging.getLogger(__name__)

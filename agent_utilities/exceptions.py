@@ -1,5 +1,4 @@
-from .config import *
-from .workspace import *
+#!/usr/bin/python
 
 
 class AuthError(Exception):

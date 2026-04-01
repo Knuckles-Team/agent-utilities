@@ -7,8 +7,8 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from llama_index.core.embeddings import BaseEmbedding
-from .config import *
-from .workspace import *
+
+
 from .base_utilities import to_boolean
 
 try:

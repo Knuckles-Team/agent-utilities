@@ -84,7 +84,8 @@ all = [
 include-package-data = true
 
 [tool.setuptools.package-data]
-agent_utilities = ["agent_data/**"]
+agent_utilities = ["agent_data/**", "prompts/*.md"]
+
 
 [tool.setuptools.packages.find]
 where = ["."]
