@@ -1,7 +1,4 @@
-from .config import *
-from .workspace import *
 import os
-import datetime
 from enum import Enum
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -95,3 +92,84 @@ class SprintContract(BaseModel):
     definition_of_done: List[str] = Field(default_factory=list)
     test_criteria: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IdentityModel(BaseModel):
+    name: str = "AI Agent"
+    role: str = ""
+    emoji: str = "🤖"
+    vibe: str = ""
+    system_prompt: str = ""
+
+
+class UserModel(BaseModel):
+    name: str = "User"
+    emoji: str = "👤"
+
+
+class A2APeerModel(BaseModel):
+    name: str
+    url: str
+    description: str = ""
+    capabilities: str = ""
+    auth: str = "none"
+    notes: str = ""
+
+
+class A2ARegistryModel(BaseModel):
+    peers: List[A2APeerModel] = Field(default_factory=list)
+
+
+class MemoryEntryModel(BaseModel):
+    timestamp: str
+    text: str
+
+
+class MemoryModel(BaseModel):
+    entries: List[MemoryEntryModel] = Field(default_factory=list)
+
+
+class CronTaskModel(BaseModel):
+    id: str
+    name: str
+    interval_minutes: int
+    prompt: str
+    last_run: str = "—"
+    next_approx: str = "—"
+
+
+class CronRegistryModel(BaseModel):
+    tasks: List[CronTaskModel] = Field(default_factory=list)
+
+
+class CronLogEntryModel(BaseModel):
+    timestamp: str
+    task_id: str
+    task_name: str = ""
+    status: str = "success"
+    message: str = ""
+    chat_id: Optional[str] = None
+
+
+class CronLogModel(BaseModel):
+    entries: List[CronLogEntryModel] = Field(default_factory=list)
+
+
+class MCPConfigModel(BaseModel):
+    mcpServers: Dict[str, Any] = Field(default_factory=dict)
+
+
+class UsageStatistics(BaseModel):
+    """Real-time token usage and cost tracking."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+
+
+class CostModel(BaseModel):
+    """Configuration for cost estimation."""
+
+    input_token_price: float = 0.00000015  # Default for Sonnet 3.5 ($0.15 / 1M)
+    output_token_price: float = 0.0000006  # Default for Sonnet 3.5 ($0.60 / 1M)

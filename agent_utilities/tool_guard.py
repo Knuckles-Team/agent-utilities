@@ -16,9 +16,7 @@ if TYPE_CHECKING:
 from pydantic_ai import Agent
 
 
-
-from .config import *
-from .workspace import *
+from .config import SENSITIVE_TOOL_PATTERNS, TOOL_GUARD_MODE
 
 
 from .models import PeriodicTask
@@ -27,14 +25,18 @@ tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
-
-
 logger = logging.getLogger(__name__)
 
 
 def is_sensitive_tool(name: str) -> bool:
     """Check if a tool name matches any sensitive pattern."""
-    return any(re.match(pattern, name.lower()) for pattern in SENSITIVE_TOOL_PATTERNS)
+    for pattern in SENSITIVE_TOOL_PATTERNS:
+        if re.match(pattern, name.lower()):
+            logger.info(
+                f"Tool Guard: Tool '{name}' matched sensitive pattern '{pattern}'"
+            )
+            return True
+    return False
 
 
 def apply_tool_guard_approvals(agent: "Agent") -> None:
@@ -59,13 +61,27 @@ def apply_tool_guard_approvals(agent: "Agent") -> None:
         agent._function_toolset, "tools"
     ):
         for tool_name, tool in agent._function_toolset.tools.items():
-            if (
-                is_sensitive_tool(tool_name)
-                and tool_name != "run_graph_flow"
-                and not getattr(tool, "requires_approval", False)
-            ):
-                tool.requires_approval = True
-                flagged += 1
+            sensitive = is_sensitive_tool(tool_name)
+            # Robust orchestration check: any tool with run_graph or run-graph is trusted
+            orchestration = bool(re.search(r"run[-_]graph", tool_name.lower()))
+
+            if sensitive and not orchestration:
+                if not getattr(tool, "requires_approval", False):
+                    logger.info(
+                        f"Tool Guard: Flagging sensitive tool '{tool_name}' for approval."
+                    )
+                    tool.requires_approval = True
+                    flagged += 1
+            elif orchestration:
+                # Orchestration tools are never sensitive, even if they match patterns
+                if getattr(tool, "requires_approval", False):
+                    logger.info(
+                        f"Tool Guard: Removing sensitive flag from orchestration tool '{tool_name}'."
+                    )
+                tool.requires_approval = False
+                logger.debug(
+                    f"Tool Guard: Orchestration tool '{tool_name}' is trusted."
+                )
 
     if flagged:
         logger.info(

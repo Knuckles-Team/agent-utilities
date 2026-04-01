@@ -4,7 +4,7 @@
 - **Language**: Python 3.10+
 - **Core Framework**: [Pydantic AI](https://ai.pydantic.dev)
 - **Tooling**: `requests`, `pydantic`, `pyyaml`, `python-dotenv`, `fastapi`, `llama_index` (lazy-loaded)
-- **Architecture**: Centered around the `create_agent` factory, which automates workspace initialization, skill discovery via `SkillsToolset`, and MCP server integration.
+- **Architecture**: Centered around the `create_agent` factory, which automates workspace initialization, skill discovery via `SkillsToolset`, and MCP server integration. Includes new `agent_factory.py` for CLI agent creation.
 - **Key Principles**:
     - Functional and modular utility design.
     - Lazy loading for heavy dependencies (FastAPI, LlamaIndex).
@@ -82,6 +82,7 @@ pip install -e .[all] # Install with all optional extras
 ## Project Structure Quick Reference
 - `agent_utilities/agent/` → Agent templates and `IDENTITY.md` definitions.
 - `agent_utilities/agent_utilities.py` → Main entry point for `create_agent` and `create_agent_server`.
+- `agent_utilities/agent_factory.py` → CLI factory for creating agents with argparse.
 - `agent_utilities/mcp_utilities.py` → Utilities for FastMCP and MCP tool registration.
 - `agent_utilities/base_utilities.py` → Generic helpers for file handling, type conversions, and CLI flags.
 - `agent_utilities/tools.py` → Core "OS" tools for agents (read/write, search, list files).
@@ -105,6 +106,8 @@ pip install -e .[all] # Install with all optional extras
 - `agent_utilities/tool_guard.py` → Universal tool guard implementation
 - `agent_utilities/workspace.py` → Workspace management utilities
 - `agent_utilities/a2a.py` → Agent-to-Agent communication utilities
+- `agent_utilities/prompts/` → Prompt templates
+- `agent_utilities/tools/` → Built-in agent tools
 - `agent_utilities/agent_data/` → Workspace data files (IDENTITY.md, MEMORY.md, etc.)
 
 ## File Tree
@@ -116,6 +119,7 @@ pip install -e .[all] # Install with all optional extras
 │   ├── __main__.py            # CLI entry point
 │   ├── a2a.py                 # Agent-to-Agent communication
 │   ├── agent_utilities.py     # Main entry point factory
+│   ├── agent_factory.py       # CLI agent factory
 │   ├── base_utilities.py      # Core shared helpers
 │   ├── chat_persistence.py    # Chat history persistence
 │   ├── config.py              # Configuration management
@@ -135,7 +139,9 @@ pip install -e .[all] # Install with all optional extras
 │   ├── tools.py               # Built-in agent tools
 │   ├── tool_filtering.py      # Tool filtering utilities
 │   ├── tool_guard.py          # Universal tool guard
-│   └── workspace.py           # Workspace management
+│   ├── workspace.py           # Workspace management
+│   ├── prompts/               # Prompt templates
+│   └── tools/                 # Built-in agent tools
 ├── tests/
 │   ├── test_graph_advanced.py
 │   ├── test_graph_orchestration.py
@@ -194,6 +200,7 @@ except ImportError:
 ## Dos and Don'ts
 **Do:**
 - Use `create_agent` for all new agent instances to ensure consistent workspace setup.
+- Use `create_agent_factory` for CLI agent creation with argparse.
 - Register tools with descriptive docstrings as they are parsed by the LLM.
 - Keep `base_utilities` free of heavy dependencies.
 - Utilize lazy imports for optional dependencies like FastAPI and LlamaIndex.
@@ -274,6 +281,7 @@ async def book_table(restaurant: str, ctx: Context) -> str:
 
 ## When Stuck
 - Refer to `agent_utilities.py` for the implementation details of `create_agent`.
+- Refer to `agent_factory.py` for CLI agent creation implementation.
 - Review `mcp_utilities.py` for how tools are being registered and exposed to MCP.
 - Review `graph_orchestration.py` for graph-based agent orchestration.
 - Ask for clarification if the multi-agent supervisor logic is unclear.
@@ -330,3 +338,13 @@ When adding new utility modules to the agent_utilities package:
 - Document any new dependencies in pyproject.toml
 - Consider if heavy dependencies should be lazy-loaded
 - Follow semantic versioning for dependencies when possible
+
+## Recent Changes
+- Added `agent_factory.py` for CLI agent creation with argparse
+- Updated `pyproject.toml` with new optional dependencies
+- Enhanced MCP server connection handling with loopback guards
+- Improved tool filtering and tag-based access control
+- Added OpenTelemetry tracing support
+- Enhanced workspace management with better path resolution
+- Updated agent creation to support dynamic system prompts from workspace
+- Improved error handling and logging throughout the codebase

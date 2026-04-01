@@ -15,22 +15,22 @@ if TYPE_CHECKING:
 from pathlib import Path
 
 
-
 from universal_skills.skill_utilities import (
     resolve_mcp_reference,
 )
 
 
-from .config import *
-from .workspace import *
+from .workspace import (
+    CORE_FILES,
+    load_workspace_file,
+    parse_identity,
+)
 
 
 from .models import PeriodicTask
 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
-
-
 
 
 logger = logging.getLogger(__name__)
@@ -137,38 +137,15 @@ def resolve_prompt(prompt_str: str) -> str:
 
 
 def extract_agent_metadata(content: str) -> Dict[str, str]:
-    """
-    Extracts basic agent metadata from IDENTITY.md or returns defaults.
-    """
-
-    data = {
-        "name": "Agent",
-        "description": "AI Agent",
-        "emoji": "🤖",
-        "vibe": "",
+    """Extracts basic agent metadata from IDENTITY.md or returns defaults."""
+    model = parse_identity(content)
+    return {
+        "name": model.name,
+        "description": model.role,
+        "emoji": model.emoji,
+        "vibe": model.vibe,
+        "content": model.system_prompt,
     }
-
-    system_prompt_match = re.search(
-        r"### System Prompt\n(.*?)(?=\n###|\n---|\Z)", content, re.DOTALL | re.MULTILINE
-    )
-    if system_prompt_match:
-        data["content"] = system_prompt_match.group(1).strip()
-    else:
-        data["content"] = content.strip()
-
-    metadata_patterns = {
-        "name": r"\* \*\*Name:\*\* (.*)",
-        "description": r"\* \*\*Role:\*\* (.*)",
-        "emoji": r"\* \*\*Emoji:\*\* (.*)",
-        "vibe": r"\* \*\*Vibe:\*\* (.*)",
-    }
-
-    for key, pattern in metadata_patterns.items():
-        match = re.search(pattern, content)
-        if match:
-            data[key] = match.group(1).strip()
-
-    return data
 
 
 def load_identity(tag: Optional[str] = None) -> Dict[str, str]:

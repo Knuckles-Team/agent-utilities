@@ -8,6 +8,18 @@ from datetime import datetime
 from importlib.resources import files, as_file
 
 from .base_utilities import retrieve_package_name, load_env_vars
+from .models import (
+    IdentityModel,
+    UserModel,
+    A2ARegistryModel,
+    A2APeerModel,
+    MemoryModel,
+    MemoryEntryModel,
+    CronRegistryModel,
+    CronTaskModel,
+    CronLogModel,
+    CronLogEntryModel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +29,7 @@ WORKSPACE_DIR: Optional[str] = None
 CORE_FILES = {
     "IDENTITY": "IDENTITY.md",
     "USER": "USER.md",
-    "AGENTS": "A2A_AGENTS.md",
+    "AGENTS": "AGENTS.md",
     "MEMORY": "MEMORY.md",
     "CRON": "CRON.md",
     "CRON_LOG": "CRON_LOG.md",
@@ -49,7 +61,7 @@ TEMPLATES = {
 * **Name:** User
 * **Emoji:** 👤
 """,
-    "AGENTS": """# A2A_AGENTS.md - Known A2A Peer Agents
+    "AGENTS": """# AGENTS.md - Known A2A Peer Agents
 
 This file is the local registry of other A2A agents this agent can discover and call.
 
@@ -388,3 +400,237 @@ def write_skill_md(name: str, content: str) -> str:
         return f"✅ Updated SKILL.md for skill '{safe_name}'."
     except Exception as e:
         return f"❌ Error writing SKILL.md for skill '{safe_name}': {e}"
+
+
+def parse_identity(content: str) -> IdentityModel:
+    """Parse IDENTITY.md into IdentityModel."""
+    model = IdentityModel()
+    name_match = re.search(r"\*\s+\*\*Name:\*\*\s*(.*)", content)
+    if name_match:
+        model.name = name_match.group(1).strip()
+    role_match = re.search(r"\*\s+\*\*Role:\*\*\s*(.*)", content)
+    if role_match:
+        model.role = role_match.group(1).strip()
+    emoji_match = re.search(r"\*\s+\*\*Emoji:\*\*\s*(.*)", content)
+    if emoji_match:
+        model.emoji = emoji_match.group(1).strip()
+    vibe_match = re.search(r"\*\s+\*\*Vibe:\*\*\s*(.*)", content)
+    if vibe_match:
+        model.vibe = vibe_match.group(1).strip()
+
+    prompt_split = re.split(r"### System Prompt", content, flags=re.IGNORECASE)
+    if len(prompt_split) > 1:
+        model.system_prompt = prompt_split[1].strip()
+    return model
+
+
+def serialize_identity(model: IdentityModel) -> str:
+    """Serialize IdentityModel back to IDENTITY.md format."""
+    return f"""# IDENTITY.md - Who I Am, Core Personality, & Boundaries
+
+## [default]
+ * **Name:** {model.name}
+ * **Role:** {model.role}
+ * **Emoji:** {model.emoji}
+ * **Vibe:** {model.vibe}
+
+ ### System Prompt
+ {model.system_prompt}
+"""
+
+
+def parse_user_info(content: str) -> UserModel:
+    """Parse USER.md into UserModel."""
+    model = UserModel()
+    name_match = re.search(r"\*\s+\*\*Name:\*\*\s*(.*)", content)
+    if name_match:
+        model.name = name_match.group(1).strip()
+    emoji_match = re.search(r"\*\s+\*\*Emoji:\*\*\s*(.*)", content)
+    if emoji_match:
+        model.emoji = emoji_match.group(1).strip()
+    return model
+
+
+def serialize_user_info(model: UserModel) -> str:
+    """Serialize UserModel back to USER.md format."""
+    return f"""# USER.md - About the Human
+
+* **Name:** {model.name}
+* **Emoji:** {model.emoji}
+"""
+
+
+def parse_a2a_registry(content: str) -> A2ARegistryModel:
+    """Parse A2A_AGENTS.md table into A2ARegistryModel."""
+    peers = []
+    lines = content.splitlines()
+    in_table = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("| Name") or stripped.startswith("| ID"):
+            in_table = True
+            continue
+        if (
+            in_table
+            and stripped.startswith("|")
+            and "|" in stripped
+            and not (
+                stripped.startswith("|---")
+                or stripped.startswith("| ID")
+                or stripped.startswith("| Name")
+            )
+        ):
+            parts = [p.strip() for p in stripped.strip("| ").split("|")]
+            if len(parts) >= 2:
+                peers.append(
+                    A2APeerModel(
+                        name=parts[0],
+                        url=parts[1],
+                        description=parts[2] if len(parts) > 2 else "",
+                        capabilities=parts[3] if len(parts) > 3 else "",
+                        auth=parts[4] if len(parts) > 4 else "none",
+                        notes=parts[5] if len(parts) > 5 else "",
+                    )
+                )
+    return A2ARegistryModel(peers=peers)
+
+
+def serialize_a2a_registry(model: A2ARegistryModel) -> str:
+    """Serialize A2ARegistryModel back to A2A_AGENTS.md format."""
+    lines = [
+        "# AGENTS.md - Known A2A Peer Agents",
+        "",
+        "This file is the local registry of other A2A agents this agent can discover and call.",
+        "",
+        "## Registered A2A Peers",
+        "",
+        "| Name | Endpoint URL | Description | Capabilities | Auth | Notes / Last Connected |",
+        "|------|--------------|-------------|--------------|------|------------------------|",
+    ]
+    for p in model.peers:
+        lines.append(
+            f"| {p.name} | {p.url} | {p.description or ''} | {p.capabilities or ''} | {p.auth or 'none'} | {p.notes or ''} |"
+        )
+    return "\n".join(lines).strip() + "\n"
+
+
+def parse_memory(content: str) -> MemoryModel:
+    """Parse MEMORY.md into MemoryModel."""
+    entries = []
+    lines = content.splitlines()
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("- [") or stripped.startswith("* ["):
+            match = re.match(r"[-*]\s+\[(.*?)\]\s*(.*)", stripped)
+            if match:
+                entries.append(
+                    MemoryEntryModel(timestamp=match.group(1), text=match.group(2))
+                )
+    return MemoryModel(entries=entries)
+
+
+def serialize_memory(model: MemoryModel) -> str:
+    """Serialize MemoryModel back to MEMORY.md format."""
+    lines = [
+        "# MEMORY.md - Long-term Memory",
+        "",
+        "This file stores important decisions, user preferences, and historical outcomes.",
+        "",
+        "## Log of Important Events",
+    ]
+    for e in model.entries:
+        lines.append(f"- [{e.timestamp}] {e.text}")
+    return "\n".join(lines).strip() + "\n"
+
+
+def parse_cron_registry(content: str) -> CronRegistryModel:
+    """Parse CRON.md table into CronRegistryModel."""
+    tasks = []
+    lines = content.splitlines()
+    in_table = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("| ID") or stripped.startswith("| ID |"):
+            in_table = True
+            continue
+        if in_table and stripped.startswith("|") and not stripped.startswith("|---"):
+            parts = [p.strip() for p in stripped.strip("| ").split("|")]
+            if len(parts) >= 4:
+                tasks.append(
+                    CronTaskModel(
+                        id=parts[0],
+                        name=parts[1],
+                        interval_minutes=int(parts[2]) if parts[2].isdigit() else 0,
+                        prompt=parts[3],
+                        last_run=parts[4] if len(parts) > 4 else "—",
+                        next_approx=parts[5] if len(parts) > 5 else "—",
+                    )
+                )
+    return CronRegistryModel(tasks=tasks)
+
+
+def serialize_cron_registry(model: CronRegistryModel) -> str:
+    """Serialize CronRegistryModel back to CRON.md format."""
+    lines = [
+        "# CRON.md - Persistent Scheduled Tasks",
+        "",
+        "## Active Tasks",
+        "",
+        "| ID | Name | Interval (min) | Prompt | Last run | Next approx |",
+        "|----|------|----------------|--------|----------|-------------|",
+    ]
+    for t in model.tasks:
+        lines.append(
+            f"| {t.id} | {t.name} | {t.interval_minutes} | {t.prompt} | {t.last_run} | {t.next_approx} |"
+        )
+    return "\n".join(lines).strip() + "\n"
+
+
+def parse_cron_log(content: str) -> CronLogModel:
+    """Parse CRON_LOG.md into CronLogModel."""
+    entries = []
+    import re
+
+    parts = re.split(r"(?=^### \[)", content, flags=re.MULTILINE)
+    for part in parts:
+        if not part.strip() or not part.startswith("### ["):
+            continue
+        header_match = re.search(
+            r"^### \[(.*?)\] (.*?) \(`(.*?)`\)(?: \| \[View Chat\]\((.*?)\))?", part
+        )
+        if header_match:
+            ts = header_match.group(1)
+            name = header_match.group(2)
+            tid = header_match.group(3)
+            cid = (
+                header_match.group(4).lstrip("/")
+                if header_match.lastindex >= 4 and header_match.group(4)
+                else None
+            )
+
+            body = part.split("\n\n", 1)[1] if "\n\n" in part else ""
+            msg = body.split("\n---")[0].strip()
+
+            entries.append(
+                CronLogEntryModel(
+                    timestamp=ts,
+                    task_id=tid,
+                    task_name=name,
+                    message=msg,
+                    chat_id=cid,
+                )
+            )
+    return CronLogModel(entries=entries)
+
+
+def serialize_cron_log(model: CronLogModel) -> str:
+    """Serialize CronLogModel back to CRON_LOG.md format."""
+    lines = ["# CRON_LOG.md - Scheduled Task History", ""]
+    for e in model.entries:
+        chat_info = f" | [View Chat](/{e.chat_id})" if e.chat_id else ""
+        lines.append(f"### [{e.timestamp}] {e.task_name} (`{e.task_id}`){chat_info}")
+        lines.append("")
+        lines.append(e.message)
+        lines.append("")
+        lines.append("---")
+    return "\n".join(lines).strip() + "\n"

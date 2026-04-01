@@ -17,9 +17,21 @@ if TYPE_CHECKING:
 from pydantic_ai import Agent
 
 
+from .config import (
+    DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+    HAS_LOGFIRE,
+)
 
-from .config import *
-from .workspace import *
+try:
+    import logfire
+except ImportError:
+    logfire = None
+
+
 from .base_utilities import (
     retrieve_package_name,
 )
@@ -29,8 +41,6 @@ from .models import PeriodicTask
 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
-
-
 
 
 logger = logging.getLogger(__name__)

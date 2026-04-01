@@ -7,28 +7,17 @@ import re
 import logging
 import asyncio
 import yaml
-
-
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from fasta2a import Skill
 from pathlib import Path
 
 
-
-
-
-from .config import *
-from .workspace import *
-
-
 from .models import PeriodicTask
 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
-
-
 
 
 logger = logging.getLogger(__name__)
@@ -103,7 +92,7 @@ def load_skills_from_directory(directory: str) -> List[Skill]:
     return skills
 
 
-def extract_tool_tags(skill_path: str) -> List[str]:
+def extract_skill_tags(skill_path: str) -> List[str]:
     """
     Extracts tags from the frontmatter of a skill's SKILL.md.
     """
@@ -134,7 +123,7 @@ def skill_in_tag(skill_path: str, tag: str) -> bool:
     """
     Checks if a skill belongs to a specific tag.
     """
-    tool_tags = extract_tool_tags(skill_path)
+    tool_tags = extract_skill_tags(skill_path)
     return tag in tool_tags
 
 

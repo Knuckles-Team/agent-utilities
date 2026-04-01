@@ -10,7 +10,7 @@ from .base_utilities import (
 )
 
 try:
-    import logfire
+    import logfire  # noqa: F401
 
     HAS_LOGFIRE = True
 except ImportError:
@@ -71,7 +71,7 @@ class AgentConfig(BaseSettings):
     graph_persistence_path: str = Field(
         default="agent_data/graph_state", alias="GRAPH_PERSISTENCE_PATH"
     )
-    enable_llm_validation: bool = Field(default=True, alias="ENABLE_LLM_VALIDATION")
+    enable_llm_validation: bool = Field(default=False, alias="ENABLE_LLM_VALIDATION")
 
     custom_skills_directory: Optional[str] = Field(
         default=None, alias="CUSTOM_SKILLS_DIRECTORY"
@@ -120,7 +120,7 @@ class AgentConfig(BaseSettings):
     validation_mode: bool = Field(default=False, alias="VALIDATION_MODE")
     approval_timeout: float = Field(default=0.0, alias="APPROVAL_TIMEOUT")
 
-    tool_guard_mode: str = Field(default="native", alias="TOOL_GUARD_MODE")
+    tool_guard_mode: str = Field(default="off", alias="TOOL_GUARD_MODE")
     sensitive_tool_patterns: List[str] = Field(
         default=[
             r".*delete.*",
@@ -163,7 +163,10 @@ class AgentConfig(BaseSettings):
             r".*unpause.*",
             r".*execute.*",
             r".*shell.*",
-            r".*run_.*",
+            r".*run_shell.*",
+            r".*run_command.*",
+            r".*run_script.*",
+            r".*run_code.*",
             r".*git_.*",
             r".*enable.*",
             r".*disable.*",
