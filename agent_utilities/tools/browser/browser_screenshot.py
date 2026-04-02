@@ -2,9 +2,13 @@ import os
 import tempfile
 from typing import Any, Dict, Optional
 from .browser_manager import get_browser_manager
+from pydantic_ai import RunContext
+from ...models import AgentDeps
 
 
-async def take_screenshot(path: Optional[str] = None) -> Dict[str, Any]:
+async def take_screenshot(
+    ctx: RunContext[AgentDeps], path: Optional[str] = None
+) -> Dict[str, Any]:
     """Capture a screenshot of the current browser page."""
     manager = get_browser_manager()
     page = await manager.get_current_page()
@@ -18,7 +22,7 @@ async def take_screenshot(path: Optional[str] = None) -> Dict[str, Any]:
 
 
 async def take_element_screenshot(
-    selector: str, path: Optional[str] = None
+    ctx: RunContext[AgentDeps], selector: str, path: Optional[str] = None
 ) -> Dict[str, Any]:
     """Capture a screenshot of a specific element."""
     manager = get_browser_manager()

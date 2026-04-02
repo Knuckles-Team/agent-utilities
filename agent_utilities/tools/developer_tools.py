@@ -3,9 +3,9 @@ import subprocess
 import logging
 import difflib
 import asyncio
-from typing import Any
 from pydantic import BaseModel
 from pydantic_ai import RunContext
+from ..models import AgentDeps
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,9 @@ def _get_diff(old_content: str, new_content: str, filename: str) -> str:
     )
 
 
-async def project_search(ctx: RunContext[Any], query: str, path: str = ".") -> str:
+async def project_search(
+    ctx: RunContext[AgentDeps], query: str, path: str = "."
+) -> str:
     """
     Optimized search using ripgrep or grep across the codebase.
     Returns matching lines with filenames and line numbers.
@@ -59,7 +61,7 @@ async def project_search(ctx: RunContext[Any], query: str, path: str = ".") -> s
 
 
 async def replace_in_file(
-    ctx: RunContext[Any], path: str, old_str: str, new_str: str
+    ctx: RunContext[AgentDeps], path: str, old_str: str, new_str: str
 ) -> str:
     """
     Robust replacement engine with unified diff output.
@@ -88,7 +90,7 @@ async def replace_in_file(
 
 
 async def run_shell_with_diagnostics(
-    ctx: RunContext[Any], command: str, cwd: str = ".", timeout: int = 120
+    ctx: RunContext[AgentDeps], command: str, cwd: str = ".", timeout: int = 120
 ) -> ShellCommandOutput:
     """
     Run a shell command with detailed diagnostics, exit codes, and timing.
@@ -135,7 +137,7 @@ async def run_shell_with_diagnostics(
 
 
 # Ported from code_puppy: create_file, delete_file, delete_snippet
-async def create_file(ctx: RunContext[Any], path: str, content: str) -> str:
+async def create_file(ctx: RunContext[AgentDeps], path: str, content: str) -> str:
     """Create a new file with the specified content."""
     abs_path = os.path.abspath(path)
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
@@ -147,7 +149,7 @@ async def create_file(ctx: RunContext[Any], path: str, content: str) -> str:
         return f"Error creating file: {e}"
 
 
-async def delete_file(ctx: RunContext[Any], path: str) -> str:
+async def delete_file(ctx: RunContext[AgentDeps], path: str) -> str:
     """Delete a file from the workspace."""
     abs_path = os.path.abspath(path)
     try:

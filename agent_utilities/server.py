@@ -210,6 +210,10 @@ def create_agent_server(
                 protocol=otel_protocol,
             )
 
+        identity_meta = load_identity()
+        _agent_description = identity_meta.get("description", DEFAULT_AGENT_DESCRIPTION)
+        _agent_emoji = identity_meta.get("emoji", "🤖")
+
         _agent_instance = agent_instance
         if _agent_instance is None:
             _agent_instance = create_agent(
@@ -356,23 +360,33 @@ def create_agent_server(
                     pass
 
         app = FastAPI(
-            title=f"{DEFAULT_AGENT_NAME} - A2A + AG-UI Server",
-            description=DEFAULT_AGENT_DESCRIPTION,
+            title=f"{_agent_emoji} {_name} - Agent Server",
+            description=_agent_description,
+            version=__version__,
             debug=debug,
             lifespan=lifespan,
+            openapi_tags=[
+                {"name": "Core", "description": "Essential agent lifecycle endpoints"},
+                {"name": "Agent UI", "description": "Standard AG-UI and streaming protocols"},
+                {"name": "Interoperability", "description": "A2A and external bridge endpoints"},
+            ]
         )
 
         app.state.reload_app = None
 
-        @app.get("/health")
+        @app.get("/health", tags=["Core"], summary="Health Check")
         async def health_check():
-            return {"status": "OK"}
+            """Returns the current status of the agent server."""
+            return {"status": "OK", "agent": _name, "version": __version__}
 
         app.mount("/a2a", a2a_app)
 
-        @app.post("/ag-ui")
+        @app.post("/ag-ui", tags=["Agent UI"], summary="AG-UI Streaming Endpoint")
         async def ag_ui_endpoint(request: Request) -> Response:
-            """AG-UI endpoint with sideband graph activity support and resumption."""
+            """
+            Primary endpoint for the Agent UI. Supports sideband graph activity 
+            annotations and session resumption.
+            """
             from pydantic_ai.ui.ag_ui import AGUIAdapter
             from fastapi.responses import StreamingResponse
             from uuid import uuid4
@@ -515,9 +529,11 @@ def create_agent_server(
                 },
             )
 
-        @app.post("/stream")
+        @app.post("/stream", tags=["Agent UI"], summary="SSE Stream Endpoint")
         async def stream_endpoint(request: Request) -> Response:
-            """Generic SSE stream endpoint for graph agents."""
+            """
+            Generic SSE stream endpoint for high-fidelity graph agent execution.
+            """
             from fastapi.responses import StreamingResponse
 
             data = await request.json()
@@ -544,10 +560,10 @@ def create_agent_server(
                     {"error": "No graph bundle provided for streaming"}, status_code=400
                 )
 
-        @app.post("/bridge")
+        @app.post("/bridge", tags=["Interoperability"], summary="IDE Bridge Endpoint")
         async def bridge_endpoint(request: Request) -> JSONResponse:
             """
-            IDE bridge endpoint. Handles plan approvals or mid-stream adjustments.
+            Handles asynchronous interactions between the agent and IDE/Human-in-the-loop.
             """
             data = await request.json()
             action = data.get("action")
@@ -576,7 +592,6 @@ def create_agent_server(
                     model_id or os.environ.get("MODEL_ID") or "nvidia/nemotron-3-super"
                 )
 
-                identity_meta = load_identity()
                 helpers = {
                     "agent_name": _name,
                     "agent_description": identity_meta.get(

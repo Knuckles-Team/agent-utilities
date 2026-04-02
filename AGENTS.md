@@ -47,18 +47,168 @@ graph TD
 
 ## Graph Orchestration Architecture
 ```mermaid
-graph TD
-    UserQuery([User Request]) --> RouterNode[RouterNode]
-    RouterNode -- "Classifies Request (Small LLM)" --> DomainChoice{Confidence > 0.6?}
-    DomainChoice -- "Yes -> Return DomainNode" --> DomainNode[DomainNode]
-    DomainChoice -- "No / Error" --> EndNode([End with Error])
+  graph TB
+  Start([User Query]) --> UsageGuard[Usage Guard: Rate Limiting]
+  UsageGuard -- "Allow" --> router_step[Router: Topology Selection]
+  UsageGuard -- "Block" --> End([End Result])
 
-    subgraph Execution Phase
-        DomainNode -- "Applies Env Vars (Context isolation)" --> CreateAgent[create_agent (gpt-4o)]
-        CreateAgent -- "Executes Request" --> ToolExecution[Target Domain Tools]
+  router_step --> planner_step[Planner: Global Strategy]
+  planner_step --> mem_step[Memory: Context Retrieval]
+  mem_step --> dispatcher[Dispatcher: Dynamic Routing]
+
+  subgraph "Discovery Phase"
+    direction TB
+    Researcher["<b>Researcher</b><br/>---<br/><i>u-skill:</i> web-search, web-crawler, web-fetch<br/><i>t-tool:</i> project_search, read_workspace_file"]
+    Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, product-management, product-strategy, user-research<br/><i>t-tool:</i> developer_tools"]
+    A2ADiscovery["<b>A2A Discovery</b><br/>---<br/><i>source:</i> AGENTS.md<br/><i>t-tool:</i> fetch_agent_card"]
+    res_joiner[Research Joiner: Barrier Sync]
+  end
+
+  dispatcher -- "Parallel Dispatch" --> Researcher
+  dispatcher -- "Parallel Dispatch" --> Architect
+  dispatcher -- "Parallel Dispatch" --> A2ADiscovery
+  Researcher --> res_joiner
+  Architect --> res_joiner
+  A2ADiscovery --> res_joiner
+  res_joiner -- "Coalesced Context" --> dispatcher
+
+  subgraph "Execution Phase"
+    direction TB
+    
+    subgraph "Programmers"
+      direction LR
+      PyP["<b>Python</b><br/>---<br/><i>u-skill:</i> agent-builder, tdd-methodology, mcp-builder, jupyter-notebook<br/><i>g-skill:</i> python-docs, fastapi-docs, pydantic-ai-docs<br/><i>t-tool:</i> developer_tools"]
+      TSP["<b>TypeScript</b><br/>---<br/><i>u-skill:</i> react-development, web-artifacts, tdd-methodology, canvas-design<br/><i>g-skill:</i> nodejs-docs, react-docs, nextjs-docs, shadcn-docs<br/><i>t-tool:</i> developer_tools"]
+      GoP["<b>Go</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> go-docs<br/><i>t-tool:</i> developer_tools"]
+      RustP["<b>Rust</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> rust-docs<br/><i>t-tool:</i> developer_tools"]
+      CP["<b>C/C++</b><br/>---<br/><i>t-tool:</i> developer_tools"]
+      JSP["<b>JavaScript</b><br/>---<br/><i>u-skill:</i> web-artifacts, canvas-design<br/><i>g-skill:</i> nodejs-docs, react-docs<br/><i>t-tool:</i> developer_tools"]
     end
 
-    ToolExecution --> EndResult([End with Domain Results])
+    subgraph "Infrastructure"
+      direction LR
+      DevOps["<b>DevOps</b><br/>---<br/><i>u-skill:</i> cloudflare-deploy<br/><i>g-skill:</i> docker-docs, terraform-docs<br/><i>t-tool:</i> developer_tools"]
+      Cloud["<b>Cloud</b><br/>---<br/><i>u-skill:</i> c4-architecture<br/><i>g-skill:</i> aws-docs, azure-docs, gcp-docs<br/><i>t-tool:</i> developer_tools"]
+      DBA["<b>Database</b><br/>---<br/><i>u-skill:</i> database-tools<br/><i>g-skill:</i> postgres-docs, mongodb-docs, redis-docs<br/><i>t-tool:</i> developer_tools"]
+    end
+
+    subgraph Specialized ["Specialized & Quality"]
+      direction LR
+      Sec["<b>Security</b><br/>---<br/><i>u-skill:</i> security-tools<br/><i>g-skill:</i> linux-docs<br/><i>t-tool:</i> developer_tools"]
+      QA["<b>QA</b><br/>---<br/><i>u-skill:</i> qa-planning, tdd-methodology<br/><i>g-skill:</i> testing-library-docs<br/><i>t-tool:</i> developer_tools"]
+      UIUX["<b>UI/UX</b><br/>---<br/><i>u-skill:</i> theme-factory, brand-guidelines, algorithmic-art<br/><i>g-skill:</i> shadcn-docs, tailwind-docs, framer-docs<br/><i>t-tool:</i> developer_tools"]
+      Debug["<b>Debugger</b><br/>---<br/><i>u-skill:</i> developer-utilities, agent-builder<br/><i>t-tool:</i> developer_tools"]
+    end
+
+    subgraph Ecosystem ["Agent Ecosystem"]
+      direction TB
+      
+      subgraph Infra_Management ["Infrastructure & DevOps"]
+        AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp<br/><i>run:</i> python -m adguard_home_agent.mcp_server"]
+        AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp<br/><i>run:</i> python -m ansible_tower_mcp.mcp_server"]
+        ContainerManager["<b>Container Manager Agent</b><br/>---<br/><i>mcp-tool:</i> container-mcp<br/><i>run:</i> python -m container_manager_mcp.mcp_server"]
+        Microsoft["<b>Microsoft Agent</b><br/>---<br/><i>mcp-tool:</i> microsoft-mcp<br/><i>run:</i> python -m microsoft_agent.mcp_server"]
+        Portainer["<b>Portainer Agent</b><br/>---<br/><i>mcp-tool:</i> portainer-mcp<br/><i>run:</i> python -m portainer_agent.mcp_server"]
+        SystemsManager["<b>Systems Manager</b><br/>---<br/><i>mcp-tool:</i> systems-mcp<br/><i>run:</i> python -m systems_manager.mcp_server"]
+        TunnelManager["<b>Tunnel Manager</b><br/>---<br/><i>mcp-tool:</i> tunnel-mcp<br/><i>run:</i> python -m tunnel_manager.mcp_server"]
+        UptimeKuma["<b>Uptime Kuma Agent</b><br/>---<br/><i>mcp-tool:</i> uptime-mcp<br/><i>run:</i> python -m uptime_kuma_agent.mcp_server"]
+        RepositoryManager["<b>Repository Manager</b><br/>---<br/><i>mcp-tool:</i> repository-mcp<br/><i>run:</i> python -m repository_manager.mcp_server"]
+      end
+
+      subgraph Media_HomeLab ["Media & Home Lab"]
+        ArchiveBox["<b>ArchiveBox API</b><br/>---<br/><i>mcp-tool:</i> archivebox-mcp<br/><i>run:</i> python -m archivebox_api.mcp_server"]
+        Arr["<b>Arr (Radarr/Sonarr)</b><br/>---<br/><i>mcp-tool:</i> arr-mcp<br/><i>run:</i> python -m arr_mcp.mcp_server"]
+        AudioTranscriber["<b>Audio Transcriber</b><br/>---<br/><i>mcp-tool:</i> audio-transcriber-mcp<br/><i>run:</i> python -m audio_transcriber.mcp_server"]
+        Jellyfin["<b>Jellyfin Agent</b><br/>---<br/><i>mcp-tool:</i> jellyfin-mcp<br/><i>run:</i> python -m jellyfin_mcp.mcp_server"]
+        MediaDownloader["<b>Media Downloader</b><br/>---<br/><i>mcp-tool:</i> media-mcp<br/><i>run:</i> python -m media_downloader.mcp_server"]
+        Owncast["<b>Owncast Agent</b><br/>---<br/><i>mcp-tool:</i> owncast-mcp<br/><i>run:</i> python -m owncast_agent.mcp_server"]
+        qBittorrent["<b>qBittorrent Agent</b><br/>---<br/><i>mcp-tool:</i> qbittorrent-mcp<br/><i>run:</i> python -m qbittorrent_agent.mcp_server"]
+      end
+
+      subgraph Productive_Dev ["Productivity & Development"]
+        Atlassian["<b>Atlassian Agent</b><br/>---<br/><i>mcp-tool:</i> atlassian-mcp<br/><i>run:</i> python -m atlassian_agent.mcp_server"]
+        Genius["<b>Genius Agent</b><br/>---<br/><i>mcp-tool:</i> genius-mcp<br/><i>run:</i> python -m genius_agent.mcp_server"]
+        GitHub["<b>GitHub Agent</b><br/>---<br/><i>mcp-tool:</i> github-mcp<br/><i>run:</i> python -m github_agent.mcp_server"]
+        GitLab["<b>GitLab API</b><br/>---<br/><i>mcp-tool:</i> gitlab-mcp<br/><i>run:</i> python -m gitlab_api.mcp_server"]
+        Langfuse["<b>Langfuse Agent</b><br/>---<br/><i>mcp-tool:</i> langfuse-mcp<br/><i>run:</i> python -m langfuse_agent.mcp_server"]
+        LeanIX["<b>LeanIX Agent</b><br/>---<br/><i>mcp-tool:</i> leanix-mcp<br/><i>run:</i> python -m leanix_agent.mcp_server"]
+        Plane["<b>Plane Agent</b><br/>---<br/><i>mcp-tool:</i> plane-mcp<br/><i>run:</i> python -m plane_agent.mcp_server"]
+        Postiz["<b>Postiz Agent</b><br/>---<br/><i>mcp-tool:</i> postiz-mcp<br/><i>run:</i> python -m postiz_agent.mcp_server"]
+        ServiceNow["<b>ServiceNow API</b><br/>---<br/><i>mcp-tool:</i> servicenow-mcp<br/><i>run:</i> python -m servicenow_api.mcp_server"]
+        StirlingPDF["<b>StirlingPDF Agent</b><br/>---<br/><i>mcp-tool:</i> stirlingpdf-mcp<br/><i>run:</i> python -m stirlingpdf_agent.mcp_server"]
+      end
+
+      subgraph Data_Lifestyle ["Data & Lifestyle"]
+        DocumentDB["<b>DocumentDB Agent</b><br/>---<br/><i>mcp-tool:</i> documentdb-mcp<br/><i>run:</i> python -m documentdb_mcp.mcp_server"]
+        HomeAssistant["<b>Home Assistant Agent</b><br/>---<br/><i>mcp-tool:</i> home-assistant-mcp<br/><i>run:</i> python -m home_assistant_agent.mcp_server"]
+        Mealie["<b>Mealie Agent</b><br/>---<br/><i>mcp-tool:</i> mealie-mcp<br/><i>run:</i> python -m mealie_mcp.mcp_server"]
+        Nextcloud["<b>Nextcloud Agent</b><br/>---<br/><i>mcp-tool:</i> nextcloud-mcp<br/><i>run:</i> python -m nextcloud_agent.mcp_server"]
+        Searxng["<b>Searxng Agent</b><br/>---<br/><i>mcp-tool:</i> searxng-mcp<br/><i>run:</i> python -m searxng_mcp.mcp_server"]
+        Vector["<b>Vector Agent</b><br/>---<br/><i>mcp-tool:</i> vector-mcp<br/><i>run:</i> python -m vector_mcp.mcp_server"]
+        Wger["<b>Wger Agent</b><br/>---<br/><i>mcp-tool:</i> wger-mcp<br/><i>run:</i> python -m wger_agent.mcp_server"]
+      end
+    end
+  end
+
+  dispatcher -- "Parallel Dispatch" --> Programmers
+  dispatcher -- "Parallel Dispatch" --> Infrastructure
+  dispatcher -- "Parallel Dispatch" --> Specialized
+  dispatcher -- "Parallel Dispatch" --> Ecosystem
+
+  Programmers --> exe_joiner[Execution Joiner: Barrier Sync]
+  Infrastructure --> exe_joiner
+  Specialized --> exe_joiner
+  Ecosystem --> exe_joiner
+
+  exe_joiner -- "Implementation Results" --> dispatcher
+  
+  dispatcher -- "Final Validation" --> verifier[Verifier: Quality Gate]
+  verifier -- "Success" --> End
+  verifier -- "Critical Fault" --> router_step
+  dispatcher -- "Terminal Failure" --> End
+
+  %% Styling
+  style Researcher fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+  style Architect fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+  style A2ADiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+  
+  style Programmers fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+  style PyP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+  style TSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+  style GoP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+  style RustP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+  style CP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+  style JSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+
+  style Infrastructure fill:#fad9b8,stroke:#d6b656,stroke-width:2px
+  style DevOps fill:#fad9b8,stroke:#d6b656,stroke-width:1px
+  style Cloud fill:#fad9b8,stroke:#d6b656,stroke-width:1px
+  style DBA fill:#fad9b8,stroke:#d6b656,stroke-width:1px
+
+  style Specialized fill:#e0d3f5,stroke:#82b366,stroke-width:2px
+  style Sec fill:#e0d3f5,stroke:#82b366,stroke-width:1px
+  style QA fill:#e0d3f5,stroke:#82b366,stroke-width:1px
+  style UIUX fill:#e0d3f5,stroke:#82b366,stroke-width:1px
+  style Debug fill:#e0d3f5,stroke:#82b366,stroke-width:1px
+
+  style Ecosystem fill:#f5f1d3,stroke:#d6b656,stroke-width:2px
+  style Infra_Management fill:#fef9e7,stroke:#d6b656,stroke-width:1px
+  style Media_HomeLab fill:#fef9e7,stroke:#d6b656,stroke-width:1px
+  style Productive_Dev fill:#fef9e7,stroke:#d6b656,stroke-width:1px
+  style Data_Lifestyle fill:#fef9e7,stroke:#d6b656,stroke-width:1px
+
+  style verifier fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+  style End fill:#f8cecc,stroke:#b85450,stroke-width:2px
+  style res_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
+  style exe_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
+  style dispatcher fill:#f5f5f5,stroke:#666,stroke-width:2px
+  style Start color:#000000,fill:#38B6FF
+	style subGraph0 color:#000000,fill:#f5ebd3
+	style subGraph5 color:#000000,fill:#f5f1d3
+	style dispatcher fill:#d5e8d4,stroke:#666,stroke-width:2px
+  style Ecosystem fill:#f5d0ef,stroke:#d6b656,stroke-width:2px
+  style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
+	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
 ```
 
 ## Commands (run these exactly)

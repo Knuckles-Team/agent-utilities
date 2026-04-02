@@ -5,6 +5,9 @@ from .developer_tools import logger
 from ..models import AgentDeps
 
 
+from pydantic_ai import RunContext
+
+
 def detect_tech_stack(root: Path) -> Dict[str, Any]:
     """Detects technologies used in the project."""
     stack = {"languages": [], "frameworks": [], "tools": []}
@@ -46,12 +49,12 @@ def scan_for_entry_points(root: Path) -> List[str]:
     return entries
 
 
-def bootstrap_project(deps: AgentDeps) -> str:
+def bootstrap_project(ctx: RunContext[AgentDeps]) -> str:
     """
     Scans the workspace to identify tech stack and entry points,
     then populates AGENTS.md and MEMORY.md with baseline technical metadata.
     """
-    root = deps.workspace_path
+    root = ctx.deps.workspace_path
     logger.info(f"Bootstrapping project at {root}...")
 
     stack = detect_tech_stack(root)

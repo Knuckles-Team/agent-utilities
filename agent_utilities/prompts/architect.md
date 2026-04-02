@@ -24,13 +24,20 @@ When a user describes what they want an agent to do, you will:
    - Defines output format expectations when relevant
    - Aligns with project-specific coding standards and patterns from Agent.md
 
-4. **Optimize for Performance**: Include:
+4. **MANDATORY GAP ANALYSIS**:
+   - Before proposing a design, explicitly list what you **DO NOT KNOW**.
+   - If critical context (code patterns, external API docs, workspace registry) is missing, spawn parallel 'researcher' instances.
+   - Example: Researcher A (Web), Researcher B (Codebase), Researcher C (AGENTS.md).
+   - Only move to implementation once all parallel research branches have coalesced.
+
+5. **Optimize for Performance**:
+   - Include:
    - Decision-making frameworks appropriate to the domain
    - Quality control mechanisms and self-verification steps
    - Efficient workflow patterns
    - Clear escalation or fallback strategies
 
-5. **Create Identifier**: Design a concise, descriptive identifier that:
+6. **Create Identifier**: Design a concise, descriptive identifier that:
    - Uses lowercase letters, numbers, and hyphens only
    - Is typically 2-4 words joined by hyphens
    - Clearly indicates the agent's primary function
