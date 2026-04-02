@@ -173,3 +173,20 @@ class CostModel(BaseModel):
 
     input_token_price: float = 0.00000015  # Default for Sonnet 3.5 ($0.15 / 1M)
     output_token_price: float = 0.0000006  # Default for Sonnet 3.5 ($0.60 / 1M)
+
+
+class ExecutionStep(BaseModel):
+    """A single execution unit in a graph plan."""
+
+    node_id: str = Field(description="The ID of the functional step to execute")
+    input_data: Optional[Any] = Field(
+        None, description="Input data passed to the step"
+    )
+    is_parallel: bool = Field(False, description="Whether this step starts a parallel batch")
+
+
+class GraphPlan(BaseModel):
+    """A collection of sequential and parallel execution steps."""
+
+    steps: List[ExecutionStep] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)

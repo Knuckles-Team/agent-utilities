@@ -7,9 +7,12 @@ import re
 import json
 import logging
 import asyncio
+import importlib
+import time
+import functools
 
 
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     pass
@@ -59,6 +62,8 @@ from .models import (
     SprintContract,
     UsageStatistics,
     MCPConfigModel,
+    ExecutionStep,
+    GraphPlan,
 )
 
 tasks: List[PeriodicTask] = []
@@ -172,18 +177,6 @@ class GraphDeps:
     approval_timeout: float = 0.0
 
 
-class HybridRouterNode:
-    """Compatibility shim for legacy class-based routing."""
-
-    pass
-
-
-class DomainNode:
-    """Compatibility shim for legacy class-based domain logic."""
-
-    pass
-
-
 @dataclass
 class GraphState:
     """Universal graph state for all agent graph orchestrations."""
@@ -252,6 +245,28 @@ class GraphState:
     user_redirect_feedback: Optional[str] = None
     """Feedback from a triage pause that redirects the graph to a different domain."""
 
+    # Dynamic Planning State
+    plan: GraphPlan = field(default_factory=GraphPlan)
+    """The fully determined execution plan for this run."""
+
+    step_cursor: int = 0
+    """Current index in the sequential plan steps."""
+
+    results_registry: dict[str, Any] = field(default_factory=dict)
+    """Aggregated results from each execution step."""
+
+    pending_parallel_count: int = 0
+    """Number of parallel tasks we are currently waiting for."""
+
+    current_node_retries: int = 0
+    """Number of local retries attempted on the current expert node."""
+
+    global_research_loops: int = 0
+    """Number of times the entire graph has looped back to research/re-planning."""
+
+    needs_replan: bool = False
+    """Flag to trigger a re-evaluation of the graph plan due to implementation failures."""
+
     def _update_usage(self, result_usage: Any):
         """Standardizes token usage incrementing across all steps."""
         if not result_usage:
@@ -316,6 +331,7 @@ class GraphState:
         return loaded
 
 
+# Domain classification models used by the router step
 class DomainChoice(BaseModel):
     """Structured output from the router LLM."""
 
@@ -325,22 +341,13 @@ class DomainChoice(BaseModel):
 
 
 class MultiDomainChoice(BaseModel):
-    """Model for multi-domain routing decisions."""
+    """Structured output for dynamic graph planning."""
 
-    domains: list[str]
-    """List of identified domain tags. Options: security, debugger, ui_ux, devops, cloud, database, python, typescript, rust, golang, mcp, workspace."""
-
-    reasoning: str
-    """Brief explanation of the routing decision."""
-
-    project_mode: bool = False
-    """True if this is a complex request requiring project-level planning."""
-
-    topology: Literal["basic", "pro"] = "basic"
-    """The chosen graph topology based on complexity."""
-
-    mode: Literal["ask", "plan", "execute"] = "ask"
-    """The chosen orchestration mode."""
+    plan: GraphPlan = Field(description="The sequential/parallel execution plan")
+    reasoning: str = Field(
+        description="Brief reasoning for the plan architecture"
+    )
+    is_resumed: bool = Field(False, description="Whether this is a resumed operation")
 
 
 class ValidationResult(BaseModel):
@@ -380,6 +387,163 @@ def load_specialized_prompts(name: str) -> str:
         return ""
 
 
+def get_step_descriptions() -> str:
+    """Returns a catalog of available expert nodes for the LLM planner."""
+    from .a2a import discover_agents
+    
+    # Discovery of local agent packages
+    discovered = discover_agents()
+    
+    steps = {
+        "researcher": "Multi-vector discovery expert. Trigger this when information is missing or assumptions need validation. Can be spawned in parallel for simultaneous Web, Code, and Workspace research.",
+        "architect": "System design expert. Analyzes requirements and defines high-level structures. Performs 'Gap Analysis' to identify missing context.",
+        "planner": "Task orchestration expert. Bridges the gap between architecture and execution. Assesses missing knowledge and spawns researchers to validate assumptions.",
+        "python_programmer": "Specialized Python engineer for implementation, refactoring, and standalone scripts.",
+        "typescript_programmer": "Frontend and Node.js expert specializing in TypeScript and React ecosystems.",
+        "javascript_programmer": "General-purpose JavaScript and web development specialist.",
+        "rust_expert": "Systems programming and memory safety expert.",
+        "golang_expert": "Cloud-native and high-performance backend expert.",
+        "security_auditor": "Expert in threat modeling, vulnerability scanning, and secure coding practices.",
+        "qa_expert": "Quality assurance lead. Designs test plans and implements automated test suites.",
+        "debugger_expert": "Interpreting error logs and fixing complex bugs.",
+        "ui_ux_designer": "Frontend design, CSS, and user interface expert.",
+        "devops_engineer": "CI/CD, Docker, and infrastructure expert.",
+        "cloud_architect": "Cloud services and architecture design expert.",
+        "database_expert": "SQL/NoSQL design and query optimization expert.",
+        "verifier": "Final quality gate. Validates that the implementation meets the original query requirements.",
+        "mcp_server": "General-purpose tool hub for any task not covered by specialized nodes.",
+    }
+    
+    # Merge discovered agents into the catalog
+    for tag, meta in discovered.items():
+        if tag not in steps:
+            agent_type = meta.get("type", "local")
+            if agent_type == "remote_a2a":
+                steps[tag] = f"Remote A2A Specialist '{meta['name']}': {meta['description']} (Capabilities: {meta.get('capabilities', 'N/A')})"
+            else:
+                steps[tag] = f"Specialized Domain Agent '{meta['name']}': {meta['description']}. This agent has its own internal graph and specialized toolsets."
+
+    return "\n".join([f"- {k}: {v}" for k, v in steps.items()])
+
+
+# Mapping of Graph Nodes to Universal Skills and Skill Graphs
+# This ensures each specialist has the highest-fidelity tools/docs for their domain.
+NODE_SKILL_MAP = {
+    "researcher": [
+        "web-search", "web-fetch", "web-crawler", "agent-browser", "systems-manager",
+        "browser-tools", "web-artifacts", "workspace-analyst"
+    ],
+    "python_programmer": [
+        "agent-builder", "tdd-methodology", "mcp-builder", "developer-utilities",
+        "jupyter-notebook", "python-docs", "pydantic-ai-docs", "fastapi-docs",
+        "agent-package-builder"
+    ],
+    "typescript_programmer": [
+        "react-development", "web-artifacts", "tdd-methodology", "canvas-design",
+        "nodejs-docs", "react-docs", "nextjs-docs", "shadcn-docs"
+    ],
+    "javascript_programmer": [
+        "web-artifacts", "canvas-design", "nodejs-docs", "react-docs"
+    ],
+    "rust_expert": ["rust-docs"],
+    "golang_expert": ["go-docs"],
+    "security_auditor": ["security-tools", "linux-docs"],
+    "debugger_expert": ["developer-utilities", "agent-builder"],
+    "qa_expert": ["qa-planning", "tdd-methodology", "testing-library-docs"],
+    "ui_ux_designer": [
+        "theme-factory", "canvas-design", "brand-guidelines", "algorithmic-art",
+        "shadcn-docs", "tailwind-docs", "framer-docs"
+    ],
+    "devops_engineer": ["cloudflare-deploy", "docker-docs", "terraform-docs"],
+    "cloud_architect": ["c4-architecture", "aws-docs", "azure-docs", "gcp-docs"],
+    "database_expert": ["database-tools", "postgres-docs", "mongodb-docs", "redis-docs"],
+    "architect": ["c4-architecture", "product-management", "product-strategy", "user-research"],
+    "planner": ["project-planning", "product-management", "brainstorming", "internal-comms"],
+    "verifier": ["qa-planning", "tdd-methodology"]
+}
+
+
+async def _get_domain_tools(node_id: str, deps: GraphDeps) -> list[Any]:
+    """Helper to dynamically fetch tools for a specialized domain expert."""
+    # Start with universal developer tools
+    from .tools.developer_tools import developer_tools
+    tools = list(developer_tools)
+    
+    # Add skills from the mapping
+    skills_to_load = NODE_SKILL_MAP.get(node_id, [])
+    logger.debug(f"Loading {len(skills_to_load)} specialized skills for {node_id}")
+    
+    return tools
+
+
+async def researcher_step(
+    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | str],
+) -> str:
+    """Unified discovery agent with Web, Codebase, and Workspace capability."""
+    logger.info("Researcher: Triangulating context...")
+    unified_context = await fetch_unified_context()
+    
+    # If the dispatcher sent a specific question, use it as the prompt
+    step_input = ctx.inputs
+    research_query = ctx.state.query
+    if isinstance(step_input, ExecutionStep) and step_input.input_data:
+        if isinstance(step_input.input_data, dict):
+            research_query = step_input.input_data.get("question", research_query)
+        elif isinstance(step_input.input_data, str):
+            research_query = step_input.input_data
+
+    planner_prompt = load_specialized_prompts("planner")
+    architect_prompt = load_specialized_prompts("architect")
+    researcher_prompt = load_specialized_prompts("researcher")
+
+    planner = Agent(
+        model=ctx.deps.agent_model,
+        system_prompt=(
+            f"{planner_prompt}\n\n"
+            f"Context: {unified_context}"
+        ),
+    )
+    architect = Agent(
+        model=ctx.deps.agent_model,
+        system_prompt=(
+            f"{architect_prompt}\n\n"
+            f"Context: {unified_context}"
+        ),
+    )
+
+    # researcher agent with ALL discovery tools
+    researcher = Agent(
+        model=ctx.deps.agent_model,
+        system_prompt=(
+            f"{researcher_prompt}\n\n"
+            f"Workspace Context: {unified_context}"
+        )
+    )
+    # Register all discovery toolsets
+    researcher.tool(project_search)
+    researcher.tool(list_files)
+    researcher.tool(get_git_status)
+    from .tools.workspace_tools import read_workspace_file
+    researcher.tool(read_workspace_file)
+    
+    # Bind optional MCP research toolsets (web search, etc.)
+    for toolset in ctx.deps.mcp_toolsets:
+        researcher.toolsets.append(toolset)
+
+    try:
+        res = await researcher.run(research_query)
+        ctx.state._update_usage(getattr(res, "usage", None))
+        
+        # Save to registry for other agents to consume
+        node_uid = f"researcher_{ctx.state.step_cursor}" 
+        ctx.state.results_registry[node_uid] = str(res.data)
+        
+        return "joiner"
+    except Exception as e:
+        logger.error(f"Researcher failed: {e}")
+        return "Error"
+
+
 async def fetch_unified_context() -> str:
     """Fetch AGENTS.md, MEMORY.md, and git status for unified context."""
     from .workspace import CORE_FILES
@@ -404,128 +568,288 @@ async def fetch_unified_context() -> str:
 
 async def router_step(
     ctx: StepContext[GraphState, GraphDeps, None],
-) -> MultiDomainChoice | str:
-    """Classifies the query into domains and determines project mode."""
+) -> GraphPlan | str:
+    """Determines the optimal execution plan for the query."""
     deps = ctx.deps
     import time
 
     emit_graph_event(
         deps.event_queue,
-        "routing_started",
+        "planning_started",
         query=ctx.state.query,
-        available_domains=list(deps.tag_prompts.keys()),
     )
 
-    query_normalized = ctx.state.query.strip().lower()
+    # Track re-planning loops to prevent infinite cycles
+    ctx.state.global_research_loops += 1
+    if ctx.state.global_research_loops > 3:
+        logger.error("Router: Max planning loops exceeded. Aborting.")
+        return "Error"
 
-    # Strategy Check
-    strategy = deps.routing_strategy.lower()
+    # Reset cursor for the new plan
+    ctx.state.step_cursor = 0
 
-    # Rule-based / Cache Check
-    if strategy != "llm":
-        if query_normalized in _routing_cache:
-            choice = _routing_cache[query_normalized]
-            emit_graph_event(
-                deps.event_queue,
-                "routing_completed",
-                domain=choice.domain,
-                confidence=choice.confidence,
-                reasoning="Cache hit",
-            )
-            return MultiDomainChoice(domains=[choice.domain], reasoning="Cache hit")
-
-        # Reuse rule-based logic from what was in RouterNode
-        matches = _rule_based_route_multi(query_normalized, deps.tag_prompts)
-        if matches:
-            emit_graph_event(
-                deps.event_queue,
-                "routing_completed",
-                domains=matches,
-                reasoning="Rule match",
-            )
-            return MultiDomainChoice(domains=matches, reasoning="Rule match")
-
-    # LLM Routing & Topology Selection
-    unified_context = await fetch_unified_context()
-    if ctx.state.user_redirect_feedback:
-        logger.info(
-            f"router_step: Using user redirect feedback: {ctx.state.user_redirect_feedback}"
-        )
-        # We can either let the LLM see the feedback and re-classify, or force a choice.
-        # For high-fidelity control, we'll inject it into the prompt.
-        unified_context += (
-            f"\n\n### USER REDIRECT FEEDBACK\n{ctx.state.user_redirect_feedback}\n"
-        )
-        # Clear the feedback after inject so it doesn't linger indefinitely
-        ctx.state.user_redirect_feedback = None
-
-    model = create_model(
-        provider=deps.provider,
-        model_id=(
-            deps.router_model.split(":")[-1]
-            if deps.router_model and ":" in deps.router_model
-            else deps.router_model
-        ),
-        base_url=deps.base_url,
-        api_key=deps.api_key,
-        ssl_verify=deps.ssl_verify,
-    )
+    failure_context = ""
+    if ctx.state.error:
+        failure_context = f"### PREVIOUS FAILURE CONTEXT\nThe last attempt failed with the following error:\n{ctx.state.error}\nUse this information to update your plan. You may need more research or a different approach."
 
     try:
+        router_prompt = load_specialized_prompts("router")
         router_agent = Agent(
-            model=model,
-            result_type=MultiDomainChoice,
+            model=deps.router_model,
+            result_type=GraphPlan,
             system_prompt=(
-                f"You are a domain classifier and task architect. Classify the user query into ONE or MORE "
-                f"of these domains: {', '.join(deps.tag_prompts.keys())}.\n\n"
-                f"SUPPORTED DOMAINS:\n"
-                f"- 'security': Security audits, vulnerability checks, secure coding.\n"
-                f"- 'debugger': High-fidelity bug hunting and error resolution.\n"
-                f"- 'ui_ux': Interface design, Tailwind CSS, accessibility.\n"
-                f"- 'devops': CI/CD, infrastructure-as-code, deployment.\n"
-                f"- 'cloud': Cloud architecture and service integration.\n"
-                f"- 'database': SQL/NoSQL schema design and query optimization.\n"
-                f"- 'python', 'typescript', 'rust', 'golang': Language experts.\n"
-                f"- 'workspace': File/Skill management.\n"
-                f"- 'mcp': General tool usage.\n\n"
-                f"{unified_context}\n\n"
-                f"DETERMINE TOPOLOGY:\n"
-                f"- Set topology='pro' if the task requires deep exploration, multi-stage planning, architectural design, or rigorous verification (Expert mode).\n"
-                f"- Set topology='basic' for direct queries, tool usage with clear steps, or information retrieval.\n\n"
-                f"Set project_mode=True if this is a large-scale project warranting sub-task decomposition."
+                f"{router_prompt}\n\n"
+                f"### FAILURE CONTEXT\n{failure_context}\n\n"
+                f"### AVAILABLE STEPS\n{step_info}\n\n"
+                f"### PROJECT CONTEXT\n{unified_context}"
             ),
         )
         result = await router_agent.run(ctx.state.query)
         ctx.state._update_usage(getattr(result, "usage", None))
-        return result.data
-    except Exception:
-
-        start_time = time.time()
-        result = await asyncio.wait_for(router_agent.run(ctx.state.query), timeout=45.0)
-        choice = result.data
-
-        # Update state from unified choice
-        ctx.state.topology = choice.topology
-        ctx.state.mode = choice.mode
-        ctx.state.routed_domain = ", ".join(choice.domains)
-        logger.info(
-            f"Router: Domains={choice.domains}, Topology={choice.topology}, Mode={choice.mode}"
-        )
-
+        
+        ctx.state.plan = result.data
+        ctx.state.step_cursor = 0
+        
         emit_graph_event(
             deps.event_queue,
-            "routing_completed",
-            domains=choice.domains,
-            topology=choice.topology,
-            mode=choice.mode,
-            reasoning=choice.reasoning,
+            "planning_completed",
+            plan=ctx.state.plan.model_dump(),
+            reasoning=ctx.state.plan.metadata.get("reasoning", "Optimal dynamic plan"),
         )
 
-        return choice
+        return "dispatcher"
     except Exception as e:
-        logger.error(f"Router classification failed: {e}")
-        ctx.state.error = f"Router failed: {e}"
+        logger.error(f"Router planning failed: {e}")
+        ctx.state.error = f"Planning failed: {e}"
         return "Error"
+
+
+async def dispatcher_step(
+    ctx: StepContext[GraphState, GraphDeps, Any],
+) -> str | list[ExecutionStep] | End[dict]:
+    """Manages the execution flow using sequential or parallel steps."""
+    if ctx.state.step_cursor >= len(ctx.state.plan.steps):
+        return End({"status": "completed", "results": ctx.state.results_registry})
+
+    # Sequential execution case (default for first step or non-parallel)
+    current_step = ctx.state.plan.steps[ctx.state.step_cursor]
+    
+    # Check if this is the start of a parallel batch
+    if not current_step.is_parallel:
+        ctx.state.step_cursor += 1
+        ctx.state.pending_parallel_count = 1
+        # Simple string nodes for sequential
+        return current_step.node_id
+
+    # Gather all subsequent steps marked for parallel execution
+    batch = []
+    while (
+        ctx.state.step_cursor < len(ctx.state.plan.steps) 
+        and ctx.state.plan.steps[ctx.state.step_cursor].is_parallel
+    ):
+        batch.append(ctx.state.plan.steps[ctx.state.step_cursor])
+        ctx.state.step_cursor += 1
+    
+    # Set the barrier count
+    ctx.state.pending_parallel_count = len(batch)
+    logger.info(f"Dispatcher: Dispatching parallel batch of {len(batch)} tasks...")
+
+    return batch
+
+
+async def expert_executor_step(
+    ctx: StepContext[GraphState, GraphDeps, ExecutionStep],
+) -> str:
+    """A generic wrapper for parallel batch execution with local retries."""
+    step = ctx.inputs
+    node_id = step.node_id
+    
+    # Reset local retries for this new expert node
+    ctx.state.current_node_retries = 0
+    max_retries = 2
+
+    while ctx.state.current_node_retries <= max_retries:
+        try:
+            logger.info(f"Expert Execution: Attempt {ctx.state.current_node_retries + 1}/{max_retries + 1} for node '{node_id}'")
+            
+            # Special Handling for Researcher
+            if node_id == "researcher":
+                await researcher_step(ctx)
+            
+            # Professional Expert Steps
+            elif node_id == "python_programmer":
+                await python_step(ctx)
+            elif node_id == "typescript_programmer" or node_id == "javascript_programmer":
+                await typescript_step(ctx)
+            elif node_id == "rust_expert":
+                await rust_step(ctx)
+            elif node_id == "golang_expert":
+                await golang_step(ctx)
+            elif node_id == "security_auditor":
+                await security_step(ctx)
+            elif node_id == "qa_expert":
+                await qa_step(ctx)
+            elif node_id == "debugger_expert" or node_id == "debugger_step":
+                await debugger_step(ctx)
+            elif node_id == "ui_ux_designer" or node_id == "ui_ux_step":
+                await ui_ux_step(ctx)
+            elif node_id == "devops_engineer" or node_id == "devops_step":
+                await devops_step(ctx)
+            elif node_id == "cloud_architect" or node_id == "cloud_step":
+                await cloud_step(ctx)
+            elif node_id == "database_expert" or node_id == "database_step":
+                await database_step(ctx)
+            
+            # Generic MCP Step
+            elif node_id == "mcp_server":
+                domain = ""
+                input_data = step.input_data
+                if isinstance(input_data, dict):
+                    domain = input_data.get("domain", "")
+                await _execute_domain_logic(ctx, domain)
+            
+            # Pipeline Steps
+            elif node_id == "explorer":
+                await explorer_step(ctx)
+            elif node_id == "architect":
+                await architect_step(ctx)
+            elif node_id == "planner":
+                await planner_step(ctx)
+            elif node_id == "verifier":
+                await verifier_step(ctx)
+
+            # Dynamic Discovery Execution
+            else:
+                from .a2a import discover_agents, A2AClient
+                discovered = discover_agents()
+                if node_id in discovered:
+                    meta = discovered[node_id]
+                    # This logic is now mostly handled by the native steps below,
+                    # but kept as fallback for legacy direct-calls if needed.
+                    await _execute_agent_package_logic(ctx, node_id, meta)
+
+            # Execution successful, clear error and break retry loop
+            ctx.state.error = None
+            break
+
+            # Execution successful, clear error and break retry loop
+            ctx.state.error = None
+            break
+
+        except Exception as e:
+            logger.error(f"Execution failed for node '{node_id}' (Attempt {ctx.state.current_node_retries + 1}): {e}")
+            ctx.state.error = f"Node {node_id} failed: {e}"
+            ctx.state.current_node_retries += 1
+            
+            if ctx.state.current_node_retries > max_retries:
+                logger.warning(f"Node '{node_id}' exhausted all retries. Escalating to re-planning.")
+                ctx.state.needs_replan = True
+                break
+            
+            # Short sleep before local retry
+            await asyncio.sleep(1)
+
+            # Return to appropriate joiner for synchronization
+            if node_id in ["researcher", "architect", "planner"]:
+                return "research_joiner"
+            return "execution_joiner"
+
+
+async def _execute_agent_package_logic(
+    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
+    node_id: str,
+    meta: dict,
+) -> str:
+    """Core logic to execute a specialized agent package (Local or A2A)."""
+    deps = ctx.deps
+    
+    if meta.get("type") == "remote_a2a":
+        # Remote A2A Execution
+        from .a2a import A2AClient
+        peer_url = meta["url"]
+        logger.info(f"Expert Execution: Calling remote A2A agent '{node_id}' at {peer_url}")
+        client = A2AClient(timeout=deps.approval_timeout or 300.0, ssl_verify=deps.ssl_verify)
+        
+        # Use the expert's specific question or the original query
+        sub_query = ctx.state.query
+        step_input = ctx.inputs
+        if isinstance(step_input, ExecutionStep) and step_input.input_data:
+            if isinstance(step_input.input_data, dict):
+                sub_query = step_input.input_data.get("question", sub_query)
+            elif isinstance(step_input.input_data, str):
+                sub_query = step_input.input_data
+                
+        res_content = await client.execute_task(peer_url, sub_query)
+        ctx.state.results_registry[f"{node_id}_{ctx.state.step_cursor}"] = str(res_content)
+    else:
+        # Local Agent Package Execution
+        pkg_name = meta["package"]
+        logger.info(f"Expert Execution: Dynamically loading sub-agent '{pkg_name}'")
+        # Load the agent template
+        module = importlib.import_module(f"{pkg_name}.agent_server")
+        
+        # Merge global toolsets with sub-agent context
+        sub_graph_bundle = module.agent_template(
+            provider=ctx.deps.provider,
+            agent_model=ctx.deps.agent_model,
+            base_url=ctx.deps.base_url,
+            api_key=ctx.deps.api_key,
+        )
+        # Handle the result which is usually a (Graph, config) tuple
+        if isinstance(sub_graph_bundle, tuple) and len(sub_graph_bundle) == 2:
+            sub_graph, sub_config = sub_graph_bundle
+            
+            # Use run_graph helper to preserve SSE events and observability
+            res = await run_graph(
+                graph=sub_graph,
+                config=sub_config,
+                query=ctx.state.query,
+                eq=deps.event_queue,
+            )
+            ctx.state.results_registry[f"{node_id}_{ctx.state.step_cursor}"] = str(res.get("results", ""))
+        else:
+            # Fallback for simple pydantic-ai Agent instances
+            res = await sub_graph_bundle.run(ctx.state.query)
+            ctx.state._update_usage(getattr(res, "usage", None))
+            ctx.state.results_registry[f"{node_id}_{ctx.state.step_cursor}"] = str(res.data)
+            
+    return "execution_joiner"
+
+
+async def agent_package_step(
+    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
+    node_id: str,
+) -> str:
+    """Functional step for a specific agent package."""
+    from .a2a import discover_agents
+    discovered = discover_agents()
+    if node_id not in discovered:
+        logger.error(f"Agent package node '{node_id}' not found in discovery.")
+        return "Error"
+        
+    meta = discovered[node_id]
+    return await _execute_agent_package_logic(ctx, node_id, meta)
+
+
+async def join_step(
+    ctx: StepContext[GraphState, GraphDeps, Any],
+) -> str | None:
+    """Synchronizes parallel executions by decrementing the pending count."""
+    async with lock:
+        ctx.state.pending_parallel_count -= 1
+        count = ctx.state.pending_parallel_count
+        logger.debug(f"Join: Remaining parallel tasks = {count}")
+        
+        if count <= 0:
+            logger.info("Join: All parallel tasks completed.")
+            if ctx.state.needs_replan:
+                logger.warning("Join: Re-planning required due to failures. Routing to router_step.")
+                ctx.state.needs_replan = False # Reset for the next plan
+                return "router_step"
+            return "dispatcher"
+    
+    # Still waiting for others
+    return None
 
 
 async def explorer_step(
@@ -630,14 +954,18 @@ async def verifier_step(
     Verification step. Rigorously validates implementation.
     """
     logger.info("Verifier: Validating implementation...")
-    verifier_prompt = load_specialized_prompts("verifier")
+    # Merged prompt for both validation and verification
+    validator_prompt = load_specialized_prompts("validator")
 
     from pydantic_ai import Agent
 
     verifier = Agent(
         model=ctx.deps.agent_model,
-        system_prompt=verifier_prompt
-        + f"\n\nArchitectural Intent:\n{ctx.state.architectural_decisions}",
+        system_prompt=(
+            f"{validator_prompt}\n\n"
+            f"### ARCHITECTURAL INTENT\n{ctx.state.architectural_decisions}\n\n"
+            f"### EXPLORATION FINDINGS\n{ctx.state.exploration_notes}"
+        ),
     )
 
     for toolset in ctx.deps.mcp_toolsets:
@@ -645,10 +973,12 @@ async def verifier_step(
 
     try:
         res = await verifier.run(f"Verify the solution for: {ctx.state.query}")
-        if "PASS" in str(res.data).upper():
-            return End({"status": "success", "summary": str(res.data)})
+        result_text = str(res.data) if hasattr(res, "data") else str(res)
+        
+        if "VERDICT: PASS" in result_text.upper() or "IS_VALID: TRUE" in result_text.upper():
+            return End({"status": "success", "summary": result_text})
 
-        ctx.state.verification_feedback = str(res.data)
+        ctx.state.verification_feedback = result_text
         return "Critique"
     except Exception as e:
         logger.error(f"Verification failed: {e}")
@@ -767,15 +1097,15 @@ async def validator_step(
     # 3. Standard LLM Validation (for complex write-heavy or reasoning tasks)
     if ctx.state.retry_count < 2:
         logger.info(f"validator_step: Performing LLM-based validation for '{domain}'")
+        validator_prompt = load_specialized_prompts("validator")
         validator_agent = Agent(
             model=deps.router_model,
             result_type=ValidationResult,
             system_prompt=(
-                f"You are a quality assurance expert. Evaluate the output of the '{domain}' agent.\n"
+                f"{validator_prompt}\n\n"
+                f"### CONTEXT\n"
                 f"Original Query: {ctx.state.query}\n"
                 f"Agent Result: {result_text}\n"
-                "Determine if the result accurately and comprehensively addresses the query.\n"
-                "If it looks correct, set is_valid=True. Otherwise provide feedback for improvement."
             ),
         )
         try:
@@ -792,95 +1122,105 @@ async def validator_step(
     return End({"status": "success", "results": ctx.state.results})
 
 
-async def python_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
+async def python_programmer_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
     """Specialized Python expert step."""
-    return await _execute_specialized_step(ctx, "python")
+    return await _execute_specialized_step(ctx, "python_programmer")
 
 
-async def golang_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
+async def golang_programmer_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
     """Specialized Golang expert step."""
-    return await _execute_specialized_step(ctx, "golang")
+    return await _execute_specialized_step(ctx, "golang_programmer")
 
 
-async def typescript_step(
+async def typescript_programmer_step(
     ctx: StepContext[GraphState, GraphDeps, None],
 ) -> str | End[Any]:
     """Specialized TypeScript expert step."""
-    return await _execute_specialized_step(ctx, "typescript")
+    return await _execute_specialized_step(ctx, "typescript_programmer")
 
 
-async def rust_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
+async def rust_programmer_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
     """Specialized Rust expert step."""
-    return await _execute_specialized_step(ctx, "rust")
+    return await _execute_specialized_step(ctx, "rust_programmer")
 
 
-async def security_step(
+async def security_auditor_step(
     ctx: StepContext[GraphState, GraphDeps, None],
 ) -> str | End[Any]:
     """Specialized Security expert step."""
-    return await _execute_specialized_step(ctx, "security")
+    return await _execute_specialized_step(ctx, "security_auditor")
 
 
-async def javascript_step(
+async def javascript_programmer_step(
     ctx: StepContext[GraphState, GraphDeps, None],
 ) -> str | End[Any]:
     """Specialized JavaScript expert step."""
-    return await _execute_specialized_step(ctx, "javascript")
+    return await _execute_specialized_step(ctx, "javascript_programmer")
 
 
-async def c_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
+async def c_programmer_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
     """Specialized C expert step."""
-    return await _execute_specialized_step(ctx, "c")
+    return await _execute_specialized_step(ctx, "c_programmer")
 
 
-async def cpp_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
+async def cpp_programmer_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
     """Specialized C++ expert step."""
-    return await _execute_specialized_step(ctx, "cpp")
+    return await _execute_specialized_step(ctx, "cpp_programmer")
 
 
-async def qa_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
+async def qa_expert_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
     """Specialized QA expert step."""
-    return await _execute_specialized_step(ctx, "qa")
+    return await _execute_specialized_step(ctx, "qa_expert")
 
 
-async def debugger_step(
+async def debugger_expert_step(
     ctx: StepContext[GraphState, GraphDeps, None],
 ) -> str | End[Any]:
     """Specialized Debugging expert step."""
-    return await _execute_specialized_step(ctx, "debugger")
+    return await _execute_specialized_step(ctx, "debugger_expert")
 
 
-async def ui_ux_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
+async def ui_ux_designer_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
     """Specialized UI/UX expert step."""
-    return await _execute_specialized_step(ctx, "ui_ux")
+    return await _execute_specialized_step(ctx, "ui_ux_designer")
 
 
-async def devops_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
+async def devops_engineer_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
     """Specialized DevOps expert step."""
-    return await _execute_specialized_step(ctx, "devops")
+    return await _execute_specialized_step(ctx, "devops_engineer")
 
 
-async def cloud_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
+async def cloud_architect_step(ctx: StepContext[GraphState, GraphDeps, None]) -> str | End[Any]:
     """Specialized Cloud expert step."""
-    return await _execute_specialized_step(ctx, "cloud")
+    return await _execute_specialized_step(ctx, "cloud_architect")
 
 
-async def database_step(
+async def database_expert_step(
     ctx: StepContext[GraphState, GraphDeps, None],
 ) -> str | End[Any]:
     """Specialized Database expert step."""
-    return await _execute_specialized_step(ctx, "database")
+    return await _execute_specialized_step(ctx, "database_expert")
 
 
 async def _execute_specialized_step(
     ctx: StepContext[GraphState, GraphDeps, None], prompt_name: str
 ) -> str | End[Any]:
-    """Shared logic for specialized steps using migrated prompts."""
+    """Shared logic for specialized steps using migrated prompts and skill injection."""
     prompt = load_specialized_prompts(prompt_name)
+    
+    # Dynamic Skill Distribution
+    custom_tools = await _get_domain_tools(prompt_name, ctx.deps)
+    
+    memory_instruction = load_specialized_prompts("memory_instruction")
+    
     agent = Agent(
         model=ctx.deps.agent_model,
-        system_prompt=prompt,
-        tools=developer_tools,
+        system_prompt=(
+            f"{memory_instruction}\n\n"
+            f"{prompt}\n\n"
+            f"### CONTEXT\n{ctx.state.exploration_notes}"
+        ),
+        tools=custom_tools,
     )
     for toolset in ctx.deps.mcp_toolsets:
         agent.toolsets.append(toolset)
@@ -889,6 +1229,11 @@ async def _execute_specialized_step(
         res = await agent.run(ctx.state.query)
         ctx.state._update_usage(getattr(res, "usage", None))
         ctx.state.results[prompt_name] = str(res.data)
+        
+        # In Dynamic Plan mode, we return to the joiner/dispatcher
+        if ctx.state.plan and ctx.state.plan.steps:
+            return "joiner"
+
         return End(
             {"status": "success", "domain": prompt_name, "result": str(res.data)}
         )
@@ -1002,26 +1347,110 @@ async def approval_gate_step(
     return ctx.inputs
 
 
-async def planner_step(
-    ctx: StepContext[GraphState, GraphDeps, MultiDomainChoice],
-) -> TaskList:
-    """Decomposes a request into a TaskList for project mode."""
-    logger.info("planner_step: Decomposing request...")
-    planner_prompt = ctx.deps.tag_prompts.get(
-        "project_planner",
-        "You are a Project Planner. Decompose the request into a phased TaskList. Phases: Research, Implementation, Validation.",
+async def memory_selection_step(
+    ctx: StepContext[GraphState, GraphDeps, Any],
+) -> str | End[Any]:
+    """Identifies relevant memories to load for the current query."""
+    logger.info("Memory Selection: Identifying relevant context...")
+    prompt_content = load_specialized_prompts("memory_selection")
+    
+    # Discovery of local memory files
+    root = ctx.state.project_root or os.getcwd()
+    memories = []
+    for p in Path(root).rglob("*.md"):
+        if ".gemini" in str(p) or "node_modules" in str(p):
+            continue
+        try:
+            content = p.read_text(encoding="utf-8", errors="ignore")
+            # Extract description from frontmatter if available
+            description = "General project memory"
+            if content.startswith("---"):
+                match = re.search(r"description:\s*(.*)", content)
+                if match:
+                    description = match.group(1).strip()
+            memories.append(f"- {p.name}: {description}")
+        except Exception:
+            pass
+            
+    from pydantic_ai import Agent
+    
+    # We use a simple list of memories as context
+    selectors = Agent(
+        model=ctx.deps.agent_model,
+        system_prompt=prompt_content,
+        result_type=dict # Simple selected filenames
     )
-    planner_agent = Agent(
+    
+    try:
+        res = await selectors.run(
+            f"Query: {ctx.state.query}\n\nAvailable memories:\n" + "\n".join(memories[:20])
+        )
+        selected = res.data.get("selected_memories", [])
+        logger.info(f"Memory Selection: Selected {len(selected)} relevant files: {selected}")
+        
+        # Load the selected content into the state for other agents to consume
+        loaded_context = []
+        for filename in selected:
+            for p in Path(root).rglob(filename):
+                 loaded_context.append(f"### {filename}\n{p.read_text(encoding='utf-8', errors='ignore')}")
+                 break
+        
+        ctx.state.exploration_notes += "\n\n### SELECTED MEMORIES\n" + "\n\n".join(loaded_context)
+        return ctx.inputs # Continue to original intended node
+    except Exception as e:
+        logger.error(f"Memory Selection failed: {e}")
+        return ctx.inputs
+
+async def planner_step(
+    ctx: StepContext[GraphState, GraphDeps, MultiDomainChoice | None],
+) -> TaskList | str | End[Any]:
+    """
+    Consolidated planning step. Handles both project-mode decomposition and 
+    simple sequential task list creation.
+    """
+    logger.info("Planner: Analyzing request and creating execution path...")
+    planner_prompt = load_specialized_prompts("planner")
+    memory_instruction = load_specialized_prompts("memory_instruction")
+    unified_context = await fetch_unified_context()
+
+    from pydantic_ai import Agent
+
+    planner = Agent(
         model=ctx.deps.agent_model,
         result_type=TaskList,
-        system_prompt=planner_prompt,
+        system_prompt=(
+            f"{memory_instruction}\n\n"
+            f"{planner_prompt}\n\n"
+            f"### CONTEXT\n{unified_context}\n\n"
+            f"### FINDINGS\n{ctx.state.exploration_notes}"
+        ),
     )
-    repo_info = f"Project root: {ctx.state.project_root}\n"
-    prompt = f"Goal: {ctx.state.query}\n\n{repo_info}"
-    result = await planner_agent.run(prompt)
-    ctx.state.task_list = result.data
-    ctx.state.sync_to_disk()
-    return ctx.state.task_list
+
+    # Integrated Worktree & Development Tools
+    planner.tool(get_git_status)
+    planner.tool(create_worktree)
+    planner.tool(list_worktrees)
+    planner.tool(project_search)
+
+    try:
+        # Determine goal based on input type or state
+        goal = ctx.state.query
+        if isinstance(ctx.inputs, MultiDomainChoice):
+            goal = f"Goal: {goal}\nReasoning: {ctx.inputs.reasoning}"
+
+        res = await planner.run(goal)
+        ctx.state.task_list = res.data
+        ctx.state.sync_to_disk()
+
+        # In 'Plan' mode, we might just end here
+        if ctx.state.mode == "plan":
+            return End({"status": "planned", "plan": ctx.state.task_list.model_dump()})
+
+        # Return the next node in the graph (usually ProjectExecutor or similar)
+        return "ProjectExecutor"
+    except Exception as e:
+        logger.error(f"Planning failed: {e}")
+        return "router_step" # Retry via re-planning
 
 
 async def project_executor_step(
@@ -1034,13 +1463,19 @@ async def project_executor_step(
     # Specialist Mapping
     specialist_map = {
         "python": "python_programmer",
-        "c": "c_reviewer",
-        "cpp": "cpp_reviewer",
-        "golang": "golang_reviewer",
-        "javascript": "javascript_reviewer",
-        "typescript": "typescript_reviewer",
+        "c": "c_programmer",
+        "cpp": "cpp_programmer",
+        "golang": "golang_programmer",
+        "javascript": "javascript_programmer",
+        "typescript": "typescript_programmer",
+        "rust": "rust_programmer",
         "security": "security_auditor",
         "qa": "qa_expert",
+        "debugger": "debugger_expert",
+        "ui_ux": "ui_ux_designer",
+        "devops": "devops_engineer",
+        "cloud": "cloud_architect",
+        "database": "database_expert",
     }
 
     prompt_name = None
@@ -1400,36 +1835,43 @@ def create_graph_agent(
     )
 
     # Register Steps
-    # We use decorators on the functions we defined earlier, or just refer to them.
-    # Since they are defined globally, we can use them directly with g.step()
-
     _router = g.step(router_step, node_id="router")
     _validator = g.step(validator_step, node_id="validator")
     _planner = g.step(planner_step, node_id="planner")
     _executor = g.step(project_executor_step, node_id="project_executor")
     _error = g.step(error_recovery_step, node_id="error_recovery")
 
-    _explorer = g.step(explorer_step, node_id="explorer")
+    # Dynamic Dispatcher Nodes
+    _dispatcher = g.step(dispatcher_step, node_id="dispatcher")
+    _expert_executor = g.step(expert_executor_step, node_id="expert_executor")
+    
+    # Dual Joiners for Phase Separation
+    _research_joiner = g.step(join_step, node_id="research_joiner")
+    _execution_joiner = g.step(join_step, node_id="execution_joiner")
+    _joiner = g.step(join_step, node_id="joiner") # Legacy fallback
+
     _coordinator = g.step(coordinator_step, node_id="coordinator")
     _architect = g.step(architect_step, node_id="architect")
     _verifier = g.step(verifier_step, node_id="verifier")
     _critique = g.step(critique_step, node_id="critique")
 
     # Native Developer Steps
-    _python = g.step(python_step, node_id="python_programmer")
-    _c = g.step(c_step, node_id="c_reviewer")
-    _cpp = g.step(cpp_step, node_id="cpp_reviewer")
-    _golang = g.step(golang_step, node_id="golang_reviewer")
-    _javascript = g.step(javascript_step, node_id="javascript_reviewer")
-    _typescript = g.step(typescript_step, node_id="typescript_reviewer")
-    _security = g.step(security_step, node_id="security_auditor")
-    _qa = g.step(qa_step, node_id="qa_expert")
-    _debugger = g.step(debugger_step, node_id="debugger_step")
-    _ui_ux = g.step(ui_ux_step, node_id="ui_ux_step")
-    _devops = g.step(devops_step, node_id="devops_step")
-    _cloud = g.step(cloud_step, node_id="cloud_step")
-    _database = g.step(database_step, node_id="database_step")
-    _rust = g.step(rust_step, node_id="rust_step")
+    _researcher = g.step(researcher_step, node_id="researcher")
+    _python = g.step(python_programmer_step, node_id="python_programmer")
+    _c = g.step(c_programmer_step, node_id="c_programmer")
+    _cpp = g.step(cpp_programmer_step, node_id="cpp_programmer")
+    _golang = g.step(golang_programmer_step, node_id="golang_programmer")
+    _javascript = g.step(javascript_programmer_step, node_id="javascript_programmer")
+    _typescript = g.step(typescript_programmer_step, node_id="typescript_programmer")
+    _security = g.step(security_auditor_step, node_id="security_auditor")
+    _qa = g.step(qa_expert_step, node_id="qa_expert")
+    _debugger = g.step(debugger_expert_step, node_id="debugger_expert")
+    _ui_ux = g.step(ui_ux_designer_step, node_id="ui_ux_designer")
+    _devops = g.step(devops_engineer_step, node_id="devops_engineer")
+    _cloud = g.step(cloud_architect_step, node_id="cloud_architect")
+    _database = g.step(database_expert_step, node_id="database_expert")
+    _rust = g.step(rust_programmer_step, node_id="rust_programmer")
+    _memory_selection = g.step(memory_selection_step, node_id="memory_selection")
 
     # # Dynamic MCP Steps
     _mcp_router = g.step(dynamic_mcp_routing_step, node_id="mcp_router")
@@ -1441,196 +1883,80 @@ def create_graph_agent(
     # Usage Guard
     _usage_guard = g.step(usage_guard_step, node_id="usage_guard")
 
+    # --- Dynamic Agent Package Registration ---
+    from .a2a import discover_agents
+    discovered_agents_map = discover_agents()
+    agent_nodes = {}
+    
+    for tag, meta in discovered_agents_map.items():
+        # Create a unique step for each agent using functools.partial
+        # node_id must be the tag so dispatcher can match it
+        step_func = functools.partial(agent_package_step, node_id=tag)
+        # Pydantic Graph uses the function name for default node IDs, 
+        # so we must explicitly set node_id.
+        agent_nodes[tag] = g.step(step_func, node_id=tag)
+        logger.debug(f"Registered native graph step for agent: {tag}")
+
     # Define Graph Topology
     g.add(
-        # Start -> UsageGuard -> Router
+        # Start -> UsageGuard -> Router -> Planner -> Dispatcher
         g.edge_from(g.start_node).to(_usage_guard),
         g.edge_from(_usage_guard).to(_router),
-        # Router Decision Branching
-        g.edge_from(_router).to(
-            g.decision()
-            # Path 1: Pro Mode (Dynamic Shift)
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: x.topology == "pro",
-                ).to(_explorer)
-            )
-            # Path 2: Mode-based Branching (Plan mode requires approval)
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: x.mode == "plan",
-                ).to(_approval)
-            )
-            # Path 3: Execute Mode (Resume tasks)
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: x.mode == "execute",
-                ).to(_planner)
-            )
-            # Path 4: Specialized Expert Nodes
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "security" in x.domains,
-                ).to(_security)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "debugger" in x.domains,
-                ).to(_debugger)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "ui_ux" in x.domains,
-                ).to(_ui_ux)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "devops" in x.domains,
-                ).to(_devops)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "cloud" in x.domains,
-                ).to(_cloud)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "database" in x.domains,
-                ).to(_database)
-            )
-            # Path 5: Language Experts
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "python" in x.domains,
-                ).to(_python)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "c" in x.domains,
-                ).to(_c)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "cpp" in x.domains,
-                ).to(_cpp)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "golang" in x.domains,
-                ).to(_golang)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "javascript" in x.domains,
-                ).to(_javascript)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "typescript" in x.domains,
-                ).to(_typescript)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "security" in x.domains,
-                ).to(_security)
-            )
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "qa" in x.domains,
-                ).to(_qa)
-            )
-            # Path 5: Dynamic MCP (if no specific domain matches or explicit mcp requested)
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice],
-                    matches=lambda x: "mcp" in x.domains or not x.domains,
-                ).to(_mcp_router)
-            )
-            # Fallback
-            .branch(g.match(TypeExpression[object]).to(_error))
+        g.edge_from(_router).to(_planner),
+        g.edge_from(_planner).to(_memory_selection),
+        g.edge_from(_memory_selection).to(_dispatcher),
+
+        # Dispatcher: The Main Dynamic Branching Logic
+        # Sequential Routes: routes by node_id (string) returned by dispatcher_step
+        g.edge_from(_dispatcher).to(
+            _python, _typescript, _rust, _golang, _security, 
+            _qa, _debugger, _ui_ux, _devops, _cloud, 
+            _database, _researcher, _architect, _planner, 
+            _verifier, _mcp_router, _error,
+            _c, _cpp, _javascript, _joiner,
+            *agent_nodes.values()
         ),
-        g.edge_from(_python).to(_validator),
-        g.edge_from(_golang).to(_validator),
-        g.edge_from(_typescript).to(_validator),
-        g.edge_from(_rust).to(_validator),
-        g.edge_from(_c).to(_validator),
-        g.edge_from(_cpp).to(_validator),
-        g.edge_from(_javascript).to(_validator),
-        g.edge_from(_qa).to(_validator),
-        g.edge_from(_security).to(_validator),
-        g.edge_from(_debugger).to(_validator),
-        g.edge_from(_ui_ux).to(_validator),
-        g.edge_from(_devops).to(_validator),
-        g.edge_from(_cloud).to(_validator),
-        g.edge_from(_database).to(_validator),
-        # MCP Parallel Flow
+        
+        # Type 2: Parallel Batch Execution
+        g.edge_from(_dispatcher).map().to(_expert_executor),
+
+        # Expert Nodes: Return to Joiner for synchronization
+        g.edge_from(_researcher).to(_research_joiner),
+        g.edge_from(_architect).to(_research_joiner),
+        g.edge_from(_planner).to(_research_joiner),
+
+        g.edge_from(_python).to(_execution_joiner),
+        g.edge_from(_golang).to(_execution_joiner),
+        g.edge_from(_typescript).to(_execution_joiner),
+        g.edge_from(_rust).to(_execution_joiner),
+        g.edge_from(_c).to(_execution_joiner),
+        g.edge_from(_cpp).to(_execution_joiner),
+        g.edge_from(_javascript).to(_execution_joiner),
+        g.edge_from(_qa).to(_execution_joiner),
+        g.edge_from(_security).to(_execution_joiner),
+        g.edge_from(_debugger).to(_execution_joiner),
+        g.edge_from(_ui_ux).to(_execution_joiner),
+        g.edge_from(_devops).to(_execution_joiner),
+        g.edge_from(_cloud).to(_execution_joiner),
+        g.edge_from(_database).to(_execution_joiner),
+        
+        # Add return edges for all discovered agent package nodes
+        *(g.edge_from(node).to(_execution_joiner) for node in agent_nodes.values()),
+
+        g.edge_from(_expert_executor).to(_execution_joiner),
+
+        # Special Handling for MCP Parallel Flow
         g.edge_from(_mcp_router).map().to(_mcp_server),
-        g.edge_from(_mcp_server).to(_validator),
-        # Approval Gate routing
-        g.edge_from(_approval).to(
-            g.decision()
-            .branch(g.match("router").to(_router))
-            .branch(
-                g.match(
-                    TypeExpression[MultiDomainChoice], matches=lambda x: x.project_mode
-                ).to(_planner)
-            )
-            .branch(g.match(TypeExpression[MultiDomainChoice]).to(_mcp_router))
-            .branch(g.match(TaskList).to(_planner))
-            .branch(g.match(TypeExpression[object]).to(_error))
-        ),
-        # Pro Mode Lifecycle
-        g.edge_from(_explorer).to(_coordinator),
-        g.edge_from(_coordinator).to(
-            g.decision()
-            .branch(g.match("Architect").to(_architect))
-            .branch(g.match("Planner").to(_planner))
-            .branch(g.match(TypeExpression[object]).to(_error))
-        ),
-        g.edge_from(_architect).to(_planner),
-        # Shared Execution & Verification
-        g.edge_from(_planner)
-        .transform(lambda ctx: ctx.state.task_list.all_tasks)
-        .map()
-        .to(_executor),
-        g.edge_from(_executor).to(
-            g.decision()
-            .branch(
-                g.match(Task, matches=lambda _: ctx.state.topology == "pro").to(
-                    _verifier
-                )
-            )
-            .branch(g.match(TypeExpression[object]).to(g.end_node))
-        ),
-        g.edge_from(_verifier).to(
-            g.decision()
-            .branch(g.match("Critique").to(_critique))
-            .branch(g.match(TypeExpression[dict]).to(g.end_node))
-            .branch(g.match(TypeExpression[object]).to(_error))
-        ),
-        g.edge_from(_critique).to(_planner),
-        # Basic Mode Fan-in
-        g.edge_from(_mcp_server).to(_validator),
-        g.edge_from(_validator).to(g.end_node),
-        # Error -> End
+        g.edge_from(_mcp_server).to(_execution_joiner),
+
+        # Joiners: Return control to Dispatcher
+        g.edge_from(_research_joiner).to(_dispatcher),
+        g.edge_from(_execution_joiner).to(_dispatcher),
+        g.edge_from(_joiner).to(_dispatcher),
+
+        # Error handling and Finalization
         g.edge_from(_error).to(g.end_node),
+        g.edge_from(_verifier).to(g.end_node),
     )
 
     # Add custom nodes if provided (legacy support via wrapping)

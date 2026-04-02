@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import asyncio
-
-
-from typing import List, TYPE_CHECKING
+import json
+import uuid
+import httpx
+from typing import List, Dict, Optional, Any, TYPE_CHECKING
 from datetime import datetime
 
 if TYPE_CHECKING:
@@ -16,12 +17,14 @@ if TYPE_CHECKING:
 from .config import *  # noqa: F403
 from .workspace import (
     CORE_FILES,
+    get_workspace_path,
+    load_workspace_file,
     parse_a2a_registry,
     serialize_a2a_registry,
 )
 
 
-from .models import PeriodicTask, A2ARegistryModel
+from .models import PeriodicTask, A2ARegistryModel, A2APeerModel
 
 tasks: List[PeriodicTask] = []
 lock = asyncio.Lock()
@@ -98,11 +101,115 @@ def delete_a2a_peer(name: str) -> str:
     return f"ℹ️ A2A peer '{name}' not found in registry."
 
 
+class A2AClient:
+    """
+    Client for Agent-to-Agent (A2A) communication following the JSON-RPC spec.
+    """
+
+    def __init__(self, timeout: float = 300.0, ssl_verify: bool = True):
+        self.timeout = timeout
+        self.ssl_verify = ssl_verify
+
+    def fetch_card_sync(self, url: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetches the well-known agent card from a remote agent (Synchronous version).
+        """
+        card_url = f"{url.rstrip('/')}/.well-known/agent-card.json"
+        with httpx.Client(timeout=5.0, verify=self.ssl_verify) as client:
+            try:
+                resp = client.get(card_url)
+                if resp.status_code == 200:
+                    return resp.json()
+            except Exception as e:
+                logger.debug(f"Failed (sync) to fetch agent card from {card_url}: {e}")
+        return None
+
+    async def fetch_card(self, url: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetches the well-known agent card from a remote agent.
+        """
+        card_url = f"{url.rstrip('/')}/.well-known/agent-card.json"
+        async with httpx.AsyncClient(timeout=10.0, verify=self.ssl_verify) as client:
+            try:
+                resp = await client.get(card_url)
+                if resp.status_code == 200:
+                    return resp.json()
+            except Exception as e:
+                logger.debug(f"Failed to fetch agent card from {card_url}: {e}")
+        return None
+
+    async def execute_task(self, url: str, query: str) -> Optional[Any]:
+        """
+        Executes a task on a remote agent via A2A protocol (message/send + polling).
+        """
+        async with httpx.AsyncClient(timeout=self.timeout, verify=self.ssl_verify) as client:
+            # 1. Send Message
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "message/send",
+                "params": {
+                    "message": {
+                        "kind": "message",
+                        "role": "user",
+                        "parts": [{"kind": "text", "text": query}],
+                        "messageId": str(uuid.uuid4()),
+                    }
+                },
+                "id": 1,
+            }
+            try:
+                resp = await client.post(url, json=payload)
+                if resp.status_code != 200:
+                    return f"Error: A2A peer returned status {resp.status_code}"
+                
+                res_data = resp.json()
+                if "error" in res_data:
+                    return f"A2A Error: {res_data['error']}"
+                
+                task_id = res_data.get("result", {}).get("id")
+                if not task_id:
+                    return "Error: No task ID returned from A2A peer."
+
+                # 2. Poll for Results
+                while True:
+                    await asyncio.sleep(2)
+                    poll_payload = {
+                        "jsonrpc": "2.0",
+                        "method": "tasks/get",
+                        "params": {"id": task_id},
+                        "id": 2,
+                    }
+                    poll_resp = await client.post(url, json=poll_payload)
+                    if poll_resp.status_code != 200:
+                        return f"Error: Polling failed with status {poll_resp.status_code}"
+                    
+                    poll_data = poll_resp.json()
+                    if "error" in poll_data:
+                        return f"A2A Polling Error: {poll_data['error']}"
+                    
+                    result = poll_data.get("result", {})
+                    state = result.get("status", {}).get("state")
+                    if state not in ["submitted", "running", "working"]:
+                        # Task completed: Extract content
+                        history = result.get("history", [])
+                        for msg in reversed(history):
+                            if msg.get("role") != "user":
+                                parts = msg.get("parts", [])
+                                content = ""
+                                for p in parts:
+                                    content += p.get("text", p.get("content", ""))
+                                return content
+                        return "Error: No result found in task history."
+            except Exception as e:
+                return f"A2A Communication Error: {e}"
+        return "Error: A2A execution timed out or failed."
+
+
 def discover_agents(
     include_packages: list[str] | None = None,
     exclude_packages: list[str] | None = None,
     keywords: list[str] | None = None,
-) -> dict[str, str]:
+) -> dict[str, dict[str, str]]:
     """Discovers available agent packages using installed package metadata.
 
     Args:
@@ -111,7 +218,7 @@ def discover_agents(
         keywords: Optional list of keywords to identify agent-like packages.
 
     Returns:
-        dict: {tag: package_name}
+        dict: {tag: {"package": package_name, "description": desc, "name": display_name}}
     """
     import importlib.metadata
     import importlib.util
@@ -152,23 +259,72 @@ def discover_agents(
         if any(keyword in name.lower() for keyword in _keywords):
             package_name = name.replace("-", "_")
             try:
-
                 spec = importlib.util.find_spec(f"{package_name}.agent_server")
                 if spec and spec.origin:
                     import ast
-
                     with open(spec.origin, "r", encoding="utf-8") as f:
                         tree = ast.parse(f.read())
-                        if any(
-                            isinstance(node, ast.FunctionDef)
-                            and node.name == "agent_template"
-                            for node in tree.body
-                        ):
 
-                            tag = name.replace("-agent", "").replace("-api", "").lower()
-                            agent_descriptions[tag] = package_name
+                    # Check for agent_template function
+                    has_template = any(
+                        isinstance(node, ast.FunctionDef) and node.name == "agent_template"
+                        for node in tree.body
+                    )
+                    if not has_template:
+                        continue
+
+                    # Extract metadata via AST to avoid side-effects
+                    display_name = name.title().replace("-", " ")
+                    description = f"Specialized agent for {display_name} operations."
+
+                    for node in tree.body:
+                        if isinstance(node, ast.Assign):
+                            for target in node.targets:
+                                if isinstance(target, ast.Name):
+                                    if target.id == "DEFAULT_AGENT_NAME":
+                                        if isinstance(node.value, ast.Constant):
+                                            display_name = node.value.value
+                                    elif target.id in ["DEFAULT_AGENT_DESCRIPTION", "AGENT_DESCRIPTION"]:
+                                        if isinstance(node.value, ast.Constant):
+                                            description = node.value.value
+
+                    tag = name.replace("-agent", "").replace("-api", "").lower()
+                    agent_descriptions[tag] = {
+                        "package": package_name,
+                        "name": display_name,
+                        "description": description,
+                    }
             except Exception as e:
                 logger.debug(f"Discovery skipped for {package_name}: {e}")
                 pass
+
+    # Remote Discovery from AGENTS.md (A2A_AGENTS.md)
+    # We fetch these fresh every time as per user feedback
+    registry = load_a2a_peers()
+    if registry.peers:
+        client = A2AClient()
+        for peer in registry.peers:
+            tag = peer.name.lower().replace(" ", "_")
+            if tag in skip_packages or tag in agent_descriptions:
+                continue
+
+            # Attempt to fetch agent card for rich metadata
+            card = client.fetch_card_sync(peer.url)
+            if card:
+                description = card.get("description", peer.description)
+                display_name = card.get("name", peer.name)
+                capabilities = card.get("capabilities", peer.capabilities)
+            else:
+                description = peer.description
+                display_name = peer.name
+                capabilities = peer.capabilities
+
+            agent_descriptions[tag] = {
+                "url": peer.url,
+                "name": display_name,
+                "description": description,
+                "capabilities": capabilities,
+                "type": "remote_a2a"
+            }
 
     return agent_descriptions

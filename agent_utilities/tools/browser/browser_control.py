@@ -28,14 +28,14 @@ async def initialize_browser(
     }
 
 
-async def close_browser() -> Dict[str, Any]:
+async def close_browser(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
     """Close the browser and clean up resources."""
     manager = get_browser_manager()
     await manager.close()
     return {"success": True, "message": "Browser closed"}
 
 
-async def browser_status() -> Dict[str, Any]:
+async def browser_status(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
     """Get current browser status and information."""
     manager = get_browser_manager()
     page = await manager.get_current_page()
@@ -46,7 +46,9 @@ async def browser_status() -> Dict[str, Any]:
     }
 
 
-async def browser_new_page(url: Optional[str] = None) -> Dict[str, Any]:
+async def browser_new_page(
+    ctx: RunContext[AgentDeps], url: Optional[str] = None
+) -> Dict[str, Any]:
     """Create a new browser page/tab."""
     manager = get_browser_manager()
     page = await manager.new_page(url)

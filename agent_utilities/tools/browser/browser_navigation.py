@@ -1,8 +1,10 @@
 from typing import Any, Dict
 from .browser_manager import get_browser_manager
+from pydantic_ai import RunContext
+from ...models import AgentDeps
 
 
-async def navigate_to_url(url: str) -> Dict[str, Any]:
+async def navigate_to_url(ctx: RunContext[AgentDeps], url: str) -> Dict[str, Any]:
     """Navigate current browser page to a new URL."""
     manager = get_browser_manager()
     page = await manager.get_current_page()
@@ -10,7 +12,7 @@ async def navigate_to_url(url: str) -> Dict[str, Any]:
     return {"success": True, "url": page.url, "title": await page.title()}
 
 
-async def browser_go_back() -> Dict[str, Any]:
+async def browser_go_back(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
     """Go back to the previous page in history."""
     manager = get_browser_manager()
     page = await manager.get_current_page()
@@ -18,7 +20,7 @@ async def browser_go_back() -> Dict[str, Any]:
     return {"success": True, "url": page.url}
 
 
-async def browser_go_forward() -> Dict[str, Any]:
+async def browser_go_forward(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
     """Go forward in navigation history."""
     manager = get_browser_manager()
     page = await manager.get_current_page()
@@ -26,7 +28,7 @@ async def browser_go_forward() -> Dict[str, Any]:
     return {"success": True, "url": page.url}
 
 
-async def reload_page() -> Dict[str, Any]:
+async def reload_page(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
     """Reload the current browser page."""
     manager = get_browser_manager()
     page = await manager.get_current_page()
