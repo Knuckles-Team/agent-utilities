@@ -2,20 +2,21 @@
 
 ## Tech Stack & Architecture
 - **Language**: Python 3.10+
-- **Core Framework**: [Pydantic AI](https://ai.pydantic.dev)
-- **Tooling**: `requests`, `pydantic`, `pyyaml`, `python-dotenv`, `fastapi`, `llama_index` (lazy-loaded)
-- **Architecture**: Centered around the `create_agent` factory, which automates workspace initialization, skill discovery via `SkillsToolset`, and MCP server integration. Includes new `agent_factory.py` for CLI agent creation.
+- **Core Framework**: [Pydantic AI](https://ai.pydantic.dev) & [Pydantic Graph](https://ai.pydantic.dev/pydantic-graph/)
+- **Tooling**: `requests`, `pydantic`, `pyyaml`, `python-dotenv`, `fastapi`, `llama_index`
+- **Architecture**: Centered around the `create_agent` factory, which has been modernized to support a **Unified Skill Loading** model (`skill_types`) and automated **Graph Orchestration**.
+- **Specialist Discovery**: Automated discovery of domain specialist agents from `MCP_AGENTS.md` (local) and `A2A_AGENTS.md` (remote) registries, enabling dynamic graph expansion without hardcoded nodes.
 - **Key Principles**:
     - Functional and modular utility design.
-    - Lazy loading for heavy dependencies (FastAPI, LlamaIndex).
     - Standardized workspace management (`IDENTITY.md`, `MEMORY.md`).
     - **Elicitation First**: Robust support for structured user input during tool calls, bridging MCP and Web UIs.
 
 ## Package Relationships
-`agent-utilities` is the core Python engine. It provides the backend server (`ag_ui_endpoint`) that serves the `agent-webui` assets (if enabled).
+`agent-utilities` is the core Python engine. It provides the backend server (`ag_ui_endpoint`) that serves both the `agent-webui` assets and the `agent-terminal-ui` client.
 - **Backend (`agent-utilities`)**: Handles LLM orchestration, tool execution, and the SSE streaming protocol.
-- **Frontend (`agent-webui`)**: A React application that provides the chat interface and specialized UI components for elicitation.
-- **Communication**: Frontend talks to Backend via SSE for output and standard REST (POST) for input and elicitation responses.
+- **Web Frontend (`agent-webui`)**: A React application that provides a cinematic chat interface and specialized UI components.
+- **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction.
+- **Communication**: Frontends talk to Backend via SSE for output and standard REST (POST) for input and elicitation responses.
 
 ## Core Architecture Diagram
 ```mermaid
@@ -43,6 +44,9 @@ graph TD
     WebUI -- 6. POST /api/elicit --> Backend
     Backend -- 7. Resolve --> EQ
     EQ -- 8. Result --> MCPServer
+
+    Backend -- 10. User UI --> TerminalUI[agent-terminal-ui]
+    TerminalUI -- 11. POST /api/elicit --> Backend
 ```
 
 ## Graph Orchestration Architecture
@@ -74,7 +78,7 @@ graph TD
 
   subgraph "Execution Phase"
     direction TB
-    
+
     subgraph "Programmers"
       direction LR
       PyP["<b>Python</b><br/>---<br/><i>u-skill:</i> agent-builder, tdd-methodology, mcp-builder, jupyter-notebook<br/><i>g-skill:</i> python-docs, fastapi-docs, pydantic-ai-docs<br/><i>t-tool:</i> developer_tools"]
@@ -102,7 +106,7 @@ graph TD
 
     subgraph Ecosystem ["Agent Ecosystem"]
       direction TB
-      
+
       subgraph Infra_Management ["Infrastructure & DevOps"]
         AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp<br/><i>run:</i> python -m adguard_home_agent.mcp_server"]
         AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp<br/><i>run:</i> python -m ansible_tower_mcp.mcp_server"]
@@ -161,7 +165,7 @@ graph TD
   Ecosystem --> exe_joiner
 
   exe_joiner -- "Implementation Results" --> dispatcher
-  
+
   dispatcher -- "Final Validation" --> verifier[Verifier: Quality Gate]
   verifier -- "Success" --> End
   verifier -- "Critical Fault" --> router_step
@@ -171,7 +175,7 @@ graph TD
   style Researcher fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
   style Architect fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
   style A2ADiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-  
+
   style Programmers fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
   style PyP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
   style TSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px

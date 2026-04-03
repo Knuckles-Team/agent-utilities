@@ -63,6 +63,7 @@ def agent_server():
         host=args.host,
         port=args.port,
         enable_web_ui=args.web,
+        enable_terminal_ui=args.terminal,
         ssl_verify=not args.insecure,
         name=agent_name,
         system_prompt=system_prompt,

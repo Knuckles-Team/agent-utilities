@@ -45,9 +45,12 @@ from .config import (
     DEFAULT_A2A_BROKER_URL,
     DEFAULT_A2A_STORAGE,
     DEFAULT_A2A_STORAGE_URL,
-    DEFAULT_LOAD_UNIVERSAL_SKILLS,
-    DEFAULT_LOAD_SKILL_GRAPHS,
     DEFAULT_APPROVAL_TIMEOUT,
+    DEFAULT_MCP_CONFIG,
+    DEFAULT_MIN_CONFIDENCE,
+    DEFAULT_GRAPH_PERSISTENCE_TYPE,
+    DEFAULT_GRAPH_PERSISTENCE_PATH,
+    DEFAULT_ENABLE_TERMINAL_UI,
 )
 from .workspace import (
     initialize_workspace,
@@ -64,7 +67,10 @@ from .base_utilities import (
     to_boolean,
     __version__,
 )
-from .graph_orchestration import create_graph_agent, get_graph_mermaid
+from .graph_orchestration import (
+    create_graph_agent,
+    get_graph_mermaid,
+)
 from .custom_observability import setup_otel
 from .tool_filtering import (
     load_skills_from_directory,
@@ -88,12 +94,6 @@ import warnings
 warnings.filterwarnings("ignore", message=".*")
 
 logger = logging.getLogger(__name__)
-
-
-def agent_template():
-    """Satisfy repository-manager static validation."""
-    print("Agent template accessed", file=sys.stderr)
-    return None
 
 
 def get_http_client(
@@ -153,14 +153,15 @@ def create_agent_server(
     a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
     a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
-    load_universal_skills: bool = DEFAULT_LOAD_UNIVERSAL_SKILLS,
-    load_skill_graphs: bool = DEFAULT_LOAD_SKILL_GRAPHS,
+    skill_types: Optional[List[str]] = None,
     agent_instance: Optional[Agent] = None,
     graph_bundle: Optional[tuple] = None,
     persistence_type: str = "file",
     persistence_path: Optional[str] = None,
     persistence_dsn: Optional[str] = None,
     persistence_url: Optional[str] = None,
+    enable_terminal_ui: bool = False,
+    isolate_mcp: bool = False,
 ):
     """
     Create and run an agent server with FastAPI and FastMCP.
@@ -215,8 +216,9 @@ def create_agent_server(
         _agent_emoji = identity_meta.get("emoji", "🤖")
 
         _agent_instance = agent_instance
+        _initialized_mcp_toolsets = []
         if _agent_instance is None:
-            _agent_instance = create_agent(
+            _agent_instance, _initialized_mcp_toolsets = create_agent(
                 provider=provider,
                 model_id=model_id,
                 base_url=base_url,
@@ -228,11 +230,10 @@ def create_agent_server(
                 name=_name,
                 system_prompt=system_prompt,
                 debug=debug,
-                load_universal_skills=load_universal_skills,
-                load_skill_graphs=load_skill_graphs,
+                skill_types=skill_types,
                 graph_bundle=graph_bundle,
-                current_host=host,
-                current_port=port,
+                tool_guard_mode="on",
+                isolate_mcp=isolate_mcp,
             )
 
         if hasattr(_agent_instance, "tools"):
@@ -244,25 +245,27 @@ def create_agent_server(
         else:
             skills_list = []
 
+        _skill_types = skill_types or []
         if default_skills_path := get_skills_path():
             skill_dirs.append(default_skills_path)
 
-        try:
-            from universal_skills.skill_utilities import get_universal_skills_path
+        if "universal" in _skill_types:
+            try:
+                from universal_skills.skill_utilities import get_universal_skills_path
 
-            if load_universal_skills:
                 skill_dirs.extend(get_universal_skills_path())
-        except ImportError:
-            pass
+            except ImportError:
+                pass
 
-        try:
-            from skill_graphs.skill_graph_utilities import get_skill_graphs_path
+        if "graphs" in _skill_types:
+            try:
+                from skill_graphs.skill_graph_utilities import get_skill_graphs_path
 
-            skill_dirs.extend(get_skill_graphs_path())
-        except ImportError:
-            logger.debug(
-                "skill-graphs package not found, skipping skill-graphs loading."
-            )
+                skill_dirs.extend(get_skill_graphs_path())
+            except ImportError:
+                logger.debug(
+                    "skill-graphs package not found, skipping skill-graphs loading."
+                )
 
         if custom_skills_directory and os.path.exists(custom_skills_directory):
             skill_dirs.append(str(custom_skills_directory))
@@ -342,6 +345,26 @@ def create_agent_server(
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
+            """Lifespan context manager for the agent server."""
+            from .mcp_agent_manager import sync_mcp_agents, should_sync
+            from .workspace import (
+                CORE_FILES,
+                get_workspace_path,
+                resolve_mcp_config_path,
+            )
+
+            try:
+                # Use environment-provided MCP config if available, otherwise default workspace path
+                _mcp_path = resolve_mcp_config_path(mcp_config)
+                _agents_path = get_workspace_path(CORE_FILES["MCP_AGENTS"])
+
+                if _mcp_path and should_sync(_mcp_path, _agents_path):
+                    logger.info(
+                        f"Registry is stale or missing. Synchronizing MCP agents from {_mcp_path}..."
+                    )
+                    await sync_mcp_agents(config_path=_mcp_path)
+            except Exception as e:
+                logger.error(f"Automatic MCP sync failed on startup: {e}")
 
             processor_task = asyncio.create_task(background_processor(_agent_instance))
             try:
@@ -367,9 +390,15 @@ def create_agent_server(
             lifespan=lifespan,
             openapi_tags=[
                 {"name": "Core", "description": "Essential agent lifecycle endpoints"},
-                {"name": "Agent UI", "description": "Standard AG-UI and streaming protocols"},
-                {"name": "Interoperability", "description": "A2A and external bridge endpoints"},
-            ]
+                {
+                    "name": "Agent UI",
+                    "description": "Standard AG-UI and streaming protocols",
+                },
+                {
+                    "name": "Interoperability",
+                    "description": "A2A and external bridge endpoints",
+                },
+            ],
         )
 
         app.state.reload_app = None
@@ -384,7 +413,7 @@ def create_agent_server(
         @app.post("/ag-ui", tags=["Agent UI"], summary="AG-UI Streaming Endpoint")
         async def ag_ui_endpoint(request: Request) -> Response:
             """
-            Primary endpoint for the Agent UI. Supports sideband graph activity 
+            Primary endpoint for the Agent UI. Supports sideband graph activity
             annotations and session resumption.
             """
             from pydantic_ai.ui.ag_ui import AGUIAdapter
@@ -416,6 +445,7 @@ def create_agent_server(
                 model_id=DEFAULT_MODEL_ID,
                 base_url=DEFAULT_LLM_BASE_URL,
                 api_key=DEFAULT_LLM_API_KEY,
+                mcp_toolsets=_initialized_mcp_toolsets,
             )
             logger.info(f"AG-UI session context: {run_id}")
 
@@ -552,6 +582,7 @@ def create_agent_server(
                         query,
                         mode=mode,
                         topology=topology,
+                        mcp_toolsets=_initialized_mcp_toolsets,
                     ),
                     media_type="text/event-stream",
                 )
@@ -575,6 +606,72 @@ def create_agent_server(
             return JSONResponse(
                 {"status": "received", "action": action, "run_id": run_id}
             )
+
+        @app.get("/chats", tags=["Core"], summary="List Chat History")
+        async def list_chats():
+            """Returns a list of all stored chat sessions."""
+            return list_chats_from_disk()
+
+        @app.get("/chats/{chat_id}", tags=["Core"], summary="Get Chat Details")
+        async def get_chat(chat_id: str):
+            """Returns the full message history for a specific chat."""
+            chat_data = get_chat_from_disk(chat_id)
+            if not chat_data:
+                return JSONResponse({"error": "Chat not found"}, status_code=404)
+            return chat_data
+
+        @app.get(
+            "/mcp/config", tags=["Interoperability"], summary="Get MCP Configuration"
+        )
+        async def get_mcp_config():
+            """Returns the current mcp_config.json contents."""
+            mcp_config_path = get_workspace_path(
+                CORE_FILES.get("MCP_CONFIG", "mcp_config.json")
+            )
+            if not mcp_config_path.exists():
+                # Fallback to local agent_data/mcp_config.json if not in workspace
+
+                mcp_config_path = (
+                    Path(__file__).parent / "agent_data" / "mcp_config.json"
+                )
+
+            if mcp_config_path.exists():
+                try:
+                    return json.loads(mcp_config_path.read_text(encoding="utf-8"))
+                except Exception:
+                    return {"mcpServers": {}}
+            return {"mcpServers": {}}
+
+        @app.get(
+            "/mcp/tools", tags=["Interoperability"], summary="List Available MCP Tools"
+        )
+        async def list_mcp_tools():
+            """Returns a list of all tools from all connected MCP servers."""
+            tools = []
+            if hasattr(_agent_instance, "toolsets"):
+                for ts in _agent_instance.toolsets:
+                    # Skip the SkillsToolset which is handled separately via A2A if needed
+                    if type(ts).__name__ == "SkillsToolset":
+                        continue
+
+                    # For MCPServer toolsets, we can extract tool info
+                    if hasattr(ts, "get_tools"):
+                        try:
+                            # Some toolsets might be async or require a context
+                            ts_tools = ts.get_tools()
+                            for t in ts_tools:
+                                tools.append(
+                                    {
+                                        "name": getattr(t, "name", str(t)),
+                                        "description": getattr(t, "description", ""),
+                                        "tag": getattr(
+                                            ts, "name", "mcp"
+                                        ),  # Use toolset name as tag
+                                    }
+                                )
+                        except Exception:
+                            pass
+            return tools
 
         if enable_web_ui is None:
             enable_web_ui = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
@@ -670,6 +767,52 @@ def create_agent_server(
         "Enabled (Dashboard)" if enable_web_ui else "Disabled",
     )
 
+    if enable_terminal_ui:
+        import threading
+        import time
+        import subprocess
+
+        def run_server():
+            uvicorn.run(
+                reloadable,
+                host=host,
+                port=port,
+                timeout_keep_alive=1800,
+                timeout_graceful_shutdown=60,
+                log_level="error",  # Suppress server logs in CLI mode
+            )
+
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+
+        # Wait for server to be healthy
+        url = f"http://{host}:{port}/health"
+        max_retries = 10
+        for i in range(max_retries):
+            try:
+                import requests
+
+                resp = requests.get(url, timeout=1)
+                if resp.status_code == 200:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+        logger.info(f"Launching Agent Terminal UI connecting to {url}...")
+        env = os.environ.copy()
+        env["AGENT_URL"] = f"http://{host}:{port}"
+        try:
+            subprocess.call(["agent-terminal-ui"], env=env)
+        except FileNotFoundError:
+            print(
+                "\nError: 'agent-terminal-ui' command not found. Please install the agent-terminal-ui package."
+            )
+        except Exception as e:
+            print(f"\nError launching TUI: {e}")
+
+        return
+
     uvicorn.run(
         reloadable,
         host=host,
@@ -683,16 +826,16 @@ def create_agent_server(
 def create_graph_agent_server(
     tag_prompts: dict[str, str] | None = None,
     tag_env_vars: dict[str, str] | None = None,
-    mcp_url: str | None = None,
+    mcp_url: str | None = DEFAULT_MCP_URL,
     graph_name: str = "GraphAgent",
     router_model: str = DEFAULT_ROUTER_MODEL,
     agent_model: str = DEFAULT_GRAPH_AGENT_MODEL,
-    min_confidence: float = 0.6,
+    min_confidence: float = DEFAULT_MIN_CONFIDENCE,
     provider: str = DEFAULT_PROVIDER,
     model_id: str = DEFAULT_MODEL_ID,
     base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
     api_key: Optional[str] = DEFAULT_LLM_API_KEY,
-    mcp_config: Optional[str] = None,
+    mcp_config: Optional[str] = DEFAULT_MCP_CONFIG,
     custom_skills_directory: Optional[str] = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
     debug: Optional[bool] = DEFAULT_DEBUG,
     host: Optional[str] = DEFAULT_HOST,
@@ -718,10 +861,12 @@ def create_graph_agent_server(
     a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
     graph_bundle: Optional[tuple] = None,
     sub_agents: Optional[dict] = None,
-    persistence_type: str = "file",
-    persistence_path: Optional[str] = None,
+    persistence_type: str = DEFAULT_GRAPH_PERSISTENCE_TYPE,
+    persistence_path: Optional[str] = DEFAULT_GRAPH_PERSISTENCE_PATH,
     persistence_dsn: Optional[str] = None,
     persistence_url: Optional[str] = None,
+    enable_terminal_ui: bool = DEFAULT_ENABLE_TERMINAL_UI,
+    skill_types: Optional[List[str]] = None,
 ):
     """Create and start a graph-based agent server.
 
@@ -757,18 +902,42 @@ def create_graph_agent_server(
         sub_agents = graph_config.get("sub_agents", {})
     else:
         if tag_prompts is None:
-            raise ValueError("tag_prompts is required if graph_bundle is not provided")
-        graph, graph_config = create_graph_agent(
-            tag_prompts=tag_prompts,
-            tag_env_vars=tag_env_vars,
-            mcp_url=_mcp_url,
-            mcp_config=mcp_config,
-            name=graph_name,
-            router_model=router_model,
-            agent_model=agent_model,
-            min_confidence=min_confidence,
-            sub_agents=sub_agents,
-        )
+            from .workspace import (
+                CORE_FILES,
+                get_workspace_path,
+                resolve_mcp_config_path,
+            )
+            from .mcp_agent_manager import should_sync
+            from .graph_orchestration import initialize_graph_from_workspace
+
+            _mcp_cfg_path = resolve_mcp_config_path(mcp_config)
+            _agents_reg_path = get_workspace_path(CORE_FILES["MCP_AGENTS"])
+
+            if _mcp_cfg_path and should_sync(_mcp_cfg_path, _agents_reg_path):
+                from .mcp_agent_manager import sync_mcp_agents
+
+                logger.info(f"Regenerating MCP registry from {_mcp_cfg_path}...")
+                asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
+
+            graph, graph_config = initialize_graph_from_workspace(
+                mcp_config=mcp_config,
+                router_model=router_model,
+                agent_model=agent_model,
+            )
+            # Fetch tag_prompts from graph_config for logging below
+            tag_prompts = graph_config.get("tag_prompts", {})
+        else:
+            graph, graph_config = create_graph_agent(
+                tag_prompts=tag_prompts,
+                tag_env_vars=tag_env_vars,
+                mcp_url=_mcp_url,
+                mcp_config=mcp_config,
+                name=graph_name,
+                router_model=router_model,
+                agent_model=agent_model,
+                min_confidence=min_confidence,
+                sub_agents=sub_agents,
+            )
 
     logger.info(
         f"Graph Agent '{graph_name}' initialized with "
@@ -795,13 +964,13 @@ def create_graph_agent_server(
         api_key=api_key,
         mcp_url=_mcp_url,
         mcp_config=mcp_config,
-        load_universal_skills=True,
-        load_skill_graphs=True,
+        skill_types=skill_types,
         custom_skills_directory=custom_skills_directory,
         debug=debug,
         host=host,
         port=port,
         enable_web_ui=enable_web_ui,
+        enable_terminal_ui=enable_terminal_ui,
         custom_web_app=custom_web_app,
         custom_web_mount_path=custom_web_mount_path,
         web_ui_instructions=web_ui_instructions,
@@ -825,4 +994,5 @@ def create_graph_agent_server(
         persistence_path=persistence_path,
         persistence_dsn=persistence_dsn,
         persistence_url=persistence_url,
+        isolate_mcp=True,
     )

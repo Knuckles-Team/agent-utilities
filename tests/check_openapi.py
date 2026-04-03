@@ -9,20 +9,20 @@ def test_docs_exists():
     # Mock uvicorn.run to capture the app
     original_run = uvicorn.run
     uvicorn.run = MagicMock()
-    
+
     # Mock environment
     os.environ["OPENAI_API_KEY"] = "sk-dummy"
-    
+
     # Create the server
     try:
         create_agent_server(name="TestAgent")
     except SystemExit:
         pass
-    
+
     # Get the app
     app = uvicorn.run.call_args[0][0]
     client = TestClient(app)
-    
+
     # Check /openapi.json
     response = client.get("/openapi.json")
     print(f"OpenAPI Status: {response.status_code}")
@@ -32,7 +32,7 @@ def test_docs_exists():
         print("Paths:")
         for path in spec.get("paths", {}):
             print(f"  - {path}")
-    
+
     uvicorn.run = original_run
 
 if __name__ == "__main__":

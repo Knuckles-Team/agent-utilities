@@ -163,7 +163,8 @@ def expand_env_vars(text: str) -> str:
                 else f"validation_{var_name.lower()}"
             )
 
-        return match.group(0)
+        # Default fallback: return empty string if no default provided
+        return ""
 
     return pattern.sub(replace, text)
 

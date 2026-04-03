@@ -88,7 +88,7 @@ def get_system_prompt_from_reference(agent_template: str) -> Optional[str]:
 def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     """
     Combine core files into a rich system prompt.
-    Order matters — IDENTITY → USER → AGENTS → MEMORY → custom fallback
+    Order matters — IDENTITY → USER → MEMORY → custom fallback
     """
     parts = []
     included_files = []
@@ -96,7 +96,7 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     logger.debug(
         f"Building system prompt from workspace. Fallback provided: {bool(fallback_prompt)}"
     )
-    for key in ["IDENTITY", "USER", "AGENTS", "MEMORY"]:
+    for key in ["IDENTITY", "USER", "MEMORY"]:
         filename = CORE_FILES[key]
         logger.debug(f"Checking for {key} file: {filename}")
         content = load_workspace_file(filename)

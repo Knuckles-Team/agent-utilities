@@ -10,6 +10,7 @@ from ..workspace import (
     parse_memory,
     parse_cron_registry,
     parse_a2a_registry,
+    parse_mcp_registry,
     parse_cron_log,
     read_md_file,
     append_to_md_file,
@@ -63,8 +64,10 @@ async def read_workspace_file(ctx: RunContext[Any], filename: str) -> Union[
         return parse_memory(content)
     if filename == CORE_FILES["CRON"]:
         return parse_cron_registry(content)
-    if filename == CORE_FILES["AGENTS"]:
+    if filename == CORE_FILES["A2A_AGENTS"]:
         return parse_a2a_registry(content)
+    if filename == CORE_FILES["MCP_AGENTS"]:
+        return parse_mcp_registry(content)
     if filename == CORE_FILES["CRON_LOG"]:
         return parse_cron_log(content)
     if filename == CORE_FILES["MCP_CONFIG"]:

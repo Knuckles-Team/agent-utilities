@@ -7,7 +7,6 @@ import logging
 import argparse
 import httpx
 from typing import Any, List, Optional, Union
-from pathlib import Path
 
 from pydantic_ai import Agent, ModelSettings, DeferredToolRequests
 from pydantic_ai.mcp import (
@@ -48,7 +47,7 @@ from .config import (
     DEFAULT_STOP_SEQUENCES,
     DEFAULT_EXTRA_HEADERS,
     DEFAULT_EXTRA_BODY,
-    DEFAULT_LOAD_UNIVERSAL_SKILLS,
+    DEFAULT_ENABLE_TERMINAL_UI,
     DEFAULT_TOOL_TIMEOUT,
     DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
     DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
@@ -57,12 +56,10 @@ from .config import (
     DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
 )
 from .workspace import (
-    get_workspace_path,
     get_skills_path,
 )
 from .base_utilities import (
     to_boolean,
-    retrieve_package_name,
     is_loopback_url,
 )
 from .model_factory import create_model
@@ -130,17 +127,19 @@ def create_agent_parser():
         help="Explicit path to the agent workspace directory (contains IDENTITY.md, etc.)",
     )
     parser.add_argument(
-        "--load-universal-skills",
-        action=argparse.BooleanOptionalAction,
-        default=DEFAULT_LOAD_UNIVERSAL_SKILLS,
-        help="Enable/Disable loading of all universal-skills by default",
-    )
-
-    parser.add_argument(
         "--web",
         action=argparse.BooleanOptionalAction,
         default=to_boolean(os.getenv("ENABLE_WEB_UI", "False")),
         help="Enable/Disable Agent Web UI",
+    )
+
+    parser.add_argument(
+        "--terminal",
+        "--tui",
+        dest="terminal",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_ENABLE_TERMINAL_UI,
+        help="Enable/Disable Agent Terminal UI (TUI)",
     )
 
     parser.add_argument(
@@ -200,20 +199,24 @@ def create_agent(
     name: str = DEFAULT_AGENT_NAME,
     system_prompt: str = DEFAULT_AGENT_SYSTEM_PROMPT,
     debug: bool = False,
-    load_universal_skills: bool = False,
-    load_skill_graphs: bool = False,
+    skill_types: Optional[
+        List[str]
+    ] = None,  # replaces load_universal_skills, load_skill_graphs
     tool_tags: Optional[List[str]] = None,
     graph_bundle: tuple = None,
     output_type: Optional[Any] = None,
     current_host: str = None,
     current_port: int = None,
     tool_guard_mode: str = "on",
-) -> Agent:
+    isolate_mcp: bool = False,
+) -> Tuple[Agent, List[Any]]:
     """
-    Create a Pydantic AI Agent
+    Create a Pydantic AI Agent and return its initialized MCP toolsets.
     """
+    from .workspace import resolve_mcp_config_path
 
     agent_toolsets = []
+    initialized_mcp_toolsets = []
 
     if mcp_url:
         if DEFAULT_VALIDATION_MODE:
@@ -238,9 +241,11 @@ def create_agent(
                             verify=ssl_verify, timeout=DEFAULT_TIMEOUT
                         ),
                     )
-                agent_toolsets.append(
+                initialized_mcp_toolsets.append(
                     filter_tools_by_tag(server, tool_tags) if tool_tags else server
                 )
+                if not isolate_mcp:
+                    agent_toolsets.append(initialized_mcp_toolsets[-1])
                 logger.info(f"Connected to MCP Server: {mcp_url}")
             except Exception as e:
                 logger.error(f"Failed to connect to MCP Server {mcp_url}: {e}")
@@ -252,34 +257,10 @@ def create_agent(
             )
         else:
             try:
-                if not os.path.isabs(mcp_config) and "/" not in mcp_config:
-                    ws_config = get_workspace_path(mcp_config)
-                    if ws_config.exists():
-                        mcp_config = str(ws_config)
-                        logger.info(f"Loaded MCP config from workspace: {mcp_config}")
-                    else:
-                        pkg = retrieve_package_name()
-                        if pkg and pkg != "agent_utilities":
-                            local_pkg_config = (
-                                Path.cwd() / pkg / "agent_data" / mcp_config
-                            )
-                            if local_pkg_config.exists():
-                                mcp_config = str(local_pkg_config)
-                                logger.info(
-                                    f"Prioritizing Local Package Config (agent_data): {mcp_config}"
-                                )
-                            else:
-                                local_pkg_dir = Path.cwd() / pkg / mcp_config
-                                if local_pkg_dir.exists():
-                                    mcp_config = str(local_pkg_dir)
-                                    logger.info(
-                                        f"Prioritizing Local Package Config (root): {mcp_config}"
-                                    )
-                        else:
-                            local_config = Path.cwd() / mcp_config
-                            if local_config.exists():
-                                mcp_config = str(local_config)
-                                logger.info(f"Loaded MCP config from cwd: {mcp_config}")
+                mcp_path = resolve_mcp_config_path(mcp_config)
+                if mcp_path:
+                    mcp_config = str(mcp_path)
+                    logger.info(f"Resolved MCP config: {mcp_config}")
 
                 mcp_toolset = load_mcp_servers(mcp_config)
                 for server in mcp_toolset:
@@ -293,7 +274,9 @@ def create_agent(
                         filter_tools_by_tag(s, tool_tags) for s in mcp_toolset
                     ]
 
-                agent_toolsets.extend(mcp_toolset)
+                initialized_mcp_toolsets.extend(mcp_toolset)
+                if not isolate_mcp:
+                    agent_toolsets.extend(mcp_toolset)
                 logger.info(f"Connected to MCP Config: {mcp_config}")
             except Exception as e:
                 logger.warning(f"Could not load MCP config {mcp_config}: {e}")
@@ -321,10 +304,9 @@ def create_agent(
                 else:
                     ts = server
 
-                if tool_tags:
-                    ts = filter_tools_by_tag(ts, tool_tags)
-
-                agent_toolsets.append(ts)
+                initialized_mcp_toolsets.append(ts)
+                if not isolate_mcp:
+                    agent_toolsets.append(ts)
 
     model = create_model(
         provider=provider,
@@ -354,13 +336,15 @@ def create_agent(
 
     if enable_skills:
         skill_dirs = []
+        _skill_types = skill_types or []
+
         if skills_path := get_skills_path():
             skill_dirs.append(skills_path)
 
-        if load_universal_skills:
+        if "universal" in _skill_types:
             skill_dirs.extend(get_universal_skills_path())
 
-        if load_skill_graphs:
+        if "graphs" in _skill_types:
             try:
                 from skill_graphs.skill_graph_utilities import get_skill_graphs_path
 
@@ -419,4 +403,4 @@ def create_agent(
     if tool_guard_mode != "off":
         apply_tool_guard_approvals(agent)
 
-    return agent
+    return agent, initialized_mcp_toolsets

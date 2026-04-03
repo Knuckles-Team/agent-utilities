@@ -19,6 +19,9 @@ from .models import (
     CronTaskModel,
     CronLogModel,
     CronLogEntryModel,
+    MCPAgentRegistryModel,
+    MCPAgent,
+    MCPToolInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,15 +29,28 @@ logger = logging.getLogger(__name__)
 
 WORKSPACE_DIR: Optional[str] = None
 
+
+def md_table_escape(text: str) -> str:
+    """Escape markdown table delimiters and handle newlines."""
+    if not text:
+        return ""
+    # Replace pipe character which breaks markdown tables
+    escaped = text.replace("|", "\\|")
+    # Replace newlines with <br/> to keep the cell on one row
+    escaped = escaped.replace("\n", "<br/>")
+    return escaped.strip()
+
+
 CORE_FILES = {
     "IDENTITY": "IDENTITY.md",
     "USER": "USER.md",
-    "AGENTS": "AGENTS.md",
+    "A2A_AGENTS": "A2A_AGENTS.md",
     "MEMORY": "MEMORY.md",
     "CRON": "CRON.md",
     "CRON_LOG": "CRON_LOG.md",
     "CHATS": "chats",
     "MCP_CONFIG": "mcp_config.json",
+    "MCP_AGENTS": "MCP_AGENTS.md",
     "HEARTBEAT": "HEARTBEAT.md",
     "ICON": "icon.png",
 }
@@ -61,7 +77,7 @@ TEMPLATES = {
 * **Name:** User
 * **Emoji:** 👤
 """,
-    "AGENTS": """# AGENTS.md - Known A2A Peer Agents
+    "A2A_AGENTS": """# A2A_AGENTS.md - Known A2A Peer Agents
 
 This file is the local registry of other A2A agents this agent can discover and call.
 
@@ -103,6 +119,20 @@ No specific user input is required unless you detect an issue.
     "MCP_CONFIG": """{
     "mcpServers": {}
 }
+""",
+    "MCP_AGENTS": """# MCP_AGENTS.md - Dynamic Agent Registry
+
+This file tracks the generated agents from MCP servers. You can manually modify the 'Tools' list to customize agent expertise.
+
+## Agent Mapping Table
+
+| Name | Description | System Prompt | Tools | Tag | Source MCP |
+|------|-------------|---------------|-------|-----|------------|
+
+## Tool Inventory Table
+
+| Tool Name | Description | Tag | Source |
+|-----------|-------------|-----|--------|
 """,
 }
 
@@ -227,6 +257,48 @@ def get_workspace_path(filename: str) -> Path:
     ws = get_agent_workspace()
     path = ws / filename
     return path
+
+
+def resolve_mcp_config_path(mcp_config: str) -> Optional[Path]:
+    """
+    Resolves the absolute path for an MCP config string.
+    Checks:
+    1. Absolute path
+    2. Relative to workspace
+    3. Relative to local package's agent_data
+    4. Relative to CWD
+    """
+    from .base_utilities import retrieve_package_name
+
+    if not mcp_config:
+        return get_workspace_path(CORE_FILES["MCP_CONFIG"])
+
+    path = Path(mcp_config)
+    if path.is_absolute() and path.exists():
+        return path
+
+    # Check Workspace
+    ws_config = get_workspace_path(mcp_config)
+    if ws_config.exists():
+        return ws_config
+
+    # Check Local Package
+    pkg = retrieve_package_name()
+    if pkg and pkg != "agent_utilities":
+        candidates = [
+            Path.cwd() / pkg / "agent_data" / mcp_config,
+            Path.cwd() / pkg / mcp_config,
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+
+    # Check CWD
+    local_config = Path.cwd() / mcp_config
+    if local_config.exists():
+        return local_config
+
+    return None
 
 
 def initialize_workspace(overwrite: bool = False):
@@ -498,7 +570,7 @@ def parse_a2a_registry(content: str) -> A2ARegistryModel:
 def serialize_a2a_registry(model: A2ARegistryModel) -> str:
     """Serialize A2ARegistryModel back to A2A_AGENTS.md format."""
     lines = [
-        "# AGENTS.md - Known A2A Peer Agents",
+        "# A2A_AGENTS.md - Known A2A Peer Agents",
         "",
         "This file is the local registry of other A2A agents this agent can discover and call.",
         "",
@@ -633,4 +705,90 @@ def serialize_cron_log(model: CronLogModel) -> str:
         lines.append(e.message)
         lines.append("")
         lines.append("---")
+    return "\n".join(lines).strip() + "\n"
+
+
+def parse_mcp_registry(content: str) -> MCPAgentRegistryModel:
+    """Parse MCP_AGENTS.md tables into MCPAgentRegistryModel."""
+    agents = []
+    tools = []
+    lines = content.splitlines()
+
+    current_table = None  # 1 for Agents, 2 for Tools
+
+    for line in lines:
+        stripped = line.strip()
+        if "## Agent Mapping Table" in stripped:
+            current_table = 1
+            continue
+        elif "## Tool Inventory Table" in stripped:
+            current_table = 2
+            continue
+
+        if (
+            stripped.startswith("|")
+            and not stripped.startswith("|---")
+            and not stripped.startswith("| Name")
+            and not stripped.startswith("| Tool Name")
+        ):
+            parts = [p.strip() for p in stripped.strip("| ").split("|")]
+            if current_table == 1 and len(parts) >= 6:
+                agents.append(
+                    MCPAgent(
+                        name=parts[0],
+                        description=parts[1],
+                        system_prompt=parts[2],
+                        tools=[t.strip() for t in parts[3].split(",") if t.strip()],
+                        tag=parts[4] if parts[4] else None,
+                        mcp_server=parts[5],
+                        is_custom=False,
+                    )
+                )
+            elif current_table == 2 and len(parts) >= 4:
+                tools.append(
+                    MCPToolInfo(
+                        name=parts[0],
+                        description=parts[1],
+                        tag=parts[2] if parts[2] else None,
+                        mcp_server=parts[3],
+                    )
+                )
+
+    return MCPAgentRegistryModel(agents=agents, tools=tools)
+
+
+def serialize_mcp_registry(model: MCPAgentRegistryModel) -> str:
+    """Serialize MCPAgentRegistryModel back to MCP_AGENTS.md format."""
+    lines = [
+        "# MCP_AGENTS.md - Dynamic Agent Registry",
+        "",
+        "This file tracks the generated agents from MCP servers. You can manually modify the 'Tools' list to customize agent expertise.",
+        "",
+        "## Agent Mapping Table",
+        "",
+        "| Name | Description | System Prompt | Tools | Tag | Source MCP |",
+        "|------|-------------|---------------|-------|-----|------------|",
+    ]
+    for a in model.agents:
+        tools_str = ", ".join(a.tools)
+        lines.append(
+            f"| {md_table_escape(a.name)} | {md_table_escape(a.description)} | {md_table_escape(a.system_prompt)} | {md_table_escape(tools_str)} | {md_table_escape(a.tag or '')} | {md_table_escape(a.mcp_server)} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Tool Inventory Table",
+            "",
+            "| Tool Name | Description | Tag | Source |",
+            "|-----------|-------------|-----|--------|",
+        ]
+    )
+    for t in model.tools:
+        # Show all tags in the Tag column
+        tags_display = ", ".join(t.all_tags) if t.all_tags else (t.tag or "")
+        lines.append(
+            f"| {md_table_escape(t.name)} | {md_table_escape(t.description)} | {md_table_escape(tags_display)} | {md_table_escape(t.mcp_server)} |"
+        )
+
     return "\n".join(lines).strip() + "\n"

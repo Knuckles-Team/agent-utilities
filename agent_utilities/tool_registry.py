@@ -26,6 +26,7 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None):
     )
     from .tools.browser import browser_tools
     from .tools.onboarding_tools import onboarding_tools
+    from .tools.mcp_sync_tool import trigger_mcp_sync
 
     # Default gating via environment variables
     from .base_utilities import to_boolean
@@ -63,7 +64,13 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None):
             from .graph_orchestration import run_graph
 
             result = await run_graph(graph, config, prompt, eq=eq)
-            return str(result.get("results", result))
+            if hasattr(result, "results"):
+                return str(result.results.get("output", result.results))
+            return str(result)
+
+        # STRICT ISOLATION: If we are a graph orchestrator, we ONLY have run_graph_flow.
+        # We skip all other local tools to avoid confusion and force routing.
+        return
 
     # 2. Workspace Tools
     if DEFAULT_WORKSPACE_TOOLS:
@@ -106,3 +113,6 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None):
     # 9. Onboarding Tools
     for tool in onboarding_tools:
         agent.tool(tool)
+
+    # 10. MCP Management Tools
+    agent.tool(trigger_mcp_sync)
