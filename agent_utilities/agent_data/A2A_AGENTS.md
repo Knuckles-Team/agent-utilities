@@ -1,4 +1,4 @@
-# AGENTS.md - Known A2A Peer Agents
+# A2A_AGENTS.md - Known A2A Peer Agents
 
 This file is the local registry of other A2A agents this agent can discover and call.
 

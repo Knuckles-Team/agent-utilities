@@ -1,21 +1,19 @@
 import logging
-import os
-import re
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Optional
 import importlib.util
 from importlib.resources import files, as_file
 
 from .workspace import (
     parse_cron_registry,
     serialize_cron_registry,
-    CronTaskModel,
     CronRegistryModel,
-    get_agent_workspace
+    get_agent_workspace,
 )
 from .a2a import discover_agents
 
 logger = logging.getLogger(__name__)
+
 
 def find_package_data_dir(package_name: str) -> Optional[Path]:
     """Locate the agent_data or agent directory for an installed package."""
@@ -23,24 +21,24 @@ def find_package_data_dir(package_name: str) -> Optional[Path]:
         spec = importlib.util.find_spec(package_name)
         if not spec or not spec.origin:
             return None
-        
+
         origin_path = Path(spec.origin).resolve()
         # Common patterns:
         # 1. package/agent_data
         # 2. package/agent
         # 3. agents/name-agent/name_agent/agent_data
-        
+
         candidates = [
             origin_path.parent / "agent_data",
             origin_path.parent / "agent",
             origin_path.parent.parent / "agent_data",
             origin_path.parent.parent / "agent",
         ]
-        
+
         for candidate in candidates:
             if candidate.is_dir():
                 return candidate
-                
+
         # Try importlib.resources as fallback
         for sub in ["agent_data", "agent"]:
             try:
@@ -50,41 +48,49 @@ def find_package_data_dir(package_name: str) -> Optional[Path]:
                         return path.resolve()
             except Exception:
                 pass
-                
+
     except Exception as e:
         logger.debug(f"Failed to find data dir for {package_name}: {e}")
-    
+
     return None
+
 
 def extract_heartbeat_checks(heartbeat_path: Path) -> List[str]:
     """Extract list items under sections like '## Checks' or '## Heartbeat'."""
     if not heartbeat_path.exists():
         return []
-    
+
     content = heartbeat_path.read_text(encoding="utf-8")
     lines = content.splitlines()
     checks = []
     in_checks = False
-    
+
     for line in lines:
         s_line = line.strip()
-        if s_line.startswith("## ") and any(x in s_line for x in ["Checks", "Pulse", "Self-Check"]):
+        if s_line.startswith("## ") and any(
+            x in s_line for x in ["Checks", "Pulse", "Self-Check"]
+        ):
             in_checks = True
             continue
         if in_checks:
-            if s_line.startswith("##") and not any(x in s_line for x in ["Checks", "Pulse"]): 
+            if s_line.startswith("##") and not any(
+                x in s_line for x in ["Checks", "Pulse"]
+            ):
                 in_checks = False
                 continue
-            if s_line.startswith(("- ", "* ", "1. ", "2. ", "3. ", "4. ", "5. ", "6. ")):
+            if s_line.startswith(
+                ("- ", "* ", "1. ", "2. ", "3. ", "4. ", "5. ", "6. ")
+            ):
                 checks.append(s_line)
     return checks
+
 
 def aggregate_orchestrated_data(target_package: str, skip_heartbeats: bool = True):
     """
     Aggregate CRON.md and HEARTBEAT.md from all discovered agents into the target package's workspace.
     """
     logger.info(f"Starting runtime event aggregation for {target_package}")
-    
+
     target_data_dir = get_agent_workspace()
     if not target_data_dir.exists():
         logger.error(f"Target data directory not found: {target_data_dir}")
@@ -93,7 +99,7 @@ def aggregate_orchestrated_data(target_package: str, skip_heartbeats: bool = Tru
     # Discover installed agents
     agents = discover_agents()
     logger.info(f"Discovered {len(agents)} agents for aggregation.")
-    
+
     all_tasks = []
     all_heartbeats = {}
 
@@ -116,12 +122,12 @@ def aggregate_orchestrated_data(target_package: str, skip_heartbeats: bool = Tru
         # Avoid aggregating self
         if package_name == target_package.replace("-", "_"):
             continue
-            
+
         data_dir = find_package_data_dir(package_name)
         if not data_dir:
             logger.debug(f"Could not find data dir for agent: {package_name}")
             continue
-            
+
         # Handle CRON.md
         sub_cron_path = data_dir / "CRON.md"
         if sub_cron_path.exists():
@@ -132,10 +138,10 @@ def aggregate_orchestrated_data(target_package: str, skip_heartbeats: bool = Tru
                     # Filtering: skip heartbeat tasks from sub-agents if requested
                     if skip_heartbeats and "heartbeat" in task.id.lower():
                         continue
-                        
+
                     new_id = f"{tag}_{task.id}".replace("-", "_")
                     new_name = f"[{tag}] {task.name}"
-                    
+
                     if not any(t.id == new_id for t in all_tasks):
                         task.id = new_id
                         task.name = new_name
@@ -153,10 +159,14 @@ def aggregate_orchestrated_data(target_package: str, skip_heartbeats: bool = Tru
     # Write merged CRON.md
     if all_tasks:
         # Keep base tasks (those without tags) first, then sort others
-        base_tasks = [t for t in all_tasks if "_" not in t.id or not any(t.id.startswith(f"{tg}_") for tg in agents)]
+        base_tasks = [
+            t
+            for t in all_tasks
+            if "_" not in t.id or not any(t.id.startswith(f"{tg}_") for tg in agents)
+        ]
         other_tasks = [t for t in all_tasks if t not in base_tasks]
         other_tasks.sort(key=lambda t: t.id)
-        
+
         final_reg = CronRegistryModel(tasks=base_tasks + other_tasks)
         cron_path.write_text(serialize_cron_registry(final_reg), encoding="utf-8")
         logger.info(f"Updated CRON.md with {len(all_tasks)} tasks.")
@@ -169,18 +179,18 @@ def aggregate_orchestrated_data(target_package: str, skip_heartbeats: bool = Tru
             "You are running a scheduled heartbeat. Perform these checks and report results concisely.",
             "",
             "## Core Checks",
-            ""
+            "",
         ]
-        
+
         if target_package in all_heartbeats:
             for check in all_heartbeats[target_package]:
                 heartbeat_lines.append(check)
             del all_heartbeats[target_package]
-            
+
         heartbeat_lines.append("")
         heartbeat_lines.append("## Orchestrated Agent Checks")
         heartbeat_lines.append("")
-        
+
         sorted_tags = sorted(all_heartbeats.keys())
         for tag in sorted_tags:
             checks = all_heartbeats[tag]
@@ -193,7 +203,9 @@ def aggregate_orchestrated_data(target_package: str, skip_heartbeats: bool = Tru
         heartbeat_lines.append("")
         heartbeat_lines.append("### If everything is healthy:")
         heartbeat_lines.append("```")
-        heartbeat_lines.append("HEARTBEAT_OK — All systems nominal. Orchestrated sub-agents verified.")
+        heartbeat_lines.append(
+            "HEARTBEAT_OK — All systems nominal. Orchestrated sub-agents verified."
+        )
         heartbeat_lines.append("```")
         heartbeat_lines.append("")
         heartbeat_lines.append("### If issues found:")
@@ -201,6 +213,8 @@ def aggregate_orchestrated_data(target_package: str, skip_heartbeats: bool = Tru
         heartbeat_lines.append("HEARTBEAT_ALERT — [summary of issues found]")
         heartbeat_lines.append("- Agent name: [issue description]")
         heartbeat_lines.append("```")
-        
+
         heartbeat_path.write_text("\n".join(heartbeat_lines), encoding="utf-8")
-        logger.info(f"Updated HEARTBEAT.md with checks from {len(all_heartbeats)} sub-agents.")
+        logger.info(
+            f"Updated HEARTBEAT.md with checks from {len(all_heartbeats)} sub-agents."
+        )

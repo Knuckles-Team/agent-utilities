@@ -29,12 +29,12 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 
 ## Key Features
 
-- **Agent Creation**: Streamlined `create_agent` function that handles MCP servers, skills, and model configuration automatically.
+- **Flexible Skill Loading**: Unified `skill_types` parameter to dynamically load `universal` skills, `graphs`, or custom workspace toolsets.
 - **Advanced Graph Orchestration**: Multi-domain routing with `HybridRouterNode` (Rule-based + LLM) and **parallel execution** with `ParallelDomainNode`.
 - **Resilience & Accuracy**: Native support for **Error Recovery** (exponential backoff), **State Persistence** (checkpointing), and **Result Validation**.
 - **Observability**: Real-time **Graph Streaming** (SSE) and **Lifecycle Hooks** (`on_tool_start`, `on_tool_end`) for distributed telemetry.
 - **Typed Foundation**: Zero-config dependency injection using `AgentDeps`.
-- **Multi-Agent Support**: Native support for the supervisor pattern, allowing complex tasks to be delegated to specialized child agents.
+- **Specialist Discovery**: Automated discovery of domain specialists from `MCP_AGENTS.md` and `A2A_AGENTS.md` registries.
 - **Agent Server**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/ag-ui`, `/stream` (SSE), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation**: Runtime generation of OpenAPI specifications for all agent server APIs.
 - **Workspace Management**: Automated management of agent state through standard markdown files (`IDENTITY.md`, `MEMORY.md`, `USER.md`).
@@ -45,6 +45,7 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 | `adguard-home-agent` | Graph |
 | `agent-utilities` | Library | Production-grade Orchestration. Supports Parallel execution, Real-time sub-agent streaming, High-fidelity observability, and Session Resumability |
 | `agent-webui` | Library | Cinematic Graph Activity Visualization. |
+| `agent-terminal-ui` | Library | High-performance Terminal User Interface (TUI) for local CLI interaction. |
 
 `agent-utilities` implements a multi-stage execution pipeline using `pydantic-graph` for maximum precision and resilience.
 
@@ -57,6 +58,7 @@ C4Container
 
     Container_Boundary(c1, "Agent Ecosystem") {
         Container(webui, "Agent WebUI", "React, Tailwind", "Renders streaming responses and graph activity visualization")
+        Container(tui, "Agent Terminal UI", "Python, Textual", "Provides a high-performance terminal interface for direct CLI interaction")
         Container(gateway, "Agent Gateway (FastAPI)", "Python, Pydantic-AI", "Handles SSE streams, merges graph events into chat annotations")
         Container(orchestrator, "Graph Orchestrator", "Pydantic-Graph", "Routes queries, executes parallel domains, validates results")
         Container(subagent, "Domain Sub-Agents", "Pydantic-AI", "Specialized agents for Git, Web, Cloud, etc.")
@@ -66,7 +68,9 @@ C4Container
     System_Ext(otel, "OpenTelemetry Collector", "Tracing and monitoring")
 
     Rel(user, webui, "Uses", "HTTPS/WSS")
+    Rel(user, tui, "Uses", "Terminal/CLI")
     Rel(webui, gateway, "Queries", "POST /stream (SSE)")
+    Rel(tui, gateway, "Queries", "POST /stream (SSE)")
     Rel(gateway, orchestrator, "Dispatches", "Async Python")
     Rel(orchestrator, subagent, "Delegates", "Parallel Execution")
     Rel(subagent, mcp, "Invokes Tools", "JSON-RPC (stdio/SSE)")
@@ -104,7 +108,7 @@ C4Container
 
   subgraph "Execution Phase"
     direction TB
-    
+
     subgraph "Programmers"
       direction LR
       PyP["<b>Python</b><br/>---<br/><i>u-skill:</i> agent-builder, tdd-methodology, mcp-builder, jupyter-notebook<br/><i>g-skill:</i> python-docs, fastapi-docs, pydantic-ai-docs<br/><i>t-tool:</i> developer_tools"]
@@ -132,7 +136,7 @@ C4Container
 
     subgraph Ecosystem ["Agent Ecosystem"]
       direction TB
-      
+
       subgraph Infra_Management ["Infrastructure & DevOps"]
         AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp<br/><i>run:</i> python -m adguard_home_agent.mcp_server"]
         AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp<br/><i>run:</i> python -m ansible_tower_mcp.mcp_server"]
@@ -191,7 +195,7 @@ C4Container
   Ecosystem --> exe_joiner
 
   exe_joiner -- "Implementation Results" --> dispatcher
-  
+
   dispatcher -- "Final Validation" --> verifier[Verifier: Quality Gate]
   verifier -- "Success" --> End
   verifier -- "Critical Fault" --> router_step
@@ -201,7 +205,7 @@ C4Container
   style Researcher fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
   style Architect fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
   style A2ADiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-  
+
   style Programmers fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
   style PyP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
   style TSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
@@ -239,7 +243,7 @@ C4Container
   style Ecosystem fill:#f5d0ef,stroke:#d6b656,stroke-width:2px
   style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
 	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
-  
+
 ```
 
 
@@ -267,11 +271,15 @@ from agent_utilities import create_agent
 # Create a simple agent with workspace tools
 agent = create_agent(name="MyAgent")
 
-# Or create a multi-agent supervisor
+# Create a powerful Graph Agent with Universal Skills
+# This automatically discovers domain specialists from registries
 agent = create_agent(
-    name="Supervisor",
-    agent_definitions=[{"name": "Researcher", "description": "Search the web"}]
+    name="ProAgent",
+    skill_types=["universal", "graphs"]
 )
+
+# Environment variable support (standard in .env)
+# SKILL_TYPES=universal,graphs
 ```
 
 ## API Documentation

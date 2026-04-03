@@ -32,7 +32,7 @@ text = "MIT"
 
 [project.optional-dependencies]
 mcp = [
-    "fastmcp>=3.0.2",
+    "fastmcp>=3.2.0",
     "eunomia-mcp>=0.3.10",
     "fastapi>=0.131.0",
     "httpx>=0.28.1"
@@ -42,23 +42,23 @@ agent = [
     "universal-skills>=0.1.56",
     "skill-graphs>=0.1.38",
     "pydantic-ai-skills>=0.4.1",
-    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.60.0",
+    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.77.0",
     "pydantic-graph>=0.1.8"
 ]
 agent-google = [
-    "pydantic-ai-slim[google]>=1.60.0"
+    "pydantic-ai-slim[google]>=1.77.0"
 ]
 agent-groq = [
-    "pydantic-ai-slim[groq]>=1.60.0"
+    "pydantic-ai-slim[groq]>=1.77.0"
 ]
 agent-mistral = [
-    "pydantic-ai-slim[mistral]>=1.60.0"
+    "pydantic-ai-slim[mistral]>=1.77.0"
 ]
 agent-anthropic = [
-    "pydantic-ai-slim[anthropic]>=1.60.0"
+    "pydantic-ai-slim[anthropic]>=1.77.0"
 ]
 agent-huggingface = [
-    "pydantic-ai-slim[huggingface]>=1.60.0"
+    "pydantic-ai-slim[huggingface]>=1.77.0"
 ]
 ag-ui = [
     "agent-webui>=0.1.32"]
@@ -75,7 +75,7 @@ embeddings-ollama = [
     "llama-index-embeddings-ollama>=0.8.6"]
 logfire = [
     "agent-utilities[agent]>=0.2.39",
-    "pydantic-ai-slim[logfire]>=1.60.0"
+    "pydantic-ai-slim[logfire]>=1.77.0"
 ]
 all = [
     "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire]>=0.2.39"]

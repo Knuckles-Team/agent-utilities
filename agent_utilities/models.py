@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
+# Unified Execution Models defined below at line 220+
+
 __version__ = "0.2.39"
 
 
@@ -16,7 +18,7 @@ class PeriodicTask(BaseModel):
     active: bool = True
 
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import asyncio
 
@@ -41,6 +43,7 @@ class AgentDeps:
     model_id: Optional[str] = None
     base_url: Optional[str] = None
     api_key: Optional[str] = None
+    mcp_toolsets: List[Any] = field(default_factory=list)
 
 
 class TaskStatus(str, Enum):
@@ -102,6 +105,17 @@ class IdentityModel(BaseModel):
     system_prompt: str = ""
 
 
+class GraphResponse(BaseModel):
+    """Standardized response from an agent graph execution."""
+
+    status: str = "pending"
+    results: Dict[str, Any] = Field(default_factory=dict)
+    mermaid: Optional[str] = None
+    usage: Optional[Any] = None
+    error: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class UserModel(BaseModel):
     name: str = "User"
     emoji: str = "👤"
@@ -159,6 +173,33 @@ class MCPConfigModel(BaseModel):
     mcpServers: Dict[str, Any] = Field(default_factory=dict)
 
 
+class MCPAgent(BaseModel):
+    name: str = Field(description="Display name of the agent")
+    description: str = Field(description="Specialized agent description")
+    system_prompt: str = Field(description="Synthesized system prompt")
+    tools: List[str] = Field(default_factory=list, description="List of tool names")
+    mcp_server: str = Field(description="Source MCP server name from config")
+    tag: Optional[str] = Field(
+        None, description="Metadata tag for sorting/customization"
+    )
+    is_custom: bool = Field(False, description="True if manually edited by user")
+
+
+class MCPToolInfo(BaseModel):
+    name: str = Field(description="Full tool name")
+    description: str = Field(description="Tool description")
+    tag: Optional[str] = Field(None, description="Primary tool tag for partitioning")
+    mcp_server: str = Field(description="Source MCP server")
+    all_tags: List[str] = Field(
+        default_factory=list, description="All tags associated with the tool"
+    )
+
+
+class MCPAgentRegistryModel(BaseModel):
+    agents: List[MCPAgent] = Field(default_factory=list)
+    tools: List[MCPToolInfo] = Field(default_factory=list)
+
+
 class UsageStatistics(BaseModel):
     """Real-time token usage and cost tracking."""
 
@@ -179,10 +220,17 @@ class ExecutionStep(BaseModel):
     """A single execution unit in a graph plan."""
 
     node_id: str = Field(description="The ID of the functional step to execute")
-    input_data: Optional[Any] = Field(
-        None, description="Input data passed to the step"
+    input_data: Optional[Any] = Field(None, description="Input data passed to the step")
+    is_parallel: bool = Field(
+        False, description="Whether this step starts a parallel batch"
     )
-    is_parallel: bool = Field(False, description="Whether this step starts a parallel batch")
+    status: str = Field("pending", description="Current execution status")
+
+
+class ParallelBatch(BaseModel):
+    """Wrapper for a batch of parallel tasks to avoid character-mapping in pydantic-graph."""
+
+    tasks: List[ExecutionStep] = Field(default_factory=list)
 
 
 class GraphPlan(BaseModel):

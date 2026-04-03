@@ -57,6 +57,7 @@ class AgentConfig(BaseSettings):
     port: int = Field(default=9000, alias="PORT")
     debug: bool = Field(default=False, alias="DEBUG")
     enable_web_ui: bool = Field(default=False, alias="ENABLE_WEB_UI")
+    enable_terminal_ui: bool = Field(default=False, alias="ENABLE_TERMINAL_UI")
 
     provider: Optional[str] = Field(default=None, alias="PROVIDER")
     model_id: Optional[str] = Field(default=None, alias="MODEL_ID")
@@ -76,8 +77,7 @@ class AgentConfig(BaseSettings):
     custom_skills_directory: Optional[str] = Field(
         default=None, alias="CUSTOM_SKILLS_DIRECTORY"
     )
-    load_universal_skills: bool = Field(default=False, alias="LOAD_UNIVERSAL_SKILLS")
-    load_skill_graphs: bool = Field(default=False, alias="LOAD_SKILL_GRAPHS")
+    skill_types: Optional[List[str]] = Field(default=None, alias="SKILL_TYPES")
 
     enable_otel: bool = Field(default=False, alias="ENABLE_OTEL")
     otel_exporter_otlp_endpoint: Optional[str] = Field(
@@ -197,9 +197,9 @@ DEFAULT_MCP_URL = config.mcp_url
 
 DEFAULT_MCP_CONFIG = config.mcp_config
 DEFAULT_CUSTOM_SKILLS_DIRECTORY = config.custom_skills_directory
-DEFAULT_LOAD_UNIVERSAL_SKILLS = config.load_universal_skills
-DEFAULT_LOAD_SKILL_GRAPHS = config.load_skill_graphs
+DEFAULT_SKILL_TYPES = config.skill_types
 DEFAULT_ENABLE_WEB_UI = config.enable_web_ui
+DEFAULT_ENABLE_TERMINAL_UI = config.enable_terminal_ui
 DEFAULT_ENABLE_OTEL = config.enable_otel
 
 if not config.enable_otel:
