@@ -2,7 +2,7 @@ import logging
 from typing import Any
 from pydantic_ai import RunContext
 from ..models import CronRegistryModel
-from ..agent_utilities import (
+from ..scheduler import (
     list_scheduled_tasks as list_scheduled_tasks_util,
     delete_scheduled_task as delete_scheduled_task_util,
     schedule_task as schedule_task_util,
@@ -35,8 +35,7 @@ async def delete_task(ctx: RunContext[Any], task_id: str) -> str:
 # New: View Cron Log (Code Puppy Port)
 async def view_cron_log(ctx: RunContext[Any], lines: int = 50) -> str:
     """View the recent execution logs for scheduled tasks."""
-    from ..workspace import CORE_FILES
-    from ..agent_utilities import read_md_file
+    from ..workspace import CORE_FILES, read_md_file
 
     content = read_md_file(CORE_FILES["CRON_LOG"])
     log_lines = content.splitlines()

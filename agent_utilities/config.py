@@ -16,6 +16,12 @@ try:
 except ImportError:
     HAS_LOGFIRE = False
 
+os.environ.setdefault("OTEL_SDK_DISABLED", "false")
+os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "false")
+_enable_otel = to_boolean(os.environ.get("ENABLE_OTEL", "False"))
+if _enable_otel:
+    os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+
 meta = {"name": "Agent", "description": "AI Agent"}
 
 
@@ -26,7 +32,6 @@ def get_env_file() -> Optional[str]:
 
     pkg = retrieve_package_name()
     if pkg and pkg != "agent_utilities":
-
         candidates = [
             Path.cwd() / ".env",
             Path.cwd() / pkg / ".env",
@@ -204,6 +209,8 @@ DEFAULT_ENABLE_OTEL = config.enable_otel
 
 if not config.enable_otel:
     os.environ["OTEL_SDK_DISABLED"] = "true"
+else:
+    os.environ.pop("OTEL_SDK_DISABLED", None)
 
 DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT = config.otel_exporter_otlp_endpoint
 DEFAULT_OTEL_EXPORTER_OTLP_HEADERS = config.otel_exporter_otlp_headers

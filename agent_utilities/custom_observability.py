@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import os
 import logging
-import asyncio
 import base64
 
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
@@ -35,13 +34,6 @@ except ImportError:
 from .base_utilities import (
     retrieve_package_name,
 )
-
-
-from .models import PeriodicTask
-
-tasks: List[PeriodicTask] = []
-lock = asyncio.Lock()
-
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +78,7 @@ def setup_otel(
     target_endpoint = endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     target_headers = headers or os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
     logger.debug(
-        f"OTel Config: endpoint={target_endpoint}, headers={'REDACTED' if target_headers else 'None'}"
+        f"OTel Config: endpoint={target_endpoint}, protocol={protocol}, headers={'REDACTED' if target_headers else 'None'}"
     )
 
     logfire.configure(

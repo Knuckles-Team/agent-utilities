@@ -5,8 +5,6 @@ from __future__ import annotations
 import sys
 import json
 import logging
-import asyncio
-
 
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from datetime import datetime
@@ -23,13 +21,6 @@ from .workspace import (
     get_workspace_path,
     CORE_FILES,
 )
-
-
-from .models import PeriodicTask
-
-tasks: List[PeriodicTask] = []
-lock = asyncio.Lock()
-
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +57,6 @@ def list_chats_from_disk() -> List[Dict[str, Any]]:
                 if isinstance(first_msg.get("content"), str):
                     message_text = first_msg["content"]
                 elif isinstance(first_msg.get("content"), list):
-
                     message_text = str(first_msg["content"][0])
 
             chats.append(

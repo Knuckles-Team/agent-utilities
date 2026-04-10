@@ -3,7 +3,7 @@
 import os
 import logging
 
-from .agent_utilities import (
+from . import (
     build_system_prompt_from_workspace,
     create_agent_parser,
     create_agent_server,
@@ -33,9 +33,9 @@ def agent_server():
     setup_logging(args.debug)
 
     if args.workspace:
-        from . import agent_utilities
+        from . import workspace as _ws_mod
 
-        agent_utilities.WORKSPACE_DIR = args.workspace
+        _ws_mod.WORKSPACE_DIR = args.workspace
         logging.info(f"Workspace override set to: {args.workspace}")
 
     initialize_workspace()

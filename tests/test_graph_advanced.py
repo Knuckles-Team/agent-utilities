@@ -1,131 +1,184 @@
 import pytest
-import asyncio
-import os
-from typing import Any
-from pathlib import Path
-from agent_utilities.graph_orchestration import (
-    create_graph_agent,
-    run_graph,
-    GraphState,
-    GraphDeps,
-    ValidatorNode,
-    ValidationResult,
-)
-from pydantic_graph import BaseNode, End
+from unittest.mock import MagicMock
+from pydantic_graph import End
 from pydantic_ai.models.test import TestModel
-from dataclasses import dataclass
 
-@dataclass
-class MockNode(BaseNode[GraphState, Any, Any]):
-    async def run(self, ctx):
-        return End("done")
+from agent_utilities.graph.state import GraphState, GraphDeps
+from agent_utilities.graph.steps import (
+    usage_guard_step,
+    verifier_step,
+    dispatcher_step,
+)
+from agent_utilities.graph.graph_models import ValidationResult
+from agent_utilities.models import (
+    GraphPlan,
+    ExecutionStep,
+)
+
+
+@pytest.fixture
+def mock_deps():
+    return GraphDeps(
+        tag_prompts={"test": "Test domain"},
+        tag_env_vars={"test": "TESTTOOL"},
+        mcp_toolsets=[],
+        agent_model=TestModel(),
+        router_model=TestModel(),
+    )
+
+
+def test_graph_deps_tool_guard_mode_regression():
+    """Ensure GraphDeps has tool_guard_mode to prevent regressions."""
+    deps = GraphDeps(
+        tag_prompts={},
+        tag_env_vars={},
+        mcp_toolsets=[],
+    )
+    assert hasattr(deps, "tool_guard_mode")
+    assert deps.tool_guard_mode in ["on", "off", "strict"]
+
 
 @pytest.mark.asyncio
-async def test_file_persistence(tmp_path):
-    """Test graph state persistence using pydantic-graph's built-in FileStatePersistence."""
-    from pydantic_graph.persistence.file import FileStatePersistence
+async def test_usage_guard_passes(mock_deps):
+    """Test usage guard passes for a normal query."""
+    state = GraphState(query="hello")
+    # Mock StepContext
+    ctx = MagicMock()
+    ctx.state = state
+    ctx.deps = mock_deps
 
-    json_path = tmp_path / "test_run.json"
-    persistence = FileStatePersistence(json_file=json_path)
-    state = GraphState(query="test", session_id="session123")
+    # We'll mock the Agent.run inside the usage_guard_step if possible,
+    # or just let the TestModel return something that contains "PASS".
+    # Since TestModel usually returns the prompt by default, we can set the model's call_index or similar.
+    # Actually, simpler: patch the Agent.run
 
+    class MockRes:
+        output = "PASS"
 
-    from pydantic_graph.persistence._utils import set_nodes_type_context
-    with set_nodes_type_context([MockNode]):
-        persistence.set_types(GraphState, dict)
+    async def mock_run(*args, **kwargs):
+        return MockRes()
 
-    node = MockNode()
-    await persistence.snapshot_node(state, node)
+    # We need to be careful with patching.
+    # Let's try to set the router_model to return PASS if we can.
+    # If not, patching is fine for unit tests.
 
+    mock_deps.router_model = TestModel()
 
-    history = await persistence.load_all()
-    assert len(history) == 1
-    assert history[0].state.query == "test"
-    assert history[0].state.session_id == "session123"
+    import unittest.mock
+
+    with unittest.mock.patch("pydantic_ai.Agent.run", new=mock_run):
+        res = await usage_guard_step(ctx)
+        assert res == "router"
+
 
 @pytest.mark.asyncio
-async def test_validator_node_llm_logic():
+async def test_verifier_step_success(mock_deps):
+    """Test verifier_step succeeds when validation score is high."""
+    state = GraphState(query="test query")
+    state.results_registry["node1"] = "execution result"
+    state.plan = GraphPlan(steps=[ExecutionStep(node_id="node1", is_parallel=False)])
 
-    val_model = TestModel()
+    ctx = MagicMock()
+    ctx.state = state
+    ctx.deps = mock_deps
 
+    class MockRes:
+        output = ValidationResult(is_valid=True, score=0.9, feedback="Good")
+        usage = None
 
-    import pydantic_ai.agent as pydantic_ai_agent
-    original_agent_run = pydantic_ai_agent.Agent.run
+    async def mock_run(*args, **kwargs):
+        return MockRes()
 
-    async def mock_agent_run(self, *args, **kwargs):
+    # Mock the synthesis run too
+    class MockSynthRes:
+        output = "Cohesive final answer"
+        usage = None
 
-        class MockRunRes:
-            def __init__(self, output):
-                self.output = output
+    async def mock_synth_run(*args, **kwargs):
+        return MockSynthRes()
 
+    import unittest.mock
 
-        if "Failure Case" in state.query:
-             return MockRunRes(ValidationResult(is_valid=False, score=0.2, feedback="Too short"))
-        return MockRunRes(ValidationResult(is_valid=True, score=0.9, feedback="Great job"))
-
-    pydantic_ai_agent.Agent.run = mock_agent_run
-
-    tag_prompts = {"test": "Test"}
-    state = GraphState(query="What is 2+2?", routed_domain="test")
-    state.results["test"] = "4"
-
-    class MockDeps:
-        def __init__(self, model):
-            self.tag_prompts = tag_prompts
-            self.provider = "test"
-            self.router_model = "test"
-            self.base_url = None
-            self.api_key = None
-            self.enable_llm_validation = True
-            self.ssl_verify = True
-            self.event_queue = None
-
-
-    import agent_utilities.graph_orchestration as go
-    original_create_model = go.create_model
-    go.create_model = lambda **kwargs: val_model
-
-    try:
-        node = ValidatorNode()
-        class MockCtx:
-            def __init__(self):
-                self.state = state
-                self.deps = MockDeps(val_model)
-
-        from pydantic_graph import End
-        res = await node.run(MockCtx())
+    with unittest.mock.patch("pydantic_ai.Agent.run") as mock_agent_run:
+        mock_agent_run.side_effect = [MockRes(), MockSynthRes()]
+        res = await verifier_step(ctx)
         assert isinstance(res, End)
+        assert res.data.status == "completed"
+        assert "execution result" in state.results_registry["node1"]
 
-
-        state.query = "Failure Case: Test"
-        state.retry_count = 0
-        res = await node.run(MockCtx())
-        from agent_utilities.graph_orchestration import DomainNode
-        assert isinstance(res, DomainNode)
-        assert state.retry_count == 1
-        assert state.validation_feedback == "Too short"
-    finally:
-        go.create_model = original_create_model
-        pydantic_ai_agent.Agent.run = original_agent_run
 
 @pytest.mark.asyncio
-async def test_parallel_result_merging():
-    from agent_utilities.graph_orchestration import ResultMergerNode
-    import json
+async def test_verifier_step_retry(mock_deps):
+    """Test verifier_step triggers a retry when validation score is low."""
+    state = GraphState(query="test query")
+    state.results_registry["node1"] = "poor result"
+    state.plan = GraphPlan(steps=[ExecutionStep(node_id="node1", is_parallel=False)])
 
+    ctx = MagicMock()
+    ctx.state = state
+    ctx.deps = mock_deps
+
+    class MockRes:
+        output = ValidationResult(is_valid=False, score=0.2, feedback="Too short")
+        usage = None
+
+    async def mock_run(*args, **kwargs):
+        return MockRes()
+
+    import unittest.mock
+
+    with unittest.mock.patch("pydantic_ai.Agent.run", new=mock_run):
+        res = await verifier_step(ctx)
+        assert res == "dispatcher"
+        assert state.verification_attempts == 1
+        assert state.validation_feedback == "Too short"
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_step_sequential(mock_deps):
+    """Test dispatcher_step correctly routes sequential steps."""
     state = GraphState(query="test")
-    state.results["domain1"] = '{"key": "value"}'
-    state.results["domain2"] = "plain text"
+    state.plan = GraphPlan(
+        steps=[
+            ExecutionStep(node_id="expert1", is_parallel=False),
+            ExecutionStep(node_id="verifier", is_parallel=False),
+        ]
+    )
+    state.step_cursor = 0
+    state.deferred_events = []
 
-    class MockCtx:
-        def __init__(self):
-            self.state = state
-            self.deps = None
+    ctx = MagicMock()
+    ctx.state = state
+    ctx.deps = mock_deps
 
-    node = ResultMergerNode()
-    await node.run(MockCtx())
+    res = await dispatcher_step(ctx)
+    assert res == "parallel_batch_processor"
+    assert state.pending_batch.tasks[0].node_id == "expert1"
+    assert state.step_cursor == 1
 
-    combined = state.results["combined_summary"]
-    assert isinstance(combined, dict)
-    assert combined["domain1"] == {"key": "value"}
-    assert combined["domain2"] == "plain text"
+
+@pytest.mark.asyncio
+async def test_dispatcher_step_parallel(mock_deps):
+    """Test dispatcher_step correctly groups parallel steps."""
+    state = GraphState(query="test")
+    state.plan = GraphPlan(
+        steps=[
+            ExecutionStep(node_id="expert1", is_parallel=True),
+            ExecutionStep(node_id="expert2", is_parallel=True),
+            ExecutionStep(node_id="verifier", is_parallel=False),
+        ]
+    )
+    state.step_cursor = 0
+    state.deferred_events = []
+
+    ctx = MagicMock()
+    ctx.state = state
+    ctx.deps = mock_deps
+
+    res = await dispatcher_step(ctx)
+    assert res == "parallel_batch_processor"
+    assert len(state.pending_batch.tasks) == 2
+    assert state.pending_batch.tasks[0].node_id == "expert1"
+    assert state.pending_batch.tasks[1].node_id == "expert2"
+    assert state.step_cursor == 2
+    assert state.pending_parallel_count == 2

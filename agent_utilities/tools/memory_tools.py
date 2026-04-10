@@ -2,7 +2,7 @@ import logging
 from typing import Any
 from pydantic_ai import RunContext
 from ..models import MemoryModel
-from ..agent_utilities import (
+from ..memory import (
     create_memory as create_memory_util,
     search_memory as search_memory_util,
     delete_memory_entry as delete_memory_entry_util,

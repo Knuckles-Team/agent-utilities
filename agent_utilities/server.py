@@ -7,6 +7,7 @@ import sys
 import json
 import logging
 import asyncio
+import anyio
 import httpx
 from typing import Any, List, Optional, Callable, TYPE_CHECKING
 
@@ -53,6 +54,7 @@ from .config import (
     DEFAULT_ENABLE_TERMINAL_UI,
 )
 from .workspace import (
+    WORKSPACE_DIR,
     initialize_workspace,
     get_workspace_path,
     load_workspace_file,
@@ -84,13 +86,21 @@ from .chat_persistence import (
     delete_chat_from_disk,
 )
 from .agent_factory import create_agent
-from .models import PeriodicTask, AgentDeps
-
-tasks: List[PeriodicTask] = []
-lock = asyncio.Lock()
+from .models import AgentDeps
 
 import warnings
 
+# Filter RequestsDependencyWarning early to prevent log spam
+try:
+    from requests.exceptions import RequestsDependencyWarning
+
+    warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
+except ImportError:
+    pass
+
+# General urllib3/chardet mismatch warnings
+warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
+warnings.filterwarnings("ignore", message=".*urllib3.*or charset_normalizer.*")
 warnings.filterwarnings("ignore", message=".*")
 
 logger = logging.getLogger(__name__)
@@ -123,7 +133,16 @@ class ReloadableApp:
         self.app = self.factory()
 
 
-def create_agent_server(
+def inject_reload_app(app: FastAPI, reload_app: ReloadableApp):
+    """Recursively inject the reloadable app reference into all mounted sub-apps."""
+    app.state.reload_app = reload_app
+    if hasattr(app, "routes"):
+        for route in app.routes:
+            if hasattr(route, "app") and isinstance(route.app, FastAPI):
+                inject_reload_app(route.app, reload_app)
+
+
+def build_agent_app(
     provider: str = DEFAULT_PROVIDER,
     model_id: str = DEFAULT_MODEL_ID,
     base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
@@ -162,6 +181,7 @@ def create_agent_server(
     persistence_url: Optional[str] = None,
     enable_terminal_ui: bool = False,
     isolate_mcp: bool = False,
+    mcp_toolsets: Optional[List[Any]] = None,
 ):
     """
     Create and run an agent server with FastAPI and FastMCP.
@@ -169,29 +189,21 @@ def create_agent_server(
     If agent_instance is provided, generation attributes (provider, model_id, etc.)
     are bypassed in favor of the existing instantiated agent.
     """
-    import uvicorn
     from fasta2a import Skill
 
     import warnings
 
     warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 
-    print(
-        f"Starting {DEFAULT_AGENT_NAME}:"
-        f"\tprovider={provider}"
-        f"\tmodel={model_id}"
-        f"\tbase_url={base_url}"
-        f"\tmcp={mcp_url} | {mcp_config}"
-        f"\tssl_verify={ssl_verify}",
-        file=sys.stderr,
-    )
-
     _name = name or DEFAULT_AGENT_NAME
 
     if workspace:
-        global WORKSPACE_DIR
-        WORKSPACE_DIR = workspace
+        from . import workspace as _ws_mod
+
+        _ws_mod.WORKSPACE_DIR = workspace
         logger.info(f"Workspace override set to: {workspace}")
+
+    reloadable: ReloadableApp = None  # Forward declaration for closure
 
     def app_factory() -> FastAPI:
         """Internal factory to build the agent and its web apps."""
@@ -234,6 +246,7 @@ def create_agent_server(
                 graph_bundle=graph_bundle,
                 tool_guard_mode="on",
                 isolate_mcp=isolate_mcp,
+                mcp_toolsets=mcp_toolsets,
             )
 
         if hasattr(_agent_instance, "tools"):
@@ -356,7 +369,7 @@ def create_agent_server(
             try:
                 # Use environment-provided MCP config if available, otherwise default workspace path
                 _mcp_path = resolve_mcp_config_path(mcp_config)
-                _agents_path = get_workspace_path(CORE_FILES["MCP_AGENTS"])
+                _agents_path = get_workspace_path(CORE_FILES["NODE_AGENTS"])
 
                 if _mcp_path and should_sync(_mcp_path, _agents_path):
                     logger.info(
@@ -367,14 +380,62 @@ def create_agent_server(
                 logger.error(f"Automatic MCP sync failed on startup: {e}")
 
             processor_task = asyncio.create_task(background_processor(_agent_instance))
-            try:
-                if hasattr(a2a_app, "router") and hasattr(
-                    a2a_app.router, "lifespan_context"
+            shutdown_event = anyio.Event()
+
+            async def connect_server(server, ready_event):
+                srv_id = getattr(server, "id", getattr(server, "name", str(server)))
+                if (
+                    hasattr(server, "__aenter__")
+                    and getattr(server, "_ag_connected", False) is False
                 ):
-                    async with a2a_app.router.lifespan_context(a2a_app):
-                        yield
+                    try:
+                        logger.info(
+                            f"Server Startup: Connecting MCP server '{srv_id}'..."
+                        )
+                        # enter_async_context must happen in the task that will exit it,
+                        # OR we use Structured Concurrency (async with) inside this task.
+                        async with server:
+                            server._ag_connected = True
+                            logger.info(
+                                f"Server Startup: Successfully connected '{srv_id}'"
+                            )
+                            ready_event.set()
+                            await shutdown_event.wait()
+                    except Exception as e:
+                        logger.error(
+                            f"Server Startup: Failed to connect to MCP server '{srv_id}': {e}"
+                        )
+                        # Ensure we don't hang if it fails
+                        ready_event.set()
                 else:
-                    yield
+                    ready_event.set()
+
+            try:
+                async with anyio.create_task_group() as tg:
+                    ready_events = []
+                    for s in _initialized_mcp_toolsets:
+                        re = anyio.Event()
+                        ready_events.append(re)
+                        tg.start_soon(connect_server, s, re)
+
+                    # Wait for all servers to signal they are connected (or failed)
+                    for re in ready_events:
+                        await re.wait()
+
+                    logger.info(
+                        f"Server Startup: Connected valid MCP toolsets ({len(_initialized_mcp_toolsets)} total)."
+                    )
+
+                    if hasattr(a2a_app, "router") and hasattr(
+                        a2a_app.router, "lifespan_context"
+                    ):
+                        async with a2a_app.router.lifespan_context(a2a_app):
+                            yield
+                    else:
+                        yield
+
+                    # Signal all connection tasks to wrap up
+                    shutdown_event.set()
             finally:
                 processor_task.cancel()
                 try:
@@ -406,7 +467,28 @@ def create_agent_server(
         @app.get("/health", tags=["Core"], summary="Health Check")
         async def health_check():
             """Returns the current status of the agent server."""
-            return {"status": "OK", "agent": _name, "version": __version__}
+            health_info = {
+                "status": "OK",
+                "agent": _name,
+                "version": __version__,
+            }
+            # Add graph info if available
+            if graph_bundle:
+                try:
+                    from .graph_orchestration import (
+                        NODE_SKILL_MAP,
+                        load_mcp_agent_registry,
+                    )
+
+                    registry = load_mcp_agent_registry()
+                    health_info["graph"] = {
+                        "skill_agents": len(NODE_SKILL_MAP),
+                        "mcp_agents": len(registry.agents),
+                        "mcp_tools": len(registry.tools),
+                    }
+                except Exception:
+                    pass
+            return health_info
 
         app.mount("/a2a", a2a_app)
 
@@ -422,7 +504,6 @@ def create_agent_server(
 
             run_id = uuid4().hex
             try:
-
                 body = await request.json()
                 if body and (
                     session_id := body.get("session_id") or body.get("run_id")
@@ -436,7 +517,7 @@ def create_agent_server(
             elicitation_queue = asyncio.Queue()
 
             deps = AgentDeps(
-                workspace_path=Path(WORKSPACE_DIR),
+                workspace_path=Path(WORKSPACE_DIR or "."),
                 graph_event_queue=graph_event_queue,
                 elicitation_queue=elicitation_queue,
                 request_id=run_id,
@@ -450,9 +531,17 @@ def create_agent_server(
             logger.info(f"AG-UI session context: {run_id}")
 
             async def merged_stream():
-                adapter = AGUIAdapter(agent=_agent_instance)
+                query = ""
+                try:
+                    body = await request.json()
+                    query = body.get("query", body.get("prompt", ""))
+                except Exception:
+                    pass
+                adapter = AGUIAdapter(agent=_agent_instance, run_input=query)
 
-                agent_response = await adapter.dispatch_request(request, deps=deps)
+                agent_response = await adapter.dispatch_request(
+                    request, agent=_agent_instance, deps=deps
+                )
                 if not isinstance(agent_response, StreamingResponse):
                     yield agent_response.body
                     return
@@ -462,18 +551,42 @@ def create_agent_server(
                 async def poll_agent():
                     try:
                         async for chunk in agent_response.body_iterator:
+                            # Handle both bytes and str chunks gracefully
+                            chunk_str = (
+                                chunk.decode("utf-8")
+                                if isinstance(chunk, bytes)
+                                else str(chunk)
+                            )
 
                             if (
-                                chunk.startswith(b"2:")
-                                or chunk.startswith(b"9:")
-                                or b'"tool_calls"' in chunk
+                                chunk_str.startswith("2:")
+                                or chunk_str.startswith("9:")
+                                or '"tool_calls"' in chunk_str
                             ):
-                                await combined_queue.put(("chunk", chunk))
+                                await combined_queue.put(
+                                    (
+                                        "chunk",
+                                        (
+                                            chunk
+                                            if isinstance(chunk, bytes)
+                                            else chunk.encode("utf-8")
+                                        ),
+                                    )
+                                )
                                 # Force immediate flush with an explicit heartbeat
                                 await combined_queue.put(("chunk", b'0 " "\n'))
                                 await asyncio.sleep(0.01)  # Yield to event loop
                             else:
-                                await combined_queue.put(("chunk", chunk))
+                                await combined_queue.put(
+                                    (
+                                        "chunk",
+                                        (
+                                            chunk
+                                            if isinstance(chunk, bytes)
+                                            else chunk.encode("utf-8")
+                                        ),
+                                    )
+                                )
                     except Exception as e:
                         logger.error(f"Agent stream error: {e}")
                     finally:
@@ -482,7 +595,6 @@ def create_agent_server(
                 async def poll_sideband():
                     while True:
                         try:
-
                             tasks = [
                                 asyncio.create_task(graph_event_queue.get()),
                                 asyncio.create_task(elicitation_queue.get()),
@@ -494,7 +606,6 @@ def create_agent_server(
                             for task in done:
                                 try:
                                     ev = await task
-
                                     if ev:
                                         packet = f"8:{json.dumps(ev)}\n".encode("utf-8")
                                         await combined_queue.put(("chunk", packet))
@@ -505,14 +616,12 @@ def create_agent_server(
                                     logger.error(
                                         f"Error processing sideband event: {e}"
                                     )
-
                             for task in pending:
                                 task.cancel()
                                 try:
                                     await task
                                 except asyncio.CancelledError:
                                     pass
-
                         except asyncio.CancelledError:
                             break
                         except Exception as e:
@@ -529,7 +638,6 @@ def create_agent_server(
                                 combined_queue.get(), timeout=0.1
                             )
                             if msg_type == "done":
-
                                 await asyncio.sleep(0.1)
                                 if (
                                     not graph_event_queue.empty()
@@ -540,7 +648,6 @@ def create_agent_server(
                             yield data
                             combined_queue.task_done()
                         except asyncio.TimeoutError:
-
                             yield b'0 " "\n'
                             if agent_task.done() and combined_queue.empty():
                                 break
@@ -551,7 +658,7 @@ def create_agent_server(
 
             return StreamingResponse(
                 merged_stream(),
-                content_type="text/plain; charset=utf-8",
+                media_type="text/plain; charset=utf-8",
                 headers={
                     "Cache-Control": "no-cache",
                     "X-Accel-Buffering": "no",
@@ -625,8 +732,10 @@ def create_agent_server(
         )
         async def get_mcp_config():
             """Returns the current mcp_config.json contents."""
+            from .workspace import CORE_FILES as _cf
+
             mcp_config_path = get_workspace_path(
-                CORE_FILES.get("MCP_CONFIG", "mcp_config.json")
+                _cf.get("MCP_CONFIG", "mcp_config.json")
             )
             if not mcp_config_path.exists():
                 # Fallback to local agent_data/mcp_config.json if not in workspace
@@ -673,6 +782,31 @@ def create_agent_server(
                             pass
             return tools
 
+        app.post(
+            "/mcp/reload",
+            tags=["Interoperability"],
+            summary="Hot-reload MCP servers and rebuild graph",
+        )
+
+        async def reload_mcp_config():
+            """Re-sync MCP agents from config and rebuild graph without restarting"""
+            try:
+                from .mcp_agent_manager import sync_mcp_agents
+                from .workspace import resolve_mcp_config_path
+                from .graph_orchestration import load_mcp_agents_registry
+
+                _mcp_cfg_path = resolve_mcp_config_path(mcp_config or "mcp_config.json")
+                if _mcp_cfg_path:
+                    await sync_mcp_agents(config_path=_mcp_cfg_path)
+                registry = load_mcp_agents_registry()
+                return {
+                    "status": "reloaded",
+                    "agents": len(registry.agents),
+                    "tools": len(registry.tools),
+                }
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
+
         if enable_web_ui is None:
             enable_web_ui = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
 
@@ -701,7 +835,6 @@ def create_agent_server(
                     "write_md_file": write_md_file,
                     "list_workspace_files": list_workspace_files,
                     "initialize_workspace": initialize_workspace,
-                    "toggle_skill": lambda sid: f"Skill {sid} toggled (not implemented)",
                     "list_skills": lambda: [
                         {
                             "id": s.id if hasattr(s, "id") else s.get("id"),
@@ -745,20 +878,106 @@ def create_agent_server(
         return app
 
     reloadable = ReloadableApp(app_factory)
-
-    def inject_reload_app(fast_app: FastAPI, wrapper: ReloadableApp):
-        fast_app.state.reload_app = wrapper
-        from fastapi.routing import Mount
-
-        for route in fast_app.routes:
-            if (
-                isinstance(route, Mount)
-                and hasattr(route, "app")
-                and isinstance(route.app, FastAPI)
-            ):
-                inject_reload_app(route.app, wrapper)
-
     inject_reload_app(reloadable.app, reloadable)
+    return reloadable.app
+
+
+def create_agent_server(
+    provider: str = DEFAULT_PROVIDER,
+    model_id: str = DEFAULT_MODEL_ID,
+    base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
+    api_key: Optional[str] = DEFAULT_LLM_API_KEY,
+    mcp_url: Optional[str] = DEFAULT_MCP_URL,
+    mcp_config: Optional[str] = DEFAULT_MCP_CONFIG,
+    custom_skills_directory: Optional[str] = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
+    debug: Optional[bool] = DEFAULT_DEBUG,
+    host: Optional[str] = DEFAULT_HOST,
+    port: Optional[int] = DEFAULT_PORT,
+    enable_web_ui: Optional[bool] = DEFAULT_ENABLE_WEB_UI,
+    custom_web_app: Optional[Callable[[Agent], Any]] = None,
+    custom_web_mount_path: str = "/",
+    web_ui_instructions: Optional[str] = None,
+    html_source: Optional[str | Path] = None,
+    ssl_verify: bool = DEFAULT_SSL_VERIFY,
+    name: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    enable_otel: Optional[bool] = DEFAULT_ENABLE_OTEL,
+    otel_endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    otel_headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    otel_public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    otel_secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    otel_protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+    workspace: Optional[str] = None,
+    a2a_broker: str = DEFAULT_A2A_BROKER,
+    a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
+    a2a_storage: str = DEFAULT_A2A_STORAGE,
+    a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
+    skill_types: Optional[List[str]] = None,
+    agent_instance: Optional[Agent] = None,
+    graph_bundle: Optional[tuple] = None,
+    persistence_type: str = "file",
+    persistence_path: Optional[str] = None,
+    persistence_dsn: Optional[str] = None,
+    persistence_url: Optional[str] = None,
+    enable_terminal_ui: bool = False,
+    isolate_mcp: bool = False,
+    mcp_toolsets: Optional[List[Any]] = None,
+):
+    """
+    Create and run an agent server with FastAPI and FastMCP.
+    """
+    import uvicorn
+
+    print(
+        f"Starting {DEFAULT_AGENT_NAME}:"
+        f"\tprovider={provider}"
+        f"\tmodel={model_id}"
+        f"\tbase_url={base_url}"
+        f"\tmcp={mcp_url} | {mcp_config}"
+        f"\tssl_verify={ssl_verify}",
+        file=sys.stderr,
+    )
+
+    app = build_agent_app(
+        provider=provider,
+        model_id=model_id,
+        base_url=base_url,
+        api_key=api_key,
+        mcp_url=mcp_url,
+        mcp_config=mcp_config,
+        custom_skills_directory=custom_skills_directory,
+        debug=debug,
+        enable_web_ui=enable_web_ui,
+        custom_web_app=custom_web_app,
+        custom_web_mount_path=custom_web_mount_path,
+        web_ui_instructions=web_ui_instructions,
+        html_source=html_source,
+        ssl_verify=ssl_verify,
+        name=name,
+        system_prompt=system_prompt,
+        enable_otel=enable_otel,
+        otel_endpoint=otel_endpoint,
+        otel_headers=otel_headers,
+        otel_public_key=otel_public_key,
+        otel_secret_key=otel_secret_key,
+        otel_protocol=otel_protocol,
+        workspace=workspace,
+        a2a_broker=a2a_broker,
+        a2a_broker_url=a2a_broker_url,
+        a2a_storage=a2a_storage,
+        a2a_storage_url=a2a_storage_url,
+        skill_types=skill_types,
+        agent_instance=agent_instance,
+        graph_bundle=graph_bundle,
+        persistence_type=persistence_type,
+        persistence_path=persistence_path,
+        persistence_dsn=persistence_dsn,
+        persistence_url=persistence_url,
+        isolate_mcp=isolate_mcp,
+        mcp_toolsets=mcp_toolsets,
+    )
+
+    reloadable = app.state.reload_app
 
     logger.info(
         "Starting server on %s:%s (A2A at /a2a, AG-UI at /ag-ui, Web UI: %s)",
@@ -809,7 +1028,7 @@ def create_agent_server(
                 "\nError: 'agent-terminal-ui' command not found. Please install the agent-terminal-ui package."
             )
         except Exception as e:
-            print(f"\nError launching TUI: {e}")
+            print(f"Error launching TUI: {e}")
 
         return
 
@@ -889,6 +1108,19 @@ def create_graph_agent_server(
 
     warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 
+    from .workspace import WORKSPACE_DIR as _ws_sentinel
+
+    if workspace:
+        from . import workspace as _ws_mod
+
+        _ws_mod.WORKSPACE_DIR = workspace
+        logger.info(f"Graph Agent: Workspace set early to {workspace}")
+    elif not _ws_sentinel:
+        from .workspace import get_agent_workspace
+
+        _auto_ws = get_agent_workspace()
+        logger.info(f"Graph Agent: Auto-detected workspace {_auto_ws}")
+
     _mcp_url = mcp_url or os.getenv("MCP_URL")
     if _mcp_url:
         logger.info(f"Graph Agent: Using external MCP server at {_mcp_url}")
@@ -911,7 +1143,7 @@ def create_graph_agent_server(
             from .graph_orchestration import initialize_graph_from_workspace
 
             _mcp_cfg_path = resolve_mcp_config_path(mcp_config)
-            _agents_reg_path = get_workspace_path(CORE_FILES["MCP_AGENTS"])
+            _agents_reg_path = get_workspace_path(CORE_FILES["NODE_AGENTS"])
 
             if _mcp_cfg_path and should_sync(_mcp_cfg_path, _agents_reg_path):
                 from .mcp_agent_manager import sync_mcp_agents
@@ -923,6 +1155,7 @@ def create_graph_agent_server(
                 mcp_config=mcp_config,
                 router_model=router_model,
                 agent_model=agent_model,
+                workspace=workspace,
             )
             # Fetch tag_prompts from graph_config for logging below
             tag_prompts = graph_config.get("tag_prompts", {})
@@ -940,8 +1173,7 @@ def create_graph_agent_server(
             )
 
     logger.info(
-        f"Graph Agent '{graph_name}' initialized with "
-        f"{len(tag_prompts)} domain nodes"
+        f"Graph Agent '{graph_name}' initialized with {len(tag_prompts)} domain nodes"
     )
     logger.info(f"Mermaid diagram:\n{get_graph_mermaid(graph, graph_config)}")
 
@@ -963,7 +1195,7 @@ def create_graph_agent_server(
         base_url=base_url,
         api_key=api_key,
         mcp_url=_mcp_url,
-        mcp_config=mcp_config,
+        mcp_config=None,  # Handled robustly by graph_config
         skill_types=skill_types,
         custom_skills_directory=custom_skills_directory,
         debug=debug,
@@ -995,4 +1227,5 @@ def create_graph_agent_server(
         persistence_dsn=persistence_dsn,
         persistence_url=persistence_url,
         isolate_mcp=True,
+        mcp_toolsets=graph_config.get("mcp_toolsets", []),
     )

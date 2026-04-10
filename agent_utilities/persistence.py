@@ -12,14 +12,12 @@ from dataclasses import asdict
 from pydantic import TypeAdapter
 
 try:
-
     from pydantic_graph.persistence import (
         BaseStatePersistence,
         NodeSnapshot,
         EndSnapshot,
     )
 except ImportError:
-
     BaseStatePersistence = Any
     NodeSnapshot = Any
     EndSnapshot = Any
@@ -102,7 +100,7 @@ class PostgresStatePersistence(BaseStatePersistence[StateT]):
                 INSERT INTO {self.table_name} (run_id, timestamp, snapshot_id, node_id, data, state, is_end)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (snapshot_id) DO NOTHING
-            """,
+                """,
                 snapshot.run_id,
                 snapshot.timestamp,
                 getattr(
@@ -131,7 +129,7 @@ class PostgresStatePersistence(BaseStatePersistence[StateT]):
                 f"""
                 INSERT INTO {self.table_name} (run_id, timestamp, snapshot_id, data, state, is_end)
                 VALUES ($1, $2, $3, $4, $5, $6)
-            """,
+                """,
                 snapshot.run_id,
                 snapshot.timestamp,
                 f"{snapshot.run_id}_end",

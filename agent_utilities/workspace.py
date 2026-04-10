@@ -50,7 +50,7 @@ CORE_FILES = {
     "CRON_LOG": "CRON_LOG.md",
     "CHATS": "chats",
     "MCP_CONFIG": "mcp_config.json",
-    "MCP_AGENTS": "MCP_AGENTS.md",
+    "NODE_AGENTS": "NODE_AGENTS.md",
     "HEARTBEAT": "HEARTBEAT.md",
     "ICON": "icon.png",
 }
@@ -120,14 +120,14 @@ No specific user input is required unless you detect an issue.
     "mcpServers": {}
 }
 """,
-    "MCP_AGENTS": """# MCP_AGENTS.md - Dynamic Agent Registry
+    "NODE_AGENTS": """# NODE_AGENTS.md - Dynamic Agent Registry
 
-This file tracks the generated agents from MCP servers. You can manually modify the 'Tools' list to customize agent expertise.
+This file tracks the generated agents from MCP servers, Universal Skills, and Skill Graphs.
 
 ## Agent Mapping Table
 
-| Name | Description | System Prompt | Tools | Tag | Source MCP |
-|------|-------------|---------------|-------|-----|------------|
+| Name | Description | System Prompt | Tools | Tag / ID | Source MCP / Skill |
+|------|-------------|---------------|-------|----------|--------------------|
 
 ## Tool Inventory Table
 
@@ -137,25 +137,55 @@ This file tracks the generated agents from MCP servers. You can manually modify 
 }
 
 
-def get_skills_path() -> Optional[str]:
+def get_skills_path() -> List[str]:
     try:
         package_name = retrieve_package_name()
+        if not package_name:
+            # Fallback to current directory skills if no package found
+            local_skills = Path.cwd() / "skills"
+            if local_skills.exists():
+                return [str(local_skills)]
+            return []
+
+        # Check for skills in standard subdirectories
         for sub in ["agent_data/skills", "agent/skills", "skills"]:
-            skills_dir = os.path.join(files(package_name), sub)
-            if os.path.isdir(skills_dir):
-                with as_file(Path(skills_dir)) as path:
-                    return str(path)
-        return None
+            try:
+                from importlib.resources import files
+
+                skills_dir = os.path.join(str(files(package_name)), sub)
+                if os.path.exists(skills_dir):
+                    logger.debug(f"Found skills at {skills_dir}")
+                    return [str(skills_dir)]
+            except (ImportError, ValueError, TypeError) as e:
+                logger.debug(f"Subdirectory lookup fail for {sub}: {e}")
+                continue
+
+        # Fallback to manual path construction if resources.files fails
+        try:
+            import importlib.util
+
+            spec = importlib.util.find_spec(package_name)
+            if spec and spec.origin:
+                pkg_root = Path(spec.origin).parent
+                for sub in ["agent_data/skills", "agent/skills", "skills"]:
+                    skills_dir = pkg_root / sub
+                    if skills_dir.exists():
+                        return [str(skills_dir)]
+        except Exception as e:
+            logger.debug(f"Manual path fallback fail: {e}")
+
     except Exception as e:
         logger.debug(f"Error accessing skills path: {e}")
-        return None
+    return []
 
 
 def get_mcp_config_path() -> Optional[str]:
     try:
         package_name = retrieve_package_name()
         for sub in ["agent_data", "agent"]:
-            mcp_config_file = os.path.join(files(package_name), sub, "mcp_config.json")
+            mcp_config_file = os.path.join(
+                str(files(package_name)), sub, "mcp_config.json"
+            )
             if os.path.isfile(mcp_config_file):
                 with as_file(Path(mcp_config_file)) as path:
                     return str(path)
@@ -194,13 +224,13 @@ def get_agent_workspace() -> Path:
 
             for sub in ["agent_data", "agent"]:
                 try:
-                    pkg_resource_dir = files(pkg) / sub
+                    pkg_resource_dir = files(pkg).joinpath(sub)
                     if pkg_resource_dir.is_dir():
                         with as_file(pkg_resource_dir) as path:
                             p = path.resolve()
                             WORKSPACE_DIR = str(p)
                             return p
-                except Exception:
+                except (OSError, ValueError):
                     pass
 
             import importlib.util
@@ -217,7 +247,7 @@ def get_agent_workspace() -> Path:
                 for candidate in candidates:
                     if candidate.is_dir():
                         return candidate.resolve()
-        except Exception:
+        except (OSError, ValueError):
             pass
 
     for sub in ["agent_data", "agent"]:
@@ -236,7 +266,7 @@ def get_agent_workspace() -> Path:
                         p = candidate.resolve()
                         WORKSPACE_DIR = str(p)
                         return p
-    except Exception:
+    except (OSError, ValueError):
         pass
 
     for sub in ["agent_data", "agent"]:
@@ -285,15 +315,42 @@ def resolve_mcp_config_path(mcp_config: str) -> Optional[Path]:
     # Check Local Package
     pkg = retrieve_package_name()
     if pkg and pkg != "agent_utilities":
+        # Strategy A: importlib.resources (standard)
+        try:
+            from importlib.resources import files
+
+            for sub in ["agent_data", "agent", ""]:
+                p_bin = Path(str(files(pkg).joinpath(sub).joinpath(mcp_config)))
+                if p_bin.exists():
+                    return p_bin
+        except (ImportError, ValueError, TypeError):
+            pass
+
+        # Strategy B: importlib.util.find_spec (robust fallback for development installs)
+        try:
+            import importlib.util
+
+            spec = importlib.util.find_spec(pkg)
+            if spec and spec.origin:
+                pkg_root = Path(spec.origin).parent
+                for sub in ["agent_data", "agent", ""]:
+                    p_spec = pkg_root / sub / mcp_config
+                    if p_spec.exists():
+                        return p_spec
+        except Exception:
+            pass
+
+        # Strategy C: CWD fallback (legacy)
         candidates = [
             Path.cwd() / pkg / "agent_data" / mcp_config,
             Path.cwd() / pkg / mcp_config,
+            Path.cwd() / "agent_data" / mcp_config,
         ]
         for candidate in candidates:
             if candidate.exists():
                 return candidate
 
-    # Check CWD
+    # Check CWD directly
     local_config = Path.cwd() / mcp_config
     if local_config.exists():
         return local_config
@@ -322,7 +379,7 @@ def initialize_workspace(overwrite: bool = False):
     try:
         with as_file(files("agent_utilities") / "agent_data") as p:
             internal_dirs.append(str(p.resolve()))
-    except Exception:
+    except (OSError, ValueError):
         pass
 
     if str(discovered.resolve()) not in internal_dirs:
@@ -676,7 +733,9 @@ def parse_cron_log(content: str) -> CronLogModel:
             tid = header_match.group(3)
             cid = (
                 header_match.group(4).lstrip("/")
-                if header_match.lastindex >= 4 and header_match.group(4)
+                if header_match.lastindex is not None
+                and header_match.lastindex >= 4
+                and header_match.group(4)
                 else None
             )
 
@@ -708,8 +767,8 @@ def serialize_cron_log(model: CronLogModel) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def parse_mcp_registry(content: str) -> MCPAgentRegistryModel:
-    """Parse MCP_AGENTS.md tables into MCPAgentRegistryModel."""
+def parse_node_registry(content: str) -> MCPAgentRegistryModel:
+    """Parse NODE_AGENTS.md tables into MCPAgentRegistryModel."""
     agents = []
     tools = []
     lines = content.splitlines()
@@ -757,17 +816,17 @@ def parse_mcp_registry(content: str) -> MCPAgentRegistryModel:
     return MCPAgentRegistryModel(agents=agents, tools=tools)
 
 
-def serialize_mcp_registry(model: MCPAgentRegistryModel) -> str:
-    """Serialize MCPAgentRegistryModel back to MCP_AGENTS.md format."""
+def serialize_node_registry(model: MCPAgentRegistryModel) -> str:
+    """Serialize MCPAgentRegistryModel back to NODE_AGENTS.md format."""
     lines = [
-        "# MCP_AGENTS.md - Dynamic Agent Registry",
+        "# NODE_AGENTS.md - Dynamic Agent Registry",
         "",
-        "This file tracks the generated agents from MCP servers. You can manually modify the 'Tools' list to customize agent expertise.",
+        "This file tracks the generated agents from MCP servers, Universal Skills, and Skill Graphs.",
         "",
         "## Agent Mapping Table",
         "",
-        "| Name | Description | System Prompt | Tools | Tag | Source MCP |",
-        "|------|-------------|---------------|-------|-----|------------|",
+        "| Name | Description | System Prompt | Tools | Tag / ID | Source MCP / Skill |",
+        "|------|-------------|---------------|-------|----------|--------------------|",
     ]
     for a in model.agents:
         tools_str = ", ".join(a.tools)

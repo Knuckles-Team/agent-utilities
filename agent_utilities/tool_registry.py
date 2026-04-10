@@ -65,7 +65,13 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None):
 
             result = await run_graph(graph, config, prompt, eq=eq)
             if hasattr(result, "results"):
-                return str(result.results.get("output", result.results))
+                output = result.results.get("output", result.results)
+                if not output or str(output).lower() == "none":
+                    return (
+                        "The analysis completed, but no specific data was returned for your query. "
+                        "This may happen if the target system has no matching resources, if synthesis failed, or if tools were not loaded correctly."
+                    )
+                return str(output)
             return str(result)
 
         # STRICT ISOLATION: If we are a graph orchestrator, we ONLY have run_graph_flow.

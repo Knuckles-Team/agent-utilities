@@ -1,9 +1,9 @@
-
 from fastapi.testclient import TestClient
 from agent_utilities.server import create_agent_server
 import uvicorn
 from unittest.mock import MagicMock
 import os
+
 
 def test_docs_exists():
     # Mock uvicorn.run to capture the app
@@ -34,6 +34,7 @@ def test_docs_exists():
             print(f"  - {path}")
 
     uvicorn.run = original_run
+
 
 if __name__ == "__main__":
     test_docs_exists()

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import os
 import logging
-import asyncio
 import httpx
 
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
@@ -67,12 +66,6 @@ except ImportError:
     GroqProvider = None
 
 
-from .models import PeriodicTask
-
-tasks: List[PeriodicTask] = []
-lock = asyncio.Lock()
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -102,7 +95,6 @@ def create_model(
 
     http_client = None
     if http_client is None:
-
         limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
         timeout_obj = httpx.Timeout(timeout, connect=30.0)
         http_client = httpx.AsyncClient(

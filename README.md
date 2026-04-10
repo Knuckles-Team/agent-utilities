@@ -29,12 +29,16 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 
 ## Key Features
 
+- **Dynamic MCP Tool Distribution**: Load an `mcp_config.json` and the system automatically connects to each MCP server, extracts and tags every tool, partitions them into focused specialist agents (~10-20 tools each), and registers them as graph nodes at runtime. This keeps context windows light - "GitLab Projects" specialist only sees 10 project tools
 - **Flexible Skill Loading**: Unified `skill_types` parameter to dynamically load `universal` skills, `graphs`, or custom workspace toolsets.
-- **Advanced Graph Orchestration**: Multi-domain routing with `HybridRouterNode` (Rule-based + LLM) and **parallel execution** with `ParallelDomainNode`.
-- **Resilience & Accuracy**: Native support for **Error Recovery** (exponential backoff), **State Persistence** (checkpointing), and **Result Validation**.
-- **Observability**: Real-time **Graph Streaming** (SSE) and **Lifecycle Hooks** (`on_tool_start`, `on_tool_end`) for distributed telemetry.
+- **Advanced Graph Orchestration**: Router → Planner → Dispatcher pipeline with parallel fan-out execution. Dynamic step registration for both hardcoded skill agents and MCP-discovered specialists.
+- **Self-Healing**: Circuit breaker for MCP Servers (closed/open/half-open), specialist fallback chain, tool-level retries with exponential backoff, per-node timeout, and automatic re-planning on failure.
+- **Self-Correcting**: Verifier feedback loop with structured `ValidationResult` scoring. Low-quality results trigger re-dispatch with feedback injection and preserved message history.
+- **Self-Improving**: Execution memory persisted to `MEMORY.md` after each run. Past failure patterns automatically inform future routing decisions.
+- **Resilience & Accuracy**: Error recovery with local retries, re-planning loops, and result verification via the Verifier quality gate.
+- **Observability**: Real-time **Graph Streaming** (SSE) and lifecycle events. Early OTEL/logfire gate.
 - **Typed Foundation**: Zero-config dependency injection using `AgentDeps`.
-- **Specialist Discovery**: Automated discovery of domain specialists from `MCP_AGENTS.md` and `A2A_AGENTS.md` registries.
+- **Specialist Discovery**: Automated discovery of domain specialists from `NODE_AGENTS.md` and `A2A_AGENTS.md` registries.
 - **Agent Server**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/ag-ui`, `/stream` (SSE), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation**: Runtime generation of OpenAPI specifications for all agent server APIs.
 - **Workspace Management**: Automated management of agent state through standard markdown files (`IDENTITY.md`, `MEMORY.md`, `USER.md`).
@@ -115,8 +119,9 @@ C4Container
       TSP["<b>TypeScript</b><br/>---<br/><i>u-skill:</i> react-development, web-artifacts, tdd-methodology, canvas-design<br/><i>g-skill:</i> nodejs-docs, react-docs, nextjs-docs, shadcn-docs<br/><i>t-tool:</i> developer_tools"]
       GoP["<b>Go</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> go-docs<br/><i>t-tool:</i> developer_tools"]
       RustP["<b>Rust</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> rust-docs<br/><i>t-tool:</i> developer_tools"]
-      CP["<b>C/C++</b><br/>---<br/><i>t-tool:</i> developer_tools"]
-      JSP["<b>JavaScript</b><br/>---<br/><i>u-skill:</i> web-artifacts, canvas-design<br/><i>g-skill:</i> nodejs-docs, react-docs<br/><i>t-tool:</i> developer_tools"]
+      CSP["<b>C Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> c-docs<br/><i>t-tool:</i> developer_tools"]
+      CPP["<b>C++ Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> cpp-docs<br/><i>t-tool:</i> developer_tools"]
+      JSP["<b>JavaScript</b><br/>---<br/><i>u-skill:</i> web-artifacts, canvas-design, developer-utilities<br/><i>g-skill:</i> nodejs-docs, react-docs<br/><i>t-tool:</i> developer_tools"]
     end
 
     subgraph "Infrastructure"
@@ -138,48 +143,48 @@ C4Container
       direction TB
 
       subgraph Infra_Management ["Infrastructure & DevOps"]
-        AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp<br/><i>run:</i> python -m adguard_home_agent.mcp_server"]
-        AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp<br/><i>run:</i> python -m ansible_tower_mcp.mcp_server"]
-        ContainerManager["<b>Container Manager Agent</b><br/>---<br/><i>mcp-tool:</i> container-mcp<br/><i>run:</i> python -m container_manager_mcp.mcp_server"]
-        Microsoft["<b>Microsoft Agent</b><br/>---<br/><i>mcp-tool:</i> microsoft-mcp<br/><i>run:</i> python -m microsoft_agent.mcp_server"]
-        Portainer["<b>Portainer Agent</b><br/>---<br/><i>mcp-tool:</i> portainer-mcp<br/><i>run:</i> python -m portainer_agent.mcp_server"]
-        SystemsManager["<b>Systems Manager</b><br/>---<br/><i>mcp-tool:</i> systems-mcp<br/><i>run:</i> python -m systems_manager.mcp_server"]
-        TunnelManager["<b>Tunnel Manager</b><br/>---<br/><i>mcp-tool:</i> tunnel-mcp<br/><i>run:</i> python -m tunnel_manager.mcp_server"]
-        UptimeKuma["<b>Uptime Kuma Agent</b><br/>---<br/><i>mcp-tool:</i> uptime-mcp<br/><i>run:</i> python -m uptime_kuma_agent.mcp_server"]
-        RepositoryManager["<b>Repository Manager</b><br/>---<br/><i>mcp-tool:</i> repository-mcp<br/><i>run:</i> python -m repository_manager.mcp_server"]
+        AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp<br/>"]
+        AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp<br/>"]
+        ContainerManager["<b>Container Manager Agent</b><br/>---<br/><i>mcp-tool:</i> container-mcp<br/>"]
+        Microsoft["<b>Microsoft Agent</b><br/>---<br/><i>mcp-tool:</i> microsoft-mcp<br/>"]
+        Portainer["<b>Portainer Agent</b><br/>---<br/><i>mcp-tool:</i> portainer-mcp<br/>"]
+        SystemsManager["<b>Systems Manager</b><br/>---<br/><i>mcp-tool:</i> systems-mcp<br/>"]
+        TunnelManager["<b>Tunnel Manager</b><br/>---<br/><i>mcp-tool:</i> tunnel-mcp<br/>"]
+        UptimeKuma["<b>Uptime Kuma Agent</b><br/>---<br/><i>mcp-tool:</i> uptime-mcp<br/>"]
+        RepositoryManager["<b>Repository Manager</b><br/>---<br/><i>mcp-tool:</i> repository-mcp<br/>"]
       end
 
       subgraph Media_HomeLab ["Media & Home Lab"]
-        ArchiveBox["<b>ArchiveBox API</b><br/>---<br/><i>mcp-tool:</i> archivebox-mcp<br/><i>run:</i> python -m archivebox_api.mcp_server"]
-        Arr["<b>Arr (Radarr/Sonarr)</b><br/>---<br/><i>mcp-tool:</i> arr-mcp<br/><i>run:</i> python -m arr_mcp.mcp_server"]
-        AudioTranscriber["<b>Audio Transcriber</b><br/>---<br/><i>mcp-tool:</i> audio-transcriber-mcp<br/><i>run:</i> python -m audio_transcriber.mcp_server"]
-        Jellyfin["<b>Jellyfin Agent</b><br/>---<br/><i>mcp-tool:</i> jellyfin-mcp<br/><i>run:</i> python -m jellyfin_mcp.mcp_server"]
-        MediaDownloader["<b>Media Downloader</b><br/>---<br/><i>mcp-tool:</i> media-mcp<br/><i>run:</i> python -m media_downloader.mcp_server"]
-        Owncast["<b>Owncast Agent</b><br/>---<br/><i>mcp-tool:</i> owncast-mcp<br/><i>run:</i> python -m owncast_agent.mcp_server"]
-        qBittorrent["<b>qBittorrent Agent</b><br/>---<br/><i>mcp-tool:</i> qbittorrent-mcp<br/><i>run:</i> python -m qbittorrent_agent.mcp_server"]
+        ArchiveBox["<b>ArchiveBox API</b><br/>---<br/><i>mcp-tool:</i> archivebox-mcp<br/>"]
+        Arr["<b>Arr (Radarr/Sonarr)</b><br/>---<br/><i>mcp-tool:</i> arr-mcp<br/>"]
+        AudioTranscriber["<b>Audio Transcriber</b><br/>---<br/><i>mcp-tool:</i> audio-transcriber-mcp<br/>"]
+        Jellyfin["<b>Jellyfin Agent</b><br/>---<br/><i>mcp-tool:</i> jellyfin-mcp<br/>"]
+        MediaDownloader["<b>Media Downloader</b><br/>---<br/><i>mcp-tool:</i> media-mcp<br/>"]
+        Owncast["<b>Owncast Agent</b><br/>---<br/><i>mcp-tool:</i> owncast-mcp<br/>"]
+        qBittorrent["<b>qBittorrent Agent</b><br/>---<br/><i>mcp-tool:</i> qbittorrent-mcp<br/>"]
       end
 
       subgraph Productive_Dev ["Productivity & Development"]
-        Atlassian["<b>Atlassian Agent</b><br/>---<br/><i>mcp-tool:</i> atlassian-mcp<br/><i>run:</i> python -m atlassian_agent.mcp_server"]
-        Genius["<b>Genius Agent</b><br/>---<br/><i>mcp-tool:</i> genius-mcp<br/><i>run:</i> python -m genius_agent.mcp_server"]
-        GitHub["<b>GitHub Agent</b><br/>---<br/><i>mcp-tool:</i> github-mcp<br/><i>run:</i> python -m github_agent.mcp_server"]
-        GitLab["<b>GitLab API</b><br/>---<br/><i>mcp-tool:</i> gitlab-mcp<br/><i>run:</i> python -m gitlab_api.mcp_server"]
-        Langfuse["<b>Langfuse Agent</b><br/>---<br/><i>mcp-tool:</i> langfuse-mcp<br/><i>run:</i> python -m langfuse_agent.mcp_server"]
-        LeanIX["<b>LeanIX Agent</b><br/>---<br/><i>mcp-tool:</i> leanix-mcp<br/><i>run:</i> python -m leanix_agent.mcp_server"]
-        Plane["<b>Plane Agent</b><br/>---<br/><i>mcp-tool:</i> plane-mcp<br/><i>run:</i> python -m plane_agent.mcp_server"]
-        Postiz["<b>Postiz Agent</b><br/>---<br/><i>mcp-tool:</i> postiz-mcp<br/><i>run:</i> python -m postiz_agent.mcp_server"]
-        ServiceNow["<b>ServiceNow API</b><br/>---<br/><i>mcp-tool:</i> servicenow-mcp<br/><i>run:</i> python -m servicenow_api.mcp_server"]
-        StirlingPDF["<b>StirlingPDF Agent</b><br/>---<br/><i>mcp-tool:</i> stirlingpdf-mcp<br/><i>run:</i> python -m stirlingpdf_agent.mcp_server"]
+        Atlassian["<b>Atlassian Agent</b><br/>---<br/><i>mcp-tool:</i> atlassian-mcp<br/>"]
+        Genius["<b>Genius Agent</b><br/>---<br/><i>mcp-tool:</i> genius-mcp<br/>"]
+        GitHub["<b>GitHub Agent</b><br/>---<br/><i>mcp-tool:</i> github-mcp<br/>"]
+        GitLab["<b>GitLab API</b><br/>---<br/><i>mcp-tool:</i> gitlab-mcp<br/>"]
+        Langfuse["<b>Langfuse Agent</b><br/>---<br/><i>mcp-tool:</i> langfuse-mcp<br/>"]
+        LeanIX["<b>LeanIX Agent</b><br/>---<br/><i>mcp-tool:</i> leanix-mcp<br/>"]
+        Plane["<b>Plane Agent</b><br/>---<br/><i>mcp-tool:</i> plane-mcp<br/>"]
+        Postiz["<b>Postiz Agent</b><br/>---<br/><i>mcp-tool:</i> postiz-mcp<br/>"]
+        ServiceNow["<b>ServiceNow API</b><br/>---<br/><i>mcp-tool:</i> servicenow-mcp<br/>"]
+        StirlingPDF["<b>StirlingPDF Agent</b><br/>---<br/><i>mcp-tool:</i> stirlingpdf-mcp<br/>"]
       end
 
       subgraph Data_Lifestyle ["Data & Lifestyle"]
-        DocumentDB["<b>DocumentDB Agent</b><br/>---<br/><i>mcp-tool:</i> documentdb-mcp<br/><i>run:</i> python -m documentdb_mcp.mcp_server"]
-        HomeAssistant["<b>Home Assistant Agent</b><br/>---<br/><i>mcp-tool:</i> home-assistant-mcp<br/><i>run:</i> python -m home_assistant_agent.mcp_server"]
-        Mealie["<b>Mealie Agent</b><br/>---<br/><i>mcp-tool:</i> mealie-mcp<br/><i>run:</i> python -m mealie_mcp.mcp_server"]
-        Nextcloud["<b>Nextcloud Agent</b><br/>---<br/><i>mcp-tool:</i> nextcloud-mcp<br/><i>run:</i> python -m nextcloud_agent.mcp_server"]
-        Searxng["<b>Searxng Agent</b><br/>---<br/><i>mcp-tool:</i> searxng-mcp<br/><i>run:</i> python -m searxng_mcp.mcp_server"]
-        Vector["<b>Vector Agent</b><br/>---<br/><i>mcp-tool:</i> vector-mcp<br/><i>run:</i> python -m vector_mcp.mcp_server"]
-        Wger["<b>Wger Agent</b><br/>---<br/><i>mcp-tool:</i> wger-mcp<br/><i>run:</i> python -m wger_agent.mcp_server"]
+        DocumentDB["<b>DocumentDB Agent</b><br/>---<br/><i>mcp-tool:</i> documentdb-mcp<br/>"]
+        HomeAssistant["<b>Home Assistant Agent</b><br/>---<br/><i>mcp-tool:</i> home-assistant-mcp<br/>"]
+        Mealie["<b>Mealie Agent</b><br/>---<br/><i>mcp-tool:</i> mealie-mcp<br/>"]
+        Nextcloud["<b>Nextcloud Agent</b><br/>---<br/><i>mcp-tool:</i> nextcloud-mcp<br/>"]
+        Searxng["<b>Searxng Agent</b><br/>---<br/><i>mcp-tool:</i> searxng-mcp<br/>"]
+        Vector["<b>Vector Agent</b><br/>---<br/><i>mcp-tool:</i> vector-mcp<br/>"]
+        Wger["<b>Wger Agent</b><br/>---<br/><i>mcp-tool:</i> wger-mcp<br/>"]
       end
     end
   end
@@ -211,7 +216,8 @@ C4Container
   style TSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
   style GoP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
   style RustP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style CP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+  style CSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+  style CPP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
   style JSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
 
   style Infrastructure fill:#fad9b8,stroke:#d6b656,stroke-width:2px
@@ -245,6 +251,49 @@ C4Container
 	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
 
 ```
+
+### MCP Loading & Registry Architecture
+This diagram illustrates how MCP servers are discovered, specialized, and persisted in the graph.
+
+```mermaid
+graph TD
+    subgraph Registry_Phase ["1. Registry Synchronization (Deployment)"]
+        Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp_agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
+        Registry["<b>NODE_AGENTS.md</b><br/><i>(Specialist Registry)</i>"] -.->|Read Hash| Manager
+
+        Manager -->|Config Hash Match?| Branch{Decision}
+        Branch -- "Yes (Cache Hit)" --> Skip["Skip Tool Extraction"]
+        Branch -- "No (Cache Miss)" --> Parallel["<b>Parallel Dispatch</b><br/>(Semaphore 30)"]
+
+        Parallel -->|Deploy STDIO| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]
+        Servers -->|JSON-RPC list_tools| Parallel
+        Parallel -->|Metadata| Registry
+    end
+
+    subgraph Initialization_Phase ["2. Graph Initialization (Runtime)"]
+        Config -->|Per-server resilient load| Loader["<b>builder.py</b><br/><i>MCPServerStdio per server</i><br/>⚠️ Skips missing env-vars<br/>❌ Logs failed servers clearly"]
+        Registry --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
+        Loader -->|mcp_toolsets| graph
+        Builder -->|Register Nodes| Specialists["<b>Specialist Superstates</b><br/>(Python, TS, GitLab, etc.)"]
+        Specialists -->|Compile| graph["<b>Pydantic Graph Agent</b>"]
+    end
+
+    subgraph Operation_Phase ["3. Persistent Operation (Execution)"]
+        graph --> Lifespan["<b>runner.py</b><br/><i>run_graph() AsyncExitStack</i>"]
+        Lifespan -->|"Sequential connect<br/>per-server error reporting"| ConnPool["<b>Active Connection Pool</b><br/>(Warm Toolsets)<br/>❌ failing servers skipped & logged"]
+        ConnPool -->|Zero-Latency Call| Servers
+    end
+
+    %% Styling
+    style Config fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+    style Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+    style Manager fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    style Parallel fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style ConnPool fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style graph fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style Loader fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+```
+
 
 
 ## Installation

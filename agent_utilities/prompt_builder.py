@@ -5,10 +5,9 @@ from __future__ import annotations
 import os
 import re
 import logging
-import asyncio
 
 
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
@@ -25,13 +24,6 @@ from .workspace import (
     load_workspace_file,
     parse_identity,
 )
-
-
-from .models import PeriodicTask
-
-tasks: List[PeriodicTask] = []
-lock = asyncio.Lock()
-
 
 logger = logging.getLogger(__name__)
 
@@ -52,23 +44,22 @@ def extract_section_from_md(content: str, header: str) -> Optional[str]:
     return None
 
 
-def get_system_prompt_from_reference(agent_template: str) -> Optional[str]:
+def get_system_prompt_from_reference(agent_name: str) -> Optional[str]:
     """
-    Retrieves the system prompt for a template from its markdown reference.
+    Retrieves the system prompt for an agent from its markdown reference.
     """
 
-    identity_query = f"{agent_template}-identity.md"
+    identity_query = f"{agent_name}-identity.md"
     md_path = resolve_mcp_reference(identity_query)
 
     if md_path and os.path.exists(md_path):
-
         return Path(md_path).read_text(encoding="utf-8")
 
     queries = [
-        f"{agent_template}.md",
-        f"{agent_template}-mcp.md",
-        f"{agent_template}-agent.md",
-        f"{agent_template}-api.md",
+        f"{agent_name}.md",
+        f"{agent_name}-mcp.md",
+        f"{agent_name}-agent.md",
+        f"{agent_name}-api.md",
     ]
 
     md_path = None

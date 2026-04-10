@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 async def trigger_mcp_sync(ctx: RunContext[Any], force_reprompt: bool = False) -> str:
     """
-    Manually triggers a synchronization of the MCP agent registry (MCP_AGENTS.md).
+    Manually triggers a synchronization of the MCP agent registry (NODE_AGENTS.md).
     Use this if you update the mcp_config.json or want to regenerate specialized agents.
     """
     try:

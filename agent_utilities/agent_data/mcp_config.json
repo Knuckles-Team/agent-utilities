@@ -1,89 +1,30 @@
 {
   "mcpServers": {
-    "audio": {
-      "command": "audio-mcp",
+    "adguard-home-agent": {
+      "command": "adguard-mcp",
       "args": [
         "--transport",
         "stdio"
       ],
       "env": {
-        "AUDIO_URL": "${AUDIO_URL:-http://localhost:8080}",
-        "AUDIO_TOKEN": "${AUDIO_TOKEN}"
-      }
-    },
-    "audio-transcriber-mcp": {
-      "command": "audio-transcriber-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "TRANSCRIBE_DIRECTORY": "${TRANSCRIBE_DIRECTORY}",
-        "WHISPER_MODEL": "${WHISPER_MODEL:-base}",
-        "AUDIO_PROCESSINGTOOL": "${ AUDIO_PROCESSINGTOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }"
-      }
-    },
-    "portainer-mcp": {
-      "command": "portainer-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "PYTHONWARNINGS": "ignore"
-      }
-    },
-    "portainer-agent": {
-      "command": "portainer-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "PORTAINER_URL": "${PORTAINER_URL}",
-        "PORTAINER_TOKEN": "${PORTAINER_TOKEN}",
-        "AUTHTOOL": "${ AUTHTOOL:-True }",
-        "USERTOOL": "${ USERTOOL:-True }",
-        "DOCKERTOOL": "${ DOCKERTOOL:-True }",
+        "ADGUARD_URL": "${ADGUARD_URL:-http://localhost:8080}",
+        "ADGUARD_USERNAME": "${ADGUARD_USERNAME}",
+        "ADGUARD_PASSWORD": "${ADGUARD_PASSWORD}",
+        "DHCPTOOL": "${ DHCPTOOL:-True }",
+        "BLOCKED_SERVICESTOOL": "${ BLOCKED_SERVICESTOOL:-True }",
+        "ACCESSTOOL": "${ ACCESSTOOL:-True }",
         "SYSTEMTOOL": "${ SYSTEMTOOL:-True }",
-        "REGISTRYTOOL": "${ REGISTRYTOOL:-True }",
-        "ENVIRONMENTTOOL": "${ ENVIRONMENTTOOL:-True }",
-        "KUBERNETESTOOL": "${ KUBERNETESTOOL:-True }",
-        "TEMPLATETOOL": "${ TEMPLATETOOL:-True }",
-        "STACKTOOL": "${ STACKTOOL:-True }",
-        "EDGETOOL": "${ EDGETOOL:-True }"
-      }
-    },
-    "stirlingpdf": {
-      "command": "stirlingpdf-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "STIRLINGPDF_URL": "${STIRLINGPDF_URL:-http://localhost:8080}",
-        "STIRLINGPDF_TOKEN": "${STIRLINGPDF_TOKEN}"
-      }
-    },
-    "stirlingpdf-agent": {
-      "command": "stirlingpdf-agent-mcp",
-      "args": [],
-      "env": {
-        "STIRLINGPDF_URL": "${STIRLINGPDF_URL:-http://localhost:8080}",
-        "STIRLINGPDF_API_KEY": "${STIRLINGPDF_API_KEY}",
-        "PDFTOOL": "${ PDFTOOL:-True }"
-      }
-    },
-    "ansible": {
-      "command": "ansible-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "ANSIBLE_URL": "${ANSIBLE_URL:-http://localhost:8080}",
-        "ANSIBLE_TOKEN": "${ANSIBLE_TOKEN}"
+        "SETTINGSTOOL": "${ SETTINGSTOOL:-True }",
+        "REWRITESTOOL": "${ REWRITESTOOL:-True }",
+        "FILTERINGTOOL": "${ FILTERINGTOOL:-True }",
+        "TLSTOOL": "${ TLSTOOL:-True }",
+        "MOBILETOOL": "${ MOBILETOOL:-True }",
+        "STATSTOOL": "${ STATSTOOL:-True }",
+        "CLIENTSTOOL": "${ CLIENTSTOOL:-True }",
+        "DNSTOOL": "${ DNSTOOL:-True }",
+        "PROFILETOOL": "${ PROFILETOOL:-True }",
+        "QUERY_LOGTOOL": "${ QUERY_LOGTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }"
       }
     },
     "ansible-tower-mcp": {
@@ -94,273 +35,33 @@
       ],
       "env": {
         "ANSIBLE_TOWER_URL": "${ANSIBLE_TOWER_URL}",
-        "ANSIBLE_TOWER_TOKEN": "${ANSIBLE_TOWER_TOKEN}"
+        "ANSIBLE_TOWER_TOKEN": "${ANSIBLE_TOWER_TOKEN}",
+        "ANSIBLE_BASE_URL": "${ANSIBLE_BASE_URL}",
+        "ANSIBLE_CLIENT_ID": "${ANSIBLE_CLIENT_ID}",
+        "ANSIBLE_CLIENT_SECRET": "${ANSIBLE_CLIENT_SECRET}",
+        "ANSIBLE_PASSWORD": "${ANSIBLE_PASSWORD}",
+        "ANSIBLE_TOKEN": "${ANSIBLE_TOKEN}",
+        "ANSIBLE_USERNAME": "${ANSIBLE_USERNAME}",
+        "ANSIBLE_VERIFY": "${ANSIBLE_VERIFY}"
       }
     },
-    "nextcloud": {
-      "command": "nextcloud-mcp",
+    "archivebox-mcp": {
+      "command": "archivebox-mcp",
       "args": [
         "--transport",
         "stdio"
       ],
       "env": {
-        "NEXTCLOUD_URL": "${NEXTCLOUD_URL:-http://localhost:8080}",
-        "NEXTCLOUD_TOKEN": "${NEXTCLOUD_TOKEN}"
-      }
-    },
-    "nextcloud-agent": {
-      "command": "nextcloud-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "NEXTCLOUD_URL": "${NEXTCLOUD_URL}",
-        "NEXTCLOUD_USERNAME": "${NEXTCLOUD_USERNAME}",
-        "NEXTCLOUD_PASSWORD": "${NEXTCLOUD_PASSWORD}",
-        "USERTOOL": "${ USERTOOL:-True }",
-        "FILESTOOL": "${ FILESTOOL:-True }",
-        "SHARINGTOOL": "${ SHARINGTOOL:-True }",
-        "CALENDARTOOL": "${ CALENDARTOOL:-True }",
+        "ARCHIVEBOX_URL": "${ARCHIVEBOX_URL:-http://localhost:8080}",
+        "ARCHIVEBOX_TOKEN": "${ARCHIVEBOX_TOKEN}",
+        "ARCHIVEBOX_USERNAME": "${ARCHIVEBOX_USERNAME}",
+        "ARCHIVEBOX_PASSWORD": "${ARCHIVEBOX_PASSWORD}",
+        "ARCHIVEBOX_API_KEY": "${ARCHIVEBOX_API_KEY}",
+        "ARCHIVEBOX_VERIFY": "${ARCHIVEBOX_VERIFY:-True}",
+        "AUTHENTICATIONTOOL": "${ AUTHENTICATIONTOOL:-True }",
+        "CLITOOL": "${ CLITOOL:-True }",
         "MISCTOOL": "${ MISCTOOL:-True }",
-        "CONTACTSTOOL": "${ CONTACTSTOOL:-True }"
-      }
-    },
-    "postiz": {
-      "command": "postiz-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "POSTIZ_URL": "${POSTIZ_URL:-http://localhost:8080}",
-        "POSTIZ_TOKEN": "${POSTIZ_TOKEN}"
-      }
-    },
-    "media": {
-      "command": "media-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "MEDIA_URL": "${MEDIA_URL:-http://localhost:8080}",
-        "MEDIA_TOKEN": "${MEDIA_TOKEN}"
-      }
-    },
-    "media-downloader-mcp": {
-      "command": "media-downloader-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "DOWNLOAD_DIRECTORY": "${DOWNLOAD_DIRECTORY}",
-        "AUDIO_ONLY": "${AUDIO_ONLY:-False}",
-        "TEXT_EDITORTOOL": "${ TEXT_EDITORTOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }",
-        "COLLECTION_MANAGEMENTTOOL": "${ COLLECTION_MANAGEMENTTOOL:-True }"
-      }
-    },
-    "documentdb": {
-      "command": "documentdb-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "DOCUMENTDB_URL": "${DOCUMENTDB_URL:-http://localhost:8080}",
-        "DOCUMENTDB_TOKEN": "${DOCUMENTDB_TOKEN}"
-      }
-    },
-    "documentdb-mcp": {
-      "command": "documentdb-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "MONGODB_URI": "${MONGODB_URI}",
-        "MONGODB_HOST": "${MONGODB_HOST:-localhost}",
-        "MONGODB_PORT": "${MONGODB_PORT:-10260}",
-        "ANALYSISTOOL": "${ ANALYSISTOOL:-True }",
-        "USERSTOOL": "${ USERSTOOL:-True }",
-        "SYSTEMTOOL": "${ SYSTEMTOOL:-True }",
-        "COLLECTIONSTOOL": "${ COLLECTIONSTOOL:-True }",
-        "CRUDTOOL": "${ CRUDTOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }"
-      }
-    },
-    "github": {
-      "command": "github-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "GITHUB_URL": "${GITHUB_URL:-http://localhost:8080}",
-        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
-      }
-    },
-    "leanix": {
-      "command": "leanix-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "LEANIX_URL": "${LEANIX_URL:-http://localhost:8080}",
-        "LEANIX_TOKEN": "${LEANIX_TOKEN}"
-      }
-    },
-    "leanix-agent": {
-      "command": "leanix-agent-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "LEANIX_WORKSPACE": "${LEANIX_WORKSPACE}",
-        "LEANIX_API_TOKEN": "${LEANIX_API_TOKEN}",
-        "LEANIX_POLLTOOL": "${ LEANIX_POLLTOOL:-True }",
-        "LEANIX_DISCOVERY_LINKING_V2TOOL": "${ LEANIX_DISCOVERY_LINKING_V2TOOL:-True }",
-        "LEANIX_REFERENCE_DATA_CATALOGTOOL": "${ LEANIX_REFERENCE_DATA_CATALOGTOOL:-True }",
-        "LEANIX_METRICSTOOL": "${ LEANIX_METRICSTOOL:-True }",
-        "LEANIX_DISCOVERY_SAASTOOL": "${ LEANIX_DISCOVERY_SAASTOOL:-True }",
-        "LEANIX_MTMTOOL": "${ LEANIX_MTMTOOL:-True }",
-        "LEANIX_WEBHOOKSTOOL": "${ LEANIX_WEBHOOKSTOOL:-True }",
-        "LEANIX_STORAGETOOL": "${ LEANIX_STORAGETOOL:-True }",
-        "LEANIX_TRANSFORMATIONSTOOL": "${ LEANIX_TRANSFORMATIONSTOOL:-True }",
-        "LEANIX_INTEGRATION_COLLIBRATOOL": "${ LEANIX_INTEGRATION_COLLIBRATOOL:-True }",
-        "LEANIX_DISCOVERY_SAP_EXTENSIONTOOL": "${ LEANIX_DISCOVERY_SAP_EXTENSIONTOOL:-True }",
-        "LEANIX_IMPACTSTOOL": "${ LEANIX_IMPACTSTOOL:-True }",
-        "LEANIX_TECHNOLOGY_DISCOVERYTOOL": "${ LEANIX_TECHNOLOGY_DISCOVERYTOOL:-True }",
-        "LEANIX_AI_INVENTORY_BUILDERTOOL": "${ LEANIX_AI_INVENTORY_BUILDERTOOL:-True }",
-        "LEANIX_MANAGED_CODE_EXECUTIONTOOL": "${ LEANIX_MANAGED_CODE_EXECUTIONTOOL:-True }",
-        "GRAPHQLTOOL": "${ GRAPHQLTOOL:-True }",
-        "LEANIX_REFERENCE_DATATOOL": "${ LEANIX_REFERENCE_DATATOOL:-True }",
-        "LEANIX_SURVEYTOOL": "${ LEANIX_SURVEYTOOL:-True }",
-        "LEANIX_NAVIGATIONTOOL": "${ LEANIX_NAVIGATIONTOOL:-True }",
-        "LEANIX_INTEGRATION_SIGNAVIOTOOL": "${ LEANIX_INTEGRATION_SIGNAVIOTOOL:-True }",
-        "LEANIX_PATHFINDERTOOL": "${ LEANIX_PATHFINDERTOOL:-True }",
-        "LEANIX_TODOTOOL": "${ LEANIX_TODOTOOL:-True }",
-        "LEANIX_DISCOVERY_AI_AGENTSTOOL": "${ LEANIX_DISCOVERY_AI_AGENTSTOOL:-True }",
-        "LEANIX_INTEGRATION_SERVICENOWTOOL": "${ LEANIX_INTEGRATION_SERVICENOWTOOL:-True }",
-        "LEANIX_AUTOMATIONSTOOL": "${ LEANIX_AUTOMATIONSTOOL:-True }",
-        "LEANIX_DISCOVERY_LINKING_V1TOOL": "${ LEANIX_DISCOVERY_LINKING_V1TOOL:-True }",
-        "LEANIX_DISCOVERY_SAPTOOL": "${ LEANIX_DISCOVERY_SAPTOOL:-True }",
-        "LEANIX_SYNCLOGTOOL": "${ LEANIX_SYNCLOGTOOL:-True }",
-        "LEANIX_INTEGRATION_APITOOL": "${ LEANIX_INTEGRATION_APITOOL:-True }",
-        "LEANIX_INVENTORY_DATA_QUALITYTOOL": "${ LEANIX_INVENTORY_DATA_QUALITYTOOL:-True }",
-        "LEANIX_DOCUMENTSTOOL": "${ LEANIX_DOCUMENTSTOOL:-True }",
-        "LEANIX_APPTIO_CONNECTORTOOL": "${ LEANIX_APPTIO_CONNECTORTOOL:-True }"
-      }
-    },
-    "microsoft": {
-      "command": "microsoft-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "MICROSOFT_URL": "${MICROSOFT_URL:-http://localhost:8080}",
-        "MICROSOFT_TOKEN": "${MICROSOFT_TOKEN}"
-      }
-    },
-    "microsoft-agent": {
-      "command": "microsoft-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "MICROSOFT_CLIENT_ID": "${MICROSOFT_CLIENT_ID}",
-        "MICROSOFT_CLIENT_SECRET": "${MICROSOFT_CLIENT_SECRET}",
-        "MICROSOFT_TENANT_ID": "${MICROSOFT_TENANT_ID}",
-        "AUTHTOOL": "${ AUTHTOOL:-True }",
-        "GROUPSTOOL": "${ GROUPSTOOL:-True }",
-        "AGREEMENTSTOOL": "${ AGREEMENTSTOOL:-True }",
-        "FILESTOOL": "${ FILESTOOL:-True }",
-        "NOTESTOOL": "${ NOTESTOOL:-True }",
-        "ORGANIZATIONTOOL": "${ ORGANIZATIONTOOL:-True }",
-        "AUDITTOOL": "${ AUDITTOOL:-True }",
-        "PLACESTOOL": "${ PLACESTOOL:-True }",
-        "PRINTTOOL": "${ PRINTTOOL:-True }",
-        "TASKSTOOL": "${ TASKSTOOL:-True }",
-        "SEARCHTOOL": "${ SEARCHTOOL:-True }",
-        "EMPLOYEE_EXPERIENCETOOL": "${ EMPLOYEE_EXPERIENCETOOL:-True }",
-        "METATOOL": "${ METATOOL:-True }",
-        "CHATTOOL": "${ CHATTOOL:-True }",
-        "SITESTOOL": "${ SITESTOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }",
-        "DIRECTORYTOOL": "${ DIRECTORYTOOL:-True }",
-        "POLICIESTOOL": "${ POLICIESTOOL:-True }",
-        "ADMINTOOL": "${ ADMINTOOL:-True }",
-        "TEAMSTOOL": "${ TEAMSTOOL:-True }",
-        "APPLICATIONSTOOL": "${ APPLICATIONSTOOL:-True }",
-        "CALENDARTOOL": "${ CALENDARTOOL:-True }",
-        "REPORTSTOOL": "${ REPORTSTOOL:-True }",
-        "PRIVACYTOOL": "${ PRIVACYTOOL:-True }",
-        "SOLUTIONSTOOL": "${ SOLUTIONSTOOL:-True }",
-        "SUBSCRIPTIONSTOOL": "${ SUBSCRIPTIONSTOOL:-True }",
-        "DOMAINSTOOL": "${ DOMAINSTOOL:-True }",
-        "USERTOOL": "${ USERTOOL:-True }",
-        "CONNECTIONSTOOL": "${ CONNECTIONSTOOL:-True }",
-        "STORAGETOOL": "${ STORAGETOOL:-True }",
-        "SECURITYTOOL": "${ SECURITYTOOL:-True }",
-        "DEVICESTOOL": "${ DEVICESTOOL:-True }",
-        "CONTACTSTOOL": "${ CONTACTSTOOL:-True }",
-        "EDUCATIONTOOL": "${ EDUCATIONTOOL:-True }",
-        "IDENTITYTOOL": "${ IDENTITYTOOL:-True }",
-        "COMMUNICATIONSTOOL": "${ COMMUNICATIONSTOOL:-True }",
-        "MAILTOOL": "${ MAILTOOL:-True }"
-      }
-    },
-    "servicenow": {
-      "command": "servicenow-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "SERVICENOW_URL": "${SERVICENOW_URL:-http://localhost:8080}",
-        "SERVICENOW_TOKEN": "${SERVICENOW_TOKEN}"
-      }
-    },
-    "servicenow-api": {
-      "command": "servicenow-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE": "${SERVICENOW_INSTANCE}",
-        "SERVICENOW_USERNAME": "${SERVICENOW_USERNAME}",
-        "SERVICENOW_PASSWORD": "${SERVICENOW_PASSWORD}",
-        "SERVICENOW_CLIENT_ID": "${SERVICENOW_CLIENT_ID}",
-        "SERVICENOW_CLIENT_SECRET": "${SERVICENOW_CLIENT_SECRET}"
-      }
-    },
-    "owncast": {
-      "command": "owncast-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "OWNCAST_URL": "${OWNCAST_URL:-http://localhost:8080}",
-        "OWNCAST_TOKEN": "${OWNCAST_TOKEN}"
-      }
-    },
-    "arr": {
-      "command": "arr-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "ARR_URL": "${ARR_URL:-http://localhost:8080}",
-        "ARR_TOKEN": "${ARR_TOKEN}"
+        "CORETOOL": "${ CORETOOL:-True }"
       }
     },
     "arr-mcp": {
@@ -438,61 +139,6 @@
       },
       "timeout": 3600000
     },
-    "langfuse": {
-      "command": "langfuse-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "LANGFUSE_URL": "${LANGFUSE_URL:-http://localhost:8080}",
-        "LANGFUSE_TOKEN": "${LANGFUSE_TOKEN}"
-      }
-    },
-    "mealie": {
-      "command": "mealie-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "MEALIE_URL": "${MEALIE_URL:-http://localhost:8080}",
-        "MEALIE_TOKEN": "${MEALIE_TOKEN}"
-      }
-    },
-    "mealie-mcp": {
-      "command": "mealie-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "MEALIE_URL": "${MEALIE_URL}",
-        "MEALIE_API_KEY": "${MEALIE_API_KEY}",
-        "GROUPSTOOL": "${ GROUPSTOOL:-True }",
-        "ADMINTOOL": "${ ADMINTOOL:-True }",
-        "USERSTOOL": "${ USERSTOOL:-True }",
-        "ORGANIZERTOOL": "${ ORGANIZERTOOL:-True }",
-        "HOUSEHOLDSTOOL": "${ HOUSEHOLDSTOOL:-True }",
-        "EXPLORETOOL": "${ EXPLORETOOL:-True }",
-        "RECIPESTOOL": "${ RECIPESTOOL:-True }",
-        "UTILSTOOL": "${ UTILSTOOL:-True }",
-        "SHAREDTOOL": "${ SHAREDTOOL:-True }",
-        "APPTOOL": "${ APPTOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }"
-      }
-    },
-    "plane": {
-      "command": "plane-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "PLANE_URL": "${PLANE_URL:-http://localhost:8080}",
-        "PLANE_TOKEN": "${PLANE_TOKEN}"
-      }
-    },
     "atlassian": {
       "command": "atlassian-mcp",
       "args": [
@@ -504,52 +150,115 @@
         "ATLASSIAN_TOKEN": "${ATLASSIAN_TOKEN}"
       }
     },
-    "systems": {
-      "command": "systems-mcp",
+    "audio-transcriber-mcp": {
+      "command": "audio-transcriber-mcp",
       "args": [
         "--transport",
         "stdio"
       ],
       "env": {
-        "SYSTEMS_URL": "${SYSTEMS_URL:-http://localhost:8080}",
-        "SYSTEMS_TOKEN": "${SYSTEMS_TOKEN}"
+        "TRANSCRIBE_DIRECTORY": "${TRANSCRIBE_DIRECTORY:-/tmp}",
+        "WHISPER_MODEL": "${WHISPER_MODEL:-base}",
+        "AUDIO_PROCESSINGTOOL": "${ AUDIO_PROCESSINGTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }"
       }
     },
-    "systems-manager": {
-      "command": "systems-manager-mcp",
+    "container-manager-mcp": {
+      "command": "container-manager-mcp",
       "args": [
         "--transport",
         "stdio"
       ],
       "env": {
-        "TEXT_EDITORTOOL": "${ TEXT_EDITORTOOL:-True }",
-        "FILESYSTEMTOOL": "${ FILESYSTEMTOOL:-True }",
-        "PROCESSTOOL": "${ PROCESSTOOL:-True }",
+        "DOCKER_HOST": "${DOCKER_HOST:-unix:///var/run/docker.sock}",
         "LOGTOOL": "${ LOGTOOL:-True }",
-        "USERTOOL": "${ USERTOOL:-True }",
-        "SSH_MANAGEMENTTOOL": "${ SSH_MANAGEMENTTOOL:-True }",
-        "SHELLTOOL": "${ SHELLTOOL:-True }",
         "SYSTEMTOOL": "${ SYSTEMTOOL:-True }",
-        "CRONTOOL": "${ CRONTOOL:-True }",
+        "INFOTOOL": "${ INFOTOOL:-True }",
+        "IMAGETOOL": "${ IMAGETOOL:-True }",
         "NETWORKTOOL": "${ NETWORKTOOL:-True }",
-        "NODEJSTOOL": "${ NODEJSTOOL:-True }",
-        "SERVICETOOL": "${ SERVICETOOL:-True }",
-        "SYSTEM_MANAGEMENTTOOL": "${ SYSTEM_MANAGEMENTTOOL:-True }",
-        "FIREWALL_MANAGEMENTTOOL": "${ FIREWALL_MANAGEMENTTOOL:-True }",
-        "PYTHONTOOL": "${ PYTHONTOOL:-True }",
+        "SWARMTOOL": "${ SWARMTOOL:-True }",
+        "CONTAINERTOOL": "${ CONTAINERTOOL:-True }",
+        "COMPOSETOOL": "${ COMPOSETOOL:-True }",
         "MISCTOOL": "${ MISCTOOL:-True }",
-        "DISKTOOL": "${ DISKTOOL:-True }"
+        "VOLUMETOOL": "${ VOLUMETOOL:-True }",
+        "CONTAINER_MANAGER_LOG_FILE": "${CONTAINER_MANAGER_LOG_FILE}",
+        "CONTAINER_MANAGER_SILENT": "${CONTAINER_MANAGER_SILENT}",
+        "CONTAINER_MANAGER_TYPE": "${CONTAINER_MANAGER_TYPE}"
       }
     },
-    "jellyfin": {
-      "command": "jellyfin-mcp",
+    "documentdb-mcp": {
+      "command": "documentdb-mcp",
       "args": [
         "--transport",
         "stdio"
       ],
       "env": {
-        "JELLYFIN_URL": "${JELLYFIN_URL:-http://localhost:8080}",
-        "JELLYFIN_TOKEN": "${JELLYFIN_TOKEN}"
+        "MONGODB_URI": "${MONGODB_URI}",
+        "MONGODB_HOST": "${MONGODB_HOST:-localhost}",
+        "MONGODB_PORT": "${MONGODB_PORT:-10260}",
+        "ANALYSISTOOL": "${ ANALYSISTOOL:-True }",
+        "USERSTOOL": "${ USERSTOOL:-True }",
+        "SYSTEMTOOL": "${ SYSTEMTOOL:-True }",
+        "COLLECTIONSTOOL": "${ COLLECTIONSTOOL:-True }",
+        "CRUDTOOL": "${ CRUDTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }"
+      }
+    },
+    "github-mcp": {
+      "command": "github-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}",
+        "CONTENTSTOOL": "${ CONTENTSTOOL:-True }",
+        "ISSUETOOL": "${ ISSUETOOL:-True }",
+        "PULLSTOOL": "${ PULLSTOOL:-True }",
+        "REPOSTOOL": "${ REPOSTOOL:-True }"
+      }
+    },
+    "gitlab-api": {
+      "command": "gitlab-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "GITLAB_URL": "${GITLAB_URL}",
+        "GITLAB_TOKEN": "${GITLAB_TOKEN}",
+        "GROUPSTOOL": "${ GROUPSTOOL:-True }",
+        "PROTECTED_BRANCHESTOOL": "${ PROTECTED_BRANCHESTOOL:-True }",
+        "PIPELINESTOOL": "${ PIPELINESTOOL:-True }",
+        "MERGE_REQUESTSTOOL": "${ MERGE_REQUESTSTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }",
+        "PACKAGESTOOL": "${ PACKAGESTOOL:-True }",
+        "DEPLOY_TOKENSTOOL": "${ DEPLOY_TOKENSTOOL:-True }",
+        "CUSTOM_APITOOL": "${ CUSTOM_APITOOL:-True }",
+        "PIPELINE_SCHEDULESTOOL": "${ PIPELINE_SCHEDULESTOOL:-True }",
+        "MERGE_RULESTOOL": "${ MERGE_RULESTOOL:-True }",
+        "COMMITSTOOL": "${ COMMITSTOOL:-True }",
+        "BRANCHESTOOL": "${ BRANCHESTOOL:-True }",
+        "JOBSTOOL": "${ JOBSTOOL:-True }",
+        "TAGSTOOL": "${ TAGSTOOL:-True }",
+        "MEMBERSTOOL": "${ MEMBERSTOOL:-True }",
+        "ENVIRONMENTSTOOL": "${ ENVIRONMENTSTOOL:-True }",
+        "PROJECTSTOOL": "${ PROJECTSTOOL:-True }",
+        "RELEASESTOOL": "${ RELEASESTOOL:-True }",
+        "RUNNERSTOOL": "${ RUNNERSTOOL:-True }",
+        "GITLAB_SSL_VERIFY": "${GITLAB_SSL_VERIFY}",
+        "GITLAB_VERIFY": "${GITLAB_VERIFY}"
+      }
+    },
+    "home": {
+      "command": "home-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "HOME_URL": "${HOME_URL:-http://localhost:8123}",
+        "HOME_TOKEN": "${HOME_TOKEN}"
       }
     },
     "jellyfin-mcp": {
@@ -559,7 +268,7 @@
         "stdio"
       ],
       "env": {
-        "JELLYFIN_URL": "${JELLYFIN_URL}",
+        "JELLYFIN_URL": "${JELLYFIN_URL:-http://localhost:8096}",
         "JELLYFIN_API_KEY": "${JELLYFIN_API_KEY}",
         "ITEMREFRESHTOOL": "${ ITEMREFRESHTOOL:-True }",
         "COLLECTIONTOOL": "${ COLLECTIONTOOL:-True }",
@@ -625,147 +334,260 @@
         "ITEMLOOKUPTOOL": "${ ITEMLOOKUPTOOL:-True }"
       }
     },
-    "adguard": {
-      "command": "adguard-mcp",
+    "langfuse": {
+      "command": "langfuse-mcp",
       "args": [
         "--transport",
         "stdio"
       ],
       "env": {
-        "ADGUARD_URL": "${ADGUARD_URL:-http://localhost:8080}",
-        "ADGUARD_TOKEN": "${ADGUARD_TOKEN}"
+        "LANGFUSE_URL": "${LANGFUSE_URL:-http://localhost:3000}",
+        "LANGFUSE_TOKEN": "${LANGFUSE_TOKEN}",
+        "ANNOTATION_QUEUES_TOOL": "${ ANNOTATION_QUEUES_TOOL:-True }",
+        "BLOB_STORAGE_INTEGRATIONS_TOOL": "${ BLOB_STORAGE_INTEGRATIONS_TOOL:-True }",
+        "COMMENTS_TOOL": "${ COMMENTS_TOOL:-True }",
+        "DATASETS_TOOL": "${ DATASETS_TOOL:-True }",
+        "DATASET_ITEMS_TOOL": "${ DATASET_ITEMS_TOOL:-True }",
+        "DATASET_RUN_ITEMS_TOOL": "${ DATASET_RUN_ITEMS_TOOL:-True }",
+        "HEALTH_TOOL": "${ HEALTH_TOOL:-True }",
+        "INGESTION_TOOL": "${ INGESTION_TOOL:-True }",
+        "LEGACY_METRICS_V1_TOOL": "${ LEGACY_METRICS_V1_TOOL:-True }",
+        "LEGACY_OBSERVATIONS_V1_TOOL": "${ LEGACY_OBSERVATIONS_V1_TOOL:-True }",
+        "LEGACY_SCORE_V1_TOOL": "${ LEGACY_SCORE_V1_TOOL:-True }",
+        "LLM_CONNECTIONS_TOOL": "${ LLM_CONNECTIONS_TOOL:-True }",
+        "MEDIA_TOOL": "${ MEDIA_TOOL:-True }",
+        "METRICS_TOOL": "${ METRICS_TOOL:-True }",
+        "MODELS_TOOL": "${ MODELS_TOOL:-True }",
+        "OBSERVATIONS_TOOL": "${ OBSERVATIONS_TOOL:-True }",
+        "OPENTELEMETRY_TOOL": "${ OPENTELEMETRY_TOOL:-True }",
+        "ORGANIZATIONS_TOOL": "${ ORGANIZATIONS_TOOL:-True }",
+        "PROJECTS_TOOL": "${ PROJECTS_TOOL:-True }",
+        "PROMPTS_TOOL": "${ PROMPTS_TOOL:-True }",
+        "PROMPT_VERSION_TOOL": "${ PROMPT_VERSION_TOOL:-True }",
+        "SCIM_TOOL": "${ SCIM_TOOL:-True }",
+        "SCORES_TOOL": "${ SCORES_TOOL:-True }",
+        "SCORE_CONFIGS_TOOL": "${ SCORE_CONFIGS_TOOL:-True }",
+        "SESSIONS_TOOL": "${ SESSIONS_TOOL:-True }",
+        "TRACE_TOOL": "${ TRACE_TOOL:-True }"
       }
     },
-    "adguard-home-agent": {
-      "command": "adguard-mcp",
+    "leanix-agent": {
+      "command": "leanix-mcp",
       "args": [
         "--transport",
         "stdio"
       ],
       "env": {
-        "ADGUARD_URL": "${ADGUARD_URL}",
-        "ADGUARD_USERNAME": "${ADGUARD_USERNAME}",
-        "ADGUARD_PASSWORD": "${ADGUARD_PASSWORD}",
-        "DHCPTOOL": "${ DHCPTOOL:-True }",
-        "BLOCKED_SERVICESTOOL": "${ BLOCKED_SERVICESTOOL:-True }",
-        "ACCESSTOOL": "${ ACCESSTOOL:-True }",
-        "SYSTEMTOOL": "${ SYSTEMTOOL:-True }",
-        "SETTINGSTOOL": "${ SETTINGSTOOL:-True }",
-        "REWRITESTOOL": "${ REWRITESTOOL:-True }",
-        "FILTERINGTOOL": "${ FILTERINGTOOL:-True }",
-        "TLSTOOL": "${ TLSTOOL:-True }",
-        "MOBILETOOL": "${ MOBILETOOL:-True }",
-        "STATSTOOL": "${ STATSTOOL:-True }",
-        "CLIENTSTOOL": "${ CLIENTSTOOL:-True }",
-        "DNSTOOL": "${ DNSTOOL:-True }",
-        "PROFILETOOL": "${ PROFILETOOL:-True }",
-        "QUERY_LOGTOOL": "${ QUERY_LOGTOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }"
+        "LEANIX_WORKSPACE": "${LEANIX_WORKSPACE}",
+        "LEANIX_API_TOKEN": "${LEANIX_API_TOKEN}",
+        "LEANIX_POLLTOOL": "${ LEANIX_POLLTOOL:-True }",
+        "LEANIX_DISCOVERY_LINKING_V2TOOL": "${ LEANIX_DISCOVERY_LINKING_V2TOOL:-True }",
+        "LEANIX_REFERENCE_DATA_CATALOGTOOL": "${ LEANIX_REFERENCE_DATA_CATALOGTOOL:-True }",
+        "LEANIX_METRICSTOOL": "${ LEANIX_METRICSTOOL:-True }",
+        "LEANIX_DISCOVERY_SAASTOOL": "${ LEANIX_DISCOVERY_SAASTOOL:-True }",
+        "LEANIX_MTMTOOL": "${ LEANIX_MTMTOOL:-True }",
+        "LEANIX_WEBHOOKSTOOL": "${ LEANIX_WEBHOOKSTOOL:-True }",
+        "LEANIX_STORAGETOOL": "${ LEANIX_STORAGETOOL:-True }",
+        "LEANIX_TRANSFORMATIONSTOOL": "${ LEANIX_TRANSFORMATIONSTOOL:-True }",
+        "LEANIX_INTEGRATION_COLLIBRATOOL": "${ LEANIX_INTEGRATION_COLLIBRATOOL:-True }",
+        "LEANIX_DISCOVERY_SAP_EXTENSIONTOOL": "${ LEANIX_DISCOVERY_SAP_EXTENSIONTOOL:-True }",
+        "LEANIX_IMPACTSTOOL": "${ LEANIX_IMPACTSTOOL:-True }",
+        "LEANIX_TECHNOLOGY_DISCOVERYTOOL": "${ LEANIX_TECHNOLOGY_DISCOVERYTOOL:-True }",
+        "LEANIX_AI_INVENTORY_BUILDERTOOL": "${ LEANIX_AI_INVENTORY_BUILDERTOOL:-True }",
+        "LEANIX_MANAGED_CODE_EXECUTIONTOOL": "${ LEANIX_MANAGED_CODE_EXECUTIONTOOL:-True }",
+        "GRAPHQLTOOL": "${ GRAPHQLTOOL:-True }",
+        "LEANIX_REFERENCE_DATATOOL": "${ LEANIX_REFERENCE_DATATOOL:-True }",
+        "LEANIX_SURVEYTOOL": "${ LEANIX_SURVEYTOOL:-True }",
+        "LEANIX_NAVIGATIONTOOL": "${ LEANIX_NAVIGATIONTOOL:-True }",
+        "LEANIX_INTEGRATION_SIGNAVIOTOOL": "${ LEANIX_INTEGRATION_SIGNAVIOTOOL:-True }",
+        "LEANIX_PATHFINDERTOOL": "${ LEANIX_PATHFINDERTOOL:-True }",
+        "LEANIX_TODOTOOL": "${ LEANIX_TODOTOOL:-True }",
+        "LEANIX_DISCOVERY_AI_AGENTSTOOL": "${ LEANIX_DISCOVERY_AI_AGENTSTOOL:-True }",
+        "LEANIX_INTEGRATION_SERVICENOWTOOL": "${ LEANIX_INTEGRATION_SERVICENOWTOOL:-True }",
+        "LEANIX_AUTOMATIONSTOOL": "${ LEANIX_AUTOMATIONSTOOL:-True }",
+        "LEANIX_DISCOVERY_LINKING_V1TOOL": "${ LEANIX_DISCOVERY_LINKING_V1TOOL:-True }",
+        "LEANIX_DISCOVERY_SAPTOOL": "${ LEANIX_DISCOVERY_SAPTOOL:-True }",
+        "LEANIX_SYNCLOGTOOL": "${ LEANIX_SYNCLOGTOOL:-True }",
+        "LEANIX_INTEGRATION_APITOOL": "${ LEANIX_INTEGRATION_APITOOL:-True }",
+        "LEANIX_INVENTORY_DATA_QUALITYTOOL": "${ LEANIX_INVENTORY_DATA_QUALITYTOOL:-True }",
+        "LEANIX_DOCUMENTSTOOL": "${ LEANIX_DOCUMENTSTOOL:-True }",
+        "LEANIX_APPTIO_CONNECTORTOOL": "${ LEANIX_APPTIO_CONNECTORTOOL:-True }",
+        "LEANIX_TOKEN": "${LEANIX_TOKEN}",
+        "LEANIX_URL": "${LEANIX_URL}",
+        "LEANIX_VERIFY": "${LEANIX_VERIFY}"
       }
     },
-    "archivebox": {
-      "command": "archivebox-mcp",
+    "mealie-mcp": {
+      "command": "mealie-mcp",
       "args": [
         "--transport",
         "stdio"
       ],
       "env": {
-        "ARCHIVEBOX_URL": "${ARCHIVEBOX_URL:-http://localhost:8080}",
-        "ARCHIVEBOX_TOKEN": "${ARCHIVEBOX_TOKEN}"
-      }
-    },
-    "archivebox-mcp": {
-      "command": "archivebox-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "ARCHIVEBOX_URL": "${ARCHIVEBOX_URL}",
-        "ARCHIVEBOX_TOKEN": "${ARCHIVEBOX_TOKEN}",
-        "ARCHIVEBOX_USERNAME": "${ARCHIVEBOX_USERNAME}",
-        "ARCHIVEBOX_PASSWORD": "${ARCHIVEBOX_PASSWORD}",
-        "ARCHIVEBOX_API_KEY": "${ARCHIVEBOX_API_KEY}",
-        "ARCHIVEBOX_VERIFY": "${ARCHIVEBOX_VERIFY:-True}",
-        "AUTHENTICATIONTOOL": "${ AUTHENTICATIONTOOL:-True }",
-        "CLITOOL": "${ CLITOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }",
-        "CORETOOL": "${ CORETOOL:-True }"
-      }
-    },
-    "home": {
-      "command": "home-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "HOME_URL": "${HOME_URL:-http://localhost:8080}",
-        "HOME_TOKEN": "${HOME_TOKEN}"
-      }
-    },
-    "repository": {
-      "command": "repository-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "REPOSITORY_URL": "${REPOSITORY_URL:-http://localhost:8080}",
-        "REPOSITORY_TOKEN": "${REPOSITORY_TOKEN}"
-      }
-    },
-    "repository-manager": {
-      "command": "repository-manager-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "FILE_OPERATIONSTOOL": "${ FILE_OPERATIONSTOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }",
-        "GIT_OPERATIONSTOOL": "${ GIT_OPERATIONSTOOL:-True }"
-      }
-    },
-    "gitlab": {
-      "command": "gitlab-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "GITLAB_URL": "${GITLAB_URL:-http://localhost:8080}",
-        "GITLAB_TOKEN": "${GITLAB_TOKEN}"
-      }
-    },
-    "gitlab-api": {
-      "command": "gitlab-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "GITLAB_URL": "${GITLAB_URL}",
-        "GITLAB_TOKEN": "${GITLAB_TOKEN}",
+        "MEALIE_URL": "${MEALIE_URL:-http://localhost:8080}",
+        "MEALIE_API_KEY": "${MEALIE_API_KEY}",
         "GROUPSTOOL": "${ GROUPSTOOL:-True }",
-        "PROTECTED_BRANCHESTOOL": "${ PROTECTED_BRANCHESTOOL:-True }",
-        "PIPELINESTOOL": "${ PIPELINESTOOL:-True }",
-        "MERGE_REQUESTSTOOL": "${ MERGE_REQUESTSTOOL:-True }",
+        "ADMINTOOL": "${ ADMINTOOL:-True }",
+        "USERSTOOL": "${ USERSTOOL:-True }",
+        "ORGANIZERTOOL": "${ ORGANIZERTOOL:-True }",
+        "HOUSEHOLDSTOOL": "${ HOUSEHOLDSTOOL:-True }",
+        "EXPLORETOOL": "${ EXPLORETOOL:-True }",
+        "RECIPESTOOL": "${ RECIPESTOOL:-True }",
+        "UTILSTOOL": "${ UTILSTOOL:-True }",
+        "SHAREDTOOL": "${ SHAREDTOOL:-True }",
+        "APPTOOL": "${ APPTOOL:-True }",
         "MISCTOOL": "${ MISCTOOL:-True }",
-        "PACKAGESTOOL": "${ PACKAGESTOOL:-True }",
-        "DEPLOY_TOKENSTOOL": "${ DEPLOY_TOKENSTOOL:-True }",
-        "CUSTOM_APITOOL": "${ CUSTOM_APITOOL:-True }",
-        "PIPELINE_SCHEDULESTOOL": "${ PIPELINE_SCHEDULESTOOL:-True }",
-        "MERGE_RULESTOOL": "${ MERGE_RULESTOOL:-True }",
-        "COMMITSTOOL": "${ COMMITSTOOL:-True }",
-        "BRANCHESTOOL": "${ BRANCHESTOOL:-True }",
-        "JOBSTOOL": "${ JOBSTOOL:-True }",
-        "TAGSTOOL": "${ TAGSTOOL:-True }",
-        "MEMBERSTOOL": "${ MEMBERSTOOL:-True }",
-        "ENVIRONMENTSTOOL": "${ ENVIRONMENTSTOOL:-True }",
-        "PROJECTSTOOL": "${ PROJECTSTOOL:-True }",
-        "RELEASESTOOL": "${ RELEASESTOOL:-True }",
-        "RUNNERSTOOL": "${ RUNNERSTOOL:-True }"
+        "MEALIE_BASE_URL": "${MEALIE_BASE_URL}",
+        "MEALIE_TOKEN": "${MEALIE_TOKEN}",
+        "MEALIE_VERIFY": "${MEALIE_VERIFY}"
+      }
+    },
+    "media-downloader-mcp": {
+      "command": "media-downloader-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "DOWNLOAD_DIRECTORY": "${DOWNLOAD_DIRECTORY}",
+        "AUDIO_ONLY": "${AUDIO_ONLY:-False}",
+        "TEXT_EDITORTOOL": "${ TEXT_EDITORTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }",
+        "COLLECTION_MANAGEMENTTOOL": "${ COLLECTION_MANAGEMENTTOOL:-True }"
+      }
+    },
+    "microsoft-agent": {
+      "command": "microsoft-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "MICROSOFT_CLIENT_ID": "${MICROSOFT_CLIENT_ID}",
+        "MICROSOFT_CLIENT_SECRET": "${MICROSOFT_CLIENT_SECRET}",
+        "MICROSOFT_TENANT_ID": "${MICROSOFT_TENANT_ID}",
+        "AUTHTOOL": "${ AUTHTOOL:-True }",
+        "GROUPSTOOL": "${ GROUPSTOOL:-True }",
+        "AGREEMENTSTOOL": "${ AGREEMENTSTOOL:-True }",
+        "FILESTOOL": "${ FILESTOOL:-True }",
+        "NOTESTOOL": "${ NOTESTOOL:-True }",
+        "ORGANIZATIONTOOL": "${ ORGANIZATIONTOOL:-True }",
+        "AUDITTOOL": "${ AUDITTOOL:-True }",
+        "PLACESTOOL": "${ PLACESTOOL:-True }",
+        "PRINTTOOL": "${ PRINTTOOL:-True }",
+        "TASKSTOOL": "${ TASKSTOOL:-True }",
+        "SEARCHTOOL": "${ SEARCHTOOL:-True }",
+        "EMPLOYEE_EXPERIENCETOOL": "${ EMPLOYEE_EXPERIENCETOOL:-True }",
+        "METATOOL": "${ METATOOL:-True }",
+        "CHATTOOL": "${ CHATTOOL:-True }",
+        "SITESTOOL": "${ SITESTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }",
+        "DIRECTORYTOOL": "${ DIRECTORYTOOL:-True }",
+        "POLICIESTOOL": "${ POLICIESTOOL:-True }",
+        "ADMINTOOL": "${ ADMINTOOL:-True }",
+        "TEAMSTOOL": "${ TEAMSTOOL:-True }",
+        "APPLICATIONSTOOL": "${ APPLICATIONSTOOL:-True }",
+        "CALENDARTOOL": "${ CALENDARTOOL:-True }",
+        "REPORTSTOOL": "${ REPORTSTOOL:-True }",
+        "PRIVACYTOOL": "${ PRIVACYTOOL:-True }",
+        "SOLUTIONSTOOL": "${ SOLUTIONSTOOL:-True }",
+        "SUBSCRIPTIONSTOOL": "${ SUBSCRIPTIONSTOOL:-True }",
+        "DOMAINSTOOL": "${ DOMAINSTOOL:-True }",
+        "USERTOOL": "${ USERTOOL:-True }",
+        "CONNECTIONSTOOL": "${ CONNECTIONSTOOL:-True }",
+        "STORAGETOOL": "${ STORAGETOOL:-True }",
+        "SECURITYTOOL": "${ SECURITYTOOL:-True }",
+        "DEVICESTOOL": "${ DEVICESTOOL:-True }",
+        "CONTACTSTOOL": "${ CONTACTSTOOL:-True }",
+        "EDUCATIONTOOL": "${ EDUCATIONTOOL:-True }",
+        "IDENTITYTOOL": "${ IDENTITYTOOL:-True }",
+        "COMMUNICATIONSTOOL": "${ COMMUNICATIONSTOOL:-True }",
+        "MAILTOOL": "${ MAILTOOL:-True }",
+        "OIDC_CLIENT_ID": "${OIDC_CLIENT_ID}"
+      }
+    },
+    "nextcloud-agent": {
+      "command": "nextcloud-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "NEXTCLOUD_URL": "${NEXTCLOUD_URL:-http://localhost:8080}",
+        "NEXTCLOUD_USERNAME": "${NEXTCLOUD_USERNAME}",
+        "NEXTCLOUD_PASSWORD": "${NEXTCLOUD_PASSWORD}",
+        "USERTOOL": "${ USERTOOL:-True }",
+        "FILESTOOL": "${ FILESTOOL:-True }",
+        "SHARINGTOOL": "${ SHARINGTOOL:-True }",
+        "CALENDARTOOL": "${ CALENDARTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }",
+        "CONTACTSTOOL": "${ CONTACTSTOOL:-True }"
+      }
+    },
+    "owncast": {
+      "command": "owncast-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "OWNCAST_URL": "${OWNCAST_URL:-http://localhost:8080}",
+        "OWNCAST_TOKEN": "${OWNCAST_TOKEN}",
+        "CHAT_TOOL": "${ CHAT_TOOL:-True }",
+        "EXTERNAL_TOOL": "${ EXTERNAL_TOOL:-True }",
+        "INTERNAL_TOOL": "${ INTERNAL_TOOL:-True }",
+        "OBJECTS_TOOL": "${ OBJECTS_TOOL:-True }"
+      }
+    },
+    "plane": {
+      "command": "plane-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "PLANE_API_KEY": "${PLANE_API_KEY}",
+        "PLANE_WORKSPACE_SLUG": "${PLANE_WORKSPACE_SLUG}",
+        "PLANE_BASE_URL": "${PLANE_BASE_URL:-https://api.plane.so}",
+        "PLANE_URL": "${PLANE_URL:-http://localhost:8080}"
+      }
+    },
+    "portainer-agent": {
+      "command": "portainer-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "PORTAINER_URL": "${PORTAINER_URL:-http://localhost:9000}",
+        "PORTAINER_TOKEN": "${PORTAINER_TOKEN}",
+        "AUTHTOOL": "${ AUTHTOOL:-True }",
+        "USERTOOL": "${ USERTOOL:-True }",
+        "DOCKERTOOL": "${ DOCKERTOOL:-True }",
+        "SYSTEMTOOL": "${ SYSTEMTOOL:-True }",
+        "REGISTRYTOOL": "${ REGISTRYTOOL:-True }",
+        "ENVIRONMENTTOOL": "${ ENVIRONMENTTOOL:-True }",
+        "KUBERNETESTOOL": "${ KUBERNETESTOOL:-True }",
+        "TEMPLATETOOL": "${ TEMPLATETOOL:-True }",
+        "STACKTOOL": "${ STACKTOOL:-True }",
+        "EDGETOOL": "${ EDGETOOL:-True }"
+      }
+    },
+    "postiz": {
+      "command": "postiz-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "POSTIZ_URL": "${POSTIZ_URL:-http://localhost:8080}",
+        "POSTIZ_TOKEN": "${POSTIZ_TOKEN}",
+        "ANALYTICSTOOL": "${ ANALYTICSTOOL:-True }",
+        "INTEGRATIONSTOOL": "${ INTEGRATIONSTOOL:-True }",
+        "NOTIFICATIONSTOOL": "${ NOTIFICATIONSTOOL:-True }",
+        "POSTSTOOL": "${ POSTSTOOL:-True }",
+        "UPLOADSTOOL": "${ UPLOADSTOOL:-True }",
+        "VIDEOTOOL": "${ VIDEOTOOL:-True }"
       }
     },
     "qbittorrent": {
@@ -779,35 +601,163 @@
         "QBITTORRENT_TOKEN": "${QBITTORRENT_TOKEN}"
       }
     },
-    "qbittorrent-agent": {
-      "command": "python",
+    "repository-manager": {
+      "command": "repository-manager-mcp",
       "args": [
-        "-m",
-        "qbittorrent_agent.mcp",
         "--transport",
         "stdio"
       ],
       "env": {
-        "QBITTORRENT_URL": "${QBITTORRENT_URL}",
-        "QBITTORRENT_USERNAME": "${QBITTORRENT_USERNAME}",
-        "QBITTORRENT_PASSWORD": "${QBITTORRENT_PASSWORD}",
-        "APPTOOL": "True",
-        "TORRENTSTOOL": "True",
-        "TRANSFERTOOL": "True",
-        "RSSTOOL": "True",
-        "SEARCHTOOL": "True",
-        "LOGTOOL": "True"
+        "FILE_OPERATIONSTOOL": "${ FILE_OPERATIONSTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }",
+        "GIT_OPERATIONSTOOL": "${ GIT_OPERATIONSTOOL:-True }",
+        "GRAPH_INTELLIGENCETOOL": "${ GRAPH_INTELLIGENCETOOL:-True }",
+        "REPOSITORY_MANAGER_THREADS": "${REPOSITORY_MANAGER_THREADS:-12}",
+        "REPOSITORY_MANAGER_WORKSPACE": "${REPOSITORY_MANAGER_WORKSPACE:-/home/genius/Workspace/agent-packages}",
+        "VISUALIZATIONTOOL": "${ VISUALIZATIONTOOL:-True }",
+        "WORKSPACE_MANAGEMENTTOOL": "${ WORKSPACE_MANAGEMENTTOOL:-True }",
+        "WORKSPACE_YML": "${WORKSPACE_YML:-}"
       }
     },
-    "vector": {
-      "command": "vector-mcp",
+    "searxng-mcp": {
+      "command": "searxng-mcp",
       "args": [
         "--transport",
         "stdio"
       ],
       "env": {
-        "VECTOR_URL": "${VECTOR_URL:-http://localhost:8080}",
-        "VECTOR_TOKEN": "${VECTOR_TOKEN}"
+        "SEARXNG_INSTANCE_URL": "${SEARXNG_INSTANCE_URL}",
+        "SEARXNG_USERNAME": "${SEARXNG_USERNAME}",
+        "SEARXNG_PASSWORD": "${SEARXNG_PASSWORD}",
+        "USE_RANDOM_INSTANCE": "${USE_RANDOM_INSTANCE:-false}",
+        "SEARCHTOOL": "${ SEARCHTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }"
+      }
+    },
+    "servicenow-api": {
+      "command": "servicenow-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE": "${SERVICENOW_INSTANCE}",
+        "SERVICENOW_USERNAME": "${SERVICENOW_USERNAME}",
+        "SERVICENOW_PASSWORD": "${SERVICENOW_PASSWORD}",
+        "SERVICENOW_CLIENT_ID": "${SERVICENOW_CLIENT_ID}",
+        "SERVICENOW_CLIENT_SECRET": "${SERVICENOW_CLIENT_SECRET}",
+        "ACCOUNTTOOL": "${ ACCOUNTTOOL:-True }",
+        "ACTIVITY_SUBSCRIPTIONSTOOL": "${ ACTIVITY_SUBSCRIPTIONSTOOL:-True }",
+        "AGGREGATETOOL": "${ AGGREGATETOOL:-True }",
+        "APPLICATIONTOOL": "${ APPLICATIONTOOL:-True }",
+        "ATTACHMENTTOOL": "${ ATTACHMENTTOOL:-True }",
+        "AUTHTOOL": "${ AUTHTOOL:-True }",
+        "BATCHTOOL": "${ BATCHTOOL:-True }",
+        "CHANGE_MANAGEMENTTOOL": "${ CHANGE_MANAGEMENTTOOL:-True }",
+        "CICDTOOL": "${ CICDTOOL:-True }",
+        "CILIFECYCLETOOL": "${ CILIFECYCLETOOL:-True }",
+        "CMDBTOOL": "${ CMDBTOOL:-True }",
+        "CUSTOM_APITOOL": "${ CUSTOM_APITOOL:-True }",
+        "DATA_CLASSIFICATIONTOOL": "${ DATA_CLASSIFICATIONTOOL:-True }",
+        "DEVOPSTOOL": "${ DEVOPSTOOL:-True }",
+        "EMAILTOOL": "${ EMAILTOOL:-True }",
+        "FLOWSTOOL": "${ FLOWSTOOL:-True }",
+        "HRTOOL": "${ HRTOOL:-True }",
+        "IMPORT_SETSTOOL": "${ IMPORT_SETSTOOL:-True }",
+        "INCIDENTSTOOL": "${ INCIDENTSTOOL:-True }",
+        "KNOWLEDGE_MANAGEMENTTOOL": "${ KNOWLEDGE_MANAGEMENTTOOL:-True }",
+        "METRICBASETOOL": "${ METRICBASETOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }",
+        "OPENAPI_CLIENT_ID": "${OPENAPI_CLIENT_ID}",
+        "OPENAPI_PASSWORD": "${OPENAPI_PASSWORD}",
+        "OPENAPI_USERNAME": "${OPENAPI_USERNAME}",
+        "PLUGINSTOOL": "${ PLUGINSTOOL:-True }",
+        "PPMTOOL": "${ PPMTOOL:-True }",
+        "PRODUCT_INVENTORYTOOL": "${ PRODUCT_INVENTORYTOOL:-True }",
+        "SERVICENOW_RETURN_LIMIT": "${SERVICENOW_RETURN_LIMIT}",
+        "SERVICENOW_SSL_VERIFY": "${SERVICENOW_SSL_VERIFY}",
+        "SERVICE_QUALIFICATIONTOOL": "${ SERVICE_QUALIFICATIONTOOL:-True }",
+        "SOURCE_CONTROLTOOL": "${ SOURCE_CONTROLTOOL:-True }",
+        "TABLE_APITOOL": "${ TABLE_APITOOL:-True }",
+        "TESTINGTOOL": "${ TESTINGTOOL:-True }",
+        "UPDATE_SETSTOOL": "${ UPDATE_SETSTOOL:-True }"
+      }
+    },
+    "stirlingpdf-agent": {
+      "command": "stirlingpdf-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "STIRLINGPDF_URL": "${STIRLINGPDF_URL:-http://localhost:8080}",
+        "STIRLINGPDF_API_KEY": "${STIRLINGPDF_API_KEY}",
+        "PDFTOOL": "${ PDFTOOL:-True }"
+      }
+    },
+    "systems-manager": {
+      "command": "systems-manager-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "TEXT_EDITORTOOL": "${ TEXT_EDITORTOOL:-True }",
+        "FILESYSTEMTOOL": "${ FILESYSTEMTOOL:-True }",
+        "PROCESSTOOL": "${ PROCESSTOOL:-True }",
+        "LOGTOOL": "${ LOGTOOL:-True }",
+        "USERTOOL": "${ USERTOOL:-True }",
+        "SSH_MANAGEMENTTOOL": "${ SSH_MANAGEMENTTOOL:-True }",
+        "SHELLTOOL": "${ SHELLTOOL:-True }",
+        "SYSTEMTOOL": "${ SYSTEMTOOL:-True }",
+        "CRONTOOL": "${ CRONTOOL:-True }",
+        "NETWORKTOOL": "${ NETWORKTOOL:-True }",
+        "NODEJSTOOL": "${ NODEJSTOOL:-True }",
+        "SERVICETOOL": "${ SERVICETOOL:-True }",
+        "SYSTEM_MANAGEMENTTOOL": "${ SYSTEM_MANAGEMENTTOOL:-True }",
+        "FIREWALL_MANAGEMENTTOOL": "${ FIREWALL_MANAGEMENTTOOL:-True }",
+        "PYTHONTOOL": "${ PYTHONTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }",
+        "DISKTOOL": "${ DISKTOOL:-True }",
+        "SYSTEMS_MANAGER_LOG_FILE": "${SYSTEMS_MANAGER_LOG_FILE}",
+        "SYSTEMS_MANAGER_SILENT": "${SYSTEMS_MANAGER_SILENT}"
+      }
+    },
+    "tunnel-manager-mcp": {
+      "command": "tunnel-manager-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "TUNNEL_IDENTITY_FILE": "${TUNNEL_IDENTITY_FILE}",
+        "HOST_MANAGEMENTTOOL": "${ HOST_MANAGEMENTTOOL:-True }",
+        "MISCTOOL": "${ MISCTOOL:-True }",
+        "REMOTE_ACCESSTOOL": "${ REMOTE_ACCESSTOOL:-True }",
+        "TUNNEL_CERTIFICATE": "${TUNNEL_CERTIFICATE}",
+        "TUNNEL_INVENTORY": "${TUNNEL_INVENTORY}",
+        "TUNNEL_INVENTORY_GROUP": "${TUNNEL_INVENTORY_GROUP}",
+        "TUNNEL_LOG_FILE": "${TUNNEL_LOG_FILE}",
+        "TUNNEL_MAX_THREADS": "${TUNNEL_MAX_THREADS}",
+        "TUNNEL_PARALLEL": "${TUNNEL_PARALLEL}",
+        "TUNNEL_PASSWORD": "${TUNNEL_PASSWORD}",
+        "TUNNEL_PROXY_COMMAND": "${TUNNEL_PROXY_COMMAND}",
+        "TUNNEL_REMOTE_HOST": "${TUNNEL_REMOTE_HOST}",
+        "TUNNEL_REMOTE_PORT": "${TUNNEL_REMOTE_PORT}",
+        "TUNNEL_USERNAME": "${TUNNEL_USERNAME}"
+      }
+    },
+    "uptime": {
+      "command": "uptime-mcp",
+      "args": [
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "UPTIME_URL": "${UPTIME_URL:-http://localhost:3001}",
+        "UPTIME_TOKEN": "${UPTIME_TOKEN}",
+        "MONITORSTOOL": "${ MONITORSTOOL:-True }",
+        "STATUSTOOL": "${ STATUSTOOL:-True }"
       }
     },
     "vector-mcp": {
@@ -829,110 +779,12 @@
         "DOCUMENT_DIRECTORY": "${DOCUMENT_DIRECTORY:-/documents}",
         "SEARCHTOOL": "${ SEARCHTOOL:-True }",
         "MISCTOOL": "${ MISCTOOL:-True }",
-        "COLLECTION_MANAGEMENTTOOL": "${ COLLECTION_MANAGEMENTTOOL:-True }"
-      }
-    },
-    "container": {
-      "command": "container-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "CONTAINER_URL": "${CONTAINER_URL:-http://localhost:8080}",
-        "CONTAINER_TOKEN": "${CONTAINER_TOKEN}"
-      }
-    },
-    "container-manager-mcp": {
-      "command": "container-manager-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "DOCKER_HOST": "${DOCKER_HOST:-unix:///var/run/docker.sock}",
-        "LOGTOOL": "${ LOGTOOL:-True }",
-        "SYSTEMTOOL": "${ SYSTEMTOOL:-True }",
-        "INFOTOOL": "${ INFOTOOL:-True }",
-        "IMAGETOOL": "${ IMAGETOOL:-True }",
-        "NETWORKTOOL": "${ NETWORKTOOL:-True }",
-        "SWARMTOOL": "${ SWARMTOOL:-True }",
-        "CONTAINERTOOL": "${ CONTAINERTOOL:-True }",
-        "COMPOSETOOL": "${ COMPOSETOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }",
-        "VOLUMETOOL": "${ VOLUMETOOL:-True }"
-      }
-    },
-    "searxng": {
-      "command": "searxng-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "SEARXNG_URL": "${SEARXNG_URL:-http://localhost:8080}",
-        "SEARXNG_TOKEN": "${SEARXNG_TOKEN}"
-      }
-    },
-    "searxng-mcp": {
-      "command": "searxng-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "SEARXNG_INSTANCE_URL": "${SEARXNG_INSTANCE_URL}",
-        "SEARXNG_USERNAME": "${SEARXNG_USERNAME}",
-        "SEARXNG_PASSWORD": "${SEARXNG_PASSWORD}",
-        "USE_RANDOM_INSTANCE": "${USE_RANDOM_INSTANCE:-false}",
-        "SEARCHTOOL": "${ SEARCHTOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }"
-      }
-    },
-    "uptime": {
-      "command": "uptime-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "UPTIME_URL": "${UPTIME_URL:-http://localhost:8080}",
-        "UPTIME_TOKEN": "${UPTIME_TOKEN}"
-      }
-    },
-    "tunnel": {
-      "command": "tunnel-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "TUNNEL_URL": "${TUNNEL_URL:-http://localhost:8080}",
-        "TUNNEL_TOKEN": "${TUNNEL_TOKEN}"
-      }
-    },
-    "tunnel-manager-mcp": {
-      "command": "tunnel-manager-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "TUNNEL_IDENTITY_FILE": "${TUNNEL_IDENTITY_FILE}",
-        "HOST_MANAGEMENTTOOL": "${ HOST_MANAGEMENTTOOL:-True }",
-        "MISCTOOL": "${ MISCTOOL:-True }",
-        "REMOTE_ACCESSTOOL": "${ REMOTE_ACCESSTOOL:-True }"
-      }
-    },
-    "wger": {
-      "command": "wger-mcp",
-      "args": [
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "WGER_URL": "${WGER_URL:-http://localhost:8080}",
-        "WGER_TOKEN": "${WGER_TOKEN}"
+        "COLLECTION_MANAGEMENTTOOL": "${ COLLECTION_MANAGEMENTTOOL:-True }",
+        "CHUNK_SIZE": "${CHUNK_SIZE}",
+        "LLM_API_KEY": "${LLM_API_KEY}",
+        "LLM_BASE_URL": "${LLM_BASE_URL}",
+        "MODEL_ID": "${MODEL_ID}",
+        "PROVIDER": "${PROVIDER}"
       }
     },
     "wger-agent": {

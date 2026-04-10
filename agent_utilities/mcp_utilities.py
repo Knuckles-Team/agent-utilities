@@ -2,12 +2,33 @@
 
 import os
 import argparse
+import warnings
 from typing import Union, Any
 from pathlib import Path
+import logging
+
+# Filter RequestsDependencyWarning early to prevent log spam
+try:
+    from requests.exceptions import RequestsDependencyWarning
+
+    warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
+except ImportError:
+    pass
+
+# General urllib3/chardet mismatch warnings
+warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
+warnings.filterwarnings("ignore", message=".*urllib3.*or charset_normalizer.*")
+
+from .base_utilities import to_boolean, GET_DEFAULT_SSL_VERIFY
+from .config import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+)
+
+logger = logging.getLogger(__name__)
 
 
-from .base_utilities import to_integer, to_boolean, GET_DEFAULT_SSL_VERIFY
-
+# MCP-specific auth/delegation config (not in config.py)
 config = {
     "enable_delegation": to_boolean(os.environ.get("ENABLE_DELEGATION", "False")),
     "audience": os.environ.get("AUDIENCE", None),
@@ -25,8 +46,6 @@ config = {
 }
 
 DEFAULT_TRANSPORT = os.environ.get("TRANSPORT", "stdio")
-DEFAULT_HOST = os.environ.get("HOST", "0.0.0.0")
-DEFAULT_PORT = to_integer(os.environ.get("PORT", "8000"))
 DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 DEFAULT_PROVIDER = os.getenv("PROVIDER", "openai")
 DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "text-embedding-nomic-embed-text-v2-moe")
@@ -37,7 +56,7 @@ __version__ = "0.2.39"
 
 
 def create_mcp_parser():
-    parser = argparse.ArgumentParser(add_help=False, description="Vector MCP")
+    parser = argparse.ArgumentParser(add_help=False, description="MCP Server")
     parser.add_argument(
         "-t",
         "--transport",
@@ -236,6 +255,16 @@ def create_mcp_server(
     Returns:
         tuple: (args, mcp, middlewares) ready for tool registration and server start.
     """
+    import warnings
+
+    # Filter RequestsDependencyWarning early to prevent log spam
+    try:
+        from requests.exceptions import RequestsDependencyWarning
+
+        warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
+    except ImportError:
+        pass
+
     import requests as _requests
 
     from fastmcp import FastMCP
@@ -266,7 +295,7 @@ def create_mcp_server(
         sys.exit(0)
 
     if args.port < 0 or args.port > 65535:
-        print(f"Error: Port {args.port} is out of valid range (0-65535).")
+        logger.error(f"Error: Port {args.port} is out of valid range (0-65535).")
         import sys
 
         sys.exit(1)
@@ -288,10 +317,10 @@ def create_mcp_server(
         import sys as _sys
 
         if args.auth_type != "oidc-proxy":
-            print("Error: Token delegation requires auth-type=oidc-proxy")
+            logger.error("Error: Token delegation requires auth-type=oidc-proxy")
             _sys.exit(1)
         if not config["audience"]:
-            print("Error: audience is required for delegation")
+            logger.error("Error: audience is required for delegation")
             _sys.exit(1)
         if not all(
             [
@@ -300,7 +329,7 @@ def create_mcp_server(
                 config["oidc_client_secret"],
             ]
         ):
-            print("Error: Delegation requires complete OIDC configuration")
+            logger.error("Error: Delegation requires complete OIDC configuration")
             _sys.exit(1)
         try:
             oidc_config_resp = _requests.get(config["oidc_config_url"])
@@ -310,7 +339,7 @@ def create_mcp_server(
             if not config["token_endpoint"]:
                 raise ValueError("No token_endpoint found in OIDC configuration")
         except Exception as e:
-            print(f"Failed to fetch OIDC configuration: {e}")
+            logger.error(f"Failed to fetch OIDC configuration: {e}")
             _sys.exit(1)
 
     auth = None
@@ -340,12 +369,12 @@ def create_mcp_server(
         public_key_pem = None
 
         if not (jwks_uri or secret_or_key):
-            print(
+            logger.error(
                 "Error: JWT auth requires either --token-jwks-uri or --token-secret/--token-public-key"
             )
             _sys.exit(1)
         if not (issuer and audience):
-            print("Error: JWT requires --token-issuer and --token-audience")
+            logger.error("Error: JWT requires --token-issuer and --token-audience")
             _sys.exit(1)
 
         if args.token_public_key and os.path.isfile(args.token_public_key):
@@ -353,14 +382,16 @@ def create_mcp_server(
                 with open(args.token_public_key, "r") as f:
                     public_key_pem = f.read()
             except Exception as e:
-                print(f"Failed to read public key file: {e}")
+                logger.error(f"Failed to read public key file: {e}")
                 _sys.exit(1)
         elif args.token_public_key:
             public_key_pem = args.token_public_key
 
         if algorithm and algorithm.startswith("HS"):
             if not secret_or_key:
-                print(f"Error: HMAC algorithm {algorithm} requires --token-secret")
+                logger.error(
+                    f"Error: HMAC algorithm {algorithm} requires --token-secret"
+                )
                 _sys.exit(1)
             public_key = secret_or_key
         else:
@@ -384,7 +415,7 @@ def create_mcp_server(
                 required_scopes=required_scopes,
             )
         except Exception as e:
-            print(f"Failed to initialize JWTVerifier: {e}")
+            logger.error(f"Failed to initialize JWTVerifier: {e}")
             _sys.exit(1)
     elif args.auth_type == "oauth-proxy":
         import sys as _sys
@@ -401,7 +432,9 @@ def create_mcp_server(
                 args.token_audience,
             ]
         ):
-            print("Error: oauth-proxy requires all upstream endpoints and JWT params")
+            logger.error(
+                "Error: oauth-proxy requires all upstream endpoints and JWT params"
+            )
             _sys.exit(1)
         token_verifier = JWTVerifier(
             jwks_uri=args.token_jwks_uri,
@@ -428,7 +461,7 @@ def create_mcp_server(
                 args.oidc_base_url,
             ]
         ):
-            print(
+            logger.error(
                 "Error: oidc-proxy requires oidc-config-url, oidc-client-id, oidc-client-secret, oidc-base-url"
             )
             _sys.exit(1)
@@ -451,7 +484,7 @@ def create_mcp_server(
                 args.token_audience,
             ]
         ):
-            print(
+            logger.error(
                 "Error: remote-oauth requires remote-auth-servers, remote-base-url, and JWT params"
             )
             _sys.exit(1)
@@ -494,7 +527,7 @@ def create_mcp_server(
             )
             middlewares.append(eunomia_mw)
         except Exception as e:
-            print(f"Failed to load Eunomia middleware: {e}")
+            logger.error(f"Failed to load Eunomia middleware: {e}")
             import sys
 
             sys.exit(1)
@@ -514,6 +547,8 @@ def load_mcp_config(config_path: Union[str, Path]) -> list[Any]:
         List of initialized MCPServer objects.
     """
     import tempfile
+    import json
+    import shutil
     from .base_utilities import expand_env_vars
     from pydantic_ai.mcp import load_mcp_servers
 
@@ -523,21 +558,87 @@ def load_mcp_config(config_path: Union[str, Path]) -> list[Any]:
             return []
 
         content = path.read_text()
-        expanded = expand_env_vars(content)
+        expanded_content = expand_env_vars(content)
+
+        # Robust Validation: Check if commands exist before pydantic-ai tries to start them
+        try:
+            config_data = json.loads(expanded_content)
+            mcp_servers = config_data.get("mcpServers", {})
+            modified = False
+
+            for name, cfg in mcp_servers.items():
+                command = cfg.get("command")
+                if command:
+                    # Resolve command path with explicit ~/.local/bin support
+                    search_path = os.environ.get("PATH", "")
+                    local_bin = str(Path.home() / ".local" / "bin")
+                    if local_bin not in search_path:
+                        search_path = f"{local_bin}:{search_path}"
+
+                    resolved = shutil.which(command, path=search_path)
+                    if not resolved:
+                        logger.warning(
+                            f"MCP Config: Command '{command}' for server '{name}' NOT FOUND in PATH ({search_path}). Startup will likely fail."
+                        )
+                    else:
+                        logger.debug(
+                            f"MCP Config: Resolved command '{command}' to '{resolved}'"
+                        )
+
+                    # Ensure PATH and PYTHONPATH are preserved if not explicitly set
+                    if "env" not in cfg:
+                        cfg["env"] = {}
+
+                    if "PATH" not in cfg["env"]:
+                        cfg["env"]["PATH"] = search_path
+                    if "PYTHONPATH" not in cfg["env"] and "PYTHONPATH" in os.environ:
+                        cfg["env"]["PYTHONPATH"] = os.environ.get("PYTHONPATH", "")
+
+                    # Suppress RequestsDependencyWarning in subprocesses
+                    if "PYTHONWARNINGS" not in cfg["env"]:
+                        cfg["env"][
+                            "PYTHONWARNINGS"
+                        ] = "ignore:urllib3 (2.3.0) or chardet"
+                    else:
+                        if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
+                            cfg["env"][
+                                "PYTHONWARNINGS"
+                            ] += ",ignore:urllib3 (2.3.0) or chardet"
+                    modified = True
+
+            if modified:
+                expanded_content = json.dumps(config_data)
+        except Exception as e:
+            logger.warning(f"MCP Config: Pre-validation failed: {e}")
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
-            tmp.write(expanded)
+            tmp.write(expanded_content)
             tmp_path = tmp.name
 
         try:
-            return load_mcp_servers(tmp_path)
+            servers = load_mcp_servers(tmp_path)
+            # Re-attach IDs from config
+            config_data = json.loads(expanded_content)
+            mcp_servers_cfg = config_data.get("mcpServers", {})
+
+            # Match by command and args as a heuristic if pydantic-ai doesn't preserve order or names
+            for ts in servers:
+                # pydantic-ai objects might not have a clean way to match back,
+                # but they usually follow the order in the JSON.
+                pass
+
+            # Better: If we have a list, and the config had a dict, they MIGHT match by order
+            # However, pydantic-ai load_mcp_servers is internal.
+            # I'll just set the .id if they are list components.
+            for i, (name, cfg) in enumerate(mcp_servers_cfg.items()):
+                if i < len(servers):
+                    servers[i].id = name
+                    logger.debug(f"MCP Config: Loaded server '{name}'")
+
+            return servers
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
     except Exception as e:
-        import logging
-
-        logging.getLogger(__name__).error(
-            f"Failed to load MCP config {config_path}: {e}"
-        )
+        logger.error(f"Failed to load MCP config {config_path}: {e}")
         return []

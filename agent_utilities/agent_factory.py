@@ -6,7 +6,7 @@ import os
 import logging
 import argparse
 import httpx
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Tuple, Union
 
 from pydantic_ai import Agent, ModelSettings, DeferredToolRequests
 from pydantic_ai.mcp import (
