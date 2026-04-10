@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import re
 import logging
-import asyncio
 
 
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
@@ -17,13 +16,6 @@ from pydantic_ai import Agent
 
 
 from .config import SENSITIVE_TOOL_PATTERNS, TOOL_GUARD_MODE
-
-
-from .models import PeriodicTask
-
-tasks: List[PeriodicTask] = []
-lock = asyncio.Lock()
-
 
 logger = logging.getLogger(__name__)
 

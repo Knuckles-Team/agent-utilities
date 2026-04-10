@@ -1,7 +1,11 @@
+#!/usr/bin/python
 import os
 from enum import Enum
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from dataclasses import dataclass, field
+from pathlib import Path
+import asyncio
 from pydantic import BaseModel, Field
 
 # Unified Execution Models defined below at line 220+
@@ -16,11 +20,6 @@ class PeriodicTask(BaseModel):
     prompt: str
     last_run: datetime = Field(default_factory=datetime.now)
     active: bool = True
-
-
-from dataclasses import dataclass, field
-from pathlib import Path
-import asyncio
 
 
 @dataclass
@@ -225,6 +224,10 @@ class ExecutionStep(BaseModel):
         False, description="Whether this step starts a parallel batch"
     )
     status: str = Field("pending", description="Current execution status")
+    timeout: float = Field(120.0, description="Per-node timeout in seconds")
+    depends_on: List[str] = Field(
+        default_factory=list, description="Node IDs that must complete before this step"
+    )
 
 
 class ParallelBatch(BaseModel):
@@ -238,3 +241,39 @@ class GraphPlan(BaseModel):
 
     steps: List[ExecutionStep] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPServerHealth(BaseModel):
+    """Circuit breaker state for an MCP server"""
+
+    server_name: str = ""
+    failures: int = 0
+    last_failure: float = 0.0
+    state: str = "closed"  # closed (healthy), open (unavailable), half-open (testing)
+    cooldown_seconds: float = 60.0
+    max_failures: int = 3
+
+    def record_failure(self) -> None:
+        import time
+
+        self.failures += 1
+        self.last_failure = time.time()
+        if self.failures >= self.max_failures:
+            self.state = "open"
+
+    def record_success(self) -> None:
+        self.failures = 0
+        self.state = "closed"
+
+    def is_available(self) -> bool:
+        import time
+
+        if self.state == "closed":
+            return True
+        if self.state == "open":
+            if time.time() - self.last_failure > self.cooldown_seconds:
+                self.state = "half-open"
+                return True  # Allow one test request
+            return False
+        # half-open: allow one request
+        return True

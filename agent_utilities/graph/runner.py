@@ -1,0 +1,468 @@
+#!/usr/bin/python
+"""Graph execution - run_graph, run_graph_stream, validate_graph"""
+
+from __future__ import annotations
+
+import json
+import logging
+import asyncio
+
+from typing import Any, List, Optional
+
+from pathlib import Path
+from uuid import uuid4
+
+from ..config import (
+    DEFAULT_PROVIDER,
+    DEFAULT_SSL_VERIFY,
+    DEFAULT_GRAPH_PERSISTENCE_PATH,
+    DEFAULT_ENABLE_LLM_VALIDATION,
+    DEFAULT_ROUTER_MODEL,
+    DEFAULT_GRAPH_AGENT_MODEL,
+)
+from ..model_factory import create_model
+
+from ..models import GraphResponse
+
+from .state import GraphState, GraphDeps
+from .mermaid import get_graph_mermaid
+from .config_helpers import (
+    load_node_agents_registry,
+    DEFAULT_GRAPH_TIMEOUT,
+    emit_graph_event,
+)
+
+try:
+    from opentelemtry import trace
+
+    tracer = trace.get_tracer("agent-utilties.graph")
+except ImportError:
+    tracer = None
+
+logger = logging.getLogger(__name__)
+
+
+async def run_graph(
+    graph,
+    config: dict,
+    query: str,
+    run_id: str | None = None,
+    persist: bool = False,
+    state_dir: str = DEFAULT_GRAPH_PERSISTENCE_PATH or "agent_data/graph_state",
+    streamdown: bool = True,
+    eq: Optional[asyncio.Queue] = None,
+    mode: str = "ask",
+    topology: str = "basic",
+    mcp_toolsets: List[Any] = None,
+) -> dict:
+    """Execute a query through the graph orchestrator.
+
+    Args:
+        graph: The Graph object from create_graph_agent().
+        config: The config dict from create_graph_agent().
+        query: The user's query string.
+        run_id: Optional run ID for persistence. Auto-generated if None.
+        persist: Whether to persist state to disk via FileStatePersistence.
+        state_dir: Directory for state files when persist=True.
+        streamdown: Whether to prepend the mermaid diagram to the output.
+        eq: Optional event queue for SSE streaming of graph lifecycle events.
+
+    Returns:
+        Dict with run_id, domain, results, and any error.
+    """
+    if run_id is None:
+        run_id = uuid4().hex
+
+    mermaid_prefix = ""
+    if streamdown:
+        try:
+            mermaid_prefix = f"```mermaid\n{get_graph_mermaid(graph, config)}\n```\n\n"
+        except Exception:
+            pass
+
+    state = GraphState(query=query, mode=mode, topology=topology)
+
+    deps = GraphDeps(
+        tag_prompts=config.get("tag_prompts", {}),
+        tag_env_vars=config.get("tag_env_vars", {}),
+        mcp_toolsets=(
+            mcp_toolsets if mcp_toolsets is not None else config.get("mcp_toolsets", [])
+        ),
+        mcp_url=config.get("mcp_url", ""),
+        mcp_config=config.get("mcp_config", ""),
+        router_model=create_model(
+            model_id=config.get("router_model", DEFAULT_ROUTER_MODEL),
+            api_key=config.get("api_key"),
+            base_url=config.get("base_url"),
+            provider=config.get("provider", DEFAULT_PROVIDER),
+        ),
+        agent_model=create_model(
+            model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
+            api_key=config.get("api_key"),
+            base_url=config.get("base_url"),
+            provider=config.get("provider", DEFAULT_PROVIDER),
+        ),
+        nodes=config.get("nodes", {}),
+        min_confidence=config.get("min_confidence", 0.6),
+        sub_agents=config.get("sub_agents", {}),
+        provider=config.get("provider", DEFAULT_PROVIDER),
+        base_url=config.get("base_url"),
+        api_key=config.get("api_key"),
+        ssl_verify=config.get("ssl_verify", DEFAULT_SSL_VERIFY),
+        event_queue=eq,
+        request_id=config.get("request_id", run_id),
+        routing_strategy=config.get("routing_strategy", "hybrid"),
+        enable_llm_validation=config.get(
+            "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
+        ),
+    )
+
+    state = GraphState(query=query, session_id=run_id, mode=mode, topology=topology)
+
+    if persist:
+        path = Path(state_dir)
+        if path.suffix != ".json":
+            path = path / f"{run_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # persistence = FileStatePersistence(json_file=path)
+
+    import anyio
+    from contextlib import AsyncExitStack
+
+    # Track which MCP servers fail to connect so we can report them clearly.
+    failed_servers: list[tuple[str, str]] = []
+    connected_toolsets: list = []
+
+    async with AsyncExitStack() as stack:
+        # Connect to MCP servers sequentially for AnyIO task-affinity safety.
+        # NOTE: This is fast because server.py pre-connects them once in parallel at startup.
+        for ts in deps.mcp_toolsets:
+            if not hasattr(ts, "__aenter__"):
+                connected_toolsets.append(ts)
+                continue
+            if getattr(ts, "_ag_connected", False):
+                # Already connected by global lifespan; skip re-entering
+                connected_toolsets.append(ts)
+                continue
+
+            srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
+            try:
+                logger.debug(f"run_graph: Connecting to MCP server '{srv_id}'...")
+                connected = await asyncio.wait_for(
+                    stack.enter_async_context(ts), timeout=60.0
+                )
+                ts._ag_connected = True
+                connected_toolsets.append(connected)
+                logger.info(f"run_graph: ✅ MCP server '{srv_id}' connected")
+            except Exception as e:
+                err_msg = str(e)
+                logger.error(
+                    f"run_graph: ❌ MCP server '{srv_id}' FAILED to connect: {err_msg}"
+                )
+                failed_servers.append((srv_id, err_msg))
+
+        deps.mcp_toolsets = [ts for ts in connected_toolsets if ts is not None]
+
+        if failed_servers:
+            logger.warning(
+                f"run_graph: {len(failed_servers)} MCP server(s) failed to connect — "
+                f"graph will proceed without them:\n"
+                + "\n".join(f"  ❌ {sid}: {err}" for sid, err in failed_servers)
+            )
+
+        # Standardize tag_prompts from the registry for high-fidelity routing.
+        # We merge existing prompts with registry-provided domain tags.
+        registry = load_node_agents_registry()
+        for agent in registry.agents:
+            # Domain tags (like 'git_operations') are the primary routing targets
+            if agent.tag and agent.tag not in deps.tag_prompts:
+                deps.tag_prompts[agent.tag] = agent.description or agent.name
+
+            # Legacy node mapping (by name)
+            node_id = agent.name.lower().replace(" ", "_")
+            if node_id not in deps.tag_prompts:
+                deps.tag_prompts[node_id] = agent.description or agent.name
+
+        emit_graph_event(
+            deps.event_queue,
+            "graph-start",
+            run_id=run_id,
+            query=query,
+            topology=topology,
+        )
+        logger.info(
+            f"run_graph: Starting graph execution for run_id {run_id}. Registered {len(deps.tag_prompts)} specialists."
+        )
+        if tracer:
+            with tracer.start_as_current_span(f"graph_run:{run_id}") as span:
+                span.set_attribute("query", query)
+                span.set_attribute("request_id", deps.request_id)
+                # Use anyio.move_on_after (not asyncio.wait_for) to avoid cross-task cancel scope errors
+                with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0):
+                    result = await graph.run(state=state, deps=deps)
+                span.set_status(trace.Status(trace.StatusCode.OK))
+        else:
+            logger.info("run_graph: Running beta graph.run (no tracer)...")
+            with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0):
+                result = await graph.run(state=state, deps=deps)
+            logger.info(
+                f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"
+            )
+            emit_graph_event(
+                deps.event_queue, "graph-complete", run_id=run_id, status="success"
+            )
+            logger.info(
+                f"run_graph: Final state: routed_domain={state.routed_domain}, "
+                f"registry_keys={list(state.results_registry.keys())}"
+            )
+
+    if isinstance(result, GraphResponse):
+        result.mermaid = mermaid_prefix if mermaid_prefix else None
+        result.metadata.update({"run_id": run_id, "domain": state.routed_domain})
+        return result
+
+    # Guard: graph.run() returned a plain string (node label) instead of GraphResponse.
+    # This happens when the graph exits without hitting End[GraphResponse] — e.g. when
+    # dispatcher returns None with an empty results_registry. Extract the best available
+    # result from state before wrapping.
+    if isinstance(result, str):
+        logger.error(
+            f"run_graph: graph.run() returned node label '{result}' instead of GraphResponse. "
+            f"This indicates the graph terminated unexpectedly. "
+            f"Registry keys: {list(state.results_registry.keys())}, "
+            f"Results keys: {list(state.results.keys())}"
+        )
+        # Priority: results_registry (plan-based) → results (domain-based) → error message
+        output = (
+            next(iter(state.results_registry.values()), None)
+            or next(iter(state.results.values()), None)
+            or f"Graph terminated unexpectedly at node '{result}'. No results were generated."
+        )
+        return GraphResponse(
+            status="partial",
+            results={"output": output},
+            mermaid=mermaid_prefix if mermaid_prefix else None,
+            metadata={
+                "run_id": run_id,
+                "domain": state.routed_domain,
+                "terminated_at": result,
+            },
+        )
+
+    return GraphResponse(
+        status="completed",
+        results={"output": str(result)},
+        mermaid=mermaid_prefix if mermaid_prefix else None,
+        metadata={"run_id": run_id, "domain": state.routed_domain},
+    )
+
+
+async def run_graph_stream(
+    graph,
+    config: dict,
+    query: str,
+    run_id: str | None = None,
+    persist: bool = False,
+    state_dir: str = DEFAULT_GRAPH_PERSISTENCE_PATH or "agent_data/graph_state",
+    mode: str = "ask",
+    topology: str = "basic",
+    mcp_toolsets: List[Any] = None,
+):
+    """
+    Generator that yields graph events and text output concurrently.
+    Used for SSE streaming via /api/chat.
+    """
+    import asyncio
+    from uuid import uuid4
+    from pathlib import Path
+
+    if run_id is None:
+        run_id = uuid4().hex
+
+    eq = asyncio.Queue()
+
+    # Emit graph-start event via the sideband queue
+    emit_graph_event(
+        eq,
+        "graph-start",
+        run_id=run_id,
+        query=query,
+        topology=topology,
+    )
+
+    deps = GraphDeps(
+        tag_prompts=config.get("tag_prompts", {}),
+        tag_env_vars=config.get("tag_env_vars", {}),
+        mcp_toolsets=(
+            mcp_toolsets if mcp_toolsets is not None else config.get("mcp_toolsets", [])
+        ),
+        mcp_url=config.get("mcp_url", ""),
+        mcp_config=config.get("mcp_config", ""),
+        router_model=create_model(
+            model_id=config.get("router_model", DEFAULT_ROUTER_MODEL),
+            api_key=config.get("api_key"),
+            base_url=config.get("base_url"),
+            provider=config.get("provider", DEFAULT_PROVIDER),
+        ),
+        agent_model=create_model(
+            model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
+            api_key=config.get("api_key"),
+            base_url=config.get("base_url"),
+            provider=config.get("provider", DEFAULT_PROVIDER),
+        ),
+        min_confidence=config.get("min_confidence", 0.6),
+        sub_agents=config.get("sub_agents", {}),
+        provider=config.get("provider", DEFAULT_PROVIDER),
+        base_url=config.get("base_url"),
+        api_key=config.get("api_key"),
+        ssl_verify=config.get("ssl_verify", DEFAULT_SSL_VERIFY),
+        event_queue=eq,
+        request_id=run_id,
+        routing_strategy=config.get("routing_strategy", "hybrid"),
+        enable_llm_validation=config.get(
+            "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
+        ),
+    )
+
+    state = GraphState(query=query, mode=mode, topology=topology)
+
+    if persist:
+        path = Path(state_dir)
+        if path.suffix != ".json":
+            path = path / f"{run_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # persistence = FileStatePersistence(json_file=path)
+
+    async def run_in_background():
+        from contextlib import AsyncExitStack
+
+        try:
+            async with AsyncExitStack() as stack:
+                # Connect to all MCP servers in parallel
+                async def connect_server(server):
+                    if hasattr(server, "__aenter__"):
+                        logger.info(
+                            f"run_graph_stream_bg: Connecting to MCP server {server}"
+                        )
+                        try:
+                            return await stack.enter_async_context(server)
+                        except Exception as e:
+                            logger.error(
+                                f"run_graph_stream_bg: Failed to connect to MCP server {server}: {e}"
+                            )
+                            return None
+                    return server
+
+                connected_toolsets = await asyncio.gather(
+                    *(connect_server(ts) for ts in deps.mcp_toolsets)
+                )
+                deps.mcp_toolsets = [ts for ts in connected_toolsets if ts is not None]
+
+                await asyncio.wait_for(
+                    graph.run(state=state, deps=deps),
+                    timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
+                )
+        except asyncio.TimeoutError:
+            await eq.put({"type": "error", "error": "Graph execution timed out"})
+        except Exception as e:
+            await eq.put({"type": "error", "error": str(e)})
+        finally:
+            # Emit graph-complete event
+            from .config_helpers import emit_graph_event
+
+            emit_graph_event(eq, "graph-complete", run_id=run_id, status="success")
+            await eq.put(None)
+
+    task = asyncio.create_task(run_in_background())
+
+    while True:
+        event = await eq.get()
+        if event is None:
+            break
+
+        yield f"data: {json.dumps(event)}\n\n"
+
+    await task
+
+    final_output = state.results.get(state.routed_domain, "No output generated.")
+    yield f"data: {json.dumps({'type': 'final_output', 'content': final_output})}\n\n"
+
+
+def validate_graph(graph, config: dict) -> dict:
+    """Validate graph topology and report on registered nodes and MCP agents.
+    Args:
+        graph: The Graph object from the create_graph_agent().
+        config: The config dict from thec reate_graph_agent().
+    Returns:
+        Dict with validation results including node counts, MCP agent counts,
+        domain tags, and any warnings.
+    """
+    warnings = []
+    info = {}
+
+    # Extract tag_prompts (domain specialists)
+    tag_prompts = config.get("tag_prompts", {})
+    info["domain_count"] = len(tag_prompts)
+    info["domain_tags"] = list(tag_prompts.keys())
+
+    # MCP toolsets
+    mcp_toolsets = config.get("mcp_toolsets", [])
+    info["mcp_toolset_count"] = len(mcp_toolsets)
+
+    # MCP agents from registry
+    registry = load_node_agents_registry()
+    info["mcp_agent_count"] = len(registry.agents)
+    info["mcp_agents"] = [
+        {
+            "name": a.name,
+            "tag": a.tag,
+            "mcp_server": a.mcp_server,
+            "tool_count": len(a.tools),
+        }
+        for a in registry.agents
+    ]
+    info["mcp_tool_count"] = len(registry.tools)
+
+    # Discovered agents (A2A)
+    from ..a2a import discover_agents
+
+    discovered = discover_agents()
+    info["discovered_agent_count"] = len(discovered)
+    info["discovered_agents"] = list(discovered.keys())
+
+    # Graph structure
+    if hasattr(graph, "mermaid_code"):
+        mermaid = graph.mermaid_code()
+        # Count node definitions (rough heuristic)
+        [line for line in mermaid.split("\n") if "-->" in line or ":" in line]
+        info["graph_edge_count"] = len(
+            [line for line in mermaid.split("\n") if "-->" in line]
+        )
+    else:
+        info["graph_edge_count"] = "unknown"
+
+    # Warnings
+    if not tag_prompts:
+        warnings.append(
+            "No domain tags discovered. Graph will have no specialist routing."
+        )
+    if not mcp_toolsets:
+        warnings.append(
+            "No MCP toolsets loaded. Specialist agents will have no MCP tools."
+        )
+    if not registry.agents and not mcp_toolsets:
+        warnings.append(
+            f"{len(registry.agents)} MCP agents registered but no MCP toolsets loaded."
+        )
+
+    info["warnings"] = warnings
+    info["valid"] = len(warnings) == 0
+
+    logger.info(
+        f"Graph Validation: {info['domain_count']} domains, "
+        f"{info['mcp_agent_count']} MCP agents, "
+        f"{info['mcp_toolset_count']} MCP toolsets, "
+        f"{info['discovered_agent_count']} discovered agents, "
+        f"{len(warnings)} warnings"
+    )
+    return info

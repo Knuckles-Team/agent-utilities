@@ -27,6 +27,24 @@ from .browser_screenshot import (
     take_element_screenshot,
 )
 
+__all__ = [
+    "get_browser_manager",
+    "initialize_browser",
+    "close_browser",
+    "browser_status",
+    "browser_new_page",
+    "click_element",
+    "type_text",
+    "get_element_text",
+    "select_option",
+    "navigate_to_url",
+    "browser_go_back",
+    "browser_go_forward",
+    "reload_page",
+    "take_screenshot",
+    "take_element_screenshot",
+]
+
 # Tool grouping for registration
 browser_tools = [
     initialize_browser,

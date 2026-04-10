@@ -1,0 +1,847 @@
+#!/usr/bin/python
+
+from __future__ import annotations
+
+import os
+import logging
+import asyncio
+from typing import Any
+
+from pydantic_ai import Agent
+
+from ..models import (
+    MCPAgent,
+    MCPServerHealth,
+    ExecutionStep,
+)
+from ..agent_factory import create_agent
+from ..tool_filtering import filter_tools_by_tag
+from .config_helpers import (
+    load_node_agents_registry,
+    emit_graph_event,
+    load_specialized_prompts,
+    NODE_SKILL_MAP,
+    DEFAULT_GRAPH_TIMEOUT,
+)
+from .hsm import on_enter_specialist, on_exit_specialist, check_specialist_preconditions
+from pydantic_graph import End
+from pydantic_graph.beta import StepContext
+from .state import GraphState, GraphDeps
+from .runner import run_graph
+
+logger = logging.getLogger(__name__)
+
+
+async def _get_domain_tools(node_id: str, deps: GraphDeps) -> list[Any]:
+    """Helper to dynamically fetch tools for a specialized domain expert."""
+    # Start with universal developer tools
+    from ..tools.developer_tools import developer_tools
+
+    tools = list(developer_tools)
+
+    # Add skills from the mapping
+    skills_to_load = NODE_SKILL_MAP.get(node_id, [])
+    logger.debug(f"Loading {len(skills_to_load)} specialized skills for {node_id}")
+
+    return tools
+
+
+def get_step_descriptions() -> str:
+    """Returns a catalog of available expert nodes for the LLM planner."""
+    from ..a2a import discover_agents
+
+    # Discovery of local agent packages
+    discovered = discover_agents()
+
+    steps = {
+        "researcher": "Multi-vector discovery expert. Trigger this when information is missing or assumptions need validation. Can be spawned in parallel for simultaneous Web, Code, and Workspace research.",
+        "architect": "System design expert. Analyzes requirements and defines high-level structures. Performs 'Gap Analysis' to identify missing context.",
+        "planner": "Task orchestration expert. Bridges the gap between architecture and execution. Assesses missing knowledge and spawns researchers to validate assumptions.",
+        "python_programmer": "Specialized Python engineer for implementation, refactoring, and standalone scripts.",
+        "typescript_programmer": "Frontend and Node.js expert specializing in TypeScript and React ecosystems.",
+        "javascript_programmer": "General-purpose JavaScript and web development specialist.",
+        "rust_programmer": "Systems programming and memory safety expert.",
+        "golang_programmer": "Cloud-native and high-performance backend expert.",
+        "java_programmer": "Java/JVM and PHP/Laravel enterprise application developer.",
+        "security_auditor": "Expert in threat modeling, vulnerability scanning, and secure coding practices.",
+        "qa_expert": "Quality assurance lead. Designs test plans and implements automated test suites.",
+        "ui_ux_designer": "Frontend design, CSS, and user interface expert.",
+        "devops_engineer": "CI/CD, Docker, and infrastructure expert.",
+        "database_expert": "SQL/NoSQL design and query optimization expert.",
+        "data_scientist": "ML/data expert. NumPy, Pandas, Matplotlib, Scikit-learn, PyTorch, TensorFlow, HuggingFace, LangChain.",
+        "document_specialist": "Document processing. PDFs, Office docs, Markdown conversion, Marp presentations, GIF/video creation.",
+        "mobile_developer": "React Native and Expo mobile development expert.",
+        "agent_engineer": "Meta-tooling for building agents, MCP servers, skills, and agent packages. Pydantic AI, FastMCP, A2A.",
+        "project_manager": "Jira, GitHUb workflows, Google Workspace, sprint planning, and internal communications.",
+        "systems_admin": "Systems administration and home-lab. OS ops, Home Assistant, Uptime Kuma, self-hosted services.",
+        "debugger_expert": "Interpreting error logs and fixing complex bugs.",
+        "verifier": "Final quality gate. Validates that the implementation meets the original query requirements.",
+        "mcp_server": "General-purpose tool hub for any task not covered by specialized nodes.",
+    }
+
+    # Merge discovered legacy agents
+    for tag, meta in discovered.items():
+        if tag not in steps:
+            agent_type = meta.get("type", "local")
+            if agent_type == "remote_a2a":
+                steps[tag] = (
+                    f"Remote A2A Specialist '{meta['name']}': {meta['description']} (Capabilities: {meta.get('capabilities', 'N/A')})"
+                )
+            else:
+                steps[tag] = (
+                    f"Specialized Domain Agent '{meta['name']}': {meta['description']}. This agent has its own internal graph and specialized toolsets."
+                )
+
+    # Merge dynamic MCP agents from the registry
+    registry = load_node_agents_registry()
+    for agent in registry.agents:
+        # We use the agent name or a cleaned tag as the node_id
+        node_id = agent.name.lower().replace(" ", "_")
+        if node_id not in steps:
+            steps[node_id] = (
+                f"MCP Agent '{agent.name}': {agent.description}. Targeted expertise for: {', '.join(agent.tools[:5])}..."
+            )
+
+    return "\n".join([f"- {k}: {v}" for k, v in steps.items()])
+
+
+async def _execute_dynamic_mcp_agent(
+    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any], agent_info: MCPAgent
+) -> str:
+    """Executes a dynamically generated MCP agent with circuit breaker, retries, and fallback."""
+    server_name = agent_info.mcp_server
+    agent_name = agent_info.name
+
+    # HSM: Entry action
+    await on_enter_specialist(
+        ctx_deps=ctx.deps,
+        ctx_state=ctx.state,
+        agent_name=agent_name,
+        server_name=server_name,
+    )
+
+    # BT: Precondition guard - Check before committing to this specialist
+    can_proceed, reason = check_specialist_preconditions(agent_info, ctx.deps)
+    if not can_proceed:
+        logger.warning(
+            f"Precondition failed for '{agent_name}': {reason}. Attempting fallback."
+        )
+        await on_exit_specialist(
+            ctx_deps=ctx.deps,
+            ctx_state=ctx.state,
+            agent_name=agent_name,
+            success=False,
+            server_name=server_name,
+        )
+        fallback_result = await _attempt_specialist_fallback(
+            ctx=ctx, failed_agent=agent_info
+        )
+        if fallback_result:
+            return fallback_result
+        ctx.state.error = f"Precondition failed for '{agent_name}': {reason}"
+        raise RuntimeError(ctx.state.error)
+
+    logger.info(f"Expert Execution: Running dynamic MCP agent '{agent_name}'")
+
+    # 1. Look up discovery metadata for this server to help the agent "know" what it has
+    discovered_tools = []
+    if hasattr(ctx.deps, "discovery_metadata") and ctx.deps.discovery_metadata:
+        target_server = agent_info.mcp_server.lower()
+        for s_id, tools in ctx.deps.discovery_metadata.items():
+            if (
+                s_id.lower() == target_server
+                or s_id.lower().startswith(f"{target_server}-")
+                or s_id.lower().startswith(f"{target_server}_")
+            ):
+                discovered_tools.extend(tools)
+
+    # Merge with registry tools (fallback/augmentation)
+    registry_tools = agent_info.tools or []
+    total_tools = list(set(discovered_tools) | set(registry_tools))
+
+    tool_list_str = ", ".join(total_tools) if total_tools else "NONE"
+
+    # Build agent
+    agent_sys_prompt = (
+        f"{agent_info.system_prompt}\n\n"
+        f"### STRICT DOMAIN EXPERT PROTOCOL\n"
+        f"You are the SOLE authoritative expert for the '{agent_info.name}' domain. "
+        f"You have access to the '{agent_info.mcp_server}' server tools.\n\n"
+        f"## DATA SOURCE MANDATE (CRITICAL)\n"
+        f"1. You MUST retrieve data ONLY from your available tools: [{tool_list_str}]\n"
+        f"2. If the tool call returns an empty list, your answer MUST be: 'The tool returned no data for this query.'\n"
+        f"3. If the tool call fails, you MUST report the exact error.\n"
+        f"4. **NEVER** invent data (names, IDs, statuses, URLs). Hallucination is a SEVERE protocol violation.\n"
+        f"5. **ALWAYS** include a detailed table or list of the RAW findings. Downstream automated systems (Verifiers) REQUIRE this data to pass your work.\n\n"
+        f"IMPORTANT: You are currently asked to: {agent_info.description}\n"
+        f"Query: {ctx.state.query}"
+    )
+
+    # Include validation feedback if this is a re-dispatch
+    if ctx.state.validation_feedback:
+        agent_sys_prompt += (
+            f"\n\n### PREVIOUS FEEDBACK\n"
+            f"Your previous output was reviewed and needs improvement:\n"
+            f"{ctx.state.validation_feedback}\n"
+            f"Address this feedback in your response by being more thorough or providing the missing data."
+        )
+
+    # Emit startup event with detailed metadata for UI transparency
+    emit_graph_event(
+        ctx.deps.event_queue,
+        "expert-metadata",
+        domain=agent_info.tag or "unknown",
+        expert=agent_info.name,
+        target_server=agent_info.mcp_server,
+        domain_tag=agent_info.tag,
+        expected_tools=total_tools,
+        node_id=ctx.node_id,
+    )
+
+    agent = Agent(
+        model=ctx.deps.agent_model,
+        system_prompt=agent_sys_prompt,
+        deps_type=GraphDeps,
+    )
+
+    # Bind the specific subset of MCP tools
+    bound_tool_count = 0
+    actually_bound_tools = []
+
+    for toolset in ctx.deps.mcp_toolsets:
+        # Pydantic AI MCPServer might have a name or id
+        server_id = getattr(toolset, "id", getattr(toolset, "name", None))
+        if server_id:
+            # Source MCP from registry is our target
+            target = agent_info.mcp_server.lower().replace("-", "_")
+            current = server_id.lower().replace("-", "_")
+
+            # Match server_id to target server (e.g. 'repository_manager' matches 'repository-manager')
+            if (
+                current == target
+                or current.startswith(f"{target}_")
+                or target.startswith(f"{current}_")
+            ):
+                agent.toolsets.append(toolset)
+
+                # Track actually bound tool names for UI sideband
+                if hasattr(toolset, "tools"):
+                    for t_name in toolset.tools.keys():
+                        actually_bound_tools.append(t_name)
+                    bound_tool_count += len(toolset.tools)
+                else:
+                    # Fallback to discovered count if tools are lazy-loaded
+                    bound_tool_count += len(total_tools)
+
+                logger.info(
+                    f"Expert Execution: Bound toolset '{server_id}' to expert '{agent_info.name}'"
+                )
+
+    # Emit tool binding confirmation for UI transparency
+    emit_graph_event(
+        ctx.deps.event_queue,
+        "tools-bound",
+        expert=agent_info.name,
+        count=bound_tool_count,
+        tools=actually_bound_tools,
+    )
+
+    if bound_tool_count == 0:
+        logger.warning(
+            f"Expert Execution: Agent '{agent_info.name}' started with ZERO tools bound from server '{agent_info.mcp_server}'"
+        )
+        emit_graph_event(
+            ctx.deps.event_queue,
+            "expert-warning",
+            message=f"No tools bound for server '{agent_info.mcp_server}'. Agent may be blind.",
+        )
+
+    # Build Query
+    sub_query = ctx.state.query
+    step_input = ctx.inputs
+    if isinstance(step_input, ExecutionStep) and step_input.input_data:
+        if isinstance(step_input.input_data, dict):
+            sub_query = step_input.input_data.get("question", sub_query)
+        elif isinstance(step_input.input_data, str):
+            sub_query = step_input.input_data
+
+    # Execute with Per-Node Timeout and Retries
+    node_timeout = 120.0
+    if isinstance(step_input, ExecutionStep):
+        node_timeout = step_input.timeout
+
+    # Retrieve cached message history for re-dispatch context
+    cache_key = agent_info.name.lower().replace(" ", "_")
+    prev_messages = ctx.deps.message_history_cache.get(cache_key)
+
+    max_attempts = 3
+    last_error = None
+
+    for attempt in range(max_attempts):
+        emit_graph_event(
+            ctx.deps.event_queue,
+            "expert-thinking",
+            expert=agent_info.name,
+            attempt=attempt + 1,
+        )
+        try:
+            res = await asyncio.wait_for(
+                agent.run(sub_query, deps=ctx.deps, message_history=prev_messages),
+                timeout=node_timeout,
+            )
+            ctx.state._update_usage(getattr(res, "usage", None))
+
+            # Cache message history for potential re-dispatch
+            try:
+                ctx.deps.message_history_cache[cache_key] = res.all_messages()
+            except Exception as e:
+                logger.debug(f"Failed to update cache for '{cache_key}': {e}")
+                pass
+
+            # Record success on circuit breaker
+            if server_name not in ctx.deps.server_health:
+                ctx.deps.server_health[server_name] = MCPServerHealth(
+                    server_name=server_name,
+                )
+            ctx.deps.server_health[server_name].record_success()
+
+            # Stream events to WebUI
+            if ctx.deps.event_queue:
+                from pydantic_ai.messages import (
+                    ModelRequest,
+                    ModelResponse,
+                    ToolCallPart,
+                    ToolReturnPart,
+                )
+
+                for msg in res.all_messages():
+                    if isinstance(msg, ModelResponse):
+                        for part in msg.parts:
+                            if isinstance(part, ToolCallPart):
+                                emit_graph_event(
+                                    ctx.deps.event_queue,
+                                    "expert_tool_call",
+                                    domain=agent_info.tag or "unknown",
+                                    tool_name=part.tool_name,
+                                    args=part.args,
+                                )
+                            elif hasattr(part, "content") and part.content:
+                                emit_graph_event(
+                                    ctx.deps.event_queue,
+                                    "expert_text",
+                                    domain=agent_info.tag or "unknown",
+                                    content=part.content,
+                                )
+                    elif isinstance(msg, ModelRequest):
+                        for part in msg.parts:
+                            if isinstance(part, ToolReturnPart):
+                                emit_graph_event(
+                                    ctx.deps.event_queue,
+                                    event_type="tool-result",
+                                    agent=agent_info.name,
+                                    tool=part.tool_name,
+                                    result=str(part.content)[:500],
+                                )
+            # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
+            # and mirror to results (keyed by domain tag, for backwards compatibility).
+            result_str = str(res.output)
+            node_uid = f"{cache_key}_{ctx.state.step_cursor}"
+            ctx.state.results_registry[node_uid] = result_str
+            ctx.state.results[agent_info.tag or cache_key] = result_str
+            logger.info(
+                f"Expert: '{agent_info.name}' succeeded (attempt {attempt + 1}). "
+                f"Result: {len(result_str)} chars. Registry key: '{node_uid}'"
+            )
+            # Emit completion event
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "subagent_completed",
+                domain=agent_info.tag or "unknown",
+                status="success",
+            )
+            # HSM: Exit action (success)
+            await on_exit_specialist(
+                ctx_deps=ctx.deps,
+                ctx_state=ctx.state,
+                agent_name=agent_name,
+                success=True,
+                server_name=server_name,
+            )
+            return "execution_joiner"
+
+        except asyncio.TimeoutError:
+            last_error = f"Timeout after {node_timeout}s"
+            logger.warning(
+                f"Expert '{agent_name}' timed out (attempt {attempt + 1}/{max_attempts})"
+            )
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "expert-complete",
+                expert=agent_info.name,
+                status="timeout",
+            )
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(
+                f"Expert '{agent_name}' failed (attempt {attempt + 1}/{max_attempts}): {e}"
+            )
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "subagent_tool_call",
+                domain=agent_info.tag or "unknown",
+                tool_name=getattr(e, "tool_name", "unknown"),
+                args=getattr(e, "args", {}),
+            )
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "expert-complete",
+                expert=agent_info.name,
+                status="error",
+                error=str(e),
+            )
+
+        # Exponential backoff between retries
+        if attempt < max_attempts - 1:
+            backoff = min(2**attempt, 10)
+            await asyncio.sleep(backoff)
+
+    # All retries exhausted
+    # HSM: Exit action (failure)
+    await on_exit_specialist(
+        ctx_deps=ctx.deps,
+        ctx_state=ctx.state,
+        agent_name=agent_name,
+        success=False,
+        server_name=server_name,
+    )
+
+    # Try fallback specialist from same server
+    fallback_result = await _attempt_specialist_fallback(ctx, agent_info)
+    if fallback_result:
+        return fallback_result
+
+    ctx.state.error = (
+        f"Agent '{agent_name}' failed after {max_attempts} attempts: {last_error}"
+    )
+    raise RuntimeError(ctx.state.error)
+
+
+async def _attempt_specialist_fallback(
+    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
+    failed_agent: MCPAgent,
+) -> str | None:
+    """Try to find and execute a sibling specialist from the same MCP Server"""
+    registry = load_node_agents_registry()
+    siblings = [
+        a
+        for a in registry.agents
+        if a.mcp_server == failed_agent.mcp_server
+        and a.tag != failed_agent.tag
+        and a.name != failed_agent.name
+    ]
+
+    if not siblings:
+        return None
+
+    # Score siblings by keyword overlap with the query
+    query_words = set(ctx.state.query.lower().split())
+    best_sibling = None
+    best_score = 0
+
+    for sibling in siblings:
+        tag_words = set(sibling.tag.lower().replace("-", " ").replace("_", " ").split())
+        score = len(query_words & tag_words)
+        if score > best_score:
+            best_score = score
+            best_sibling = sibling
+
+    if best_sibling and best_score > 0:
+        logger.info(
+            f"Fallback: Trying sibling '{best_sibling.name}' fallback for '{failed_agent.name}'.\nScore: {best_score}"
+        )
+        emit_graph_event(
+            ctx.deps.event_queue,
+            event_type="specialist_fallback",
+            failed=failed_agent.name,
+            fallback=best_sibling.name,
+        )
+        try:
+            return await _execute_dynamic_mcp_agent(ctx, best_sibling)
+        except Exception as e:
+            logger.warning(f"Fallback '{best_sibling.name}' also failed: {e}")
+
+    return None
+
+
+async def _execute_agent_package_logic(
+    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
+    node_id: str,
+    meta: dict,
+) -> str:
+    """Core logic to execute a specialized agent package (Local or A2A)."""
+    deps = ctx.deps
+
+    if meta.get("type") == "remote_a2a":
+        # Remote A2A Execution
+        from ..a2a import A2AClient
+
+        peer_url = meta["url"]
+        logger.info(
+            f"Expert Execution: Calling remote A2A agent '{node_id}' at {peer_url}"
+        )
+        client = A2AClient(
+            timeout=deps.approval_timeout or 300.0, ssl_verify=deps.ssl_verify
+        )
+
+        # Use the expert's specific question or the original query
+        sub_query = ctx.state.query
+        step_input = ctx.inputs
+        if isinstance(step_input, ExecutionStep) and step_input.input_data:
+            if isinstance(step_input.input_data, dict):
+                sub_query = step_input.input_data.get("question", sub_query)
+            elif isinstance(step_input.input_data, str):
+                sub_query = step_input.input_data
+
+        res_content = await client.execute_task(peer_url, sub_query)
+        result_str = str(res_content)
+        # Unified result storage
+        node_uid = f"{node_id}_{ctx.state.step_cursor}"
+        ctx.state.results_registry[node_uid] = result_str
+        ctx.state.results[node_id] = result_str
+    else:
+        # Local Dynamic MCP Agent Execution (Modern Pattern)
+        registry = load_node_agents_registry()
+        node_id_norm = node_id.lower().replace("-", "_").replace(" ", "_")
+
+        def _agent_matches(a) -> bool:
+            """Multi-strategy agent name matching handles approximate node IDs from router."""
+            tag = (a.tag or "").lower().replace("-", "_").replace(" ", "_")
+            name = a.name.lower().replace("-", "_").replace(" ", "_")
+            server = (a.mcp_server or "").lower().replace("-", "_").replace(" ", "_")
+            desc = (a.description or "").lower()
+            # 1. Exact match on normalized tag, name, or server
+            if tag == node_id_norm or name == node_id_norm or server == node_id_norm:
+                return True
+            # 2. Tag/Server substring: node_id contains the tag or server (e.g. 'expert_portainer' ⊇ 'portainer')
+            if (tag and tag in node_id_norm) or (server and server in node_id_norm):
+                return True
+            # 3. node_id is a prefix/suffix of tag or server
+            if tag and (node_id_norm.startswith(tag) or node_id_norm.endswith(tag)):
+                return True
+            if server and (
+                node_id_norm.startswith(server) or node_id_norm.endswith(server)
+            ):
+                return True
+            # 4. Keyword intersection: any meaningful word from node_id appears in tag/desc
+            # Handles LLM hallucinations like 'researcher_git_status' → matches 'repository-manager'
+            # because 'git' appears in both the node_id and the agent's description/tag.
+            node_keywords = {
+                w
+                for w in node_id_norm.split("_")
+                if len(w) >= 3
+                and w not in {"researcher", "expert", "agent", "manager", "action"}
+            }
+            if node_keywords:
+                for kw in node_keywords:
+                    if kw in tag or kw in desc:
+                        logger.debug(
+                            f"Expert: Keyword Match! '{kw}' found in tag/desc of '{a.name}'"
+                        )
+                        return True
+            return False
+
+        mcp_agent = next(
+            (a for a in registry.agents if _agent_matches(a)),
+            None,
+        )
+
+        if mcp_agent:
+            await _execute_dynamic_mcp_agent(ctx, mcp_agent)
+        else:
+            # Fallback to generic expert node with all tools if metadata is missing
+            logger.warning(
+                f"Expert Execution: Node '{node_id}' fallback. No NODE_AGENTS.md metadata found."
+            )
+            await _execute_domain_logic(ctx, node_id)
+
+    return "execution_joiner"
+
+
+async def agent_package_step(
+    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
+    node_id: str,
+) -> str:
+    """Functional step for a specific agent package."""
+    from ..a2a import discover_agents
+
+    discovered = discover_agents()
+    if node_id not in discovered:
+        logger.error(f"Agent package node '{node_id}' not found in discovery.")
+        return "Error"
+
+    meta = discovered[node_id]
+    return await _execute_agent_package_logic(ctx, node_id, meta)
+
+
+async def _execute_specialized_step(
+    ctx: StepContext[GraphState, GraphDeps, None], prompt_name: str
+) -> str | End[Any]:
+    """Shared logic for specialized steps using migrated prompts and skill injection."""
+    from ..models import GraphResponse
+
+    # HSM: Entry action
+    await on_enter_specialist(
+        ctx_deps=ctx.deps, ctx_state=ctx.state, agent_name=prompt_name
+    )
+
+    prompt = load_specialized_prompts(prompt_name)
+
+    # Dynamic Skill Distribution
+    custom_tools = await _get_domain_tools(prompt_name, ctx.deps)
+
+    memory_instruction = load_specialized_prompts("memory_instruction")
+
+    # Include validation feedback if this is a re-dispatch from verifier
+    feedback_section = ""
+    if ctx.state.validation_feedback:
+        feedback_section = (
+            f"\n\n###PREVIOUS FEEDBACK\n"
+            f"Your previous output was reviewed and needs improvement:\n"
+            f"{ctx.state.validation_feedback}\n"
+            f"Address this feedback in your response."
+        )
+
+    agent = Agent(
+        model=ctx.deps.agent_model,
+        system_prompt=(
+            f"{memory_instruction}\n\n"
+            f"{prompt}\n\n"
+            f"### CONTEXT\n{ctx.state.exploration_notes}"
+            f"{feedback_section}"
+        ),
+        tools=custom_tools,
+    )
+
+    # Filter MCP toolsets by domain tag AND node_id (prompt_name)
+    # This allows MCP toolsets to declare compatibility with specific expert roles
+    tool_tags = list(set([prompt_name] + NODE_SKILL_MAP.get(prompt_name, [])))
+    for toolset in ctx.deps.mcp_toolsets:
+        # Check if the toolset server name matches or if it has matching tags
+        server_id = (
+            getattr(toolset, "id", getattr(toolset, "name", "unknown"))
+            .lower()
+            .replace("-", "_")
+        )
+        target = prompt_name.lower().replace("-", "_")
+
+        if server_id == target or any(
+            t.lower().replace("-", "_") == target for t in tool_tags
+        ):
+            agent.toolsets.append(toolset)
+        else:
+            # Fallback to standard tag filtering
+            filtered = filter_tools_by_tag(toolset, tool_tags)
+            if filtered:
+                agent.toolsets.append(filtered)
+
+    # Retrieve cached message history for re-dispatch context
+    prev_messages = ctx.deps.message_history_cache.get(prompt_name)
+
+    try:
+        res = await agent.run(
+            ctx.state.query,
+            message_history=prev_messages,
+        )
+        ctx.state._update_usage(getattr(res, "usage", None))
+        result_str = str(res.output)
+
+        # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
+        # and mirror to results (keyed by domain, for backwards compatibility).
+        node_uid = f"{prompt_name}_{ctx.state.step_cursor}"
+        ctx.state.results_registry[node_uid] = result_str
+        ctx.state.results[prompt_name] = result_str
+
+        logger.info(
+            f"Specialized step '{prompt_name}': stored result ({len(result_str)} chars) "
+            f"at registry key '{node_uid}'"
+        )
+
+        # Cache message history for potential re-dispatch
+        try:
+            ctx.deps.message_history_cache[prompt_name] = res.all_messages()
+        except Exception as e:
+            logger.debug(f"Unable to cache: {e}")
+
+        # HSM: Exit action (success)
+        await on_exit_specialist(
+            ctx_deps=ctx.deps,
+            ctx_state=ctx.state,
+            agent_name=prompt_name,
+            success=True,
+        )
+
+        # In Dynamic Plan mode, return to execution_joiner for barrier synchronization
+        if ctx.state.plan and ctx.state.plan.steps:
+            return "execution_joiner"
+
+        # Standalone mode (no plan): wrap and terminate
+        return End(
+            GraphResponse(
+                status="completed",
+                results={"output": result_str},
+                metadata={"domain": prompt_name},
+            )
+        )
+
+    except Exception as e:
+        # HSM: Exit action (failure)
+        await on_exit_specialist(
+            ctx_deps=ctx.deps,
+            ctx_state=ctx.state,
+            agent_name=prompt_name,
+            success=False,
+        )
+        logger.error(f"Specialized step '{prompt_name}' failed: {e}")
+        return "error_recovery"
+
+
+async def _execute_domain_logic(
+    ctx: StepContext[GraphState, GraphDeps, str], domain: str
+):
+    """Core logic for executing a domain, extracted from DomainNode."""
+    deps = ctx.deps
+    domain_prompt = deps.tag_prompts.get(
+        domain, f"You are a specialized assistant for the '{domain}' domain."
+    )
+
+    logger.info(f"domain_step executing logic for domain='{domain}'")
+
+    original_env = {}
+    for tag, env_var in deps.tag_env_vars.items():
+        original_env[env_var] = os.environ.get(env_var)
+        os.environ[env_var] = "True" if tag == domain else "False"
+
+    try:
+        domain_mcp_toolsets = []
+        for toolset in deps.mcp_toolsets:
+            if toolset is None:
+                continue
+            filtered = filter_tools_by_tag(toolset, domain)
+            domain_mcp_toolsets.append(filtered)
+
+        sub_agent_target = deps.sub_agents.get(domain)
+
+        if sub_agent_target:
+            try:
+                target = sub_agent_target
+                if isinstance(target, dict) and "tags" in target:
+                    target = create_agent(
+                        name=domain,
+                        system_prompt=target.get(
+                            "description", f"Specialized assistant for {domain}"
+                        ),
+                        enable_skills=True,
+                        load_universal_skills=True,
+                        load_skill_graphs=True,
+                        tool_tags=target["tags"],
+                        tool_guard_mode="off",
+                    )
+                elif isinstance(target, str):
+                    # Legacy package-based delegation is deprecated
+                    raise RuntimeError(
+                        f"Legacy delegation to package '{target}' is deprecated. "
+                        "Use the MCPAgent pattern or provide an Agent instance."
+                    )
+
+                if isinstance(target, tuple) and len(target) == 2:
+                    sub_graph, sub_config = target
+                    res = await run_graph(
+                        graph=sub_graph,
+                        config=sub_config,
+                        query=ctx.state.query,
+                        eq=deps.event_queue,
+                    )
+                    output = res.get("results") or res.get("error")
+                else:
+                    emit_graph_event(
+                        deps.event_queue, "subagent_started", domain=domain, type="flat"
+                    )
+                    async with target.run_stream(ctx.state.query) as stream:
+                        async for message, last in stream.stream_messages():
+                            emit_graph_event(
+                                deps.event_queue,
+                                "subagent_thought",
+                                domain=domain,
+                                message=str(message),
+                            )
+                        res = await stream.get_output()
+                    output = getattr(res, "output", None) or getattr(res, "data", res)
+
+                result_str = str(output)
+                # Unified result storage
+                node_uid = f"{domain}_{ctx.state.step_cursor}"
+                ctx.state.results_registry[node_uid] = result_str
+                ctx.state.results[domain] = result_str
+            except Exception as e:
+                logger.error(f"domain_step delegation error for '{domain}': {e}")
+                ctx.state.results[domain] = f"Delegation Error: {e}"
+        else:
+            query = ctx.state.query
+            if ctx.state.validation_feedback:
+                query = f"{query}\n\n[SELF-CORRECTION FEEDBACK]: {ctx.state.validation_feedback}"
+
+            sub_agent = create_agent(
+                provider=deps.provider,
+                model_id=deps.agent_model,
+                base_url=deps.base_url,
+                api_key=deps.api_key,
+                mcp_toolsets=deps.mcp_toolsets,
+                tool_tags=[domain],
+                name=f"Graph-{domain}",
+                system_prompt=domain_prompt,
+                ssl_verify=deps.ssl_verify,
+                tool_guard_mode="off",
+            )
+
+            emit_graph_event(deps.event_queue, "subagent_started", domain=domain)
+
+            result = await asyncio.wait_for(
+                sub_agent.run(query), timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0
+            )
+
+            output = getattr(result, "output", None) or getattr(result, "data", result)
+            from pydantic_ai import DeferredToolRequests
+
+            if isinstance(output, DeferredToolRequests):
+                ctx.state.human_approval_required = True
+                ctx.state.results[domain] = output
+                emit_graph_event(
+                    deps.event_queue,
+                    event_type="approval_required",
+                    domain=domain,
+                    tool_calls=[
+                        (tc.model_dump() if hasattr(tc, "model_dump") else str(tc))
+                        for tc in (getattr(output, "calls", []) or [])
+                    ],
+                )
+                return End(output)
+            else:
+                result_str = str(output)
+                # Unified result storage
+                node_uid = f"{domain}_{ctx.state.step_cursor}"
+                ctx.state.results_registry[node_uid] = result_str
+                ctx.state.results[domain] = result_str
+                emit_graph_event(deps.event_queue, "subagent_completed", domain=domain)
+
+    except Exception as e:
+        logger.error(f"domain_step error for '{domain}': {e}")
+        ctx.state.error = f"Domain failed: {e}"
+        ctx.state.results[domain] = f"Error: {e}"
+        return "error_recovery"
+    finally:
+        for env_var, value in original_env.items():
+            if value is None:
+                os.environ.pop(env_var, None)
+            else:
+                os.environ[env_var] = value
+    return None

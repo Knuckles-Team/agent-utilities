@@ -144,7 +144,7 @@ def expand_env_vars(text: str) -> str:
 
         val = os.getenv(var_name)
         if val is not None:
-            return val
+            return val.strip("\r")
 
         if default_value is not None:
             return default_value
@@ -256,7 +256,6 @@ def load_env_vars(override: bool = False):
     try:
         package_name = retrieve_package_name()
         if package_name and package_name != "unknown_package":
-
             stack = inspect.stack()
             caller_file = None
             for frame in stack:
@@ -356,7 +355,6 @@ def retrieve_package_name() -> str:
                 if (curr / "__init__.py").is_file():
                     pkg_name = curr.name.replace("-", "_")
                     if pkg_name not in skip_packages:
-
                         if not first_external_frame_package:
                             first_external_frame_package = pkg_name
 

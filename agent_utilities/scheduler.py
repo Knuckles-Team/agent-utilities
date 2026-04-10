@@ -36,8 +36,6 @@ lock = asyncio.Lock()
 
 logger = logging.getLogger(__name__)
 
-lock = asyncio.Lock()
-
 
 def get_cron_tasks_from_md() -> CronRegistryModel:
     """Parse CRON.md and return CronRegistryModel."""
@@ -131,17 +129,15 @@ def delete_scheduled_task(task_id: str) -> str:
         path.write_text(content, encoding="utf-8")
 
     global tasks
-    found_in_mem = False
     tasks_to_keep = []
     for t in tasks:
         if t.id == task_id:
-            found_in_mem = True
             continue
         tasks_to_keep.append(t)
 
     tasks[:] = tasks_to_keep
 
-    if found_in_md or found_in_mem:
+    if task_id in [t.id for t in tasks]:
         return f"✅ Deleted scheduled task '{task_id}'"
     return f"ℹ️ Task '{task_id}' not found."
 
@@ -206,7 +202,6 @@ async def reload_cron_tasks():
         global tasks
         new_list = []
         for pt in parsed_tasks:
-
             existing = next((t for t in tasks if t.id == pt.id), None)
             if existing and existing.interval_minutes == pt.interval_minutes:
                 pt.last_run = existing.last_run
@@ -241,7 +236,6 @@ async def background_processor(agent: Any):
 
         for task in due:
             try:
-
                 if task.prompt.startswith("__internal:"):
                     cmd = task.prompt.split(":", 1)[1]
                     if cmd == "cleanup_cron_log":

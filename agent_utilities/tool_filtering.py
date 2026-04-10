@@ -5,20 +5,12 @@ from __future__ import annotations
 import os
 import re
 import logging
-import asyncio
 import yaml
 from typing import Any, List, Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from fasta2a import Skill
 from pathlib import Path
-
-
-from .models import PeriodicTask
-
-tasks: List[PeriodicTask] = []
-lock = asyncio.Lock()
-
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +58,6 @@ def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
 
 
 def load_skills_from_directory(directory: str) -> List[Skill]:
-
     skills = []
     base_path = Path(directory)
 

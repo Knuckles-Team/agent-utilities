@@ -6,7 +6,7 @@ import logging
 import asyncio
 import uuid
 import httpx
-from typing import List, Dict, Optional, Any, TYPE_CHECKING
+from typing import Dict, Optional, Any, TYPE_CHECKING
 from datetime import datetime
 
 if TYPE_CHECKING:
@@ -23,11 +23,7 @@ from .workspace import (
 )
 
 
-from .models import PeriodicTask, A2ARegistryModel, A2APeerModel
-
-tasks: List[PeriodicTask] = []
-lock = asyncio.Lock()
-
+from .models import A2ARegistryModel, A2APeerModel
 
 logger = logging.getLogger(__name__)
 
@@ -209,19 +205,19 @@ class A2AClient:
 
 
 def discover_agents() -> dict[str, dict[str, str]]:
-    """Discovers available agent packages from A2A_AGENTS.md and MCP_AGENTS.md registries.
+    """Discovers available agent packages from A2A_AGENTS.md and NODE_AGENTS.md registries.
 
     Returns:
         dict: {tag: {"package": package_name, "description": desc, "name": display_name, "type": "local" | "remote_a2a"}}
     """
-    from .workspace import parse_mcp_registry
+    from .workspace import parse_node_registry
 
     agent_descriptions = {}
 
-    # 1. Discover local MCP specialist agents from MCP_AGENTS.md
-    mcp_agents_content = load_workspace_file(CORE_FILES["MCP_AGENTS"])
+    # 1. Discover local MCP specialist agents from NODE_AGENTS.md
+    mcp_agents_content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
     if mcp_agents_content:
-        mcp_registry = parse_mcp_registry(mcp_agents_content)
+        mcp_registry = parse_node_registry(mcp_agents_content)
         for agent in mcp_registry.agents:
             if agent.tag:
                 agent_descriptions[agent.tag] = {

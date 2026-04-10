@@ -17,7 +17,7 @@ from ..workspace import (
     serialize_identity,
     serialize_user_info,
     serialize_a2a_registry,
-    serialize_mcp_registry,
+    serialize_node_registry,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ def scan_for_entry_points(root: Path) -> List[str]:
 async def bootstrap_project(ctx: RunContext[AgentDeps]) -> str:
     """
     Scans the workspace to identify tech stack and entry points,
-    then populates core metadata files (IDENTITY.md, USER.md, A2A_AGENTS.md, MCP_AGENTS.md, MEMORY.md).
+    then populates core metadata files (IDENTITY.md, USER.md, A2A_AGENTS.md, NODE_AGENTS.md, MEMORY.md).
     """
     root = ctx.deps.workspace_path
     logger.info(f"Bootstrapping project at {root}...")
@@ -131,14 +131,14 @@ async def bootstrap_project(ctx: RunContext[AgentDeps]) -> str:
         )
         written.append(CORE_FILES["A2A_AGENTS"])
 
-    # 4. MCP_AGENTS.md
-    mcp_path = root / CORE_FILES["MCP_AGENTS"]
+    # 4. NODE_AGENTS.md
+    mcp_path = root / CORE_FILES["NODE_AGENTS"]
     if not mcp_path.exists():
         mcp_path.write_text(
-            serialize_mcp_registry(MCPAgentRegistryModel(agents=[], tools=[])),
+            serialize_node_registry(MCPAgentRegistryModel(agents=[], tools=[])),
             encoding="utf-8",
         )
-        written.append(CORE_FILES["MCP_AGENTS"])
+        written.append(CORE_FILES["NODE_AGENTS"])
 
     # 5. MEMORY.md
     memory_path = root / CORE_FILES["MEMORY"]

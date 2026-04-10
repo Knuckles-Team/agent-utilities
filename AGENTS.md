@@ -5,7 +5,7 @@
 - **Core Framework**: [Pydantic AI](https://ai.pydantic.dev) & [Pydantic Graph](https://ai.pydantic.dev/pydantic-graph/)
 - **Tooling**: `requests`, `pydantic`, `pyyaml`, `python-dotenv`, `fastapi`, `llama_index`
 - **Architecture**: Centered around the `create_agent` factory, which has been modernized to support a **Unified Skill Loading** model (`skill_types`) and automated **Graph Orchestration**.
-- **Specialist Discovery**: Automated discovery of domain specialist agents from `MCP_AGENTS.md` (local) and `A2A_AGENTS.md` (remote) registries, enabling dynamic graph expansion without hardcoded nodes.
+- **Specialist Discovery**: Automated discovery of domain specialist agents from `NODE_AGENTS.md` (local) and `A2A_AGENTS.md` (remote) registries, enabling dynamic graph expansion without hardcoded nodes.
 - **Key Principles**:
     - Functional and modular utility design.
     - Standardized workspace management (`IDENTITY.md`, `MEMORY.md`).
@@ -48,6 +48,49 @@ graph TD
     Backend -- 10. User UI --> TerminalUI[agent-terminal-ui]
     TerminalUI -- 11. POST /api/elicit --> Backend
 ```
+
+## MCP Loading & Registry Architecture
+This diagram illustrates how MCP servers are discovered, specialized, and persisted in the graph.
+
+```mermaid
+graph TD
+    subgraph Registry_Phase ["1. Registry Synchronization (Deployment)"]
+        Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp_agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
+        Registry["<b>NODE_AGENTS.md</b><br/><i>(Specialist Registry)</i>"] -.->|Read Hash| Manager
+
+        Manager -->|Config Hash Match?| Branch{Decision}
+        Branch -- "Yes (Cache Hit)" --> Skip["Skip Tool Extraction"]
+        Branch -- "No (Cache Miss)" --> Parallel["<b>Parallel Dispatch</b><br/>(Semaphore 30)"]
+
+        Parallel -->|Deploy STDIO / HTTPs| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]
+        Servers -->|JSON-RPC list_tools| Parallel
+        Parallel -->|Metadata| Registry
+    end
+
+    subgraph Initialization_Phase ["2. Graph Initialization (Runtime)"]
+        Config -->|Per-server loading| Loader["<b>builder.py</b><br/><i>Per-server resilient load</i><br/>Skips servers with missing env-vars<br/>Logs ❌ failures clearly"]
+        Registry --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
+        Loader -->|MCPServerStdio| ToolPool["<b>mcp_toolsets</b><br/>(Connected Toolsets)"]
+        Builder -->|Register Nodes| Specialists["<b>Specialist Superstates</b><br/>(Python, TS, GitLab, etc.)"]
+        Specialists -->|Compile| Graph["<b>Pydantic Graph Agent</b>"]
+    end
+
+    subgraph Operation_Phase ["3. Persistent Operation (Execution)"]
+        Graph --> Lifespan["<b>runner.py</b><br/><i>run_graph() AsyncExitStack</i>"]
+        Lifespan -->|Parallel connect<br/>with per-server error reporting| ConnPool["<b>Active Connection Pool</b><br/>(Warm Toolsets)<br/>❌ failing servers skipped & logged"]
+        ConnPool -->|Zero-Latency Call| Servers
+    end
+
+    %% Styling
+    style Config fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+    style Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+    style Manager fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    style Parallel fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style ConnPool fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style Graph fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style Loader fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+```
+
 
 ## Graph Orchestration Architecture
 ```mermaid
@@ -108,48 +151,48 @@ graph TD
       direction TB
 
       subgraph Infra_Management ["Infrastructure & DevOps"]
-        AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp<br/><i>run:</i> python -m adguard_home_agent.mcp_server"]
-        AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp<br/><i>run:</i> python -m ansible_tower_mcp.mcp_server"]
-        ContainerManager["<b>Container Manager Agent</b><br/>---<br/><i>mcp-tool:</i> container-mcp<br/><i>run:</i> python -m container_manager_mcp.mcp_server"]
-        Microsoft["<b>Microsoft Agent</b><br/>---<br/><i>mcp-tool:</i> microsoft-mcp<br/><i>run:</i> python -m microsoft_agent.mcp_server"]
-        Portainer["<b>Portainer Agent</b><br/>---<br/><i>mcp-tool:</i> portainer-mcp<br/><i>run:</i> python -m portainer_agent.mcp_server"]
-        SystemsManager["<b>Systems Manager</b><br/>---<br/><i>mcp-tool:</i> systems-mcp<br/><i>run:</i> python -m systems_manager.mcp_server"]
-        TunnelManager["<b>Tunnel Manager</b><br/>---<br/><i>mcp-tool:</i> tunnel-mcp<br/><i>run:</i> python -m tunnel_manager.mcp_server"]
-        UptimeKuma["<b>Uptime Kuma Agent</b><br/>---<br/><i>mcp-tool:</i> uptime-mcp<br/><i>run:</i> python -m uptime_kuma_agent.mcp_server"]
-        RepositoryManager["<b>Repository Manager</b><br/>---<br/><i>mcp-tool:</i> repository-mcp<br/><i>run:</i> python -m repository_manager.mcp_server"]
+        AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp"]
+        AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp"]
+        ContainerManager["<b>Container Manager Agent</b><br/>---<br/><i>mcp-tool:</i> container-mcp"]
+        Microsoft["<b>Microsoft Agent</b><br/>---<br/><i>mcp-tool:</i> microsoft-mcp"]
+        Portainer["<b>Portainer Agent</b><br/>---<br/><i>mcp-tool:</i> portainer-mcp"]
+        SystemsManager["<b>Systems Manager</b><br/>---<br/><i>mcp-tool:</i> systems-mcp"]
+        TunnelManager["<b>Tunnel Manager</b><br/>---<br/><i>mcp-tool:</i> tunnel-mcp"]
+        UptimeKuma["<b>Uptime Kuma Agent</b><br/>---<br/><i>mcp-tool:</i> uptime-mcp"]
+        RepositoryManager["<b>Repository Manager</b><br/>---<br/><i>mcp-tool:</i> repository-mcp"]
       end
 
       subgraph Media_HomeLab ["Media & Home Lab"]
-        ArchiveBox["<b>ArchiveBox API</b><br/>---<br/><i>mcp-tool:</i> archivebox-mcp<br/><i>run:</i> python -m archivebox_api.mcp_server"]
-        Arr["<b>Arr (Radarr/Sonarr)</b><br/>---<br/><i>mcp-tool:</i> arr-mcp<br/><i>run:</i> python -m arr_mcp.mcp_server"]
-        AudioTranscriber["<b>Audio Transcriber</b><br/>---<br/><i>mcp-tool:</i> audio-transcriber-mcp<br/><i>run:</i> python -m audio_transcriber.mcp_server"]
-        Jellyfin["<b>Jellyfin Agent</b><br/>---<br/><i>mcp-tool:</i> jellyfin-mcp<br/><i>run:</i> python -m jellyfin_mcp.mcp_server"]
-        MediaDownloader["<b>Media Downloader</b><br/>---<br/><i>mcp-tool:</i> media-mcp<br/><i>run:</i> python -m media_downloader.mcp_server"]
-        Owncast["<b>Owncast Agent</b><br/>---<br/><i>mcp-tool:</i> owncast-mcp<br/><i>run:</i> python -m owncast_agent.mcp_server"]
-        qBittorrent["<b>qBittorrent Agent</b><br/>---<br/><i>mcp-tool:</i> qbittorrent-mcp<br/><i>run:</i> python -m qbittorrent_agent.mcp_server"]
+        ArchiveBox["<b>ArchiveBox API</b><br/>---<br/><i>mcp-tool:</i> archivebox-mcp"]
+        Arr["<b>Arr (Radarr/Sonarr)</b><br/>---<br/><i>mcp-tool:</i> arr-mcp"]
+        AudioTranscriber["<b>Audio Transcriber</b><br/>---<br/><i>mcp-tool:</i> audio-transcriber-mcp"]
+        Jellyfin["<b>Jellyfin Agent</b><br/>---<br/><i>mcp-tool:</i> jellyfin-mcp"]
+        MediaDownloader["<b>Media Downloader</b><br/>---<br/><i>mcp-tool:</i> media-mcp"]
+        Owncast["<b>Owncast Agent</b><br/>---<br/><i>mcp-tool:</i> owncast-mcp"]
+        qBittorrent["<b>qBittorrent Agent</b><br/>---<br/><i>mcp-tool:</i> qbittorrent-mcp"]
       end
 
       subgraph Productive_Dev ["Productivity & Development"]
-        Atlassian["<b>Atlassian Agent</b><br/>---<br/><i>mcp-tool:</i> atlassian-mcp<br/><i>run:</i> python -m atlassian_agent.mcp_server"]
-        Genius["<b>Genius Agent</b><br/>---<br/><i>mcp-tool:</i> genius-mcp<br/><i>run:</i> python -m genius_agent.mcp_server"]
-        GitHub["<b>GitHub Agent</b><br/>---<br/><i>mcp-tool:</i> github-mcp<br/><i>run:</i> python -m github_agent.mcp_server"]
-        GitLab["<b>GitLab API</b><br/>---<br/><i>mcp-tool:</i> gitlab-mcp<br/><i>run:</i> python -m gitlab_api.mcp_server"]
-        Langfuse["<b>Langfuse Agent</b><br/>---<br/><i>mcp-tool:</i> langfuse-mcp<br/><i>run:</i> python -m langfuse_agent.mcp_server"]
-        LeanIX["<b>LeanIX Agent</b><br/>---<br/><i>mcp-tool:</i> leanix-mcp<br/><i>run:</i> python -m leanix_agent.mcp_server"]
-        Plane["<b>Plane Agent</b><br/>---<br/><i>mcp-tool:</i> plane-mcp<br/><i>run:</i> python -m plane_agent.mcp_server"]
-        Postiz["<b>Postiz Agent</b><br/>---<br/><i>mcp-tool:</i> postiz-mcp<br/><i>run:</i> python -m postiz_agent.mcp_server"]
-        ServiceNow["<b>ServiceNow API</b><br/>---<br/><i>mcp-tool:</i> servicenow-mcp<br/><i>run:</i> python -m servicenow_api.mcp_server"]
-        StirlingPDF["<b>StirlingPDF Agent</b><br/>---<br/><i>mcp-tool:</i> stirlingpdf-mcp<br/><i>run:</i> python -m stirlingpdf_agent.mcp_server"]
+        Atlassian["<b>Atlassian Agent</b><br/>---<br/><i>mcp-tool:</i> atlassian-mcp"]
+        Genius["<b>Genius Agent</b><br/>---<br/><i>mcp-tool:</i> genius-mcp"]
+        GitHub["<b>GitHub Agent</b><br/>---<br/><i>mcp-tool:</i> github-mcp"]
+        GitLab["<b>GitLab API</b><br/>---<br/><i>mcp-tool:</i> gitlab-mcp"]
+        Langfuse["<b>Langfuse Agent</b><br/>---<br/><i>mcp-tool:</i> langfuse-mcp"]
+        LeanIX["<b>LeanIX Agent</b><br/>---<br/><i>mcp-tool:</i> leanix-mcp"]
+        Plane["<b>Plane Agent</b><br/>---<br/><i>mcp-tool:</i> plane-mcp"]
+        Postiz["<b>Postiz Agent</b><br/>---<br/><i>mcp-tool:</i> postiz-mcp"]
+        ServiceNow["<b>ServiceNow API</b><br/>---<br/><i>mcp-tool:</i> servicenow-mcp"]
+        StirlingPDF["<b>StirlingPDF Agent</b><br/>---<br/><i>mcp-tool:</i> stirlingpdf-mcp"]
       end
 
       subgraph Data_Lifestyle ["Data & Lifestyle"]
-        DocumentDB["<b>DocumentDB Agent</b><br/>---<br/><i>mcp-tool:</i> documentdb-mcp<br/><i>run:</i> python -m documentdb_mcp.mcp_server"]
-        HomeAssistant["<b>Home Assistant Agent</b><br/>---<br/><i>mcp-tool:</i> home-assistant-mcp<br/><i>run:</i> python -m home_assistant_agent.mcp_server"]
-        Mealie["<b>Mealie Agent</b><br/>---<br/><i>mcp-tool:</i> mealie-mcp<br/><i>run:</i> python -m mealie_mcp.mcp_server"]
-        Nextcloud["<b>Nextcloud Agent</b><br/>---<br/><i>mcp-tool:</i> nextcloud-mcp<br/><i>run:</i> python -m nextcloud_agent.mcp_server"]
-        Searxng["<b>Searxng Agent</b><br/>---<br/><i>mcp-tool:</i> searxng-mcp<br/><i>run:</i> python -m searxng_mcp.mcp_server"]
-        Vector["<b>Vector Agent</b><br/>---<br/><i>mcp-tool:</i> vector-mcp<br/><i>run:</i> python -m vector_mcp.mcp_server"]
-        Wger["<b>Wger Agent</b><br/>---<br/><i>mcp-tool:</i> wger-mcp<br/><i>run:</i> python -m wger_agent.mcp_server"]
+        DocumentDB["<b>DocumentDB Agent</b><br/>---<br/><i>mcp-tool:</i> documentdb-mcp"]
+        HomeAssistant["<b>Home Assistant Agent</b><br/>---<br/><i>mcp-tool:</i> home-assistant-mcp"]
+        Mealie["<b>Mealie Agent</b><br/>---<br/><i>mcp-tool:</i> mealie-mcp"]
+        Nextcloud["<b>Nextcloud Agent</b><br/>---<br/><i>mcp-tool:</i> nextcloud-mcp"]
+        Searxng["<b>Searxng Agent</b><br/>---<br/><i>mcp-tool:</i> searxng-mcp"]
+        Vector["<b>Vector Agent</b><br/>---<br/><i>mcp-tool:</i> vector-mcp"]
+        Wger["<b>Wger Agent</b><br/>---<br/><i>mcp-tool:</i> wger-mcp"]
       end
     end
   end
@@ -215,6 +258,96 @@ graph TD
 	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
 ```
 
+
+## Hierarchical State Machine (HSM) Architecture
+
+The graph orchestration system is a **Hierarchical State Machine**. It follows the same formal model used in robotics,
+game engines, UML statecharts, and SCXML workflow engines. Understanding the HSM framing provides critical guidance for
+future enhancements.
+
+### HSM Level Mapping
+```
+Level 0: Root Graph (18 Orchestration Nodes)
+├── usage_guard → router → planner → memroy_selection → dispatcher
+├── researcher, architect, verifier (discovery/validation)
+├── parallel_batch_processor → expert_executor (fan-out)
+└── research_joiner, execution_joiner (fan-in)
+
+Level 1: Superstates - Specialist Agents
+├── 21 Hardcoded Agents (NODE_SKILL_MAP: python_programmer, typescript_programmer, ...)
+│   Each loads: dedicated prompt + filtered skills + filtered MCP toolsets
+└── N Dynamic MCP Agents (from NODE_AGENTS.md: branches, commits, projects, ...)
+    Each loads: generated prompt + scoped MCP toolset for one tag
+
+Level 2: Substates - Agent Internal Loop
+└── Pydantic AI Agent.run() = UserPromptNode → ModelRequestNode → CallToolsNode → ...
+    Multi-turn tool iteration (max 3 iterations per specialist)
+
+Level 3: Leaf States - MCP Tool Execution
+└── Each tool call invokes an MCP server subprocess via stdio/HTTP
+    Atomic operations: get_project(), list_branches(), run_cypher_query(), etc.
+```
+
+### Maintaining the Specialist Registry (`NODE_SKILL_MAP`)
+
+The **Universal Skills** and **Skill Graphs** are dynamically embedded into Graph Agents via the `NODE_SKILL_MAP` (located in `agent_utilities/graph/config_helpers.py`). This forms the primary routing capability and specialized proficiency of each node in the cluster.
+
+**How it works**
+1. Each key in `NODE_SKILL_MAP` (e.g. `python_programmer`, `ui_ux_designer`) matches directly to a `.md` markdown file located in `agent_utilities/prompts/`.
+2. When the `builder.py` Graph generator spawns the orchestrator, it reads the keys from `NODE_SKILL_MAP`, bypassing the need to hardcode `GraphBuilder.step()` edges.
+3. The specified array of string skill tags will be automatically linked via the skill installer to grant those specific external capabilities to that internal superstate node.
+
+**Future Enhancements & Best Practices**
+- When adding a new role, you **must** create the correspondng `[role].md` based on `_template.md` in the `prompts/` directory.
+- Add the exact filename without the `.md` extension as a new key to the `NODE_SKILL_MAP`.
+- Assign 100% of newly developed universal-skills proportionally among agents to prevent orphaned skills. Check documentation to ensure each agent is capable of fulfilling their domain successfully before assigning entirely new skills.
+- The `agent-webui` interface will naturally ingest the new node ID and emit it via the graph activity viewer. Keep role IDs in `snake_case`.
+
+### Concept Mapping
+| agent-utilities Concept        | HSM Concept           | Details                       |
+|--------------------------------|-----------------------|-------------------------------|
+| Root graph                     | Root state machine    | 18 Orchestration nodes        |
+| Router → Planner → Dispatcher  | Top-level transitions | Sequential pipeline           |
+| `NODE_SKILL_MAP` agents        | Superstates (L1)      | 21 hardcoded domains          |
+| MCP dynamic agents             | Superstates (L1)      | N from `mcp_config.json`      |
+| `_execute_specialized_step()`  | Enter superstate      | Loads prompt + skills         |
+| `_execute_dynamic_mcp_agent()` | Enter superstate      | Loads prompt + MCP tools      |
+| `Agent.run()` internal loop    | Substates (L2)        | Model request/tool cycles     |
+| MCP tool call (stdio)          | Leaf states (L3)      | Atomic operations             |
+| `return "execution_joiner"`    | Exist superstate      | Returns to parent             |
+| Verifier feedback loop         | Re-entry transition   | Parent re-dispatches to child |
+| Circuit breaker (open)         | Guard condition       | Blocks entry to failed state  |
+| Specialist fallback            | Default transition    | Redirects on failure          |
+
+### HSM Design Principals for Future Growth
+
+1. **Treat subgraphs as macro-states.** A specialist should behave as a single opaque state to the dispatcher. Define
+   clear input/output contracts. Never route from the parent into a specialist's internal state.
+2. **Scale horizonatally, not vertically.** Instead of adding nodes to an existing graph, add new subgraphs (new MCP servers, new agent packages). This keeps graph sizes small and startup cost bounded.
+3. **Plan enhancements by level.** Routing concern → L0. Planning concern → L0 planner.
+   Domain behavior → L1 specialist. Tool-level fix → L3 MCP. This prevents "logic gravity" where everything sinks into one layer.
+4. **Use types as boundaries.** `ExecutionStep`, `GraphPlan`, `GraphResponse`, and `MCPAgent` are the boundary
+   contracts between levels. Internal state is private.
+5. **Defer flattening.** Never try to visualize or reason about the full system as one graph. Visualize one level at a time. Debug at the current level.
+6. **The growth test:** If you feel tempted to add more nodes to a graph, pause and ask whether you should add a new state machine instead.
+
+### Behavior Tree (BT) Concepts
+
+The graph also incorporates key Behavior Tree patterns **inside** the HSM structure.
+The principle: *graphs decide where you are; BT-style logic decides what to do next inside that place.*
+
+| agent-utilities Concept                                                                | Behavior Tree (BT) Concept   | Details                                                                         |
+|----------------------------------------------------------------------------------------|------------------------------|---------------------------------------------------------------------------------|
+| `_attempt_specialist_fallback`, `static_route_query`, `check_specialist_preconditions` | Selector (priority/fallback) | Specialist fallback chain, static route before LLM call |
+| `dispatcher_step`, `assert_state_valid`                                                | Sequence (fail-fast)         | Plan step execution with cursor, state invariant assertions                     |
+| `_execute_dynamic_mcp_agent`, `expert_executor_step`                                   | Retry decorator              | Tool-level retries with exponential backoff, expert retries, re-plan on failure |
+| `asyncio.wait_for()` in specialist execution                                           | Timeout decorator            | Per-node timeout via `ExecutionStep.timeout`                                    |
+| `graph.NodeResult`                                                                     | Tri-state result             | `NodeResult.SUCCESS / FAILURE / RUNNING` enum                                   |
+| `check_specialist_preconditions`                                                       | Precondition guard           | Check server health + tool availability before entering specialist               |
+| `assert_state_valid()`                                                                 | Boundary re-evaluation       | State invariants at dispatcher and verifier boundaries                          |
+
+**Design rule:** If logic chooses between options → BT concept. If logic defines long-lived phases → HSM concept.
+
 ## Commands (run these exactly)
 # Development & Quality
 ruff check --fix .
@@ -233,22 +366,53 @@ pytest
 pip install -e .      # Install in editable mode
 pip install -e .[all] # Install with all optional extras
 
+## Validation & Diagnostics
+
+To ensure the graph orchestrator and its specialists are functioning correctly, use the following validation tools:
+
+### End-to-End Specialist Validation
+High-fidelity testing of individual specialist nodes through the SSE streaming protocol. This bypasses the Web UI and provides granular execution logs to monitor tool calls and result registration.
+
+**Usage:**
+```bash
+# From the project root
+python scripts/verify_graph.py "List all projects in the workspace"
+```
+
+**Monitored Events:**
+- **Graph Lifecycle**: `graph-start`, `node-start`, `graph-complete` events.
+- **Tool Execution**: `expert_tool_call` and `expert_tool_result` events with detailed payloads.
+- **Payload Integrity**: Verifies unified result storage in `results_registry` for expert nodes.
+
+### Integration Test Suite
+Comprehensive tests located in `tests/` validate the entire stack from registry sync to tool execution:
+- **Registry Sync**: Validates discovery of MCP tools and specialist tags from `mcp_config.json`.
+- **Connection Resilience**: Tests parallel AnyIO initialization of toolsets without structured concurrency violations.
+- **Port Stability**: Robust port cleanup and health check coordination for local development.
+
 ## Project Structure Quick Reference
 - `agent_utilities/agent/` → Agent templates and `IDENTITY.md` definitions.
 - `agent_utilities/agent_utilities.py` → Main entry point for `create_agent` and `create_agent_server`.
 - `agent_utilities/agent_factory.py` → CLI factory for creating agents with argparse.
 - `agent_utilities/mcp_utilities.py` → Utilities for FastMCP and MCP tool registration.
 - `agent_utilities/base_utilities.py` → Generic helpers for file handling, type conversions, and CLI flags.
-- `agent_utilities/tools.py` → Core "OS" tools for agents (read/write, search, list files).
+- `agent_utilities/tools/` → Built-in agent tools (developer_tools, git_tools, workspace_tools).
 - `agent_utilities/embedding_utilities.py` → Vector DB and embedding integration (LlamaIndex based).
 - `agent_utilities/api_utilities.py` → Generic API helpers
-- `agent_utilities/models.py` → Shared Pydantic models
+- `agent_utilities/models.py` → Shared Pydantic models (`GraphResponse`, `GraphPlan`, `MCPAgent`, etc.)
 - `agent_utilities/chat_persistence.py` → Chat history persistence utilities
 - `agent_utilities/config.py` → Configuration management
 - `agent_utilities/custom_observability.py` → Custom observability and tracing utilities
 - `agent_utilities/decorators.py` → Utility decorators for caching, retries, etc.
 - `agent_utilities/exceptions.py` → Custom exception classes
-- `agent_utilities/graph_orchestration.py` → Graph-based agent orchestration with pydantic-graph
+- `agent_utilities/graph/` → **Graph orchestration subpackage** (the core engine):
+  - `graph/builder.py` → `initialize_graph_from_workspace()`, per-server resilient MCP loading
+  - `graph/runner.py` → `run_graph()` with sequential MCP connect + clear failure reporting
+  - `graph/steps.py` → All graph node step functions (router, dispatcher, verifier, etc.)
+  - `graph/executor.py` → Specialist execution with unified result storage (`results_registry`)
+  - `graph/state.py` → `GraphState`, `GraphDeps` Pydantic models
+  - `graph/hsm.py` → HSM/BT entry/exit hooks, preconditions, static routing
+  - `graph/config_helpers.py` → `load_mcp_agents_registry()`, `NODE_SKILL_MAP`, emit helpers
 - `agent_utilities/model_factory.py` → Factory for creating LLM models
 - `agent_utilities/memory.py` → Memory management for agents
 - `agent_utilities/middlewares.py` → HTTP middleware utilities
@@ -260,50 +424,8 @@ pip install -e .[all] # Install with all optional extras
 - `agent_utilities/tool_guard.py` → Universal tool guard implementation
 - `agent_utilities/workspace.py` → Workspace management utilities
 - `agent_utilities/a2a.py` → Agent-to-Agent communication utilities
-- `agent_utilities/prompts/` → Prompt templates
-- `agent_utilities/tools/` → Built-in agent tools
-- `agent_utilities/agent_data/` → Workspace data files (IDENTITY.md, MEMORY.md, etc.)
-
-## File Tree
-```text
-.
-├── agent_utilities/
-│   ├── agent/                 # Agent templates and definitions
-│   ├── __init__.py            # Package exports
-│   ├── __main__.py            # CLI entry point
-│   ├── a2a.py                 # Agent-to-Agent communication
-│   ├── agent_utilities.py     # Main entry point factory
-│   ├── agent_factory.py       # CLI agent factory
-│   ├── base_utilities.py      # Core shared helpers
-│   ├── chat_persistence.py    # Chat history persistence
-│   ├── config.py              # Configuration management
-│   ├── custom_observability.py # Custom observability and tracing
-│   ├── decorators.py          # Utility decorators
-│   ├── embedding_utilities.py # Vector/Embedding utilities
-│   ├── exceptions.py          # Custom exception classes
-│   ├── graph_orchestration.py # Graph-based agent orchestration
-│   ├── mcp_utilities.py       # MCP integration helpers
-│   ├── memory.py              # Memory management
-│   ├── middlewares.py         # HTTP middleware
-│   ├── model_factory.py       # LLM model factory
-│   ├── persistence.py         # General persistence utilities
-│   ├── prompt_builder.py      # Prompt construction
-│   ├── scheduler.py           # Task scheduling
-│   ├── server.py              # HTTP server implementation
-│   ├── tools.py               # Built-in agent tools
-│   ├── tool_filtering.py      # Tool filtering utilities
-│   ├── tool_guard.py          # Universal tool guard
-│   ├── workspace.py           # Workspace management
-│   ├── prompts/               # Prompt templates
-│   └── tools/                 # Built-in agent tools
-├── tests/
-│   ├── test_graph_advanced.py
-│   ├── test_graph_orchestration.py
-│   ├── test_server.py
-│   └── test_spawn_agent.py
-├── pyproject.toml
-└── README.md
-```
+- `agent_utilities/prompts/` → Prompt templates (one `.md` per specialist role)
+- `agent_utilities/agent_data/` → Workspace data files (IDENTITY.md, MEMORY.md, NODE_AGENTS.md, etc.)
 
 ## Code Style & Conventions
 
@@ -494,11 +616,22 @@ When adding new utility modules to the agent_utilities package:
 - Follow semantic versioning for dependencies when possible
 
 ## Recent Changes
-- Added `agent_factory.py` for CLI agent creation with argparse
-- Updated `pyproject.toml` with new optional dependencies
-- Enhanced MCP server connection handling with loopback guards
-- Improved tool filtering and tag-based access control
-- Added OpenTelemetry tracing support
-- Enhanced workspace management with better path resolution
-- Updated agent creation to support dynamic system prompts from workspace
-- Improved error handling and logging throughout the codebase
+- **Parallel AnyIO Lifespan Initialization**: Refactored `server.py` to use `anyio.create_task_group()` and `anyio.Event` for parallel MCP server initialization, ensuring structured concurrency compliance and resolving cancel-scope task boundary errors.
+- **Asynchronous Tool Execution**: Standardized MCP tool execution paths in specialists (e.g., `repository-manager`) to be fully `await`able, removing blocking calls that caused event loop hangs.
+- **Router Fallback Simplification**: Removed hardcoded, keyword-based specialist fallbacks in favor of robust, LLM-driven planning and formal state machine transitions.
+- **Unified result storage**: All execution paths (`_execute_specialized_step`, `_execute_dynamic_mcp_agent`, `_execute_domain_logic`, A2A) now write to both `results_registry` (read by dispatcher/verifier) and `results` (backward compat). Fixes the `"dispatcher"` return bug.
+- **Router `res.output`**: Fixed `res.data` → `res.output` in `router_step` for pydantic-ai `AgentRunResult` API.
+- **Multi-strategy agent matching**: `expert_executor_step` now matches node IDs against agent `tag`, `name`, and fuzzy substrings — so approximate LLM-generated node IDs like `expert_portainer` route to `portainer-agent` correctly.
+- **Registry fallback routing**: When `tag_prompts` is empty (e.g. not all env vars set), `router_step` falls back to querying the MCP registry directly for static keyword routing.
+- **Per-server resilient MCP loading**: `builder.py` now loads each MCP server from `mcp_config.json` individually using `MCPServerStdio`. Servers with undefined env vars are **skipped gracefully** with a `⚠️ Skipping 'server-name' — env var/config error: VAR_NAME` warning instead of aborting the entire toolset load.
+- **Sequential MCP connect with clear failure reporting**: `runner.py` now connects to MCP servers one-by-one (no `asyncio.wait_for` wrapper — avoids anyio cancel-scope cross-task `RuntimeError`). Any failed server is reported with `❌ MCP server 'server-name' FAILED to connect: <reason>` and a final summary of all failed servers is printed before graph execution begins.
+- **Fixed `on_enter_specialist` call signature**: `prompt_name=` kwarg corrected to `agent_name=` in executor.py.
+- **Fixed broken `list_files`/`get_git_status` imports**: Removed non-existent `list_files` from `researcher_step`; `get_git_status` is now imported from `agent_utilities.tools.git_tools`.
+- **Fixed `stirlingpdf-agent-mcp` → `stirlingpdf-mcp`**: Corrected MCP server command name in `mcp_config.json`.
+- **Router LLM empty step_info fix**: When `tag_prompts` is empty, the LLM router now also pulls available specialist tags from the MCP registry, preventing hallucinated node IDs like `researcher_portainer`.
+- **Parallel MCP connect restored**: `runner.py` uses `asyncio.gather` with per-server `await stack.enter_async_context()` (no inner `asyncio.wait_for`). This is both parallel AND anyio-safe (avoids the cancel-scope cross-task `RuntimeError` that the old `asyncio.wait_for` wrapper caused).
+- **Integration test suite**: `tests/test_graph_flow_integration.py` in `genius-agent` validates MCP config structure, registry sync, graph topology, result type integrity, and end-to-end Portainer stack listing (600s timeout accounts for router LLM + tool call + verifier LLM).
+- **Added `agent_factory.py`** for CLI agent creation with argparse.
+- Enhanced MCP server connection handling with loopback guards.
+- Improved tool filtering and tag-based access control.
+- Added OpenTelemetry tracing support.

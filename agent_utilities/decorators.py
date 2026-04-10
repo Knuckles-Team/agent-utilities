@@ -13,9 +13,7 @@ def require_auth(function):
 
     @functools.wraps(function)
     def wrapper(self, *args, **kwargs):
-        if not (
-            "Authorization" in self.headers or "X-ArchiveBox-API-Key" in self.headers
-        ):
+        if not self.headers:
             raise LoginRequiredError
         return function(self, *args, **kwargs)
 

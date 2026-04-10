@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import logging
-import asyncio
 
 
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from datetime import datetime
 
 if TYPE_CHECKING:
@@ -17,14 +16,12 @@ from .workspace import (
     CORE_FILES,
     parse_memory,
     serialize_memory,
+    load_workspace_file,
+    write_workspace_file,
 )
 
 
-from .models import PeriodicTask, MemoryModel, MemoryEntryModel
-
-tasks: List[PeriodicTask] = []
-lock = asyncio.Lock()
-
+from .models import MemoryModel, MemoryEntryModel
 
 logger = logging.getLogger(__name__)
 

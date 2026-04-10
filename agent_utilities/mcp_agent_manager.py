@@ -9,8 +9,8 @@ from .workspace import (
     CORE_FILES,
     load_workspace_file,
     write_workspace_file,
-    parse_mcp_registry,
-    serialize_mcp_registry,
+    parse_node_registry,
+    serialize_node_registry,
 )
 from .models import MCPAgent, MCPAgentRegistryModel, MCPToolInfo
 from .mcp_utilities import load_mcp_config
@@ -32,7 +32,7 @@ def should_sync(config_path: Path, agents_path: Path) -> bool:
     # Check if the registry is actually empty (only headers)
     try:
         content = agents_path.read_text(encoding="utf-8")
-        registry = parse_mcp_registry(content)
+        registry = parse_node_registry(content)
         if not registry.agents:
             return True
     except Exception:
@@ -48,38 +48,32 @@ def should_sync(config_path: Path, agents_path: Path) -> bool:
     return False
 
 
-def md_table_escape(text: str) -> str:
-    """Escape markdown table delimiters and handle newlines."""
-    if not text:
-        return ""
-    # Replace pipe character which breaks markdown tables
-    escaped = text.replace("|", "\\|")
-    # Replace newlines with <br/> to keep the cell on one row
-    escaped = escaped.replace("\n", "<br/>")
-    return escaped.strip()
+async def _extract_single_server_metadata(
+    server,
+    mcp_servers_config: Dict,
+    timeout: int = 300,
+    semaphore: Optional[asyncio.Semaphore] = None,
+) -> List[MCPToolInfo]:
+    """Helper to extract metadata from a single MCP server with timeout and fallback."""
+    if semaphore:
+        async with semaphore:
+            return await _extract_single_server_metadata_inner(
+                server, mcp_servers_config, timeout
+            )
+    return await _extract_single_server_metadata_inner(
+        server, mcp_servers_config, timeout
+    )
 
 
-async def extract_tool_metadata(config_path: Path) -> List[MCPToolInfo]:
-    """Connect to MCP servers and extract tool metadata with static fallback."""
-    if not config_path.exists():
-        logger.warning(f"MCP config not found at {config_path}")
-        return []
-
-    try:
-        with open(config_path, "r") as f:
-            config_data = json.load(f)
-            mcp_servers_config = config_data.get("mcpServers", {})
-    except Exception as e:
-        logger.error(f"Failed to read raw config for static fallback: {e}")
-        mcp_servers_config = {}
-
-    servers = load_mcp_config(config_path)
+async def _extract_single_server_metadata_inner(
+    server, mcp_servers_config: Dict, timeout: int = 300
+) -> List[MCPToolInfo]:
+    """Internal helper to extract metadata from a single MCP server with timeout and fallback."""
+    server_name = getattr(server, "name", getattr(server, "_id", "unknown"))
     all_tools = []
-
-    for server in servers:
-        server_name = getattr(server, "name", getattr(server, "_id", "unknown"))
-        try:
-            # Attempt Dynamic Extraction
+    try:
+        # Attempt Dynamic Extraction with timeout
+        async with asyncio.timeout(timeout):
             async with server as session:
                 result = await session.list_tools()
                 # Handle both ListToolsResult object and raw List[Tool] (SDK version variance)
@@ -92,10 +86,13 @@ async def extract_tool_metadata(config_path: Path) -> List[MCPToolInfo]:
                 for tool in tools_list:
                     tags = []
                     if hasattr(tool, "annotations") and tool.annotations:
-                        # FastMCP uses 'tags' (plural), protocol might use 'tag' (singular)
-                        tags_data = tool.annotations.get(
-                            "tags"
-                        ) or tool.annotations.get("tag")
+                        ann = tool.annotations
+                        if isinstance(ann, dict):
+                            tags_data = ann.get("tags") or ann.get("tag")
+                        else:
+                            tags_data = getattr(ann, "tags", None) or getattr(
+                                ann, "tag", None
+                            )
                         if isinstance(tags_data, (list, set, tuple)):
                             tags = [str(t) for t in tags_data]
                         elif isinstance(tags_data, str):
@@ -119,7 +116,6 @@ async def extract_tool_metadata(config_path: Path) -> List[MCPToolInfo]:
 
                     if not tag:
                         # Heuristic: split by underscore or hyphen
-                        # Look for common prefixes: docker_, get_, kubernetes_, etc.
                         import re
 
                         parts = re.split(r"[-_]", tool.name)
@@ -157,39 +153,74 @@ async def extract_tool_metadata(config_path: Path) -> List[MCPToolInfo]:
                             all_tags=tags,
                         )
                     )
-        except Exception as e:
-            logger.warning(
-                f"Dynamic extraction failed for {server_name}, falling back to static hints: {e}"
-            )
-            # Fallback: Parse env-based hints from the raw config
-            server_cfg = mcp_servers_config.get(server_name, {})
-            env = server_cfg.get("env", {})
+    except Exception as e:
+        error_msg = str(e)
+        # Handle ExceptionGroup (Python 3.11+) and report the first sub-exception
+        if hasattr(e, "exceptions") and e.exceptions:
+            error_msg = f"{type(e).__name__}({str(e.exceptions[0])})"
 
-            hints_found = False
-            for key, val in env.items():
-                if key.endswith("TOOL"):
-                    tag = key.lower().replace("tool", "")
-                    hints_found = True
-                    # Create a mock tool to represent this capability
-                    all_tools.append(
-                        MCPToolInfo(
-                            name=f"{server_name}_{tag}_toolset",
-                            description=f"Static hint toolset for {tag} based on config env.",
-                            tag=tag,
-                            mcp_server=server_name,
-                        )
-                    )
+        logger.warning(
+            f"Dynamic extraction failed for {server_name}, falling back to static hints: {error_msg}"
+        )
+        # Fallback: Parse env-based hints from the raw config
+        server_cfg = mcp_servers_config.get(server_name, {})
+        env = server_cfg.get("env", {})
 
-            if not hints_found:
-                # Absolute fallback: one 'general' tag for the whole server
+        hints_found = False
+        for key, val in env.items():
+            if key.endswith("TOOL"):
+                tag = key.lower().replace("tool", "")
+                hints_found = True
+                # Create a mock tool to represent this capability
                 all_tools.append(
                     MCPToolInfo(
-                        name=f"{server_name}_general_tools",
-                        description=f"General tools for {server_name} (offline extraction).",
-                        tag=server_name.replace("-mcp", "").replace("-agent", ""),
+                        name=f"{server_name}_{tag}_toolset",
+                        description=f"Static hint toolset for {tag} based on config env.",
+                        tag=tag,
                         mcp_server=server_name,
                     )
                 )
+
+        if not hints_found:
+            # Absolute fallback: one 'general' tag for the whole server
+            all_tools.append(
+                MCPToolInfo(
+                    name=f"{server_name}_general_tools",
+                    description=f"General tools for {server_name} (offline extraction).",
+                    tag=server_name.replace("-mcp", "").replace("-agent", ""),
+                    mcp_server=server_name,
+                )
+            )
+
+    return all_tools
+
+
+async def extract_tool_metadata(
+    config_path: Path, timeout: int = 300
+) -> List[MCPToolInfo]:
+    """Connect to MCP servers in parallel and extract tool metadata with static fallback."""
+    if not config_path.exists():
+        logger.warning(f"MCP config not found at {config_path}")
+        return []
+
+    try:
+        with open(config_path, "r") as f:
+            config_data = json.load(f)
+            mcp_servers_config = config_data.get("mcpServers", {})
+    except Exception as e:
+        logger.error(f"Failed to read raw config for static fallback: {e}")
+        mcp_servers_config = {}
+
+    servers = load_mcp_config(config_path)
+
+    # Sequential loading to avoid AnyIO cross-task cancel scope errors
+    # (FastMCP uses anyio.create_task_group internally which conflicts with asyncio.gather)
+    all_tools = []
+    for server in servers:
+        server_tools = await _extract_single_server_metadata_inner(
+            server, mcp_servers_config, timeout=timeout
+        )
+        all_tools.extend(server_tools)
 
     return all_tools
 
@@ -198,13 +229,15 @@ async def partition_tools(tools: List[MCPToolInfo]) -> Dict[str, List[MCPToolInf
     """Group tools into logical agent partitions by tag or LLM classification."""
     partitions = {}
 
-    # Primary partitioning by TAG
+    # Primary partitioning by TAG (Multi-tag support)
     untracked_tools = []
     for tool in tools:
-        if tool.tag:
-            if tool.tag not in partitions:
-                partitions[tool.tag] = []
-            partitions[tool.tag].append(tool)
+        tags = tool.all_tags if tool.all_tags else ([tool.tag] if tool.tag else [])
+        if tags:
+            for tag in tags:
+                if tag not in partitions:
+                    partitions[tag] = []
+                partitions[tag].append(tool)
         else:
             untracked_tools.append(tool)
 
@@ -217,20 +250,7 @@ async def partition_tools(tools: List[MCPToolInfo]) -> Dict[str, List[MCPToolInf
                 partitions[tag] = []
             partitions[tag].append(tool)
 
-    # Further partition large groups (>20 tools)
-    final_partitions = {}
-    for tag, group in partitions.items():
-        if len(group) > 20:
-            # Simple split by chunks of 20 for now
-            # User mentioned: "LLM classifier aiming to distribute tools around ~10-20 tools max per node agent"
-            for i in range(0, len(group), 20):
-                chunk = group[i : i + 20]
-                chunk_tag = f"{tag}_{i//20 + 1}"
-                final_partitions[chunk_tag] = chunk
-        else:
-            final_partitions[tag] = group
-
-    return final_partitions
+    return partitions
 
 
 async def generate_system_prompt(
@@ -257,11 +277,9 @@ async def generate_system_prompt(
 async def sync_mcp_agents(
     force_reprompt: bool = False, config_path: Optional[Path] = None
 ):
-    """Main synchronization engine for MCP agents and the MCP_AGENTS.md registry."""
+    """Main synchronization engine for MCP agents and the NODE_AGENTS.md registry."""
     if not config_path:
         config_path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
-
-    agents_path = get_workspace_path(CORE_FILES["MCP_AGENTS"])
 
     # 1. Extract Tool Metadata
     tools_inventory = await extract_tool_metadata(config_path)
@@ -273,8 +291,8 @@ async def sync_mcp_agents(
     partitions = await partition_tools(tools_inventory)
 
     # 3. Load Current Registry
-    content = load_workspace_file(CORE_FILES["MCP_AGENTS"])
-    current_registry = parse_mcp_registry(content)
+    content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
+    current_registry = parse_node_registry(content)
 
     new_agents = []
 
@@ -295,18 +313,12 @@ async def sync_mcp_agents(
         )
 
         # Handle partitioned suffixes (e.g. group_1, group_2) to keep names unique but descriptive
-        import re
-
-        suffix_match = re.search(r"_(\d+)$", tag)
-        display_tag = re.sub(r"_\d+$", "", tag)
-        clean_tag = display_tag.replace("_", " ").title()
-
-        suffix_str = f" {suffix_match.group(1)}" if suffix_match else ""
+        clean_tag = tag.replace("_", " ").title()
 
         if clean_server.lower() in clean_tag.lower():
-            agent_name = f"{clean_tag} Specialist{suffix_str}"
+            agent_name = f"{clean_tag} Specialist"
         else:
-            agent_name = f"{clean_server} {clean_tag} Specialist{suffix_str}"
+            agent_name = f"{clean_server} {clean_tag} Specialist"
 
         # Check if we already have a custom version
         if agent_name in custom_agents:
@@ -344,19 +356,14 @@ async def sync_mcp_agents(
                 )
             )
 
-    # 5. Clean up Pruned Agents
-    # Only keep agents whose tools/tag still exist or were custom
-    valid_names = set(partitions.keys())  # This is slightly wrong as agent name != tag
-    # Actually, we keep what we built in new_agents
-
-    # 6. Update Registry Model
+    # 5. Update Registry Model
     updated_registry = MCPAgentRegistryModel(agents=new_agents, tools=tools_inventory)
 
-    # 7. Write back to disk
-    new_content = serialize_mcp_registry(updated_registry)
-    write_workspace_file(CORE_FILES["MCP_AGENTS"], new_content)
+    # 6. Write back to disk
+    new_content = serialize_node_registry(updated_registry)
+    write_workspace_file(CORE_FILES["NODE_AGENTS"], new_content)
     logger.info(
-        f"✅ Synced {len(new_agents)} agents and {len(tools_inventory)} tools to MCP_AGENTS.md"
+        f"✅ Synced {len(new_agents)} agents and {len(tools_inventory)} tools to NODE_AGENTS.md"
     )
 
 

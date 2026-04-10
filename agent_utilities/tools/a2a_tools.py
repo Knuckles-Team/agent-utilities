@@ -2,7 +2,7 @@ import logging
 from typing import Any
 from pydantic_ai import RunContext
 from ..models import A2ARegistryModel
-from ..agent_utilities import (
+from ..a2a import (
     register_a2a_peer as register_a2a_peer_util,
     delete_a2a_peer as delete_a2a_peer_util,
     list_a2a_peers as list_a2a_peers_util,
