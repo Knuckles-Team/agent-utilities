@@ -126,7 +126,7 @@ def create_model(
 
     """
     _provider = provider or os.environ.get("PROVIDER") or "openai"
-    _model_id = model_id or os.environ.get("MODEL_ID") or "google/gemma-4-31b"
+    _model_id = model_id or os.environ.get("MODEL_ID") or "nvidia/nemotron-3-super"
 
     http_client = None
     if http_client is None:

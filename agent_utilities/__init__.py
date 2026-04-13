@@ -94,8 +94,6 @@ from .base_utilities import (
 
 from .embedding_utilities import create_embedding_model
 
-from .event_aggregator import aggregate_orchestrated_data
-
 from .models import PeriodicTask
 
 from .chat_persistence import (
@@ -161,8 +159,6 @@ __all__ = [
     "require_optional_import",
     # Embedding
     "create_embedding_model",
-    # Event aggregator
-    "aggregate_orchestrated_data",
     # HSM hooks
     "register_on_enter_hook",
     "register_on_exit_hook",

@@ -16,7 +16,7 @@
 - **Backend (`agent-utilities`)**: Handles LLM orchestration, tool execution, and a multi-protocol interface layer.
 - **Web Frontend (`agent-webui`)**: A React application using Vercel AI SDK that provides a cinematic chat interface.
 - **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction.
-- **Communication**: Frontends connect via the Agent Communication Protocol (ACP) for standardized sessions, planning, and streaming, while maintaining backward compatibility with SSE/AG-UI.
+- **Communication**: Frontends connect via the Agent Communication Protocol (ACP) for standardized sessions, planning, and streaming. Legacy custom protocols have been deprecated in favor of this native architecture.
 
 ## Ecosystem Dependency Graph
 This diagram visualizes the high-level relationships and core dependencies across the three primary ecosystem packages.
@@ -104,17 +104,17 @@ graph TD
             MCPServer -- 1. Request --> MCP
             MCP -- 2. Callback --> GEC[global_elicitation_callback]
             GEC -- 3. Queue --> EQ[Elicitation Queue]
-            EQ -- 4. SSE Event --> Backend
+            EQ -- 4. ACP Event --> Backend
         end
     end
 
     Backend -- 5. User UI --> WebUI
-    WebUI -- 6. POST /api/elicit --> Backend
-    Backend -- 7. Resolve --> EQ
-    EQ -- 8. Result --> MCPServer
+    WebUI -- 6. RPC approve_tool --> Backend
+    Backend -- 7. Resolve --> ACPLayer
+    ACPLayer -- 8. Resume --> Agent
 
     Backend -- 10. User UI --> TUI
-    TUI -- 11. POST /api/elicit --> Backend
+    TUI -- 11. RPC approve_tool --> Backend
 ```
 
 ## MCP Loading & Registry Architecture
