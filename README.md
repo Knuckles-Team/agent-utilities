@@ -40,7 +40,7 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 - **Observability**: Real-time **Graph Streaming** (SSE) and lifecycle events. Early OTEL/logfire gate.
 - **Typed Foundation**: Zero-config dependency injection using `AgentDeps`.
 - **Specialist Discovery**: Automated discovery of domain specialists from `NODE_AGENTS.md` and `A2A_AGENTS.md` registries.
-- **Agent Server**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/ag-ui`, `/stream` (SSE), and **`/docs` (Swagger UI)** endpoints.
+- **Agent Server**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/acp` (Standardized Protocol), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation**: Runtime generation of OpenAPI specifications for all agent server APIs.
 - **Workspace Management**: Automated management of agent state through standard markdown files (`IDENTITY.md`, `MEMORY.md`, `USER.md`).
 - **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies are lazy-loaded only when requested via optional extras.
@@ -137,8 +137,8 @@ C4Container
 
     Rel(user, webui, "Uses", "HTTPS/WSS")
     Rel(user, tui, "Uses", "Terminal/CLI")
-    Rel(webui, gateway, "Queries", "ACP /acp (SSE)")
-    Rel(tui, gateway, "Queries", "ACP /acp (SSE)")
+    Rel(webui, gateway, "Queries", "ACP /acp (SSE/RPC)")
+    Rel(tui, gateway, "Queries", "ACP /acp (SSE/RPC)")
     Rel(gateway, orchestrator, "Dispatches", "Async Python")
     Rel(orchestrator, subagent, "Delegates", "Parallel Execution")
     Rel(subagent, mcp, "Invokes Tools", "JSON-RPC (stdio/SSE)")
@@ -411,4 +411,4 @@ Every agent server automatically hosts an interactive Swagger UI for its APIs.
 - **URL**: `http://localhost:8000/docs`
 - **Spec**: `http://localhost:8000/openapi.json`
 
-This interface allows you to test the `/health`, `/ag-ui`, and `/stream` endpoints directly from your browser.
+This interface allows you to test the `/health`, `/acp`, and `/mcp` endpoints directly from your browser.

@@ -13,6 +13,7 @@ import os
 import logging
 import argparse
 import httpx
+from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 
 from pydantic_ai import Agent, ModelSettings, DeferredToolRequests
@@ -70,7 +71,6 @@ from .base_utilities import (
     is_loopback_url,
 )
 from .model_factory import create_model
-from .tool_guard import apply_tool_guard_approvals
 from .tool_filtering import (
     skill_matches_tags,
     filter_tools_by_tag,
@@ -223,6 +223,8 @@ def create_agent(
     current_port: int = None,
     tool_guard_mode: str = "on",
     isolate_mcp: bool = False,
+    enable_acp: bool = False,
+    acp_session_root: Optional[Union[str, Path]] = None,
 ) -> Tuple[Agent, List[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
@@ -442,7 +444,15 @@ def create_agent(
 
         register_agent_tools(agent, graph_bundle=graph_bundle)
 
-    if tool_guard_mode != "off":
-        apply_tool_guard_approvals(agent)
+    if enable_acp:
+        from .acp_adapter import build_acp_config, create_acp_app, is_acp_available
+
+        if is_acp_available():
+            logger.info("Configuring ACP layer for agent")
+            acp_config = build_acp_config(
+                session_root=Path(acp_session_root) if acp_session_root else None
+            )
+            # Store the ACP app on the agent instance for later retrieval/mounting
+            agent._acp_app = create_acp_app(agent, acp_config)
 
     return agent, initialized_mcp_toolsets
