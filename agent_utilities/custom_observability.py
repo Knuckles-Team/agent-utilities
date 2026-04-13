@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Custom Observability Module.
+
+This module provides instrumentation for OpenTelemetry (OTel) using Logfire.
+It handles the generation of OTLP headers from credentials, service-level
+configuration, and automatic instrumentation of pydantic-ai agents for
+distributed tracing.
+"""
 
 from __future__ import annotations
 
@@ -48,9 +56,7 @@ def setup_otel(
     secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
     protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
 ):
-    """
-    Setup OpenTelemetry tracing using Logfire and instrument pydantic_ai.
-    """
+    """Setup OpenTelemetry tracing using Logfire and instrument pydantic_ai."""
     global _otel_initialized
 
     if not HAS_LOGFIRE:

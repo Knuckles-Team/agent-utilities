@@ -1,4 +1,11 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Graph Builder Module.
+
+This module provides the factory and registration logic for constructing
+pydantic-graph instances. It handles domain discovery, specialist node
+registration, and the definition of the graph's dynamic routing topology.
+"""
 
 from __future__ import annotations
 
@@ -60,6 +67,30 @@ from .steps import (
     dynamic_mcp_routing_step,
     mcp_server_step,
     error_recovery_step,
+    python_programmer_step,
+    c_programmer_step,
+    cpp_programmer_step,
+    golang_programmer_step,
+    javascript_programmer_step,
+    typescript_programmer_step,
+    security_auditor_step,
+    qa_expert_step,
+    debugger_expert_step,
+    ui_ux_designer_step,
+    devops_engineer_step,
+    cloud_architect_step,
+    database_expert_step,
+    rust_programmer_step,
+    java_programmer_step,
+    data_scientist_step,
+    document_specialist_step,
+    mobile_programmer_step,
+    agent_engineer_step,
+    project_manager_step,
+    systems_manager_step,
+    browser_automation_step,
+    coordinator_step,
+    critique_step,
 )
 
 from pydantic_graph import End, Graph
@@ -73,14 +104,17 @@ logger = logging.getLogger(__name__)
 def build_tag_env_map(tag_names: list[str]) -> dict[str, str]:
     """Build a tag→env_var mapping following the standard convention.
 
-    Standard convention: tag "incidents" → env var "INCIDENTSTOOL"
-    (upper-cased tag + "TOOL" suffix).
+    The standard convention maps a domain tag (e.g., "incidents") to an
+    environment variable (e.g., "INCIDENTSTOOL") used to gate access to
+    that specific specialist domain.
 
     Args:
-        tag_names: List of domain tag names.
+        tag_names: List of domain tag names to map.
 
     Returns:
-        Dict mapping tag name → env var name.
+        A dictionary mapping lowercase tag names to upper-cased environment
+        variable names with the 'TOOL' suffix.
+
     """
     result = {}
     for tag in tag_names:
@@ -100,10 +134,29 @@ def initialize_graph_from_workspace(
     ssl_verify: Optional[bool] = True,
     router_timeout: Optional[float] = None,
     verifier_timeout: Optional[float] = None,
-) -> tuple[Graph, GraphDeps]:
-    """
-    Centralized utility to discover domains and initialize a graph bundle from the current workspace.
-    Used for both server startup and standalone testing.
+) -> tuple[Graph, dict]:
+    """Initialize a graph bundle by discovering domains in the current workspace.
+
+    This utility handles MCP agent synchronization, domain tag discovery,
+    and graph construction. It matches the local workspace directory against
+    the provided MCP configuration to build a functional orchestrator.
+
+    Args:
+        mcp_config: Filename or path to the MCP configuration file.
+        router_model: Optional override for the router's LLM model ID.
+        agent_model: Optional override for the specialist agents' LLM model ID.
+        api_key: Optional API key for the LLM provider.
+        base_url: Optional override for the LLM base URL.
+        workspace: Optional explicit path to the agent workspace.
+        custom_headers: Optional HTTP headers for provider requests.
+        ssl_verify: Whether to enforce SSL certificate verification.
+        router_timeout: Per-request timeout for the router node.
+        verifier_timeout: Per-request timeout for the verifier node.
+
+    Returns:
+        A tuple containing the initialized pydantic-graph Graph instance and
+        its configuration dictionary (GraphDeps source).
+
     """
     logger.info(f"Initializing graph from workspace: {os.getcwd()}")
 
@@ -221,18 +274,23 @@ def create_master_graph(
     exclude_agents: list[str] | None = None,
     skill_agents: dict[str, dict] | None = None,
     **kwargs,
-) -> tuple["Graph", dict]:
-    """Factory to create a master orchestrator graph that discovers and routes to sub-agents.
+) -> tuple[Graph, dict]:
+    """Factory to create a master orchestrator graph for sub-agent routing.
+
+    Discovers available agent packages via the A2A protocol and registers
+    them as routable specialist nodes within a unified graph topology.
+    This is used for higher-level orchestration across separate agent services.
 
     Args:
-        name: Name of the master graph.
-        include_agents: Optional list of specific agent package names to include.
-        exclude_agents: Optional list of agent package names to ignore.
-        skill_agents: Optional dict of specialized skill agents (Tag -> Config).
-        **kwargs: Forwarded to create_graph_agent.
+        name: Human-readable name of the master graph.
+        include_agents: Optional list of specific agent packages to discover.
+        exclude_agents: Optional list of agent packages to ignore.
+        skill_agents: Dict of specialized skill definitions to inject.
+        **kwargs: Additional configuration parameters for the graph.
 
     Returns:
-        tuple: (Graph, config_dict)
+        A tuple containing the initialized Graph and its configuration dictionary.
+
     """
     from ..a2a import discover_agents
 
@@ -282,24 +340,34 @@ def create_graph_agent(
     custom_nodes: list[Any] | None = None,
     workspace: str | None = None,
     **kwargs,
-) -> tuple["Graph", dict]:
-    """Factory to create a router-led graph assistant using Pydantic Graph Beta.
+) -> tuple[Graph, dict]:
+    """Factory to create a router-led graph assistant using pydantic-graph.
+
+    This function defines the end-to-end graph topology, including
+    onboarding, policy guarding, multi-step routing, parallel execution
+    batches, and final output verification.
 
     Args:
-        tag_prompts: Dict of domain tags → intent description prompts.
-        tag_env_vars: Dict of domain tags → env var gating names.
-        mcp_url: Optional base MCP URL for all nodes.
-        mcp_config: Optional path to JSON MCP config.
-        name: Name of the graph.
-        router_model: Model for the router node.
-        agent_model: Model for the domain nodes.
-        min_confidence: Confidence threshold for routing.
-        sub_agents: Dict of domain tags → sub-agent package name or instance.
-        mcp_toolsets: Optional list of pre-instantiated toolsets (e.g. FastMCP).
-        routing_strategy: Strategy for routing (hybrid, rules, llm).
+        tag_prompts: Mapping of domain tags to specialist persona descriptions.
+        tag_env_vars: Mapping of domain tags to environment variable names for gating.
+        mcp_url: Base URL for a standalone MCP server.
+        mcp_config: Path to the mcp_config.json for tool discovery.
+        name: Internal name for the graph instance.
+        router_model: LLM model ID used by the routing and planning nodes.
+        agent_model: Default LLM model ID used by specialist expert nodes.
+        min_confidence: Confidence score threshold for valid routing.
+        sub_agents: Mapping of tags to agent packages or pre-built Agent instances.
+        mcp_toolsets: List of pre-initialized toolsets to inject into the graph.
+        routing_strategy: The logic used for routing ('hybrid', 'llm', 'rules').
+        router_timeout: Per-node timeout for the router (seconds).
+        verifier_timeout: Per-node timeout for the verifier (seconds).
+        custom_nodes: Optional list of additional Starlette/FastAPI nodes to register.
+        workspace: Path to the persistent storage directory.
+        **kwargs: Additional low-level configuration overrides.
 
     Returns:
-        Graph and config dict.
+        A tuple containing the configured Graph and its execution dictionary.
+
     """
     if not _PYDANTIC_GRAPH_AVAILABLE:
         raise ImportError("pydantic-graph is required for graph agents.")
@@ -317,11 +385,9 @@ def create_graph_agent(
 
     # Register Steps
     _router = g.step(router_step, node_id="router")
-    # _validator = g.step(validator_step, node_id="validator")
     _planner = g.step(planner_step, node_id="planner")
-    # _executor = g.step(project_executor_step, node_id="project_executor")
-    _error = g.step(error_recovery_step, node_id="error_recovery")
     _onboarding = g.step(onboarding_step, node_id="onboarding")
+    _error = g.step(error_recovery_step, node_id="error_recovery")
 
     # Dynamic Dispatcher Nodes
     _dispatcher = g.step(dispatcher_step, node_id="dispatcher")
@@ -333,17 +399,42 @@ def create_graph_agent(
     # Dual Joiners for Phase Separation
     _research_joiner = g.step(join_step, node_id="research_joiner")
     _execution_joiner = g.step(join_step, node_id="execution_joiner")
-    # _joiner = g.step(join_step, node_id="joiner")  # Legacy fallback
-
-    # _coordinator = g.step(coordinator_step, node_id="coordinator")
     _architect = g.step(architect_step, node_id="architect")
     _verifier = g.step(verifier_step, node_id="verifier")
-    # _critique = g.step(critique_step, node_id="critique")
 
     # Native Developer Steps
     _researcher = g.step(researcher_step, node_id="researcher")
 
-    _dedicated_nodes = {"researcher", "architect", "planner", "verifier"}
+    _dedicated_nodes = {
+        "researcher",
+        "architect",
+        "planner",
+        "verifier",
+        "python_programmer",
+        "c_programmer",
+        "cpp_programmer",
+        "golang_programmer",
+        "javascript_programmer",
+        "typescript_programmer",
+        "security_auditor",
+        "qa_expert",
+        "debugger_expert",
+        "ui_ux_designer",
+        "devops_engineer",
+        "cloud_architect",
+        "database_expert",
+        "rust_programmer",
+        "java_programmer",
+        "data_scientist",
+        "document_specialist",
+        "mobile_programmer",
+        "agent_engineer",
+        "project_manager",
+        "systems_manager",
+        "browser_automation",
+        "coordinator",
+        "critique",
+    }
 
     # --- Step Configuration Registry ---
     # We will consolidate all specialized nodes (Skills, Graphs, A2A, Specialist MCP Agents)
@@ -366,20 +457,32 @@ def create_graph_agent(
 
         specialist_node_configs[_nid] = _make_skill_step(_nid)
 
-    # _python = g.step(python_programmer_step, node_id="python_programmer")
-    # _c = g.step(c_programmer_step, node_id="c_programmer")
-    # _cpp = g.step(cpp_programmer_step, node_id="cpp_programmer")
-    # _golang = g.step(golang_programmer_step, node_id="golang_programmer")
-    # _javascript = g.step(javascript_programmer_step, node_id="javascript_programmer")
-    # _typescript = g.step(typescript_programmer_step, node_id="typescript_programmer")
-    # _security = g.step(security_auditor_step, node_id="security_auditor")
-    # _qa = g.step(qa_expert_step, node_id="qa_expert")
-    # _debugger = g.step(debugger_expert_step, node_id="debugger_expert")
-    # _ui_ux = g.step(ui_ux_designer_step, node_id="ui_ux_designer")
-    # _devops = g.step(devops_engineer_step, node_id="devops_engineer")
-    # _cloud = g.step(cloud_architect_step, node_id="cloud_architect")
-    # _database = g.step(database_expert_step, node_id="database_expert")
-    # _rust = g.step(rust_programmer_step, node_id="rust_programmer")
+    _python = g.step(python_programmer_step, node_id="python_programmer")
+    _c = g.step(c_programmer_step, node_id="c_programmer")
+    _cpp = g.step(cpp_programmer_step, node_id="cpp_programmer")
+    _golang = g.step(golang_programmer_step, node_id="golang_programmer")
+    _javascript = g.step(javascript_programmer_step, node_id="javascript_programmer")
+    _typescript = g.step(typescript_programmer_step, node_id="typescript_programmer")
+    _security = g.step(security_auditor_step, node_id="security_auditor")
+    _qa = g.step(qa_expert_step, node_id="qa_expert")
+    _debugger = g.step(debugger_expert_step, node_id="debugger_expert")
+    _ui_ux = g.step(ui_ux_designer_step, node_id="ui_ux_designer")
+    _devops = g.step(devops_engineer_step, node_id="devops_engineer")
+    _cloud = g.step(cloud_architect_step, node_id="cloud_architect")
+    _database = g.step(database_expert_step, node_id="database_expert")
+    _rust = g.step(rust_programmer_step, node_id="rust_programmer")
+    _java = g.step(java_programmer_step, node_id="java_programmer")
+    _data_scientist = g.step(data_scientist_step, node_id="data_scientist")
+    _document_specialist = g.step(
+        document_specialist_step, node_id="document_specialist"
+    )
+    _mobile = g.step(mobile_programmer_step, node_id="mobile_programmer")
+    _agent_engineer = g.step(agent_engineer_step, node_id="agent_engineer")
+    _project_manager = g.step(project_manager_step, node_id="project_manager")
+    _systems_manager = g.step(systems_manager_step, node_id="systems_manager")
+    _browser_automation = g.step(browser_automation_step, node_id="browser_automation")
+    _coordinator = g.step(coordinator_step, node_id="coordinator")
+    _critique = g.step(critique_step, node_id="critique")
     _memory_selection = g.step(memory_selection_step, node_id="memory_selection")
 
     _mcp_router = g.step(dynamic_mcp_routing_step, node_id="mcp_router")
@@ -441,6 +544,30 @@ def create_graph_agent(
         "memory_selection": _memory_selection,
         "mcp_router": _mcp_router,
         "mcp_server_execution": _mcp_server,
+        "python_programmer": _python,
+        "c_programmer": _c,
+        "cpp_programmer": _cpp,
+        "golang_programmer": _golang,
+        "javascript_programmer": _javascript,
+        "typescript_programmer": _typescript,
+        "security_auditor": _security,
+        "qa_expert": _qa,
+        "debugger_expert": _debugger,
+        "ui_ux_designer": _ui_ux,
+        "devops_engineer": _devops,
+        "cloud_architect": _cloud,
+        "database_expert": _database,
+        "rust_programmer": _rust,
+        "java_programmer": _java,
+        "data_scientist": _data_scientist,
+        "document_specialist": _document_specialist,
+        "mobile_programmer": _mobile,
+        "agent_engineer": _agent_engineer,
+        "project_manager": _project_manager,
+        "systems_manager": _systems_manager,
+        "browser_automation": _browser_automation,
+        "coordinator": _coordinator,
+        "critique": _critique,
         **{nid: step for nid, step in expert_nodes.items()},
     }
 

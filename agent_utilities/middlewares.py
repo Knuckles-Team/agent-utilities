@@ -1,3 +1,12 @@
+#!/usr/bin/python
+# coding: utf-8
+"""FastMCP Middlewares Module.
+
+This module defines custom middlewares for FastMCP servers. It handles
+user token extraction for delegation and JWT claims logging to provide
+enhanced observability and authorization context during tool execution.
+"""
+
 import threading
 from fastmcp.server.middleware import MiddlewareContext, Middleware
 from fastmcp.utilities.logging import get_logger
@@ -7,6 +16,13 @@ logger = get_logger(name="TokenMiddleware")
 
 
 class UserTokenMiddleware(Middleware):
+    """Middleware to extract and store user tokens for downstream delegation.
+
+    If delegation is enabled, this middleware captures the 'Authorization'
+    header from incoming requests and stores the Bearer token in
+    thread-local storage.
+    """
+
     def __init__(self, config: dict):
         self.config = config
 
@@ -37,6 +53,12 @@ class UserTokenMiddleware(Middleware):
 
 
 class JWTClaimsLoggingMiddleware(Middleware):
+    """Middleware for logging JWT authentication claims on responses.
+
+    Captures and logs the subject, client ID, and scopes from validated
+    JWT claims to provide an audit trail for successful authentications.
+    """
+
     async def on_response(self, context: MiddlewareContext, call_next):
         response = await call_next(context)
         logger.info(f"JWT Response: {response}")

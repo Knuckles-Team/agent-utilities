@@ -1,3 +1,11 @@
+#!/usr/bin/python
+# coding: utf-8
+"""Git Utilities Tools Module.
+
+This module provides tools for inspecting git status, managing isolated
+worktrees for parallel development, and auditing version control history.
+"""
+
 import os
 import subprocess
 import logging
@@ -9,9 +17,17 @@ logger = logging.getLogger(__name__)
 
 
 async def get_git_status(ctx: RunContext[Any]) -> str:
-    """
-    Get a snapshot of the current git status, branch, and recent commits.
-    Mirroring Claude Code's system context logic.
+    """Retrieve a comprehensive snapshot of the current git environment.
+
+    Returns the current branch name, a summarized file status, and the
+    last five oneline commit logs.
+
+    Args:
+        ctx: The agent run context.
+
+    Returns:
+        A formatted summary of the git environment status.
+
     """
     try:
         branch = subprocess.check_output(
@@ -35,8 +51,19 @@ async def get_git_status(ctx: RunContext[Any]) -> str:
 
 
 async def create_worktree(ctx: RunContext[Any], branch_name: str, path: str) -> str:
-    """
-    Create a new git worktree for isolated task execution.
+    """Create a new git worktree for isolated and parallel feature development.
+
+    This ensures that agents can work on separate branches without
+    polluting the primary workspace.
+
+    Args:
+        ctx: The agent run context.
+        branch_name: The name of the new branch to create/use.
+        path: Target absolute or relative directory for the worktree.
+
+    Returns:
+        A confirmation message indicating success or an error details.
+
     """
     try:
         # 1. Create the branch if it doesn't exist
@@ -52,8 +79,16 @@ async def create_worktree(ctx: RunContext[Any], branch_name: str, path: str) -> 
 
 
 async def remove_worktree(ctx: RunContext[Any], path: str, force: bool = False) -> str:
-    """
-    Remove a git worktree and cleanup.
+    """Remove an existing git worktree and clean up the associated directory.
+
+    Args:
+        ctx: The agent run context.
+        path: The directory path of the worktree to remove.
+        force: Whether to force removal even if changes are present.
+
+    Returns:
+        A confirmation message indicating success or an error details.
+
     """
     try:
         cmd = ["git", "worktree", "remove", path]
@@ -71,7 +106,15 @@ async def remove_worktree(ctx: RunContext[Any], path: str, force: bool = False) 
 
 
 async def list_worktrees(ctx: RunContext[Any]) -> str:
-    """List all active git worktrees."""
+    """List all currently active git worktrees in the repository.
+
+    Args:
+        ctx: The agent run context.
+
+    Returns:
+        A formatted list of active worktrees and their paths.
+
+    """
     try:
         return subprocess.check_output(["git", "worktree", "list"], text=True).strip()
     except Exception as e:

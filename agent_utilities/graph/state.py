@@ -1,5 +1,12 @@
 #!/usr/bin/python
-"""Graph state and dependency dataclasses"""
+# coding: utf-8
+"""Graph State Module.
+
+This module defines the core data structures for managing the state and
+dependencies of the agent graph orchestrator. It includes GraphDeps for
+runtime configuration and GraphState for tracking queries, plans,
+execution results, and usage statistics across the agent lifecycle.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +45,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GraphDeps:
-    """Configuration dependencies passed to graph nodes at runtime."""
+    """Runtime dependencies and configuration for graph execution.
+
+    This container is passed to every node in the graph, providing
+    access to shared resources like MCP toolsets, model configurations,
+    and event queues.
+    """
 
     tag_prompts: dict[str, str]
     tag_env_vars: dict[str, str]
@@ -76,10 +88,18 @@ class GraphDeps:
 
 @dataclass
 class GraphState:
-    """Universal graph state for all agent graph orchestrations."""
+    """The central state container for an orchestrator session.
+
+    This class tracks the entire lifecycle of a request, from the initial
+    query and high-level plan to parallel execution results and final
+    verification feedback. It supports persistence and usage monitoring.
+    """
 
     query: str
     """The original user query."""
+
+    query_parts: list[dict[str, Any]] = field(default_factory=list)
+    """Rich multi-modal parts of the user query (text, images, etc.)."""
 
     # Pro Mode State
     topology: str = "basic"  # "basic" or "pro"
@@ -174,7 +194,16 @@ class GraphState:
     """Flag to trigger a re-evaluation of the graph plan due to implementation failures."""
 
     def _update_usage(self, result_usage: Any):
-        """Standardizes token usage incrementing across all steps."""
+        """Update the accumulated session usage statistics.
+
+        Processes usage metadata from an agent run and increments input,
+        output, and total token counts. Also performs simple cost
+        estimation.
+
+        Args:
+            result_usage: The usage object returned by a pydantic-ai Agent.
+
+        """
         if not result_usage:
             return
         self.session_usage.input_tokens += getattr(result_usage, "request_tokens", 0)
@@ -190,7 +219,15 @@ class GraphState:
         )
 
     def sync_to_disk(self, artifact_prefix: str = ""):
-        """Helper to dump state artifacts for human-in-the-loop inspection."""
+        """Persist key state artifacts to the local workspace for inspection.
+
+        Serializes task lists, progress logs, and usage statistics to
+        JSON files within the project root.
+
+        Args:
+            artifact_prefix: Optional prefix for the generated filenames.
+
+        """
         root = self.project_root or os.getcwd()
         if not os.path.exists(root):
             try:
@@ -213,7 +250,15 @@ class GraphState:
                 logger.warning(f"Failed to sync artifact {filename}: {e}")
 
     def load_from_disk(self):
-        """Loads existing JSON artifacts from project root."""
+        """Recover project state from existing JSON artifacts in the workspace.
+
+        Attempts to reload task lists, logs, and usage data from the
+        file system to resume a previous session.
+
+        Returns:
+            True if any artifacts were successfully loaded, False otherwise.
+
+        """
         root = self.project_root or os.getcwd()
         mappings = {
             "tasks.json": ("task_list", TaskList),

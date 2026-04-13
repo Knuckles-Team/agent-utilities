@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Agent-to-Agent (A2A) Module.
+
+This module provides the implementation of the fastA2A protocol for
+inter-agent communication. It includes registry management for remote peers,
+a JSON-RPC client for task execution, and discovery logic for local and
+remote specialists.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +37,14 @@ logger = logging.getLogger(__name__)
 
 
 def load_a2a_peers() -> A2ARegistryModel:
-    """Parse A2A_AGENTS.md table into A2ARegistryModel."""
+    """Load the A2A peer registry from the workspace.
+
+    Parses the A2A_AGENTS.md file into a structured A2ARegistryModel.
+
+    Returns:
+        The loaded A2A registry model.
+
+    """
     content = load_workspace_file(CORE_FILES["A2A_AGENTS"])
     if not content:
         return A2ARegistryModel()
@@ -44,7 +59,20 @@ def register_a2a_peer(
     auth: str = "none",
     notes: str = "",
 ) -> str:
-    """Add or update a peer in A2A_AGENTS.md table."""
+    """Add or update an A2A peer in the registry.
+
+    Args:
+        name: Unique name identifier for the peer.
+        url: Base URL of the peer agent.
+        description: Brief description of the agent's purpose.
+        capabilities: Metadata string describing supported features.
+        auth: Authentication type ('none', 'bearer', etc.).
+        notes: Optional registrar notes.
+
+    Returns:
+        A status message indicating success.
+
+    """
     registry = load_a2a_peers()
 
     updated = False
@@ -78,12 +106,25 @@ def register_a2a_peer(
 
 
 def list_a2a_peers() -> A2ARegistryModel:
-    """List all registered A2A peers."""
+    """List all agents currently registered in the A2A system.
+
+    Returns:
+        The complete registry of A2A peers.
+
+    """
     return load_a2a_peers()
 
 
 def delete_a2a_peer(name: str) -> str:
-    """Remove a peer from A2A_AGENTS.md registry."""
+    """Remove an A2A peer from the registry.
+
+    Args:
+        name: The name identifier of the peer to remove.
+
+    Returns:
+        A status message indicating whether the peer was found and removed.
+
+    """
     registry = load_a2a_peers()
     original_count = len(registry.peers)
     registry.peers = [p for p in registry.peers if p.name.lower() != name.lower()]
@@ -97,17 +138,32 @@ def delete_a2a_peer(name: str) -> str:
 
 
 class A2AClient:
-    """
-    Client for Agent-to-Agent (A2A) communication following the JSON-RPC spec.
+    """Client for Agent-to-Agent communication using the fastA2A JSON-RPC protocol.
+
+    This client supports fetching agent metadata (cards) and executing
+    arbitrary tasks on remote agents with polling for completion.
     """
 
     def __init__(self, timeout: float = 300.0, ssl_verify: bool = True):
+        """Initialize the A2A client.
+
+        Args:
+            timeout: Maximum execution timeout for remote tasks in seconds.
+            ssl_verify: Whether to verify SSL certificates for HTTPS requests.
+
+        """
         self.timeout = timeout
         self.ssl_verify = ssl_verify
 
     def fetch_card_sync(self, url: str) -> Optional[Dict[str, Any]]:
-        """
-        Fetches the well-known agent card from a remote agent (Synchronous version).
+        """Fetch the agent-card.json from a remote agent (synchronous).
+
+        Args:
+            url: The base URL of the remote agent.
+
+        Returns:
+            The agent card data as a dictionary, or None if the request fails.
+
         """
         card_url = f"{url.rstrip('/')}/.well-known/agent-card.json"
         with httpx.Client(timeout=5.0, verify=self.ssl_verify) as client:
@@ -120,8 +176,14 @@ class A2AClient:
         return None
 
     async def fetch_card(self, url: str) -> Optional[Dict[str, Any]]:
-        """
-        Fetches the well-known agent card from a remote agent.
+        """Fetch the agent-card.json from a remote agent (asynchronous).
+
+        Args:
+            url: The base URL of the remote agent.
+
+        Returns:
+            The agent card data as a dictionary, or None if the request fails.
+
         """
         card_url = f"{url.rstrip('/')}/.well-known/agent-card.json"
         async with httpx.AsyncClient(timeout=10.0, verify=self.ssl_verify) as client:
@@ -134,8 +196,15 @@ class A2AClient:
         return None
 
     async def execute_task(self, url: str, query: str) -> Optional[Any]:
-        """
-        Executes a task on a remote agent via A2A protocol (message/send + polling).
+        """Execute a task on a remote agent via A2A message/send and polling.
+
+        Args:
+            url: The A2A endpoint URL.
+            query: The natural language task description.
+
+        Returns:
+            The final result content from the remote agent, or an error message.
+
         """
         async with httpx.AsyncClient(
             timeout=self.timeout, verify=self.ssl_verify
@@ -204,11 +273,16 @@ class A2AClient:
         return "Error: A2A execution timed out or failed."
 
 
-def discover_agents() -> dict[str, dict[str, str]]:
-    """Discovers available agent packages from A2A_AGENTS.md and NODE_AGENTS.md registries.
+def discover_agents() -> dict[str, dict[str, Any]]:
+    """Discover local MCP agents and remote A2A peers.
+
+    This function scans both the NODE_AGENTS.md (local) and A2A_AGENTS.md
+    (remote) registries to build a unified map of specialists for the
+    graph orchestrator.
 
     Returns:
-        dict: {tag: {"package": package_name, "description": desc, "name": display_name, "type": "local" | "remote_a2a"}}
+        A dictionary mapping domain tags to agent metadata (package, type, etc.).
+
     """
     from .workspace import parse_node_registry
 

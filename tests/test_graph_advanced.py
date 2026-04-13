@@ -98,13 +98,10 @@ async def test_verifier_step_success(mock_deps):
     def create_mock_stream(res):
         stream = AsyncMock()
         stream.__aenter__.return_value = stream
-        stream.stream_text.return_value = ["chunk1", "chunk2"].__iter__() # Mock async generator if needed, but here simple list works for simple async for
-        # Actually, stream_text needs to be an async generator
         async def mock_stream_text(*args, **kwargs):
             yield "chunk1"
-            yield "chunk2"
         stream.stream_text = mock_stream_text
-        stream.get_data = AsyncMock(return_value=res)
+        stream.data = AsyncMock(return_value=res)
         return stream
 
     with patch("pydantic_ai.Agent.run_stream") as mock_run_stream:
@@ -144,7 +141,7 @@ async def test_verifier_step_retry(mock_deps):
         async def mock_stream_text(*args, **kwargs):
             yield "chunk1"
         stream.stream_text = mock_stream_text
-        stream.get_data = AsyncMock(return_value=res)
+        stream.data = AsyncMock(return_value=res)
         return stream
 
     with patch("pydantic_ai.Agent.run_stream") as mock_run_stream:

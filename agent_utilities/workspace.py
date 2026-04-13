@@ -1,3 +1,14 @@
+#!/usr/bin/python
+# coding: utf-8
+"""Workspace Management Module.
+
+This module provides the core logic for discovering, initializing, and
+managing the agent's filesystem workspace. it includes templates for
+standard markdown files (IDENTITY, MEMORY, CRON, etc.), parsing and
+serialization logic for these files, and robust path discovery for
+skills and MCP configurations.
+"""
+
 import os
 import logging
 import re
@@ -31,7 +42,15 @@ WORKSPACE_DIR: Optional[str] = None
 
 
 def md_table_escape(text: str) -> str:
-    """Escape markdown table delimiters and handle newlines."""
+    """Escape markdown table delimiters and handle newlines for table safety.
+
+    Args:
+        text: The raw string to escape.
+
+    Returns:
+        An escaped string suitable for a markdown table cell.
+
+    """
     if not text:
         return ""
     # Replace pipe character which breaks markdown tables
@@ -138,6 +157,15 @@ This file tracks the generated agents from MCP servers, Universal Skills, and Sk
 
 
 def get_skills_path() -> List[str]:
+    """Discover the filesystem paths to agent skills.
+
+    Scans the local package and parent directories for 'skills' folders
+    using importlib.resources and manual path construction.
+
+    Returns:
+        A list of absolute paths to discovered skills directories.
+
+    """
     try:
         package_name = retrieve_package_name()
         if not package_name:
@@ -180,6 +208,12 @@ def get_skills_path() -> List[str]:
 
 
 def get_mcp_config_path() -> Optional[str]:
+    """Retrieve the absolute path to the local MCP configuration file.
+
+    Returns:
+        The path to mcp_config.json if found, otherwise None.
+
+    """
     try:
         package_name = retrieve_package_name()
         for sub in ["agent_data", "agent"]:
@@ -196,6 +230,19 @@ def get_mcp_config_path() -> Optional[str]:
 
 
 def get_agent_workspace() -> Path:
+    """Discover the root workspace directory for the agent.
+
+    Uses a tiered discovery strategy:
+    1. Explicit global WORKSPACE_DIR override.
+    2. AGENT_WORKSPACE environment variable.
+    3. Local package subdirectories (agent_data, agent).
+    4. CWD-relative search.
+    5. Fallback to package-native agent_data.
+
+    Returns:
+        The absolute Path to the resolved workspace directory.
+
+    """
     global WORKSPACE_DIR
     if WORKSPACE_DIR:
         p = Path(WORKSPACE_DIR).resolve()
@@ -284,19 +331,32 @@ def get_agent_workspace() -> Path:
 
 
 def get_workspace_path(filename: str) -> Path:
+    """Construct an absolute path to a specific file within the agent workspace.
+
+    Args:
+        filename: The relative filename or sub-path within the workspace.
+
+    Returns:
+        The absolute Path to the file.
+
+    """
     ws = get_agent_workspace()
     path = ws / filename
     return path
 
 
 def resolve_mcp_config_path(mcp_config: str) -> Optional[Path]:
-    """
-    Resolves the absolute path for an MCP config string.
-    Checks:
-    1. Absolute path
-    2. Relative to workspace
-    3. Relative to local package's agent_data
-    4. Relative to CWD
+    """Resolve the absolute path for an MCP configuration identifier.
+
+    Checks absolute paths, workspace-relative paths, local package data,
+    and CWD fallbacks to find a valid mcp_config.json.
+
+    Args:
+        mcp_config: The filename, relative path, or absolute path for the config.
+
+    Returns:
+        The absolute Path to the config if found, otherwise None.
+
     """
     from .base_utilities import retrieve_package_name
 
@@ -359,6 +419,15 @@ def resolve_mcp_config_path(mcp_config: str) -> Optional[Path]:
 
 
 def initialize_workspace(overwrite: bool = False):
+    """Scaffold a fresh agent workspace with standard files and directories.
+
+    Creates IDENTITY.md, USER.md, MEMORY.md, etc., using predefined
+    templates if they do not already exist.
+
+    Args:
+        overwrite: Whether to overwrite existing files. Defaults to False.
+
+    """
     load_env_vars()
     for key, fname in CORE_FILES.items():
         path = get_workspace_path(fname)
@@ -389,6 +458,16 @@ def initialize_workspace(overwrite: bool = False):
 
 
 def load_workspace_file(filename: str, default: str = "") -> str:
+    """Read the full text content of a file from the agent's workspace.
+
+    Args:
+        filename: The filename or sub-path within the workspace.
+        default: Fallback text to return if the file is missing.
+
+    Returns:
+        The file content string, or the default value.
+
+    """
     path = get_workspace_path(filename)
     if path.exists():
         return path.read_text(encoding="utf-8").strip()
@@ -396,15 +475,34 @@ def load_workspace_file(filename: str, default: str = "") -> str:
 
 
 def load_all_core_files() -> Dict[str, str]:
+    """Read all standard agent configuration and memory files into a map.
+
+    Returns:
+        A dictionary mapping core file identifiers to their raw text content.
+
+    """
     return {k: load_workspace_file(v) for k, v in CORE_FILES.items()}
 
 
 def write_workspace_file(filename: str, content: str):
+    """Write or overwrite a file in the agent's workspace.
+
+    Args:
+        filename: The target filename.
+        content: The text content to write.
+
+    """
     path = get_workspace_path(filename)
     path.write_text(content, encoding="utf-8")
 
 
 def list_workspace_files() -> List[str]:
+    """List all files present in the current agent workspace.
+
+    Returns:
+        A list of filenames.
+
+    """
     workspace = get_agent_workspace()
     if not workspace.exists():
         return []
@@ -412,6 +510,12 @@ def list_workspace_files() -> List[str]:
 
 
 def get_agent_icon_path() -> Optional[str]:
+    """Retrieve the absolute filesystem path to the agent's icon image.
+
+    Returns:
+        The absolute path string if the icon exists, otherwise None.
+
+    """
     icon_path = get_workspace_path(CORE_FILES["ICON"])
     if icon_path.exists():
         return str(icon_path)
@@ -419,7 +523,16 @@ def get_agent_icon_path() -> Optional[str]:
 
 
 def read_md_file(filename: str) -> str:
-    """Read any md file in workspace."""
+    """Read a specific markdown file from the agent's workspace.
+
+    Args:
+        filename: The filename or sub-path (must end in .md).
+
+    Returns:
+        The text content of the file, or an error message if the file
+        is missing or not a markdown file.
+
+    """
     path = get_workspace_path(filename)
     if path.exists() and path.suffix.lower() == ".md":
         return path.read_text(encoding="utf-8")
@@ -427,7 +540,18 @@ def read_md_file(filename: str) -> str:
 
 
 def write_md_file(filename: str, content: str):
-    """Overwrite markdown file."""
+    """Write or overwrite a markdown file in the workspace.
+
+    Automatically handles parent directory creation.
+
+    Args:
+        filename: The target filename (must end in .md).
+        content: The text content to write.
+
+    Raises:
+        ValueError: If the filename does not end in '.md'.
+
+    """
     if not filename.lower().endswith(".md"):
         raise ValueError("Only .md files allowed")
     path = get_workspace_path(filename)
@@ -436,7 +560,16 @@ def write_md_file(filename: str, content: str):
 
 
 def append_to_md_file(filename: str, text: str):
-    """Append text to a markdown file."""
+    """Append a block of text to an existing markdown file in the workspace.
+
+    Args:
+        filename: The target filename (must end in .md).
+        text: The content to append.
+
+    Raises:
+        ValueError: If the filename does not end in '.md'.
+
+    """
     if not filename.lower().endswith(".md"):
         raise ValueError("Only .md files allowed")
     path = get_workspace_path(filename)
@@ -470,7 +603,19 @@ def create_new_skill(
     how_to_use: str = "",
     tags: str = "custom",
 ) -> str:
-    """Helper to scaffold a new skill."""
+    """Scaffold a new agent skill within the workspace 'skills/' directory.
+
+    Args:
+        name: Human-readable name of the skill.
+        description: A brief summary of what the skill does.
+        when_to_use: Guidance on when the LLM should use this skill.
+        how_to_use: Guidance on how to parameterize the skill calls.
+        tags: Comma-separated or single tag string.
+
+    Returns:
+        A success message with the path to the newly created skill.
+
+    """
     safe_name = re.sub(r"[^a-z0-9_-]", "", name.lower().replace(" ", "-"))
     skills_dir = get_agent_workspace() / "skills"
     skill_dir = skills_dir / safe_name
@@ -488,7 +633,15 @@ def create_new_skill(
 
 
 def delete_skill_from_disk(name: str) -> str:
-    """Delete a skill folder from workspace."""
+    """Remove a skill directory and all its contents from the workspace.
+
+    Args:
+        name: The name or slug of the skill to delete.
+
+    Returns:
+        A status message indicating success or failure.
+
+    """
     safe_name = re.sub(r"[^a-z0-9_-]", "", name.lower().replace(" ", "-"))
     skills_dir = get_agent_workspace() / "skills"
     skill_dir = skills_dir / safe_name
@@ -504,7 +657,15 @@ def delete_skill_from_disk(name: str) -> str:
 
 
 def read_skill_md(name: str) -> str:
-    """Read the SKILL.md content of a workspace skill."""
+    """Read the SKILL.md definition for a specific workspace skill.
+
+    Args:
+        name: The name or slug of the skill.
+
+    Returns:
+        The content of SKILL.md, or an error message if missing.
+
+    """
     safe_name = re.sub(r"[^a-z0-9_-]", "", name.lower().replace(" ", "-"))
     skills_dir = get_agent_workspace() / "skills"
     skill_file = skills_dir / safe_name / "SKILL.md"
@@ -515,7 +676,16 @@ def read_skill_md(name: str) -> str:
 
 
 def write_skill_md(name: str, content: str) -> str:
-    """Overwrite the SKILL.md content of a workspace skill."""
+    """Overwrite the SKILL.md definition for a specific workspace skill.
+
+    Args:
+        name: The name or slug of the skill.
+        content: The new markdown content.
+
+    Returns:
+        A success message or an error message.
+
+    """
     safe_name = re.sub(r"[^a-z0-9_-]", "", name.lower().replace(" ", "-"))
     skills_dir = get_agent_workspace() / "skills"
     skill_dir = skills_dir / safe_name
@@ -532,7 +702,15 @@ def write_skill_md(name: str, content: str) -> str:
 
 
 def parse_identity(content: str) -> IdentityModel:
-    """Parse IDENTITY.md into IdentityModel."""
+    """Parse raw IDENTITY.md content into a structured IdentityModel.
+
+    Args:
+        content: The raw markdown text content of IDENTITY.md.
+
+    Returns:
+        A populated IdentityModel with parsed name, role, vibe, and prompt.
+
+    """
     model = IdentityModel()
     name_match = re.search(r"\*\s+\*\*Name:\*\*\s*(.*)", content)
     if name_match:
@@ -554,7 +732,15 @@ def parse_identity(content: str) -> IdentityModel:
 
 
 def serialize_identity(model: IdentityModel) -> str:
-    """Serialize IdentityModel back to IDENTITY.md format."""
+    """Format an IdentityModel instance into standard IDENTITY.md markdown.
+
+    Args:
+        model: The IdentityModel to be serialized.
+
+    Returns:
+        A formatted markdown string for persistence.
+
+    """
     return f"""# IDENTITY.md - Who I Am, Core Personality, & Boundaries
 
 ## [default]
@@ -569,7 +755,15 @@ def serialize_identity(model: IdentityModel) -> str:
 
 
 def parse_user_info(content: str) -> UserModel:
-    """Parse USER.md into UserModel."""
+    """Parse raw USER.md content into a UserModel instance.
+
+    Args:
+        content: The text content of USER.md.
+
+    Returns:
+        A populated UserModel.
+
+    """
     model = UserModel()
     name_match = re.search(r"\*\s+\*\*Name:\*\*\s*(.*)", content)
     if name_match:
@@ -581,7 +775,15 @@ def parse_user_info(content: str) -> UserModel:
 
 
 def serialize_user_info(model: UserModel) -> str:
-    """Serialize UserModel back to USER.md format."""
+    """Serialize a UserModel instance into standard USER.md format.
+
+    Args:
+        model: The UserModel to serialize.
+
+    Returns:
+        A formatted markdown string.
+
+    """
     return f"""# USER.md - About the Human
 
 * **Name:** {model.name}
@@ -590,7 +792,15 @@ def serialize_user_info(model: UserModel) -> str:
 
 
 def parse_a2a_registry(content: str) -> A2ARegistryModel:
-    """Parse A2A_AGENTS.md table into A2ARegistryModel."""
+    """Parse A2A_AGENTS.md markdown table content into an A2ARegistryModel.
+
+    Args:
+        content: The raw markdown text content of A2A_AGENTS.md.
+
+    Returns:
+        A populated A2ARegistryModel with parsed peer metadata.
+
+    """
     peers = []
     lines = content.splitlines()
     in_table = False
@@ -625,7 +835,15 @@ def parse_a2a_registry(content: str) -> A2ARegistryModel:
 
 
 def serialize_a2a_registry(model: A2ARegistryModel) -> str:
-    """Serialize A2ARegistryModel back to A2A_AGENTS.md format."""
+    """Serialize an A2ARegistryModel into A2A_AGENTS.md markdown format.
+
+    Args:
+        model: The A2ARegistryModel to serialize.
+
+    Returns:
+        A formatted markdown string.
+
+    """
     lines = [
         "# A2A_AGENTS.md - Known A2A Peer Agents",
         "",
@@ -644,7 +862,15 @@ def serialize_a2a_registry(model: A2ARegistryModel) -> str:
 
 
 def parse_memory(content: str) -> MemoryModel:
-    """Parse MEMORY.md into MemoryModel."""
+    """Parse MEMORY.md list items into a structured MemoryModel.
+
+    Args:
+        content: The raw markdown text content of MEMORY.md.
+
+    Returns:
+        A populated MemoryModel containing indexed event entries.
+
+    """
     entries = []
     lines = content.splitlines()
     for line in lines:
@@ -659,7 +885,15 @@ def parse_memory(content: str) -> MemoryModel:
 
 
 def serialize_memory(model: MemoryModel) -> str:
-    """Serialize MemoryModel back to MEMORY.md format."""
+    """Serialize a MemoryModel into standard MEMORY.md markdown format.
+
+    Args:
+        model: The MemoryModel to serialize.
+
+    Returns:
+        A formatted markdown string.
+
+    """
     lines = [
         "# MEMORY.md - Long-term Memory",
         "",
@@ -673,7 +907,15 @@ def serialize_memory(model: MemoryModel) -> str:
 
 
 def parse_cron_registry(content: str) -> CronRegistryModel:
-    """Parse CRON.md table into CronRegistryModel."""
+    """Parse CRON.md markdown table into a structured CronRegistryModel.
+
+    Args:
+        content: The raw markdown text content of CRON.md.
+
+    Returns:
+        A populated CronRegistryModel containing registered periodic tasks.
+
+    """
     tasks = []
     lines = content.splitlines()
     in_table = False
@@ -699,7 +941,15 @@ def parse_cron_registry(content: str) -> CronRegistryModel:
 
 
 def serialize_cron_registry(model: CronRegistryModel) -> str:
-    """Serialize CronRegistryModel back to CRON.md format."""
+    """Serialize a CronRegistryModel into standard CRON.md markdown format.
+
+    Args:
+        model: The CronRegistryModel to serialize.
+
+    Returns:
+        A formatted markdown string.
+
+    """
     lines = [
         "# CRON.md - Persistent Scheduled Tasks",
         "",
@@ -716,7 +966,15 @@ def serialize_cron_registry(model: CronRegistryModel) -> str:
 
 
 def parse_cron_log(content: str) -> CronLogModel:
-    """Parse CRON_LOG.md into CronLogModel."""
+    """Parse CRON_LOG.md markdown history into a structured CronLogModel.
+
+    Args:
+        content: The raw markdown text content of CRON_LOG.md.
+
+    Returns:
+        A populated CronLogModel with timestamped execution entries.
+
+    """
     entries = []
     import re
 
@@ -755,7 +1013,15 @@ def parse_cron_log(content: str) -> CronLogModel:
 
 
 def serialize_cron_log(model: CronLogModel) -> str:
-    """Serialize CronLogModel back to CRON_LOG.md format."""
+    """Serialize a CronLogModel into standard CRON_LOG.md markdown format.
+
+    Args:
+        model: The CronLogModel to serialize.
+
+    Returns:
+        A formatted markdown string.
+
+    """
     lines = ["# CRON_LOG.md - Scheduled Task History", ""]
     for e in model.entries:
         chat_info = f" | [View Chat](/{e.chat_id})" if e.chat_id else ""
@@ -768,7 +1034,17 @@ def serialize_cron_log(model: CronLogModel) -> str:
 
 
 def parse_node_registry(content: str) -> MCPAgentRegistryModel:
-    """Parse NODE_AGENTS.md tables into MCPAgentRegistryModel."""
+    """Parse NODE_AGENTS.md markdown tables into an MCPAgentRegistryModel.
+
+    Extracts both specialist agent mappings and the unified tool inventory.
+
+    Args:
+        content: The raw markdown text content of NODE_AGENTS.md.
+
+    Returns:
+        A populated MCPAgentRegistryModel with agents and tools.
+
+    """
     agents = []
     tools = []
     lines = content.splitlines()
@@ -817,7 +1093,15 @@ def parse_node_registry(content: str) -> MCPAgentRegistryModel:
 
 
 def serialize_node_registry(model: MCPAgentRegistryModel) -> str:
-    """Serialize MCPAgentRegistryModel back to NODE_AGENTS.md format."""
+    """Serialize an MCPAgentRegistryModel into standard NODE_AGENTS.md format.
+
+    Args:
+        model: The MCPAgentRegistryModel to serialize.
+
+    Returns:
+        A formatted markdown string.
+
+    """
     lines = [
         "# NODE_AGENTS.md - Dynamic Agent Registry",
         "",

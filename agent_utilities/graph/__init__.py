@@ -1,5 +1,4 @@
-"""
-Graph orchestration package - Hierarchical State Machine (HSM) Implementation
+"""Graph orchestration package - Hierarchical State Machine (HSM) Implementation.
 
 This package provides a modular entrypoint for graph orchestration
 """

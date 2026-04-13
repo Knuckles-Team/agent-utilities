@@ -1,4 +1,11 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Agent Factory Module.
+
+This module provides factory functions for creating and configuring Pydantic AI
+agents. It handles CLI argument parsing, MCP server initialization, toolset
+registration, and system prompt construction.
+"""
 
 from __future__ import annotations
 
@@ -74,7 +81,14 @@ from .models import AgentDeps
 logger = logging.getLogger(__name__)
 
 
-def create_agent_parser():
+def create_agent_parser() -> argparse.ArgumentParser:
+    """Create an ArgumentParser with standard agent CLI options.
+
+    Returns:
+        A configured ArgumentParser instance containing options for host, port,
+        model provider, MCP settings, workspace paths, and observability.
+
+    """
     parser = argparse.ArgumentParser(
         add_help=False, description=f"Run the {DEFAULT_AGENT_NAME} A2A + AG-UI Server"
     )
@@ -210,8 +224,35 @@ def create_agent(
     tool_guard_mode: str = "on",
     isolate_mcp: bool = False,
 ) -> Tuple[Agent, List[Any]]:
-    """
-    Create a Pydantic AI Agent and return its initialized MCP toolsets.
+    """Initialize a Pydantic AI Agent with requested capabilities.
+
+    Args:
+        provider: LLM provider name.
+        model_id: Specific model identifier.
+        base_url: Optional override for the LLM base URL.
+        api_key: Optional API key for the provider.
+        mcp_url: Optional URL of a single MCP server.
+        mcp_config: Optional path to an MCP configuration file.
+        mcp_toolsets: Optional list of pre-initialized MCP toolsets.
+        custom_skills_directory: Optional path to additional skills.
+        ssl_verify: Whether to verify SSL certificates.
+        enable_skills: Whether to load skills from the workspace.
+        enable_universal_tools: Whether to register universal agent tools.
+        name: Name of the agent.
+        system_prompt: Optional custom system prompt.
+        debug: Whether to enable debug mode.
+        skill_types: Optional list of skill types to load ('universal', 'graphs').
+        tool_tags: Optional tags to filter tools by.
+        graph_bundle: Optional state machine bundle for the orchestrator.
+        output_type: Optional Pydantic-compatible output type schema.
+        current_host: Hostname of the current process for loopback detection.
+        current_port: Port of the current process for loopback detection.
+        tool_guard_mode: Mode for tool approval ('on', 'off', 'dry-run').
+        isolate_mcp: Whether to isolate MCP tools from the main agent.
+
+    Returns:
+        A tuple containing the initialized Agent and a list of all initialized toolsets.
+
     """
     from .workspace import resolve_mcp_config_path
 
@@ -393,6 +434,7 @@ def create_agent(
 
     @agent.instructions
     def inject_system_prompt() -> str:
+        """Instruction handler to inject the dynamically built system prompt."""
         return system_prompt_str
 
     if enable_universal_tools:

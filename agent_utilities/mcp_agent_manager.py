@@ -1,8 +1,18 @@
+#!/usr/bin/python
+# coding: utf-8
+"""MCP Agent Manager Module.
+
+This module manages the lifecycle of agents derived from MCP servers. It
+handles the extraction of tool metadata from running servers, partitioning
+tools into logical domain specialists, and synchronizing these specialists
+with the NODE_AGENTS.md registry.
+"""
+
 import asyncio
 import logging
 import json
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from .workspace import (
     get_workspace_path,
@@ -19,9 +29,18 @@ logger = logging.getLogger(__name__)
 
 
 def should_sync(config_path: Path, agents_path: Path) -> bool:
-    """
-    Checks if MCP agents synchronization is required based on existence,
-    content, and modification time of the config file vs the registry.
+    """Determine if a synchronization of MCP agents is required.
+
+    Compares the modification times of the MCP config and the agent registry
+    to decide if updates are necessary.
+
+    Args:
+        config_path: Path to the mcp_config.json file.
+        agents_path: Path to the NODE_AGENTS.md registry file.
+
+    Returns:
+        True if synchronization is needed, False otherwise.
+
     """
     if not config_path.exists():
         return False
@@ -49,12 +68,23 @@ def should_sync(config_path: Path, agents_path: Path) -> bool:
 
 
 async def _extract_single_server_metadata(
-    server,
+    server: Any,
     mcp_servers_config: Dict,
     timeout: int = 300,
     semaphore: Optional[asyncio.Semaphore] = None,
 ) -> List[MCPToolInfo]:
-    """Helper to extract metadata from a single MCP server with timeout and fallback."""
+    """Wrapper for metadata extraction with optional concurrency control.
+
+    Args:
+        server: The MCP server instance.
+        mcp_servers_config: Raw configuration dictionary for fallback hints.
+        timeout: Execution timeout in seconds.
+        semaphore: Optional semaphore to limit parallel connections.
+
+    Returns:
+        A list of extracted MCPToolInfo objects.
+
+    """
     if semaphore:
         async with semaphore:
             return await _extract_single_server_metadata_inner(
@@ -68,7 +98,22 @@ async def _extract_single_server_metadata(
 async def _extract_single_server_metadata_inner(
     server, mcp_servers_config: Dict, timeout: int = 300
 ) -> List[MCPToolInfo]:
-    """Internal helper to extract metadata from a single MCP server with timeout and fallback."""
+    """Internal logic for connecting to an MCP server and listing tools.
+
+    Uses a robust fallback mechanism:
+    1. Dynamic extraction via session.list_tools().
+    2. Environmental metadata hints from the config.
+    3. Heuristic tagging based on tool name prefixes.
+
+    Args:
+        server: The MCP server instance.
+        mcp_servers_config: Raw configuration dictionary.
+        timeout: Timeout in seconds.
+
+    Returns:
+        A list of extracted MCPToolInfo objects.
+
+    """
     server_name = getattr(server, "name", getattr(server, "_id", "unknown"))
     all_tools = []
     try:
@@ -198,7 +243,16 @@ async def _extract_single_server_metadata_inner(
 async def extract_tool_metadata(
     config_path: Path, timeout: int = 300
 ) -> List[MCPToolInfo]:
-    """Connect to MCP servers in parallel and extract tool metadata with static fallback."""
+    """Load MCP servers and extract tool metadata in parallel.
+
+    Args:
+        config_path: Path to the mcp_config.json.
+        timeout: Per-server connection timeout.
+
+    Returns:
+        A unified list of all discovered MCPToolInfo objects.
+
+    """
     if not config_path.exists():
         logger.warning(f"MCP config not found at {config_path}")
         return []
@@ -226,7 +280,15 @@ async def extract_tool_metadata(
 
 
 async def partition_tools(tools: List[MCPToolInfo]) -> Dict[str, List[MCPToolInfo]]:
-    """Group tools into logical agent partitions by tag or LLM classification."""
+    """Group tools into logical domain partitions using tags.
+
+    Args:
+        tools: List of all extracted tool information.
+
+    Returns:
+        A dictionary mapping tag names to their specific tool lists.
+
+    """
     partitions = {}
 
     # Primary partitioning by TAG (Multi-tag support)
@@ -256,7 +318,18 @@ async def partition_tools(tools: List[MCPToolInfo]) -> Dict[str, List[MCPToolInf
 async def generate_system_prompt(
     agent_name: str, tools: List[MCPToolInfo], tag: str, server_name: str
 ) -> str:
-    """Generate a specialized system prompt deterministically based on server and tag."""
+    """Generate a deterministic system prompt for a partitioned agent.
+
+    Args:
+        agent_name: Preferred name of the specialist agent.
+        tools: The tools assigned to this specialist.
+        tag: The partition tag.
+        server_name: The source MCP server name.
+
+    Returns:
+        A system prompt string describing the specialist's role.
+
+    """
     clean_server = (
         server_name.replace("-mcp", "").replace("-agent", "").replace("_", " ").title()
     )
@@ -277,7 +350,16 @@ async def generate_system_prompt(
 async def sync_mcp_agents(
     force_reprompt: bool = False, config_path: Optional[Path] = None
 ):
-    """Main synchronization engine for MCP agents and the NODE_AGENTS.md registry."""
+    """Orchestrate the full synchronization of MCP servers with the agent registry.
+
+    Performs metadata extraction, tool partitioning, and registry updates
+    in NODE_AGENTS.md.
+
+    Args:
+        force_reprompt: Whether to regenerate system prompts for existing agents.
+        config_path: Optional path override for mcp_config.json.
+
+    """
     if not config_path:
         config_path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
 

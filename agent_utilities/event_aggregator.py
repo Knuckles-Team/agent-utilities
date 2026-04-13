@@ -1,3 +1,13 @@
+#!/usr/bin/python
+# coding: utf-8
+"""Event Aggregator Module.
+
+This module provides utilities for aggregating scheduling (CRON.md) and
+health check (HEARTBEAT.md) data from multiple orchestrated agents. It handles
+the discovery of installed agent data directories and the merging of their
+diagnostic requirements into a unified workspace.
+"""
+
 import logging
 from pathlib import Path
 from typing import List, Optional
@@ -16,7 +26,15 @@ logger = logging.getLogger(__name__)
 
 
 def find_package_data_dir(package_name: str) -> Optional[Path]:
-    """Locate the agent_data or agent directory for an installed package."""
+    """Locate the data or configuration directory for an installed package.
+
+    Args:
+        package_name: The Python package name to search for.
+
+    Returns:
+        The absolute Path to the data directory if found, otherwise None.
+
+    """
     try:
         spec = importlib.util.find_spec(package_name)
         if not spec or not spec.origin:
@@ -56,7 +74,15 @@ def find_package_data_dir(package_name: str) -> Optional[Path]:
 
 
 def extract_heartbeat_checks(heartbeat_path: Path) -> List[str]:
-    """Extract list items under sections like '## Checks' or '## Heartbeat'."""
+    """Extract individual check items from a HEARTBEAT.md file.
+
+    Args:
+        heartbeat_path: Path to the HEARTBEAT.md markdown file.
+
+    Returns:
+        A list of check strings (bullet points) extracted from the file.
+
+    """
     if not heartbeat_path.exists():
         return []
 
@@ -86,8 +112,16 @@ def extract_heartbeat_checks(heartbeat_path: Path) -> List[str]:
 
 
 def aggregate_orchestrated_data(target_package: str, skip_heartbeats: bool = True):
-    """
-    Aggregate CRON.md and HEARTBEAT.md from all discovered agents into the target package's workspace.
+    """Aggregate diagnostic data from all discovered agents.
+
+    Merges CRON.md and HEARTBEAT.md files from sub-agents into the target
+    package's workspace. This ensures the master orchestrator can manage
+    the lifecycle and health of the entire ecosystem.
+
+    Args:
+        target_package: The name of the master agent package.
+        skip_heartbeats: Whether to exclude heartbeat-specific tasks from CRON.md.
+
     """
     logger.info(f"Starting runtime event aggregation for {target_package}")
 

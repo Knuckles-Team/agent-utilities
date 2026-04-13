@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Model Factory Module.
+
+This module provides a unified factory function to create and configure
+different LLM providers (OpenAI, Anthropic, Google, Groq, Mistral, Ollama)
+using pydantic-ai. It handles environment-based configuration, custom HTTP
+clients, and SSL verification settings.
+"""
 
 from __future__ import annotations
 
@@ -96,19 +104,26 @@ def create_model(
     ssl_verify: bool = True,
     timeout: float = 300.0,
 ):
-    """
-    Create a Pydantic AI model with the specified provider and configuration.
+    """Initialize a pydantic-ai Model instance.
+
+    This factory handles the complexity of mapping standardized provider
+    names to their respective pydantic-ai model classes and providers.
+    It supports automatic environment variable resolution for API keys
+    and base URLs.
 
     Args:
-        provider: The model provider (openai, anthropic, google, groq, mistral, huggingface, ollama)
-        model_id: The specific model ID to use
-        base_url: Optional base URL for the API
-        custom_headers: Optional dict of custom HTTP headers to send with every request to the LLM endpoint
-        api_key: Optional API key
-        ssl_verify: Whether to verify SSL certificates (default: True)
+        provider: The model provider (openai, anthropic, google, groq,
+                  mistral, huggingface, ollama).
+        model_id: The specific model identifier (e.g., 'gpt-4o').
+        base_url: Optional API endpoint override.
+        api_key: Optional API key.
+        custom_headers: Optional dictionary of HTTP headers for the LLM requests.
+        ssl_verify: Whether to verify SSL certificates for requests.
+        timeout: Request timeout in seconds.
 
     Returns:
-        A Pydantic AI Model instance
+        A configured pydantic_ai.models.Model instance.
+
     """
     _provider = provider or os.environ.get("PROVIDER") or "openai"
     _model_id = model_id or os.environ.get("MODEL_ID") or "google/gemma-4-31b"

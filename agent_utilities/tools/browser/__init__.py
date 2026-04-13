@@ -1,6 +1,10 @@
-"""
-Browser Tools for Agent OS.
-Re-exports the browser management and interaction tools.
+#!/usr/bin/python
+# coding: utf-8
+"""Browser Tools Package.
+
+This package provides a comprehensive suite of tools for browser automation
+and web interaction, sub-divided into manager, control, interaction,
+navigation, and screenshot capabilities.
 """
 
 from .browser_manager import get_browser_manager

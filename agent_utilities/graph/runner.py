@@ -1,5 +1,11 @@
 #!/usr/bin/python
-"""Graph execution - run_graph, run_graph_stream, validate_graph"""
+# coding: utf-8
+"""Graph Execution Module.
+
+This module provides the execution logic for the pydantic-graph orchestrator.
+It defines functions to run graphs synchronously or as asynchronous streams (SSE),
+handles state persistence, MCP server connectivity during runs, and graph validation.
+"""
 
 from __future__ import annotations
 
@@ -54,21 +60,31 @@ async def run_graph(
     mode: str = "ask",
     topology: str = "basic",
     mcp_toolsets: List[Any] = None,
+    query_parts: list[dict[str, Any]] | None = None,
 ) -> dict:
-    """Execute a query through the graph orchestrator.
+    """Execute a query through the graph orchestrator (synchronous/batch).
+
+    This function initializes the execution context, connects to the required
+    MCP servers, and executes the graph loop until completion or timeout.
 
     Args:
-        graph: The Graph object from create_graph_agent().
-        config: The config dict from create_graph_agent().
-        query: The user's query string.
-        run_id: Optional run ID for persistence. Auto-generated if None.
-        persist: Whether to persist state to disk via FileStatePersistence.
-        state_dir: Directory for state files when persist=True.
-        streamdown: Whether to prepend the mermaid diagram to the output.
-        eq: Optional event queue for SSE streaming of graph lifecycle events.
+        graph: The Graph object created by the builder.
+        config: Configuration dictionary containing dependencies and settings.
+        query: The user's input query string.
+        run_id: Optional unique identifier for this execution session.
+        persist: Whether to enable persistent state storage for this run.
+        state_dir: Directory path for state persistence files.
+        streamdown: Whether to include a mermaid diagram of the graph in the output.
+        eq: Optional asyncio.Queue for sideband graph lifecycle events.
+        mode: The orchestrator's execution mode (e.g., 'ask', 'research').
+        topology: The selected graph topology (e.g., 'basic', 'dynamic').
+        mcp_toolsets: Optional override list of MCP toolsets to use.
+        query_parts: Optional structural message parts for complex queries.
 
     Returns:
-        Dict with run_id, domain, results, and any error.
+        A GraphResponse instance containing the final synthesized output
+        and execution metadata.
+
     """
     if run_id is None:
         run_id = uuid4().hex
@@ -80,7 +96,9 @@ async def run_graph(
         except Exception:
             pass
 
-    state = GraphState(query=query, mode=mode, topology=topology)
+    state = GraphState(
+        query=query, query_parts=query_parts or [], mode=mode, topology=topology
+    )
 
     _custom_headers = config.get("custom_headers")
     _ssl_verify = config.get("ssl_verify", DEFAULT_SSL_VERIFY)
@@ -127,7 +145,13 @@ async def run_graph(
         discovery_metadata=config.get("discovery_metadata", {}),
     )
 
-    state = GraphState(query=query, session_id=run_id, mode=mode, topology=topology)
+    state = GraphState(
+        query=query,
+        query_parts=query_parts or [],
+        session_id=run_id,
+        mode=mode,
+        topology=topology,
+    )
 
     if persist:
         path = Path(state_dir)
@@ -211,20 +235,31 @@ async def run_graph(
                 with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
                     result = await graph.run(state=state, deps=deps)
                 if scope.cancel_called:
-                    logger.error(f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms")
-                span.set_status(trace.Status(trace.StatusCode.OK if result else trace.StatusCode.ERROR))
+                    logger.error(
+                        f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms"
+                    )
+                span.set_status(
+                    trace.Status(
+                        trace.StatusCode.OK if result else trace.StatusCode.ERROR
+                    )
+                )
         else:
             logger.info("run_graph: Running beta graph.run (no tracer)...")
             with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
                 result = await graph.run(state=state, deps=deps)
             if scope.cancel_called:
-                logger.error(f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms")
-            
+                logger.error(
+                    f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms"
+                )
+
             logger.info(
                 f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"
             )
             emit_graph_event(
-                deps.event_queue, "graph-complete", run_id=run_id, status="success" if result else "timeout"
+                deps.event_queue,
+                "graph-complete",
+                run_id=run_id,
+                status="success" if result else "timeout",
             )
             logger.info(
                 f"run_graph: Final state: routed_domain={state.routed_domain}, "
@@ -282,10 +317,29 @@ async def run_graph_stream(
     mode: str = "ask",
     topology: str = "basic",
     mcp_toolsets: List[Any] = None,
+    query_parts: list[dict[str, Any]] | None = None,
 ):
-    """
-    Generator that yields graph events and text output concurrently.
-    Used for SSE streaming via /api/chat.
+    r"""Generator that yields graph events and text output as a stream of SSE events.
+
+    This function handles the concurrent execution of the graph while
+    streaming real-time updates (thoughts, tool calls, status) to the
+    Agent UI via an asynchronous event queue.
+
+    Args:
+        graph: The Graph object created by the builder.
+        config: Execution configuration dictionary.
+        query: User input query string.
+        run_id: Optional identifier for the session; auto-generated if omitted.
+        persist: Whether to persist state metadata.
+        state_dir: Path to the persistence directory.
+        mode: The orchestrator's execution mode.
+        topology: The graph topology to use.
+        mcp_toolsets: Toolsets to inject during execution.
+        query_parts: Structured message parts for the initial prompt.
+
+    Yields:
+        SSE-formatted strings ('data: {JSON}\n\n') containing lifecycle events.
+
     """
     import asyncio
     from uuid import uuid4
@@ -349,7 +403,9 @@ async def run_graph_stream(
         discovery_metadata=config.get("discovery_metadata", {}),
     )
 
-    state = GraphState(query=query, mode=mode, topology=topology)
+    state = GraphState(
+        query=query, query_parts=query_parts or [], mode=mode, topology=topology
+    )
 
     if persist:
         path = Path(state_dir)
@@ -448,14 +504,22 @@ async def run_graph_stream(
     yield f"data: {json.dumps({'type': 'final_output', 'content': final_output})}\n\n"
 
 
-def validate_graph(graph, config: dict) -> dict:
-    """Validate graph topology and report on registered nodes and MCP agents.
+def validate_graph(graph: Any, config: dict) -> dict:
+    """Validate the graph topology and report on system readiness.
+
+    Performs a structural and configuration audit to ensure all specialist
+    domains, MCP servers, and A2A agents are correctly registered and
+    reachable within the orchestration environment.
+
     Args:
-        graph: The Graph object from the create_graph_agent().
-        config: The config dict from thec reate_graph_agent().
+        graph: The Graph object to validate.
+        config: Execution configuration dictionary containing registry info.
+
     Returns:
-        Dict with validation results including node counts, MCP agent counts,
-        domain tags, and any warnings.
+        A dictionary containing validation metrics: domain count, MCP agent
+        availability, discovered A2A agents, edge counts, and a list of
+        any critical warnings or errors.
+
     """
     warnings = []
     info = {}

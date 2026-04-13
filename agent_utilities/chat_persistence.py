@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Chat Persistence Module.
+
+This module handles the serialization and retrieval of chat histories from
+the workspace. It provides utilities for saving messages to disk, pruning
+large tool outputs to manage context window usage, and listing/deleting
+stored conversations.
+"""
 
 from __future__ import annotations
 
@@ -99,8 +107,7 @@ def delete_chat_from_disk(chat_id: str) -> bool:
 
 
 def prune_large_messages(messages: list[Any], max_length: int = 5000) -> list[Any]:
-    """
-    Summarize large tool outputs in the message history to save context window.
+    """Summarize large tool outputs in the message history to save context window.
     Keeps the most recent tool outputs intact if they are the very last message,
     but generally we want to prune history.
     """

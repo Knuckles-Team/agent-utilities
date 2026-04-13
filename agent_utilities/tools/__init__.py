@@ -1,6 +1,10 @@
-"""
-Modular Tool Architecture for Agent OS.
-This module re-exports all specialized tools for easier registration.
+#!/usr/bin/python
+# coding: utf-8
+"""Modular Tool Architecture for Agent OS.
+
+This package provides a unified interface for all specialized tools used by
+the agent ecosystem, categorized into workspace management, memory,
+scheduling, A2A communication, developer utilities, and browser automation.
 """
 
 from ..tool_registry import register_agent_tools

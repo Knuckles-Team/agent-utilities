@@ -1,3 +1,11 @@
+#!/usr/bin/python
+# coding: utf-8
+"""Browser Control Tools Module.
+
+This module provides tools for lifecycle management of the browser
+instance, including initialization, status monitoring, and resource cleanup.
+"""
+
 from typing import Any, Dict, Optional
 from .browser_manager import get_browser_manager
 
@@ -12,7 +20,18 @@ async def initialize_browser(
     browser_type: str = "chromium",
     homepage: str = "https://www.google.com",
 ) -> Dict[str, Any]:
-    """Initialize the browser with specified settings."""
+    """Initialize the global browser instance with custom configuration.
+
+    Args:
+        ctx: The agent run context.
+        headless: Whether to run in headless mode (no visible UI).
+        browser_type: The engine to use ('chromium', 'firefox', or 'webkit').
+        homepage: The initial URL to navigate to upon startup.
+
+    Returns:
+        A dictionary containing the initialization status and browser metadata.
+
+    """
     manager = get_browser_manager()
     manager.headless = headless
     manager.browser_type = browser_type
@@ -29,14 +48,30 @@ async def initialize_browser(
 
 
 async def close_browser(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
-    """Close the browser and clean up resources."""
+    """Close the active browser instance and release all associated resources.
+
+    Args:
+        ctx: The agent run context.
+
+    Returns:
+        A dictionary indicating the success of the operation.
+
+    """
     manager = get_browser_manager()
     await manager.close()
     return {"success": True, "message": "Browser closed"}
 
 
 async def browser_status(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
-    """Get current browser status and information."""
+    """Retrieve the current initialization state and active URL of the browser.
+
+    Args:
+        ctx: The agent run context.
+
+    Returns:
+        A dictionary containing status flags and the current URL.
+
+    """
     manager = get_browser_manager()
     page = await manager.get_current_page()
     return {
@@ -49,7 +84,16 @@ async def browser_status(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
 async def browser_new_page(
     ctx: RunContext[AgentDeps], url: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Create a new browser page/tab."""
+    """Open a new tab or page in the active browser instance.
+
+    Args:
+        ctx: The agent run context.
+        url: Optional URL to navigate to immediately after opening.
+
+    Returns:
+        A dictionary containing the URL and page title of the new tab.
+
+    """
     manager = get_browser_manager()
     page = await manager.new_page(url)
     return {"success": True, "url": page.url, "title": await page.title()}

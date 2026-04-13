@@ -1,4 +1,11 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Graph Configuration Helpers Module.
+
+This module provides utility functions for loading and saving graph-related
+configurations, managing dynamic agent registries, emitting sideband events
+for the WebUI, and resolving specialized prompts from the package resources.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +26,16 @@ DEFAULT_GRAPH_TIMEOUT = to_integer(os.environ.get("GRAPH_TIMEOUT", "1200000"))
 
 
 def load_mcp_config() -> MCPConfigModel:
-    """Load MCP config from workspace."""
+    """Retrieve the global MCP server configuration from the workspace.
+
+    Loads the mcp_config.json file which contains the definitions of
+    external MCP servers (e.g., Docker, GitHub) and their connection
+    parameters.
+
+    Returns:
+        An MCPConfigModel object containing server definitions and settings.
+
+    """
     path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
     if path.exists():
         try:
@@ -31,7 +47,16 @@ def load_mcp_config() -> MCPConfigModel:
 
 
 def load_node_agents_registry() -> MCPAgentRegistryModel:
-    """Load the dynamic agents registry from NODE_AGENTS.md."""
+    """Parse and load the specialized expert registry from NODE_AGENTS.md.
+
+    This registry maps specialist tags (e.g., 'python_programmer') to
+    their corresponding MCP servers or local agent packages, enabling
+    dynamic tool discovery for the graph orchestrator.
+
+    Returns:
+        A model containing the list of registered MCP specialists.
+
+    """
     from ..workspace import parse_node_registry
 
     content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
@@ -45,16 +70,28 @@ def load_node_agents_registry() -> MCPAgentRegistryModel:
 
 
 def save_mcp_config(config: MCPConfigModel):
-    """Save MCP config to workspace."""
+    """Persist the MCP configuration model back to the workspace file.
+
+    Args:
+        config: The MCPConfigModel to be saved.
+
+    """
     path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
     path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
 
 
 def emit_graph_event(eq: Optional[asyncio.Queue], event_type: str, **kwargs):
-    """Emit a standardized graph event to the sideband queue.
+    """Emit a standardized graph event for real-time UI visualization.
 
-    Events are formatted as AI SDK v5 data parts (type "data-graph-event")
-    so the @ai-sdk/react useChat hook adds them to message.parts automatically.
+    Formats the event data as a sideband part compatible with the
+    Agentic UI streaming protocol, allowing the frontend to visualize
+    graph progression and tool activity.
+
+    Args:
+        eq: The asynchronous event queue to publish to.
+        event_type: A string identifier for the event category.
+        **kwargs: Additional metadata to include in the event payload.
+
     """
     if not eq:
         return
@@ -75,9 +112,17 @@ def emit_graph_event(eq: Optional[asyncio.Queue], event_type: str, **kwargs):
 
 
 def load_specialized_prompts(name: str) -> str:
-    """
-    Loads a de-branded specialized prompt from the package's prompts directory.
-    Uses importlib.resources for robust access when installed as a package.
+    """Load a specialized role-based prompt from the package resources.
+
+    Attempts to locate the markdown prompt file within the internal
+    prompts/ directory, with a fallback to local filesystem for development.
+
+    Args:
+        name: The basename of the prompt file (e.g., 'researcher').
+
+    Returns:
+        The content of the prompt file as a string.
+
     """
     import importlib.resources as pkg_resources
     from .. import prompts
@@ -294,5 +339,10 @@ NODE_SKILL_MAP = {
     "debugger_expert": [
         "developer-utilities",
         "agent-builder",
+    ],
+    "critique": [
+        "qa-planning",
+        "tdd-methodology",
+        "self-improver",
     ],
 }

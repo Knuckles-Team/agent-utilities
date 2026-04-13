@@ -1,10 +1,9 @@
 #!/usr/bin/python
 # coding: utf-8
-"""
-Base Utilities Module
+"""Base Utilities Module.
 
-This module provides a collection of low-level helper functions and classes used across 
-the agent-utilities package for type conversion, environment variable expansion, 
+This module provides a collection of low-level helper functions and classes used across
+the agent-utilities package for type conversion, environment variable expansion,
 package management, and dynamic object patching.
 """
 
@@ -89,6 +88,7 @@ def to_float(string=None) -> float:
 
     Returns:
         The converted float value, or 0.0 if conversion fails or input is empty.
+
     """
     if isinstance(string, float):
         return string
@@ -108,6 +108,7 @@ def to_boolean(string=None) -> bool:
 
     Returns:
         True if the value is one of {"t", "true", "y", "yes", "1"}, False otherwise.
+
     """
     if isinstance(string, bool):
         return string
@@ -125,6 +126,7 @@ def to_integer(string=None) -> int:
 
     Returns:
         The converted integer value, or 0 if conversion fails or input is empty.
+
     """
     if isinstance(string, int):
         return string
@@ -143,8 +145,9 @@ def to_list(string: Union[str, list] = None) -> list:
         string: The value to convert (JSON string or list). Defaults to None.
 
     Returns:
-        A list of values. If the input is a JSON string, it's parsed; 
+        A list of values. If the input is a JSON string, it's parsed;
         otherwise, it's split by commas. Returns an empty list if input is empty.
+
     """
     if isinstance(string, list):
         return string
@@ -167,6 +170,7 @@ def to_dict(string: Union[str, dict] = None) -> dict:
 
     Raises:
         ValueError: If the input cannot be converted to a dictionary.
+
     """
     if isinstance(string, dict):
         return string
@@ -186,6 +190,7 @@ def expand_env_vars(text: str) -> str:
 
     Returns:
         The string with variables expanded.
+
     """
     if not text:
         return text
@@ -235,6 +240,7 @@ def is_loopback_url(
 
     Returns:
         True if the URL is a loopback to this process, False otherwise.
+
     """
     if not url:
         return False
@@ -261,8 +267,9 @@ def GET_DEFAULT_SSL_VERIFY() -> bool:
     """Read SSL verification setting from the environment.
 
     Returns:
-        The value of the 'SSL_VERIFY' environment variable as a boolean. 
+        The value of the 'SSL_VERIFY' environment variable as a boolean.
         Defaults to True if not set.
+
     """
     return to_boolean(os.getenv("SSL_VERIFY", "true"))
 
@@ -276,6 +283,7 @@ def ensure_package_installed(package_name: str, auto_install: bool = False) -> b
 
     Returns:
         True if installed (or successfully installed), False otherwise.
+
     """
     import importlib.util
     import logging
@@ -310,11 +318,12 @@ def ensure_package_installed(package_name: str, auto_install: bool = False) -> b
 def load_env_vars(override: bool = False) -> None:
     """Load environment variables from a .env file located in the caller's directory.
 
-    This function searches for a .env file by traversing up to 5 levels of parent 
+    This function searches for a .env file by traversing up to 5 levels of parent
     directories from the calling module's location.
 
     Args:
         override: Whether to override existing environment variables. Defaults to False.
+
     """
     try:
         package_name = retrieve_package_name()
@@ -360,6 +369,7 @@ def save_model(model: Any, file_name: str = "model", file_path: str = ".") -> st
 
     Returns:
         The absolute or relative path to the saved pickle file.
+
     """
     pickle_file = os.path.join(file_path, f"{file_name}.pkl")
     with open(pickle_file, "wb") as file:
@@ -375,6 +385,7 @@ def load_model(file: str) -> Any:
 
     Returns:
         The deserialized model object.
+
     """
     with open(file, "rb") as model_file:
         model = pickle.load(model_file)
@@ -384,12 +395,13 @@ def load_model(file: str) -> Any:
 def retrieve_package_name() -> str:
     """Returns the top-level package name of the module that imported this utility.
 
-    This function inspects the call stack to find the first external frame 
-    that belongs to a valid Python package (identified by pyproject.toml, 
+    This function inspects the call stack to find the first external frame
+    that belongs to a valid Python package (identified by pyproject.toml,
     setup.py, or __init__.py).
 
     Returns:
         The name of the top-level package as a string. Defaults to 'agent_utilities'.
+
     """
     first_external_frame_package = None
 
@@ -474,6 +486,7 @@ def get_library_file_path(file: str) -> str:
 
     Returns:
         The absolute string path to the file on the filesystem.
+
     """
     library_file = files(retrieve_package_name()).joinpath(file)
     with as_file(library_file) as path:
@@ -489,6 +502,7 @@ def get_logger(name: str):
 
     Returns:
         A configured logging.Logger instance with INFO level and a StreamHandler.
+
     """
     logger = getLogger(name)
     logger.setLevel(logging.INFO)
@@ -513,7 +527,9 @@ class ModuleInfo:
         max_version: Maximum allowed version. Defaults to None.
         min_inclusive: Whether min_version is inclusive (>=). Defaults to False (>).
         max_inclusive: Whether max_version is inclusive (<=). Defaults to False (<).
+
     """
+
     name: str
     min_version: str | None = None
     max_version: str | None = None
@@ -524,8 +540,9 @@ class ModuleInfo:
         """Check if the module is installed and satisfies version constraints.
 
         Returns:
-            None if the module is correctly installed; otherwise, a string 
+            None if the module is correctly installed; otherwise, a string
             describing why it's missing or invalid.
+
         """
         import importlib.util
         from importlib.metadata import version as get_version, PackageNotFoundError
@@ -596,6 +613,7 @@ class ModuleInfo:
 
         Raises:
             ValueError: If the input string format is invalid.
+
         """
         pattern = re.compile(r"^(?P<name>[a-zA-Z0-9-_]+)(?P<constraint>.*)$")
         match = pattern.match(module_info.strip())
@@ -635,6 +653,7 @@ class ModuleInfo:
 
 class Result:
     """Simple container for tracking the success or failure of an operation."""
+
     def __init__(self) -> None:
         self._failed: bool | None = None
 
@@ -647,6 +666,7 @@ class Result:
 
         Raises:
             ValueError: If the result has not yet been set.
+
         """
         if self._failed is None:
             raise ValueError("Result not set")
@@ -657,11 +677,12 @@ class Result:
 def optional_import_block() -> Generator[Result, None, None]:
     """Context manager to wrap optional imports.
 
-    Allows a block of code to be attempted; if an ImportError occurs, 
+    Allows a block of code to be attempted; if an ImportError occurs,
     the Result object will mark the operation as failed rather than crashing.
 
     Yields:
         A Result object that tracks whether the import succeeded.
+
     """
     result = Result()
     try:
@@ -676,12 +697,13 @@ def get_missing_imports(modules: str | Iterable[str]) -> dict[str, str]:
     """Identify which required modules are missing or have version mismatches.
 
     Args:
-        modules: A single module string or an iterable of module strings 
+        modules: A single module string or an iterable of module strings
             with optional version constraints (e.g., 'requests>=2.0').
 
     Returns:
-        A dictionary mapping package names to their error messages. 
+        A dictionary mapping package names to their error messages.
         Empty if all modules are present and valid.
+
     """
     if isinstance(modules, str):
         modules = [modules]
@@ -693,14 +715,16 @@ def get_missing_imports(modules: str | Iterable[str]) -> dict[str, str]:
 class PatchObject(ABC, Generic[T]):
     """Abstract base class for patching objects to handle missing dependencies.
 
-    This class provides a mechanism to wrap an object and replace its members 
+    This class provides a mechanism to wrap an object and replace its members
     with "patched" versions that raise ImportError if required modules are missing.
 
     Attributes:
         o: The original object being patched.
         missing_modules: A dictionary of missing modules and their status messages.
         dep_target: The target dependency identifier for the patch.
+
     """
+
     def __init__(self, o: T, missing_modules: dict[str, str], dep_target: str):
         if not self.accept(o):
             raise ValueError(f"Cannot patch object of type {type(o)}")
@@ -718,6 +742,7 @@ class PatchObject(ABC, Generic[T]):
 
         Returns:
             True if the object is acceptable for patching, False otherwise.
+
         """
         ...
 
@@ -730,6 +755,7 @@ class PatchObject(ABC, Generic[T]):
 
         Returns:
             The patched object.
+
         """
         ...
 
@@ -737,7 +763,8 @@ class PatchObject(ABC, Generic[T]):
         """Retrieve the original object associated with this patcher.
 
         Returns:
-            The original object.
+            The original unpatched object.
+
         """
         return self.o
 
@@ -747,6 +774,7 @@ class PatchObject(ABC, Generic[T]):
 
         Returns:
             A formatted string describing the missing dependencies and installation advice.
+
         """
         o = self.get_object_with_metadata()
         plural = len(self.missing_modules) > 1
@@ -762,6 +790,7 @@ class PatchObject(ABC, Generic[T]):
 
         Args:
             retval: The replacement object to receive the metadata.
+
         """
         o = self.o
         if hasattr(o, "__doc__"):
@@ -779,7 +808,9 @@ class PatchObject(ABC, Generic[T]):
 
         Returns:
             A decorator function that adds the subclass to the _registry list.
+
         """
+
         def decorator(subclass: type["PatchObject[Any]"]) -> type["PatchObject[Any]"]:
             cls._registry.append(subclass)
             return subclass
@@ -799,6 +830,7 @@ class PatchObject(ABC, Generic[T]):
 
         Returns:
             A PatchObject instance if a suitable subclass is found, otherwise None.
+
         """
         for subclass in cls._registry:
             if subclass.accept(o):
@@ -808,8 +840,11 @@ class PatchObject(ABC, Generic[T]):
 
 @PatchObject.register()
 class PatchCallable(PatchObject[F]):
+    """Patcher for callable objects (functions and methods)."""
+
     @classmethod
     def accept(cls, o: Any) -> bool:
+        """Check if the object is a function or method."""
         return inspect.isfunction(o) or inspect.ismethod(o)
 
     def patch(self, except_for: Iterable[str]) -> F:
@@ -827,8 +862,11 @@ class PatchCallable(PatchObject[F]):
 
 @PatchObject.register()
 class PatchClass(PatchObject[type[Any]]):
+    """Patcher for class objects."""
+
     @classmethod
     def accept(cls, o: Any) -> bool:
+        """Check if the object is a class."""
         return inspect.isclass(o)
 
     def patch(self, except_for: Iterable[str]) -> type[Any]:
@@ -857,6 +895,19 @@ def patch_object(
     fail_if_not_patchable: bool = True,
     except_for: str | Iterable[str] | None = None,
 ) -> T:
+    """Apply a patch to an object to handle missing dependencies.
+
+    Args:
+        o: The object to patch.
+        missing_modules: Dictionary of missing modules and their status messages.
+        dep_target: The target dependency identifier for the patch.
+        fail_if_not_patchable: Whether to raise an error if no patcher fits. Defaults to True.
+        except_for: Member names to exclude from patching.
+
+    Returns:
+        The patched object (or the original if no patcher was applied).
+
+    """
     patcher = PatchObject.create(
         o, missing_modules=missing_modules, dep_target=dep_target
     )
@@ -870,11 +921,32 @@ def require_optional_import(
     modules: str | Iterable[str],
     dep_target: str,
     *,
-    except_for: str | Iterable[str] | None = None,
-) -> Callable[[T], T]:
+    except_for: Optional[Union[str, Iterable[str]]] = None,
+) -> Callable[[F], F]:
+    """Decorator to mark an object as requiring optional dependencies.
+
+    If the specified modules are missing, the decorated object is wrapped
+    with a PatchObject that raises ImportError when accessed or called.
+
+    Args:
+        modules: A single module string or list of module requirements.
+        dep_target: Identifier for the dependency group (e.g. 'openai').
+        except_for: List of member names that should remain accessible.
+
+    Returns:
+        A decorator that applies the dependency patch if necessary.
+
+    """
     missing_modules = get_missing_imports(modules)
-    if not missing_modules:
-        return lambda o: o
-    return lambda o: patch_object(
-        o, missing_modules=missing_modules, dep_target=dep_target, except_for=except_for
-    )
+
+    def decorator(o: F) -> F:
+        if not missing_modules:
+            return o
+        return patch_object(
+            o,
+            missing_modules=missing_modules,
+            dep_target=dep_target,
+            except_for=except_for,
+        )
+
+    return decorator

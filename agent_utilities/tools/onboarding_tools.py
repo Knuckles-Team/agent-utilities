@@ -1,3 +1,12 @@
+#!/usr/bin/python
+# coding: utf-8
+"""Onboarding Tools Module.
+
+This module provides utilities for bootstrapping new agentic workspaces,
+detecting project technology stacks, and initializing core metadata files
+like IDENTITY.md and MEMORY.md.
+"""
+
 import json
 import logging
 from pathlib import Path
@@ -24,7 +33,15 @@ logger = logging.getLogger(__name__)
 
 
 def detect_tech_stack(root: Path) -> Dict[str, Any]:
-    """Identify languages and frameworks in the repository."""
+    """Identify languages, frameworks, and build tools in the repository.
+
+    Args:
+        root: The Path to the project root directory.
+
+    Returns:
+        A dictionary containing lists of detected languages, frameworks, and tools.
+
+    """
     stack = {"languages": [], "frameworks": [], "tools": []}
 
     # Check for specific markers
@@ -59,7 +76,15 @@ def detect_tech_stack(root: Path) -> Dict[str, Any]:
 
 
 def scan_for_entry_points(root: Path) -> List[str]:
-    """Find potential main interaction points."""
+    """Identify potential main interaction points and entry scripts.
+
+    Args:
+        root: The Path to the project root directory.
+
+    Returns:
+        A list of relative paths to detected entry point files.
+
+    """
     entry_patterns = [
         "main.py",
         "app.py",
@@ -91,9 +116,17 @@ def scan_for_entry_points(root: Path) -> List[str]:
 
 
 async def bootstrap_project(ctx: RunContext[AgentDeps]) -> str:
-    """
-    Scans the workspace to identify tech stack and entry points,
-    then populates core metadata files (IDENTITY.md, USER.md, A2A_AGENTS.md, NODE_AGENTS.md, MEMORY.md).
+    """Initialize core metadata files by scanning the workspace.
+
+    This tool identifies the project's technical stack and creates missing
+    files such as IDENTITY.md, USER.md, and MEMORY.md with initial context.
+
+    Args:
+        ctx: The agent run context.
+
+    Returns:
+        A summary message describing the bootstrapped files and detected stack.
+
     """
     root = ctx.deps.workspace_path
     logger.info(f"Bootstrapping project at {root}...")
