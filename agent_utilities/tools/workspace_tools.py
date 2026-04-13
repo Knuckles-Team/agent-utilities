@@ -1,3 +1,12 @@
+#!/usr/bin/python
+# coding: utf-8
+"""Workspace Management Tools Module.
+
+This module provides tools for interacting with the agentic workspace,
+including reading/writing core metadata files, managing dynamic skills,
+and auditing the filesystem.
+"""
+
 import os
 import json
 import logging
@@ -42,9 +51,19 @@ async def read_workspace_file(ctx: RunContext[Any], filename: str) -> Union[
     MCPConfigModel,
     str,
 ]:
-    """Read content of any .md or .json file in workspace.
-    Returns a structured object for core files (IDENTITY.md, CRON.md, etc.)
-    or a string for other files.
+    """Read and parse the content of a file within the workspace.
+
+    Core configuration files (e.g., IDENTITY.md, CRON.md) are automatically
+    parsed into their respective structured models. Other files are returned
+    as raw strings.
+
+    Args:
+        ctx: The agent run context.
+        filename: The relative path or identifier of the file to read.
+
+    Returns:
+        A structured model for core files, or the raw string content for others.
+
     """
     content = read_md_file(filename)
     if "File not found" in content:
@@ -80,7 +99,17 @@ async def read_workspace_file(ctx: RunContext[Any], filename: str) -> Union[
 
 
 async def append_note_to_file(ctx: RunContext[Any], filename: str, text: str) -> str:
-    """Append a short note or section to a workspace .md file."""
+    """Append a markdown entry or note to an existing workspace file.
+
+    Args:
+        ctx: The agent run context.
+        filename: The target markdown file.
+        text: The content to append.
+
+    Returns:
+        A confirmation message indicating success.
+
+    """
     append_to_md_file(filename, text)
     return f"Appended to {filename}"
 
@@ -92,25 +121,65 @@ async def create_skill(
     when_to_use: str = "",
     how_to_use: str = "",
 ) -> str:
-    """Create a brand-new skill folder + SKILL.md that will be auto-loaded on next run."""
+    """Initialize a new dynamic skill with its corresponding SKILL.md definition.
+
+    New skills are automatically loaded into the agent's toolset in
+    subsequent sessions.
+
+    Args:
+        ctx: The agent run context.
+        name: The unique slug for the new skill.
+        description: A brief summary of the skill's purpose.
+        when_to_use: Guidance on appropriate trigger conditions.
+        how_to_use: Implementation details and examples.
+
+    Returns:
+        A confirmation message indicating success.
+
+    """
     return create_new_skill(name, description, when_to_use, how_to_use)
 
 
 async def delete_skill(ctx: RunContext[Any], name: str) -> str:
-    """Delete a skill folder from the workspace. Only works for workspace skills."""
+    """Permanently remove a dynamic skill folder from the local workspace.
+
+    Args:
+        ctx: The agent run context.
+        name: The slug of the skill to delete.
+
+    Returns:
+        A confirmation message indicating success.
+
+    """
     return delete_skill_from_disk(name)
 
 
 async def edit_skill(ctx: RunContext[Any], name: str, new_content: str) -> str:
-    """
-    Overwrite the SKILL.md of an existing workspace skill.
-    Use this to refine a skill's logic, description, or examples.
+    """Update the logic or documentation of an existing workspace skill.
+
+    Args:
+        ctx: The agent run context.
+        name: The slug of the skill to update.
+        new_content: The full replacement text for the SKILL.md file.
+
+    Returns:
+        A confirmation message indicating success.
+
     """
     return write_skill_md(name, new_content)
 
 
 async def get_skill_content(ctx: RunContext[Any], name: str) -> str:
-    """Read the current SKILL.md of a workspace skill to prepare for editing."""
+    """Retrieve the raw markdown definition of a workspace skill.
+
+    Args:
+        ctx: The agent run context.
+        name: The slug of the skill to read.
+
+    Returns:
+        The content of the SKILL.md file.
+
+    """
     return read_skill_md(name)
 
 
@@ -118,7 +187,17 @@ async def get_skill_content(ctx: RunContext[Any], name: str) -> str:
 async def list_files(
     ctx: RunContext[Any], path: str = ".", recursive: bool = False
 ) -> str:
-    """List files in the workspace directory."""
+    """Audit and list files within the workspace or a sub-directory.
+
+    Args:
+        ctx: The agent run context.
+        path: The target directory to scan.
+        recursive: Whether to perform a deep scan of sub-directories.
+
+    Returns:
+        A newline-separated list of relative file paths.
+
+    """
     try:
         files = []
         for root, dirs, filenames in os.walk(path):

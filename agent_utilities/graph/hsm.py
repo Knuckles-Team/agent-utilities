@@ -1,6 +1,11 @@
 #!/usr/bin/python
-"""
-HSM/BT infrastructure - entry/exit hooks. invariants, preconditions, regions.
+# coding: utf-8
+"""HSM/BT Infrastructure Module.
+
+This module implements Hierarchical State Machine (HSM) and Behavior Tree (BT)
+patterns for the agent graph. It provides entry/exit hooks for specialists,
+state invariant assertions, orthogonal regions for concurrent sub-tasking,
+and static routing junctions.
 """
 
 from __future__ import annotations
@@ -23,17 +28,29 @@ _on_exit_hooks: list = []
 
 
 def register_on_enter_hook(hook: Callable) -> None:
-    """
-    Register a plugin callback that fires on every specialist entry.
-    Hook signature: async def hook(deps, state, agent_name, server_name) -> None
+    """Register a plugin callback that fires on every specialist node entry.
+
+    Hook signature:
+        async def hook(deps: GraphDeps, state: GraphState, agent_name: str,
+                        server_name: str) -> None
+
+    Args:
+        hook: The asynchronous callback function to register.
+
     """
     _on_enter_hooks.append(hook)
 
 
 def register_on_exit_hook(hook: Callable) -> None:
-    """
-    Register a plugin callback that fires on every specialist exit.
-    Hook signature: async def hook(deps, state, agent_name, success, server_name, duration) -> None
+    """Register a plugin callback that fires on every specialist node exit.
+
+    Hook signature:
+        async def hook(deps: GraphDeps, state: GraphState, agent_name: str,
+                        success: bool, server_name: str, duration: float) -> None
+
+    Args:
+        hook: The asynchronous callback function to register.
+
     """
     _on_exit_hooks.append(hook)
 
@@ -112,7 +129,7 @@ async def run_orthogonal_regions(
     event_queue: Optional[asyncio.Queue] = None,
     agent_name: str = "",
 ) -> dict[str, str]:
-    """Execute multiple independent sub-tasks concurrently within a single specialist
+    """Execute multiple independent sub-tasks concurrently within a single specialist.
 
     This implements HSM orthogonal regions: multiple independent sub-state-machines
     running in parllel within one superstate. Each region runs the same agent with
@@ -128,8 +145,8 @@ async def run_orthogonal_regions(
 
     Returns:
         Dict mapping query->result for each region.
-    """
 
+    """
     if len(queries) <= 1:
         # Single query - no need for orthogonal regions
         res = await asyncio.wait_for(agent.run(queries[0], deps=deps), timeout=timeout)
@@ -196,16 +213,15 @@ async def run_orthogonal_regions(
 
 
 class StateInvariantError(Exception):
-    """Raised when a graph state invariant is violated at a transition boundary"""
+    """Raised when a graph state invariant is violated at a transition boundary."""
 
     pass
 
 
 def assert_state_valid(state: Any, transition: str) -> None:
     """HSM state invariant assertions - validate at every transition boundary.
-    Catches corruption early: empty queries, cursor overflows, infinite loops
+    Catches corruption early: empty queries, cursor overflows, infinite loops.
     """
-
     if not state.query:
         raise StateInvariantError(f"Empty query at {transition}")
     if state.step_cursor < 0:
@@ -253,8 +269,8 @@ def check_specialist_preconditions(
 
     Returns:
         (can_proceed, reason) - True if preconditions met, False with explanation if not
-    """
 
+    """
     server_name = getattr(agent_info, "mcp_server", "")
 
     # Check circuit breaker

@@ -1,11 +1,10 @@
 #!/usr/bin/python
 # coding: utf-8
-"""
-Memory Management Module
+"""Memory Management Module.
 
-This module provides high-level utilities for managing an agent's long-term memory 
-stored in the workspace (typically MEMORY.md). It supports creating new memories, 
-searching existing ones, deleting entries, and compressing memory to prevent 
+This module provides high-level utilities for managing an agent's long-term memory
+stored in the workspace (typically MEMORY.md). It supports creating new memories,
+searching existing ones, deleting entries, and compressing memory to prevent
 context window overflow.
 """
 
@@ -44,6 +43,7 @@ def create_memory(text: str) -> str:
 
     Returns:
         A confirmation message indicating the memory was saved.
+
     """
     model = parse_memory(load_workspace_file(CORE_FILES["MEMORY"]))
     model.entries.append(
@@ -62,6 +62,7 @@ def search_memory(query: str) -> MemoryModel:
 
     Returns:
         A MemoryModel containing only the entries that match the query (case-insensitive).
+
     """
     model = parse_memory(load_workspace_file(CORE_FILES["MEMORY"]))
     filtered_entries = [e for e in model.entries if query.lower() in e.text.lower()]
@@ -76,6 +77,7 @@ def delete_memory_entry(index: int) -> str:
 
     Returns:
         A success message with the deleted content, or an error message if the index is invalid.
+
     """
     model = parse_memory(load_workspace_file(CORE_FILES["MEMORY"]))
     if index < 1 or index > len(model.entries):
@@ -90,7 +92,7 @@ def delete_memory_entry(index: int) -> str:
 def compress_memory(max_entries: int = 50) -> str:
     """Prune old entries from the agent's memory to maintain a maximum size.
 
-    This is used to prevent long-term memory from consuming too much context window 
+    This is used to prevent long-term memory from consuming too much context window
     during retrieval. It keeps only the most recent 'max_entries'.
 
     Args:
@@ -98,6 +100,7 @@ def compress_memory(max_entries: int = 50) -> str:
 
     Returns:
         A message stating how many entries were pruned or if no compression was needed.
+
     """
     model = parse_memory(load_workspace_file(CORE_FILES["MEMORY"]))
     if len(model.entries) <= max_entries:

@@ -1,10 +1,9 @@
 #!/usr/bin/python
 # coding: utf-8
-"""
-Shared Data Models Module
+"""Shared Data Models Module.
 
-This module defines the Pydantic and dataclass models used for state management, 
-communication protocols, and configuration across the agent ecosystem. It includes 
+This module defines the Pydantic and dataclass models used for state management,
+communication protocols, and configuration across the agent ecosystem. It includes
 models for task tracking, memory, A2A registries, MCP tool metadata, and graph execution steps.
 """
 
@@ -32,7 +31,9 @@ class PeriodicTask(BaseModel):
         prompt: The prompt used by the agent when executing the task.
         last_run: Timestamp of the last successful execution.
         active: Whether the task is currently enabled.
+
     """
+
     id: str
     name: str
     interval_minutes: int
@@ -45,7 +46,7 @@ class PeriodicTask(BaseModel):
 class AgentDeps:
     """Standard dependencies provided to agent tools via RunContext.
 
-    These dependencies provide access to the workspace, session identifiers, 
+    These dependencies provide access to the workspace, session identifiers,
     communication queues for streaming and elicitation, and LLM configuration.
 
     Attributes:
@@ -63,7 +64,9 @@ class AgentDeps:
         base_url: Base URL for the LLM API.
         api_key: API key for the LLM provider.
         mcp_toolsets: List of initialized MCP toolsets available to the agent.
+
     """
+
     workspace_path: Path
 
     user_id: Optional[str] = None
@@ -85,7 +88,8 @@ class AgentDeps:
 
 
 class TaskStatus(str, Enum):
-    """Execution status of a task."""
+    """Enumeration of possible task execution states."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -105,7 +109,9 @@ class Task(BaseModel):
         result: The outcome or output of the task after completion.
         git_commit: Git commit hash associated with the task's implementation.
         metadata: Additional key-value pairs for task-specific data.
+
     """
+
     id: str = Field(default_factory=lambda: "task_" + os.urandom(4).hex())
     title: str
     description: str
@@ -124,7 +130,9 @@ class TaskPhase(BaseModel):
         name: Name of the phase (e.g., 'Research', 'Implementation').
         tasks: List of Tasks belonging to this phase.
         status: Overall status of the phase.
+
     """
+
     name: str
     tasks: List[Task] = Field(default_factory=list)
     status: TaskStatus = TaskStatus.PENDING
@@ -138,7 +146,9 @@ class TaskList(BaseModel):
         metadata: Project-level metadata.
         current_phase_index: Index of the currently active phase.
         version: Schema version of the task list.
+
     """
+
     phases: List[TaskPhase] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     current_phase_index: int = 0
@@ -154,7 +164,9 @@ class ProgressEntry(BaseModel):
         git_commit: Associated git commit hash, if applicable.
         logs: Detailed output or logs associated with this step.
         metadata: Additional context for the entry.
+
     """
+
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat() + "Z")
     message: str
     git_commit: Optional[str] = None
@@ -164,6 +176,7 @@ class ProgressEntry(BaseModel):
 
 class ProgressLog(BaseModel):
     """A chronological log of progress entries for a project."""
+
     entries: List[ProgressEntry] = Field(default_factory=list)
 
 
@@ -175,7 +188,9 @@ class SprintContract(BaseModel):
         definition_of_done: Criteria that must be met for a task to be considered 'Done'.
         test_criteria: Specific tests or validations required for acceptance.
         metadata: Sprint-specific metadata (e.g., dates, team).
+
     """
+
     goals: List[str] = Field(default_factory=list)
     definition_of_done: List[str] = Field(default_factory=list)
     test_criteria: List[str] = Field(default_factory=list)
@@ -191,7 +206,9 @@ class IdentityModel(BaseModel):
         emoji: Visual representation for UI.
         vibe: Description of the agent's personality or tone.
         system_prompt: The core system prompt defining behavior.
+
     """
+
     name: str = "AI Agent"
     role: str = ""
     emoji: str = "🤖"
@@ -209,7 +226,9 @@ class GraphResponse(BaseModel):
         usage: Token usage statistics.
         error: Error message if execution failed.
         metadata: Additional execution metadata.
+
     """
+
     status: str = "pending"
 
     results: Dict[str, Any] = Field(default_factory=dict)
@@ -220,7 +239,14 @@ class GraphResponse(BaseModel):
 
 
 class UserModel(BaseModel):
-    """Basic profile of the user interacting with the agent."""
+    """Metadata representing the human user interacting with the agent.
+
+    Attributes:
+        name: The display name of the user.
+        emoji: Visual avatar for the user in the UI.
+
+    """
+
     name: str = "User"
     emoji: str = "👤"
 
@@ -235,7 +261,9 @@ class A2APeerModel(BaseModel):
         capabilities: Description of tools and skills offered by the agent.
         auth: Authentication method required.
         notes: Additional notes about the peer.
+
     """
+
     name: str
     url: str
     description: str = ""
@@ -245,7 +273,13 @@ class A2APeerModel(BaseModel):
 
 
 class A2ARegistryModel(BaseModel):
-    """A registry of all discovered A2A peer agents."""
+    """A collection of A2A peer agents for discovery and communication.
+
+    Attributes:
+        peers: List of known remote agents.
+
+    """
+
     peers: List[A2APeerModel] = Field(default_factory=list)
 
 
@@ -255,13 +289,21 @@ class MemoryEntryModel(BaseModel):
     Attributes:
         timestamp: ISO 8601 timestamp of when the memory was recorded.
         text: The actual content of the memory.
+
     """
+
     timestamp: str
     text: str
 
 
 class MemoryModel(BaseModel):
-    """Collection of memory entries for an agent."""
+    """A collection of long-term memory entries for an agent.
+
+    Attributes:
+        entries: Chronological list of memory records.
+
+    """
+
     entries: List[MemoryEntryModel] = Field(default_factory=list)
 
 
@@ -275,7 +317,9 @@ class CronTaskModel(BaseModel):
         prompt: The prompt to be executed by the agent.
         last_run: Timestamp of last execution.
         next_approx: Estimated time of next execution.
+
     """
+
     id: str
     name: str
     interval_minutes: int
@@ -285,7 +329,13 @@ class CronTaskModel(BaseModel):
 
 
 class CronRegistryModel(BaseModel):
-    """A registry of all scheduled cron tasks."""
+    """A registry defining all scheduled periodic tasks for the workspace.
+
+    Attributes:
+        tasks: List of active cron task configurations.
+
+    """
+
     tasks: List[CronTaskModel] = Field(default_factory=list)
 
 
@@ -299,7 +349,9 @@ class CronLogEntryModel(BaseModel):
         status: Result status ('success', 'failed').
         message: Detailed result or error message.
         chat_id: Optional link to a chat session created for this task.
+
     """
+
     timestamp: str
     task_id: str
     task_name: str = ""
@@ -309,16 +361,24 @@ class CronLogEntryModel(BaseModel):
 
 
 class CronLogModel(BaseModel):
-    """A collection of cron execution logs."""
+    """Historical execution log for all scheduled periodic tasks.
+
+    Attributes:
+        entries: Chronological list of task execution results.
+
+    """
+
     entries: List[CronLogEntryModel] = Field(default_factory=list)
 
 
 class MCPConfigModel(BaseModel):
-    """Schema for the mcp_config.json file.
+    """Structure for the Model Context Protocol configuration (mcp_config.json).
 
     Attributes:
-        mcpServers: Dictionary mapping server names to their configuration.
+        mcpServers: Map of server names to their specific configurations.
+
     """
+
     mcpServers: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -333,7 +393,9 @@ class MCPAgent(BaseModel):
         mcp_server: The source MCP server that provides these tools.
         tag: Metadata tag used for routing and partitioning.
         is_custom: Whether the agent was manually customized.
+
     """
+
     name: str = Field(description="Display name of the agent")
     description: str = Field(description="Specialized agent description")
     system_prompt: str = Field(description="Synthesized system prompt")
@@ -354,7 +416,9 @@ class MCPToolInfo(BaseModel):
         tag: Primary tag used to assign this tool to a specific specialist agent.
         mcp_server: The source MCP server providing the tool.
         all_tags: All tags associated with the tool for flexible routing.
+
     """
+
     name: str = Field(description="Full tool name")
     description: str = Field(description="Tool description")
     tag: Optional[str] = Field(None, description="Primary tool tag for partitioning")
@@ -365,12 +429,14 @@ class MCPToolInfo(BaseModel):
 
 
 class MCPAgentRegistryModel(BaseModel):
-    """The complete registry of MCP agents and tools discovered from config.
+    """A specialized registry containing discovered MCP specialists and their tools.
 
     Attributes:
-        agents: List of all specialized agents derived from the MCP servers.
-        tools: Comprehensive list of all available MCP tools.
+        agents: List of derived specialist agents.
+        tools: Full list of all available MCP tools.
+
     """
+
     agents: List[MCPAgent] = Field(default_factory=list)
     tools: List[MCPToolInfo] = Field(default_factory=list)
 
@@ -383,7 +449,9 @@ class UsageStatistics(BaseModel):
         output_tokens: Number of tokens received from the LLM.
         total_tokens: Sum of input and output tokens.
         estimated_cost_usd: Estimated monetary cost in USD based on model pricing.
+
     """
+
     input_tokens: int = 0
 
     output_tokens: int = 0
@@ -397,7 +465,9 @@ class CostModel(BaseModel):
     Attributes:
         input_token_price: Cost per input token in USD.
         output_token_price: Cost per output token in USD.
+
     """
+
     input_token_price: float = 0.00000015  # Default for Sonnet 3.5 ($0.15 / 1M)
 
     output_token_price: float = 0.0000006  # Default for Sonnet 3.5 ($0.60 / 1M)
@@ -413,7 +483,9 @@ class ExecutionStep(BaseModel):
         status: Current execution status ('pending', 'completed', 'failed').
         timeout: Execution timeout in seconds.
         depends_on: List of node IDs that must be completed before this step executes.
+
     """
+
     node_id: str = Field(description="The ID of the functional step to execute")
 
     input_data: Optional[Any] = Field(None, description="Input data passed to the step")
@@ -428,16 +500,14 @@ class ExecutionStep(BaseModel):
 
 
 class ParallelBatch(BaseModel):
-    """Wrapper for a group of ExecutionSteps that can be run in parallel.
-
-    This model prevents character-mapping issues and simplifies the handling 
-    of fan-out execution patterns in pydantic-graph.
+    """A collection of execution steps intended to be run concurrently.
 
     Attributes:
-        tasks: List of steps to execute concurrently.
-    """
-    tasks: List[ExecutionStep] = Field(default_factory=list)
+        tasks: The list of execution steps in the batch.
 
+    """
+
+    tasks: List[ExecutionStep] = Field(default_factory=list)
 
 
 class GraphPlan(BaseModel):
@@ -446,7 +516,9 @@ class GraphPlan(BaseModel):
     Attributes:
         steps: Ordered list of ExecutionSteps or ParallelBatches to execute.
         metadata: Additional metadata about the plan (e.g., strategy used).
+
     """
+
     steps: List[ExecutionStep] = Field(default_factory=list)
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -462,7 +534,9 @@ class MCPServerHealth(BaseModel):
         state: Circuit state ('closed', 'open', 'half-open').
         cooldown_seconds: Time to wait before attempting a retry when open.
         max_failures: Threshold of failures before the circuit opens.
+
     """
+
     server_name: str = ""
 
     failures: int = 0
@@ -490,6 +564,7 @@ class MCPServerHealth(BaseModel):
 
         Returns:
             True if the server can be called, False otherwise.
+
         """
         import time
 

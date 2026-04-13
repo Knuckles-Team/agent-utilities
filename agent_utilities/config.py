@@ -1,11 +1,10 @@
 #!/usr/bin/python
 # coding: utf-8
-"""
-Configuration Management Module
+"""Configuration Management Module.
 
-This module handles the loading and validation of agent settings from environment 
-variables and .env files using Pydantic Settings. It defines a centralized 
-AgentConfig class and exports default configuration constants used throughout 
+This module handles the loading and validation of agent settings from environment
+variables and .env files using Pydantic Settings. It defines a centralized
+AgentConfig class and exports default configuration constants used throughout
 the agent-utilities package.
 """
 
@@ -39,11 +38,12 @@ meta = {"name": "Agent", "description": "AI Agent"}
 def get_env_file() -> Optional[str]:
     """Identify the location of the .env file for the calling package.
 
-    This function attempts to find a .env file by checking the current working 
+    This function attempts to find a .env file by checking the current working
     directory and paths relative to the retrieved package name.
 
     Returns:
         The path to the found .env file as a string, or '.env' as a default fallback.
+
     """
     from .base_utilities import retrieve_package_name
     from pathlib import Path
@@ -64,10 +64,11 @@ def get_env_file() -> Optional[str]:
 class AgentConfig(BaseSettings):
     """Configuration schema for the AI Agent server.
 
-    Uses Pydantic BaseSettings to automatically load values from environment 
-    variables (via aliases) or a .env file. Covers LLM settings, server networking, 
+    Uses Pydantic BaseSettings to automatically load values from environment
+    variables (via aliases) or a .env file. Covers LLM settings, server networking,
     observability (OTEL), A2A communication, and safety guards.
     """
+
     model_config = SettingsConfigDict(
         env_file=get_env_file(),
         env_ignore_empty=True,

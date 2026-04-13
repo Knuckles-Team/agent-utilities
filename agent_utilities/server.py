@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Agent Server Module.
+
+This module provides the core web server functionality for the agent ecosystem.
+It uses FastAPI to expose endpoints for AG-UI streaming, A2A communication,
+ACP protocol adapters, and management interfaces. It dynamically handles
+agent lifecycle, workspace initialization, and observability setup.
+"""
 
 from __future__ import annotations
 
@@ -13,12 +21,13 @@ from typing import Any, List, Optional, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
+import base64
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
-from pydantic_ai import Agent
+from pydantic_ai import Agent, BinaryContent
 from .config import (
     DEFAULT_ROUTER_MODEL,
     DEFAULT_GRAPH_AGENT_MODEL,
@@ -108,35 +117,114 @@ warnings.filterwarnings("ignore", message=".*")
 logger = logging.getLogger(__name__)
 
 
+async def process_parts(parts: list[dict[str, Any]]) -> list[Any]:
+    """Process incoming message parts from the Agent UI.
+
+    Handles text, images, and binary attachments. Images are automatically
+    persisted to the active workspace with unique identifiers.
+
+    Args:
+        parts: List of raw message part dictionaries from the request.
+
+    Returns:
+        A list of processed Pydantic AI message part objects (TextPart, BinaryContent).
+
+    """
+    processed = []
+    # Avoid circular/heavy imports at top level if needed
+    from pydantic_ai.messages import TextPart
+
+    for part in parts:
+        if "text" in part:
+            processed.append(TextPart(part["text"]))
+        elif "image" in part or "binary" in part:
+            # Handle base64 image
+            img_data = part.get("image") or part.get("binary")
+            if not img_data:
+                continue
+            media_type = part.get("media_type", "image/png")
+            if isinstance(img_data, str) and img_data.startswith("data:"):
+                # Strip data:image/png;base64,
+                _, img_data = img_data.split(",", 1)
+
+            if isinstance(img_data, str):
+                raw_bytes = base64.b64decode(img_data)
+            else:
+                raw_bytes = img_data
+
+            # Save to workspace for persistence
+            try:
+                from .workspace import WORKSPACE_DIR
+
+                img_dir = Path(WORKSPACE_DIR or ".") / "agent_data" / "images"
+                img_dir.mkdir(parents=True, exist_ok=True)
+                from uuid import uuid4
+
+                img_filename = f"{uuid4().hex}.{media_type.split('/')[-1]}"
+                img_path = img_dir / img_filename
+                img_path.write_bytes(raw_bytes)
+                logger.debug(f"Saved uploaded image to: {img_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save image to disk: {e}")
+
+            processed.append(BinaryContent(data=raw_bytes, media_type=media_type))
+    return processed
+
+
 def get_http_client(
     ssl_verify: bool = True, timeout: float = 300.0
 ) -> httpx.AsyncClient | None:
+    """Create a configured HTTPX AsyncClient for internal requests.
+
+    Args:
+        ssl_verify: Whether to verify SSL certificates.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        An AsyncClient instance if ssl_verify is False; otherwise None (allowing
+        default handlers to handle verification).
+
+    """
     if not ssl_verify:
         return httpx.AsyncClient(verify=False, timeout=timeout)
     return None
 
 
 class ReloadableApp:
-    """
-    ASGI wrapper that allows hot-swapping the underlying FastAPI application.
-    Used for dynamic reloading of agents, skills, and MCP servers.
+    """ASGI application wrapper that supports manual hot-reloading.
+
+    This wrapper allows swapping the underlying FastAPI application instance
+    at runtime without restarting the physical server process.
     """
 
     def __init__(self, factory: Callable[[], FastAPI]):
+        """Initialize the reloadable application.
+
+        Args:
+            factory: A function that returns a fresh FastAPI instance.
+
+        """
         self.factory = factory
         self.app: FastAPI = self.factory()
 
     async def __call__(self, scope, receive, sender):
+        """Standard ASGI entry point."""
         await self.app(scope, receive, sender)
 
     def reload(self):
-        """Re-run the factory to create a fresh app instance."""
+        """Execute the factory to replace the current application state."""
         logger.info("Hot-reloading agent application...")
         self.app = self.factory()
 
 
 def inject_reload_app(app: FastAPI, reload_app: ReloadableApp):
-    """Recursively inject the reloadable app reference into all mounted sub-apps."""
+    """Recursively inject a ReloadableApp reference into FastAPI state.
+
+    Args:
+        app: The FastAPI application to inject into.
+        reload_app: The ReloadableApp instance to reference.
+
+    """
     app.state.reload_app = reload_app
     if hasattr(app, "routes"):
         for route in app.routes:
@@ -186,12 +274,60 @@ def build_agent_app(
     acp_session_root: Optional[str] = DEFAULT_ACP_SESSION_ROOT,
     isolate_mcp: bool = False,
     mcp_toolsets: Optional[List[Any]] = None,
-):
-    """
-    Create and run an agent server with FastAPI and FastMCP.
+) -> FastAPI:
+    """Construct and configure a complete Agent FastAPI application.
 
-    If agent_instance is provided, generation attributes (provider, model_id, etc.)
-    are bypassed in favor of the existing instantiated agent.
+    This function orchestrates the initialization of the agent, A2A protocol
+    discovery, ACP adapters, Web UI mounts, and observability settings. It
+    supports dynamic reloading via a factory pattern to handle configuration
+    changes without restarting the process.
+
+    Args:
+        provider: The primary LLM provider (e.g., 'anthropic', 'openai').
+        model_id: Specific model identifier (e.g., 'claude-3-5-sonnet-latest').
+        base_url: Optional override for the LLM API base URL.
+        api_key: Optional secret key for the LLM provider.
+        mcp_url: Optional URL of a single standalone MCP server.
+        mcp_config: Path to the mcp_config.json for multiple servers.
+        custom_skills_directory: Directory containing local skill definitions.
+        debug: Enable verbose logging and debug features.
+        host: Host interface to bind the server to.
+        port: TCP port to listen on.
+        enable_web_ui: Mount the standard Agent Web UI (FastAG-UI).
+        custom_web_app: Optional custom Starlette/FastAPI app for the frontend.
+        custom_web_mount_path: Path where the frontend should be served.
+        web_ui_instructions: Natural language instructions for the UI agent.
+        html_source: Path to custom HTML source for the web frontend.
+        ssl_verify: Whether to enforce SSL certificate verification.
+        name: Human-friendly name for this agent instance.
+        system_prompt: Base instructions for the agent's behavior.
+        enable_otel: Enable OpenTelemetry tracing and metrics.
+        otel_endpoint: OTLP exporter endpoint.
+        otel_headers: Custom Opaque headers for the OTLP exporter.
+        otel_public_key: Public key for OTLP authentication.
+        otel_secret_key: Secret key for OTLP authentication.
+        otel_protocol: OTLP transport protocol ('http/protobuf' or 'grpc').
+        workspace: Path to the directory used for persistent storage.
+        a2a_broker: Protocol for A2A message exchange ('redis', 'postgres').
+        a2a_broker_url: Connection string for the A2A broker.
+        a2a_storage: Protocol for A2A state storage.
+        a2a_storage_url: Connection string for the A2A storage.
+        skill_types: List of built-in skill catalogs to load.
+        agent_instance: Pre-instantiated Agent to bypass factory creation.
+        graph_bundle: Tuple defining state nodes and transitions for the graph.
+        persistence_type: Backend for state persistence.
+        persistence_path: Directory or DSN for persisting data.
+        persistence_dsn: Full database connection string for persistence.
+        persistence_url: Alias for persistence_dsn.
+        enable_terminal_ui: Initialize the Agent Terminal UI alongside the server.
+        enable_acp: Mount the Agent Control Protocol (ACP) adapter.
+        acp_session_root: Directory for ACP session data.
+        isolate_mcp: Isolate each MCP server into a dedicated graph node.
+        mcp_toolsets: Pre-loaded list of toolsets for reuse.
+
+    Returns:
+        The fully configured FastAPI application instance.
+
     """
     from fasta2a import Skill
 
@@ -513,20 +649,34 @@ def build_agent_app(
 
         @app.post("/ag-ui", tags=["Agent UI"], summary="AG-UI Streaming Endpoint")
         async def ag_ui_endpoint(request: Request) -> Response:
-            """
-            Primary endpoint for the Agent UI. Supports sideband graph activity
-            annotations and session resumption.
+            """Primary streaming endpoint for the Agent UI (FastAG-UI).
+
+            Supports sideband graph activity annotations, session resumption,
+            and rich media attachments. This endpoint handles high-fidelity
+            SSE streaming with sideband data.
+
+            Returns:
+                A StreamingResponse for continuous interaction or a JSONResponse
+                on failure.
+
             """
             try:
                 from pydantic_ai.ui.ag_ui import AGUIAdapter
             except ImportError:
-                logger.error("AG-UI: AGUIAdapter not found in pydantic_ai. Ensure pydantic-ai[ag-ui] is installed.")
-                return JSONResponse({"status": "error", "message": "AG-UI not available"}, status_code=501)
+                logger.error(
+                    "AG-UI: AGUIAdapter not found in pydantic_ai. Ensure pydantic-ai[ag-ui] is installed."
+                )
+                return JSONResponse(
+                    {"status": "error", "message": "AG-UI not available"},
+                    status_code=501,
+                )
             from fastapi.responses import StreamingResponse
             from uuid import uuid4
 
             run_id = uuid4().hex
-            logger.info(f"[LAYER:ACP] AG-UI Request Received. Assigned internal run_id: {run_id}")
+            logger.info(
+                f"[LAYER:ACP] AG-UI Request Received. Assigned internal run_id: {run_id}"
+            )
             try:
                 body = await request.json()
                 if body:
@@ -556,18 +706,27 @@ def build_agent_app(
 
             async def merged_stream():
                 query = ""
+                query_parts = []
                 try:
                     body = await request.json()
                     query = body.get("query", body.get("prompt", ""))
+                    raw_parts = body.get("parts", [])
+                    if raw_parts:
+                        query_parts = await process_parts(raw_parts)
                 except Exception:
                     pass
+                run_input = query_parts if query_parts else query
                 try:
-                    adapter = AGUIAdapter(agent=_agent_instance, run_input=query)
-                    logger.info(f"[LAYER:ACP] AG-UI: Dispatching request for query: '{query[:50]}...'")
+                    adapter = AGUIAdapter(agent=_agent_instance, run_input=run_input)
+                    logger.info(
+                        f"[LAYER:ACP] AG-UI: Dispatching request for query: '{query[:50]}...'"
+                    )
                     agent_response = await adapter.dispatch_request(
                         request, agent=_agent_instance, deps=deps
                     )
-                    logger.info("[LAYER:ACP] AG-UI: Dispatch successful. Stream established.")
+                    logger.info(
+                        "[LAYER:ACP] AG-UI: Dispatch successful. Stream established."
+                    )
                 except Exception as e:
                     logger.exception(f"AG-UI: Dispatch error: {e}")
                     yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
@@ -699,13 +858,13 @@ def build_agent_app(
 
         @app.post("/stream", tags=["Agent UI"], summary="SSE Stream Endpoint")
         async def stream_endpoint(request: Request) -> Response:
-            """
-            Generic SSE stream endpoint for high-fidelity graph agent execution.
-            """
+            """Generic SSE stream endpoint for high-fidelity graph agent execution."""
             from fastapi.responses import StreamingResponse
 
             data = await request.json()
             query = data.get("query", data.get("prompt", ""))
+            raw_parts = data.get("parts", [])
+            query_parts = await process_parts(raw_parts) if raw_parts else []
             mode = data.get("mode", "ask")
             topology = data.get("topology", "basic")
 
@@ -721,6 +880,7 @@ def build_agent_app(
                         mode=mode,
                         topology=topology,
                         mcp_toolsets=_initialized_mcp_toolsets,
+                        query_parts=query_parts,
                     ),
                     media_type="text/event-stream",
                 )
@@ -731,9 +891,7 @@ def build_agent_app(
 
         @app.post("/bridge", tags=["Interoperability"], summary="IDE Bridge Endpoint")
         async def bridge_endpoint(request: Request) -> JSONResponse:
-            """
-            Handles asynchronous interactions between the agent and IDE/Human-in-the-loop.
-            """
+            """Handles asynchronous interactions between the agent and IDE/Human-in-the-loop."""
             data = await request.json()
             action = data.get("action")
             run_id = data.get("run_id") or data.get("session_id")
@@ -820,7 +978,7 @@ def build_agent_app(
         )
 
         async def reload_mcp_config():
-            """Re-sync MCP agents from config and rebuild graph without restarting"""
+            """Re-sync MCP agents from config and rebuild graph without restarting."""
             try:
                 from .mcp_agent_manager import sync_mcp_agents
                 from .workspace import resolve_mcp_config_path
@@ -956,9 +1114,7 @@ def create_agent_server(
     isolate_mcp: bool = False,
     mcp_toolsets: Optional[List[Any]] = None,
 ):
-    """
-    Create and run an agent server with FastAPI and FastMCP.
-    """
+    """Create and run an agent server with FastAPI and FastMCP."""
     import uvicorn
 
     print(
@@ -1136,8 +1292,8 @@ def create_graph_agent_server(
         agent_model: Model for domain executors.
         min_confidence: Minimum confidence threshold for routing.
         **kwargs: All remaining args are forwarded to create_agent_server().
-    """
 
+    """
     import warnings
 
     warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")

@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Prompt Builder Module.
+
+This module provides utilities for constructing and resolving agent system
+prompts. It handles dynamic extraction of content from markdown files,
+resolving workspace file references (using the '@' prefix), and aggregating
+identity, user, and memory files into a unified prompt context.
+"""
 
 from __future__ import annotations
 
@@ -29,12 +37,19 @@ logger = logging.getLogger(__name__)
 
 
 def extract_section_from_md(content: str, header: str) -> Optional[str]:
-    """
-    Extracts content under a specific markdown header (e.g., 'System Prompt').
-    Matches headers like '## System Prompt' or '### System Prompt'.
-    Returns None if the header is not found.
-    """
+    """Extract content under a specific markdown header.
 
+    Matches headers following the pattern '## Header Name' or '### Header Name'
+    and captures all content until the next header of equal or higher level.
+
+    Args:
+        content: The raw markdown content string.
+        header: The exact header text to search for (case-insensitive).
+
+    Returns:
+        The extracted section content as a string, or None if the header is not found.
+
+    """
     escaped_header = re.escape(header)
 
     pattern = rf"^\s*#+\s*{escaped_header}\s*\n(.*?)(?=\n#|\Z)"
@@ -45,10 +60,19 @@ def extract_section_from_md(content: str, header: str) -> Optional[str]:
 
 
 def get_system_prompt_from_reference(agent_name: str) -> Optional[str]:
-    """
-    Retrieves the system prompt for an agent from its markdown reference.
-    """
+    """Retrieve the system prompt for an agent from its markdown reference file.
 
+    Scans the filesystem for matching agent configuration files (e.g.
+    [agent_name]-identity.md, [agent_name].md) and extracts the 'System Prompt'
+    section.
+
+    Args:
+        agent_name: The slugified name of the agent to resolve.
+
+    Returns:
+        The extracted system prompt string, or None if no reference is found.
+
+    """
     identity_query = f"{agent_name}-identity.md"
     md_path = resolve_mcp_reference(identity_query)
 
@@ -77,9 +101,18 @@ def get_system_prompt_from_reference(agent_name: str) -> Optional[str]:
 
 
 def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
-    """
-    Combine core files into a rich system prompt.
-    Order matters — IDENTITY → USER → MEMORY → custom fallback
+    """Aggregate core workspace files into a unified system prompt.
+
+    Combines IDENTITY.md, USER.md, and MEMORY.md content with an optional
+    fallback string. The order of aggregation is fixed to ensure proper LLM
+    instruction hierarchy.
+
+    Args:
+        fallback_prompt: An optional string to append if core files are insufficient.
+
+    Returns:
+        The final combined system prompt string.
+
     """
     parts = []
     included_files = []
@@ -110,10 +143,17 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
 
 
 def resolve_prompt(prompt_str: str) -> str:
-    """Resolve a prompt string.
+    """Resolve a prompt string, optionally loading from a file reference.
 
-    If it starts with '@', load content from the referenced workspace file.
-    Otherwise return the string as-is.
+    If the string starts with '@', it is treated as a filename reference
+    within the agent's workspace. Otherwise, the string is returned unchanged.
+
+    Args:
+        prompt_str: The prompt string to resolve.
+
+    Returns:
+        The resolved prompt content.
+
     """
     prompt_str = prompt_str.strip()
     if prompt_str.startswith("@"):
@@ -128,7 +168,16 @@ def resolve_prompt(prompt_str: str) -> str:
 
 
 def extract_agent_metadata(content: str) -> Dict[str, str]:
-    """Extracts basic agent metadata from IDENTITY.md or returns defaults."""
+    """Extract structured agent metadata from IDENTITY.md content.
+
+    Args:
+        content: Raw markdown text from an identity file.
+
+    Returns:
+        A dictionary containing agent parameters like 'name', 'description',
+        'emoji', 'vibe', and the extracted 'system_prompt'.
+
+    """
     model = parse_identity(content)
     return {
         "name": model.name,
@@ -140,8 +189,15 @@ def extract_agent_metadata(content: str) -> Dict[str, str]:
 
 
 def load_identity(tag: Optional[str] = None) -> Dict[str, str]:
-    """
-    Load IDENTITY.md and return metadata for the agent.
+    """Load the primary IDENTITY.md file and return agent metadata.
+
+    Args:
+        tag: Optional tag filter (not currently used in base implementation).
+
+    Returns:
+        A dictionary of agent metadata. Defaults to generic values if
+        IDENTITY.md is missing.
+
     """
     content = load_workspace_file("IDENTITY.md")
     if not content:

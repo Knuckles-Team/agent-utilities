@@ -66,7 +66,8 @@ async def validate_acp_stack():
                             count += 1
                         if event.get("type") == "text" and "DONE" in event.get("content", ""):
                             break
-                    if count > 5: break # Sufficient evidence
+                    if count > 5:
+                        break  # Sufficient evidence
 
                 if count == 0:
                     logger.warning("⚠️ No native plan-updated events detected. Check if mode 'plan' is active.")

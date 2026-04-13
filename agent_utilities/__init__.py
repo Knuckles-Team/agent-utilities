@@ -1,4 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/python
+# coding: utf-8
+"""Agent Utilities Core Module.
+
+This module serves as the primary entry point for the agent-utilities package,
+providing a unified interface for agent creation, graph orchestration, workspace
+management, and various helper utilities. It filters common library warnings
+and initializes environment-level observability settings.
+"""
+
 import os
 import warnings
 

@@ -18,11 +18,75 @@
 - **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction.
 - **Communication**: Frontends connect via the Agent Communication Protocol (ACP) for standardized sessions, planning, and streaming, while maintaining backward compatibility with SSE/AG-UI.
 
+## Ecosystem Dependency Graph
+This diagram visualizes the high-level relationships and core dependencies across the three primary ecosystem packages.
+
+```mermaid
+graph TD
+    subgraph Packages ["Core Ecosystem Packages"]
+        direction TB
+        Utility["<b>agent-utilities</b><br/>(Python)"]
+        Terminal["<b>agent-terminal-ui</b><br/>(Python/Textual)"]
+        Web["<b>agent-webui</b><br/>(React/Next.js)"]
+    end
+
+    subgraph Internal_Deps ["Internal Interface Layer"]
+        direction LR
+        Terminal -- depends on --> Utility
+        Web -- interfaces with --> Utility
+    end
+
+    subgraph External_Utility ["agent-utilities Dependencies"]
+        direction TB
+        PAI[pydantic-ai]
+        PGraph[pydantic-graph]
+        PACP[pydantic-acp]
+        PAISkills[pydantic-ai-skills]
+        FastMCP[fastmcp]
+        FastAPI[fastapi]
+        Logfire[logfire]
+    end
+
+    subgraph External_Terminal ["agent-terminal-ui Dependencies"]
+        direction TB
+        Textual[textual]
+        Rich[rich]
+        HTTPX_T[httpx]
+    end
+
+    subgraph External_Web ["agent-webui Dependencies"]
+        direction TB
+        ASDK["@ai-sdk/react (Vercel)"]
+        AI["ai (Vercel SDK)"]
+        React[react]
+        Tailwind[tailwindcss]
+        Vite[vite]
+    end
+
+    Utility --> PAI
+    Utility --> PGraph
+    Utility --> PACP
+    Utility --> PAISkills
+    Utility --> FastMCP
+    Utility --> FastAPI
+    Utility --> Logfire
+
+    Terminal --> Textual
+    Terminal --> Rich
+    Terminal --> HTTPX_T
+
+    Web --> ASDK
+    Web --> AI
+    Web --> React
+    Web --> Tailwind
+    Web --> Vite
+```
+
 
 ## Core Architecture Diagram
 ```mermaid
 graph TD
-    User([User Request]) --> WebUI[agent-webui]
+    User([User Request + Images]) --> WebUI[agent-webui]
     User --> TUI[agent-terminal-ui]
     WebUI -- ACP Protocol /acp --> Backend[agent-utilities Server]
     TUI -- ACP Protocol /acp --> Backend
@@ -99,7 +163,7 @@ graph TD
 ## Graph Orchestration Architecture
 ```mermaid
   graph TB
-  Start([User Query]) --> ACPLayer["<b>ACP Protocol Adapter</b><br/><i>(pydantic-acp)</i>"]
+  Start([User Query + Images]) --> ACPLayer["<b>ACP Protocol Adapter</b><br/><i>(pydantic-acp)</i>"]
   ACPLayer --> UsageGuard[Usage Guard: Rate Limiting]
   UsageGuard -- "Allow" --> router_step[Router: Topology Selection]
   UsageGuard -- "Block" --> End([End Result])
@@ -272,6 +336,37 @@ graph TD
   style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
 	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
 ```
+
+## The Complete Execution Journey
+
+The graph orchestration system follows a rigorous, multi-stage pipeline designed for maximum precision, resilience, and multi-modal understanding.
+
+### Phase 1: Ingress & Protocol Adaptation
+1. **Entry**: A user query (text + optional images) arrives via the **ACP Protocol** (`/acp`).
+2. **Parsing**: The `ACPLayer` (via `pydantic-acp`) decodes the incoming payload. Base64 images are converted into `pydantic_ai.BinaryContent` parts, while text is preserved as `TextPart`.
+3. **State Initialization**: A fresh `GraphState` is initialized with the consolidated `query_parts`.
+
+### Phase 2: Safety & Policy Enforcement
+4. **Usage Guard**: The `usage_guard_step` triggers immediately. It checks the session's token usage and estimated cost against safety limits (e.g., $5.00 / 500k tokens).
+5. **Policy Check**: If enabled, a lightweight LLM check validates the query against security policies before any expensive operations begin.
+
+### Phase 3: Topology Discovery & Planning
+6. **Routing**: The `router_step` analyzes the multi-modal intent to select the required domain specialists (e.g., `researcher`, `python_programmer`).
+7. **Planning**: The `planner_step` decomposes the high-level objective into a structured `GraphPlan` (a sequence of `ExecutionStep` objects).
+8. **Context Retrieval**: The `memory_selection_step` performs a RAG-style lookup across the workspace and `.md` memory files to inject relevant historical context into the state.
+
+### Phase 4: Parallel Execution & Synthesis
+9. **Dispatch**: The `dispatcher` spawns the selected specialist nodes. If multiple domains are involved, it leverages `parallel_batch_processor` for concurrent execution.
+10. **Specialist Loop**: Each specialist (e.g., `python_programmer_step`) enters a high-fidelity `Agent.run()` loop. They have access to:
+    - Dedicated system prompts from `prompts/`.
+    - Domain-specific toolsets (MCP + Universal Skills).
+    - The original multi-modal query parts for visual reasoning.
+11. **Convergence**: Results from all specialists are coalesced at the `execution_joiner` and written to the unified `results_registry`.
+
+### Phase 5: Quality Gate & Exit
+12. **Verification**: The `verifier_step` acts as a quality gate. It compares the accumulated results against the original user intent.
+13. **Feedback Loop**: If the verification score is low, the verifier injects specific feedback and redirects the graph back to the `dispatcher` for a corrective run (max 2 attempts).
+14. **Final Response**: Once validated, the orchestrator synthesizes a final response and streams it back to the client via SSE.
 
 
 ## Hierarchical State Machine (HSM) Architecture

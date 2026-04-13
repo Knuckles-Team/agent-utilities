@@ -1,5 +1,11 @@
 #!/usr/bin/python
-"""Mermaid diagram generation for graph visualization"""
+# coding: utf-8
+"""Mermaid Visualization Module.
+
+This module provides utilities for generating Mermaid diagrams from
+pydantic-graph objects, allowing for visual representation of the
+agentic workflow and state transitions.
+"""
 
 from __future__ import annotations
 
@@ -11,16 +17,17 @@ logger = logging.getLogger(__name__)
 def get_graph_mermaid(
     graph, config: dict, title: str = "Graph", routed_domain: str | None = None
 ) -> str:
-    """Generate a Mermaid diagram for the graph.
+    """Generate a Mermaid diagram representation for the given graph.
 
     Args:
-        graph: The Graph object.
-        config: The config dict from create_graph_agent().
-        title: Optional title for the diagram.
-        routed_domain: Optional domain tag that was routed to.
+        graph: The Graph instance to visualize.
+        config: Configuration dictionary for the graph agent.
+        title: Title for the generated diagram.
+        routed_domain: The domain tag that was activated (for labeling).
 
     Returns:
-        Mermaid diagram string.
+        A string containing the Mermaid flow diagram code.
+
     """
     if hasattr(graph, "mermaid_code"):
         mermaid = graph.mermaid_code()

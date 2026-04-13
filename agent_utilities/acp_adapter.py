@@ -1,3 +1,12 @@
+#!/usr/bin/python
+# coding: utf-8
+"""ACP Adapter Module.
+
+This module provides the integration layer between the agent ecosystem and
+the Async Control Protocol (ACP). It handles session management, approval
+bridges, and high-fidelity interaction modes.
+"""
+
 from __future__ import annotations
 
 import os
@@ -42,7 +51,21 @@ def build_acp_config(
     enable_thinking: bool = True,
     modes: Optional[List[PrepareToolsMode]] = None,
 ) -> AdapterConfig:
-    """Constructs a production-ready ACP AdapterConfig."""
+    """Construct a production-ready ACP AdapterConfig.
+
+    Configures session storage, capability bridges (thinking, approvals),
+    and interaction modes (ask, plan).
+
+    Args:
+        session_root: Optional path for session storage.
+        enable_approvals: Whether to enable the approval bridge.
+        enable_thinking: Whether to enable the thinking bridge.
+        modes: Optional custom list of preparation modes.
+
+    Returns:
+        A configured AdapterConfig instance.
+
+    """
     if not session_root:
         session_root = Path(os.getenv("ACP_SESSION_ROOT", ".acp-sessions"))
 
@@ -91,14 +114,28 @@ def build_acp_config(
 
 
 def create_acp_app(agent: Agent, config: AdapterConfig):
-    """Creates a mountable ACP ASGI application from an agent."""
+    """Create a mountable ACP ASGI application from a Pydantic AI agent.
+
+    Args:
+        agent: The Pydantic AI agent instance.
+        config: The ACP adapter configuration.
+
+    Returns:
+        An ASGI-compatible application instance.
+
+    """
     from pydantic_acp import create_acp_agent
 
     return create_acp_agent(agent=agent, config=config)
 
 
 def is_acp_available() -> bool:
-    """Checks if the pydantic-acp package is installed."""
+    """Check if the pydantic-acp package is installed and usable.
+
+    Returns:
+        True if pydantic-acp can be imported, False otherwise.
+
+    """
     try:
         import pydantic_acp  # noqa: F401
 

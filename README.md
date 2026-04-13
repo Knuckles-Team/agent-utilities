@@ -29,7 +29,8 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 
 ## Key Features
 
-- **Dynamic MCP Tool Distribution**: Load an `mcp_config.json` and the system automatically connects to each MCP server, extracts and tags every tool, partitions them into focused specialist agents (~10-20 tools each), and registers them as graph nodes at runtime. This keeps context windows light - "GitLab Projects" specialist only sees 10 project tools
+- **Native Multi-Modal (Vision) Support**: Direct processing of image context within the graph orchestrator. Decodes base64 image data into `pydantic_ai.BinaryContent` for high-fidelity multi-modal reasoning.
+- **Dynamic MCP Tool Distribution**: Load an `mcp_config.json` and the system automatically connects to each MCP server, extracts and tags every tool, partitions them into focused specialist agents (~10-20 tools each), and registers them as graph nodes at runtime. This keeps context windows light - "GitLab Projects" specialist only sees 10 project tools.
 - **Flexible Skill Loading**: Unified `skill_types` parameter to dynamically load `universal` skills, `graphs`, or custom workspace toolsets.
 - **Advanced Graph Orchestration**: Router → Planner → Dispatcher pipeline with parallel fan-out execution. Dynamic step registration for both hardcoded skill agents and MCP-discovered specialists.
 - **Self-Healing**: Circuit breaker for MCP Servers (closed/open/half-open), specialist fallback chain, tool-level retries with exponential backoff, per-node timeout, and automatic re-planning on failure.
@@ -52,6 +53,69 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 | `agent-terminal-ui` | Library | High-performance Terminal User Interface (TUI) for local CLI interaction. |
 
 `agent-utilities` implements a multi-stage execution pipeline using `pydantic-graph` for maximum precision and resilience.
+
+### Ecosystem Dependency Graph
+
+```mermaid
+graph TD
+    subgraph Packages ["Core Ecosystem Packages"]
+        direction TB
+        Utility["<b>agent-utilities</b><br/>(Python)"]
+        Terminal["<b>agent-terminal-ui</b><br/>(Python/Textual)"]
+        Web["<b>agent-webui</b><br/>(React/Next.js)"]
+    end
+
+    subgraph Internal_Deps ["Internal Interface Layer"]
+        direction LR
+        Terminal -- depends on --> Utility
+        Web -- interfaces with --> Utility
+    end
+
+    subgraph External_Utility ["agent-utilities Dependencies"]
+        direction TB
+        PAI[pydantic-ai]
+        PGraph[pydantic-graph]
+        PACP[pydantic-acp]
+        PAISkills[pydantic-ai-skills]
+        FastMCP[fastmcp]
+        FastAPI[fastapi]
+        Logfire[logfire]
+    end
+
+    subgraph External_Terminal ["agent-terminal-ui Dependencies"]
+        direction TB
+        Textual[textual]
+        Rich[rich]
+        HTTPX_T[httpx]
+    end
+
+    subgraph External_Web ["agent-webui Dependencies"]
+        direction TB
+        ASDK["@ai-sdk/react (Vercel)"]
+        AI["ai (Vercel SDK)"]
+        React[react]
+        Tailwind[tailwindcss]
+        Vite[vite]
+    end
+
+    Utility --> PAI
+    Utility --> PGraph
+    Utility --> PACP
+    Utility --> PAISkills
+    Utility --> FastMCP
+    Utility --> FastAPI
+    Utility --> Logfire
+
+    Terminal --> Textual
+    Terminal --> Rich
+    Terminal --> HTTPX_T
+
+    Web --> ASDK
+    Web --> AI
+    Web --> React
+    Web --> Tailwind
+    Web --> Vite
+```
 
 ### C4 Container Diagram
 ```mermaid
@@ -86,7 +150,7 @@ C4Container
 
 ```mermaid
   graph TB
-  Start([User Query]) --> ACPLayer["<b>ACP Protocol Adapter</b><br/><i>(pydantic-acp)</i>"]
+  Start([User Query + Images]) --> ACPLayer["<b>ACP Protocol Adapter</b><br/><i>(pydantic-acp)</i>"]
   ACPLayer --> UsageGuard[Usage Guard: Rate Limiting]
   UsageGuard -- "Allow" --> router_step[Router: Topology Selection]
   UsageGuard -- "Block" --> End([End Result])

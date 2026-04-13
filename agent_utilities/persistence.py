@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""State Persistence Module.
+
+This module provides various backends for persisting graph execution state,
+including file-based JSON storage, PostgreSQL via asyncpg, and Redis. It ensures
+that long-running agentic workflows can be checkpointed and resumed across
+process restarts.
+"""
 
 from __future__ import annotations
 
@@ -33,9 +41,7 @@ StateT = TypeVar("StateT")
 
 
 class EnhancedFileStatePersistence(BaseStatePersistence[StateT]):
-    """
-    JSON-based file persistence with automatic directory management.
-    """
+    """JSON-based file persistence with automatic directory management."""
 
     def __init__(self, json_file: str | Path):
         if FileStatePersistence is None:
@@ -60,9 +66,7 @@ class EnhancedFileStatePersistence(BaseStatePersistence[StateT]):
 
 
 class PostgresStatePersistence(BaseStatePersistence[StateT]):
-    """
-    PostgreSQL-based state persistence using asyncpg.
-    """
+    """PostgreSQL-based state persistence using asyncpg."""
 
     def __init__(self, dsn: str, table_name: str = "graph_snapshots"):
         self.dsn = dsn
@@ -148,9 +152,7 @@ class PostgresStatePersistence(BaseStatePersistence[StateT]):
 
 
 class RedisStatePersistence(BaseStatePersistence[StateT]):
-    """
-    Redis-based state persistence using redis-py (asyncio).
-    """
+    """Redis-based state persistence using redis-py (asyncio)."""
 
     def __init__(self, url: str, prefix: str = "graph:"):
         self.url = url
@@ -211,9 +213,7 @@ class RedisStatePersistence(BaseStatePersistence[StateT]):
 def persistence_factory(
     persistence_type: str = "file", run_id: Optional[str] = None, **kwargs
 ) -> Optional[BaseStatePersistence]:
-    """
-    Factory to return a pydantic-graph persistence backend.
-    """
+    """Factory to return a pydantic-graph persistence backend."""
     ptype = persistence_type.lower()
 
     if ptype == "file":

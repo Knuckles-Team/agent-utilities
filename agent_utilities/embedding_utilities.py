@@ -1,5 +1,11 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Embedding Utilities Module.
 
+This module provides factory functions for initializing LlamaIndex-compatible
+embedding models. It supports various providers including OpenAI, Ollama,
+HuggingFace, and local models, with robust environment-based configuration.
+"""
 
 import os
 import httpx
@@ -61,8 +67,24 @@ def create_embedding_model(
     ssl_verify: bool = to_boolean(string=os.environ.get("SSL_VERIFY", "true")),
     timeout: float = 300.0,
 ) -> "BaseEmbedding":
-    """
-    Get the embedding model based on parameters or environment variables.
+    """Initialize an embedding model based on provider and environment.
+
+    Args:
+        provider: Name of the embedding provider ('openai', 'ollama',
+            'huggingface', 'local').
+        model: Specific model identifier.
+        base_url: Base URL for provider API requests.
+        api_key: Optional API key for authentication.
+        ssl_verify: Whether to verify SSL certificates.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        An initialized LlamaIndex BaseEmbedding instance.
+
+    Raises:
+        ImportError: If a requested provider's dependency is missing.
+        ValueError: If an unsupported provider is specified.
+
     """
     from llama_index.embeddings.openai import OpenAIEmbedding
 

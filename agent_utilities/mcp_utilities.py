@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""MCP Utilities Module.
+
+This module provides boilerplate and helper functions for working with the
+Model Context Protocol (MCP). It handles CLI argument parsing for MCP servers,
+automated server initialization with middleware stacks, and robust loading
+of MCP configurations from JSON files with environment variable expansion.
+"""
 
 import os
 import argparse
@@ -56,6 +64,16 @@ __version__ = "0.2.39"
 
 
 def create_mcp_parser():
+    """Create a standard argument parser for MCP servers.
+
+    Defines a comprehensive set of CLI flags for transport selection (stdio,
+    sse, http), host/port configuration, authentication (JWT, OIDC, OAuth),
+    and Eunomia policy enforcement.
+
+    Returns:
+        An argparse.ArgumentParser instance.
+
+    """
     parser = argparse.ArgumentParser(add_help=False, description="MCP Server")
     parser.add_argument(
         "-t",
@@ -244,16 +262,26 @@ def create_mcp_server(
     version: str = "0.1.0",
     instructions: str = "",
 ):
-    """
-    High-level helper that consolidates the MCP server boilerplate:
-      1. Creates the argument parser via create_mcp_parser()
-      2. Parses CLI arguments
-      3. Configures auth based on --auth-type
-      4. Assembles standard middleware stack
-      5. Creates a FastMCP instance
+    """Initialize a FastMCP server with a standard middleware and auth stack.
+
+    This helper consolidates the steps of creating a parser, configuring
+    authentication providers (JWT, OIDC, etc.), and assembling standard
+    middleware (Logging, Timing, Rate Limiting). It handles CLI flag
+    parsing and will exit the process if help is requested or configuration
+    is invalid.
+
+    Args:
+        name: The human-readable name of the MCP server.
+        version: Semantic version string for the server.
+        instructions: System instructions specific to this MCP server's
+            tools, providing context for the LLM.
 
     Returns:
-        tuple: (args, mcp, middlewares) ready for tool registration and server start.
+        A tuple containing:
+            - args: The parsed argparse.Namespace object.
+            - mcp: The initialized FastMCP server instance.
+            - middlewares: A list of configured middleware instances.
+
     """
     import warnings
 
@@ -540,11 +568,17 @@ def create_mcp_server(
 def load_mcp_config(config_path: Union[str, Path]) -> list[Any]:
     """Load and expand environment variables in an MCP config file.
 
+    Reads the specified mcp_config.json, expands any environment variable
+    placeholders (e.g., ${API_KEY}), performs robust pre-validation of
+    executable commands in the PATH, and initializes the server objects.
+
     Args:
         config_path: Path to the mcp_config.json file.
 
     Returns:
-        List of initialized MCPServer objects.
+        A list of initialized pydantic_ai.mcp.MCPServer objects (technically
+        MCPToolSet in newer versions, but returned as list of servers here).
+
     """
     import tempfile
     import json

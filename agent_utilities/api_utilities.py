@@ -1,5 +1,11 @@
 #!/usr/bin/python
+# coding: utf-8
+"""API Utilities Module.
 
+This module serves as a central export point for API-related
+exceptions and authentication decorators used throughout the
+agent ecosystem.
+"""
 
 __version__ = "0.2.39"
 

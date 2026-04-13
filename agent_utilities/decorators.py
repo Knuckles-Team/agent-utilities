@@ -1,14 +1,26 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Agent Decorators Module.
 
+This module provides reusable decorators for agent logic. It includes
+authentication guards and other functional wrappers used to enforce
+pre-conditions on agent actions or API calls.
+"""
 
 import functools
 from agent_utilities.exceptions import LoginRequiredError
 
 
 def require_auth(function):
-    """
-    Wraps API calls in function that ensures headers are passed
-    with a token or API key
+    """Decorator to enforce authentication on API wrapper methods.
+
+    Checks if 'self.headers' is populated before executing the wrapped
+    function. Typically used in API client wrappers to ensure credentials
+    are present.
+
+    Raises:
+        LoginRequiredError: If headers are missing.
+
     """
 
     @functools.wraps(function)

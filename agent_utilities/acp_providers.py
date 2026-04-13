@@ -1,7 +1,10 @@
-"""ACP custom providers for agent-utilities ecosystem.
+#!/usr/bin/python
+# coding: utf-8
+"""ACP Providers Module.
 
-Bridges ACP protocol features (planning, session state) to
-local agent-utilities/workspace conventions.
+This module implements custom persistence providers for the ACP protocol.
+It enables mirroring of ACP session state (like plans) into workspace-local
+markdown files, ensuring human-readability and state persistence across restarts.
 """
 
 from __future__ import annotations
@@ -18,7 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 class WorkspacePlanPersistenceProvider:
-    """Mirrors ACP plan state into workspace markdown files (e.g. MEMORY.md)."""
+    """Persistence provider that mirrors ACP plan state to workspace files.
+
+    This provider synchronizes the internal ACP plan state (tasks and their
+    completion status) into a markdown file (e.g., MEMORY.md) within the
+    agent's workspace.
+    """
 
     def __init__(
         self, workspace_root: Optional[Path] = None, plan_filename: str = "MEMORY.md"
@@ -29,7 +37,13 @@ class WorkspacePlanPersistenceProvider:
     async def persist_plan_state(
         self, ctx: "AcpSessionContext", plan: Sequence["PlanEntry"]
     ) -> None:
-        """Saves the current ACP plan state into a human-readable markdown file."""
+        """Persist the current ACP plan state to a markdown file.
+
+        Args:
+            ctx: The active ACP session context.
+            plan: A sequence of plan entries to persist.
+
+        """
         plan_path = self.workspace_root / self.plan_filename
 
         logger.info(f"Syncing ACP plan state to {plan_path}")
@@ -49,7 +63,15 @@ class WorkspacePlanPersistenceProvider:
 
 
 def get_workspace_persistence_provider() -> "WorkspacePlanPersistenceProvider":
-    """Factory function to get a workspace persistence provider."""
+    """Factory function to initialize a WorkspacePlanPersistenceProvider.
+
+    Retrieves the current workspace directory from the server state and
+    constructs a provider pointing to that location.
+
+    Returns:
+        An instance of WorkspacePlanPersistenceProvider.
+
+    """
     from .server import WORKSPACE_DIR
 
     return WorkspacePlanPersistenceProvider(workspace_root=Path(WORKSPACE_DIR or "."))

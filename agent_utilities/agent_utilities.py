@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
-"""
-Agent Utilities Facade
+"""Agent Utilities Facade
 This module re-exports all functionalities from the newly disaggregated
 sub-modules to maintain strict backward compatibility with existing agents.
 """

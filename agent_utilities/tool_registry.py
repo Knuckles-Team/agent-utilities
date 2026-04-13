@@ -1,15 +1,13 @@
 #!/usr/bin/python
 # coding: utf-8
-"""
-Tool Registry Module
+"""Tool Registry Module.
 
-This module provides a centralized system for registering agent tools. It handles 
-the aggregation of various domain-specific toolsets (workspace, memory, git, etc.) 
+This module provides a centralized system for registering agent tools. It handles
+the aggregation of various domain-specific toolsets (workspace, memory, git, etc.)
 and applies environment-based gating to control which tools are exposed to the agent.
 """
 
 import os
-import warnings
 from typing import Any, Optional, Union
 from pydantic_ai import Agent, RunContext
 
@@ -21,15 +19,16 @@ __version__ = "0.2.39"
 def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> None:
     """Central aggregator for registering all Agent OS tools.
 
-    Groups tools by domain and applies environment-based gating using 
-    environment variables (e.g., WORKSPACE_TOOLS, GIT_TOOLS). If a graph_bundle 
-    is provided, the agent is configured as a graph orchestrator, restricting 
+    Groups tools by domain and applies environment-based gating using
+    environment variables (e.g., WORKSPACE_TOOLS, GIT_TOOLS). If a graph_bundle
+    is provided, the agent is configured as a graph orchestrator, restricting
     it to only use the 'run_graph_flow' tool for strict routing isolation.
 
     Args:
         agent: The Pydantic AI Agent instance to register tools for.
-        graph_bundle: An optional tuple containing (graph, config) used to 
+        graph_bundle: An optional tuple containing (graph, config) used to
             configure the agent as a graph orchestrator. Defaults to None.
+
     """
     # Late imports to avoid circularity during initialization
     from .tools.workspace_tools import workspace_tools
@@ -62,10 +61,6 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
     DEFAULT_DEVELOPER_TOOLS = to_boolean(
         string=os.environ.get("DEVELOPER_TOOLS", "True")
     )
-    """
-    Central aggregator for registering all Agent OS tools.
-    Groups tools by domain and applies environment-based gating.
-    """
 
     # 1. Graph Flow Tool (Orchestration)
     if graph_bundle:
@@ -77,8 +72,8 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
         ) -> Union[str, Any]:
             """Execute a complex query through the graph orchestrator.
 
-            The graph automatically classifies and routes the request to specialized 
-            domain nodes (e.g., Python Programmer, DevOps Engineer), executes the 
+            The graph automatically classifies and routes the request to specialized
+            domain nodes (e.g., Python Programmer, DevOps Engineer), executes the
             necessary steps in parallel or sequence, and synthesizes a final result.
 
             Args:
@@ -87,12 +82,15 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
 
             Returns:
                 The synthesized output from the graph execution or an error message.
+
             """
             eq = getattr(ctx.deps, "graph_event_queue", None) if ctx.deps else None
             from .graph_orchestration import run_graph
 
             # Forward runtime MCP toolsets and LLM config from AgentDeps so the graph uses alread-conencted servers and current credentials instead of None values baked in from the default config
-            runtime_toolsets = getattr(ctx.deps, "mcp_toolsets", None) if ctx.deps else None
+            runtime_toolsets = (
+                getattr(ctx.deps, "mcp_toolsets", None) if ctx.deps else None
+            )
             result = await run_graph(
                 graph,
                 config,

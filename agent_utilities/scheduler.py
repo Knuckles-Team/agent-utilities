@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Task Scheduler Module.
+
+This module provides a persistent task scheduling system for agents. It
+manages periodic tasks defined in CRON.md, maintains an execution history
+in CRON_LOG.md, and runs a background processor to execute scheduled tasks
+using the agent's core capabilities.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +46,12 @@ logger = logging.getLogger(__name__)
 
 
 def get_cron_tasks_from_md() -> CronRegistryModel:
-    """Parse CRON.md and return CronRegistryModel."""
+    """Retrieve the current scheduled tasks from the CRON.md registry.
+
+    Returns:
+        A CronRegistryModel object containing the list of active tasks.
+
+    """
     content = load_workspace_file(CORE_FILES["CRON"])
     if not content:
         return CronRegistryModel()
@@ -46,7 +59,12 @@ def get_cron_tasks_from_md() -> CronRegistryModel:
 
 
 def get_cron_logs_from_md() -> CronLogModel:
-    """Parse CRON_LOG.md and return CronLogModel."""
+    """Retrieve the historical task execution logs from CRON_LOG.md.
+
+    Returns:
+        A CronLogModel object containing the history of task runs.
+
+    """
     content = load_workspace_file(CORE_FILES["CRON_LOG"])
     if not content:
         return CronLogModel()
@@ -56,7 +74,15 @@ def get_cron_logs_from_md() -> CronLogModel:
 def update_cron_task_in_cron_md(
     task_id: str, name: str, interval_min: int, prompt: str
 ):
-    """Update/add a task in CRON.md registry."""
+    """Update or create a task definition in the CRON.md workspace file.
+
+    Args:
+        task_id: Unique identifier for the task.
+        name: Human-readable task name.
+        interval_min: Execution interval in minutes.
+        prompt: The prompt or internal command to execute.
+
+    """
     registry = get_cron_tasks_from_md()
 
     updated = False
@@ -86,7 +112,18 @@ def update_cron_task_in_cron_md(
 
 
 def schedule_task(task_id: str, name: str, interval_minutes: int, prompt: str) -> str:
-    """Consolidated tool to schedule a task persistently."""
+    """Public helper to schedule a new task and persist it to disk.
+
+    Args:
+        task_id: Unique identifier.
+        name: Friendly name.
+        interval_minutes: Minutes between runs.
+        prompt: Task instructions or internal script identifier.
+
+    Returns:
+        A status message indicating success or validation error.
+
+    """
     if interval_minutes < 1:
         return "Interval must be ≥ 1 minute"
 
@@ -118,7 +155,15 @@ def schedule_task(task_id: str, name: str, interval_minutes: int, prompt: str) -
 
 
 def delete_scheduled_task(task_id: str) -> str:
-    """Remove a task from CRON.md and memory."""
+    """Permanently remove a scheduled task from both memory and disk.
+
+    Args:
+        task_id: The ID of the task to delete.
+
+    Returns:
+        A success or failure status message.
+
+    """
     registry = get_cron_tasks_from_md()
     original_count = len(registry.tasks)
     registry.tasks = [t for t in registry.tasks if t.id != task_id]
@@ -143,14 +188,27 @@ def delete_scheduled_task(task_id: str) -> str:
 
 
 def list_scheduled_tasks() -> CronRegistryModel:
-    """List all active periodic tasks."""
+    """List all currently active scheduled tasks.
+
+    Returns:
+        A model containing the list of configured tasks.
+
+    """
     return get_cron_tasks_from_md()
 
 
 def append_cron_log(
     task_id: str, task_name: str, output: str, chat_id: Optional[str] = None
 ):
-    """Append a timestamped entry to CRON_LOG.md."""
+    """Log the outcome of a periodic task run to CRON_LOG.md.
+
+    Args:
+        task_id: ID of the task.
+        task_name: Name of the task.
+        output: Text output or error message from the run.
+        chat_id: Optional reference to a persistent chat log.
+
+    """
     path = get_workspace_path("CRON_LOG.md")
     if not path.exists():
         initialize_workspace()
@@ -168,7 +226,12 @@ def append_cron_log(
 
 
 def cleanup_cron_log(max_entries: int = DEFAULT_MAX_CRON_LOG_ENTRIES):
-    """Keep only the last `max_entries` log entries in CRON_LOG.md."""
+    """Prune the CRON_LOG.md file to maintain a manageable size.
+
+    Args:
+        max_entries: The number of recent log entries to retain.
+
+    """
     log_model = get_cron_logs_from_md()
     if len(log_model.entries) <= max_entries:
         return
@@ -181,10 +244,10 @@ def cleanup_cron_log(max_entries: int = DEFAULT_MAX_CRON_LOG_ENTRIES):
 
 
 async def reload_cron_tasks():
-    """Reload all tasks from CRON.md.
+    """Synchronize the in-memory task list with the CRON.md registry.
 
-    Every row in the table becomes a PeriodicTask.  Prompts starting with
-    '@' are resolved to workspace file contents at execution time (not here).
+    Ensures the background processor is aware of any changes made to
+    the workspace file during runtime.
     """
     registry = get_cron_tasks_from_md()
     parsed_tasks = [
@@ -211,8 +274,15 @@ async def reload_cron_tasks():
 
 
 async def background_processor(agent: Any):
-    """Background processor for periodic tasks."""
+    """The main execution loop for periodic tasks.
 
+    Periodically reloads tasks, monitors run intervals, and executes
+    overdue tasks by calling the agent.
+
+    Args:
+        agent: The agent instance used to run resolved prompts.
+
+    """
     logger = logging.getLogger(__name__)
     logger.debug("In-memory periodic processor started (checks every 60 s)")
 

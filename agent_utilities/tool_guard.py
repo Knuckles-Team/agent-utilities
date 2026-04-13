@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Tool Guard Module.
+
+This module implements a security middleware layer for agent tools. It provides
+pattern-based sensitivity detection and integrates with pydantic-ai's
+Human-in-the-Loop mechanism to enforce explicit user approval for
+high-risk operations.
+"""
 
 from __future__ import annotations
 
@@ -42,6 +50,7 @@ def apply_tool_guard_approvals(agent: "Agent") -> None:
 
     Args:
         agent: The Pydantic AI Agent instance to modify.
+
     """
     if TOOL_GUARD_MODE == "off":
         logger.debug("Tool guard disabled (TOOL_GUARD_MODE=off)")

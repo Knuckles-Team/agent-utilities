@@ -1,4 +1,12 @@
 #!/usr/bin/python
+# coding: utf-8
+"""Graph Executor Module.
+
+This module implements the core logic for executing specialized agent nodes
+within a pydantic-graph orchestration. It handles dynamic MCP tool binding,
+domain-specific specialist logic, circuit breaker health checks, and
+automated fallback strategies for resilience in production workflows.
+"""
 
 from __future__ import annotations
 
@@ -33,7 +41,19 @@ logger = logging.getLogger(__name__)
 
 
 async def _get_domain_tools(node_id: str, deps: GraphDeps) -> list[Any]:
-    """Helper to dynamically fetch tools for a specialized domain expert."""
+    """Dynamically discover and load toolsets specialized for a domain expert.
+
+    Starts with universal developer tools and augments them with domain-specific
+    skills listed in the NODE_SKILL_MAP.
+
+    Args:
+        node_id: The functional node identifier (e.g., 'researcher').
+        deps: The global dependency container.
+
+    Returns:
+        A combined list of developer tools and specialized skill functions.
+
+    """
     # Start with universal developer tools
     from ..tools.developer_tools import developer_tools
 
@@ -47,7 +67,15 @@ async def _get_domain_tools(node_id: str, deps: GraphDeps) -> list[Any]:
 
 
 def get_step_descriptions() -> str:
-    """Returns a catalog of available expert nodes for the LLM planner."""
+    """Generate a formatted catalog of expert capabilities for the LLM planner.
+
+    Combines static roles, discovered A2A peers, and registered MCP specialists
+    into a cohesive markdown list used in system prompts.
+
+    Returns:
+        A multi-line markdown string describing all available graph nodes.
+
+    """
     from ..a2a import discover_agents
 
     # Discovery of local agent packages
@@ -108,7 +136,26 @@ def get_step_descriptions() -> str:
 async def _execute_dynamic_mcp_agent(
     ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any], agent_info: MCPAgent
 ) -> str:
-    """Executes a dynamically generated MCP agent with circuit breaker, retries, and fallback."""
+    """Execute a dynamically generated specialist agent from an MCP server registry.
+
+    This implements a resilient execution protocol including:
+    1. Precondition checks and circuit breaker validation.
+    2. Dynamic binding of tagged MCP tools for the specific domain.
+    3. LLM execution with per-node timeouts and exponential backoff retries.
+    4. Data synthesis from raw tool results in case of partial success.
+    5. Sideband event emission for real-time UI monitoring and transparency.
+
+    Args:
+        ctx: The pydantic-graph step context containing state and deps.
+        agent_info: Metadata for the specialist to be executed (Registry entry).
+
+    Returns:
+        The identifier of the next graph node to execute (usually 'execution_joiner').
+
+    Raises:
+        RuntimeError: If all retries are exhausted or preconditions fail.
+
+    """
     server_name = agent_info.mcp_server
     agent_name = agent_info.name
 
@@ -299,9 +346,16 @@ async def _execute_dynamic_mcp_agent(
             attempt=attempt + 1,
         )
         try:
-            logger.info(f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Starting (attempt {attempt+1}). Prompt length: {len(agent_sys_prompt)}")
+            logger.info(
+                f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Starting (attempt {attempt+1}). Prompt length: {len(agent_sys_prompt)}"
+            )
+            run_input = (
+                ctx.state.query_parts
+                if ctx.state.query_parts and sub_query == ctx.state.query
+                else sub_query
+            )
             res = await asyncio.wait_for(
-                agent.run(sub_query, deps=ctx.deps, message_history=prev_messages),
+                agent.run(run_input, deps=ctx.deps, message_history=prev_messages),
                 timeout=node_timeout,
             )
             logger.info(f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Completed.")
@@ -478,7 +532,21 @@ async def _attempt_specialist_fallback(
     ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
     failed_agent: MCPAgent,
 ) -> str | None:
-    """Try to find and execute a sibling specialist from the same MCP Server"""
+    """Implement a resilience strategy by falling back to sibling specialists.
+
+    If a targeted expert fails or is unavailable, this helper searches for
+    other specialists from the same MCP server. It scores candidate siblings
+    using keyword intersection between the query and the specialist tags.
+
+    Args:
+        ctx: The pydantic-graph step context containing state and deps.
+        failed_agent: The metadata of the expert that failed.
+
+    Returns:
+        The identifier of the joiner node if a fallback succeeded, or None if
+        no suitable fallback could be identified or executed.
+
+    """
     registry = load_node_agents_registry()
     siblings = [
         a
@@ -526,7 +594,22 @@ async def _execute_agent_package_logic(
     node_id: str,
     meta: dict,
 ) -> str:
-    """Core logic to execute a specialized agent package (Local or A2A)."""
+    """Execute specialized logic for a discovered agent package.
+
+    This function handles the dispatch logic for two primary agent types:
+    - Remote A2A Agents: Delegated via HTTP/SSE using the A2AClient.
+    - Local Dynamic MCP Agents: Managed via the node agent registry and
+      dynamic tool binding.
+
+    Args:
+        ctx: The pydantic-graph step context containing the execution state.
+        node_id: The identifier of the agent package (e.g., 'github').
+        meta: Discovery metadata for the agent (type, URL, description).
+
+    Returns:
+        The identifier of the joiner node ('execution_joiner') after completion.
+
+    """
     deps = ctx.deps
 
     if meta.get("type") == "remote_a2a":
@@ -619,7 +702,19 @@ async def agent_package_step(
     ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
     node_id: str,
 ) -> str:
-    """Functional step for a specific agent package."""
+    """Graph node step wrapper for agent package execution.
+
+    This acts as the standardized entry point for all specialist agent nodes
+    discovered during the bootstrap phase.
+
+    Args:
+        ctx: The pydantic-graph step context.
+        node_id: The identifier of the package to execute.
+
+    Returns:
+        The next node identifier (usually 'execution_joiner' or 'Error').
+
+    """
     from ..a2a import discover_agents
 
     discovered = discover_agents()
@@ -634,7 +729,22 @@ async def agent_package_step(
 async def _execute_specialized_step(
     ctx: StepContext[GraphState, GraphDeps, None], prompt_name: str
 ) -> str | End[Any]:
-    """Shared logic for specialized steps using migrated prompts and skill injection."""
+    """Execute a specialized expert role using structured prompts and tool injection.
+
+    This implements core functional layers (e.g., 'Programmers', 'Security',
+    'QA') by loading persona-specific prompts and binding matching MCP
+    toolsets based on tag compatibility.
+
+    Args:
+        ctx: The pydantic-graph step context containing shared state.
+        prompt_name: The name of the specialized role/prompt to load from
+            the prompts directory.
+
+    Returns:
+        The next node identifier (usually 'execution_joiner') or a terminal
+        End state with a GraphResponse.
+
+    """
     from ..models import GraphResponse
 
     # HSM: Entry action
@@ -646,7 +756,9 @@ async def _execute_specialized_step(
 
     # Dynamic Skill Distribution
     custom_tools = await _get_domain_tools(prompt_name, ctx.deps)
-    logger.info(f"[LAYER:GRAPH:EXPERT] Specialized step '{prompt_name}' started. Tools loaded: {len(custom_tools)}")
+    logger.info(
+        f"[LAYER:GRAPH:EXPERT] Specialized step '{prompt_name}' started. Tools loaded: {len(custom_tools)}"
+    )
 
     memory_instruction = load_specialized_prompts("memory_instruction")
 
@@ -697,8 +809,9 @@ async def _execute_specialized_step(
     prev_messages = ctx.deps.message_history_cache.get(prompt_name)
 
     try:
+        run_input = ctx.state.query_parts if ctx.state.query_parts else ctx.state.query
         async with agent.run_stream(
-            ctx.state.query,
+            run_input,
             message_history=prev_messages,
         ) as stream:
             async for chunk in stream.stream_text(delta=True):
@@ -765,7 +878,22 @@ async def _execute_specialized_step(
 async def _execute_domain_logic(
     ctx: StepContext[GraphState, GraphDeps, str], domain: str
 ):
-    """Core logic for executing a domain, extracted from DomainNode."""
+    """Core logic to execute a domain-specific agent or sub-graph.
+
+    This implements the 'Data & Lifestyle' and 'Media & HomeLab' layers of
+    the ecosystem. It handles environment-based tool activation, local
+    delegation to agent packages, and automated fallback to generic
+    expert agents for unspecified domains.
+
+    Args:
+        ctx: The pydantic-graph step context.
+        domain: The domain identifier to execute (e.g., 'home_assistant').
+
+    Returns:
+        The identifier of the next node (usually 'execution_joiner'), a
+        terminal End state if approval is required, or 'error_recovery'.
+
+    """
     deps = ctx.deps
     domain_prompt = deps.tag_prompts.get(
         domain, f"You are a specialized assistant for the '{domain}' domain."
@@ -823,7 +951,12 @@ async def _execute_domain_logic(
                     emit_graph_event(
                         deps.event_queue, "subagent_started", domain=domain, type="flat"
                     )
-                    async with target.run_stream(ctx.state.query) as stream:
+                    run_input = (
+                        ctx.state.query_parts
+                        if ctx.state.query_parts
+                        else ctx.state.query
+                    )
+                    async with target.run_stream(run_input) as stream:
                         async for message, last in stream.stream_messages():
                             emit_graph_event(
                                 deps.event_queue,
@@ -862,8 +995,13 @@ async def _execute_domain_logic(
 
             emit_graph_event(deps.event_queue, "subagent_started", domain=domain)
 
+            run_input = (
+                ctx.state.query_parts
+                if ctx.state.query_parts and query == ctx.state.query
+                else query
+            )
             result = await asyncio.wait_for(
-                sub_agent.run(query), timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0
+                sub_agent.run(run_input), timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0
             )
 
             output = getattr(result, "output", None) or getattr(result, "data", result)
