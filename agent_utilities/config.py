@@ -1,3 +1,14 @@
+#!/usr/bin/python
+# coding: utf-8
+"""
+Configuration Management Module
+
+This module handles the loading and validation of agent settings from environment 
+variables and .env files using Pydantic Settings. It defines a centralized 
+AgentConfig class and exports default configuration constants used throughout 
+the agent-utilities package.
+"""
+
 import os
 from typing import Optional, Dict, List, Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,7 +37,14 @@ meta = {"name": "Agent", "description": "AI Agent"}
 
 
 def get_env_file() -> Optional[str]:
-    """Identify the caller package's .env file location."""
+    """Identify the location of the .env file for the calling package.
+
+    This function attempts to find a .env file by checking the current working 
+    directory and paths relative to the retrieved package name.
+
+    Returns:
+        The path to the found .env file as a string, or '.env' as a default fallback.
+    """
     from .base_utilities import retrieve_package_name
     from pathlib import Path
 
@@ -44,6 +62,12 @@ def get_env_file() -> Optional[str]:
 
 
 class AgentConfig(BaseSettings):
+    """Configuration schema for the AI Agent server.
+
+    Uses Pydantic BaseSettings to automatically load values from environment 
+    variables (via aliases) or a .env file. Covers LLM settings, server networking, 
+    observability (OTEL), A2A communication, and safety guards.
+    """
     model_config = SettingsConfigDict(
         env_file=get_env_file(),
         env_ignore_empty=True,
@@ -63,6 +87,9 @@ class AgentConfig(BaseSettings):
     debug: bool = Field(default=False, alias="DEBUG")
     enable_web_ui: bool = Field(default=False, alias="ENABLE_WEB_UI")
     enable_terminal_ui: bool = Field(default=False, alias="ENABLE_TERMINAL_UI")
+    enable_acp: bool = Field(default=False, alias="ENABLE_ACP")
+    acp_port: int = Field(default=8001, alias="ACP_PORT")
+    acp_session_root: str = Field(default=".acp-sessions", alias="ACP_SESSION_ROOT")
 
     provider: Optional[str] = Field(default=None, alias="PROVIDER")
     model_id: Optional[str] = Field(default=None, alias="MODEL_ID")
@@ -78,6 +105,8 @@ class AgentConfig(BaseSettings):
         default="agent_data/graph_state", alias="GRAPH_PERSISTENCE_PATH"
     )
     enable_llm_validation: bool = Field(default=False, alias="ENABLE_LLM_VALIDATION")
+    graph_router_timeout: float = Field(default=300.0, alias="GRAPH_ROUTER_TIMEOUT")
+    graph_verifier_timeout: float = Field(default=300.0, alias="GRAPH_VERIFIER_TIMEOUT")
 
     custom_skills_directory: Optional[str] = Field(
         default=None, alias="CUSTOM_SKILLS_DIRECTORY"
@@ -206,6 +235,9 @@ DEFAULT_SKILL_TYPES = config.skill_types
 DEFAULT_ENABLE_WEB_UI = config.enable_web_ui
 DEFAULT_ENABLE_TERMINAL_UI = config.enable_terminal_ui
 DEFAULT_ENABLE_OTEL = config.enable_otel
+DEFAULT_ENABLE_ACP = config.enable_acp
+DEFAULT_ACP_PORT = config.acp_port
+DEFAULT_ACP_SESSION_ROOT = config.acp_session_root
 
 if not config.enable_otel:
     os.environ["OTEL_SDK_DISABLED"] = "true"
@@ -283,3 +315,5 @@ DEFAULT_GRAPH_PERSISTENCE_TYPE = config.graph_persistence_type
 DEFAULT_GRAPH_PERSISTENCE_PATH = config.graph_persistence_path
 DEFAULT_ENABLE_LLM_VALIDATION = config.enable_llm_validation
 DEFAULT_ROUTING_STRATEGY = config.routing_strategy
+DEFAULT_GRAPH_ROUTER_TIMEOUT = config.graph_router_timeout
+DEFAULT_GRAPH_VERIFIER_TIMEOUT = config.graph_verifier_timeout

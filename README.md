@@ -63,7 +63,7 @@ C4Container
     Container_Boundary(c1, "Agent Ecosystem") {
         Container(webui, "Agent WebUI", "React, Tailwind", "Renders streaming responses and graph activity visualization")
         Container(tui, "Agent Terminal UI", "Python, Textual", "Provides a high-performance terminal interface for direct CLI interaction")
-        Container(gateway, "Agent Gateway (FastAPI)", "Python, Pydantic-AI", "Handles SSE streams, merges graph events into chat annotations")
+        Container(gateway, "Agent Gateway (FastAPI)", "Python, Pydantic-AI", "Handles ACP sessions and SSE streams, merges graph events into chat annotations")
         Container(orchestrator, "Graph Orchestrator", "Pydantic-Graph", "Routes queries, executes parallel domains, validates results")
         Container(subagent, "Domain Sub-Agents", "Pydantic-AI", "Specialized agents for Git, Web, Cloud, etc.")
     }
@@ -73,8 +73,8 @@ C4Container
 
     Rel(user, webui, "Uses", "HTTPS/WSS")
     Rel(user, tui, "Uses", "Terminal/CLI")
-    Rel(webui, gateway, "Queries", "POST /stream (SSE)")
-    Rel(tui, gateway, "Queries", "POST /stream (SSE)")
+    Rel(webui, gateway, "Queries", "ACP /acp (SSE)")
+    Rel(tui, gateway, "Queries", "ACP /acp (SSE)")
     Rel(gateway, orchestrator, "Dispatches", "Async Python")
     Rel(orchestrator, subagent, "Delegates", "Parallel Execution")
     Rel(subagent, mcp, "Invokes Tools", "JSON-RPC (stdio/SSE)")
@@ -86,7 +86,8 @@ C4Container
 
 ```mermaid
   graph TB
-  Start([User Query]) --> UsageGuard[Usage Guard: Rate Limiting]
+  Start([User Query]) --> ACPLayer["<b>ACP Protocol Adapter</b><br/><i>(pydantic-acp)</i>"]
+  ACPLayer --> UsageGuard[Usage Guard: Rate Limiting]
   UsageGuard -- "Allow" --> router_step[Router: Topology Selection]
   UsageGuard -- "Block" --> End([End Result])
 
@@ -242,6 +243,14 @@ C4Container
   style res_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
   style exe_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
   style dispatcher fill:#f5f5f5,stroke:#666,stroke-width:2px
+  style Start color:#000000,fill:#38B6FF
+	style subGraph0 color:#000000,fill:#f5ebd3
+	style subGraph5 color:#000000,fill:#f5f1d3
+	style dispatcher fill:#d5e8d4,stroke:#666,stroke-width:2px
+  style Ecosystem fill:#f5d0ef,stroke:#d6b656,stroke-width:2px
+  style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
+	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
+  style ACPLayer color:#000000,fill:#38B6FF,stroke-width:2px
   style Start color:#000000,fill:#38B6FF
 	style subGraph0 color:#000000,fill:#f5ebd3
 	style subGraph5 color:#000000,fill:#f5f1d3

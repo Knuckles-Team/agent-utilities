@@ -82,6 +82,9 @@ async def run_graph(
 
     state = GraphState(query=query, mode=mode, topology=topology)
 
+    _custom_headers = config.get("custom_headers")
+    _ssl_verify = config.get("ssl_verify", DEFAULT_SSL_VERIFY)
+
     deps = GraphDeps(
         tag_prompts=config.get("tag_prompts", {}),
         tag_env_vars=config.get("tag_env_vars", {}),
@@ -94,13 +97,17 @@ async def run_graph(
             model_id=config.get("router_model", DEFAULT_ROUTER_MODEL),
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
+            custom_headers=_custom_headers,
             provider=config.get("provider", DEFAULT_PROVIDER),
+            ssl_verify=_ssl_verify,
         ),
         agent_model=create_model(
             model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
+            custom_headers=_custom_headers,
             provider=config.get("provider", DEFAULT_PROVIDER),
+            ssl_verify=_ssl_verify,
         ),
         nodes=config.get("nodes", {}),
         min_confidence=config.get("min_confidence", 0.6),
@@ -108,13 +115,16 @@ async def run_graph(
         provider=config.get("provider", DEFAULT_PROVIDER),
         base_url=config.get("base_url"),
         api_key=config.get("api_key"),
-        ssl_verify=config.get("ssl_verify", DEFAULT_SSL_VERIFY),
+        ssl_verify=_ssl_verify,
         event_queue=eq,
+        router_timeout=config.get("router_timeout"),
+        verifier_timeout=config.get("verifier_timeout"),
         request_id=config.get("request_id", run_id),
         routing_strategy=config.get("routing_strategy", "hybrid"),
         enable_llm_validation=config.get(
             "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
         ),
+        discovery_metadata=config.get("discovery_metadata", {}),
     )
 
     state = GraphState(query=query, session_id=run_id, mode=mode, topology=topology)
@@ -193,23 +203,28 @@ async def run_graph(
         logger.info(
             f"run_graph: Starting graph execution for run_id {run_id}. Registered {len(deps.tag_prompts)} specialists."
         )
+        result = None
         if tracer:
             with tracer.start_as_current_span(f"graph_run:{run_id}") as span:
                 span.set_attribute("query", query)
                 span.set_attribute("request_id", deps.request_id)
-                # Use anyio.move_on_after (not asyncio.wait_for) to avoid cross-task cancel scope errors
-                with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0):
+                with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
                     result = await graph.run(state=state, deps=deps)
-                span.set_status(trace.Status(trace.StatusCode.OK))
+                if scope.cancel_called:
+                    logger.error(f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms")
+                span.set_status(trace.Status(trace.StatusCode.OK if result else trace.StatusCode.ERROR))
         else:
             logger.info("run_graph: Running beta graph.run (no tracer)...")
-            with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0):
+            with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
                 result = await graph.run(state=state, deps=deps)
+            if scope.cancel_called:
+                logger.error(f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms")
+            
             logger.info(
                 f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"
             )
             emit_graph_event(
-                deps.event_queue, "graph-complete", run_id=run_id, status="success"
+                deps.event_queue, "graph-complete", run_id=run_id, status="success" if result else "timeout"
             )
             logger.info(
                 f"run_graph: Final state: routed_domain={state.routed_domain}, "
@@ -290,6 +305,9 @@ async def run_graph_stream(
         topology=topology,
     )
 
+    _custom_headers = config.get("custom_headers")
+    _ssl_verify = config.get("ssl_verify", DEFAULT_SSL_VERIFY)
+
     deps = GraphDeps(
         tag_prompts=config.get("tag_prompts", {}),
         tag_env_vars=config.get("tag_env_vars", {}),
@@ -302,26 +320,33 @@ async def run_graph_stream(
             model_id=config.get("router_model", DEFAULT_ROUTER_MODEL),
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
+            custom_headers=_custom_headers,
             provider=config.get("provider", DEFAULT_PROVIDER),
+            ssl_verify=_ssl_verify,
         ),
         agent_model=create_model(
             model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
+            custom_headers=_custom_headers,
             provider=config.get("provider", DEFAULT_PROVIDER),
+            ssl_verify=_ssl_verify,
         ),
         min_confidence=config.get("min_confidence", 0.6),
         sub_agents=config.get("sub_agents", {}),
         provider=config.get("provider", DEFAULT_PROVIDER),
         base_url=config.get("base_url"),
         api_key=config.get("api_key"),
-        ssl_verify=config.get("ssl_verify", DEFAULT_SSL_VERIFY),
+        ssl_verify=_ssl_verify,
         event_queue=eq,
+        router_timeout=config.get("router_timeout"),
+        verifier_timeout=config.get("verifier_timeout"),
         request_id=run_id,
         routing_strategy=config.get("routing_strategy", "hybrid"),
         enable_llm_validation=config.get(
             "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
         ),
+        discovery_metadata=config.get("discovery_metadata", {}),
     )
 
     state = GraphState(query=query, mode=mode, topology=topology)
@@ -333,35 +358,44 @@ async def run_graph_stream(
         path.parent.mkdir(parents=True, exist_ok=True)
         # persistence = FileStatePersistence(json_file=path)
 
+    # Shared container for background tasks to pass graph results to the main loop
+    graph_result_holder = {"value": None}
+
     async def run_in_background():
         from contextlib import AsyncExitStack
 
         try:
             async with AsyncExitStack() as stack:
                 # Connect to all MCP servers in parallel
-                async def connect_server(server):
-                    if hasattr(server, "__aenter__"):
-                        logger.info(
-                            f"run_graph_stream_bg: Connecting to MCP server {server}"
-                        )
-                        try:
-                            return await stack.enter_async_context(server)
-                        except Exception as e:
-                            logger.error(
-                                f"run_graph_stream_bg: Failed to connect to MCP server {server}: {e}"
-                            )
-                            return None
-                    return server
+                connected_toolsets = []
+                for ts in deps.mcp_toolsets:
+                    if not hasattr(ts, "__aenter__"):
+                        connected_toolsets.append(ts)
+                        continue
+                    if getattr(ts, "_ag_connected", False):
+                        connected_toolsets.append(ts)
+                        continue
+                    srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
+                    logger.info(
+                        f"run_graph_stream_bg: Connecting to MCP server '{srv_id}'..."
+                    )
 
-                connected_toolsets = await asyncio.gather(
-                    *(connect_server(ts) for ts in deps.mcp_toolsets)
-                )
+                    try:
+                        connected = await stack.enter_async_context(ts)
+                        ts._ag_connected = True
+                        connected_toolsets.append(connected)
+                    except Exception as e:
+                        logger.error(
+                            f"run_graph_stream_bg: Failed to connect to MCP server '{srv_id}': {e}"
+                        )
+
                 deps.mcp_toolsets = [ts for ts in connected_toolsets if ts is not None]
 
-                await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     graph.run(state=state, deps=deps),
                     timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
                 )
+                graph_result_holder["value"] = result
         except asyncio.TimeoutError:
             await eq.put({"type": "error", "error": "Graph execution timed out"})
         except Exception as e:
@@ -384,7 +418,33 @@ async def run_graph_stream(
 
     await task
 
-    final_output = state.results.get(state.routed_domain, "No output generated.")
+    # Extract the best available output with fallback mechanisms
+    # 1. Graph End result (verifier's synthesized GraphResponse)
+    # 2. state.results keyed by routed_domain (set by expert executor)
+    # 3. First value in results_registry (plan-based, set by any step)
+    # 4. First value in state.results (domain-based)
+    # 5. Fallback message
+    final_output = None
+    graph_result = graph_result_holder.get("value")
+    if graph_result is not None:
+        # pydantic-graph End wraps the value in .data; GraphResponse has .results["Output"]
+        result_data = getattr(graph_result, "data", graph_result)
+        if hasattr(result_data, "results"):
+            final_output = result_data.results.get("output")
+        elif isinstance(result_data, dict):
+            final_output = result_data.get("output", str(result_data))
+        elif result_data:
+            final_output = str(result_data)
+    if not final_output:
+        final_output = (
+            state.results.get(state.routed_domain) if state.routed_domain else None
+        )
+    if not final_output:
+        final_output = next(iter(state.results_registry.values()), None)
+    if not final_output:
+        final_output = next(iter(state.results.values()), None)
+    if not final_output:
+        final_output = "No output generated."
     yield f"data: {json.dumps({'type': 'final_output', 'content': final_output})}\n\n"
 
 

@@ -52,6 +52,8 @@ from .config import (
     DEFAULT_GRAPH_PERSISTENCE_TYPE,
     DEFAULT_GRAPH_PERSISTENCE_PATH,
     DEFAULT_ENABLE_TERMINAL_UI,
+    DEFAULT_ENABLE_ACP,
+    DEFAULT_ACP_SESSION_ROOT,
 )
 from .workspace import (
     WORKSPACE_DIR,
@@ -180,6 +182,8 @@ def build_agent_app(
     persistence_dsn: Optional[str] = None,
     persistence_url: Optional[str] = None,
     enable_terminal_ui: bool = False,
+    enable_acp: bool = DEFAULT_ENABLE_ACP,
+    acp_session_root: Optional[str] = DEFAULT_ACP_SESSION_ROOT,
     isolate_mcp: bool = False,
     mcp_toolsets: Optional[List[Any]] = None,
 ):
@@ -490,6 +494,21 @@ def build_agent_app(
                     pass
             return health_info
 
+        if enable_acp:
+            from .acp_adapter import create_acp_app, build_acp_config, is_acp_available
+
+            if is_acp_available():
+                logger.info("Mounting ACP protocol layer at /acp")
+                # Build the standard adapter config
+                acp_config = build_acp_config(
+                    session_root=Path(acp_session_root) if acp_session_root else None
+                )
+                # Create the ASGI app from the agent and mount it
+                acp_app = create_acp_app(_agent_instance, acp_config)
+                app.mount("/acp", acp_app)
+            else:
+                logger.warning("ACP requested but pydantic-acp not installed.")
+
         app.mount("/a2a", a2a_app)
 
         @app.post("/ag-ui", tags=["Agent UI"], summary="AG-UI Streaming Endpoint")
@@ -498,18 +517,23 @@ def build_agent_app(
             Primary endpoint for the Agent UI. Supports sideband graph activity
             annotations and session resumption.
             """
-            from pydantic_ai.ui.ag_ui import AGUIAdapter
+            try:
+                from pydantic_ai.ui.ag_ui import AGUIAdapter
+            except ImportError:
+                logger.error("AG-UI: AGUIAdapter not found in pydantic_ai. Ensure pydantic-ai[ag-ui] is installed.")
+                return JSONResponse({"status": "error", "message": "AG-UI not available"}, status_code=501)
             from fastapi.responses import StreamingResponse
             from uuid import uuid4
 
             run_id = uuid4().hex
+            logger.info(f"[LAYER:ACP] AG-UI Request Received. Assigned internal run_id: {run_id}")
             try:
                 body = await request.json()
-                if body and (
-                    session_id := body.get("session_id") or body.get("run_id")
-                ):
-                    run_id = session_id
-                    logger.info(f"Resuming AG-UI session: {run_id}")
+                if body:
+                    session_id = body.get("session_id") or body.get("run_id")
+                    if session_id:
+                        run_id = session_id
+                        logger.info(f"[LAYER:ACP] AG-UI: Resuming session: {run_id}")
             except Exception:
                 pass
 
@@ -537,11 +561,18 @@ def build_agent_app(
                     query = body.get("query", body.get("prompt", ""))
                 except Exception:
                     pass
-                adapter = AGUIAdapter(agent=_agent_instance, run_input=query)
+                try:
+                    adapter = AGUIAdapter(agent=_agent_instance, run_input=query)
+                    logger.info(f"[LAYER:ACP] AG-UI: Dispatching request for query: '{query[:50]}...'")
+                    agent_response = await adapter.dispatch_request(
+                        request, agent=_agent_instance, deps=deps
+                    )
+                    logger.info("[LAYER:ACP] AG-UI: Dispatch successful. Stream established.")
+                except Exception as e:
+                    logger.exception(f"AG-UI: Dispatch error: {e}")
+                    yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+                    return
 
-                agent_response = await adapter.dispatch_request(
-                    request, agent=_agent_instance, deps=deps
-                )
                 if not isinstance(agent_response, StreamingResponse):
                     yield agent_response.body
                     return
@@ -820,7 +851,7 @@ def build_agent_app(
 
                 _provider_ui = provider or os.environ.get("PROVIDER") or "openai"
                 _model_id_ui = (
-                    model_id or os.environ.get("MODEL_ID") or "nvidia/nemotron-3-super"
+                    model_id or os.environ.get("MODEL_ID") or "google/gemma-4-31b"
                 )
 
                 helpers = {
@@ -920,6 +951,8 @@ def create_agent_server(
     persistence_dsn: Optional[str] = None,
     persistence_url: Optional[str] = None,
     enable_terminal_ui: bool = False,
+    enable_acp: bool = DEFAULT_ENABLE_ACP,
+    acp_session_root: Optional[str] = DEFAULT_ACP_SESSION_ROOT,
     isolate_mcp: bool = False,
     mcp_toolsets: Optional[List[Any]] = None,
 ):
@@ -1086,6 +1119,7 @@ def create_graph_agent_server(
     persistence_url: Optional[str] = None,
     enable_terminal_ui: bool = DEFAULT_ENABLE_TERMINAL_UI,
     skill_types: Optional[List[str]] = None,
+    custom_headers: Optional[dict] = None,
 ):
     """Create and start a graph-based agent server.
 
@@ -1155,7 +1189,11 @@ def create_graph_agent_server(
                 mcp_config=mcp_config,
                 router_model=router_model,
                 agent_model=agent_model,
+                api_key=api_key,
+                base_url=_mcp_url,
+                custom_headers=custom_headers,
                 workspace=workspace,
+                ssl_verify=ssl_verify,
             )
             # Fetch tag_prompts from graph_config for logging below
             tag_prompts = graph_config.get("tag_prompts", {})
