@@ -12,20 +12,24 @@
     - **Elicitation First**: Robust support for structured user input during tool calls, bridging MCP and Web UIs.
 
 ## Package Relationships
-`agent-utilities` is the core Python engine. It provides the backend server (`ag_ui_endpoint`) that serves both the `agent-webui` assets and the `agent-terminal-ui` client.
-- **Backend (`agent-utilities`)**: Handles LLM orchestration, tool execution, and the SSE streaming protocol.
-- **Web Frontend (`agent-webui`)**: A React application that provides a cinematic chat interface and specialized UI components.
+`agent-utilities` is the core Python engine. It provides the backend server that serves both the `agent-webui` assets and the `agent-terminal-ui` client.
+- **Backend (`agent-utilities`)**: Handles LLM orchestration, tool execution, and a multi-protocol interface layer.
+- **Web Frontend (`agent-webui`)**: A React application using Vercel AI SDK that provides a cinematic chat interface.
 - **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction.
-- **Communication**: Frontends talk to Backend via SSE for output and standard REST (POST) for input and elicitation responses.
+- **Communication**: Frontends connect via the Agent Communication Protocol (ACP) for standardized sessions, planning, and streaming, while maintaining backward compatibility with SSE/AG-UI.
+
 
 ## Core Architecture Diagram
 ```mermaid
 graph TD
     User([User Request]) --> WebUI[agent-webui]
-    WebUI -- SSE /api/chat --> Backend[agent-utilities Server]
+    User --> TUI[agent-terminal-ui]
+    WebUI -- ACP Protocol /acp --> Backend[agent-utilities Server]
+    TUI -- ACP Protocol /acp --> Backend
 
     subgraph AgentUtilities [agent-utilities]
-        Backend -- manages --> Agent[Pydantic AI Agent]
+        Backend -- wraps with pydantic-acp --> ACPLayer[ACP Adapter Layer]
+        ACPLayer -- orchestrates --> Agent[Pydantic AI Graph Agent]
         Agent -- uses --> CA[create_agent]
         CA -- initializes --> ST[SkillsToolset]
         CA -- configures --> MCP[MCP Clients]
@@ -45,8 +49,8 @@ graph TD
     Backend -- 7. Resolve --> EQ
     EQ -- 8. Result --> MCPServer
 
-    Backend -- 10. User UI --> TerminalUI[agent-terminal-ui]
-    TerminalUI -- 11. POST /api/elicit --> Backend
+    Backend -- 10. User UI --> TUI
+    TUI -- 11. POST /api/elicit --> Backend
 ```
 
 ## MCP Loading & Registry Architecture
@@ -95,7 +99,8 @@ graph TD
 ## Graph Orchestration Architecture
 ```mermaid
   graph TB
-  Start([User Query]) --> UsageGuard[Usage Guard: Rate Limiting]
+  Start([User Query]) --> ACPLayer["<b>ACP Protocol Adapter</b><br/><i>(pydantic-acp)</i>"]
+  ACPLayer --> UsageGuard[Usage Guard: Rate Limiting]
   UsageGuard -- "Allow" --> router_step[Router: Topology Selection]
   UsageGuard -- "Block" --> End([End Result])
 
@@ -128,8 +133,9 @@ graph TD
       TSP["<b>TypeScript</b><br/>---<br/><i>u-skill:</i> react-development, web-artifacts, tdd-methodology, canvas-design<br/><i>g-skill:</i> nodejs-docs, react-docs, nextjs-docs, shadcn-docs<br/><i>t-tool:</i> developer_tools"]
       GoP["<b>Go</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> go-docs<br/><i>t-tool:</i> developer_tools"]
       RustP["<b>Rust</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> rust-docs<br/><i>t-tool:</i> developer_tools"]
-      CP["<b>C/C++</b><br/>---<br/><i>t-tool:</i> developer_tools"]
-      JSP["<b>JavaScript</b><br/>---<br/><i>u-skill:</i> web-artifacts, canvas-design<br/><i>g-skill:</i> nodejs-docs, react-docs<br/><i>t-tool:</i> developer_tools"]
+      CSP["<b>C Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> c-docs<br/><i>t-tool:</i> developer_tools"]
+      CPP["<b>C++ Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> cpp-docs<br/><i>t-tool:</i> developer_tools"]
+      JSP["<b>JavaScript</b><br/>---<br/><i>u-skill:</i> web-artifacts, canvas-design, developer-utilities<br/><i>g-skill:</i> nodejs-docs, react-docs<br/><i>t-tool:</i> developer_tools"]
     end
 
     subgraph "Infrastructure"
@@ -151,48 +157,48 @@ graph TD
       direction TB
 
       subgraph Infra_Management ["Infrastructure & DevOps"]
-        AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp"]
-        AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp"]
-        ContainerManager["<b>Container Manager Agent</b><br/>---<br/><i>mcp-tool:</i> container-mcp"]
-        Microsoft["<b>Microsoft Agent</b><br/>---<br/><i>mcp-tool:</i> microsoft-mcp"]
-        Portainer["<b>Portainer Agent</b><br/>---<br/><i>mcp-tool:</i> portainer-mcp"]
-        SystemsManager["<b>Systems Manager</b><br/>---<br/><i>mcp-tool:</i> systems-mcp"]
-        TunnelManager["<b>Tunnel Manager</b><br/>---<br/><i>mcp-tool:</i> tunnel-mcp"]
-        UptimeKuma["<b>Uptime Kuma Agent</b><br/>---<br/><i>mcp-tool:</i> uptime-mcp"]
-        RepositoryManager["<b>Repository Manager</b><br/>---<br/><i>mcp-tool:</i> repository-mcp"]
+        AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp<br/>"]
+        AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp<br/>"]
+        ContainerManager["<b>Container Manager Agent</b><br/>---<br/><i>mcp-tool:</i> container-mcp<br/>"]
+        Microsoft["<b>Microsoft Agent</b><br/>---<br/><i>mcp-tool:</i> microsoft-mcp<br/>"]
+        Portainer["<b>Portainer Agent</b><br/>---<br/><i>mcp-tool:</i> portainer-mcp<br/>"]
+        SystemsManager["<b>Systems Manager</b><br/>---<br/><i>mcp-tool:</i> systems-mcp<br/>"]
+        TunnelManager["<b>Tunnel Manager</b><br/>---<br/><i>mcp-tool:</i> tunnel-mcp<br/>"]
+        UptimeKuma["<b>Uptime Kuma Agent</b><br/>---<br/><i>mcp-tool:</i> uptime-mcp<br/>"]
+        RepositoryManager["<b>Repository Manager</b><br/>---<br/><i>mcp-tool:</i> repository-mcp<br/>"]
       end
 
       subgraph Media_HomeLab ["Media & Home Lab"]
-        ArchiveBox["<b>ArchiveBox API</b><br/>---<br/><i>mcp-tool:</i> archivebox-mcp"]
-        Arr["<b>Arr (Radarr/Sonarr)</b><br/>---<br/><i>mcp-tool:</i> arr-mcp"]
-        AudioTranscriber["<b>Audio Transcriber</b><br/>---<br/><i>mcp-tool:</i> audio-transcriber-mcp"]
-        Jellyfin["<b>Jellyfin Agent</b><br/>---<br/><i>mcp-tool:</i> jellyfin-mcp"]
-        MediaDownloader["<b>Media Downloader</b><br/>---<br/><i>mcp-tool:</i> media-mcp"]
-        Owncast["<b>Owncast Agent</b><br/>---<br/><i>mcp-tool:</i> owncast-mcp"]
-        qBittorrent["<b>qBittorrent Agent</b><br/>---<br/><i>mcp-tool:</i> qbittorrent-mcp"]
+        ArchiveBox["<b>ArchiveBox API</b><br/>---<br/><i>mcp-tool:</i> archivebox-mcp<br/>"]
+        Arr["<b>Arr (Radarr/Sonarr)</b><br/>---<br/><i>mcp-tool:</i> arr-mcp<br/>"]
+        AudioTranscriber["<b>Audio Transcriber</b><br/>---<br/><i>mcp-tool:</i> audio-transcriber-mcp<br/>"]
+        Jellyfin["<b>Jellyfin Agent</b><br/>---<br/><i>mcp-tool:</i> jellyfin-mcp<br/>"]
+        MediaDownloader["<b>Media Downloader</b><br/>---<br/><i>mcp-tool:</i> media-mcp<br/>"]
+        Owncast["<b>Owncast Agent</b><br/>---<br/><i>mcp-tool:</i> owncast-mcp<br/>"]
+        qBittorrent["<b>qBittorrent Agent</b><br/>---<br/><i>mcp-tool:</i> qbittorrent-mcp<br/>"]
       end
 
       subgraph Productive_Dev ["Productivity & Development"]
-        Atlassian["<b>Atlassian Agent</b><br/>---<br/><i>mcp-tool:</i> atlassian-mcp"]
-        Genius["<b>Genius Agent</b><br/>---<br/><i>mcp-tool:</i> genius-mcp"]
-        GitHub["<b>GitHub Agent</b><br/>---<br/><i>mcp-tool:</i> github-mcp"]
-        GitLab["<b>GitLab API</b><br/>---<br/><i>mcp-tool:</i> gitlab-mcp"]
-        Langfuse["<b>Langfuse Agent</b><br/>---<br/><i>mcp-tool:</i> langfuse-mcp"]
-        LeanIX["<b>LeanIX Agent</b><br/>---<br/><i>mcp-tool:</i> leanix-mcp"]
-        Plane["<b>Plane Agent</b><br/>---<br/><i>mcp-tool:</i> plane-mcp"]
-        Postiz["<b>Postiz Agent</b><br/>---<br/><i>mcp-tool:</i> postiz-mcp"]
-        ServiceNow["<b>ServiceNow API</b><br/>---<br/><i>mcp-tool:</i> servicenow-mcp"]
-        StirlingPDF["<b>StirlingPDF Agent</b><br/>---<br/><i>mcp-tool:</i> stirlingpdf-mcp"]
+        Atlassian["<b>Atlassian Agent</b><br/>---<br/><i>mcp-tool:</i> atlassian-mcp<br/>"]
+        Genius["<b>Genius Agent</b><br/>---<br/><i>mcp-tool:</i> genius-mcp<br/>"]
+        GitHub["<b>GitHub Agent</b><br/>---<br/><i>mcp-tool:</i> github-mcp<br/>"]
+        GitLab["<b>GitLab API</b><br/>---<br/><i>mcp-tool:</i> gitlab-mcp<br/>"]
+        Langfuse["<b>Langfuse Agent</b><br/>---<br/><i>mcp-tool:</i> langfuse-mcp<br/>"]
+        LeanIX["<b>LeanIX Agent</b><br/>---<br/><i>mcp-tool:</i> leanix-mcp<br/>"]
+        Plane["<b>Plane Agent</b><br/>---<br/><i>mcp-tool:</i> plane-mcp<br/>"]
+        Postiz["<b>Postiz Agent</b><br/>---<br/><i>mcp-tool:</i> postiz-mcp<br/>"]
+        ServiceNow["<b>ServiceNow API</b><br/>---<br/><i>mcp-tool:</i> servicenow-mcp<br/>"]
+        StirlingPDF["<b>StirlingPDF Agent</b><br/>---<br/><i>mcp-tool:</i> stirlingpdf-mcp<br/>"]
       end
 
       subgraph Data_Lifestyle ["Data & Lifestyle"]
-        DocumentDB["<b>DocumentDB Agent</b><br/>---<br/><i>mcp-tool:</i> documentdb-mcp"]
-        HomeAssistant["<b>Home Assistant Agent</b><br/>---<br/><i>mcp-tool:</i> home-assistant-mcp"]
-        Mealie["<b>Mealie Agent</b><br/>---<br/><i>mcp-tool:</i> mealie-mcp"]
-        Nextcloud["<b>Nextcloud Agent</b><br/>---<br/><i>mcp-tool:</i> nextcloud-mcp"]
-        Searxng["<b>Searxng Agent</b><br/>---<br/><i>mcp-tool:</i> searxng-mcp"]
-        Vector["<b>Vector Agent</b><br/>---<br/><i>mcp-tool:</i> vector-mcp"]
-        Wger["<b>Wger Agent</b><br/>---<br/><i>mcp-tool:</i> wger-mcp"]
+        DocumentDB["<b>DocumentDB Agent</b><br/>---<br/><i>mcp-tool:</i> documentdb-mcp<br/>"]
+        HomeAssistant["<b>Home Assistant Agent</b><br/>---<br/><i>mcp-tool:</i> home-assistant-mcp<br/>"]
+        Mealie["<b>Mealie Agent</b><br/>---<br/><i>mcp-tool:</i> mealie-mcp<br/>"]
+        Nextcloud["<b>Nextcloud Agent</b><br/>---<br/><i>mcp-tool:</i> nextcloud-mcp<br/>"]
+        Searxng["<b>Searxng Agent</b><br/>---<br/><i>mcp-tool:</i> searxng-mcp<br/>"]
+        Vector["<b>Vector Agent</b><br/>---<br/><i>mcp-tool:</i> vector-mcp<br/>"]
+        Wger["<b>Wger Agent</b><br/>---<br/><i>mcp-tool:</i> wger-mcp<br/>"]
       end
     end
   end
@@ -224,7 +230,8 @@ graph TD
   style TSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
   style GoP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
   style RustP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style CP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+  style CSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
+  style CPP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
   style JSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
 
   style Infrastructure fill:#fad9b8,stroke:#d6b656,stroke-width:2px
@@ -249,6 +256,14 @@ graph TD
   style res_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
   style exe_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
   style dispatcher fill:#f5f5f5,stroke:#666,stroke-width:2px
+  style Start color:#000000,fill:#38B6FF
+	style subGraph0 color:#000000,fill:#f5ebd3
+	style subGraph5 color:#000000,fill:#f5f1d3
+	style dispatcher fill:#d5e8d4,stroke:#666,stroke-width:2px
+  style Ecosystem fill:#f5d0ef,stroke:#d6b656,stroke-width:2px
+  style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
+	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
+  style ACPLayer color:#000000,fill:#38B6FF,stroke-width:2px
   style Start color:#000000,fill:#38B6FF
 	style subGraph0 color:#000000,fill:#f5ebd3
 	style subGraph5 color:#000000,fill:#f5f1d3
@@ -617,6 +632,7 @@ When adding new utility modules to the agent_utilities package:
 
 ## Recent Changes
 - **Parallel AnyIO Lifespan Initialization**: Refactored `server.py` to use `anyio.create_task_group()` and `anyio.Event` for parallel MCP server initialization, ensuring structured concurrency compliance and resolving cancel-scope task boundary errors.
+- **ACP Standard Integration**: Integrated `pydantic-acp` as the primary external communication layer. Replaced custom session/stream routers with a standardized ACP Adapter that exposes native planning, sessions, and mode switching via `/acp`.
 - **Asynchronous Tool Execution**: Standardized MCP tool execution paths in specialists (e.g., `repository-manager`) to be fully `await`able, removing blocking calls that caused event loop hangs.
 - **Router Fallback Simplification**: Removed hardcoded, keyword-based specialist fallbacks in favor of robust, LLM-driven planning and formal state machine transitions.
 - **Unified result storage**: All execution paths (`_execute_specialized_step`, `_execute_dynamic_mcp_agent`, `_execute_domain_logic`, A2A) now write to both `results_registry` (read by dispatcher/verifier) and `results` (backward compat). Fixes the `"dispatcher"` return bug.

@@ -82,25 +82,37 @@ async def test_verifier_step_success(mock_deps):
     ctx.state = state
     ctx.deps = mock_deps
 
-    class MockRes:
-        output = ValidationResult(is_valid=True, score=0.9, feedback="Good")
-        usage = None
+    from unittest.mock import AsyncMock, patch
 
-    async def mock_run(*args, **kwargs):
-        return MockRes()
+    # Mock the validation result
+    validation_agent_res = MagicMock()
+    validation_agent_res.output = ValidationResult(is_valid=True, score=0.9, feedback="Good")
+    validation_agent_res.usage = None
 
-    # Mock the synthesis run too
-    class MockSynthRes:
-        output = "Cohesive final answer"
-        usage = None
+    # Mock the synthesis result
+    synthesis_agent_res = MagicMock()
+    synthesis_agent_res.output = "Cohesive final answer"
+    synthesis_agent_res.usage = None
 
-    async def mock_synth_run(*args, **kwargs):
-        return MockSynthRes()
+    # Helper to create a mock stream
+    def create_mock_stream(res):
+        stream = AsyncMock()
+        stream.__aenter__.return_value = stream
+        stream.stream_text.return_value = ["chunk1", "chunk2"].__iter__() # Mock async generator if needed, but here simple list works for simple async for
+        # Actually, stream_text needs to be an async generator
+        async def mock_stream_text(*args, **kwargs):
+            yield "chunk1"
+            yield "chunk2"
+        stream.stream_text = mock_stream_text
+        stream.get_data = AsyncMock(return_value=res)
+        return stream
 
-    import unittest.mock
-
-    with unittest.mock.patch("pydantic_ai.Agent.run") as mock_agent_run:
-        mock_agent_run.side_effect = [MockRes(), MockSynthRes()]
+    with patch("pydantic_ai.Agent.run_stream") as mock_run_stream:
+        # First call is validation, second is synthesis
+        mock_run_stream.side_effect = [
+            create_mock_stream(validation_agent_res),
+            create_mock_stream(synthesis_agent_res)
+        ]
         res = await verifier_step(ctx)
         assert isinstance(res, End)
         assert res.data.status == "completed"
@@ -118,16 +130,25 @@ async def test_verifier_step_retry(mock_deps):
     ctx.state = state
     ctx.deps = mock_deps
 
-    class MockRes:
-        output = ValidationResult(is_valid=False, score=0.2, feedback="Too short")
-        usage = None
+    from unittest.mock import AsyncMock, patch
 
-    async def mock_run(*args, **kwargs):
-        return MockRes()
+    # Mock the validation result
+    validation_agent_res = MagicMock()
+    validation_agent_res.output = ValidationResult(is_valid=False, score=0.2, feedback="Too short")
+    validation_agent_res.usage = None
 
-    import unittest.mock
+    # Helper to create a mock stream
+    def create_mock_stream(res):
+        stream = AsyncMock()
+        stream.__aenter__.return_value = stream
+        async def mock_stream_text(*args, **kwargs):
+            yield "chunk1"
+        stream.stream_text = mock_stream_text
+        stream.get_data = AsyncMock(return_value=res)
+        return stream
 
-    with unittest.mock.patch("pydantic_ai.Agent.run", new=mock_run):
+    with patch("pydantic_ai.Agent.run_stream") as mock_run_stream:
+        mock_run_stream.return_value = create_mock_stream(validation_agent_res)
         res = await verifier_step(ctx)
         assert res == "dispatcher"
         assert state.verification_attempts == 1

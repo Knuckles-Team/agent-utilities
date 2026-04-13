@@ -51,17 +51,23 @@ def save_mcp_config(config: MCPConfigModel):
 
 
 def emit_graph_event(eq: Optional[asyncio.Queue], event_type: str, **kwargs):
-    """Emit a standardized graph event to the sideband queue."""
+    """Emit a standardized graph event to the sideband queue.
+
+    Events are formatted as AI SDK v5 data parts (type "data-graph-event")
+    so the @ai-sdk/react useChat hook adds them to message.parts automatically.
+    """
     if not eq:
         return
 
     try:
         eq.put_nowait(
             {
-                "type": "graph-event",
-                "event": event_type,
-                "timestamp": time.time(),
-                **kwargs,
+                "type": "data-graph-event",
+                "data": {
+                    "event": event_type,
+                    "timestamp": time.time(),
+                    **kwargs,
+                },
             }
         )
     except Exception as e:

@@ -1,4 +1,15 @@
+#!/usr/bin/python
+# coding: utf-8
+"""
+Tool Registry Module
+
+This module provides a centralized system for registering agent tools. It handles 
+the aggregation of various domain-specific toolsets (workspace, memory, git, etc.) 
+and applies environment-based gating to control which tools are exposed to the agent.
+"""
+
 import os
+import warnings
 from typing import Any, Optional, Union
 from pydantic_ai import Agent, RunContext
 
@@ -7,10 +18,18 @@ from .models import AgentDeps
 __version__ = "0.2.39"
 
 
-def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None):
-    """
-    Central aggregator for registering all Agent OS tools.
-    Groups tools by domain and applies environment-based gating.
+def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> None:
+    """Central aggregator for registering all Agent OS tools.
+
+    Groups tools by domain and applies environment-based gating using 
+    environment variables (e.g., WORKSPACE_TOOLS, GIT_TOOLS). If a graph_bundle 
+    is provided, the agent is configured as a graph orchestrator, restricting 
+    it to only use the 'run_graph_flow' tool for strict routing isolation.
+
+    Args:
+        agent: The Pydantic AI Agent instance to register tools for.
+        graph_bundle: An optional tuple containing (graph, config) used to 
+            configure the agent as a graph orchestrator. Defaults to None.
     """
     # Late imports to avoid circularity during initialization
     from .tools.workspace_tools import workspace_tools
@@ -56,14 +75,32 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None):
         async def run_graph_flow(
             ctx: RunContext[AgentDeps], prompt: str
         ) -> Union[str, Any]:
+            """Execute a complex query through the graph orchestrator.
+
+            The graph automatically classifies and routes the request to specialized 
+            domain nodes (e.g., Python Programmer, DevOps Engineer), executes the 
+            necessary steps in parallel or sequence, and synthesizes a final result.
+
+            Args:
+                ctx: The run context containing agent dependencies.
+                prompt: The user query to be processed by the graph orchestrator.
+
+            Returns:
+                The synthesized output from the graph execution or an error message.
             """
-            Execute a complex query through the graph orchestrator.
-            The graph automatically classifies and routes your request to specialized domain nodes.
-            """
-            eq = getattr(ctx.deps, "graph_event_queue", None)
+            eq = getattr(ctx.deps, "graph_event_queue", None) if ctx.deps else None
             from .graph_orchestration import run_graph
 
-            result = await run_graph(graph, config, prompt, eq=eq)
+            # Forward runtime MCP toolsets and LLM config from AgentDeps so the graph uses alread-conencted servers and current credentials instead of None values baked in from the default config
+            runtime_toolsets = getattr(ctx.deps, "mcp_toolsets", None) if ctx.deps else None
+            result = await run_graph(
+                graph,
+                config,
+                prompt,
+                eq=eq,
+                mcp_toolsets=runtime_toolsets or config.get("mcp_toolsets"),
+            )
+
             if hasattr(result, "results"):
                 output = result.results.get("output", result.results)
                 if not output or str(output).lower() == "none":

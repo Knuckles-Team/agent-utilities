@@ -96,6 +96,10 @@ def initialize_graph_from_workspace(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     workspace: Optional[str] = None,
+    custom_headers: Optional[dict] = None,
+    ssl_verify: Optional[bool] = True,
+    router_timeout: Optional[float] = None,
+    verifier_timeout: Optional[float] = None,
 ) -> tuple[Graph, GraphDeps]:
     """
     Centralized utility to discover domains and initialize a graph bundle from the current workspace.
@@ -195,12 +199,16 @@ def initialize_graph_from_workspace(
         tag_env_vars=tag_env_vars,
         mcp_url=DEFAULT_MCP_URL,
         mcp_config=mcp_config,
+        router_timeout=router_timeout,
+        verifier_timeout=verifier_timeout,
         discovery_metadata=discovery_metadata,
         router_model=router_model or DEFAULT_ROUTER_MODEL,
         agent_model=agent_model or DEFAULT_GRAPH_AGENT_MODEL,
         api_key=api_key,
         base_url=base_url,
         workspace=workspace,
+        custom_headers=custom_headers,
+        ssl_verify=ssl_verify,
     )
     logger.info("Initializing Graph: Topology built successfully.")
 
@@ -269,6 +277,8 @@ def create_graph_agent(
     sub_agents: dict[str, str | Agent] | None = None,
     mcp_toolsets: list[Any] | None = None,
     routing_strategy: str = DEFAULT_ROUTING_STRATEGY,
+    router_timeout: float | None = None,
+    verifier_timeout: float | None = None,
     custom_nodes: list[Any] | None = None,
     workspace: str | None = None,
     **kwargs,
@@ -560,6 +570,14 @@ def create_graph_agent(
             else:
                 logger.warning(f"MCP config {mcp_config} not found")
 
+    _api_key = kwargs.get("api_key")
+    _base_url = kwargs.get("base_url")
+
+    from ..config import (
+        DEFAULT_GRAPH_ROUTER_TIMEOUT,
+        DEFAULT_GRAPH_VERIFIER_TIMEOUT,
+    )
+
     config = {
         "tag_prompts": tag_prompts,
         "tag_env_vars": tag_env_vars,
@@ -568,15 +586,27 @@ def create_graph_agent(
         "mcp_toolsets": _mcp_toolsets,
         "router_model": router_model,
         "agent_model": agent_model,
+        "router_timeout": (
+            router_timeout
+            if router_timeout is not None
+            else DEFAULT_GRAPH_ROUTER_TIMEOUT
+        ),
+        "verifier_timeout": (
+            verifier_timeout
+            if verifier_timeout is not None
+            else DEFAULT_GRAPH_VERIFIER_TIMEOUT
+        ),
         "min_confidence": min_confidence,
         "valid_domains": tuple(tag_prompts.keys()),
-        "provider": kwargs.get("provider", DEFAULT_PROVIDER),
-        "base_url": kwargs.get("base_url", DEFAULT_LLM_BASE_URL),
-        "api_key": kwargs.get("api_key", DEFAULT_LLM_API_KEY),
+        "provider": kwargs.get("provider") or DEFAULT_PROVIDER,
+        "base_url": _base_url if _base_url is not None else DEFAULT_LLM_BASE_URL,
+        "api_key": _api_key if _api_key is not None else DEFAULT_LLM_API_KEY,
         "ssl_verify": kwargs.get("ssl_verify", DEFAULT_SSL_VERIFY),
+        "custom_headers": kwargs.get("custom_headers"),
         "sub_agents": sub_agents or {},
         "routing_strategy": routing_strategy,
         "nodes": nodes_registry,
+        "dicovery_metadata": kwargs.get("discovery_metadata") or {},
     }
 
     import sys

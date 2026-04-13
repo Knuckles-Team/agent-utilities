@@ -60,7 +60,7 @@ async def usage_guard_step(
     ctx: StepContext[GraphState, GraphDeps, Any],
 ) -> str | None:
     """Policy enforcement and token usage monitor. Checks for violations and budget."""
-    logger.info(f"UsageGuard: Handling query: '{ctx.state.query[:50]}...'")
+    logger.info(f"[LAYER:GRAPH:USAGE_GUARD] Handling query: '{ctx.state.query[:50]}...'")
     # Token / cost budget check
     usage = ctx.state.session_usage
     cost_limit = 5.0
@@ -248,6 +248,7 @@ async def router_step(
         "routing_started",
         query=ctx.state.query,
     )
+    logger.info(f"[LAYER:GRAPH:ROUTER] Routing started for query: '{ctx.state.query[:50]}...'")
 
     # Track re-planning loops to prevent infinite cycles
     ctx.state.global_research_loops += 1
@@ -278,8 +279,7 @@ async def router_step(
     try:
         unified_context = await fetch_unified_context()
 
-        # Use tag_prompts as the specialist list. If empty (e.g. env vars not set for
-        # some agents), fall back to the MCP registry so the LLM knows what's available.
+        logger.info("[LAYER:GRAPH:ROUTER] Fetching specialist tags...")
         specialist_tags = deps.tag_prompts
         if not specialist_tags:
             registry = load_node_agents_registry()
@@ -287,8 +287,8 @@ async def router_step(
                 a.tag: a.description or a.name for a in registry.agents if a.tag
             }
             if specialist_tags:
-                logger.warning(
-                    f"Router: tag_prompts empty — using registry fallback ({len(specialist_tags)} tags) for LLM plan"
+                logger.info(
+                    f"[LAYER:GRAPH:ROUTER] Specialist tags loaded (count: {len(specialist_tags)}). Tags: {list(specialist_tags.keys())}"
                 )
 
         step_info = "\n".join(
@@ -299,27 +299,32 @@ async def router_step(
         )
 
         router_prompt = load_specialized_prompts("router")
+        system_prompt_str = (
+            f"{router_prompt}\n\n"
+            f"### IMPORTANT: PLANNING ONLY MODE\n"
+            f"You are a HIGH-LEVEL ARCHITECT. You DO NOT have access to functional tools (e.g. get_stack, Docker tools, etc.).\n"
+            f"Your ONLY responsibility is to create the execution plan. DO NOT attempt to fulfill the query yourself.\n\n"
+            f"### FAILURE CONTEXT\n{failure_context}\n\n"
+            f"### AVAILABLE SPECIALIST NODES\n{step_info}\n\n"
+            f"### PROJECT CONTEXT\n{unified_context}"
+        )
         router_agent = Agent(
             model=deps.router_model,
             output_type=GraphPlan,
-            system_prompt=(
-                f"{router_prompt}\n\n"
-                f"### IMPORTANT: PLANNING ONLY MODE\n"
-                f"You are a HIGH-LEVEL ARCHITECT. You DO NOT have access to functional tools (e.g. get_stack, Docker tools, etc.).\n"
-                f"Your ONLY responsibility is to create the execution plan. DO NOT attempt to fulfill the query yourself.\n\n"
-                f"### FAILURE CONTEXT\n{failure_context}\n\n"
-                f"### AVAILABLE SPECIALIST NODES\n{step_info}\n\n"
-                f"### PROJECT CONTEXT\n{unified_context}"
-            ),
+            system_prompt=system_prompt_str,
         )
 
         logger.info(
-            f"Router: Planning for query: '{ctx.state.query}' using model {deps.router_model}"
+            f"[LAYER:GRAPH:ROUTER] Planning for query: '{ctx.state.query}' using model {deps.router_model}"
         )
         try:
-            res = await asyncio.wait_for(
-                router_agent.run(ctx.state.query), timeout=30.0
-            )
+            logger.debug(f"[LAYER:GRAPH:ROUTER] LLM Call Starting: system_prompt length={len(system_prompt_str)}")
+            async with router_agent.run_stream(ctx.state.query) as stream:
+                res = await asyncio.wait_for(
+                    stream.data(), timeout=ctx.deps.router_timeout
+                )
+            logger.info(f"[LAYER:GRAPH:ROUTER] LLM Call Completed. Plan Reasoning: {res.output.metadata.get('reasoning', 'N/A')}")
+            logger.info(f"[LAYER:GRAPH:ROUTER] Plan Step Count: {len(res.output.steps)}")
         except asyncio.TimeoutError:
             logger.warning("Router: LLM planning timed out. Escalating to fallbacks.")
             raise ValueError("LLM planning timed out")
@@ -358,6 +363,7 @@ async def dispatcher_step(
     ctx: StepContext[GraphState, GraphDeps, str | list[ExecutionStep] | None],
 ) -> str | None:
     """Manages the execution flow using sequential or parallel steps."""
+    logger.info(f"[LAYER:GRAPH:DISPATCHER] Transitioning. Current cursor: {ctx.state.step_cursor}")
     # HSM: State invariant check at transition boundary
     try:
         assert_state_valid(ctx.state, "dispatcher_step")
@@ -539,7 +545,7 @@ async def expert_executor_step(
                     tag = (a.tag or "").lower().replace("-", "_").replace(" ", "_")
                     name = a.name.lower().replace("-", "_").replace(" ", "_")
                     server = (
-                        (a.server or "").lower().replace("-", "_").replace(" ", "_")
+                        (a.mcp_server or "").lower().replace("-", "_").replace(" ", "_")
                     )
                     desc = (a.description or "").lower()
                     # 1. Exact match on normalized tag, name, or server
@@ -704,7 +710,7 @@ async def verifier_step(
         logger.error(f"Verifier state invariant violation: {e}")
 
     logger.info(
-        f"Verifier: Starting (attempt {ctx.state.verification_attempts + 1})..."
+        f"[LAYER:GRAPH:VERIFIER] Starting (attempt {ctx.state.verification_attempts + 1})..."
     )
     validator_prompt = load_specialized_prompts("verifier")
 
@@ -741,10 +747,10 @@ async def verifier_step(
                     f"provide EXACT feedback on what is missing (e.g. 'Missing the list of container names')."
                 ),
             )
-            val_res = await asyncio.wait_for(
-                validation_agent.run("Evaluate the results"),
-                timeout=30,
-            )
+            async with validation_agent.run_stream("Evaluate the results") as stream:
+                val_res = await asyncio.wait_for(
+                    stream.data(), timeout=ctx.deps.verifier_timeout
+                )
             validation = val_res.output
 
             emit_graph_event(
@@ -794,12 +800,19 @@ async def verifier_step(
     try:
         logger.debug(f"Verifier: Prompt summary length: {len(results_summary)}")
         # Use a generous timeout for synthesis
-        res = await asyncio.wait_for(
-            verifier.run(
-                "Consolidate and verify based on provided results. Be concise."
-            ),
-            timeout=60,
-        )
+        async with verifier.run_stream(
+            "Consolidate and verify based on provided results. Be concise."
+        ) as stream:
+            async for chunk in stream.stream_text(delta=True):
+                emit_graph_event(
+                    ctx.deps.event_queue,
+                    "agent-node-delta",
+                    content=chunk,
+                    node=ctx.node.name,
+                )
+            res = await asyncio.wait_for(
+                stream.data(), timeout=ctx.deps.verifier_timeout
+            )
         result_text = str(res.output) if res.output else "None"
         if result_text.lower() == "none":
             raise ValueError("Synthesis returned 'None'")
@@ -1003,7 +1016,15 @@ async def mcp_server_step(
                 if server_id and server_name in str(server_id):
                     agent.toolsets.append(toolset)
 
-            res = await agent.run(query, deps=ctx.deps)
+            async with agent.run_stream(query, deps=ctx.deps) as stream:
+                async for chunk in stream.stream_text(delta=True):
+                    emit_graph_event(
+                        ctx.deps.event_queue,
+                        "agent-node-delta",
+                        content=chunk,
+                        node=ctx.node.name,
+                    )
+                res = await stream.data()
             ctx.state._update_usage(getattr(res, "usage", None))
             ctx.state.results[server_name] = str(res.output)
             ctx.state.results_registry[f"{server_name}_{ctx.state.step_cursor}"] = str(

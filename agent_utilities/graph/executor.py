@@ -141,10 +141,14 @@ async def _execute_dynamic_mcp_agent(
         ctx.state.error = f"Precondition failed for '{agent_name}': {reason}"
         raise RuntimeError(ctx.state.error)
 
-    logger.info(f"Expert Execution: Running dynamic MCP agent '{agent_name}'")
+    logger.info(f"[LAYER:GRAPH:EXPERT] Running dynamic MCP agent '{agent_name}'")
 
     # 1. Look up discovery metadata for this server to help the agent "know" what it has
     discovered_tools = []
+    logger.debug(
+        f"Expert Execution: discovery_metadata keys={list(ctx.deps.discovery_metadata.keys()) if ctx.deps.discovery_metadata else 'EMTPY'}, "
+        f"agent_info.tools={agent_info.tools}"
+    )
     if hasattr(ctx.deps, "discovery_metadata") and ctx.deps.discovery_metadata:
         target_server = agent_info.mcp_server.lower()
         for s_id, tools in ctx.deps.discovery_metadata.items():
@@ -195,7 +199,7 @@ async def _execute_dynamic_mcp_agent(
         target_server=agent_info.mcp_server,
         domain_tag=agent_info.tag,
         expected_tools=total_tools,
-        node_id=ctx.node_id,
+        node_id=getattr(ctx, "node_id", "unknown"),
     )
 
     agent = Agent(
@@ -207,6 +211,7 @@ async def _execute_dynamic_mcp_agent(
     # Bind the specific subset of MCP tools
     bound_tool_count = 0
     actually_bound_tools = []
+    matched_toolsets = []
 
     for toolset in ctx.deps.mcp_toolsets:
         # Pydantic AI MCPServer might have a name or id
@@ -222,7 +227,7 @@ async def _execute_dynamic_mcp_agent(
                 or current.startswith(f"{target}_")
                 or target.startswith(f"{current}_")
             ):
-                agent.toolsets.append(toolset)
+                matched_toolsets.append(toolset)
 
                 # Track actually bound tool names for UI sideband
                 if hasattr(toolset, "tools"):
@@ -234,8 +239,17 @@ async def _execute_dynamic_mcp_agent(
                     bound_tool_count += len(total_tools)
 
                 logger.info(
-                    f"Expert Execution: Bound toolset '{server_id}' to expert '{agent_info.name}'"
+                    f"[LAYER:GRAPH:EXPERT] Bound toolset '{server_id}' to expert '{agent_info.name}'"
                 )
+
+    agent = Agent(
+        model=ctx.deps.agent_model,
+        system_prompt=agent_sys_prompt,
+        deps_type=GraphDeps,
+        toolset=matched_toolsets,
+        end_strategy="early",
+        output_retries=2,
+    )
 
     # Emit tool binding confirmation for UI transparency
     emit_graph_event(
@@ -285,10 +299,12 @@ async def _execute_dynamic_mcp_agent(
             attempt=attempt + 1,
         )
         try:
+            logger.info(f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Starting (attempt {attempt+1}). Prompt length: {len(agent_sys_prompt)}")
             res = await asyncio.wait_for(
                 agent.run(sub_query, deps=ctx.deps, message_history=prev_messages),
                 timeout=node_timeout,
             )
+            logger.info(f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Completed.")
             ctx.state._update_usage(getattr(res, "usage", None))
 
             # Cache message history for potential re-dispatch
@@ -345,9 +361,41 @@ async def _execute_dynamic_mcp_agent(
             # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
             # and mirror to results (keyed by domain tag, for backwards compatibility).
             result_str = str(res.output)
+
+            # Data Enhancement Synthesizer: Synthesize response from real output tool data captured
+            if "no data" in result_str.lower() or "returned no" in result_str.lower():
+                from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
+                tool_returns = []
+                for msg in res.all_messages():
+                    if isinstance(msg, ModelRequest):
+                        for part in msg.parts:
+                            if isinstance(part, ToolReturnPart) and part.content:
+                                content_str = str(part.content)
+                                if content_str and content_str not in (
+                                    "[]",
+                                    "None",
+                                    "null",
+                                    "",
+                                ):
+                                    tool_returns.append(
+                                        f"**{part.tool_name}**: {content_str}"
+                                    )
+                if tool_returns:
+                    logger.warning(
+                        f"Expert '{agent_info.name}': LLM dismissed tool response data. "
+                        f"Injection {len(tool_returns)} raw tool return(s) into result."
+                    )
+                    result_str = (
+                        "### Tool Execution Results\n"
+                        + "\n".join(tool_returns)
+                        + f"\n\n### Agent Summary\n{result_str}"
+                    )
             node_uid = f"{cache_key}_{ctx.state.step_cursor}"
             ctx.state.results_registry[node_uid] = result_str
-            ctx.state.results[agent_info.tag or cache_key] = result_str
+            result_key = agent_info.tag or cache_key
+            ctx.state.results[result_key] = result_str
+            ctx.state.routed_domain = result_key
             logger.info(
                 f"Expert: '{agent_info.name}' succeeded (attempt {attempt + 1}). "
                 f"Result: {len(result_str)} chars. Registry key: '{node_uid}'"
@@ -598,6 +646,7 @@ async def _execute_specialized_step(
 
     # Dynamic Skill Distribution
     custom_tools = await _get_domain_tools(prompt_name, ctx.deps)
+    logger.info(f"[LAYER:GRAPH:EXPERT] Specialized step '{prompt_name}' started. Tools loaded: {len(custom_tools)}")
 
     memory_instruction = load_specialized_prompts("memory_instruction")
 
@@ -648,10 +697,18 @@ async def _execute_specialized_step(
     prev_messages = ctx.deps.message_history_cache.get(prompt_name)
 
     try:
-        res = await agent.run(
+        async with agent.run_stream(
             ctx.state.query,
             message_history=prev_messages,
-        )
+        ) as stream:
+            async for chunk in stream.stream_text(delta=True):
+                emit_graph_event(
+                    ctx.deps.event_queue,
+                    "agent-node-delta",
+                    content=chunk,
+                    node=prompt_name,
+                )
+            res = await stream.data()
         ctx.state._update_usage(getattr(res, "usage", None))
         result_str = str(res.output)
 

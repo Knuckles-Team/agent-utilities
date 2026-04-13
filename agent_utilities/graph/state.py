@@ -18,6 +18,8 @@ from ..config import (
     DEFAULT_SSL_VERIFY,
     DEFAULT_ROUTER_MODEL,
     DEFAULT_GRAPH_AGENT_MODEL,
+    DEFAULT_GRAPH_ROUTER_TIMEOUT,
+    DEFAULT_GRAPH_VERIFIER_TIMEOUT,
     TOOL_GUARD_MODE,
 )
 
@@ -58,6 +60,8 @@ class GraphDeps:
     request_id: str = ""
     routing_strategy: str = "hybrid"
     enable_llm_validation: bool = False
+    router_timeout: float = DEFAULT_GRAPH_ROUTER_TIMEOUT
+    verifier_timeout: float = DEFAULT_GRAPH_VERIFIER_TIMEOUT
     project_root: str = ""
     max_parallel_agents: int = 3
     auto_approve_plan: bool = False

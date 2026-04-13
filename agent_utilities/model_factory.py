@@ -16,51 +16,69 @@ if TYPE_CHECKING:
 try:
     from pydantic_ai.models.openai import OpenAIChatModel
 except ImportError:
-    OpenAIChatModel = None
+    try:
+        from pydantic_ai.providers.openai import OpenAIChatModel
+    except ImportError:
+        OpenAIChatModel = None
 
 try:
     from pydantic_ai.models.gemini import GeminiModel as GoogleModel
 except ImportError:
-    GoogleModel = None
+    try:
+        from pydantic_ai.providers.gemini import GeminiModel as GoogleModel
+    except ImportError:
+        GoogleModel = None
 
 try:
     from pydantic_ai.models.anthropic import AnthropicModel
 except ImportError:
-    AnthropicModel = None
+    try:
+        from pydantic_ai.providers.anthropic import AnthropicModel
+    except ImportError:
+        AnthropicModel = None
 
 try:
     from pydantic_ai.models.groq import GroqModel
 except ImportError:
-    GroqModel = None
+    try:
+        from pydantic_ai.providers.groq import GroqModel
+    except ImportError:
+        GroqModel = None
 
 try:
     from pydantic_ai.models.mistral import MistralModel
 except ImportError:
-    MistralModel = None
+    try:
+        from pydantic_ai.providers.mistral import MistralModel
+    except ImportError:
+        MistralModel = None
 
 try:
     from pydantic_ai.models.huggingface import HuggingFaceModel
 except ImportError:
-    HuggingFaceModel = None
+    try:
+        from pydantic_ai.providers.huggingface import HuggingFaceModel
+    except ImportError:
+        HuggingFaceModel = None
 
 
 try:
     from openai import AsyncOpenAI
-    from pydantic_ai.models.openai import OpenAIProvider
+    from pydantic_ai.providers.openai import OpenAIProvider
 except ImportError:
     AsyncOpenAI = None
     OpenAIProvider = None
 
 try:
     from anthropic import AsyncAnthropic
-    from pydantic_ai.models.anthropic import AnthropicProvider
+    from pydantic_ai.providers.anthropic import AnthropicProvider
 except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
 try:
     from groq import AsyncGroq
-    from pydantic_ai.models.groq import GroqProvider
+    from pydantic_ai.providers.groq import GroqProvider
 except ImportError:
     AsyncGroq = None
     GroqProvider = None
@@ -74,6 +92,7 @@ def create_model(
     model_id: Optional[str] = None,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
+    custom_headers: Optional[dict] = None,
     ssl_verify: bool = True,
     timeout: float = 300.0,
 ):
@@ -84,6 +103,7 @@ def create_model(
         provider: The model provider (openai, anthropic, google, groq, mistral, huggingface, ollama)
         model_id: The specific model ID to use
         base_url: Optional base URL for the API
+        custom_headers: Optional dict of custom HTTP headers to send with every request to the LLM endpoint
         api_key: Optional API key
         ssl_verify: Whether to verify SSL certificates (default: True)
 
@@ -91,7 +111,7 @@ def create_model(
         A Pydantic AI Model instance
     """
     _provider = provider or os.environ.get("PROVIDER") or "openai"
-    _model_id = model_id or os.environ.get("MODEL_ID") or "nvidia/nemotron-3-super"
+    _model_id = model_id or os.environ.get("MODEL_ID") or "google/gemma-4-31b"
 
     http_client = None
     if http_client is None:
@@ -108,23 +128,28 @@ def create_model(
             or os.environ.get("OPENAI_BASE_URL")
         )
         target_api_key = (
-            api_key or os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
+            api_key
+            if api_key is not None
+            else (os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY"))
         )
+
+        # Propagate to environment for downstream pydantic-ai inference
+        if target_base_url:
+            os.environ["OPENAI_BASE_URL"] = target_base_url
+        if target_api_key:
+            os.environ["OPENAI_API_KEY"] = target_api_key
 
         if AsyncOpenAI and OpenAIProvider:
             client = AsyncOpenAI(
-                api_key=target_api_key,
+                api_key=target_api_key or "EMPTY",
                 base_url=target_base_url,
                 http_client=http_client,
+                default_headers=custom_headers,
                 timeout=timeout,
             )
             provider_instance = OpenAIProvider(openai_client=client)
             return OpenAIChatModel(model_name=_model_id, provider=provider_instance)
 
-        if target_base_url:
-            os.environ["OPENAI_BASE_URL"] = target_base_url
-        if target_api_key:
-            os.environ["OPENAI_API_KEY"] = target_api_key
         return OpenAIChatModel(model_name=_model_id, provider="openai")
 
     elif _provider == "ollama":
@@ -138,6 +163,7 @@ def create_model(
                 api_key=target_api_key,
                 base_url=target_base_url,
                 http_client=http_client,
+                default_headers=custom_headers,
             )
             provider_instance = OpenAIProvider(openai_client=client)
             return OpenAIChatModel(model_name=_model_id, provider=provider_instance)
