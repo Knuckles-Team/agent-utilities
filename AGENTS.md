@@ -16,7 +16,8 @@
 - **Backend (`agent-utilities`)**: Handles LLM orchestration, tool execution, and a multi-protocol interface layer.
 - **Web Frontend (`agent-webui`)**: A React application using Vercel AI SDK that provides a cinematic chat interface.
 - **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction.
-- **Communication**: Frontends connect via the Agent Communication Protocol (ACP) for standardized sessions, planning, and streaming. Legacy custom protocols have been deprecated in favor of this native architecture.
+- **Communication**: Frontends primarily connect via the Agent Communication Protocol (ACP) for standardized sessions, planning, and streaming across the ecosystem.
+- **Legacy Compatibility**: A secondary **AG-UI protocol layer** is exposed at `/ag-ui`, providing a standard streaming interface compatible with native Pydantic AI and Agent UI clients.
 
 ## Ecosystem Dependency Graph
 This diagram visualizes the high-level relationships and core dependencies across the three primary ecosystem packages.
@@ -90,6 +91,7 @@ graph TD
     User --> TUI[agent-terminal-ui]
     WebUI -- ACP Protocol /acp --> Backend[agent-utilities Server]
     TUI -- ACP Protocol /acp --> Backend
+    External[External AG-UI Client] -- Legacy Protocol /ag-ui --> Backend
 
     subgraph AgentUtilities [agent-utilities]
         Backend -- wraps with pydantic-acp --> ACPLayer[ACP Adapter Layer]

@@ -74,3 +74,21 @@
 - Tokens: 0
 - Verification attempts: 0
 
+
+### Execution unknown (2026-04-13T10:30:52.279879)
+)- Query: test query
+- Plan: ['node1']
+- Results: ['node1']
+- Failures: none
+- Tokens: 0
+- Verification attempts: 0
+
+
+### Execution unknown (2026-04-13T23:27:25.632156)
+)- Query: test query
+- Plan: ['node1']
+- Results: ['node1']
+- Failures: none
+- Tokens: 0
+- Verification attempts: 0
+

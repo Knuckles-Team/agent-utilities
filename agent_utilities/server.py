@@ -599,6 +599,14 @@ def build_agent_app(
             logger.info("Mounting A2A protocol layer at /a2a")
             app.mount("/a2a", a2a_app)
 
+        # Legacy AG-UI mount for compatibility
+        try:
+            logger.info("Mounting Legacy AG-UI protocol layer at /ag-ui")
+            ag_ui_app = _agent_instance.to_ag_ui()
+            app.mount("/ag-ui", ag_ui_app)
+        except Exception as e:
+            logger.warning(f"Failed to mount legacy AG-UI: {e}")
+
         # The ACP protocol layer is mounted at /acp (handled above)
 
         @app.get("/chats", tags=["Core"], summary="List Chat History")
