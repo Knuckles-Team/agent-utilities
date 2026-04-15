@@ -193,6 +193,12 @@ class GraphState:
     needs_replan: bool = False
     """Flag to trigger a re-evaluation of the graph plan due to implementation failures."""
 
+    node_transitions: int = 0
+    """Total number of node transitions during this execution. Used for infinite-loop protection."""
+
+    MAX_NODE_TRANSITIONS: int = 50
+    """Hard ceiling on the total number of node transitions before the graph force-terminates."""
+
     def _update_usage(self, result_usage: Any):
         """Update the accumulated session usage statistics.
 

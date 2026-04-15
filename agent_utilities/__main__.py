@@ -11,6 +11,8 @@ from . import (
     load_identity,
 )
 
+logger = logging.getLogger(__name__)
+
 __version__ = "0.2.33"
 
 
@@ -47,7 +49,7 @@ def agent_server():
         meta.get("content") or build_system_prompt_from_workspace(),
     )
 
-    print(f"{agent_name} v{__version__}")
+    logger.info(f"{agent_name} v{__version__}")
     if args.debug:
         logging.getLogger().debug("Debug mode enabled")
 

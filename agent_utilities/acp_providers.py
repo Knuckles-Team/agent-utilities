@@ -72,6 +72,6 @@ def get_workspace_persistence_provider() -> "WorkspacePlanPersistenceProvider":
         An instance of WorkspacePlanPersistenceProvider.
 
     """
-    from .server import WORKSPACE_DIR
+    from .workspace import WORKSPACE_DIR
 
     return WorkspacePlanPersistenceProvider(workspace_root=Path(WORKSPACE_DIR or "."))

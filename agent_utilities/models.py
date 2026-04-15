@@ -393,7 +393,8 @@ class MCPAgent(BaseModel):
         mcp_server: The source MCP server that provides these tools.
         tag: Metadata tag used for routing and partitioning.
         is_custom: Whether the agent was manually customized.
-
+        tool_count: Number of tools assigned to this agent.
+        avg_relevance_score: Mean relevance score across all assigned tools (0-100).
     """
 
     name: str = Field(description="Display name of the agent")
@@ -405,6 +406,12 @@ class MCPAgent(BaseModel):
         None, description="Metadata tag for sorting/customization"
     )
     is_custom: bool = Field(False, description="True if manually edited by user")
+    tool_count: int = Field(
+        default=0, description="Number of tools assigned to this agent"
+    )
+    avg_relevance_score: int = Field(
+        default=0, description="Mean relevance score across all assigned tools (0-100)"
+    )
 
 
 class MCPToolInfo(BaseModel):
@@ -416,6 +423,8 @@ class MCPToolInfo(BaseModel):
         tag: Primary tag used to assign this tool to a specific specialist agent.
         mcp_server: The source MCP server providing the tool.
         all_tags: All tags associated with the tool for flexible routing.
+        relevance_score: Deterministic quality score (0-100) based on description
+            richness, tag confidence, and name specificity.
 
     """
 
@@ -425,6 +434,9 @@ class MCPToolInfo(BaseModel):
     mcp_server: str = Field(description="Source MCP server")
     all_tags: List[str] = Field(
         default_factory=list, description="All tags associated with the tool"
+    )
+    relevance_score: int = Field(
+        default=0, description="Deterministic quality score (0-100)"
     )
 
 
@@ -439,6 +451,35 @@ class MCPAgentRegistryModel(BaseModel):
 
     agents: List[MCPAgent] = Field(default_factory=list)
     tools: List[MCPToolInfo] = Field(default_factory=list)
+
+
+class DiscoveredSpecialist(BaseModel):
+    """A unified representation of any specialist discovered during graph bootstrap.
+    This model normalizes both local MCP agents (from ``NODE_AGENTS.md``) and
+    remote A2A peers (from ``A2A_AGENTS.md``) into a single record so that the
+    graph builder and router can treat them identically during the registration
+    and planning phases. Execution still follows type-specific paths.
+
+    Attributes:
+        tag: Routing key used by the dispatcher (e.g. ``'portainer'``).
+        name: Human-readable display name.
+        description: One-line summary of the specialist's purpose.
+        source: Origin of the specialist (``'mcp'``, or ``'a2a'``).
+        mcp_server: Source MCP server name (empty for A2A peers).
+        tools: Known tool names (populated for MCP, may be empty for A2A).
+        url: Endpoint URL (populated for A2A, empty for MCP).
+        capabilities: Free-form capability metadata (A2A agent cards).
+
+    """
+
+    tag: str = Field(description="Routing key used by the dispatcher")
+    name: str = Field(description="Human-readable display name")
+    description: str = Field(default="", description="Specialist summary")
+    source: str = Field(description="Origin: 'mcp' or 'a2a'")
+    mcp_server: str = Field(default="", description="Source MCP server (MCP Only)")
+    tools: List[str] = Field(default_factory=list, description="Known tool names")
+    url: str = Field(default="", description="Agent endpoint URL (A2A Only)")
+    capabilities: str = Field(default="", description="Agent card capabilities")
 
 
 class UsageStatistics(BaseModel):

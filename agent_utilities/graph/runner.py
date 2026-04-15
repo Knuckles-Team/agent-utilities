@@ -39,9 +39,9 @@ from .config_helpers import (
 )
 
 try:
-    from opentelemtry import trace
+    from opentelemetry import trace
 
-    tracer = trace.get_tracer("agent-utilties.graph")
+    tracer = trace.get_tracer("agent-utilities.graph")
 except ImportError:
     tracer = None
 
@@ -548,7 +548,7 @@ def validate_graph(graph: Any, config: dict) -> dict:
     info["mcp_tool_count"] = len(registry.tools)
 
     # Discovered agents (A2A)
-    from ..a2a import discover_agents
+    from ..discovery import discover_agents
 
     discovered = discover_agents()
     info["discovered_agent_count"] = len(discovered)

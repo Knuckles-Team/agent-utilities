@@ -80,3 +80,39 @@ def test_append_to_md_file(temp_workspace):
     append_to_md_file(filename, "Entry 1")
     content = (temp_workspace / filename).read_text()
     assert "Entry 1" in content
+
+
+def test_parse_node_registry():
+    """Test parsing the NODE_AGENTS.md registry."""
+    from agent_utilities.workspace import parse_node_registry
+
+    content = """# NODE_AGENTS.md
+## Agent Mapping Table
+
+| Name | Description | System Prompt | Tools | Tag / ID | Source MCP / Skill |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Repo Manager | Manages local git repositories | You are repo manager | git_action | repository_manager | repository_mcp |
+| DevOps | Infrastructure expert | You are devops | deploy | devops_engineer | devops_mcp |
+"""
+    registry = parse_node_registry(content)
+    assert len(registry.agents) == 2
+    assert registry.agents[0].name == "Repo Manager"
+    assert registry.agents[0].tag == "repository_manager"
+
+
+def test_get_agent_icon_path(temp_workspace):
+    """Test icon path resolution."""
+    from agent_utilities.workspace import get_agent_icon_path
+
+    # Default behavior: icon.png in workspace
+    # Must exist for the function to return it
+    (temp_workspace / "icon.png").write_text("fake icon")
+    icon_path = get_agent_icon_path()
+    assert icon_path == str(temp_workspace / "icon.png")
+
+    # Custom icon
+    custom_icon = temp_workspace / "custom.png"
+    custom_icon.write_text("fake image")
+    with patch("agent_utilities.workspace.CORE_FILES", {"ICON": "custom.png"}):
+        icon_path = get_agent_icon_path()
+        assert icon_path == str(custom_icon)

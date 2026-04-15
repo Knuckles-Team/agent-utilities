@@ -132,7 +132,7 @@ async def run_orthogonal_regions(
     """Execute multiple independent sub-tasks concurrently within a single specialist.
 
     This implements HSM orthogonal regions: multiple independent sub-state-machines
-    running in parllel within one superstate. Each region runs the same agent with
+    running in parallel within one superstate. Each region runs the same agent with
     a different query, and results are merged.
 
     Args:
@@ -219,8 +219,16 @@ class StateInvariantError(Exception):
 
 
 def assert_state_valid(state: Any, transition: str) -> None:
-    """HSM state invariant assertions - validate at every transition boundary.
-    Catches corruption early: empty queries, cursor overflows, infinite loops.
+    """Validate state invariants at every transition boundary.
+    Catches corruption early: empty queries, cursor overflows, and
+    infinite research/verification loops.
+
+    Args:
+        state: The current GraphState to validate
+        transition: The name of the transition boundary being checked
+
+    Raises:
+        StateInvariantError: If any state invariant is violated
     """
     if not state.query:
         raise StateInvariantError(f"Empty query at {transition}")
@@ -261,15 +269,19 @@ def check_specialist_preconditions(
     agent_info: Any,
     deps: Any,
 ) -> tuple[bool, str]:
-    """Behavior Tree precondition check before entering a specialist superstate.
+    """Validated that a specialist has the required resources to execute.
 
-    Validates that the specialist has the required resources to execute:
-    - MCP server is available (circuit breaker not open)
-    - At least once MCP toolset is bound for this server
+    Checks circuit breaker state and toolset availability before
+    entering a specialist superstate
+
+    Args:
+        agent_info: The MCPAgent metadata for the target specialist
+        deps: The GraphDeps runtime dependency container
 
     Returns:
-        (can_proceed, reason) - True if preconditions met, False with explanation if not
-
+        A tuple of (can_proceed, reason). ``True`` with an empty reason
+        if all preconditions pass; ``False`` with a diagnostic message
+        explaining the failure otherwise.
     """
     server_name = getattr(agent_info, "mcp_server", "")
 
@@ -298,9 +310,17 @@ def check_specialist_preconditions(
 
 
 def static_route_query(query: str, available_specialists: dict[str, str]) -> str | None:
-    """HSM junction pseudostate: static keyword-based routing before LLM
-    Returns specialist node_id if a strong keyword match is found, else None.
-    This saves an LLM call for obvious queries like "list gitlab projects".
+    """Attempt keyword-based routing before an LLM call (junction psudostate).
+
+    Scans the query for keywords that match specialist node IDs, saving
+    an LLM round-trip for obvious queries like "list gitlab projects"
+
+    Args:
+        query: The user's raw query text.
+        available_specialists: Mapping of node_id to description.
+
+    Returns:
+        The matched specialist node_id, or None if no strong match is found.
     """
     query_lower = query.lower()
     # Build keyword->specialist index from specialist descriptions
