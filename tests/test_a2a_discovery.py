@@ -3,9 +3,9 @@ from unittest.mock import patch, MagicMock
 from agent_utilities.a2a import (
     register_a2a_peer,
     delete_a2a_peer,
-    discover_agents,
     A2AClient,
 )
+from agent_utilities.discovery import discover_agents
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_discover_agents_local_mcp():
 |------|-------------|---------------|-------|-----|------------|
 | specialist | A test specialist | Be helpful | tool1 | expert | mcp1 |
 """
-    with patch("agent_utilities.a2a.load_workspace_file") as mock_load:
+    with patch("agent_utilities.discovery.load_workspace_file") as mock_load:
         # First call for NODE_AGENTS.md, second for A2A_AGENTS.md
         mock_load.side_effect = [mcp_content, ""]
 
@@ -69,10 +69,11 @@ def test_discover_agents_remote_a2a():
 |------|--------------|-------------|--------------|------|-------|
 | RemotePeer | http://remote:8000 | Remote agent | cap1 | none | - |
 """
-    with patch("agent_utilities.a2a.load_workspace_file") as mock_load:
-        mock_load.side_effect = ["", a2a_content]
-        with patch("agent_utilities.a2a.A2AClient.fetch_card_sync", return_value=None):
-            agents = discover_agents()
-            assert "remotepeer" in agents
-            assert agents["remotepeer"]["url"] == "http://remote:8000"
-            assert agents["remotepeer"]["type"] == "remote_a2a"
+    with patch("agent_utilities.discovery.load_workspace_file") as mock_load:
+        mock_load.side_effect = [""]
+        with patch("agent_utilities.a2a.load_workspace_file", return_value=a2a_content):
+            with patch("agent_utilities.a2a.A2AClient.fetch_card_sync", return_value=None):
+                agents = discover_agents()
+                assert "remotepeer" in agents
+                assert agents["remotepeer"]["url"] == "http://remote:8000"
+                assert agents["remotepeer"]["type"] == "remote_a2a"

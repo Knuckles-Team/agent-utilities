@@ -10,22 +10,9 @@ of MCP configurations from JSON files with environment variable expansion.
 
 import os
 import argparse
-import warnings
 from typing import Union, Any
 from pathlib import Path
 import logging
-
-# Filter RequestsDependencyWarning early to prevent log spam
-try:
-    from requests.exceptions import RequestsDependencyWarning
-
-    warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
-except ImportError:
-    pass
-
-# General urllib3/chardet mismatch warnings
-warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
-warnings.filterwarnings("ignore", message=".*urllib3.*or charset_normalizer.*")
 
 from .base_utilities import to_boolean, GET_DEFAULT_SSL_VERIFY
 from .config import (
@@ -283,16 +270,6 @@ def create_mcp_server(
             - middlewares: A list of configured middleware instances.
 
     """
-    import warnings
-
-    # Filter RequestsDependencyWarning early to prevent log spam
-    try:
-        from requests.exceptions import RequestsDependencyWarning
-
-        warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
-    except ImportError:
-        pass
-
     import requests as _requests
 
     from fastmcp import FastMCP

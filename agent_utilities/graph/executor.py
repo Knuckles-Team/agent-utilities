@@ -40,28 +40,117 @@ from .runner import run_graph
 logger = logging.getLogger(__name__)
 
 
+def agent_matches_node_id(agent: MCPAgent, node_id: str) -> bool:
+    """Multi-strategy agent name amtching for approximate node IDs from the router.
+
+    Handles cases where the LLM-generated node_id doesn't exactly match registry
+    entries. Tries exact match, substring match, prefix/suffix match, and keyword intersection against the agent's tag,
+    name, server, and description fields.
+
+    Args:
+        agent: The MCPAgent registry entry to match against.
+        node_id: The node identifier emitted by the router / executor.
+
+    Returns:
+        True if the agent is a plausible match for the given node_id.
+    """
+    node_id_norm = node_id.lower().replace("-", "_").replace(" ", "_")
+    tag = (agent.tag or "").lower().replace("-", "_").replace(" ", "_")
+    name = agent.name.lower().replace("-", "_").replace(" ", "_")
+    server = (agent.mcp_server or "").lower().replace("-", "_").replace(" ", "_")
+    desc = (agent.description or "").lower()
+    if tag == node_id_norm or name == node_id_norm or server == node_id_norm:
+        return True
+
+    if (tag and tag in node_id_norm) or (server and server in node_id_norm):
+        return True
+
+    if tag and (node_id_norm.startswith(tag) or node_id_norm.endswith(tag)):
+        return True
+
+    if server and (node_id_norm.startswith(server) or node_id_norm.endswith(server)):
+        return True
+
+    stop_words = {"researcher", "expert", "agent", "manager", "action"}
+    node_keywords = {
+        w for w in node_id_norm.split("_") if len(w) >= 3 and w not in stop_words
+    }
+    if node_keywords:
+        target_corpus = f"{tag} {name} {server} {desc}"
+        for kw in node_keywords:
+            if kw in target_corpus:
+                logger.debug(
+                    f"Keyword match: '{kw}' found in registry entry for '{agent.name}'"
+                )
+                return True
+
+    return False
+
+
 async def _get_domain_tools(node_id: str, deps: GraphDeps) -> list[Any]:
     """Dynamically discover and load toolsets specialized for a domain expert.
 
     Starts with universal developer tools and augments them with domain-specific
-    skills listed in the NODE_SKILL_MAP.
+    skill toolset filtered by the tags assigned to this node in NODE_SKILL_MAP
+    Uses ``pydantic_ai_skills.SkillsToolset`` for tag-filtered skill injection
 
     Args:
         node_id: The functional node identifier (e.g., 'researcher').
         deps: The global dependency container.
 
     Returns:
-        A combined list of developer tools and specialized skill functions.
+        A combined list of developer tools and specialized skill toolsets.
 
     """
     # Start with universal developer tools
     from ..tools.developer_tools import developer_tools
 
-    tools = list(developer_tools)
+    tools: list[Any] = list(developer_tools)
 
-    # Add skills from the mapping
-    skills_to_load = NODE_SKILL_MAP.get(node_id, [])
-    logger.debug(f"Loading {len(skills_to_load)} specialized skills for {node_id}")
+    skill_tags = NODE_SKILL_MAP.get(node_id, [])
+    if not skill_tags:
+        return tools
+
+    logger.debug(
+        f"Loading {len(skill_tags)} specialized skill tags for '{node_id}': {skill_tags}"
+    )
+
+    try:
+        from pydantic_ai_skills import SkillsToolset
+        from ..workspace import get_skills_path
+
+        skills_dirs: list[str] = []
+        if skills_path := get_skills_path():
+            skills_dirs.append(skills_path)
+
+        try:
+            from universal_skills.skill_utilities import get_universal_skills_path
+
+            skills_dirs.extend(get_universal_skills_path())
+        except ImportError:
+            pass
+
+        try:
+            from skill_graphs.skill_graph_utilities import get_skill_graphs_path
+
+            skills_dirs.extend(get_skill_graphs_path(default_enabled=True))
+        except ImportError:
+            pass
+
+        if skills_dirs:
+            from ..tool_filtering import skill_matches_tags
+
+            filtered_dirs = [
+                d for d in skills_dirs if skill_matches_tags(d, skill_tags)
+            ]
+            if filtered_dirs:
+                skill_toolset = SkillsToolset(directories=filtered_dirs)
+                tools.append(skill_toolset)
+                logger.info(
+                    f"Loaded {len(filtered_dirs)} skill directories for '{node_id}'"
+                )
+    except ImportError:
+        logger.debug("pydantic-ai-skills not installed; skipping skill injection")
 
     return tools
 
@@ -70,16 +159,15 @@ def get_step_descriptions() -> str:
     """Generate a formatted catalog of expert capabilities for the LLM planner.
 
     Combines static roles, discovered A2A peers, and registered MCP specialists
-    into a cohesive markdown list used in system prompts.
+    into a cohesive markdown list used in system prompts. Uses the unified
+    :func:`discover_all_specialists` roster so that both MCP and A2A sources are
+    enumerated through the same code path.
 
     Returns:
         A multi-line markdown string describing all available graph nodes.
 
     """
-    from ..a2a import discover_agents
-
-    # Discovery of local agent packages
-    discovered = discover_agents()
+    from ..discovery import discover_all_specialists
 
     steps = {
         "researcher": "Multi-vector discovery expert. Trigger this when information is missing or assumptions need validation. Can be spawned in parallel for simultaneous Web, Code, and Workspace research.",
@@ -100,34 +188,26 @@ def get_step_descriptions() -> str:
         "document_specialist": "Document processing. PDFs, Office docs, Markdown conversion, Marp presentations, GIF/video creation.",
         "mobile_developer": "React Native and Expo mobile development expert.",
         "agent_engineer": "Meta-tooling for building agents, MCP servers, skills, and agent packages. Pydantic AI, FastMCP, A2A.",
-        "project_manager": "Jira, GitHUb workflows, Google Workspace, sprint planning, and internal communications.",
+        "project_manager": "Jira, GitHub workflows, Google Workspace, sprint planning, and internal communications.",
         "systems_admin": "Systems administration and home-lab. OS ops, Home Assistant, Uptime Kuma, self-hosted services.",
         "debugger_expert": "Interpreting error logs and fixing complex bugs.",
         "verifier": "Final quality gate. Validates that the implementation meets the original query requirements.",
         "mcp_server": "General-purpose tool hub for any task not covered by specialized nodes.",
     }
 
-    # Merge discovered legacy agents
-    for tag, meta in discovered.items():
-        if tag not in steps:
-            agent_type = meta.get("type", "local")
-            if agent_type == "remote_a2a":
-                steps[tag] = (
-                    f"Remote A2A Specialist '{meta['name']}': {meta['description']} (Capabilities: {meta.get('capabilities', 'N/A')})"
-                )
-            else:
-                steps[tag] = (
-                    f"Specialized Domain Agent '{meta['name']}': {meta['description']}. This agent has its own internal graph and specialized toolsets."
-                )
-
-    # Merge dynamic MCP agents from the registry
-    registry = load_node_agents_registry()
-    for agent in registry.agents:
-        # We use the agent name or a cleaned tag as the node_id
-        node_id = agent.name.lower().replace(" ", "_")
-        if node_id not in steps:
-            steps[node_id] = (
-                f"MCP Agent '{agent.name}': {agent.description}. Targeted expertise for: {', '.join(agent.tools[:5])}..."
+    for specialist in discover_all_specialists():
+        if specialist.tag in steps:
+            continue
+        if specialist.source == "a2a":
+            steps[specialist.tag] = (
+                f"Remote A2A Specialist '{specialist.name}': {specialist.description}. "
+                f"(Capabilities: {specialist.capabilities or 'N/A'})"
+            )
+        else:
+            tool_preview = ", ".join(specialist.tools[:5])
+            steps[specialist.tag] = (
+                f"MCP Agent '{specialist.name}': {specialist.description}. "
+                f"Targeted expertise for: {tool_preview}..."
             )
 
     return "\n".join([f"- {k}: {v}" for k, v in steps.items()])
@@ -255,34 +335,34 @@ async def _execute_dynamic_mcp_agent(
         deps_type=GraphDeps,
     )
 
-    # Bind the specific subset of MCP tools
+    # Bind the specific subset of MCP tools (with deduplication)
     bound_tool_count = 0
-    actually_bound_tools = []
-    matched_toolsets = []
+    actually_bound_tools: list[str] = []
+    matched_toolsets: list[Any] = []
+    _seen_toolset_ids: set[int] = set()
 
     for toolset in ctx.deps.mcp_toolsets:
-        # Pydantic AI MCPServer might have a name or id
+        ts_identity = id(toolset)
+        if ts_identity in _seen_toolset_ids:
+            continue
         server_id = getattr(toolset, "id", getattr(toolset, "name", None))
         if server_id:
-            # Source MCP from registry is our target
             target = agent_info.mcp_server.lower().replace("-", "_")
             current = server_id.lower().replace("-", "_")
-
-            # Match server_id to target server (e.g. 'repository_manager' matches 'repository-manager')
             if (
                 current == target
                 or current.startswith(f"{target}_")
                 or target.startswith(f"{current}_")
             ):
+                _seen_toolset_ids.add(ts_identity)
                 matched_toolsets.append(toolset)
 
-                # Track actually bound tool names for UI sideband
                 if hasattr(toolset, "tools"):
                     for t_name in toolset.tools.keys():
-                        actually_bound_tools.append(t_name)
+                        if t_name not in actually_bound_tools:
+                            actually_bound_tools.append(t_name)
                     bound_tool_count += len(toolset.tools)
                 else:
-                    # Fallback to discovered count if tools are lazy-loaded
                     bound_tool_count += len(total_tools)
 
                 logger.info(
@@ -298,23 +378,35 @@ async def _execute_dynamic_mcp_agent(
         output_retries=2,
     )
 
-    # Emit tool binding confirmation for UI transparency
+    # Tool-count telemetry: surface blind or overloaded specialist
     emit_graph_event(
         ctx.deps.event_queue,
         "tools-bound",
         expert=agent_info.name,
         count=bound_tool_count,
         tools=actually_bound_tools,
+        toolset_count=len(matched_toolsets),
     )
 
     if bound_tool_count == 0:
         logger.warning(
-            f"Expert Execution: Agent '{agent_info.name}' started with ZERO tools bound from server '{agent_info.mcp_server}'"
+            f"[TELEMETRY] Specialist '{agent_info.name}' has ZERO tools bound (server='{agent_info.mcp_server}'). "
+            f"Agent will run blind"
         )
         emit_graph_event(
             ctx.deps.event_queue,
             "expert-warning",
             message=f"No tools bound for server '{agent_info.mcp_server}'. Agent may be blind.",
+        )
+    elif bound_tool_count > 50:
+        logger.warning(
+            f"[TELEMETRY] Specialist '{agent_info.name}' has {bound_tool_count} toools "
+            f"bound - consider partitioning to reduce context overhead."
+        )
+    else:
+        logger.info(
+            f"[TELEMETRY] Specialist '{agent_info.name}': "
+            f"{bound_tool_count} tools across {len(matched_toolsets)} toolset(s)"
         )
 
     # Build Query
@@ -640,49 +732,9 @@ async def _execute_agent_package_logic(
         ctx.state.results_registry[node_uid] = result_str
         ctx.state.results[node_id] = result_str
     else:
-        # Local Dynamic MCP Agent Execution (Modern Pattern)
         registry = load_node_agents_registry()
-        node_id_norm = node_id.lower().replace("-", "_").replace(" ", "_")
-
-        def _agent_matches(a) -> bool:
-            """Multi-strategy agent name matching handles approximate node IDs from router."""
-            tag = (a.tag or "").lower().replace("-", "_").replace(" ", "_")
-            name = a.name.lower().replace("-", "_").replace(" ", "_")
-            server = (a.mcp_server or "").lower().replace("-", "_").replace(" ", "_")
-            desc = (a.description or "").lower()
-            # 1. Exact match on normalized tag, name, or server
-            if tag == node_id_norm or name == node_id_norm or server == node_id_norm:
-                return True
-            # 2. Tag/Server substring: node_id contains the tag or server (e.g. 'expert_portainer' ⊇ 'portainer')
-            if (tag and tag in node_id_norm) or (server and server in node_id_norm):
-                return True
-            # 3. node_id is a prefix/suffix of tag or server
-            if tag and (node_id_norm.startswith(tag) or node_id_norm.endswith(tag)):
-                return True
-            if server and (
-                node_id_norm.startswith(server) or node_id_norm.endswith(server)
-            ):
-                return True
-            # 4. Keyword intersection: any meaningful word from node_id appears in tag/desc
-            # Handles LLM hallucinations like 'researcher_git_status' → matches 'repository-manager'
-            # because 'git' appears in both the node_id and the agent's description/tag.
-            node_keywords = {
-                w
-                for w in node_id_norm.split("_")
-                if len(w) >= 3
-                and w not in {"researcher", "expert", "agent", "manager", "action"}
-            }
-            if node_keywords:
-                for kw in node_keywords:
-                    if kw in tag or kw in desc:
-                        logger.debug(
-                            f"Expert: Keyword Match! '{kw}' found in tag/desc of '{a.name}'"
-                        )
-                        return True
-            return False
-
         mcp_agent = next(
-            (a for a in registry.agents if _agent_matches(a)),
+            (a for a in registry.agents if agent_matches_node_id(a, node_id)),
             None,
         )
 
@@ -715,7 +767,7 @@ async def agent_package_step(
         The next node identifier (usually 'execution_joiner' or 'Error').
 
     """
-    from ..a2a import discover_agents
+    from ..discovery import discover_agents
 
     discovered = discover_agents()
     if node_id not in discovered:
@@ -761,6 +813,7 @@ async def _execute_specialized_step(
     )
 
     memory_instruction = load_specialized_prompts("memory_instruction")
+    tool_guidance = load_specialized_prompts("tool_guidance")
 
     # Include validation feedback if this is a re-dispatch from verifier
     feedback_section = ""
@@ -777,16 +830,22 @@ async def _execute_specialized_step(
         system_prompt=(
             f"{memory_instruction}\n\n"
             f"{prompt}\n\n"
+            f"### TOOL USAGE GUIDANCE\n{tool_guidance}\n\n"
             f"### CONTEXT\n{ctx.state.exploration_notes}"
             f"{feedback_section}"
         ),
         tools=custom_tools,
     )
 
-    # Filter MCP toolsets by domain tag AND node_id (prompt_name)
-    # This allows MCP toolsets to declare compatibility with specific expert roles
+    # Filter MCP toolsets by domain tag AND node_id (prompt_name) with deduplication
     tool_tags = list(set([prompt_name] + NODE_SKILL_MAP.get(prompt_name, [])))
+    _seen_ts: set[int] = set()
+    mcp_tool_count = 0
     for toolset in ctx.deps.mcp_toolsets:
+        ts_identity = id(toolset)
+        if ts_identity in _seen_ts:
+            continue
+
         # Check if the toolset server name matches or if it has matching tags
         server_id = (
             getattr(toolset, "id", getattr(toolset, "name", "unknown"))
@@ -798,12 +857,45 @@ async def _execute_specialized_step(
         if server_id == target or any(
             t.lower().replace("-", "_") == target for t in tool_tags
         ):
+            _seen_ts.add(ts_identity)
             agent.toolsets.append(toolset)
+            mcp_tool_count += len(getattr(toolset, "tools", {})) or 1
         else:
             # Fallback to standard tag filtering
             filtered = filter_tools_by_tag(toolset, tool_tags)
             if filtered:
-                agent.toolsets.append(filtered)
+                fid = id(filtered)
+                if fid not in _seen_ts:
+                    _seen_ts.add(fid)
+                    agent.toolsets.append(filtered)
+                    mcp_tool_count += len(getattr(filtered, "tools", {})) or 1
+
+    # Tool-count telemetry for specialized steps
+    total_tool_count = len(custom_tools) + mcp_tool_count
+    logger.info(
+        f"[TELEMETRY] Specialist '{prompt_name}': "
+        f"{len(custom_tools)} dev/skill tools + {mcp_tool_count} MCP tools "
+        f"= {total_tool_count} total"
+    )
+
+    emit_graph_event(
+        ctx.deps.event_queue,
+        event_type="tools-bound",
+        expert=prompt_name,
+        count=total_tool_count,
+        dev_tools=len(custom_tools),
+        mcp_tools=mcp_tool_count,
+    )
+
+    if total_tool_count == 0:
+        logger.warning(
+            f"[TELEMETRY] Specialist '{prompt_name}': has ZERO tools. Agent will run blind."
+        )
+    elif total_tool_count > 50:
+        logger.warning(
+            f"[TELEMETRY] Specialist '{prompt_name}' has {total_tool_count} tools "
+            f"- consider partitioning to reduce context overhead."
+        )
 
     # Retrieve cached message history for re-dispatch context
     prev_messages = ctx.deps.message_history_cache.get(prompt_name)
@@ -821,9 +913,9 @@ async def _execute_specialized_step(
                     content=chunk,
                     node=prompt_name,
                 )
-            res = await stream.data()
-        ctx.state._update_usage(getattr(res, "usage", None))
-        result_str = str(res.output)
+            res = await stream.get_output()
+        ctx.state._update_usage(stream.usage())
+        result_str = str(res)
 
         # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
         # and mirror to results (keyed by domain, for backwards compatibility).
@@ -838,7 +930,7 @@ async def _execute_specialized_step(
 
         # Cache message history for potential re-dispatch
         try:
-            ctx.deps.message_history_cache[prompt_name] = res.all_messages()
+            ctx.deps.message_history_cache[prompt_name] = stream.all_messages()
         except Exception as e:
             logger.debug(f"Unable to cache: {e}")
 
@@ -965,7 +1057,7 @@ async def _execute_domain_logic(
                                 message=str(message),
                             )
                         res = await stream.get_output()
-                    output = getattr(res, "output", None) or getattr(res, "data", res)
+                    output = res
 
                 result_str = str(output)
                 # Unified result storage

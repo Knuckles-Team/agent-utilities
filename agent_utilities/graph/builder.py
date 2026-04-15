@@ -61,6 +61,7 @@ from .steps import (
     join_step,
     architect_step,
     verifier_step,
+    synthesizer_step,
     onboarding_step,
     memory_selection_step,
     approval_gate_step,
@@ -167,7 +168,7 @@ def initialize_graph_from_workspace(
         logger.info(f"Initializing Graph: workspace pinned to {workspace}")
 
     # load_node_agents_registry is in this module
-    from ..a2a import discover_agents
+    from ..discovery import discover_agents
     from ..mcp_agent_manager import sync_mcp_agents, should_sync
 
     # build_tag_env_map is in this module
@@ -231,11 +232,15 @@ def initialize_graph_from_workspace(
         except Exception as e:
             logger.warning(f"Failed to load MCP discovery metadata: {e}")
 
-    # Discovery Logic
+    # Unified Discovery Logic
     logger.info("Initializing Graph: Discovering domain tags and agents...")
-    registry = load_node_agents_registry()
-    tag_prompts = {a.tag: a.description for a in registry.agents if a.tag}
+    from ..discovery import discover_all_specialists
+
+    all_specialists = discover_all_specialists()
+    tag_prompts = {s.tag: s.description for s in all_specialists}
     if not tag_prompts:
+        from ..discovery import discover_agents
+
         discovered = discover_agents()
         tag_prompts = {
             tag: meta.get("description", "A2A Specialist")
@@ -292,7 +297,7 @@ def create_master_graph(
         A tuple containing the initialized Graph and its configuration dictionary.
 
     """
-    from ..a2a import discover_agents
+    from ..discovery import discover_agents
 
     agents = discover_agents(
         include_packages=include_agents, exclude_packages=exclude_agents
@@ -401,6 +406,7 @@ def create_graph_agent(
     _execution_joiner = g.step(join_step, node_id="execution_joiner")
     _architect = g.step(architect_step, node_id="architect")
     _verifier = g.step(verifier_step, node_id="verifier")
+    _synthesizer = g.step(synthesizer_step, node_id="synthesizer")
 
     # Native Developer Steps
     _researcher = g.step(researcher_step, node_id="researcher")
@@ -499,7 +505,7 @@ def create_graph_agent(
     _usage_guard = g.step(usage_guard_step, node_id="usage_guard")
 
     # --- Dynamic Agent Package & Specialist Registration ---
-    from ..a2a import discover_agents
+    from ..discovery import discover_agents
 
     discovered_agents_map = discover_agents()
 
@@ -540,6 +546,7 @@ def create_graph_agent(
         "execution_joiner": _execution_joiner,
         "architect": _architect,
         "verifier": _verifier,
+        "synthesizer": _synthesizer,
         "researcher": _researcher,
         "memory_selection": _memory_selection,
         "mcp_router": _mcp_router,
@@ -586,6 +593,7 @@ def create_graph_agent(
         ("architect", _architect),
         ("planner", _planner),
         ("verifier", _verifier),
+        ("synthesizer", _synthesizer),
         ("mcp_router", _mcp_router),
         ("error_recovery", _error),
         ("onboarding", _onboarding),
@@ -618,6 +626,7 @@ def create_graph_agent(
         # Dead-end elimination for unused but registered nodes
         g.edge_from(_planner).to(_dispatcher),
         g.edge_from(_memory_selection).to(_dispatcher),
+        g.edge_from(_memory_selection).label("Context Gap").to(_researcher),
         # Rest of the graph
         g.edge_from(_parallel_batch_processor).map().to(_expert_executor),
         # Expert Nodes: Return to Joiner for synchronization
@@ -633,9 +642,12 @@ def create_graph_agent(
         g.edge_from(_research_joiner).to(_dispatcher),
         g.edge_from(_execution_joiner).to(_dispatcher),
         # Error handling and Finalization
-        g.edge_from(_error).label("Error").to(g.end_node),
-        g.edge_from(_verifier).label("Verified").to(g.end_node),
+        g.edge_from(_error).label("Terminal Error").to(g.end_node),
+        g.edge_from(_error).label("Replace").to(_planner),
+        g.edge_from(_verifier).label("Accepted").to(_synthesizer),
         g.edge_from(_verifier).label("Self-Correction").to(_dispatcher),
+        g.edge_from(_verifier).label("Re-plan").to(_planner),
+        g.edge_from(_synthesizer).label("Final Response").to(g.end_node),
         g.edge_from(_onboarding).to(g.end_node),
     )
 
@@ -733,14 +745,10 @@ def create_graph_agent(
         "sub_agents": sub_agents or {},
         "routing_strategy": routing_strategy,
         "nodes": nodes_registry,
-        "dicovery_metadata": kwargs.get("discovery_metadata") or {},
+        "discovery_metadata": kwargs.get("discovery_metadata") or {},
     }
 
-    import sys
-
-    print(
-        f"DEBUG: create_graph_agent returning config with mcp_toolsets of len: {len(config['mcp_toolsets'])}",
-        file=sys.stderr,
+    logger.debug(
+        f"create_graph_agent: returning config with mcp_toolsets of len: {len(config['mcp_toolsets'])}"
     )
-
     return graph, config

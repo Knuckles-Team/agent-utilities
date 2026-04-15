@@ -56,6 +56,36 @@ def test_server_creation_logic(dummy_agent):
     uvicorn.run = original_run
 
 
+def test_health_check(dummy_agent):
+    """Test the /health endpoint."""
+    from agent_utilities.server import build_agent_app
+    # Use name matching dummy_agent
+    app = build_agent_app(agent_instance=dummy_agent, name="TestBot")
+    client = TestClient(app)
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "OK"
+    assert data["agent"] == "TestBot"
+
+
+def test_mcp_config_endpoint(dummy_agent, dummy_workspace):
+    """Test the /mcp/config endpoint."""
+    from agent_utilities.server import build_agent_app
+    import json
+
+    mcp_config = {"mcpServers": {"test-server": {"command": "echo"}}}
+    config_path = dummy_workspace / "mcp_config.json"
+    config_path.write_text(json.dumps(mcp_config))
+
+    # Pass workspace explicitly
+    app = build_agent_app(agent_instance=dummy_agent, workspace=str(dummy_workspace))
+    client = TestClient(app)
+    response = client.get("/mcp/config")
+    assert response.status_code == 200
+    assert response.json() == mcp_config
+
+
 def test_enhanced_api_endpoints(dummy_agent):
     helpers = {
         "agent_name": "TestBot",

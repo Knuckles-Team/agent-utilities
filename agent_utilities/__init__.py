@@ -24,6 +24,15 @@ with warnings.catch_warnings():
 # General urllib3/chardet mismatch warnings
 warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 warnings.filterwarnings("ignore", message=".*urllib3.*or charset_normalizer.*")
+warnings.filterwarnings("ignore", message=r".*urllib3 v2.*only supports OpenSSL.*")
+
+try:
+    import urllib3
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except Exception:
+    pass
+
 
 from .base_utilities import (
     to_boolean,
@@ -68,8 +77,9 @@ from .model_factory import (
     create_model,
 )
 
-from .a2a import (
+from .discovery import (
     discover_agents,
+    discover_all_specialists,
 )
 
 from .workspace import (
@@ -94,7 +104,7 @@ from .base_utilities import (
 
 from .embedding_utilities import create_embedding_model
 
-from .models import PeriodicTask
+from .models import PeriodicTask, DiscoveredSpecialist
 
 from .chat_persistence import (
     save_chat_to_disk,
@@ -139,6 +149,7 @@ __all__ = [
     "create_model",
     # A2A
     "discover_agents",
+    "discover_all_specialists",
     # Chat persistence
     "save_chat_to_disk",
     "list_chats_from_disk",
@@ -165,4 +176,5 @@ __all__ = [
     "run_orthogonal_regions",
     # Models
     "PeriodicTask",
+    "DiscoveredSpecialist",
 ]

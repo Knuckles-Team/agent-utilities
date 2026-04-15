@@ -11,7 +11,6 @@ agent lifecycle, workspace initialization, and observability setup.
 from __future__ import annotations
 
 import os
-import sys
 import json
 import logging
 import asyncio
@@ -93,20 +92,6 @@ from .chat_persistence import (
     delete_chat_from_disk,
 )
 from .agent_factory import create_agent
-
-import warnings
-
-# Filter RequestsDependencyWarning early to prevent log spam
-try:
-    from requests.exceptions import RequestsDependencyWarning
-
-    warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
-except ImportError:
-    pass
-
-# General urllib3/chardet mismatch warnings
-warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
-warnings.filterwarnings("ignore", message=".*urllib3.*or charset_normalizer.*")
 
 logger = logging.getLogger(__name__)
 
@@ -270,10 +255,6 @@ def build_agent_app(
 
     """
     from fasta2a import Skill
-
-    import warnings
-
-    warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 
     _name = name or DEFAULT_AGENT_NAME
 
@@ -571,12 +552,17 @@ def build_agent_app(
             return health_info
 
         if enable_acp:
+            from .acp_adapter import (
+                create_graph_acp_app,
+                build_acp_config,
+                is_acp_available,
+            )
+
             if hasattr(_agent_instance, "_acp_app") and _agent_instance._acp_app:
                 logger.info("Mounting ACP protocol layer at /acp")
                 app.mount("/acp", _agent_instance._acp_app)
             else:
                 from .acp_adapter import (
-                    create_acp_app,
                     build_acp_config,
                     is_acp_available,
                 )
@@ -589,8 +575,13 @@ def build_agent_app(
                             Path(acp_session_root) if acp_session_root else None
                         )
                     )
-                    # Create the ASGI app from the agent and mount it
-                    acp_app = create_acp_app(_agent_instance, acp_config)
+                    # Create graph-backed ACP app so that ACP requests route through the full HSM pipeline
+                    acp_app = create_graph_acp_app(
+                        _agent_instance,
+                        acp_config,
+                        graph_bundle=graph_bundle,
+                        mcp_toolsets=_initialized_mcp_toolsets,
+                    )
                     app.mount("/acp", acp_app)
                 else:
                     logger.warning("ACP requested but pydantic-acp not installed.")
@@ -814,14 +805,13 @@ def create_agent_server(
     """Create and run an agent server with FastAPI and FastMCP."""
     import uvicorn
 
-    print(
+    logger.info(
         f"Starting {DEFAULT_AGENT_NAME}:"
         f"\tprovider={provider}"
         f"\tmodel={model_id}"
         f"\tbase_url={base_url}"
         f"\tmcp={mcp_url} | {mcp_config}"
-        f"\tssl_verify={ssl_verify}",
-        file=sys.stderr,
+        f"\tssl_verify={ssl_verify}"
     )
 
     app = build_agent_app(
@@ -910,11 +900,11 @@ def create_agent_server(
         try:
             subprocess.call(["agent-terminal-ui"], env=env)
         except FileNotFoundError:
-            print(
-                "\nError: 'agent-terminal-ui' command not found. Please install the agent-terminal-ui package."
+            logger.error(
+                "Error: 'agent-terminal-ui' command not found. Please install the agent-terminal-ui package."
             )
         except Exception as e:
-            print(f"Error launching TUI: {e}")
+            logger.error(f"Error launching TUI: {e}")
 
         return
 
@@ -991,10 +981,6 @@ def create_graph_agent_server(
         **kwargs: All remaining args are forwarded to create_agent_server().
 
     """
-    import warnings
-
-    warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
-
     from .workspace import WORKSPACE_DIR as _ws_sentinel
 
     if workspace:

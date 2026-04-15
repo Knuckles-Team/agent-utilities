@@ -150,29 +150,33 @@ C4Container
 
 ```mermaid
   graph TB
-  Start([User Query + Images]) --> ACPLayer["<b>ACP Protocol Adapter</b><br/><i>(pydantic-acp)</i>"]
+  Start([User Query + Images]) --> ACPLayer["<b>ACP / AG-UI / SSE </b><br/><i>(Unified Protocol Layer)</i>"]
   ACPLayer --> UsageGuard[Usage Guard: Rate Limiting]
   UsageGuard -- "Allow" --> router_step[Router: Topology Selection]
   UsageGuard -- "Block" --> End([End Result])
 
-  router_step --> planner_step[Planner: Global Strategy]
-  planner_step --> mem_step[Memory: Context Retrieval]
+  router_step -- "Trivial Query" --> End
+  router_step -- "Full Pipeline" --> dispatcher[Dispatcher: Dynamic Routing]
+  dispatcher -- "First Entry" --> mem_step[Memory: Context Retrieval]
   mem_step --> dispatcher[Dispatcher: Dynamic Routing]
 
   subgraph "Discovery Phase"
     direction TB
     Researcher["<b>Researcher</b><br/>---<br/><i>u-skill:</i> web-search, web-crawler, web-fetch<br/><i>t-tool:</i> project_search, read_workspace_file"]
     Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, product-management, product-strategy, user-research<br/><i>t-tool:</i> developer_tools"]
-    A2ADiscovery["<b>A2A Discovery</b><br/>---<br/><i>source:</i> AGENTS.md<br/><i>t-tool:</i> fetch_agent_card"]
+    A2ADiscovery["<b>A2A Discovery</b><br/>---<br/><i>source:</i> A2A_AGENTS.md<br/>"]
+    MCPDiscovery["<b>MCP Discovery</b><br/>---<br/><i>source:</i> NODE_AGENTS.md<br/>"]
     res_joiner[Research Joiner: Barrier Sync]
   end
 
-  dispatcher -- "Parallel Dispatch" --> Researcher
-  dispatcher -- "Parallel Dispatch" --> Architect
-  dispatcher -- "Parallel Dispatch" --> A2ADiscovery
+  dispatcher -- "Research First" --> Researcher
+  dispatcher -- "Research First" --> Architect
+  dispatcher -- "Research First" --> A2ADiscovery
+  dispatcher -- "Research First" --> MCPDiscovery
   Researcher --> res_joiner
   Architect --> res_joiner
   A2ADiscovery --> res_joiner
+  MCPDiscovery --> res_joiner
   res_joiner -- "Coalesced Context" --> dispatcher
 
   subgraph "Execution Phase"
@@ -266,15 +270,19 @@ C4Container
 
   exe_joiner -- "Implementation Results" --> dispatcher
 
-  dispatcher -- "Final Validation" --> verifier[Verifier: Quality Gate]
-  verifier -- "Success" --> End
-  verifier -- "Critical Fault" --> router_step
+  dispatcher -- "Plan Complete" --> verifier[Verifier: Quality Gate]
+  verifier -- "Score >= 0.7" --> synthesizer[Synthesizer: Response Composition]
+  verifier -- "Score 0.4-0.7" --> dispatcher
+  verifier -- "Score < 0.4" --> planner_step[Planner: Re-plan with Feedback]
+  planner_step --> dispatcher
+  synthesizer -- "Final Response" --> End
   dispatcher -- "Terminal Failure" --> End
 
   %% Styling
   style Researcher fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
   style Architect fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
   style A2ADiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+  style MCPDiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
 
   style Programmers fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
   style PyP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
@@ -303,6 +311,8 @@ C4Container
   style Data_Lifestyle fill:#fef9e7,stroke:#d6b656,stroke-width:1px
 
   style verifier fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+  style synthesizer fill: #d5e8d4,stroke:#82b366,stroke-width:2px
+  style planner_step fill: #dae8fe,stroke:#6c8ebf,stroke-width:2px
   style End fill:#f8cecc,stroke:#b85450,stroke-width:2px
   style res_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
   style exe_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
@@ -346,13 +356,13 @@ graph TD
     subgraph Initialization_Phase ["2. Graph Initialization (Runtime)"]
         Config -->|Per-server resilient load| Loader["<b>builder.py</b><br/><i>MCPServerStdio per server</i><br/>⚠️ Skips missing env-vars<br/>❌ Logs failed servers clearly"]
         Registry --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
-        Loader -->|mcp_toolsets| graph
+        Loader -->|mcp_toolsets| 'graph'
         Builder -->|Register Nodes| Specialists["<b>Specialist Superstates</b><br/>(Python, TS, GitLab, etc.)"]
-        Specialists -->|Compile| graph["<b>Pydantic Graph Agent</b>"]
+        Specialists -->|Compile| 'graph'["<b>Pydantic Graph Agent</b>"]
     end
 
     subgraph Operation_Phase ["3. Persistent Operation (Execution)"]
-        graph --> Lifespan["<b>runner.py</b><br/><i>run_graph() AsyncExitStack</i>"]
+        'graph' --> Lifespan["<b>runner.py</b><br/><i>run_graph() AsyncExitStack</i>"]
         Lifespan -->|"Sequential connect<br/>per-server error reporting"| ConnPool["<b>Active Connection Pool</b><br/>(Warm Toolsets)<br/>❌ failing servers skipped & logged"]
         ConnPool -->|Zero-Latency Call| Servers
     end
@@ -363,7 +373,7 @@ graph TD
     style Manager fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
     style Parallel fill:#f8cecc,stroke:#b85450,stroke-width:2px
     style ConnPool fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style graph fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style 'graph' fill:#fff2cc,stroke:#d6b656,stroke-width:2px
     style Loader fill:#d5e8d4,stroke:#82b366,stroke-width:2px
 ```
 

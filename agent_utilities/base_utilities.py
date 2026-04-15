@@ -15,10 +15,7 @@ import os
 import pickle
 import re
 import sys
-import warnings
 
-warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastmcp")
 from importlib.resources import as_file, files
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterable

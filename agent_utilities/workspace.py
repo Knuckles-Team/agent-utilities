@@ -1062,12 +1062,25 @@ def parse_node_registry(content: str) -> MCPAgentRegistryModel:
 
         if (
             stripped.startswith("|")
-            and not stripped.startswith("|---")
+            and not any(x in stripped for x in ["|---", "|:---", "| :---"])
             and not stripped.startswith("| Name")
             and not stripped.startswith("| Tool Name")
         ):
             parts = [p.strip() for p in stripped.strip("| ").split("|")]
             if current_table == 1 and len(parts) >= 6:
+                # Parse optional tool_count and avg_relevance_score columns
+                tool_count = 0
+                avg_score = 0
+                if len(parts) >= 8:
+                    try:
+                        tool_count = int(parts[6])
+                    except (ValueError, IndexError):
+                        pass
+                    try:
+                        avg_score = int(parts[7])
+                    except (ValueError, IndexError):
+                        pass
+
                 agents.append(
                     MCPAgent(
                         name=parts[0],
@@ -1077,15 +1090,25 @@ def parse_node_registry(content: str) -> MCPAgentRegistryModel:
                         tag=parts[4] if parts[4] else None,
                         mcp_server=parts[5],
                         is_custom=False,
+                        tool_count=tool_count,
+                        avg_relevance_score=avg_score,
                     )
                 )
             elif current_table == 2 and len(parts) >= 4:
+                # Parse optional relevance_score column
+                score = 0
+                if len(parts) >= 5:
+                    try:
+                        score = int(parts[4])
+                    except (ValueError, IndexError):
+                        pass
                 tools.append(
                     MCPToolInfo(
                         name=parts[0],
                         description=parts[1],
                         tag=parts[2] if parts[2] else None,
                         mcp_server=parts[3],
+                        relevance_score=score,
                     )
                 )
 
@@ -1109,13 +1132,16 @@ def serialize_node_registry(model: MCPAgentRegistryModel) -> str:
         "",
         "## Agent Mapping Table",
         "",
-        "| Name | Description | System Prompt | Tools | Tag / ID | Source MCP / Skill |",
-        "|------|-------------|---------------|-------|----------|--------------------|",
+        "| Name | Description | System Prompt | Tools | Tag / ID | Source MCP / Skill | Tool Count | Avg Score |",
+        "|------|-------------|---------------|-------|----------|--------------------|------------|-----------|",
     ]
     for a in model.agents:
         tools_str = ", ".join(a.tools)
         lines.append(
-            f"| {md_table_escape(a.name)} | {md_table_escape(a.description)} | {md_table_escape(a.system_prompt)} | {md_table_escape(tools_str)} | {md_table_escape(a.tag or '')} | {md_table_escape(a.mcp_server)} |"
+            f"| {md_table_escape(a.name)} | {md_table_escape(a.description)} "
+            f"| {md_table_escape(a.system_prompt)} | {md_table_escape(tools_str)} "
+            f"| {md_table_escape(a.tag or '')} | {md_table_escape(a.mcp_server)} "
+            f"| {a.tool_count} | {a.avg_relevance_score} |"
         )
 
     lines.extend(
@@ -1123,15 +1149,17 @@ def serialize_node_registry(model: MCPAgentRegistryModel) -> str:
             "",
             "## Tool Inventory Table",
             "",
-            "| Tool Name | Description | Tag | Source |",
-            "|-----------|-------------|-----|--------|",
+            "| Tool Name | Description | Tag | Source | Score |",
+            "|-----------|-------------|-----|--------|-------|",
         ]
     )
     for t in model.tools:
         # Show all tags in the Tag column
         tags_display = ", ".join(t.all_tags) if t.all_tags else (t.tag or "")
         lines.append(
-            f"| {md_table_escape(t.name)} | {md_table_escape(t.description)} | {md_table_escape(tags_display)} | {md_table_escape(t.mcp_server)} |"
+            f"| {md_table_escape(t.name)} | {md_table_escape(t.description)} "
+            f"| {md_table_escape(tags_display)} | {md_table_escape(t.mcp_server)} "
+            f"| {t.relevance_score} |"
         )
 
     return "\n".join(lines).strip() + "\n"

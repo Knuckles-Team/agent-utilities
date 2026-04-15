@@ -4,8 +4,8 @@
 
 This module manages the lifecycle of agents derived from MCP servers. It
 handles the extraction of tool metadata from running servers, partitioning
-tools into logical domain specialists, and synchronizing these specialists
-with the NODE_AGENTS.md registry.
+tools into logical domain specialists, deterministic tool relevance scoring,
+and synchronizing these specialists with the NODE_AGENTS.md registry.
 """
 
 import asyncio
@@ -279,6 +279,92 @@ async def extract_tool_metadata(
     return all_tools
 
 
+def compute_tool_relevance_score(tool: MCPToolInfo) -> int:
+    """Compute a deterministic relevance score for a tool (0-100).
+
+    The score reflects how well-described, well-tagged, and specific the tool is.
+    Higher scores indicate tools that are more likely to be correctly routed and effectively used by speicalist agents.
+
+    Scoring breakdown (deterministic, no LLM):
+    * **Description quality (0-30)**: Length and keyword richness of the description field
+    * **Tag confidence (0-30)**: ANnotation-derived tags score higher than heuristic-derived tags.
+    * **Name specificity (0-20)**: Longer, multi-segment names that avoid generic verbs are more specific.
+    * **Multi-tag coverage (0-20)**: Tools with multiple tags can serve more specialist domains.
+
+    Args:
+        tool: The tool metadata to score.
+
+    Returns:
+        An integer score between 0 and 100 inclusive
+    """
+    score = 0
+
+    # Description quality (0-30)
+    desc = tool.description or ""
+    desc_len = len(desc)
+    if desc_len > 100:
+        score += 30
+    elif desc_len > 50:
+        score += 20
+    elif desc_len > 15:
+        score += 10
+    elif desc_len > 0:
+        score += 5
+
+    # Tag confidence (0-30)
+    if tool.all_tags:
+        # Multiple explicit tags = highest confidence (from annotations)
+        if len(tool.all_tags) >= 2:
+            score += 30
+        else:
+            tag_val = tool.all_tags[0]
+            # Heuristic-derived tags are usually single lowercase words
+            if "_" in tag_val or len(tag_val) > 6:
+                score += 25
+            else:
+                score += 15
+    elif tool.tag:
+        score += 10
+
+    # Name specificity (0-20)
+    name = tool.name or ""
+    generic_verbs = {"get", "list", "create", "update", "delete", "set", "run"}
+    segments = [s for s in name.replace("-", "_").split("_") if s]
+    meaningful = [s for s in segments if s.lower() not in generic_verbs and len(s) > 2]
+    if len(meaningful) >= 3:
+        score += 20
+    elif len(meaningful) >= 2:
+        score += 15
+    elif len(meaningful) >= 1:
+        score += 10
+    elif segments:
+        score += 5
+
+    # Multi-tag coverage (0-20)
+    tag_count = len(tool.all_tags)
+    if tag_count >= 3:
+        score += 20
+    elif tag_count >= 2:
+        score += 15
+    elif tag_count >= 1:
+        score += 10
+
+    return min(score, 100)
+
+
+def score_tools(tools: List[MCPToolInfo]) -> List[MCPToolInfo]:
+    """Apply deterministic relevance scoring to all tools in-place.
+    Args:
+        tools: The list of tool metadata to score.
+
+    Returns:
+        The same list with ``relevance_score`` populated on each item.
+    """
+    for tool in tools:
+        tool.relevance_score = compute_tool_relevance_score(tool)
+    return tools
+
+
 async def partition_tools(tools: List[MCPToolInfo]) -> Dict[str, List[MCPToolInfo]]:
     """Group tools into logical domain partitions using tags.
 
@@ -363,11 +449,23 @@ async def sync_mcp_agents(
     if not config_path:
         config_path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
 
-    # 1. Extract Tool Metadata
+    # 1a. Extract Tool Metadata
     tools_inventory = await extract_tool_metadata(config_path)
     if not tools_inventory:
         logger.info("No tools found to sync.")
         return
+
+    # 1b. Score all tools deterministically
+    score_tools(tools_inventory)
+    avg_score = (
+        sum(t.relevance_score for t in tools_inventory) // len(tools_inventory)
+        if tools_inventory
+        else 0
+    )
+    logger.info(
+        f"Tool scoring complete: {len(tools_inventory)} tools, "
+        f"average relevance score: {avg_score}/100"
+    )
 
     # 2. Partition Tools
     partitions = await partition_tools(tools_inventory)
@@ -435,6 +533,12 @@ async def sync_mcp_agents(
                     mcp_server=group[0].mcp_server,
                     tag=tag,
                     is_custom=False,
+                    tool_count=len(group),
+                    avg_score=(
+                        sum(t.relevance_score for t in group) // len(group)
+                        if group
+                        else 0
+                    ),
                 )
             )
 

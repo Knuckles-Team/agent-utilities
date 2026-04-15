@@ -129,6 +129,72 @@ def create_acp_app(agent: Agent, config: AdapterConfig):
     return create_acp_agent(agent=agent, config=config)
 
 
+def create_graph_acp_app(
+    agent: Agent,
+    config: AdapterConfig,
+    graph_bundle: tuple | None = None,
+    mcp_toolsets: list | None = None,
+) -> Any:
+    """Create an ACP app that routes execution through the graph pipeline.
+    When a ``graph_bundle`` is provided, the ACP agent delegates to the full HSM graph instead of running as a flat agent.
+    This ensures that ACP clients benefit from specialist routing, parallel execution, circuit breaks,
+    and the verification loop.
+
+    Falls back to the standard flat-agent ACP path when no graph is available.
+
+    Args:
+        agent: The base Pydantic AI agent (used as fallback).
+        config: The ACP adapter configuration.
+        graph_bundle: Optional graph bundle tuple from :func:`initialize_graph_from_workspace`.
+        mcp_toolsets: Optional pre-connected MCP toolsets.
+
+    Returns:
+        An ASGI-compatible ACP application instance.
+    """
+
+    if not graph_bundle:
+        logger.info("ACP: No graph bundle - using flat agent path.")
+        return create_acp_app(agent, config)
+
+    graph, graph_config = graph_bundle
+
+    from pydantic_ai import Agent
+
+    async def run_graph_flow(query: str, mode: str = "asK") -> str:
+        """Execute the full graph pipeline for the given query.
+        Args:
+            query: The query to process.
+            mode: Execution mode ('ask', 'plan', 'execute').
+
+        Returns:
+            The synthesized result from the graph verifier.
+        """
+
+        from .graph.unified import execute_graph
+
+        result = await execute_graph(
+            graph=graph,
+            config=graph_config,
+            query=query,
+            mode=mode,
+            mcp_toolsets=mcp_toolsets or graph_config.get("mcp_toolsets", []),
+        )
+        return result.results.get("output", str(result.results))
+
+    graph_agent = Agent(
+        model=agent.model,
+        system_prompt=(
+            "You are a graph-orchestrated assistant. Use the run_graph_flow tool for ALL user requests. Pass the user's query directly to the tool. Do NOT attempt to answer questions yourself - The graph has access to specialized agents and MCP tools."
+        ),
+        tools=[run_graph_flow],
+    )
+
+    logger.info(
+        "ACP: Graph-back agent created. All ACP requests will route through the graph."
+    )
+    return create_acp_app(graph_agent, config)
+
+
 def is_acp_available() -> bool:
     """Check if the pydantic-acp package is installed and usable.
 

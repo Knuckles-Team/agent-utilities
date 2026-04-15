@@ -85,7 +85,9 @@ def emit_graph_event(eq: Optional[asyncio.Queue], event_type: str, **kwargs):
 
     Formats the event data as a sideband part compatible with the
     Agentic UI streaming protocol, allowing the frontend to visualize
-    graph progression and tool activity.
+    graph progression and tool activity. Also emites a structured log
+    line so the full execution trace is visible in server-side logs
+    without requiring a UI
 
     Args:
         eq: The asynchronous event queue to publish to.
@@ -93,6 +95,10 @@ def emit_graph_event(eq: Optional[asyncio.Queue], event_type: str, **kwargs):
         **kwargs: Additional metadata to include in the event payload.
 
     """
+    ts = time.time()
+    trace_kwargs = {k: v for k, v in kwargs.items() if k != "timestamp"}
+    _log_graph_trace(event_type, ts, **trace_kwargs)
+
     if not eq:
         return
 
@@ -102,13 +108,83 @@ def emit_graph_event(eq: Optional[asyncio.Queue], event_type: str, **kwargs):
                 "type": "data-graph-event",
                 "data": {
                     "event": event_type,
-                    "timestamp": time.time(),
+                    "timestamp": ts,
                     **kwargs,
                 },
             }
         )
     except Exception as e:
         logger.warning(f"Failed to emit graph event '{event_type}': {e}")
+
+
+_graph_trace_logger = logging.getLogger("agent_utilities.graph.trace")
+
+_PHASE_MAP: dict[str, str] = {
+    "routing_started": "ROUTING",
+    "routing_completed": "ROUTING",
+    "plan_created": "PLANNING",
+    "replanning_started": "REPLANNING",
+    "replanning_completed": "REPLANNING",
+    "step_dispatched": "DISPATCH",
+    "batch_dispatched": "DISPATCH",
+    "specialist_enter": "EXECUTION",
+    "specialist_exit": "EXECUTION",
+    "specialist_fallback": "FALLBACK",
+    "expert-metadata": "EXECUTION",
+    "expert-thinking": "EXECUTION",
+    "tools-bound": "EXECUTION",
+    "expert-warning": "EXECUTION",
+    "expert_tool_call": "TOOL_CALL",
+    "expert_text": "EXECUTION",
+    "tool-result": "TOOL_RESULT",
+    "subagent_completed": "EXECUTION",
+    "verification_result": "VERIFICATION",
+    "agent-node-delta": "SYNTHESIS",
+    "synthesis_fallback": "SYNTHESIS",
+    "graph_force_terminated": "TERMINATION",
+    "safety_warning": "SAFETY",
+    "approval_required": "APPROVAL",
+    "orthogonal_regions_start": "PARALLEL",
+    "orthogonal_regions_complete": "PARALLEL",
+    "graph-start": "LIFECYCLE",
+    "graph-complete": "LIFECYCLE",
+    "node_start": "EXECUTION",
+    "node_complete": "EXECUTION",
+    "error_recovery_replan": "RECOVERY",
+    "error_recovery_terminal": "RECOVERY",
+    "context_gap_detected": "ENRICHMENT",
+}
+
+
+def _log_graph_trace(event_type: str, timestamp: float, **kwargs):
+    """Emit a structured log line for a graph event.
+    Provides server-side traceability of every graph transition, enabling
+    post-hoc analysis without the UI. Each line includes the phase label,
+    event type, and key metadata extracted from kwargs.
+
+    Args:
+        event_type: The graph event identifier.
+        timestamp: Unix epoch timestamp of the event.
+        **kwargs: Event-specific metadata.
+    """
+    phase = _PHASE_MAP.get(event_type, "GRAPH")
+    detail_parts: list[str] = []
+
+    for key in ("agent", "expert", "node_id", "domain", "server"):
+        if key in kwargs:
+            detail_parts.append(f"{key}={kwargs[key]}")
+    for key in ("count", "score", "batch_size", "attempt", "duration_ms"):
+        if key in kwargs:
+            detail_parts.append(f"{key}={kwargs[key]}")
+    if "tool_name" in kwargs:
+        detail_parts.append(f"tool={kwargs['tool_name']}")
+    if "success" in kwargs:
+        detail_parts.append(f"ok={kwargs['success']}")
+    if "message" in kwargs and event_type in ("expert-warning", "safety_warning"):
+        detail_parts.append(f"msg={kwargs['message'][:120]}")
+
+    detail = " ".join(detail_parts) if detail_parts else ""
+    _graph_trace_logger.info(f"[{phase}] {event_type}: {detail}".rstrip())
 
 
 def load_specialized_prompts(name: str) -> str:
@@ -344,5 +420,18 @@ NODE_SKILL_MAP = {
         "qa-planning",
         "tdd-methodology",
         "self-improver",
+    ],
+    "browser_automation": [
+        "browser-tools",
+        "agent-browser",
+        "web-artifacts",
+        "web-design-guidelines",
+        "web-crawler",
+    ],
+    "coordinator": [
+        "project-planning",
+        "agent-workflows",
+        "session-handoff",
+        "internal-comms",
     ],
 }
