@@ -963,9 +963,8 @@ async def _execute_specialized_step(
             res = await stream.get_output()
         usage = stream.usage()
         if asyncio.iscoroutine(usage):
-            await usage
-        else:
-            ctx.state._update_usage(usage)
+            usage = await usage
+        ctx.state._update_usage(usage)
         result_str = str(res)
 
         # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)

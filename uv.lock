@@ -52,7 +52,7 @@ wheels = [
 
 [[package]]
 name = "agent-utilities"
-version = "0.2.39"
+version = "0.2.40"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic", extra = ["email"] },
@@ -154,12 +154,12 @@ mcp = [
 [package.metadata]
 requires-dist = [
     { name = "acpkit", extras = ["pydantic"], marker = "extra == 'acp'", specifier = ">=0.1.0" },
-    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.2.39" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.2.39" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.2.39" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.2.39" },
-    { name = "agent-utilities", extras = ["mcp", "ag-ui"], marker = "extra == 'agent'", specifier = ">=0.2.39" },
-    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp"], marker = "extra == 'all'", specifier = ">=0.2.39" },
+    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.2.40" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.2.40" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.2.40" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.2.40" },
+    { name = "agent-utilities", extras = ["mcp", "ag-ui"], marker = "extra == 'agent'", specifier = ">=0.2.40" },
+    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp"], marker = "extra == 'all'", specifier = ">=0.2.40" },
     { name = "agent-webui", marker = "extra == 'ag-ui'", specifier = ">=0.1.32" },
     { name = "eunomia-mcp", marker = "extra == 'mcp'", specifier = ">=0.3.10" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.131.0" },
