@@ -1,3 +1,13 @@
+---
+name: critique
+type: prompt
+skills:
+- spec-verifier
+- tdd-methodology
+- self-improver
+description: '---'
+---
+
 # Auto Mode Critique Prompt
 
 

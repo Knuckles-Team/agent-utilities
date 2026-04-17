@@ -9,114 +9,96 @@ A2A_AGENTS.md into a unified specialist registry for the graph orchestrator.
 
 from typing import Any, List
 
-from .a2a import A2AClient, load_a2a_peers
 from .models import DiscoveredSpecialist
 from .workspace import CORE_FILES, load_workspace_file
 
 
 def discover_agents() -> dict[str, dict[str, Any]]:
-    """Discover local MCP agents and remote A2A peers.
-
-    This function scans both the NODE_AGENTS.md (local) and A2A_AGENTS.md
-    (remote) registries to build a unified map of specialists for the
-    graph orchestrator.
+    """Discover agents from the unified registry.
 
     Returns:
-        A dictionary mapping domain tags to agent metadata (package, type, etc.).
-
+        A dictionary mapping domain tags to agent metadata.
     """
     from .workspace import parse_node_registry
 
     agent_descriptions = {}
 
-    # 1. Discover local MCP specialist agents from NODE_AGENTS.md
-    mcp_agents_content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
-    if mcp_agents_content:
-        mcp_registry = parse_node_registry(mcp_agents_content)
-        for agent in mcp_registry.agents:
-            if agent.tag:
-                agent_descriptions[agent.tag] = {
+    # Read the unified registry
+    registry_content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
+    if registry_content:
+        registry = parse_node_registry(registry_content)
+        for agent in registry.agents:
+            # Type-specific mapping
+            if agent.agent_type == "prompt":
+                agent_descriptions[agent.name] = {
+                    "description": agent.description,
+                    "name": agent.name,
+                    "type": "prompt",
+                    "skills": agent.capabilities,
+                }
+            elif agent.agent_type == "mcp":
+                agent_descriptions[agent.name] = {
                     "package": agent.name,
                     "description": agent.description,
                     "name": agent.name,
                     "type": "local_mcp",
                 }
+            elif agent.agent_type == "a2a":
+                agent_descriptions[agent.name.lower()] = {
+                    "url": agent.endpoint_url,
+                    "name": agent.name,
+                    "description": agent.description,
+                    "capabilities": ", ".join(agent.capabilities),
+                    "type": "remote_a2a",
+                }
 
-    # 2. Remote Discovery from A2A_AGENTS.md
-    # We fetch these fresh every time as per user feedback
-    registry = load_a2a_peers()
-    if registry.peers:
-        client = A2AClient()
-        for peer in registry.peers:
-            tag = peer.name.lower().replace(" ", "_")
-            if tag in agent_descriptions:
-                continue
+    # Also read A2A_AGENTS for backward compatibility if it exists
+    a2a_content = ""
+    try:
+        a2a_file = CORE_FILES.get("A2A_AGENTS", "A2A_AGENTS.md")
+        a2a_content = load_workspace_file(a2a_file)
+    except Exception:
+        pass
 
-            # Attempt to fetch agent card for rich metadata
-            card = client.fetch_card_sync(peer.url)
-            if card:
-                description = card.get("description", peer.description)
-                display_name = card.get("name", peer.name)
-                capabilities = card.get("capabilities", peer.capabilities)
-            else:
-                description = peer.description
-                display_name = peer.name
-                capabilities = peer.capabilities
+    if a2a_content:
+        from .a2a import parse_a2a_registry
 
-            agent_descriptions[tag] = {
-                "url": peer.url,
-                "name": display_name,
-                "description": description,
-                "capabilities": capabilities,
-                "type": "remote_a2a",
-            }
+        a2a_registry = parse_a2a_registry(a2a_content)
+        for agent in a2a_registry.peers:
+            if agent.name.lower() not in agent_descriptions:
+                agent_descriptions[agent.name.lower()] = {
+                    "url": agent.url,
+                    "name": agent.name,
+                    "description": agent.description,
+                    "capabilities": ", ".join(agent.capabilities),
+                    "type": "remote_a2a",
+                }
 
     return agent_descriptions
 
 
 def discover_all_specialists() -> List[DiscoveredSpecialist]:
-    """Discover all specialist agents from all sources.
-
-    This function provides a unified list of specialists (local MCP and remote A2A)
-    represented as DiscoveredSpecialist models, which is used by the graph orchestrator
-    for registration and routing.
+    """Discover all specialist agents from the unified registry.
 
     Returns:
         A list of DiscoveredSpecialist objects.
-
     """
     specialists: List[DiscoveredSpecialist] = []
-
-    # 1. Local Specialists (MCP)
     from .workspace import parse_node_registry
 
-    mcp_agents_content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
-    if mcp_agents_content:
-        mcp_registry = parse_node_registry(mcp_agents_content)
-        for agent in mcp_registry.agents:
+    registry_content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
+    if registry_content:
+        registry = parse_node_registry(registry_content)
+        for agent in registry.agents:
             specialists.append(
                 DiscoveredSpecialist(
-                    tag=agent.tag or agent.name.lower().replace(" ", "_"),
+                    tag=agent.name,
                     name=agent.name,
                     description=agent.description or "",
-                    source="mcp",
-                    mcp_server=agent.mcp_server,
-                    tools=agent.tools or [],
-                )
-            )
-
-    # 2. Remote Specialists (A2A)
-    registry = load_a2a_peers()
-    if registry.peers:
-        for peer in registry.peers:
-            specialists.append(
-                DiscoveredSpecialist(
-                    tag=peer.name.lower().replace(" ", "_"),
-                    name=peer.name,
-                    description=peer.description or "",
-                    source="a2a",
-                    url=peer.url,
-                    capabilities=peer.capabilities or "",
+                    source=agent.agent_type,
+                    mcp_server=agent.mcp_server or "",
+                    url=agent.endpoint_url or "",
+                    capabilities=agent.capabilities,
                 )
             )
 

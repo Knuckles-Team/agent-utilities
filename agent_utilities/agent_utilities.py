@@ -24,6 +24,7 @@ from .models import *  # noqa: F403
 from .base_utilities import *  # noqa: F403
 from .embedding_utilities import *  # noqa: F403
 from .workspace import *  # noqa: F403
+from .event_aggregator import *  # noqa: F403
 from .custom_observability import *  # noqa: F403
 
-__version__ = "0.2.39"
+__version__ = "0.2.40"

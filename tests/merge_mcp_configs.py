@@ -9,12 +9,16 @@ def merge_mcp_configs(target_path):
     # Files to ignore (e.g. mock data or temp files if any)
     ignore_paths = ["mock_agent_data", "tests"]
 
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+    WORKSPACE_ROOT = os.path.dirname(REPO_ROOT)
+
     # Discover all mcp_config.json files
     try:
         result = subprocess.run(
             [
                 "find",
-                "/home/genius/Workspace/agent-packages",
+                WORKSPACE_ROOT,
                 "-name",
                 "mcp_config.json",
             ],
@@ -55,5 +59,8 @@ def merge_mcp_configs(target_path):
 
 
 if __name__ == "__main__":
-    target = "/home/genius/Workspace/agent-packages/agents/genius-agent/genius_agent/agent_data/mcp_config.json"
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+    WORKSPACE_ROOT = os.path.dirname(REPO_ROOT)
+    target = os.path.join(WORKSPACE_ROOT, "agents", "genius-agent", "genius_agent", "agent_data", "mcp_config.json")
     merge_mcp_configs(target)

@@ -1,16 +1,16 @@
 import pytest
-import os
 import asyncio
 from unittest.mock import MagicMock, patch, AsyncMock
-from agent_utilities.graph.executor import (
+from agent_utilities.graph import (
     agent_matches_node_id,
+    get_discovery_registry,
+)
+from agent_utilities.graph.executor import (
     _get_domain_tools,
     _execute_specialized_step,
 )
-from agent_utilities.models import MCPAgent, MCPServerHealth, ExecutionStep, GraphResponse, GraphPlan
+from agent_utilities.models import MCPAgent, ExecutionStep, GraphPlan, MCPAgentRegistryModel
 from agent_utilities.graph.state import GraphState, GraphDeps
-from pydantic_ai.models.test import TestModel
-from pydantic_graph import End
 
 @pytest.fixture
 def mock_deps():
@@ -33,13 +33,13 @@ def mock_deps():
     ({"name": "Researcher", "tag": "researcher"}, "RESEARCHER", True),
     ({"name": "Researcher", "tag": "researcher"}, "research_agent", True),
     ({"name": "GitHub", "mcp_server": "github-mcp"}, "github", True),
-    ({"name": "GitHub", "mcp_server": "github-mcp"}, "git_expert", True),
+    ({"name": "GitHub", "mcp_server": "github-mcp", "description": "Git hosting and version control"}, "git_expert", True),
     ({"name": "Random", "tag": "other"}, "researcher", False),
 ])
 def test_agent_matches_node_id(agent_data, node_id, expected):
     agent = MCPAgent(
         name=agent_data.get("name", "Agent"),
-        tag=agent_data.get("tag", ""),
+        capabilities=[agent_data.get("tag", "")] if agent_data.get("tag") else [],
         mcp_server=agent_data.get("mcp_server", "test-server"),
         description=agent_data.get("description", "A specialist agent"),
         system_prompt=agent_data.get("system_prompt", "You are a specialist.")
@@ -49,10 +49,14 @@ def test_agent_matches_node_id(agent_data, node_id, expected):
 
 @pytest.mark.asyncio
 async def test_get_domain_tools_basic(mock_deps):
-    with patch("agent_utilities.graph.executor.NODE_SKILL_MAP", {"researcher": ["web-search"]}):
+    mock_agent = MCPAgent(name="researcher", capabilities=["web-search"])
+    mock_registry = MCPAgentRegistryModel(agents=[mock_agent])
+
+    with patch("agent_utilities.graph.executor.get_discovery_registry", return_value=mock_registry):
         with patch("agent_utilities.tools.developer_tools.developer_tools", []):
-            tools = await _get_domain_tools("researcher", mock_deps)
+            tools, skill_toolsets = await _get_domain_tools("researcher", mock_deps)
             assert isinstance(tools, list)
+            assert isinstance(skill_toolsets, list)
 
 @pytest.mark.asyncio
 async def test_execute_specialized_step_subagent_target(mock_deps):

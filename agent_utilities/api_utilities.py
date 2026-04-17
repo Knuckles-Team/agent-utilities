@@ -7,7 +7,7 @@ exceptions and authentication decorators used throughout the
 agent ecosystem.
 """
 
-__version__ = "0.2.39"
+__version__ = "0.2.40"
 
 from .exceptions import (  # noqa: F401
     AuthError,

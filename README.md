@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 0.2.39*
+*Version: 0.2.40*
 
 ## Overview
 
@@ -43,6 +43,7 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 - **Agent Server**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/acp` (Standardized Protocol), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation**: Runtime generation of OpenAPI specifications for all agent server APIs.
 - **Workspace Management**: Automated management of agent state through standard markdown files (`IDENTITY.md`, `MEMORY.md`, `USER.md`).
+- **Spec-Driven Development (SDD)**: High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`FeatureSpec`), Implementation Plans, and dependency-aware Task Lists. Ensures technical precision and parallel execution safety.
 - **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies are lazy-loaded only when requested via optional extras.
 
 ## Architecture & Orchestration
@@ -145,6 +146,49 @@ C4Container
     Rel(orchestrator, otel, "Exports Spans", "OTLP")
 ```
 
+### Human-in-the-Loop (Tool Approval & Elicitation)
+
+`agent-utilities` provides true **pause-and-resume** human-in-the-loop for sensitive tool execution and MCP elicitation. When a specialist sub-agent calls a tool flagged with `requires_approval=True`, the graph suspends at that exact node, streams an approval request to the connected UI, and resumes only after the user responds.
+
+**Key Components:**
+- **`ApprovalManager`** (`approval_manager.py`) — asyncio.Future-based registry that pauses coroutines and resumes them when the UI responds
+- **`run_with_approvals()`** — wraps pydantic-ai's two-call `DeferredToolRequests` → `DeferredToolResults` pattern into a single blocking call
+- **`/api/approve`** endpoint — REST endpoint that both UIs POST to when the user approves/denies
+- **`global_elicitation_callback()`** — MCP `ctx.elicit()` callback using the same pause/resume mechanism
+
+**Protocol Support:**
+| Protocol | Approval Mechanism |
+|---|---|
+| AG-UI (web + terminal) | Sideband SSE events + `POST /api/approve` |
+| ACP | pydantic-acp's native `NativeApprovalBridge` (automatic) |
+| SSE (`/stream`) | Same as AG-UI |
+
+### Server Endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | Health check and server metadata |
+| `/ag-ui` | POST | AG-UI streaming with sideband graph events |
+| `/stream` | POST | SSE stream for graph execution |
+| `/acp` | MOUNT | ACP protocol (sessions, planning, approvals) |
+| `/a2a` | MOUNT | Agent-to-Agent JSON-RPC |
+| `/api/approve` | POST | Resolve pending tool approvals and MCP elicitation |
+| `/chats` | GET | List chat sessions |
+| `/chats/{id}` | GET/DELETE | Get or delete a chat session |
+| `/mcp/config` | GET | Current MCP server configuration |
+| `/mcp/tools` | GET | List all connected MCP tools |
+| `/mcp/reload` | POST | Hot-reload MCP servers and rebuild graph |
+
+### Spec-Driven Development (SDD) Lifecycle
+
+`agent-utilities` implements a rigorous SDD workflow to ensure that complex feature requests are handled with absolute technical fidelity and measurable success criteria.
+
+1.  **Project Constitution** (`constitution-generator`): Establishes the governing principles, tech stack standards, and quality gates for the entire agent workshop.
+2.  **Requirement Specification** (`spec-generator`): Decomposes user intent into a formal `FeatureSpec` including user scenarios, functional requirements, and measurable success metrics.
+3.  **Technical Implementation Plan** (`task-planner`): Generates a step-by-step architectural approach and a `TaskList` with explicit dependencies and file-path affinity for collision-free parallel execution.
+4.  **Parallel Execution** (`SDDManager`): The `dispatcher` leverages the SDD analysis engine to identify safe parallel execution batches, fanning out implementation tasks to domain specialists (Python, TS, etc.).
+5.  **Quality Verification** (`spec-verifier`): Audits the implemented results against the original `FeatureSpec` before finalizing the release, ensuring 100% adherence to requirements.
+
 ### Execution Flow: Dynamic Multi-Layer Parallelism
 `agent-utilities` implements a multi-stage execution pipeline with **autonomous gap analysis** and **resilient feedback loops**. The system can "fan out" research tasks in parallel before coalescing results. If implementation fails, it can automatically retry locally or loop back to research.
 
@@ -163,7 +207,7 @@ C4Container
   subgraph "Discovery Phase"
     direction TB
     Researcher["<b>Researcher</b><br/>---<br/><i>u-skill:</i> web-search, web-crawler, web-fetch<br/><i>t-tool:</i> project_search, read_workspace_file"]
-    Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, product-management, product-strategy, user-research<br/><i>t-tool:</i> developer_tools"]
+    Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, spec-generator, product-strategy, user-research, brainstorming<br/><i>t-tool:</i> developer_tools"]
     A2ADiscovery["<b>A2A Discovery</b><br/>---<br/><i>source:</i> A2A_AGENTS.md<br/>"]
     MCPDiscovery["<b>MCP Discovery</b><br/>---<br/><i>source:</i> NODE_AGENTS.md<br/>"]
     res_joiner[Research Joiner: Barrier Sync]
@@ -189,7 +233,7 @@ C4Container
       GoP["<b>Go</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> go-docs<br/><i>t-tool:</i> developer_tools"]
       RustP["<b>Rust</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> rust-docs<br/><i>t-tool:</i> developer_tools"]
       CSP["<b>C Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> c-docs<br/><i>t-tool:</i> developer_tools"]
-      CPP["<b>C++ Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> cpp-docs<br/><i>t-tool:</i> developer_tools"]
+      CPP["<b>C++ Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>t-tool:</i> developer_tools"]
       JSP["<b>JavaScript</b><br/>---<br/><i>u-skill:</i> web-artifacts, canvas-design, developer-utilities<br/><i>g-skill:</i> nodejs-docs, react-docs<br/><i>t-tool:</i> developer_tools"]
     end
 
@@ -203,8 +247,8 @@ C4Container
     subgraph Specialized ["Specialized & Quality"]
       direction LR
       Sec["<b>Security</b><br/>---<br/><i>u-skill:</i> security-tools<br/><i>g-skill:</i> linux-docs<br/><i>t-tool:</i> developer_tools"]
-      QA["<b>QA</b><br/>---<br/><i>u-skill:</i> qa-planning, tdd-methodology<br/><i>g-skill:</i> testing-library-docs<br/><i>t-tool:</i> developer_tools"]
-      UIUX["<b>UI/UX</b><br/>---<br/><i>u-skill:</i> theme-factory, brand-guidelines, algorithmic-art<br/><i>g-skill:</i> shadcn-docs, tailwind-docs, framer-docs<br/><i>t-tool:</i> developer_tools"]
+      QA["<b>QA</b><br/>---<br/><i>u-skill:</i> spec-verifier, tdd-methodology<br/><i>g-skill:</i> testing-library-docs<br/><i>t-tool:</i> developer_tools"]
+      UIUX["<b>UI/UX</b><br/>---<br/><i>u-skill:</i> theme-factory, brand-guidelines, algorithmic-art<br/><i>g-skill:</i> shadcn-docs, framer-docs<br/><i>t-tool:</i> developer_tools"]
       Debug["<b>Debugger</b><br/>---<br/><i>u-skill:</i> developer-utilities, agent-builder<br/><i>t-tool:</i> developer_tools"]
     end
 

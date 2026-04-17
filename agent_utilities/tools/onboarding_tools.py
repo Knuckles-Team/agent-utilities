@@ -18,14 +18,12 @@ from ..models import (
     AgentDeps,
     IdentityModel,
     UserModel,
-    A2ARegistryModel,
     MCPAgentRegistryModel,
 )
 from ..workspace import (
     CORE_FILES,
     serialize_identity,
     serialize_user_info,
-    serialize_a2a_registry,
     serialize_node_registry,
 )
 
@@ -155,14 +153,6 @@ async def bootstrap_project(ctx: RunContext[AgentDeps]) -> str:
         u_model = UserModel(name="The Human", emoji="👤")
         user_path.write_text(serialize_user_info(u_model), encoding="utf-8")
         written.append(CORE_FILES["USER"])
-
-    # 3. A2A_AGENTS.md
-    a2a_path = root / CORE_FILES["A2A_AGENTS"]
-    if not a2a_path.exists():
-        a2a_path.write_text(
-            serialize_a2a_registry(A2ARegistryModel(peers=[])), encoding="utf-8"
-        )
-        written.append(CORE_FILES["A2A_AGENTS"])
 
     # 4. NODE_AGENTS.md
     mcp_path = root / CORE_FILES["NODE_AGENTS"]

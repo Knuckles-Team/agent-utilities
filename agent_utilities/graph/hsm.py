@@ -220,15 +220,17 @@ class StateInvariantError(Exception):
 
 def assert_state_valid(state: Any, transition: str) -> None:
     """Validate state invariants at every transition boundary.
+
     Catches corruption early: empty queries, cursor overflows, and
     infinite research/verification loops.
 
     Args:
-        state: The current GraphState to validate
-        transition: The name of the transition boundary being checked
+        state: The current GraphState to validate.
+        transition: The name of the transition boundary being checked.
 
     Raises:
-        StateInvariantError: If any state invariant is violated
+        StateInvariantError: If any state invariant is violated.
+
     """
     if not state.query:
         raise StateInvariantError(f"Empty query at {transition}")
@@ -269,19 +271,20 @@ def check_specialist_preconditions(
     agent_info: Any,
     deps: Any,
 ) -> tuple[bool, str]:
-    """Validated that a specialist has the required resources to execute.
+    """Validate that a specialist has the required resources to execute.
 
     Checks circuit breaker state and toolset availability before
-    entering a specialist superstate
+    entering a specialist superstate.
 
     Args:
-        agent_info: The MCPAgent metadata for the target specialist
-        deps: The GraphDeps runtime dependency container
+        agent_info: The MCPAgent metadata for the target specialist.
+        deps: The GraphDeps runtime dependency container.
 
     Returns:
-        A tuple of (can_proceed, reason). ``True`` with an empty reason
+        A tuple of (can_proceed, reason).  ``True`` with an empty reason
         if all preconditions pass; ``False`` with a diagnostic message
         explaining the failure otherwise.
+
     """
     server_name = getattr(agent_info, "mcp_server", "")
 
@@ -310,10 +313,10 @@ def check_specialist_preconditions(
 
 
 def static_route_query(query: str, available_specialists: dict[str, str]) -> str | None:
-    """Attempt keyword-based routing before an LLM call (junction psudostate).
+    """Attempt keyword-based routing before an LLM call (junction pseudostate).
 
     Scans the query for keywords that match specialist node IDs, saving
-    an LLM round-trip for obvious queries like "list gitlab projects"
+    an LLM round-trip for obvious queries like "list gitlab projects".
 
     Args:
         query: The user's raw query text.
@@ -321,6 +324,7 @@ def static_route_query(query: str, available_specialists: dict[str, str]) -> str
 
     Returns:
         The matched specialist node_id, or None if no strong match is found.
+
     """
     query_lower = query.lower()
     # Build keyword->specialist index from specialist descriptions

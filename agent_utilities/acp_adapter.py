@@ -95,15 +95,19 @@ def build_acp_config(
     if enable_thinking:
         bridges.append(ThinkingBridge())
 
-    # Wire in the workspace plan persistence provider to mirror ACP state to MEMORY.md
+    # Wire in the workspace persistence provider so that ACP's native plan
+    # state is mirrored to MEMORY.md.  This must be set on the
+    # ``native_plan_persistence_provider`` key (write-only sink) — NOT on
+    # ``plan_provider`` (read-only source) which would disable ACP's
+    # built-in plan tools (acp_get_plan, acp_set_plan, etc.).
     from .acp_providers import get_workspace_persistence_provider
 
-    plan_provider = get_workspace_persistence_provider()
+    plan_persistence = get_workspace_persistence_provider()
 
     config_params: Dict[str, Any] = {
         "session_store": FileSessionStore(root=session_root),
         "capability_bridges": bridges,
-        "plan_provider": plan_provider,  # Native ACP Provider for workspace mirroring
+        "native_plan_persistence_provider": plan_persistence,
     }
     if enable_approvals:
         config_params["approval_bridge"] = NativeApprovalBridge(
@@ -136,41 +140,54 @@ def create_graph_acp_app(
     mcp_toolsets: list | None = None,
 ) -> Any:
     """Create an ACP app that routes execution through the graph pipeline.
-    When a ``graph_bundle`` is provided, the ACP agent delegates to the full HSM graph instead of running as a flat agent.
-    This ensures that ACP clients benefit from specialist routing, parallel execution, circuit breaks,
-    and the verification loop.
 
-    Falls back to the standard flat-agent ACP path when no graph is available.
+    When a ``graph_bundle`` is provided, the ACP agent delegates to the
+    full HSM graph instead of running as a flat agent.  This ensures that
+    ACP clients benefit from specialist routing, parallel execution,
+    circuit breakers, and the verification loop.
+
+    Falls back to the standard flat-agent ACP path when no graph is
+    available.
 
     Args:
         agent: The base Pydantic AI agent (used as fallback).
         config: The ACP adapter configuration.
-        graph_bundle: Optional graph bundle tuple from :func:`initialize_graph_from_workspace`.
+        graph_bundle: Optional ``(graph, graph_config)`` tuple from
+            :func:`initialize_graph_from_workspace`.
         mcp_toolsets: Optional pre-connected MCP toolsets.
 
     Returns:
         An ASGI-compatible ACP application instance.
-    """
 
+    """
     if not graph_bundle:
-        logger.info("ACP: No graph bundle - using flat agent path.")
+        logger.info("ACP: No graph bundle — using flat agent path.")
         return create_acp_app(agent, config)
 
     graph, graph_config = graph_bundle
 
+    # Build a thin wrapper agent whose only tool is run_graph_flow.
+    # This preserves ACP session management, approval bridges, and
+    # thinking capabilities while routing all execution through the graph.
     from pydantic_ai import Agent
 
-    async def run_graph_flow(query: str, mode: str = "asK") -> str:
+    async def run_graph_flow(query: str, mode: str = "ask") -> str:
         """Execute the full graph pipeline for the given query.
+
         Args:
-            query: The query to process.
+            query: The user query to process.
             mode: Execution mode ('ask', 'plan', 'execute').
 
         Returns:
             The synthesized result from the graph verifier.
-        """
 
+        """
         from .graph.unified import execute_graph
+
+        # Plan sync is handled via sideband events (emitted by the graph
+        # dispatcher) and the native_plan_persistence_provider (which
+        # mirrors ACP plan state to PLAN.md).  No direct session
+        # manipulation is needed here.
 
         result = await execute_graph(
             graph=graph,
@@ -184,13 +201,16 @@ def create_graph_acp_app(
     graph_agent = Agent(
         model=agent.model,
         system_prompt=(
-            "You are a graph-orchestrated assistant. Use the run_graph_flow tool for ALL user requests. Pass the user's query directly to the tool. Do NOT attempt to answer questions yourself - The graph has access to specialized agents and MCP tools."
+            "You are a graph-orchestrated assistant. Use the run_graph_flow "
+            "tool for ALL user requests. Pass the user's query directly to "
+            "the tool. Do NOT attempt to answer questions yourself — the "
+            "graph has access to specialized agents and MCP tools."
         ),
         tools=[run_graph_flow],
     )
 
     logger.info(
-        "ACP: Graph-back agent created. All ACP requests will route through the graph."
+        "ACP: Graph-backed agent created. All ACP requests will route through the graph."
     )
     return create_acp_app(graph_agent, config)
 

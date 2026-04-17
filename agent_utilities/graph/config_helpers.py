@@ -14,15 +14,43 @@ import json
 import logging
 import time
 import asyncio
+import re
+from pathlib import Path
 from typing import Optional
 
-from ..workspace import get_workspace_path, CORE_FILES, load_workspace_file
+from ..workspace import (
+    get_workspace_path,
+    CORE_FILES,
+    load_workspace_file,
+    parse_node_registry,
+)
 from ..base_utilities import to_integer
 from ..models import MCPConfigModel, MCPAgentRegistryModel
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_GRAPH_TIMEOUT = to_integer(os.environ.get("GRAPH_TIMEOUT", "1200000"))
+
+
+def get_discovery_registry() -> MCPAgentRegistryModel:
+    """Load the unified agent discovery registry from NODE_AGENTS.md.
+
+    Returns:
+        The parsed MCPAgentRegistryModel.
+    """
+    content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
+    if not content:
+        return MCPAgentRegistryModel()
+    try:
+        return parse_node_registry(content)
+    except Exception as e:
+        logger.error(f"Failed to parse Agent Registry: {e}")
+        return MCPAgentRegistryModel()
+
+
+def load_node_agents_registry() -> MCPAgentRegistryModel:
+    """Legacy alias for get_discovery_registry."""
+    return get_discovery_registry()
 
 
 def load_mcp_config() -> MCPConfigModel:
@@ -46,29 +74,6 @@ def load_mcp_config() -> MCPConfigModel:
     return MCPConfigModel()
 
 
-def load_node_agents_registry() -> MCPAgentRegistryModel:
-    """Parse and load the specialized expert registry from NODE_AGENTS.md.
-
-    This registry maps specialist tags (e.g., 'python_programmer') to
-    their corresponding MCP servers or local agent packages, enabling
-    dynamic tool discovery for the graph orchestrator.
-
-    Returns:
-        A model containing the list of registered MCP specialists.
-
-    """
-    from ..workspace import parse_node_registry
-
-    content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
-    if not content:
-        return MCPAgentRegistryModel()
-    try:
-        return parse_node_registry(content)
-    except Exception as e:
-        logger.error(f"Failed to parse MCP Agent registry: {e}")
-        return MCPAgentRegistryModel()
-
-
 def save_mcp_config(config: MCPConfigModel):
     """Persist the MCP configuration model back to the workspace file.
 
@@ -85,9 +90,9 @@ def emit_graph_event(eq: Optional[asyncio.Queue], event_type: str, **kwargs):
 
     Formats the event data as a sideband part compatible with the
     Agentic UI streaming protocol, allowing the frontend to visualize
-    graph progression and tool activity. Also emites a structured log
+    graph progression and tool activity.  Also emits a structured log
     line so the full execution trace is visible in server-side logs
-    without requiring a UI
+    without requiring the UI.
 
     Args:
         eq: The asynchronous event queue to publish to.
@@ -117,56 +122,70 @@ def emit_graph_event(eq: Optional[asyncio.Queue], event_type: str, **kwargs):
         logger.warning(f"Failed to emit graph event '{event_type}': {e}")
 
 
+# ---------------------------------------------------------------------------
+# Structured graph trace logging
+# ---------------------------------------------------------------------------
+
 _graph_trace_logger = logging.getLogger("agent_utilities.graph.trace")
 
 _PHASE_MAP: dict[str, str] = {
+    # ── Lifecycle ──────────────────────────────────────────────────────
+    "graph_start": "LIFECYCLE",
+    "graph_complete": "LIFECYCLE",
+    "node_start": "LIFECYCLE",
+    "node_complete": "LIFECYCLE",
+    # ── Safety & Policy ───────────────────────────────────────────────
+    "safety_warning": "SAFETY",
+    # ── Routing & Planning ────────────────────────────────────────────
     "routing_started": "ROUTING",
     "routing_completed": "ROUTING",
     "plan_created": "PLANNING",
     "replanning_started": "REPLANNING",
     "replanning_completed": "REPLANNING",
+    # ── Dispatch ──────────────────────────────────────────────────────
     "step_dispatched": "DISPATCH",
     "batch_dispatched": "DISPATCH",
+    # ── Context Enrichment ────────────────────────────────────────────
+    "context_gap_detected": "ENRICHMENT",
+    # ── Specialist Execution ──────────────────────────────────────────
     "specialist_enter": "EXECUTION",
     "specialist_exit": "EXECUTION",
     "specialist_fallback": "FALLBACK",
-    "expert-metadata": "EXECUTION",
-    "expert-thinking": "EXECUTION",
-    "tools-bound": "EXECUTION",
-    "expert-warning": "EXECUTION",
-    "expert_tool_call": "TOOL_CALL",
+    "expert_metadata": "EXECUTION",
+    "expert_thinking": "EXECUTION",
+    "expert_warning": "EXECUTION",
     "expert_text": "EXECUTION",
-    "tool-result": "TOOL_RESULT",
+    "expert_complete": "EXECUTION",
+    "tools_bound": "EXECUTION",
+    "subagent_started": "EXECUTION",
     "subagent_completed": "EXECUTION",
-    "verification_result": "VERIFICATION",
-    "agent-node-delta": "SYNTHESIS",
-    "synthesis_fallback": "SYNTHESIS",
-    "graph_force_terminated": "TERMINATION",
-    "safety_warning": "SAFETY",
-    "approval_required": "APPROVAL",
+    "subagent_thought": "EXECUTION",
+    # ── Tool Calls ────────────────────────────────────────────────────
+    "expert_tool_call": "TOOL_CALL",
+    "subagent_tool_call": "TOOL_CALL",
+    "tool_result": "TOOL_RESULT",
+    # ── Parallel / Orthogonal Regions ─────────────────────────────────
     "orthogonal_regions_start": "PARALLEL",
     "orthogonal_regions_complete": "PARALLEL",
-    "graph-start": "LIFECYCLE",
-    "graph-complete": "LIFECYCLE",
-    "node_start": "EXECUTION",
-    "node_complete": "EXECUTION",
+    "region_start": "PARALLEL",
+    "region_complete": "PARALLEL",
+    # ── Verification & Synthesis ──────────────────────────────────────
+    "verification_result": "VERIFICATION",
+    "agent_node_delta": "SYNTHESIS",
+    "synthesis_fallback": "SYNTHESIS",
+    # ── Human-in-the-Loop ─────────────────────────────────────────────
+    "approval_required": "APPROVAL",
+    "approval_resolved": "APPROVAL",
+    "elicitation": "APPROVAL",
+    # ── Recovery & Termination ────────────────────────────────────────
     "error_recovery_replan": "RECOVERY",
     "error_recovery_terminal": "RECOVERY",
-    "context_gap_detected": "ENRICHMENT",
+    "graph_force_terminated": "TERMINATION",
 }
 
 
 def _log_graph_trace(event_type: str, timestamp: float, **kwargs):
-    """Emit a structured log line for a graph event.
-    Provides server-side traceability of every graph transition, enabling
-    post-hoc analysis without the UI. Each line includes the phase label,
-    event type, and key metadata extracted from kwargs.
-
-    Args:
-        event_type: The graph event identifier.
-        timestamp: Unix epoch timestamp of the event.
-        **kwargs: Event-specific metadata.
-    """
+    """Emit a structured log line for a graph event."""
     phase = _PHASE_MAP.get(event_type, "GRAPH")
     detail_parts: list[str] = []
 
@@ -180,258 +199,42 @@ def _log_graph_trace(event_type: str, timestamp: float, **kwargs):
         detail_parts.append(f"tool={kwargs['tool_name']}")
     if "success" in kwargs:
         detail_parts.append(f"ok={kwargs['success']}")
-    if "message" in kwargs and event_type in ("expert-warning", "safety_warning"):
+    if "message" in kwargs and event_type in ("expert_warning", "safety_warning"):
         detail_parts.append(f"msg={kwargs['message'][:120]}")
 
     detail = " ".join(detail_parts) if detail_parts else ""
-    _graph_trace_logger.info(f"[{phase}] {event_type}: {detail}".rstrip())
+    _graph_trace_logger.info(f"[{phase}] {event_type} {detail}".rstrip())
 
 
-def load_specialized_prompts(name: str) -> str:
-    """Load a specialized role-based prompt from the package resources.
-
-    Attempts to locate the markdown prompt file within the internal
-    prompts/ directory, with a fallback to local filesystem for development.
+def load_specialized_prompts(prompt_name: str) -> str:
+    """Load a specialized agent persona prompt from the registry defined path.
 
     Args:
-        name: The basename of the prompt file (e.g., 'researcher').
+        prompt_name: The slugified name/tag of the expert (e.g., 'researcher').
 
     Returns:
-        The content of the prompt file as a string.
+        The raw markdown content of the specialized system prompt.
 
     """
-    import importlib.resources as pkg_resources
-    from .. import prompts
+    registry = get_discovery_registry()
+    agent = next((a for a in registry.agents if a.name == prompt_name), None)
 
-    try:
-        # Pydantic 3.11+ / Python 3.9+ standard way
-        with pkg_resources.files(prompts).joinpath(f"{name}.md").open("r") as f:
-            return f.read()
-    except Exception as e:
-        logger.warning(f"Could not load specialized prompt '{name}': {e}")
-        # Build-time fallback for development if needed
-        local_path = os.path.join(os.path.dirname(__file__), "prompts", f"{name}.md")
-        if os.path.exists(local_path):
-            with open(local_path, "r") as f:
-                return f.read()
-        return ""
+    if agent and agent.prompt_file:
+        prompt_path = (Path(__file__).parent.parent / agent.prompt_file).resolve()
+        if prompt_path.exists():
+            content = prompt_path.read_text(encoding="utf-8")
+            # Remove frontmatter if present
+            content = re.sub(r"^---\s*\n.*?\n---\s*\n", "", content, flags=re.DOTALL)
+            return content
 
+    # Fallback to local file check if registry is missing
+    prompt_path = (
+        Path(__file__).parent.parent / "prompts" / f"{prompt_name}.md"
+    ).resolve()
+    if prompt_path.exists():
+        content = prompt_path.read_text(encoding="utf-8")
+        content = re.sub(r"^---\s*\n.*?\n---\s*\n", "", content, flags=re.DOTALL)
+        return content
 
-# Mapping of Graph Nodes to Universal Skills and Skill Graphs
-# This ensures each specialist has the highest-fidelity tools/docs for their domain.
-NODE_SKILL_MAP = {
-    "researcher": [
-        "web-search",
-        "web-fetch",
-        "web-crawler",
-        "agent-browser",
-        "systems-manager",
-        "browser-tools",
-        "web-artifacts",
-        "web-design-guidelines",
-        "workspace-analyst",
-    ],
-    "architect": [
-        "c4-architecture",
-        "product-management",
-        "product-strategy",
-        "user-research",
-        "brainstorming",
-        "mermaid-diagrams",
-    ],
-    "planner": [
-        "project-planning",
-        "product-management",
-        "brainstorming",
-        "internal-comms",
-    ],
-    "verifier": ["qa-planning", "tdd-methodology"],
-    "python_programmer": [
-        "agent-builder",
-        "tdd-methodology",
-        "mcp-builder",
-        "developer-utilities",
-        "jupyter-notebook",
-        "api-wrapper-builder",
-        "python-docs",
-        "pydantic-ai-docs",
-        "pydantic-docs",
-        "fastmcp-docs",
-        "fastapi-docs",
-        "agent-package-builder",
-        "django-docs",
-    ],
-    "typescript_programmer": [
-        "react-development",
-        "web-artifacts",
-        "tdd-methodology",
-        "canvas-design",
-        "nodejs-docs",
-        "react-docs",
-        "nextjs-docs",
-        "shadcn-docs",
-        "nestjs-docs",
-        "reactrouter-docs",
-        "redux-docs",
-        "tanstack-docs",
-        "vitejs-docs",
-        "vercel-docs",
-        "svelte-docs",
-        "vuejs-docs",
-        "remix-docs",
-    ],
-    "rust_programmer": ["rust-docs"],
-    "golang_programmer": ["go-docs"],
-    "java_programmer": [
-        "java-docs",
-        "laravel-docs",
-    ],
-    "devops_engineer": [
-        "cloudflare-deploy",
-        "repository-maintenance",
-        "c4-architecture",
-        "docker-docs",
-        "terraform-docs",
-        "temporal-docs",
-        "minio-docs",
-        "aws-docs",
-        "azure-docs",
-        "gcp-docs",
-    ],
-    "database_expert": [
-        "database-tools",
-        "postgres-docs",
-        "mongodb-docs",
-        "redis-docs",
-        "mariadb-docs",
-        "mssql-docs",
-        "neo4j-docs",
-        "couchbase-docs",
-        "falkordb-docs",
-        "chromadb-docs",
-        "qdrant-docs",
-    ],
-    "security_auditor": ["security-tools", "linux-docs"],
-    "qa_expert": [
-        "qa-planning",
-        "tdd-methodology",
-        "testing-library-docs",
-        "developer-utilities",
-        "self-improver",
-    ],
-    "ui_ux_designer": [
-        "theme-factory",
-        "canvas-design",
-        "brand-guidelines",
-        "algorithmic-art",
-        "web-artifacts",
-        "website-builder",
-        "website-cloner",
-        "web-design-guidelines",
-        "shadcn-docs",
-        "tailwind-docs",
-        "framer-docs",
-        "radix-ui-docs",
-        "material-ui-docs",
-        "chakra-ui-docs",
-    ],
-    "data_scientist": [
-        "jupyter-notebook",
-        "numpy-docs",
-        "pandas-docs",
-        "matplotlib-docs",
-        "scikit-learn-docs",
-        "scipy-docs",
-        "pytorch-docs",
-        "tesnorflow-docs",
-        "huggingface-docs",
-        "langchain-docs",
-    ],
-    "document_specialist": [
-        "document-tools",
-        "document-converter",
-        "marp-presentations",
-        "creative-media",
-    ],
-    "mobile_programmer": [
-        "react-native-skills",
-        "react-docs",
-    ],
-    "agent_engineer": [
-        "agent-builder",
-        "agent-package-builder",
-        "agent-spawner",
-        "agent-workflows",
-        "mcp-builder",
-        "mcp-client",
-        "skill-builder",
-        "skill-graph-builder",
-        "skill-installer",
-        "agents-md-generator",
-        "self-improver",
-        "pydantic-ai-docs",
-        "fastmcp-docs",
-    ],
-    "project_manager": [
-        "jira-tools",
-        "github-tools",
-        "google-workspace",
-        "repository-maintenance",
-        "product-management",
-        "session-handoff",
-        "internal-comms",
-    ],
-    "systems_manager": [
-        "systems-manager",
-        "system-tools",
-        "linux-docs",
-        "home-assistant-docs",
-        "uptime-kuma-docs",
-        "owncast-docs",
-        "postiz-docs",
-    ],
-    "c_programmer": [
-        "developer-utilities",
-        "c-docs",
-    ],
-    "cpp_programmer": [
-        "developer-utilities",
-        "cpp-docs",
-    ],
-    "javascript_programmer": [
-        "web-artifacts",
-        "canvas-design",
-        "nodejs-docs",
-        "react-docs",
-        "developer-utilities",
-    ],
-    "cloud_architect": [
-        "c4-architecture",
-        "aws-docs",
-        "azure-docs",
-        "gcp-docs",
-        "developer-utilities",
-    ],
-    "debugger_expert": [
-        "developer-utilities",
-        "agent-builder",
-    ],
-    "critique": [
-        "qa-planning",
-        "tdd-methodology",
-        "self-improver",
-    ],
-    "browser_automation": [
-        "browser-tools",
-        "agent-browser",
-        "web-artifacts",
-        "web-design-guidelines",
-        "web-crawler",
-    ],
-    "coordinator": [
-        "project-planning",
-        "agent-workflows",
-        "session-handoff",
-        "internal-comms",
-    ],
-}
+    logger.warning(f"Specialized prompt for '{prompt_name}' not found.")
+    return f"You are a helpful assistant specialized in {prompt_name}."

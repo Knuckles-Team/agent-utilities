@@ -11,6 +11,7 @@ agent lifecycle, workspace initialization, and observability setup.
 from __future__ import annotations
 
 import os
+import sys
 import json
 import logging
 import asyncio
@@ -20,11 +21,13 @@ from typing import Any, List, Optional, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
+import base64
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic_ai import Agent
+from starlette.responses import Response
+from pydantic_ai import Agent, BinaryContent
 from .config import (
     DEFAULT_ROUTER_MODEL,
     DEFAULT_GRAPH_AGENT_MODEL,
@@ -52,6 +55,7 @@ from .config import (
     DEFAULT_A2A_BROKER_URL,
     DEFAULT_A2A_STORAGE,
     DEFAULT_A2A_STORAGE_URL,
+    DEFAULT_APPROVAL_TIMEOUT,
     DEFAULT_MCP_CONFIG,
     DEFAULT_MIN_CONFIDENCE,
     DEFAULT_GRAPH_PERSISTENCE_TYPE,
@@ -61,6 +65,7 @@ from .config import (
     DEFAULT_ACP_SESSION_ROOT,
 )
 from .workspace import (
+    WORKSPACE_DIR,
     initialize_workspace,
     get_workspace_path,
     load_workspace_file,
@@ -92,8 +97,68 @@ from .chat_persistence import (
     delete_chat_from_disk,
 )
 from .agent_factory import create_agent
+from .models import AgentDeps
+from .approval_manager import ApprovalManager
 
 logger = logging.getLogger(__name__)
+
+# Singleton approval manager shared between the graph executor and
+# the /api/approve endpoint.  Created once at module import.
+_approval_manager = ApprovalManager()
+
+
+async def process_parts(parts: list[dict[str, Any]]) -> list[Any]:
+    """Process incoming message parts from the Agent UI.
+
+    Handles text, images, and binary attachments. Images are automatically
+    persisted to the active workspace with unique identifiers.
+
+    Args:
+        parts: List of raw message part dictionaries from the request.
+
+    Returns:
+        A list of processed Pydantic AI message part objects (TextPart, BinaryContent).
+
+    """
+    processed = []
+    # Avoid circular/heavy imports at top level if needed
+    from pydantic_ai.messages import TextPart
+
+    for part in parts:
+        if "text" in part:
+            processed.append(TextPart(part["text"]))
+        elif "image" in part or "binary" in part:
+            # Handle base64 image
+            img_data = part.get("image") or part.get("binary")
+            if not img_data:
+                continue
+            media_type = part.get("media_type", "image/png")
+            if isinstance(img_data, str) and img_data.startswith("data:"):
+                # Strip data:image/png;base64,
+                _, img_data = img_data.split(",", 1)
+
+            if isinstance(img_data, str):
+                raw_bytes = base64.b64decode(img_data)
+            else:
+                raw_bytes = img_data
+
+            # Save to workspace for persistence
+            try:
+                from .workspace import WORKSPACE_DIR
+
+                img_dir = Path(WORKSPACE_DIR or ".") / "agent_data" / "images"
+                img_dir.mkdir(parents=True, exist_ok=True)
+                from uuid import uuid4
+
+                img_filename = f"{uuid4().hex}.{media_type.split('/')[-1]}"
+                img_path = img_dir / img_filename
+                img_path.write_bytes(raw_bytes)
+                logger.debug(f"Saved uploaded image to: {img_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save image to disk: {e}")
+
+            processed.append(BinaryContent(data=raw_bytes, media_type=media_type))
+    return processed
 
 
 def get_http_client(
@@ -244,20 +309,16 @@ def build_agent_app(
         persistence_path: Directory or DSN for persisting data.
         persistence_dsn: Full database connection string for persistence.
         persistence_url: Alias for persistence_dsn.
-        enable_terminal_ui: Initialize the Agent Terminal UI alongside the server.
-        enable_acp: Mount the Agent Control Protocol (ACP) adapter.
-        acp_session_root: Directory for ACP session data.
-        isolate_mcp: Isolate each MCP server into a dedicated graph node.
-        mcp_toolsets: Pre-loaded list of toolsets for reuse.
-
-    Returns:
-        The fully configured FastAPI application instance.
-
     """
     from fasta2a import Skill
 
     _name = name or DEFAULT_AGENT_NAME
 
+    # For ACP, we want to ensure universal skills and graphs are loaded by default
+    # to provide a rich set of slash commands and domain experts.
+    if enable_acp and skill_types is None:
+        skill_types = ["universal", "graphs"]
+        logger.info(f"ACP Enabled: defaulting skill_types to {skill_types}")
     if workspace:
         from . import workspace as _ws_mod
 
@@ -310,18 +371,21 @@ def build_agent_app(
                 mcp_toolsets=mcp_toolsets,
             )
 
-        if hasattr(_agent_instance, "tools"):
-            skills_list = list(_agent_instance.tools.values())
-        elif hasattr(_agent_instance, "_function_toolset") and hasattr(
-            _agent_instance._function_toolset, "tools"
-        ):
-            skills_list = list(_agent_instance._function_toolset.tools.values())
-        else:
-            skills_list = []
+        # Enumerate function tools via the public toolsets property
+        skills_list = []
+        try:
+            from pydantic_ai.toolsets.function import FunctionToolset
+
+            for ts in _agent_instance.toolsets:
+                if isinstance(ts, FunctionToolset) and hasattr(ts, "tools"):
+                    skills_list = list(ts.tools.values())
+                    break
+        except ImportError:
+            pass
 
         _skill_types = skill_types or []
         if default_skills_path := get_skills_path():
-            skill_dirs.append(default_skills_path)
+            skill_dirs.extend(default_skills_path)
 
         if "universal" in _skill_types:
             try:
@@ -432,9 +496,10 @@ def build_agent_app(
                 _mcp_path = resolve_mcp_config_path(mcp_config)
                 _agents_path = get_workspace_path(CORE_FILES["NODE_AGENTS"])
 
-                if _mcp_path and should_sync(_mcp_path, _agents_path):
+                # Trigger sync on startup if ACP is enabled or if config has changed
+                if _mcp_path and (enable_acp or should_sync(_mcp_path, _agents_path)):
                     logger.info(
-                        f"Registry is stale or missing. Synchronizing MCP agents from {_mcp_path}..."
+                        f"Startup Sync: Synchronizing MCP agents from {_mcp_path}..."
                     )
                     await sync_mcp_agents(config_path=_mcp_path)
             except Exception as e:
@@ -456,7 +521,6 @@ def build_agent_app(
                         # enter_async_context must happen in the task that will exit it,
                         # OR we use Structured Concurrency (async with) inside this task.
                         async with server:
-                            server._ag_connected = True
                             logger.info(
                                 f"Server Startup: Successfully connected '{srv_id}'"
                             )
@@ -536,16 +600,18 @@ def build_agent_app(
             # Add graph info if available
             if graph_bundle:
                 try:
-                    from .graph_orchestration import (
-                        NODE_SKILL_MAP,
-                        load_mcp_agent_registry,
-                    )
+                    from .graph.config_helpers import get_discovery_registry
 
-                    registry = load_mcp_agent_registry()
+                    registry = get_discovery_registry()
+                    skill_agents = [a for a in registry.agents if a.type == "prompt"]
+                    mcp_agents = [a for a in registry.agents if a.type == "mcp"]
+                    a2a_agents = [a for a in registry.agents if a.type == "a2a"]
+
                     health_info["graph"] = {
-                        "skill_agents": len(NODE_SKILL_MAP),
-                        "mcp_agents": len(registry.agents),
-                        "mcp_tools": len(registry.tools),
+                        "skill_agents": len(skill_agents),
+                        "mcp_agents": len(mcp_agents),
+                        "a2a_agents": len(a2a_agents),
+                        "mcp_tools": sum(len(a.tools) for a in registry.agents),
                     }
                 except Exception:
                     pass
@@ -558,47 +624,268 @@ def build_agent_app(
                 is_acp_available,
             )
 
-            if hasattr(_agent_instance, "_acp_app") and _agent_instance._acp_app:
+            if is_acp_available():
                 logger.info("Mounting ACP protocol layer at /acp")
-                app.mount("/acp", _agent_instance._acp_app)
-            else:
-                from .acp_adapter import (
-                    build_acp_config,
-                    is_acp_available,
+                # Build the standard adapter config
+                acp_config = build_acp_config(
+                    session_root=Path(acp_session_root) if acp_session_root else None
                 )
+                # Create graph-backed ACP app so that ACP requests route
+                # through the full HSM pipeline (routing, planning, specialists,
+                # verification) instead of running a flat agent.
+                acp_app = create_graph_acp_app(
+                    _agent_instance,
+                    acp_config,
+                    graph_bundle=graph_bundle,
+                    mcp_toolsets=_initialized_mcp_toolsets,
+                )
+                app.mount("/acp", acp_app)
+            else:
+                logger.warning("ACP requested but pydantic-acp not installed.")
 
-                if is_acp_available():
-                    logger.info("Mounting ACP protocol layer at /acp (on-demand)")
-                    # Build the standard adapter config
-                    acp_config = build_acp_config(
-                        session_root=(
-                            Path(acp_session_root) if acp_session_root else None
-                        )
+        app.mount("/a2a", a2a_app)
+
+        @app.post("/ag-ui", tags=["Agent UI"], summary="AG-UI Streaming Endpoint")
+        async def ag_ui_endpoint(request: Request) -> Response:
+            """Primary streaming endpoint for the Agent UI (FastAG-UI).
+
+            Supports sideband graph activity annotations, session resumption,
+            and rich media attachments. This endpoint handles high-fidelity
+            SSE streaming with sideband data.
+
+            Returns:
+                A StreamingResponse for continuous interaction or a JSONResponse
+                on failure.
+
+            """
+            try:
+                from pydantic_ai.ui.ag_ui import AGUIAdapter
+            except ImportError:
+                logger.error(
+                    "AG-UI: AGUIAdapter not found in pydantic_ai. Ensure pydantic-ai[ag-ui] is installed."
+                )
+                return JSONResponse(
+                    {"status": "error", "message": "AG-UI not available"},
+                    status_code=501,
+                )
+            from fastapi.responses import StreamingResponse
+            from uuid import uuid4
+
+            run_id = uuid4().hex
+            logger.info(
+                f"[LAYER:ACP] AG-UI Request Received. Assigned internal run_id: {run_id}"
+            )
+            try:
+                body = await request.json()
+                if body:
+                    session_id = body.get("session_id") or body.get("run_id")
+                    if session_id:
+                        run_id = session_id
+                        logger.info(f"[LAYER:ACP] AG-UI: Resuming session: {run_id}")
+            except Exception:
+                pass
+
+            graph_event_queue = asyncio.Queue()
+            elicitation_queue = asyncio.Queue()
+
+            deps = AgentDeps(
+                workspace_path=Path(WORKSPACE_DIR or "."),
+                graph_event_queue=graph_event_queue,
+                elicitation_queue=elicitation_queue,
+                request_id=run_id,
+                approval_timeout=DEFAULT_APPROVAL_TIMEOUT,
+                provider=DEFAULT_PROVIDER,
+                model_id=DEFAULT_MODEL_ID,
+                base_url=DEFAULT_LLM_BASE_URL,
+                api_key=DEFAULT_LLM_API_KEY,
+                mcp_toolsets=_initialized_mcp_toolsets,
+            )
+            logger.info(f"AG-UI session context: {run_id}")
+
+            async def merged_stream():
+                query = ""
+                query_parts = []
+                try:
+                    body = await request.json()
+                    query = body.get("query", body.get("prompt", ""))
+                    raw_parts = body.get("parts", [])
+                    if raw_parts:
+                        query_parts = await process_parts(raw_parts)
+                except Exception:
+                    pass
+                run_input = query_parts if query_parts else query
+                try:
+                    adapter = AGUIAdapter(agent=_agent_instance, run_input=run_input)
+                    logger.info(
+                        f"[LAYER:ACP] AG-UI: Dispatching request for query: '{query[:50]}...'"
                     )
-                    # Create graph-backed ACP app so that ACP requests route through the full HSM pipeline
-                    acp_app = create_graph_acp_app(
-                        _agent_instance,
-                        acp_config,
-                        graph_bundle=graph_bundle,
+                    agent_response = await adapter.dispatch_request(
+                        request, agent=_agent_instance, deps=deps
+                    )
+                    logger.info(
+                        "[LAYER:ACP] AG-UI: Dispatch successful. Stream established."
+                    )
+                except Exception as e:
+                    logger.exception(f"AG-UI: Dispatch error: {e}")
+                    yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+                    return
+
+                if not isinstance(agent_response, StreamingResponse):
+                    yield agent_response.body
+                    return
+
+                combined_queue = asyncio.Queue()
+
+                async def poll_agent():
+                    try:
+                        async for chunk in agent_response.body_iterator:
+                            # Handle both bytes and str chunks gracefully
+                            chunk_str = (
+                                chunk.decode("utf-8")
+                                if isinstance(chunk, bytes)
+                                else str(chunk)
+                            )
+
+                            if (
+                                chunk_str.startswith("2:")
+                                or chunk_str.startswith("9:")
+                                or '"tool_calls"' in chunk_str
+                            ):
+                                await combined_queue.put(
+                                    (
+                                        "chunk",
+                                        (
+                                            chunk
+                                            if isinstance(chunk, bytes)
+                                            else chunk.encode("utf-8")
+                                        ),
+                                    )
+                                )
+                                # Force immediate flush with an explicit heartbeat
+                                await combined_queue.put(("chunk", b'0 " "\n'))
+                                await asyncio.sleep(0.01)  # Yield to event loop
+                            else:
+                                await combined_queue.put(
+                                    (
+                                        "chunk",
+                                        (
+                                            chunk
+                                            if isinstance(chunk, bytes)
+                                            else chunk.encode("utf-8")
+                                        ),
+                                    )
+                                )
+                    except Exception as e:
+                        logger.error(f"Agent stream error: {e}")
+                    finally:
+                        await combined_queue.put(("done", None))
+
+                async def poll_sideband():
+                    while True:
+                        try:
+                            tasks = [
+                                asyncio.create_task(graph_event_queue.get()),
+                                asyncio.create_task(elicitation_queue.get()),
+                            ]
+                            done, pending = await asyncio.wait(
+                                tasks, return_when=asyncio.FIRST_COMPLETED
+                            )
+
+                            for task in done:
+                                try:
+                                    ev = await task
+                                    if ev:
+                                        packet = f"8:{json.dumps(ev)}\n".encode("utf-8")
+                                        await combined_queue.put(("chunk", packet))
+                                        # Force immediate flush for sideband annotations
+                                        await combined_queue.put(("chunk", b'0 " "\n'))
+                                        await asyncio.sleep(0.01)  # Yield to event loop
+                                except Exception as e:
+                                    logger.error(
+                                        f"Error processing sideband event: {e}"
+                                    )
+                            for task in pending:
+                                task.cancel()
+                                try:
+                                    await task
+                                except asyncio.CancelledError:
+                                    pass
+                        except asyncio.CancelledError:
+                            break
+                        except Exception as e:
+                            logger.error(f"Sideband poller error: {e}")
+                            break
+
+                agent_task = asyncio.create_task(poll_agent())
+                sideband_task = asyncio.create_task(poll_sideband())
+
+                try:
+                    while True:
+                        try:
+                            msg_type, data = await asyncio.wait_for(
+                                combined_queue.get(), timeout=0.1
+                            )
+                            if msg_type == "done":
+                                await asyncio.sleep(0.1)
+                                if (
+                                    not graph_event_queue.empty()
+                                    or not elicitation_queue.empty()
+                                ):
+                                    continue
+                                break
+                            yield data
+                            combined_queue.task_done()
+                        except asyncio.TimeoutError:
+                            yield b'0 " "\n'
+                            if agent_task.done() and combined_queue.empty():
+                                break
+                            continue
+                finally:
+                    agent_task.cancel()
+                    sideband_task.cancel()
+
+            return StreamingResponse(
+                merged_stream(),
+                media_type="text/plain; charset=utf-8",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        @app.post("/stream", tags=["Agent UI"], summary="SSE Stream Endpoint")
+        async def stream_endpoint(request: Request) -> Response:
+            """Generic SSE stream endpoint for high-fidelity graph agent execution."""
+            from fastapi.responses import StreamingResponse
+
+            data = await request.json()
+            query = data.get("query", data.get("prompt", ""))
+            raw_parts = data.get("parts", [])
+            query_parts = await process_parts(raw_parts) if raw_parts else []
+            mode = data.get("mode", "ask")
+            topology = data.get("topology", "basic")
+
+            if graph_bundle:
+                from .graph_orchestration import run_graph_stream
+
+                graph, config = graph_bundle
+                return StreamingResponse(
+                    run_graph_stream(
+                        graph,
+                        config,
+                        query,
+                        mode=mode,
+                        topology=topology,
                         mcp_toolsets=_initialized_mcp_toolsets,
-                    )
-                    app.mount("/acp", acp_app)
-                else:
-                    logger.warning("ACP requested but pydantic-acp not installed.")
-
-        if a2a_app:
-            logger.info("Mounting A2A protocol layer at /a2a")
-            app.mount("/a2a", a2a_app)
-
-        # Legacy AG-UI mount for compatibility
-        try:
-            logger.info("Mounting Legacy AG-UI protocol layer at /ag-ui")
-            ag_ui_app = _agent_instance.to_ag_ui()
-            app.mount("/ag-ui", ag_ui_app)
-        except Exception as e:
-            logger.warning(f"Failed to mount legacy AG-UI: {e}")
-
-        # The ACP protocol layer is mounted at /acp (handled above)
+                        query_parts=query_parts,
+                    ),
+                    media_type="text/event-stream",
+                )
+            else:
+                return JSONResponse(
+                    {"error": "No graph bundle provided for streaming"}, status_code=400
+                )
 
         @app.get("/chats", tags=["Core"], summary="List Chat History")
         async def list_chats():
@@ -613,6 +900,43 @@ def build_agent_app(
                 return JSONResponse({"error": "Chat not found"}, status_code=404)
             return chat_data
 
+        @app.post(
+            "/api/approve",
+            tags=["Human-in-the-Loop"],
+            summary="Resolve a pending tool approval or elicitation",
+        )
+        async def resolve_approval(request: Request):
+            """Resolve a pending approval request from the graph executor.
+
+            Expected JSON body::
+
+                {
+                    "request_id": "<id from approval_required event>",
+                    "decisions": {
+                        "<tool_call_id>": "accept" | "deny",
+                        ...
+                    },
+                    "feedback": "optional text"
+                }
+
+            """
+            try:
+                data = await request.json()
+                rid = data.get("request_id") or data.get("id")
+                if not rid:
+                    return JSONResponse(
+                        {"error": "request_id is required"}, status_code=400
+                    )
+                if _approval_manager.resolve(rid, data):
+                    return {"status": "resolved", "request_id": rid}
+                return JSONResponse(
+                    {"error": "Request not found or already resolved"},
+                    status_code=404,
+                )
+            except Exception as e:
+                logger.exception("Approval resolution error")
+                return JSONResponse({"error": str(e)}, status_code=500)
+
         @app.get(
             "/mcp/config", tags=["Interoperability"], summary="Get MCP Configuration"
         )
@@ -624,6 +948,8 @@ def build_agent_app(
                 _cf.get("MCP_CONFIG", "mcp_config.json")
             )
             if not mcp_config_path.exists():
+                # Fallback to local agent_data/mcp_config.json if not in workspace
+
                 mcp_config_path = (
                     Path(__file__).parent / "agent_data" / "mcp_config.json"
                 )
@@ -643,17 +969,23 @@ def build_agent_app(
             tools = []
             if hasattr(_agent_instance, "toolsets"):
                 for ts in _agent_instance.toolsets:
+                    # Skip the SkillsToolset which is handled separately via A2A if needed
                     if type(ts).__name__ == "SkillsToolset":
                         continue
+
+                    # For MCPServer toolsets, we can extract tool info
                     if hasattr(ts, "get_tools"):
                         try:
+                            # Some toolsets might be async or require a context
                             ts_tools = ts.get_tools()
                             for t in ts_tools:
                                 tools.append(
                                     {
                                         "name": getattr(t, "name", str(t)),
                                         "description": getattr(t, "description", ""),
-                                        "tag": getattr(ts, "name", "mcp"),
+                                        "tag": getattr(
+                                            ts, "name", "mcp"
+                                        ),  # Use toolset name as tag
                                     }
                                 )
                         except Exception:
@@ -697,7 +1029,7 @@ def build_agent_app(
 
                 _provider_ui = provider or os.environ.get("PROVIDER") or "openai"
                 _model_id_ui = (
-                    model_id or os.environ.get("MODEL_ID") or "nvidia/nemotron-3-super"
+                    model_id or os.environ.get("MODEL_ID") or "google/gemma-4-31b"
                 )
 
                 helpers = {
@@ -805,13 +1137,14 @@ def create_agent_server(
     """Create and run an agent server with FastAPI and FastMCP."""
     import uvicorn
 
-    logger.info(
+    print(
         f"Starting {DEFAULT_AGENT_NAME}:"
         f"\tprovider={provider}"
         f"\tmodel={model_id}"
         f"\tbase_url={base_url}"
         f"\tmcp={mcp_url} | {mcp_config}"
-        f"\tssl_verify={ssl_verify}"
+        f"\tssl_verify={ssl_verify}",
+        file=sys.stderr,
     )
 
     app = build_agent_app(
@@ -900,11 +1233,11 @@ def create_agent_server(
         try:
             subprocess.call(["agent-terminal-ui"], env=env)
         except FileNotFoundError:
-            logger.error(
-                "Error: 'agent-terminal-ui' command not found. Please install the agent-terminal-ui package."
+            print(
+                "\nError: 'agent-terminal-ui' command not found. Please install the agent-terminal-ui package."
             )
         except Exception as e:
-            logger.error(f"Error launching TUI: {e}")
+            print(f"Error launching TUI: {e}")
 
         return
 
@@ -1002,6 +1335,9 @@ def create_graph_agent_server(
 
     if graph_bundle:
         graph, graph_config = graph_bundle
+        # Inject the singleton approval manager so the graph executor can
+        # pause for human-in-the-loop tool approvals.
+        graph_config.setdefault("approval_manager", _approval_manager)
         tag_prompts = graph_config.get("tag_prompts", {})
         tag_env_vars = graph_config.get("tag_env_vars", {})
         sub_agents = graph_config.get("sub_agents", {})
