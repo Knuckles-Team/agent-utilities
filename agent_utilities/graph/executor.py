@@ -980,7 +980,10 @@ async def _execute_specialized_step(
 
         # Cache message history for potential re-dispatch
         try:
-            ctx.deps.message_history_cache[prompt_name] = stream.all_messages()
+            history = stream.all_messages()
+            if asyncio.iscoroutine(history):
+                history = await history
+            ctx.deps.message_history_cache[prompt_name] = history
         except Exception as e:
             logger.debug(f"Unable to cache: {e}")
 

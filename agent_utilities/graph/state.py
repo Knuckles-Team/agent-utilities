@@ -232,16 +232,35 @@ class GraphState:
         """
         if not result_usage:
             return
-        self.session_usage.input_tokens += getattr(result_usage, "request_tokens", 0)
-        self.session_usage.output_tokens += getattr(result_usage, "response_tokens", 0)
-        self.session_usage.total_tokens += getattr(result_usage, "total_tokens", 0)
+
+        def _to_int(val: Any) -> int:
+            if isinstance(val, (int, float)):
+                return int(val)
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                return 0
+
+        req_tokens = _to_int(getattr(result_usage, "request_tokens", 0))
+        res_tokens = _to_int(getattr(result_usage, "response_tokens", 0))
+        tot_tokens = _to_int(getattr(result_usage, "total_tokens", 0))
+
+        self.session_usage.input_tokens += req_tokens
+        self.session_usage.output_tokens += res_tokens
+        self.session_usage.total_tokens += tot_tokens
 
         # Simple cost estimation based on Sonnet 3.5 defaults
         self.session_usage.estimated_cost_usd = (
             self.session_usage.input_tokens * 0.000003
         ) + (self.session_usage.output_tokens * 0.000015)
+
+        cost = self.session_usage.estimated_cost_usd
+        total = self.session_usage.total_tokens
+        
+        # Safe logging to avoid formatting errors on Mocks (though _to_int should handle it)
+        cost_str = f"{cost:.4f}" if isinstance(cost, (int, float)) else str(cost)
         logger.debug(
-            f"Usage Updated: ${self.session_usage.estimated_cost_usd:.4f} ({self.session_usage.total_tokens} tokens)"
+            f"Usage Updated: ${cost_str} ({total} tokens)"
         )
 
     def sync_to_disk(self, artifact_prefix: str = ""):
