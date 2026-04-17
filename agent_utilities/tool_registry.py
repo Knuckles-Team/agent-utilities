@@ -13,7 +13,7 @@ from pydantic_ai import Agent, RunContext
 
 from .models import AgentDeps
 
-__version__ = "0.2.39"
+__version__ = "0.2.40"
 
 
 def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> None:

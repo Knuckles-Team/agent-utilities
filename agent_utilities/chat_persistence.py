@@ -10,6 +10,7 @@ stored conversations.
 
 from __future__ import annotations
 
+import sys
 import json
 import logging
 
@@ -145,7 +146,7 @@ def prune_large_messages(messages: list[Any], max_length: int = 5000) -> list[An
 
 async def chat(agent: Agent, prompt: str):
     result = await agent.run(prompt)
-    logger.info(f"Response:\n\n{result.output}")
+    print(f"Response:\n\n{result.output}", file=sys.stderr)
 
 
 async def node_chat(agent: Agent, prompt: str) -> List:
@@ -153,12 +154,12 @@ async def node_chat(agent: Agent, prompt: str) -> List:
     async with agent.iter(prompt) as agent_run:
         async for node in agent_run:
             nodes.append(node)
-            logger.info(node)
+            print(node, file=sys.stderr)
     return nodes
 
 
 async def stream_chat(agent: Agent, prompt: str) -> None:
     async with agent.run_stream(prompt) as result:
         async for text_chunk in result.stream_text(delta=True):
-            logger.info(text_chunk)
-        logger.info("Done!")
+            print(text_chunk, end="", flush=True, file=sys.stderr)
+        print("\nDone!", file=sys.stderr)

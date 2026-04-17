@@ -1,3 +1,14 @@
+---
+name: coordinator
+type: prompt
+skills:
+- task-planner
+- agent-workflows
+- session-handoff
+- internal-comms
+description: '---'
+---
+
 # Coordinator System Prompt
 
 

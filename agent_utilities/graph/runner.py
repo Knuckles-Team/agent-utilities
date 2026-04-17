@@ -61,6 +61,7 @@ async def run_graph(
     topology: str = "basic",
     mcp_toolsets: List[Any] = None,
     query_parts: list[dict[str, Any]] | None = None,
+    plan_sync=None,
 ) -> dict:
     """Execute a query through the graph orchestrator (synchronous/batch).
 
@@ -143,6 +144,8 @@ async def run_graph(
             "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
         ),
         discovery_metadata=config.get("discovery_metadata", {}),
+        plan_sync=plan_sync,
+        approval_manager=config.get("approval_manager"),
     )
 
     state = GraphState(
@@ -167,15 +170,17 @@ async def run_graph(
     failed_servers: list[tuple[str, str]] = []
     connected_toolsets: list = []
 
+    # Track which toolsets have already been connected by the global
+    # lifespan (server.py pre-connects them at startup).  Use object
+    # identity instead of mutating toolset attributes.
+    _already_connected: set[int] = set()
+
     async with AsyncExitStack() as stack:
-        # Connect to MCP servers sequentially for AnyIO task-affinity safety.
-        # NOTE: This is fast because server.py pre-connects them once in parallel at startup.
         for ts in deps.mcp_toolsets:
             if not hasattr(ts, "__aenter__"):
                 connected_toolsets.append(ts)
                 continue
-            if getattr(ts, "_ag_connected", False):
-                # Already connected by global lifespan; skip re-entering
+            if id(ts) in _already_connected:
                 connected_toolsets.append(ts)
                 continue
 
@@ -185,7 +190,7 @@ async def run_graph(
                 connected = await asyncio.wait_for(
                     stack.enter_async_context(ts), timeout=60.0
                 )
-                ts._ag_connected = True
+                _already_connected.add(id(ts))
                 connected_toolsets.append(connected)
                 logger.info(f"run_graph: ✅ MCP server '{srv_id}' connected")
             except Exception as e:
@@ -219,7 +224,7 @@ async def run_graph(
 
         emit_graph_event(
             deps.event_queue,
-            "graph-start",
+            "graph_start",
             run_id=run_id,
             query=query,
             topology=topology,
@@ -257,7 +262,7 @@ async def run_graph(
             )
             emit_graph_event(
                 deps.event_queue,
-                "graph-complete",
+                "graph_complete",
                 run_id=run_id,
                 status="success" if result else "timeout",
             )
@@ -318,6 +323,7 @@ async def run_graph_stream(
     topology: str = "basic",
     mcp_toolsets: List[Any] = None,
     query_parts: list[dict[str, Any]] | None = None,
+    plan_sync=None,
 ):
     r"""Generator that yields graph events and text output as a stream of SSE events.
 
@@ -353,7 +359,7 @@ async def run_graph_stream(
     # Emit graph-start event via the sideband queue
     emit_graph_event(
         eq,
-        "graph-start",
+        "graph_start",
         run_id=run_id,
         query=query,
         topology=topology,
@@ -401,6 +407,8 @@ async def run_graph_stream(
             "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
         ),
         discovery_metadata=config.get("discovery_metadata", {}),
+        plan_sync=plan_sync,
+        approval_manager=config.get("approval_manager"),
     )
 
     state = GraphState(
@@ -422,13 +430,13 @@ async def run_graph_stream(
 
         try:
             async with AsyncExitStack() as stack:
-                # Connect to all MCP servers in parallel
                 connected_toolsets = []
+                _stream_connected: set[int] = set()
                 for ts in deps.mcp_toolsets:
                     if not hasattr(ts, "__aenter__"):
                         connected_toolsets.append(ts)
                         continue
-                    if getattr(ts, "_ag_connected", False):
+                    if id(ts) in _stream_connected:
                         connected_toolsets.append(ts)
                         continue
                     srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
@@ -438,7 +446,7 @@ async def run_graph_stream(
 
                     try:
                         connected = await stack.enter_async_context(ts)
-                        ts._ag_connected = True
+                        _stream_connected.add(id(ts))
                         connected_toolsets.append(connected)
                     except Exception as e:
                         logger.error(
@@ -460,7 +468,7 @@ async def run_graph_stream(
             # Emit graph-complete event
             from .config_helpers import emit_graph_event
 
-            emit_graph_event(eq, "graph-complete", run_id=run_id, status="success")
+            emit_graph_event(eq, "graph_complete", run_id=run_id, status="success")
             await eq.put(None)
 
     task = asyncio.create_task(run_in_background())
@@ -539,7 +547,7 @@ def validate_graph(graph: Any, config: dict) -> dict:
     info["mcp_agents"] = [
         {
             "name": a.name,
-            "tag": a.tag,
+            "agent_type": a.agent_type,
             "mcp_server": a.mcp_server,
             "tool_count": len(a.tools),
         }

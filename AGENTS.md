@@ -5,7 +5,7 @@
 - **Core Framework**: [Pydantic AI](https://ai.pydantic.dev) & [Pydantic Graph](https://ai.pydantic.dev/pydantic-graph/)
 - **Tooling**: `requests`, `pydantic`, `pyyaml`, `python-dotenv`, `fastapi`, `llama_index`
 - **Architecture**: Centered around the `create_agent` factory, which has been modernized to support a **Unified Skill Loading** model (`skill_types`) and automated **Graph Orchestration**.
-- **Unified Specialist Discovery**: MCP agents (`NODE_AGENTS.md`) and A2A peers (`A2A_AGENTS.md`) are merged into a single `DiscoveredSpecialist` roster via `discovery_all_specialists()` in `discovery.py`. The graph builder, router, and planner all consume this unified registry so both sources share the same registration, tag-prompt, and step-description code
+- **Unified Specialist Discovery**: All specialist agents—prompt-based, MCP-derived, and A2A peers—are consolidated into a single, declarative source of truth: `NODE_AGENTS.md`. This unified registry is dynamically rebuilt from prompt frontmatter and MCP configurations, ensuring consistent registration, tag-prompting, and tool binding across the entire orchestration layer.
 - **Key Principles**:
     - Functional and modular utility design.
     - Standardized workspace management (`IDENTITY.md`, `MEMORY.md`).
@@ -114,13 +114,11 @@ graph TD
         ACP_Adapter --> UnifiedExec
         SSE_Adapter --> UnifiedExec
 
-        subgraph UnifiedDiscovery ["Unified Discovery Layer (discovery.py)"]
-            DAL["discover_all_specialists()"]
-            NodeAgents["NODE_AGENTS.md<br/>(MCP Specialists)"]
-            A2AAgents["A2A_AGENTS.md<br/>(Remote Peers)"]
+        subgraph UnifiedDiscovery ["Unified Discovery Layer (config_helpers.py)"]
+            DAL["get_discovery_registry()"]
+            NodeAgents["NODE_AGENTS.md<br/>(Unified Specialist Registry)"]
             NodeAgents --> DAL
-            A2AAgents --> DAL
-            DAL --> DSRoster["list[DiscoveredSpecialist]"]
+            DAL --> DSRoster["MCPAgentRegistryModel"]
         end
 
         DSRoster --> Graph
@@ -128,16 +126,21 @@ graph TD
         Specialists --> MCP[MCP Servers]
         Specialists --> Skills[Universal Skills, Skill Graphs]
 
-        subgraph ElicitationFlow [Elicitation Flow]
-            MCP -- 1. Request --> GEC[global_eliciation_callback]
-            GEC -- 2. Queue --> EQ[Elicitation Queue]
-            EQ -- 3. SSE Event --> Backend
+        subgraph ElicitationFlow [Human-in-the-Loop Flow]
+            MCP -- 1. Tool needs approval --> TG[tool_guard: requires_approval]
+            TG -- 2. DeferredToolRequests --> AM[ApprovalManager]
+            AM -- 3. asyncio.Future await --> EQ[Event Queue]
+            EQ -- 4. SSE sideband event --> Backend
+            MCP -- 1b. ctx.elicit --> GEC[global_elicitation_callback]
+            GEC -- 2b. Queue + Future --> AM
         end
     end
 
-    Backend -- 4. User UI --> WebUI
-    WebUI -- 5. POST /api/elicit --> Backend
-    Backend -- 6. Resolve --> EQ
+    Backend -- 4. approval_required event --> WebUI
+    Backend -- 4. approval_required event --> TUI
+    WebUI -- 5. POST /api/approve --> Backend
+    TUI -- 5. POST /api/approve --> Backend
+    Backend -- 6. Future.resolve --> AM
 ```
 
 ## MCP Loading & Registry Architecture
@@ -160,16 +163,15 @@ graph TD
     end
 
     subgraph Unified_Discovery ["2. Unified Discovery (Bootstrap)"]
-        Registry --> UAL["<b>discovery_all_specialists()</b><br/><i>discovery.py</i>"]
-        A2AReg["<b>A2A_AGENTS.md</b><br/><i>(Remote Peer Registry)</i>"] --> UAL
-        UAL -->|Deduplicated by tag<br/>MCP wins on conflict| Roster["<b>list{DiscoveredSpecialist]</b><br/><i>tag, name, source, tools, url</i>"]
+        Registry --> UAL["<b>get_discovery_registry()</b><br/><i>config_helpers.py</i>"]
+        UAL -->|Consolidated Roster| Roster["<b>MCPAgentRegistryModel</b><br/><i>name, agent_type, tools, url</i>"]
     end
 
     subgraph Initialization_Phase ["3. Graph Initialization (Runtime)"]
-        Config -->|Per-server loading| Loader["<b>builder.py</b><br/><i>Per-server resilient load</i><br/>Skips servers with missing env-vars<br/>Logs ❌ failures clearly"]
+        Config -->|Per-server loading| Loader["<b>builder.py</b><br/><i>Per-server resilient load</i><br/>Skips servers with missing env-vars"]
         Roster --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
-        Loader -->|MCPServerStdio| ToolPool["<b>mcp_toolsets</b><br/>(Connected Toolsets)"]
-        Builder -->|Register Nodes| Specialists["<b>Specialist Superstates</b><br/>(Python, TS, GitLab, etc.)"]
+        Loader -->|MCPServerStdio| ToolPool["<b>mcp_toolsets</b>"]
+        Builder -->|Register Registry Nodes| Specialists["<b>Specialist Superstates</b>"]
         Specialists -->|Compile| Graph["<b>Pydantic Graph Agent</b>"]
     end
 
@@ -218,19 +220,16 @@ graph TD
   subgraph "Discovery Phase"
     direction TB
     Researcher["<b>Researcher</b><br/>---<br/><i>u-skill:</i> web-search, web-crawler, web-fetch<br/><i>t-tool:</i> project_search, read_workspace_file"]
-    Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, product-management, product-strategy, user-research<br/><i>t-tool:</i> developer_tools"]
-    A2ADiscovery["<b>A2A Discovery</b><br/>---<br/><i>source:</i> A2A_AGENTS.md<br/>"]
-    MCPDiscovery["<b>MCP Discovery</b><br/>---<br/><i>source:</i> NODE_AGENTS.md<br/>"]
+    Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, spec-generator, product-strategy, user-research, brainstorming<br/><i>t-tool:</i> developer_tools"]
+    MCPDiscovery["<b>Unified Registry</b><br/>---<br/><i>source:</i> NODE_AGENTS.md<br/>"]
     res_joiner[Research Joiner: Barrier Sync]
   end
 
   dispatcher -- "Research First" --> Researcher
   dispatcher -- "Research First" --> Architect
-  dispatcher -- "Research First" --> A2ADiscovery
   dispatcher -- "Research First" --> MCPDiscovery
   Researcher --> res_joiner
   Architect --> res_joiner
-  A2ADiscovery --> res_joiner
   MCPDiscovery --> res_joiner
   res_joiner -- "Coalesced Context" --> dispatcher
 
@@ -244,7 +243,7 @@ graph TD
       GoP["<b>Go</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> go-docs<br/><i>t-tool:</i> developer_tools"]
       RustP["<b>Rust</b><br/>---<br/><i>u-skill:</i> tdd-methodology<br/><i>g-skill:</i> rust-docs<br/><i>t-tool:</i> developer_tools"]
       CSP["<b>C Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> c-docs<br/><i>t-tool:</i> developer_tools"]
-      CPP["<b>C++ Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>g-skill:</i> cpp-docs<br/><i>t-tool:</i> developer_tools"]
+      CPP["<b>C++ Programmer</b><br/>---<br/><i>u-skill:</i> developer-utilities<br/><i>t-tool:</i> developer_tools"]
       JSP["<b>JavaScript</b><br/>---<br/><i>u-skill:</i> web-artifacts, canvas-design, developer-utilities<br/><i>g-skill:</i> nodejs-docs, react-docs<br/><i>t-tool:</i> developer_tools"]
     end
 
@@ -258,8 +257,8 @@ graph TD
     subgraph Specialized ["Specialized & Quality"]
       direction LR
       Sec["<b>Security</b><br/>---<br/><i>u-skill:</i> security-tools<br/><i>g-skill:</i> linux-docs<br/><i>t-tool:</i> developer_tools"]
-      QA["<b>QA</b><br/>---<br/><i>u-skill:</i> qa-planning, tdd-methodology<br/><i>g-skill:</i> testing-library-docs<br/><i>t-tool:</i> developer_tools"]
-      UIUX["<b>UI/UX</b><br/>---<br/><i>u-skill:</i> theme-factory, brand-guidelines, algorithmic-art<br/><i>g-skill:</i> shadcn-docs, tailwind-docs, framer-docs<br/><i>t-tool:</i> developer_tools"]
+      QA["<b>QA</b><br/>---<br/><i>u-skill:</i> spec-verifier, tdd-methodology<br/><i>g-skill:</i> testing-library-docs<br/><i>t-tool:</i> developer_tools"]
+      UIUX["<b>UI/UX</b><br/>---<br/><i>u-skill:</i> theme-factory, brand-guidelines, algorithmic-art<br/><i>g-skill:</i> shadcn-docs, framer-docs<br/><i>t-tool:</i> developer_tools"]
       Debug["<b>Debugger</b><br/>---<br/><i>u-skill:</i> developer-utilities, agent-builder<br/><i>t-tool:</i> developer_tools"]
     end
 
@@ -326,12 +325,21 @@ graph TD
   exe_joiner -- "Implementation Results" --> dispatcher
 
   dispatcher -- "Plan Complete" --> verifier[Verifier: Quality Gate]
-  verifier -- "Score >= 0.7" --> synthesizer[Synthesizer: Response Composition]
-  verifier -- "Score 0.4-0.7" --> dispatcher
-  verifier -- "Score < 0.4" --> planner_step[Planner: Re-plan with Feedback]
+  verifier -- "Pass (Score >= 0.7)" --> End
+  verifier -- "Fail (Score < 0.7)" --> dispatcher
+  dispatcher -- "Terminal Failure" --> End
   planner_step --> dispatcher
   synthesizer -- "Final Response" --> End
   dispatcher -- "Terminal Failure" --> End
+
+  subgraph SDD_Lifecycle ["<b>Spec-Driven Development (SDD)</b>"]
+    direction TB
+    Const["<b>Constitution</b><br/>(Governance)"] --> Spec["<b>Specification</b><br/>(FeatureSpec)"]
+    Spec --> SDDPlan["<b>Technical Plan</b><br/>(ImplementationPlan)"]
+    SDDPlan --> SDDTasks["<b>Task List</b><br/>(TaskList)"]
+    SDDTasks --> SDDExec["<b>Execution</b><br/>(Parallel Dispatch)"]
+    SDDExec --> SDDVerify["<b>Verification</b><br/>(Spec Audit)"]
+  end
 
   %% Styling
   style Researcher fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
@@ -366,6 +374,32 @@ graph TD
   style Data_Lifestyle fill:#fef9e7,stroke:#d6b656,stroke-width:1px
 
   style verifier fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+```
+
+## Spec-Driven Development (SDD) Lifecycle
+The `agent-utilities` ecosystem implements a high-fidelity orchestration pipeline based on Spec-Driven Development. This lifecycle ensures technical precision, architectural consistency, and parallel execution safety.
+
+### Phase 1: Governance & Specification
+1.  **Project Start**: The **Planner** triggers `constitution-generator` to establish `constitution.md` (governance rules, tech stack).
+2.  **Feature Definition**: The **Planner** triggers `spec-generator` to produce `spec.md` (user stories, acceptance criteria, requirements).
+3.  **Technical Approach**: The **Planner** triggers `task-planner` to generate `plan.md` (technical approach) and `tasks.md` (inter-dependent graph of tasks).
+
+### Phase 2: Parallel Execution
+The **Dispatcher** reads the `tasks.md` and routes sub-tasks to specialized agents.
+- **Dependency Tracking**: Tasks are executed in parallel if they have no unmet dependencies.
+- **Context Isolation**: Each specialist receives only relevant context for its assigned task.
+
+### Phase 3: Continuous Verification
+1.  **Quality Gate**: After execution, the **Verifier** node uses `spec-verifier` to evaluate the results against the original `spec.md`.
+2.  **Self-Correction**: If verification fails (score < 0.7), feedback is injected back into the **Planner** for targeted re-planning and execution.
+
+### SDD Skills Reference
+| Skill | Purpose | Bound To |
+|:------|:--------|:---------|
+| `constitution-generator` | Establish project governance and stack. | Planner |
+| `spec-generator` | Create feature-level specifications. | Planner, Architect, Project Manager |
+| `task-planner` | Generate technical implementation plans. | Planner, Coordinator |
+| `spec-verifier` | Evaluate results against specifications. | Verifier, QA Expert, Critique |
   style synthesizer fill: #d5e8d4,stroke:#82b366,stroke-width:2px
   style planner_step fill: #dae8fe,stroke:#6c8ebf,stroke-width:2px
   style End fill:#f8cecc,stroke:#b85450,stroke-width:2px
@@ -388,6 +422,25 @@ graph TD
   style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
 	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
 ```
+
+## Server Endpoint Reference
+
+All endpoints are registered on the FastAPI application in `server.py`.
+
+| Endpoint | Method | Tag | Description |
+|---|---|---|---|
+| `/health` | GET | Core | Health check and server metadata |
+| `/ag-ui` | POST | Agent UI | AG-UI streaming endpoint with sideband graph events and merged agent/elicitation streams |
+| `/stream` | POST | Agent UI | Generic SSE stream endpoint for graph agent execution |
+| `/acp` | MOUNT | ACP | Agent Communication Protocol (pydantic-acp). Handles sessions, planning, approvals, and streaming |
+| `/a2a` | MOUNT | A2A | Agent-to-Agent (fastA2A) JSON-RPC endpoint for inter-agent communication |
+| `/api/approve` | POST | Human-in-the-Loop | Resolves pending tool approvals and MCP elicitation requests. Body: `{request_id, decisions, feedback}` |
+| `/chats` | GET | Core | List all stored chat sessions |
+| `/chats/{chat_id}` | GET | Core | Get full message history for a specific chat |
+| `/chats/{chat_id}` | DELETE | Core | Delete a specific chat session |
+| `/mcp/config` | GET | Interoperability | Return the current MCP server configuration |
+| `/mcp/tools` | GET | Interoperability | List all tools from connected MCP servers |
+| `/mcp/reload` | POST | Interoperability | Hot-reload MCP servers and rebuild graph without restarting |
 
 ## The Complete Execution Journey
 
@@ -428,6 +481,74 @@ The graph orchestration system follows a rigorous, multi-stage pipeline designed
 17. **Memory Persistence**: Execution metadata (query, plan, results, tokens, verification attempts) is persisted to `MEMORY.md` for future context retrieval.
 
 
+## Graph Event System & Phase Map
+
+Every significant state transition in the graph emits a structured event via `emit_graph_event()` (defined in `graph/config_helpers.py`). These events serve **two purposes**:
+
+1. **Server-side structured logging** — The `_log_graph_trace()` function uses `_PHASE_MAP` to prefix each log line with a phase label (e.g., `[ROUTING] routing_started`, `[EXECUTION] specialist_enter`). This provides a human-readable execution trace in server logs without needing the UI.
+
+2. **Real-time UI sideband streaming** — Each event is pushed to an `asyncio.Queue` as a `data-graph-event` payload, which is streamed to connected frontends (web UI, terminal UI) via SSE. The frontends consume the raw `event` field (e.g., `routing_started`, `expert_tool_call`) to drive the graph activity visualizer, approval cards, and status indicators.
+
+### Event Emission Contract
+
+```python
+emit_graph_event(
+    eq=event_queue,           # asyncio.Queue (or None to skip)
+    event_type="routing_started",  # Must be a key in _PHASE_MAP
+    query=ctx.state.query,    # Arbitrary metadata kwargs
+)
+```
+
+This produces:
+- **Log line**: `[ROUTING] routing_started query=...`
+- **SSE payload**: `{"type": "data-graph-event", "data": {"event": "routing_started", "timestamp": 1234567890.0, "query": "..."}}`
+
+### `_PHASE_MAP` Reference
+
+The `_PHASE_MAP` (in `graph/config_helpers.py`) maps every event type to a high-level execution phase. Events not in the map fall back to the generic `"GRAPH"` phase. All event types use `snake_case` (no hyphens).
+
+| Phase | Event Types | Emitted By |
+|---|---|---|
+| **LIFECYCLE** | `graph_start`, `graph_complete`, `node_start`, `node_complete` | `runner.py`, `steps.py` |
+| **SAFETY** | `safety_warning` | `steps.py` (usage_guard) |
+| **ROUTING** | `routing_started`, `routing_completed` | `steps.py` (router) |
+| **PLANNING** | `plan_created` | `steps.py` (dispatcher) |
+| **REPLANNING** | `replanning_started`, `replanning_completed` | `steps.py` (planner) |
+| **DISPATCH** | `step_dispatched`, `batch_dispatched` | `steps.py` (dispatcher) |
+| **ENRICHMENT** | `context_gap_detected` | `steps.py` (memory_selection) |
+| **EXECUTION** | `specialist_enter`, `specialist_exit`, `expert_metadata`, `expert_thinking`, `expert_warning`, `expert_text`, `expert_complete`, `tools_bound`, `subagent_started`, `subagent_completed`, `subagent_thought` | `hsm.py`, `executor.py` |
+| **FALLBACK** | `specialist_fallback` | `executor.py` |
+| **TOOL_CALL** | `expert_tool_call`, `subagent_tool_call` | `executor.py`, `steps.py` |
+| **TOOL_RESULT** | `tool_result` | `executor.py`, `steps.py` |
+| **PARALLEL** | `orthogonal_regions_start`, `orthogonal_regions_complete`, `region_start`, `region_complete` | `hsm.py` |
+| **VERIFICATION** | `verification_result` | `steps.py` (verifier) |
+| **SYNTHESIS** | `agent_node_delta`, `synthesis_fallback` | `executor.py`, `steps.py` |
+| **APPROVAL** | `approval_required`, `approval_resolved`, `elicitation` | `approval_manager.py`, `executor.py` |
+| **RECOVERY** | `error_recovery_replan`, `error_recovery_terminal` | `steps.py` (error_recovery) |
+| **TERMINATION** | `graph_force_terminated` | `steps.py` (dispatcher) |
+
+### When to Update `_PHASE_MAP`
+
+**You must add an entry to `_PHASE_MAP`** whenever you:
+- Add a new `emit_graph_event()` call with a new event type string
+- Add a new `_emit_node_lifecycle()` call with a new event name
+
+If you emit an event type that is NOT in `_PHASE_MAP`, the log line will show `[GRAPH]` as a generic fallback, which makes debugging harder. The phase map is the authoritative registry of all graph events.
+
+**Naming convention**: Always use `snake_case` for event types (e.g., `specialist_enter`, not `specialist-enter`).
+
+### Frontend Event Consumers
+
+The frontends consume these events from the SSE sideband stream:
+
+| Frontend | Events Used | Purpose |
+|---|---|---|
+| **agent-webui** (`graph-activity.tsx`) | `routing_started`, `routing_completed`, `expert_tool_call`, `subagent_tool_call`, `approval_required` | Graph activity visualizer, approval cards |
+| **agent-terminal-ui** (`app.py`) | `specialist_enter`, `routing_started`, `routing_completed`, `approval_required` | Status line updates, tool approval modal |
+
+When adding new events that the frontends should display, coordinate the event type name with both UI projects.
+
+
 ## Hierarchical State Machine (HSM) Architecture
 
 The graph orchestration system is a **Hierarchical State Machine**. It follows the same formal model used in robotics,
@@ -445,12 +566,10 @@ Level 0: Root Graph (N Orchestration Nodes)
 └── planner (re-planning on verification failure)
 
 Level 1: Superstates - Specialist Agents
-├── N Hardcoded Agents (NODE_SKILL_MAP: python_programmer, typescript_programmer, ...)
-│   Each loads: dedicated prompt + tag-filtered skills (via SkillsToolset) + filtered MCP toolsets
-│   Tool binding is deduplicated by object identity and emits [TELEMETRY] logs
-└── N Dynamic MCP Agents (from discover_all_specialists(): MCP + A2A merged roster)
-    MCP agents: generated prompt + scoped MCP toolset for one server
-    A2A agents: delegated via JSON-RPC execute_task to remote peer
+├── Specialist Roster (from NODE_AGENTS.md: Unified Specialist Registry)
+│   Each loads: name-matched prompt + discovered capabilities + mapped MCP toolsets
+│   Supports: 'prompt' (local), 'mcp' (stdio), and 'a2a' (remote) agent types
+└── Unified Execution: Dynamic routing based on registry-provided metadata
 
 Level 2: Substates - Agent Internal Loop
 └── Pydantic AI Agent.run() = UserPromptNode → ModelRequestNode → CallToolsNode → ...
@@ -461,20 +580,20 @@ Level 3: Leaf States - MCP Tool Execution
     Atomic operations: get_project(), list_branches(), run_cypher_query(), etc.
 ```
 
-### Maintaining the Specialist Registry (`NODE_SKILL_MAP`)
+### Maintaining the Specialist Registry (NODE_AGENTS.md)
 
-The **Universal Skills** and **Skill Graphs** are dynamically embedded into Graph Agents via the `NODE_SKILL_MAP` (located in `agent_utilities/graph/config_helpers.py`). This forms the primary routing capability and specialized proficiency of each node in the cluster.
+The specialist ecosystem is managed via `NODE_AGENTS.md`. This registry is the primary source of truth for routing and specialized proficiency of each node in the cluster.
 
 **How it works**
-1. Each key in `NODE_SKILL_MAP` (e.g. `python_programmer`, `ui_ux_designer`) matches directly to a `.md` markdown file located in `agent_utilities/prompts/`.
-2. When the `builder.py` Graph generator spawns the orchestrator, it reads the keys from `NODE_SKILL_MAP`, bypassing the need to hardcode `GraphBuilder.step()` edges.
-3. The specified array of string skill tags will be automatically linked via the skill installer to grant those specific external capabilities to that internal superstate node.
+1. Each entry in `NODE_AGENTS.md` (e.g. `python_programmer`, `researcher`) matches to a `.md` markdown file in `agent_utilities/prompts/` (for prompt agents) or a remote endpoint (for A2A/MCP agents).
+2. The `agent_registry_builder.py` script automatically synchronizes this registry by parsing prompt frontmatter and MCP server configurations.
+3. When the `builder.py` graph generator spawns the orchestrator, it loads all agents from this registry, bypassing the need for hardcoded skill maps.
+4. Capability tags (e.g., `web-search`, `git-operations`) are assigned to agents in the registry, and the `expert_executor` uses these tags to dynamically bind the correct toolsets at runtime.
 
 **Future Enhancements & Best Practices**
-- When adding a new role, you **must** create the correspondng `[role].md` based on `_template.md` in the `prompts/` directory.
-- Add the exact filename without the `.md` extension as a new key to the `NODE_SKILL_MAP`.
-- Assign 100% of newly developed universal-skills proportionally among agents to prevent orphaned skills. Check documentation to ensure each agent is capable of fulfilling their domain successfully before assigning entirely new skills.
-- The `agent-webui` interface will naturally ingest the new node ID and emit it via the graph activity viewer. Keep role IDs in `snake_case`.
+- When adding a new role, create the corresponding `[role].md` with YAML frontmatter in `agent_utilities/prompts/`.
+- Run the registry rebuilder to update `NODE_AGENTS.md`: `python3 -m agent_utilities.agent_registry_builder`.
+- The `agent-webui` interface will naturally ingest the new node ID. Keep role IDs in `snake_case`.
 
 ### Concept Mapping
 | agent-utilities Concept        | HSM Concept            | Details                                           |
@@ -524,6 +643,25 @@ The principle: *graphs decide where you are; BT-style logic decides what to do n
 | `graph.NodeResult`                                                                     | Tri-state result             | `NodeResult.SUCCESS / FAILURE / RUNNING` enum                                   |
 | `check_specialist_preconditions`                                                       | Precondition guard           | Check server health + tool availability before entering specialist               |
 | `assert_state_valid()`                                                                 | Boundary re-evaluation       | State invariants at dispatcher and verifier boundaries                          |
+
+### Spec-Driven Development (SDD) Layer
+The SDD layer sits between the **Planner** and the **Execution** phase of the HSM. It provides a formal, machine-readable contract that domain specialists must fulfill.
+
+**SDD State Transitions:**
+- **Planner (Initial)**: Invokes `constitution-generator` and `spec-generator`.
+- **Planner (Strategic)**: Invokes `task-planner` to create the `TaskList`.
+- **Dispatcher**: Uses `SDDManager` to analyze the `TaskList` for parallelization batches.
+- **Verifier**: Invokes `spec-verifier` to perform high-fidelity audits against the `FeatureSpec`.
+- **Planner (Recovery)**: Re-runs `task-planner` with feedback on failure to adjust the strategy.
+
+**SDD Models & Persistence:**
+All SDD artifacts are stored in the agent's `agent_data/` directory:
+- `constitution.json` -> Global project rules.
+- `specs/[feature_id].json` -> Detailed feature requirements.
+- `plans/[feature_id].json` -> Technical implementation strategy.
+- `tasks/[feature_id].json` -> Structured progress and dependency tracking.
+
+**Design Rule:** The `TaskList` (JSON) is the authoritative source for the orchestrator, while `tasks.md` remains the human-readable mirror for user transparency.
 
 **Design rule:** If logic chooses between options → BT concept. If logic defines long-lived phases → HSM concept.
 
@@ -602,6 +740,11 @@ Comprehensive tests located in `tests/` validate the entire stack from registry 
 - `agent_utilities/server.py` → HTTP server implementation
 - `agent_utilities/tool_filtering.py` → Tool filtering utilities for tag-based access control
 - `agent_utilities/tool_guard.py` → Universal tool guard implementation
+- `agent_utilities/approval_manager.py` → Human-in-the-loop approval manager (`ApprovalManager`, `run_with_approvals`, `global_elicitation_callback`)
+- `agent_utilities/acp_adapter.py` → ACP protocol adapter with graph-backed execution and native plan integration
+- `agent_utilities/acp_providers.py` → ACP plan persistence provider (mirrors plan state to PLAN.md)
+- `agent_utilities/discovery.py` → Unified specialist discovery (`discover_agents`, `discover_all_specialists`)
+- `agent_utilities/event_aggregator.py` → CRON/HEARTBEAT aggregation for orchestrated agents
 - `agent_utilities/workspace.py` → Workspace management utilities
 - `agent_utilities/a2a.py` → Agent-to-Agent communication, unified discovery (`discover_all_specialists()`)
 - `agent_utilities/prompts/` → Prompt templates (one `.md` per specialist role)
@@ -661,11 +804,18 @@ except ImportError:
 - Keep `base_utilities` free of heavy dependencies.
 - Utilize lazy imports for optional dependencies like FastAPI and LlamaIndex.
 - Follow the existing patterns in each module when adding new functionality.
+- Pass **all toolsets at Agent construction time** via `Agent(toolsets=[...])`.
+- Use `ApprovalRequiredToolset` from `pydantic_ai.toolsets.approval_required` for MCP tool approval.
+- Use the public `agent.toolsets` property (read-only) for inspection; iterate with `isinstance(ts, FunctionToolset)` to find function tools.
 
 **Don't:**
 - Import `fastapi` or `llama_index` at the top level (use lazy imports inside functions or classes).
 - Hardcode file paths; use relative paths from the workspace root or environment variables.
 - Modify global state unnecessarily; prefer functional approaches.
+- **NEVER** append to `agent.toolsets` after construction — it is a **read-only property** that returns a new list each call. `agent.toolsets.append(x)` is a silent no-op.
+- **NEVER** access `agent._function_toolset`, `agent._user_toolsets`, or any underscore-prefixed pydantic-ai attributes. These are private implementation details that break across versions.
+- **NEVER** set custom attributes on toolset objects (e.g., `toolset._my_flag = True`). Use a local `set[int]` with `id(toolset)` for tracking.
+- **NEVER** import from `pydantic_acp.runtime._*` internal modules. Use only public `pydantic_acp` exports.
 
 ## Safety & Boundaries
 **Always do:**
@@ -684,23 +834,93 @@ except ImportError:
 - Break backward compatibility without a strong justification.
 
 ## Universal Tool Guard (Global Safety)
-By default, `agent-utilities` implements a **Universal Tool Guard** that automatically intercepts sensitive tool calls from MCP servers.
+By default, `agent-utilities` implements a **Universal Tool Guard** that automatically intercepts sensitive tool calls from MCP servers and graph specialist sub-agents.
 
-Any tool matching specific "danger" patterns (e.g., `delete_*`, `write_*`, `execute_*`, `drop_*`) will **automatically** trigger an elicitation request. The tool will not execute until you explicitly confirm it in the Web UI.
+Any tool matching specific "danger" patterns (e.g., `delete_*`, `write_*`, `execute_*`, `drop_*`) is flagged with pydantic-ai's native `requires_approval=True` attribute. When a specialist sub-agent calls a flagged tool, the graph **pauses at that exact node** and waits for explicit user approval before continuing.
 
 ### Key Features
-- **Zero Config**: Protections are applied automatically based on tool names.
-- **Fail-Safe**: If elicitations aren't supported or fail, the sensitive tool is blocked by default.
-- **Customizable**: You can disable the guard by setting `DISABLE_TOOL_GUARD=True` in your environment.
+- **Zero Config**: Protections are applied automatically based on tool names via `apply_tool_guard_approvals()`.
+- **True Pause-and-Resume**: The graph does NOT terminate on approval requests. It suspends via `asyncio.Future` and resumes when the user responds.
+- **Protocol-Agnostic**: Works identically across AG-UI (web UI), terminal UI, ACP, and SSE protocols.
+- **Persistent Choices**: When using ACP, users can select "Always Allow" / "Always Deny" for specific tools.
+- **Customizable**: Disable with `TOOL_GUARD_MODE=off` or `DISABLE_TOOL_GUARD=True`.
 
 ### Sensitive Patterns
 The guard currently monitors for:
-`delete`, `write`, `execute`, `rm_`, `rmdir`, `drop`, `truncate`, `update`, `patch`, `post`, `put`.
+`delete`, `write`, `execute`, `rm_`, `rmdir`, `drop`, `truncate`, `update`, `patch`, `post`, `put`, `create`, `add`, `upload`, `set`, `reset`, `clear`, `revert`, `replace`, `rename`, `move`, `start`, `stop`, `restart`, `kill`, `terminate`, `reboot`, `shutdown`, `git_*`.
+
+### Tool Approval Registry (`NODE_AGENTS.md`)
+
+The **Tool Inventory Table** in `NODE_AGENTS.md` includes an `Approval` column that records which MCP tools require human approval:
+
+```markdown
+| Tool Name | Description | Tag | Source | Score | Approval |
+|-----------|-------------|-----|--------|-------|----------|
+| get_records | Fetch table records | records | servicenow-mcp | 85 | No |
+| delete_record | Delete a table record | records | servicenow-mcp | 90 | Yes |
+| execute_script | Run a server-side script | scripts | servicenow-mcp | 70 | Yes |
+```
+
+**How it works:**
+1. During `sync_mcp_agents()`, the `is_sensitive_tool()` function pattern-matches each tool name and auto-populates the `Approval` column.
+2. You can manually override by editing `NODE_AGENTS.md` — set `Yes` to force approval on tools that don't match patterns, or `No` to exempt trusted tools.
+3. At graph runtime, `build_sensitive_tool_names()` reads the registry and `flag_mcp_tool_definitions()` wraps MCP toolsets with pydantic-ai's native `ApprovalRequiredToolset`.  When a flagged tool is called, the wrapper raises `ApprovalRequired` (unless `ctx.tool_call_approved` is already `True` from a prior approval round), causing pydantic-ai to return `DeferredToolRequests`.
+4. When the specialist agent calls a flagged tool, pydantic-ai returns `DeferredToolRequests` instead of executing it, and `run_with_approvals()` pauses the graph until the user responds.
+
+### Human-in-the-Loop Architecture
+
+```mermaid
+sequenceDiagram
+    participant UI as Terminal UI / Web UI
+    participant Server as agent-utilities Server
+    participant Graph as Graph Executor
+    participant Specialist as Specialist Sub-Agent
+    participant MCP as MCP Tool Server
+
+    UI->>Server: User query
+    Server->>Graph: execute_graph(query)
+    Graph->>Specialist: agent.run(query) via run_with_approvals()
+
+    Specialist->>MCP: Call sensitive tool (e.g. delete_record)
+    Note over MCP: requires_approval=True
+    MCP-->>Specialist: DeferredToolRequests (tool paused)
+    Specialist-->>Graph: DeferredToolRequests output
+
+    Graph->>Graph: ApprovalManager.wait_for_approval()
+    Note over Graph: Graph PAUSED (asyncio.Future await)
+
+    Graph->>Server: approval_required event via SSE sideband
+    Server->>UI: Render ApprovalCard / ToolApprovalScreen
+
+    UI->>Server: POST /api/approve {decisions}
+    Server->>Graph: ApprovalManager.resolve()
+    Note over Graph: Graph RESUMED
+
+    Graph->>Specialist: agent.run(deferred_tool_results=...)
+    Specialist->>MCP: Execute approved tool
+    MCP-->>Specialist: Tool result
+    Specialist-->>Graph: Final output
+    Graph-->>Server: GraphResponse
+    Server-->>UI: Stream response
+```
+
+### Approval Manager Components
+
+| Component | File | Purpose |
+|---|---|---|
+| `ApprovalManager` | `approval_manager.py` | asyncio.Future registry for pause/resume |
+| `run_with_approvals()` | `approval_manager.py` | Transparent approval loop wrapping `agent.run()` |
+| `global_elicitation_callback()` | `approval_manager.py` | MCP `ctx.elicit()` pause/resume callback |
+| `apply_tool_guard_approvals()` | `tool_guard.py` | Flags sensitive tools with `requires_approval=True` |
+| `/api/approve` | `server.py` | REST endpoint to resolve pending approvals |
+| `_approval_manager` | `server.py` | Singleton `ApprovalManager` shared with graph |
+| `ApprovalCard.tsx` | `agent-webui` | Web UI approval component |
+| `ToolApprovalScreen` | `agent-terminal-ui` | Terminal UI modal for tool approval |
 
 ---
 
 ## How to use Elicitation
-Elicitation is used when a tool requires additional structured input or confirmation from the user.
+Elicitation is used when an MCP tool requires additional structured input or confirmation from the user. Both tool approval (sensitive tool interception) and MCP elicitation (structured forms) use the same underlying `ApprovalManager` pause/resume mechanism.
 
 ### In MCP Tools (FastMCP)
 ```python
@@ -730,10 +950,12 @@ async def book_table(restaurant: str, ctx: Context) -> str:
 ```
 
 ### Flow Details
-1.  **Request**: Tool calls `ctx.elicit`.
-2.  **Streaming**: Backend sends an `elicitation` event to `agent-webui`.
-3.  **UI**: Component in `Part.tsx` renders a form.
-4.  **Response**: User submits, backend resolves the `Future`, and the tool call resumes with the data.
+1.  **Request**: MCP tool calls `ctx.elicit` inside its handler.
+2.  **Callback**: `global_elicitation_callback()` pushes an `elicitation` event to the sideband queue and creates an `asyncio.Future` via `ApprovalManager`.
+3.  **Streaming**: Backend streams the event to the UI (web or terminal) via SSE sideband.
+4.  **UI**: `ElicitationModal` (web) or a terminal prompt renders the form from JSON Schema.
+5.  **Response**: User submits, UI sends `POST /api/approve` with the structured data.
+6.  **Resume**: `ApprovalManager.resolve()` sets the future result, unblocking the MCP tool which continues execution with the user's data.
 
 ## When Stuck
 - Refer to `agent_utilities.py` for the implementation details of `create_agent`.

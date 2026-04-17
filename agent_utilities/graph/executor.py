@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import logging
 import asyncio
-from typing import Any
+from typing import Any, Tuple, List
 
 from pydantic_ai import Agent
 
@@ -26,9 +26,9 @@ from ..agent_factory import create_agent
 from ..tool_filtering import filter_tools_by_tag
 from .config_helpers import (
     load_node_agents_registry,
+    get_discovery_registry,
     emit_graph_event,
     load_specialized_prompts,
-    NODE_SKILL_MAP,
     DEFAULT_GRAPH_TIMEOUT,
 )
 from .hsm import on_enter_specialist, on_exit_specialist, check_specialist_preconditions
@@ -41,11 +41,11 @@ logger = logging.getLogger(__name__)
 
 
 def agent_matches_node_id(agent: MCPAgent, node_id: str) -> bool:
-    """Multi-strategy agent name amtching for approximate node IDs from the router.
+    """Multi-strategy agent name matching for approximate node IDs from the router.
 
     Handles cases where the LLM-generated node_id doesn't exactly match registry
-    entries. Tries exact match, substring match, prefix/suffix match, and keyword intersection against the agent's tag,
-    name, server, and description fields.
+    entries.  Tries exact match, substring match, prefix/suffix match, and keyword
+    intersection against the agent's tag, name, server, and description fields.
 
     Args:
         agent: The MCPAgent registry entry to match against.
@@ -53,21 +53,28 @@ def agent_matches_node_id(agent: MCPAgent, node_id: str) -> bool:
 
     Returns:
         True if the agent is a plausible match for the given node_id.
+
     """
-    node_id_norm = node_id.lower().replace("-", "_").replace(" ", "_")
-    tag = (agent.tag or "").lower().replace("-", "_").replace(" ", "_")
+    node_id_norm = node_id.lower().replace("-", "_")
     name = agent.name.lower().replace("-", "_").replace(" ", "_")
+    mcp_tools = (agent.mcp_tools or "").lower().replace("-", "_").replace(" ", "_")
     server = (agent.mcp_server or "").lower().replace("-", "_").replace(" ", "_")
     desc = (agent.description or "").lower()
-    if tag == node_id_norm or name == node_id_norm or server == node_id_norm:
+    capabilities = [c.lower() for c in agent.capabilities]
+
+    if (
+        name == node_id_norm
+        or mcp_tools == node_id_norm
+        or server == node_id_norm
+        or node_id_norm in capabilities
+    ):
         return True
 
-    if (tag and tag in node_id_norm) or (server and server in node_id_norm):
+    if (name and name in node_id_norm) or (server and server in node_id_norm):
         return True
 
-    if tag and (node_id_norm.startswith(tag) or node_id_norm.endswith(tag)):
+    if name and (node_id_norm.startswith(name) or node_id_norm.endswith(name)):
         return True
-
     if server and (node_id_norm.startswith(server) or node_id_norm.endswith(server)):
         return True
 
@@ -76,40 +83,42 @@ def agent_matches_node_id(agent: MCPAgent, node_id: str) -> bool:
         w for w in node_id_norm.split("_") if len(w) >= 3 and w not in stop_words
     }
     if node_keywords:
-        target_corpus = f"{tag} {name} {server} {desc}"
         for kw in node_keywords:
-            if kw in target_corpus:
+            if kw in name or kw in desc:
                 logger.debug(
-                    f"Keyword match: '{kw}' found in registry entry for '{agent.name}'"
+                    f"Keyword match: '{kw}' found in name/desc of '{agent.name}'"
                 )
                 return True
 
     return False
 
 
-async def _get_domain_tools(node_id: str, deps: GraphDeps) -> list[Any]:
+async def _get_domain_tools(
+    node_id: str, deps: GraphDeps
+) -> Tuple[List[Any], List[Any]]:
     """Dynamically discover and load toolsets specialized for a domain expert.
 
     Starts with universal developer tools and augments them with domain-specific
-    skill toolset filtered by the tags assigned to this node in NODE_SKILL_MAP
-    Uses ``pydantic_ai_skills.SkillsToolset`` for tag-filtered skill injection
-
-    Args:
-        node_id: The functional node identifier (e.g., 'researcher').
-        deps: The global dependency container.
+    These tools are resolved by matching the node identifier against the
+    unified specialist registry (NODE_AGENTS.md) to discover assigned
+    capability tags and MCP server associations.
 
     Returns:
-        A combined list of developer tools and specialized skill toolsets.
+        A tuple containing (list of developer tools, list of specialized skill toolsets).
 
     """
-    # Start with universal developer tools
     from ..tools.developer_tools import developer_tools
+    from ..tools.sdd_tools import sdd_tools
+    from .config_helpers import get_discovery_registry
 
-    tools: list[Any] = list(developer_tools)
+    tools: list[Any] = list(developer_tools) + list(sdd_tools)
+    toolsets: list[Any] = []
 
-    skill_tags = NODE_SKILL_MAP.get(node_id, [])
+    registry = get_discovery_registry()
+    agent = next((a for a in registry.agents if a.name == node_id), None)
+    skill_tags = agent.capabilities if agent else []
     if not skill_tags:
-        return tools
+        return tools, toolsets
 
     logger.debug(
         f"Loading {len(skill_tags)} specialized skill tags for '{node_id}': {skill_tags}"
@@ -119,49 +128,47 @@ async def _get_domain_tools(node_id: str, deps: GraphDeps) -> list[Any]:
         from pydantic_ai_skills import SkillsToolset
         from ..workspace import get_skills_path
 
-        skills_dirs: list[str] = []
+        skill_dirs: list[str] = []
         if skills_path := get_skills_path():
-            skills_dirs.append(skills_path)
+            skill_dirs.append(skills_path)
 
         try:
             from universal_skills.skill_utilities import get_universal_skills_path
 
-            skills_dirs.extend(get_universal_skills_path())
+            skill_dirs.extend(get_universal_skills_path())
         except ImportError:
             pass
 
         try:
             from skill_graphs.skill_graph_utilities import get_skill_graphs_path
 
-            skills_dirs.extend(get_skill_graphs_path(default_enabled=True))
+            skill_dirs.extend(get_skill_graphs_path(default_enabled=True))
         except ImportError:
             pass
 
-        if skills_dirs:
+        if skill_dirs:
             from ..tool_filtering import skill_matches_tags
 
-            filtered_dirs = [
-                d for d in skills_dirs if skill_matches_tags(d, skill_tags)
-            ]
+            filtered_dirs = [d for d in skill_dirs if skill_matches_tags(d, skill_tags)]
             if filtered_dirs:
-                skill_toolset = SkillsToolset(directories=filtered_dirs)
-                tools.append(skill_toolset)
+                skills_toolset = SkillsToolset(directories=filtered_dirs)
+                toolsets.append(skills_toolset)
                 logger.info(
                     f"Loaded {len(filtered_dirs)} skill directories for '{node_id}'"
                 )
     except ImportError:
         logger.debug("pydantic-ai-skills not installed; skipping skill injection")
 
-    return tools
+    return tools, toolsets
 
 
 def get_step_descriptions() -> str:
     """Generate a formatted catalog of expert capabilities for the LLM planner.
 
     Combines static roles, discovered A2A peers, and registered MCP specialists
-    into a cohesive markdown list used in system prompts. Uses the unified
-    :func:`discover_all_specialists` roster so that both MCP and A2A sources are
-    enumerated through the same code path.
+    into a cohesive markdown list used in system prompts.  Uses the unified
+    :func:`discover_all_specialists` roster so that both MCP and A2A sources
+    are enumerated through the same code path.
 
     Returns:
         A multi-line markdown string describing all available graph nodes.
@@ -200,7 +207,7 @@ def get_step_descriptions() -> str:
             continue
         if specialist.source == "a2a":
             steps[specialist.tag] = (
-                f"Remote A2A Specialist '{specialist.name}': {specialist.description}. "
+                f"Remote A2A Specialist '{specialist.name}': {specialist.description} "
                 f"(Capabilities: {specialist.capabilities or 'N/A'})"
             )
         else:
@@ -320,7 +327,7 @@ async def _execute_dynamic_mcp_agent(
     # Emit startup event with detailed metadata for UI transparency
     emit_graph_event(
         ctx.deps.event_queue,
-        "expert-metadata",
+        "expert_metadata",
         domain=agent_info.tag or "unknown",
         expert=agent_info.name,
         target_server=agent_info.mcp_server,
@@ -345,10 +352,12 @@ async def _execute_dynamic_mcp_agent(
         ts_identity = id(toolset)
         if ts_identity in _seen_toolset_ids:
             continue
+
         server_id = getattr(toolset, "id", getattr(toolset, "name", None))
         if server_id:
             target = agent_info.mcp_server.lower().replace("-", "_")
             current = server_id.lower().replace("-", "_")
+
             if (
                 current == target
                 or current.startswith(f"{target}_")
@@ -369,19 +378,33 @@ async def _execute_dynamic_mcp_agent(
                     f"[LAYER:GRAPH:EXPERT] Bound toolset '{server_id}' to expert '{agent_info.name}'"
                 )
 
+    # Wrap MCP toolsets with the tool guard so sensitive tools are flagged
+    # as 'unapproved' and trigger the DeferredToolRequests flow.
+    from ..tool_guard import flag_mcp_tool_definitions, build_sensitive_tool_names
+
+    guarded_toolsets = flag_mcp_tool_definitions(
+        matched_toolsets, build_sensitive_tool_names()
+    )
+
+    # Include DeferredToolRequests in output type so the agent can defer
+    # sensitive tool calls instead of failing.
+    from pydantic_ai import DeferredToolRequests
+    from typing import Union
+
     agent = Agent(
         model=ctx.deps.agent_model,
         system_prompt=agent_sys_prompt,
         deps_type=GraphDeps,
-        toolset=matched_toolsets,
+        toolset=guarded_toolsets,
+        output_type=Union[str, DeferredToolRequests],
         end_strategy="early",
         output_retries=2,
     )
 
-    # Tool-count telemetry: surface blind or overloaded specialist
+    # Tool-count telemetry: surfaces blind or overloaded specialists
     emit_graph_event(
         ctx.deps.event_queue,
-        "tools-bound",
+        "tools_bound",
         expert=agent_info.name,
         count=bound_tool_count,
         tools=actually_bound_tools,
@@ -390,18 +413,18 @@ async def _execute_dynamic_mcp_agent(
 
     if bound_tool_count == 0:
         logger.warning(
-            f"[TELEMETRY] Specialist '{agent_info.name}' has ZERO tools bound (server='{agent_info.mcp_server}'). "
-            f"Agent will run blind"
+            f"[TELEMETRY] Specialist '{agent_info.name}' has ZERO tools bound "
+            f"(server='{agent_info.mcp_server}'). Agent will run blind."
         )
         emit_graph_event(
             ctx.deps.event_queue,
-            "expert-warning",
+            "expert_warning",
             message=f"No tools bound for server '{agent_info.mcp_server}'. Agent may be blind.",
         )
     elif bound_tool_count > 50:
         logger.warning(
-            f"[TELEMETRY] Specialist '{agent_info.name}' has {bound_tool_count} toools "
-            f"bound - consider partitioning to reduce context overhead."
+            f"[TELEMETRY] Specialist '{agent_info.name}' has {bound_tool_count} tools "
+            f"bound — consider partitioning to reduce context overhead."
         )
     else:
         logger.info(
@@ -433,7 +456,7 @@ async def _execute_dynamic_mcp_agent(
     for attempt in range(max_attempts):
         emit_graph_event(
             ctx.deps.event_queue,
-            "expert-thinking",
+            "expert_thinking",
             expert=agent_info.name,
             attempt=attempt + 1,
         )
@@ -499,7 +522,7 @@ async def _execute_dynamic_mcp_agent(
                             if isinstance(part, ToolReturnPart):
                                 emit_graph_event(
                                     ctx.deps.event_queue,
-                                    event_type="tool-result",
+                                    event_type="tool_result",
                                     agent=agent_info.name,
                                     tool=part.tool_name,
                                     result=str(part.content)[:500],
@@ -570,7 +593,7 @@ async def _execute_dynamic_mcp_agent(
             )
             emit_graph_event(
                 ctx.deps.event_queue,
-                "expert-complete",
+                "expert_complete",
                 expert=agent_info.name,
                 status="timeout",
             )
@@ -588,7 +611,7 @@ async def _execute_dynamic_mcp_agent(
             )
             emit_graph_event(
                 ctx.deps.event_queue,
-                "expert-complete",
+                "expert_complete",
                 expert=agent_info.name,
                 status="error",
                 error=str(e),
@@ -731,6 +754,9 @@ async def _execute_agent_package_logic(
         node_uid = f"{node_id}_{ctx.state.step_cursor}"
         ctx.state.results_registry[node_uid] = result_str
         ctx.state.results[node_id] = result_str
+    elif meta.get("type") == "prompt":
+        # Execute Prompt-based logic
+        return await _execute_specialized_step(ctx, node_id)
     else:
         registry = load_node_agents_registry()
         mcp_agent = next(
@@ -807,9 +833,9 @@ async def _execute_specialized_step(
     prompt = load_specialized_prompts(prompt_name)
 
     # Dynamic Skill Distribution
-    custom_tools = await _get_domain_tools(prompt_name, ctx.deps)
+    custom_tools, skill_toolsets = await _get_domain_tools(prompt_name, ctx.deps)
     logger.info(
-        f"[LAYER:GRAPH:EXPERT] Specialized step '{prompt_name}' started. Tools loaded: {len(custom_tools)}"
+        f"[LAYER:GRAPH:EXPERT] Specialized step '{prompt_name}' started. Tools loaded: {len(custom_tools)}, Toolsets: {len(skill_toolsets)}"
     )
 
     memory_instruction = load_specialized_prompts("memory_instruction")
@@ -825,28 +851,29 @@ async def _execute_specialized_step(
             f"Address this feedback in your response."
         )
 
-    agent = Agent(
-        model=ctx.deps.agent_model,
-        system_prompt=(
-            f"{memory_instruction}\n\n"
-            f"{prompt}\n\n"
-            f"### TOOL USAGE GUIDANCE\n{tool_guidance}\n\n"
-            f"### CONTEXT\n{ctx.state.exploration_notes}"
-            f"{feedback_section}"
-        ),
-        tools=custom_tools,
-    )
+    # Filter MCP toolsets by domain tag AND node_id (prompt_name) with deduplication.
+    # Wrap each with the tool guard so sensitive tools trigger approval.
+    from ..tool_guard import flag_mcp_tool_definitions, build_sensitive_tool_names
 
-    # Filter MCP toolsets by domain tag AND node_id (prompt_name) with deduplication
-    tool_tags = list(set([prompt_name] + NODE_SKILL_MAP.get(prompt_name, [])))
+    _sensitive_names = build_sensitive_tool_names()
+
+    # Resolve tags from the unified registry instead of the deprecated NODE_SKILL_MAP
+    registry = get_discovery_registry()
+    agent_info = next((a for a in registry.agents if a.name == prompt_name), None)
+    tool_tags = [prompt_name]
+    if agent_info and agent_info.capabilities:
+        # Capabilities field in NODE_AGENTS.md corresponds to skill tags
+        tool_tags.extend(agent_info.capabilities)
+
+    tool_tags = list(set(tool_tags))
     _seen_ts: set[int] = set()
     mcp_tool_count = 0
+    collected_mcp_toolsets: list[Any] = []
     for toolset in ctx.deps.mcp_toolsets:
         ts_identity = id(toolset)
         if ts_identity in _seen_ts:
             continue
 
-        # Check if the toolset server name matches or if it has matching tags
         server_id = (
             getattr(toolset, "id", getattr(toolset, "name", "unknown"))
             .lower()
@@ -858,17 +885,38 @@ async def _execute_specialized_step(
             t.lower().replace("-", "_") == target for t in tool_tags
         ):
             _seen_ts.add(ts_identity)
-            agent.toolsets.append(toolset)
+            guarded = flag_mcp_tool_definitions([toolset], _sensitive_names)
+            collected_mcp_toolsets.append(guarded[0])
             mcp_tool_count += len(getattr(toolset, "tools", {})) or 1
         else:
-            # Fallback to standard tag filtering
             filtered = filter_tools_by_tag(toolset, tool_tags)
             if filtered:
                 fid = id(filtered)
                 if fid not in _seen_ts:
                     _seen_ts.add(fid)
-                    agent.toolsets.append(filtered)
+                    guarded = flag_mcp_tool_definitions([filtered], _sensitive_names)
+                    collected_mcp_toolsets.append(guarded[0])
                     mcp_tool_count += len(getattr(filtered, "tools", {})) or 1
+
+    # Build the agent with ALL toolsets at construction time.
+    # agent.toolsets is a read-only property — appending after construction
+    # is a silent no-op.
+    from pydantic_ai import DeferredToolRequests
+    from typing import Union
+
+    agent = Agent(
+        model=ctx.deps.agent_model,
+        system_prompt=(
+            f"{memory_instruction}\n\n"
+            f"{prompt}\n\n"
+            f"### TOOL USAGE GUIDANCE\n{tool_guidance}\n\n"
+            f"### CONTEXT\n{ctx.state.exploration_notes}"
+            f"{feedback_section}"
+        ),
+        tools=custom_tools,
+        toolsets=collected_mcp_toolsets + skill_toolsets,
+        output_type=Union[str, DeferredToolRequests],
+    )
 
     # Tool-count telemetry for specialized steps
     total_tool_count = len(custom_tools) + mcp_tool_count
@@ -880,21 +928,20 @@ async def _execute_specialized_step(
 
     emit_graph_event(
         ctx.deps.event_queue,
-        event_type="tools-bound",
+        "tools_bound",
         expert=prompt_name,
         count=total_tool_count,
         dev_tools=len(custom_tools),
         mcp_tools=mcp_tool_count,
     )
-
     if total_tool_count == 0:
         logger.warning(
-            f"[TELEMETRY] Specialist '{prompt_name}': has ZERO tools. Agent will run blind."
+            f"[TELEMETRY] Specialist '{prompt_name}' has ZERO tools. Agent will run blind."
         )
     elif total_tool_count > 50:
         logger.warning(
             f"[TELEMETRY] Specialist '{prompt_name}' has {total_tool_count} tools "
-            f"- consider partitioning to reduce context overhead."
+            f"— consider partitioning to reduce context overhead."
         )
 
     # Retrieve cached message history for re-dispatch context
@@ -909,12 +956,16 @@ async def _execute_specialized_step(
             async for chunk in stream.stream_text(delta=True):
                 emit_graph_event(
                     ctx.deps.event_queue,
-                    "agent-node-delta",
+                    "agent_node_delta",
                     content=chunk,
                     node=prompt_name,
                 )
             res = await stream.get_output()
-        ctx.state._update_usage(stream.usage())
+        usage = stream.usage()
+        if asyncio.iscoroutine(usage):
+            await usage
+        else:
+            ctx.state._update_usage(usage)
         result_str = str(res)
 
         # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
@@ -1092,33 +1143,54 @@ async def _execute_domain_logic(
                 if ctx.state.query_parts and query == ctx.state.query
                 else query
             )
-            result = await asyncio.wait_for(
-                sub_agent.run(run_input), timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0
-            )
 
-            output = getattr(result, "output", None) or getattr(result, "data", result)
-            from pydantic_ai import DeferredToolRequests
+            # If an approval manager is available, use the transparent
+            # approval loop that pauses the graph and waits for user
+            # decisions.  Otherwise, fall back to the legacy behaviour
+            # that terminates the graph on DeferredToolRequests.
+            if deps.approval_manager is not None:
+                from ..approval_manager import run_with_approvals
 
-            if isinstance(output, DeferredToolRequests):
-                ctx.state.human_approval_required = True
-                ctx.state.results[domain] = output
-                emit_graph_event(
-                    deps.event_queue,
-                    event_type="approval_required",
-                    domain=domain,
-                    tool_calls=[
-                        (tc.model_dump() if hasattr(tc, "model_dump") else str(tc))
-                        for tc in (getattr(output, "calls", []) or [])
-                    ],
+                result = await run_with_approvals(
+                    sub_agent,
+                    run_input,
+                    approval_manager=deps.approval_manager,
+                    event_queue=deps.event_queue,
+                    request_id_prefix=f"{domain}_",
+                    approval_timeout=deps.approval_timeout,
                 )
-                return End(output)
+                output = getattr(result, "output", None) or getattr(
+                    result, "data", result
+                )
             else:
-                result_str = str(output)
-                # Unified result storage
-                node_uid = f"{domain}_{ctx.state.step_cursor}"
-                ctx.state.results_registry[node_uid] = result_str
-                ctx.state.results[domain] = result_str
-                emit_graph_event(deps.event_queue, "subagent_completed", domain=domain)
+                result = await asyncio.wait_for(
+                    sub_agent.run(run_input),
+                    timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
+                )
+                output = getattr(result, "output", None) or getattr(
+                    result, "data", result
+                )
+                from pydantic_ai import DeferredToolRequests
+
+                if isinstance(output, DeferredToolRequests):
+                    ctx.state.human_approval_required = True
+                    ctx.state.results[domain] = output
+                    emit_graph_event(
+                        deps.event_queue,
+                        event_type="approval_required",
+                        domain=domain,
+                        tool_calls=[
+                            (tc.model_dump() if hasattr(tc, "model_dump") else str(tc))
+                            for tc in (getattr(output, "calls", []) or [])
+                        ],
+                    )
+                    return End(output)
+
+            result_str = str(output)
+            node_uid = f"{domain}_{ctx.state.step_cursor}"
+            ctx.state.results_registry[node_uid] = result_str
+            ctx.state.results[domain] = result_str
+            emit_graph_event(deps.event_queue, "subagent_completed", domain=domain)
 
     except Exception as e:
         logger.error(f"domain_step error for '{domain}': {e}")

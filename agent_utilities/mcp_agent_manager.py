@@ -24,6 +24,7 @@ from .workspace import (
 )
 from .models import MCPAgent, MCPAgentRegistryModel, MCPToolInfo
 from .mcp_utilities import load_mcp_config
+from .tool_guard import is_sensitive_tool
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,7 @@ async def _extract_single_server_metadata_inner(
                             tag=tag or "general",
                             mcp_server=server_name,
                             all_tags=tags,
+                            requires_approval=is_sensitive_tool(tool.name),
                         )
                     )
     except Exception as e:
@@ -279,27 +281,71 @@ async def extract_tool_metadata(
     return all_tools
 
 
+def compute_agent_metadata_score(description: str, skills: List[str]) -> int:
+    """Compute a deterministic relevance score for an agent based on metadata.
+
+    Args:
+        description: The agent's specialization description.
+        skills: List of skills/capabilities.
+
+    Returns:
+        An integer score between 0 and 100.
+
+    """
+    score = 0
+    # Description quality (0-50)
+    dlen = len(description or "")
+    if dlen > 150:
+        score += 50
+    elif dlen > 80:
+        score += 40
+    elif dlen > 40:
+        score += 20
+    elif dlen > 0:
+        score += 5
+
+    # Skills quality (0-50)
+    slen = len(skills or [])
+    if slen > 10:
+        score += 50
+    elif slen > 5:
+        score += 40
+    elif slen > 2:
+        score += 20
+    elif slen > 0:
+        score += 10
+
+    return min(100, score)
+
+
 def compute_tool_relevance_score(tool: MCPToolInfo) -> int:
     """Compute a deterministic relevance score for a tool (0-100).
 
-    The score reflects how well-described, well-tagged, and specific the tool is.
-    Higher scores indicate tools that are more likely to be correctly routed and effectively used by speicalist agents.
+    The score reflects how well-described, well-tagged, and specific the
+    tool is.  Higher scores indicate tools that are more likely to be
+    correctly routed and effectively used by specialist agents.
 
     Scoring breakdown (deterministic, no LLM):
-    * **Description quality (0-30)**: Length and keyword richness of the description field
-    * **Tag confidence (0-30)**: ANnotation-derived tags score higher than heuristic-derived tags.
-    * **Name specificity (0-20)**: Longer, multi-segment names that avoid generic verbs are more specific.
-    * **Multi-tag coverage (0-20)**: Tools with multiple tags can serve more specialist domains.
+
+    * **Description quality (0-30)**: Length and keyword richness of the
+      description field.
+    * **Tag confidence (0-30)**: Annotation-derived tags score higher
+      than heuristic-derived tags.
+    * **Name specificity (0-20)**: Longer, multi-segment names that avoid
+      generic verbs are more specific.
+    * **Multi-tag coverage (0-20)**: Tools with multiple tags can serve
+      more specialist domains.
 
     Args:
         tool: The tool metadata to score.
 
     Returns:
-        An integer score between 0 and 100 inclusive
+        An integer score between 0 and 100 inclusive.
+
     """
     score = 0
 
-    # Description quality (0-30)
+    # --- Description quality (0-30) ---
     desc = tool.description or ""
     desc_len = len(desc)
     if desc_len > 100:
@@ -311,7 +357,7 @@ def compute_tool_relevance_score(tool: MCPToolInfo) -> int:
     elif desc_len > 0:
         score += 5
 
-    # Tag confidence (0-30)
+    # --- Tag confidence (0-30) ---
     if tool.all_tags:
         # Multiple explicit tags = highest confidence (from annotations)
         if len(tool.all_tags) >= 2:
@@ -325,8 +371,9 @@ def compute_tool_relevance_score(tool: MCPToolInfo) -> int:
                 score += 15
     elif tool.tag:
         score += 10
+    # No tag at all = 0
 
-    # Name specificity (0-20)
+    # --- Name specificity (0-20) ---
     name = tool.name or ""
     generic_verbs = {"get", "list", "create", "update", "delete", "set", "run"}
     segments = [s for s in name.replace("-", "_").split("_") if s]
@@ -340,13 +387,13 @@ def compute_tool_relevance_score(tool: MCPToolInfo) -> int:
     elif segments:
         score += 5
 
-    # Multi-tag coverage (0-20)
+    # --- Multi-tag coverage (0-20) ---
     tag_count = len(tool.all_tags)
     if tag_count >= 3:
         score += 20
-    elif tag_count >= 2:
+    elif tag_count == 2:
         score += 15
-    elif tag_count >= 1:
+    elif tag_count == 1:
         score += 10
 
     return min(score, 100)
@@ -354,11 +401,13 @@ def compute_tool_relevance_score(tool: MCPToolInfo) -> int:
 
 def score_tools(tools: List[MCPToolInfo]) -> List[MCPToolInfo]:
     """Apply deterministic relevance scoring to all tools in-place.
+
     Args:
         tools: The list of tool metadata to score.
 
     Returns:
         The same list with ``relevance_score`` populated on each item.
+
     """
     for tool in tools:
         tool.relevance_score = compute_tool_relevance_score(tool)
@@ -449,7 +498,7 @@ async def sync_mcp_agents(
     if not config_path:
         config_path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
 
-    # 1a. Extract Tool Metadata
+    # 1. Extract Tool Metadata
     tools_inventory = await extract_tool_metadata(config_path)
     if not tools_inventory:
         logger.info("No tools found to sync.")
@@ -464,13 +513,18 @@ async def sync_mcp_agents(
     )
     logger.info(
         f"Tool scoring complete: {len(tools_inventory)} tools, "
-        f"average relevance score: {avg_score}/100"
+        f"avg relevance {avg_score}/100"
     )
 
     # 2. Partition Tools
     partitions = await partition_tools(tools_inventory)
 
     # 3. Load Current Registry
+    from .agent_registry_builder import rebuild_node_agents_md
+
+    # Trigger full rebuild first to ensure we have latest prompts/A2A
+    await rebuild_node_agents_md()
+
     content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
     current_registry = parse_node_registry(content)
 
@@ -512,7 +566,7 @@ async def sync_mcp_agents(
             existing = existing_generated_agents[agent_name]
             # Update tools just in case
             existing.tools = [t.name for t in group]
-            existing.tag = tag
+            existing.mcp_tools = tag
             new_agents.append(existing)
         else:
             # Create NEW agent
@@ -527,14 +581,16 @@ async def sync_mcp_agents(
             new_agents.append(
                 MCPAgent(
                     name=agent_name,
+                    agent_type="mcp",
+                    endpoint_url="stdio" if "command" in group[0].mcp_server else "-",
                     description=description,
                     system_prompt=system_prompt,
                     tools=[t.name for t in group],
                     mcp_server=group[0].mcp_server,
-                    tag=tag,
+                    mcp_tools=tag,
                     is_custom=False,
                     tool_count=len(group),
-                    avg_score=(
+                    avg_relevance_score=(
                         sum(t.relevance_score for t in group) // len(group)
                         if group
                         else 0
@@ -542,14 +598,20 @@ async def sync_mcp_agents(
                 )
             )
 
-    # 5. Update Registry Model
-    updated_registry = MCPAgentRegistryModel(agents=new_agents, tools=tools_inventory)
+    # 5. Update Registry Model (Merge back prompt agents from before)
+    # We should preserve agents from the current_registry that are NOT in existing_generated_agents or custom_agents of this run
+    prompt_agents = [a for a in current_registry.agents if a.agent_type == "prompt"]
+    a2a_agents = [a for a in current_registry.agents if a.agent_type == "a2a"]
+
+    updated_registry = MCPAgentRegistryModel(
+        agents=prompt_agents + a2a_agents + new_agents, tools=tools_inventory
+    )
 
     # 6. Write back to disk
     new_content = serialize_node_registry(updated_registry)
     write_workspace_file(CORE_FILES["NODE_AGENTS"], new_content)
     logger.info(
-        f"✅ Synced {len(new_agents)} agents and {len(tools_inventory)} tools to NODE_AGENTS.md"
+        f"✅ Synced {len(new_agents)} MCP specialists and updated unified registry."
     )
 
 

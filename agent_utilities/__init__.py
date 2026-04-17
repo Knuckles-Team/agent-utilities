@@ -4,14 +4,23 @@
 
 This module serves as the primary entry point for the agent-utilities package,
 providing a unified interface for agent creation, graph orchestration, workspace
-management, and various helper utilities. It filters common library warnings
-and initializes environment-level observability settings.
+management, and various helper utilities.
+
+Warning suppression is centralized here so every downstream import inherits
+the filters without needing per-file boilerplate.
 """
 
 import os
 import warnings
 
-# Filter RequestsDependencyWarning early to prevent log spam
+# ruff: noqa: E402
+
+# ── Centralized warning suppression ──────────────────────────────────
+# All library-level noise is filtered once at package init so that
+# downstream modules (server, mcp_utilities, base_utilities, etc.)
+# don't need their own copies.
+
+# 1. requests/urllib3 version-mismatch noise
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     try:
@@ -21,18 +30,35 @@ with warnings.catch_warnings():
     except ImportError:
         pass
 
-# General urllib3/chardet mismatch warnings
 warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
 warnings.filterwarnings("ignore", message=".*urllib3.*or charset_normalizer.*")
 warnings.filterwarnings("ignore", message=r".*urllib3 v2.*only supports OpenSSL.*")
 
+# 2. InsecureRequestWarning (emitted when ssl_verify=False)
 try:
     import urllib3
 
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 except Exception:
     pass
+warnings.filterwarnings("ignore", message=".*Unverified HTTPS request.*")
 
+# 3. DeprecationWarnings from third-party libs
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastmcp")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="httpx")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="google")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
+
+# 4. PydanticDeprecatedSince20 (noisy in older pydantic shims)
+try:
+    from pydantic import PydanticDeprecatedSince20
+
+    warnings.filterwarnings("ignore", category=PydanticDeprecatedSince20)
+except ImportError:
+    pass
+
+# ── End warning suppression ──────────────────────────────────────────
 
 from .base_utilities import (
     to_boolean,
@@ -104,7 +130,20 @@ from .base_utilities import (
 
 from .embedding_utilities import create_embedding_model
 
-from .models import PeriodicTask, DiscoveredSpecialist
+from .event_aggregator import aggregate_orchestrated_data
+
+from .models import (
+    PeriodicTask,
+    DiscoveredSpecialist,
+    ProjectConstitution,
+    FeatureSpec,
+    ImplementationPlan,
+    TaskList,
+    Task,
+    TaskPhase,
+)
+
+from .sdd import SDDManager
 
 from .chat_persistence import (
     save_chat_to_disk,
@@ -113,7 +152,7 @@ from .chat_persistence import (
     delete_chat_from_disk,
 )
 
-__version__ = "0.2.39"
+__version__ = "0.2.40"
 
 __all__ = [
     # Agent creation
@@ -170,6 +209,8 @@ __all__ = [
     "require_optional_import",
     # Embedding
     "create_embedding_model",
+    # Event aggregator
+    "aggregate_orchestrated_data",
     # HSM hooks
     "register_on_enter_hook",
     "register_on_exit_hook",
@@ -177,4 +218,12 @@ __all__ = [
     # Models
     "PeriodicTask",
     "DiscoveredSpecialist",
+    "ProjectConstitution",
+    "FeatureSpec",
+    "ImplementationPlan",
+    "TaskList",
+    "Task",
+    "TaskPhase",
+    # SDD
+    "SDDManager",
 ]

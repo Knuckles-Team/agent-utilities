@@ -44,6 +44,7 @@ async def execute_graph(
     run_id: str | None = None,
     mode: str = "ask",
     mcp_toolsets: List[Any] | None = None,
+    plan_sync=None,
     **kwargs,
 ) -> dict:
     """Unified entry point for synchronous graph execution.
@@ -55,6 +56,7 @@ async def execute_graph(
         run_id: Optional unique identifier for the execution run.
         mode: Operational mode ('ask', 'plan', 'research').
         mcp_toolsets: Optional list of pre-initialized MCP toolsets.
+        plan_sync: Optional async callback for bridging plan state to ACP.
         **kwargs: Additional parameters passed to the runner.
 
     Returns:
@@ -68,6 +70,7 @@ async def execute_graph(
         run_id=run_id,
         mode=mode,
         mcp_toolsets=mcp_toolsets,
+        plan_sync=plan_sync,
         **kwargs,
     )
 

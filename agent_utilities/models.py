@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 # Unified Execution Models defined below at line 220+
 
-__version__ = "0.2.39"
+__version__ = "0.2.40"
 
 
 class PeriodicTask(BaseModel):
@@ -120,6 +120,15 @@ class Task(BaseModel):
     dependencies: List[str] = Field(default_factory=list)
     result: Optional[str] = None
     git_commit: Optional[str] = None
+    story_id: Optional[str] = Field(
+        None, description="Associated user story ID (e.g., 'US1')"
+    )
+    file_paths: List[str] = Field(
+        default_factory=list, description="List of files affected by this task"
+    )
+    tags: List[str] = Field(
+        default_factory=list, description="Arbitrary tags for categorization"
+    )
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -134,6 +143,12 @@ class TaskPhase(BaseModel):
     """
 
     name: str
+    goal: Optional[str] = Field(
+        None, description="The high-level objective for this phase"
+    )
+    test_criteria: List[str] = Field(
+        default_factory=list, description="Independent criteria to verify this phase"
+    )
     tasks: List[Task] = Field(default_factory=list)
     status: TaskStatus = TaskStatus.PENDING
 
@@ -383,35 +398,42 @@ class MCPConfigModel(BaseModel):
 
 
 class MCPAgent(BaseModel):
-    """Metadata for a specialized agent derived from an MCP server.
+    """Metadata for a specialized agent (Prompt, MCP, or A2A).
 
     Attributes:
-        name: Display name of the agent.
+        name: Unique identifier/tag for the agent (routing key).
+        agent_type: The source type ('prompt', 'mcp', 'a2a').
+        prompt_file: Path to the markdown prompt file (for 'prompt' agents).
+        endpoint_url: Remote URL or stdio command (for 'a2a' or 'mcp' agents).
         description: Detailed description of the agent's specialization.
         system_prompt: The synthesized system prompt used to guide the agent.
         tools: List of tool names exposed by this agent.
-        mcp_server: The source MCP server that provides these tools.
-        tag: Metadata tag used for routing and partitioning.
+        mcp_server: The source MCP server name (for 'mcp' agents).
+        capabilities: List of skills/docs or rich capabilities string.
+        mcp_tools: Specific MCP tool/tag patterns (for 'mcp' agents).
+        extra_config: JSON/dict for additional discovery metadata.
         is_custom: Whether the agent was manually customized.
         tool_count: Number of tools assigned to this agent.
         avg_relevance_score: Mean relevance score across all assigned tools (0-100).
+
     """
 
-    name: str = Field(description="Display name of the agent")
-    description: str = Field(description="Specialized agent description")
-    system_prompt: str = Field(description="Synthesized system prompt")
-    tools: List[str] = Field(default_factory=list, description="List of tool names")
-    mcp_server: str = Field(description="Source MCP server name from config")
-    tag: Optional[str] = Field(
-        None, description="Metadata tag for sorting/customization"
+    name: str = Field(description="Unique agent identifier / tag")
+    agent_type: str = Field("prompt", description="Type: prompt, mcp, a2a")
+    prompt_file: Optional[str] = Field(None, description="Markdown prompt file path")
+    endpoint_url: Optional[str] = Field(None, description="Connection URL / cmd")
+    description: str = Field("", description="Specialized agent description")
+    system_prompt: str = Field("", description="Synthesized system prompt")
+    tools: List[str] = Field(default_factory=list, description="Tool names")
+    mcp_server: Optional[str] = Field(None, description="Source MCP server name")
+    capabilities: List[str] = Field(
+        default_factory=list, description="Skills/Capabilities"
     )
-    is_custom: bool = Field(False, description="True if manually edited by user")
-    tool_count: int = Field(
-        default=0, description="Number of tools assigned to this agent"
-    )
-    avg_relevance_score: int = Field(
-        default=0, description="Mean relevance score across all assigned tools (0-100)"
-    )
+    mcp_tools: Optional[str] = Field(None, description="MCP tool/tag patterns")
+    extra_config: Dict[str, Any] = Field(default_factory=dict, description="Metadata")
+    is_custom: bool = Field(False, description="True if manually edited")
+    tool_count: int = Field(default=0, description="Number of tools")
+    avg_relevance_score: int = Field(default=0, description="Mean score (0-100)")
 
 
 class MCPToolInfo(BaseModel):
@@ -425,6 +447,9 @@ class MCPToolInfo(BaseModel):
         all_tags: All tags associated with the tool for flexible routing.
         relevance_score: Deterministic quality score (0-100) based on description
             richness, tag confidence, and name specificity.
+        requires_approval: Whether this tool requires human-in-the-loop approval
+            before execution.  Auto-populated by the tool guard during registry
+            sync, but can be overridden manually in NODE_AGENTS.md.
 
     """
 
@@ -437,6 +462,10 @@ class MCPToolInfo(BaseModel):
     )
     relevance_score: int = Field(
         default=0, description="Deterministic quality score (0-100)"
+    )
+    requires_approval: bool = Field(
+        default=False,
+        description="Whether this tool requires human-in-the-loop approval",
     )
 
 
@@ -454,17 +483,18 @@ class MCPAgentRegistryModel(BaseModel):
 
 
 class DiscoveredSpecialist(BaseModel):
-    """A unified representation of any specialist discovered during graph bootstrap.
+    """Unified representation of any specialist discovered during graph bootstrap.
+
     This model normalizes both local MCP agents (from ``NODE_AGENTS.md``) and
     remote A2A peers (from ``A2A_AGENTS.md``) into a single record so that the
     graph builder and router can treat them identically during the registration
-    and planning phases. Execution still follows type-specific paths.
+    and planning phases.  Execution still follows type-specific paths.
 
     Attributes:
         tag: Routing key used by the dispatcher (e.g. ``'portainer'``).
         name: Human-readable display name.
         description: One-line summary of the specialist's purpose.
-        source: Origin of the specialist (``'mcp'``, or ``'a2a'``).
+        source: Origin of the specialist (``'mcp'`` or ``'a2a'``).
         mcp_server: Source MCP server name (empty for A2A peers).
         tools: Known tool names (populated for MCP, may be empty for A2A).
         url: Endpoint URL (populated for A2A, empty for MCP).
@@ -475,11 +505,16 @@ class DiscoveredSpecialist(BaseModel):
     tag: str = Field(description="Routing key used by the dispatcher")
     name: str = Field(description="Human-readable display name")
     description: str = Field(default="", description="Specialist summary")
-    source: str = Field(description="Origin: 'mcp' or 'a2a'")
-    mcp_server: str = Field(default="", description="Source MCP server (MCP Only)")
+    source: str = Field(description="Origin: 'prompt', 'mcp', or 'a2a'")
+    mcp_server: str = Field(default="", description="Source MCP server (MCP only)")
     tools: List[str] = Field(default_factory=list, description="Known tool names")
-    url: str = Field(default="", description="Agent endpoint URL (A2A Only)")
-    capabilities: str = Field(default="", description="Agent card capabilities")
+    url: str = Field(default="", description="Agent endpoint URL (A2A/MCP only)")
+    capabilities: List[str] = Field(
+        default_factory=list, description="Rich capabilities"
+    )
+    extra_config: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
 
 
 class UsageStatistics(BaseModel):
@@ -564,6 +599,39 @@ class GraphPlan(BaseModel):
 
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+    def to_acp_plan_entries(self) -> list[dict[str, str]]:
+        """Convert execution steps to ACP-compatible PlanEntry dicts.
+
+        Maps each :class:`ExecutionStep` to a dict with ``content``,
+        ``status``, and ``priority`` keys matching the ACP ``PlanEntry``
+        schema.
+
+        Returns:
+            A list of plain dicts suitable for constructing
+            ``acp.schema.PlanEntry`` objects.
+
+        """
+        _STATUS_MAP = {
+            "pending": "pending",
+            "in_progress": "in_progress",
+            "completed": "completed",
+            "failed": "pending",
+        }
+        entries: list[dict[str, str]] = []
+        for step in self.steps:
+            entries.append(
+                {
+                    "content": (
+                        f"{step.node_id}: {step.input_data}"
+                        if step.input_data
+                        else step.node_id
+                    ),
+                    "status": _STATUS_MAP.get(step.status, "pending"),
+                    "priority": "high" if not step.is_parallel else "medium",
+                }
+            )
+        return entries
+
 
 class MCPServerHealth(BaseModel):
     """Circuit breaker state for an MCP server to prevent cascading failures.
@@ -618,3 +686,91 @@ class MCPServerHealth(BaseModel):
             return False
         # half-open: allow one request
         return True
+
+
+# --- SDD (Spec-Driven Development) Domain Models ---
+
+
+class ProjectConstitution(BaseModel):
+    """Governing principles and technical standards for a project.
+
+    Attributes:
+        vision: High-level purpose of the project.
+        mission: Strategic goals and primary value proposition.
+        core_principles: List of guiding principles for development.
+        tech_stack: Pre-approved languages, frameworks, and patterns.
+        quality_gates: Mandatory checks (e.g., coverage, linting).
+        metadata: Additional project-level data.
+    """
+
+    vision: str = ""
+    mission: str = ""
+    core_principles: List[str] = Field(default_factory=list)
+    tech_stack: Dict[str, Any] = Field(default_factory=dict)
+    quality_gates: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class UserScenario(BaseModel):
+    """A single user story or scenario within a feature specification.
+
+    Attributes:
+        id: Unique identifier (e.g., 'US1').
+        goal: What the user wants to achieve.
+        actor: Who is performing the action.
+        context: The situation or prerequisites.
+        result: The expected outcome.
+        priority: Business priority (P1, P2, P3).
+    """
+
+    id: str
+    goal: str
+    actor: str = "User"
+    context: str = ""
+    result: str = ""
+    priority: str = "P1"
+
+
+class FeatureSpec(BaseModel):
+    """Structured requirement specification for a single feature.
+
+    Attributes:
+        name: Short name of the feature.
+        description: Natural language summary of the feature.
+        user_scenarios: List of user stories.
+        functional_requirements: Testable functional statements.
+        success_criteria: Measurable metrics and outcomes.
+        assumptions: Defaults or context relied upon.
+        entities: Core data objects/entities involved.
+        metadata: Additional specification metadata.
+    """
+
+    name: str
+    description: str = ""
+    user_scenarios: List[UserScenario] = Field(default_factory=list)
+    functional_requirements: List[str] = Field(default_factory=list)
+    success_criteria: List[str] = Field(default_factory=list)
+    assumptions: List[str] = Field(default_factory=list)
+    entities: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ImplementationPlan(BaseModel):
+    """Technical architecture and approach for implementing a feature.
+
+    Attributes:
+        technical_context: Research findings and architectural decisions.
+        proposed_changes: Files to be created or modified.
+        phases: Strategic implementation phases.
+        tradeoffs: Decisions made and their consequences.
+        risk_assessment: Potential blockers or security concerns.
+        feature_id: Reference to the associated FeatureSpec.
+    """
+
+    technical_context: str = ""
+    proposed_changes: List[str] = Field(default_factory=list)
+    phases: List[str] = Field(default_factory=list)
+    tradeoffs: Dict[str, str] = Field(default_factory=dict)
+    risk_assessment: List[str] = Field(default_factory=list)
+    feature_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)

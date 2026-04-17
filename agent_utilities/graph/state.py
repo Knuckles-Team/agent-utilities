@@ -14,7 +14,7 @@ import asyncio
 import os
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Coroutine, Optional
 
 from pydantic_ai import Agent
 
@@ -41,6 +41,13 @@ from ..models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Callback type for bridging graph plan state to ACP.
+# Accepts (event_type, plan_entries_as_dicts) and runs async.
+PlanSyncCallback = Callable[
+    [str, list[dict[str, Any]]],
+    Coroutine[Any, Any, None],
+]
 
 
 @dataclass
@@ -84,6 +91,19 @@ class GraphDeps:
     server_health: dict[str, Any] = field(default_factory=dict)
     discovery_metadata: dict[str, list[str]] = field(default_factory=dict)
     """Map of server_id to list of tool names found during discovery phase."""
+
+    plan_sync: Optional[PlanSyncCallback] = None
+    """Optional async callback for syncing graph plan state to ACP.
+    Set by the ACP adapter when running inside an ACP session.
+    Called with (event_type, plan_entries_as_dicts) where event_type
+    is 'plan_created', 'step_started', or 'step_completed'."""
+
+    approval_manager: Optional[Any] = None
+    """Optional :class:`~agent_utilities.approval_manager.ApprovalManager`
+    instance for human-in-the-loop tool approval.  Typed as Any to avoid
+    a circular import.  When set, the graph executor uses
+    :func:`~agent_utilities.approval_manager.run_with_approvals` instead
+    of terminating when ``DeferredToolRequests`` is returned."""
 
 
 @dataclass

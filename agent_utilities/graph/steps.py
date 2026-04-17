@@ -46,7 +46,7 @@ from .config_helpers import (
     load_specialized_prompts,
     load_mcp_config,
     load_node_agents_registry,
-    NODE_SKILL_MAP,
+    get_discovery_registry,
 )
 
 from .hsm import (
@@ -75,13 +75,13 @@ lock = asyncio.Lock()
 def _emit_node_lifecycle(eq, node_name: str, event: str, **kwargs):
     """Emit a node lifecycle event for graph tracing.
 
-    Provides consistent node_start/node_complete events across all step functions
-    so that the full execution path is visible in both the UI sideband stream and
-    server-side logs.
+    Provides consistent node_start/node_complete events across all step
+    functions so the full execution path is visible in both the UI
+    sideband stream and server-side structured logs.
 
     Args:
-        eq: The asyncio event queue (maybe None)
-        node_name: The step function identifier (e.g. 'router', 'verifier')
+        eq: The asyncio event queue (may be None).
+        node_name: The step function identifier (e.g. 'router', 'verifier').
         event: Either 'node_start' or 'node_complete'.
         **kwargs: Additional metadata (e.g. next_node, duration_ms).
 
@@ -108,9 +108,7 @@ async def usage_guard_step(
     logger.info(
         f"[LAYER:GRAPH:USAGE_GUARD] Handling query: '{ctx.state.query[:50]}...'"
     )
-    _emit_node_lifecycle(
-        eq=ctx.deps.event_queue, node_name="usage_guard", event="node_start"
-    )
+    _emit_node_lifecycle(ctx.deps.event_queue, "usage_guard", "node_start")
     # Token / cost budget check
     usage = ctx.state.session_usage
     cost_limit = 5.0
@@ -130,23 +128,18 @@ async def usage_guard_step(
     # Policy enforcement (Optional, based on tool_guard_mode)
     if ctx.deps.tool_guard_mode == "off":
         logger.info("UsageGuard: Tool guard mode is OFF. Bypassing policy check.")
-
         _emit_node_lifecycle(
-            eq=ctx.deps.event_queue,
-            node_name="usage_guard",
-            event="node_complete",
-            next_node="router",
+            ctx.deps.event_queue, "usage_guard", "node_complete", next_node="router"
         )
         return "router"
-
-    from pydantic_ai import Agent
 
     safety_policy = load_specialized_prompts("safety_policy")
     checker = Agent(
         model=ctx.deps.router_model,
         system_prompt=(
             "You are a security guard. Evaluate the user query against the "
-            "following safety policy and output 'PASS' if the query is safe, or a brief error if it violates policy.\n\n"
+            "following safety policy and output 'PASS' if the query is safe, "
+            "or a brief error if it violates policy.\n\n"
             f"{safety_policy}"
         ),
     )
@@ -200,21 +193,15 @@ async def researcher_step(
     # Intelligent Researcher Sub-Agents (for internal reasoning)
     researcher_prompt = load_specialized_prompts("researcher")
 
-    # Main researcher agent with ALL discovery tools
+    from ..tools.developer_tools import project_search
+    from ..tools.workspace_tools import read_workspace_file
+
     researcher = Agent(
         model=ctx.deps.agent_model,
         system_prompt=(f"{researcher_prompt}\n\nWorkspace Context: {unified_context}"),
+        tools=[project_search, read_workspace_file],
+        toolsets=list(ctx.deps.mcp_toolsets),
     )
-    from ..tools.developer_tools import project_search
-
-    researcher.tool(project_search)
-    from ..tools.workspace_tools import read_workspace_file
-
-    researcher.tool(read_workspace_file)
-
-    # Bind optional MCP research toolsets (web search, etc.)
-    for toolset in ctx.deps.mcp_toolsets:
-        researcher.toolsets.append(toolset)
 
     try:
         logger.info(
@@ -239,9 +226,9 @@ async def planner_step(
 ) -> GraphPlan | str:
     """Re-plan execution after a verification failure.
 
-    This node is the dedicated re-planning entry point. It is invoked by
+    This node is the dedicated re-planning entry point.  It is invoked by
     the verifier when a validation score is very low (< 0.4), indicating
-    the *approach* - not just the execution was wrong.
+    the *approach* — not just the execution — was wrong.
 
     Unlike the router (which generates an initial plan from scratch), the
     planner incorporates verification feedback, previous execution results,
@@ -251,7 +238,8 @@ async def planner_step(
         ctx: The pydantic-graph step context.
 
     Returns:
-        ``'dispatcher'`` on successful re-plan, or ``'error_recovery'`` on failure.
+        ``'dispatcher'`` on successful re-plan, or ``'error_recovery'``
+        on failure.
 
     """
     logger.info(
@@ -259,10 +247,9 @@ async def planner_step(
         f"Feedback: {(ctx.state.validation_feedback or 'none')[:100]}"
     )
 
-    _emit_node_lifecycle(
-        eq=ctx.deps.event_queue,
-        node_name="planner",
-        event="replanning_started",
+    emit_graph_event(
+        ctx.deps.event_queue,
+        "replanning_started",
         attempt=ctx.state.verification_attempts,
         feedback=ctx.state.validation_feedback or "",
     )
@@ -294,9 +281,16 @@ async def planner_step(
             f"### PREVIOUS EXECUTION RESULTS (for context)\n" f"{previous_results}\n\n"
         )
 
+    from .executor import _get_domain_tools
+
+    domain_tools, domain_toolsets = await _get_domain_tools("planner", ctx.deps)
+
     planner = Agent(
         model=ctx.deps.agent_model,
         output_type=GraphPlan,
+        deps_type=GraphDeps,
+        tools=domain_tools,
+        toolsets=domain_toolsets,
         system_prompt=(
             f"{planner_prompt}\n\n"
             f"{feedback_section}"
@@ -314,18 +308,19 @@ async def planner_step(
             deps=ctx.deps,
         )
         ctx.state.plan = res.output
-        ctx.state.step_cursor = 0  # Reset cursor for the new plan
+        ctx.state.step_cursor = 0
         ctx.state.needs_replan = False
         ctx.state.error = None
         logger.info(
             f"Planner: Re-plan generated with {len(ctx.state.plan.steps)} steps."
         )
-        _emit_node_lifecycle(
-            eq=ctx.deps.event_queue,
-            node_name="planner",
-            event="replanning_completed",
+
+        emit_graph_event(
+            ctx.deps.event_queue,
+            "replanning_completed",
             step_count=len(ctx.state.plan.steps),
         )
+
         return "dispatcher"
     except Exception as e:
         logger.error(f"Re-planning failed: {e}")
@@ -344,10 +339,6 @@ async def fetch_unified_context() -> str:
         recent memory, and git status.
 
     """
-    a2a_agents = load_workspace_file(CORE_FILES["A2A_AGENTS"])
-    if a2a_agents and len(a2a_agents.splitlines()) > 500:
-        a2a_agents = "\n".join(a2a_agents.splitlines()[:500]) + "\n\n... (truncated)"
-
     mcp_agents = load_workspace_file(CORE_FILES["NODE_AGENTS"])
     if mcp_agents and len(mcp_agents.splitlines()) > 500:
         mcp_agents = "\n".join(mcp_agents.splitlines()[:500]) + "\n\n... (truncated)"
@@ -363,8 +354,7 @@ async def fetch_unified_context() -> str:
 
     return (
         f"### PROJECT CONTEXT (Agent OS)\n\n"
-        f"**A2A_AGENTS.md (Peer Registry Preview):**\n{a2a_agents or '(empty)'}\n\n"
-        f"**NODE_AGENTS.md (Specialist Registry Preview):**\n{mcp_agents or '(empty)'}\n\n"
+        f"**NODE_AGENTS.md (Specialist Registry):**\n{mcp_agents or '(empty)'}\n\n"
         f"**MEMORY.md (Historical Context):**\n{memory or '(empty)'}\n\n"
         f"**Git Status:**\n{git_status or '(clean)'}"
     )
@@ -380,7 +370,9 @@ async def router_step(
     direct specialist execution, and generates the initial GraphPlan using
     a high-level planning model.
 
-    For trivial or conversational queries that don't need specialist execution, th router can return a direct response via the fast-path
+    For trivial or conversational queries that don't need specialist
+    execution, the router can return a direct response via the fast-path.
+
     Args:
         ctx: The pydantic-graph step context.
 
@@ -390,8 +382,12 @@ async def router_step(
 
     """
     deps = ctx.deps
-    _emit_node_lifecycle(
-        eq=deps.event_queue, node_name="router", event="routing_started"
+
+    _emit_node_lifecycle(deps.event_queue, "router", "node_start")
+    emit_graph_event(
+        deps.event_queue,
+        "routing_started",
+        query=ctx.state.query,
     )
     logger.info(
         f"[LAYER:GRAPH:ROUTER] Routing started for query: '{ctx.state.query[:50]}...'"
@@ -404,6 +400,7 @@ async def router_step(
         return "error_recovery"
 
     # Fast-path: skip the full pipeline for trivial/conversational queries
+    # that don't require specialist tools (e.g. "hello", "thanks", "what can you do?").
     query_lower = ctx.state.query.strip().lower()
     word_count = len(ctx.state.query.split())
     trivial_prefixes = (
@@ -418,17 +415,17 @@ async def router_step(
     )
     if word_count <= 6 and any(query_lower.startswith(p) for p in trivial_prefixes):
         logger.info(
-            f"Router: Fast-path - trivial query detected ('{ctx.state.query[:40]}'). Generating direct response."
+            f"Router: Fast-path — trivial query detected ('{ctx.state.query[:40]}'). Generating direct response."
         )
         fast_agent = Agent(
             model=deps.router_model,
-            system_prompt="You are helpful assistant. Respond naturally and concisely.",
+            system_prompt="You are a helpful assistant. Respond naturally and concisely.",
         )
         try:
             res = await fast_agent.run(ctx.state.query)
             emit_graph_event(
                 deps.event_queue,
-                event_type="routing_started",
+                "routing_completed",
                 plan={},
                 reasoning="fast-path: trivial query",
             )
@@ -444,15 +441,13 @@ async def router_step(
                 f"Router: Fast-path failed ({e}). Falling back to full pipeline."
             )
 
-    # HSM Junction Pseudostate: Try static keyword routing first (saves LLM call)
+    # Junction Pseudostate: Try static keyword routing first (saves LLM call)
     # If tag_prompts is empty (e.g. toolset loading failed due to missing env vars),
     # fall back to using the MCP registry directly for keyword-based routing.
     routing_tags = deps.tag_prompts
     if not routing_tags:
-        registry = load_node_agents_registry()
-        routing_tags = {
-            a.tag: a.description or a.name for a in registry.agents if a.tag
-        }
+        registry = get_discovery_registry()
+        routing_tags = {a.name: a.description for a in registry.agents}
         if routing_tags:
             logger.warning(
                 f"Router: tag_prompts is empty, falling back to registry tags ({len(routing_tags)} tags)"
@@ -470,10 +465,8 @@ async def router_step(
         logger.info("[LAYER:GRAPH:ROUTER] Fetching specialist tags...")
         specialist_tags = deps.tag_prompts
         if not specialist_tags:
-            registry = load_node_agents_registry()
-            specialist_tags = {
-                a.tag: a.description or a.name for a in registry.agents if a.tag
-            }
+            registry = get_discovery_registry()
+            specialist_tags = {a.name: a.description for a in registry.agents}
             if specialist_tags:
                 logger.info(
                     f"[LAYER:GRAPH:ROUTER] Specialist tags loaded (count: {len(specialist_tags)}). Tags: {list(specialist_tags.keys())}"
@@ -542,6 +535,15 @@ async def router_step(
             reasoning=ctx.state.plan.metadata.get("reasoning", "Optimal dynamic plan"),
         )
 
+        # Bridge: sync the initial plan to ACP native plan state.
+        if deps.plan_sync:
+            try:
+                await deps.plan_sync(
+                    "plan_created", ctx.state.plan.to_acp_plan_entries()
+                )
+            except Exception as sync_err:
+                logger.warning(f"ACP plan sync failed: {sync_err}")
+
         return "dispatcher"
     except Exception as e:
         logger.error(f"Router planning failed: {e}")
@@ -574,7 +576,9 @@ async def dispatcher_step(
     logger.info(
         f"[LAYER:GRAPH:DISPATCHER] Transitioning. Current cursor: {ctx.state.step_cursor}"
     )
-    # Infinite-loop guard: force-terminate if the graph has exceeded the maximum allowed node transitions.
+
+    # Infinite-loop guard: force-terminate if the graph has exceeded the
+    # maximum allowed node transitions.
     ctx.state.node_transitions += 1
     if ctx.state.node_transitions > ctx.state.MAX_NODE_TRANSITIONS:
         logger.error(
@@ -584,11 +588,11 @@ async def dispatcher_step(
         )
         emit_graph_event(
             ctx.deps.event_queue,
-            event_type="graph_force_termination",
+            event_type="graph_force_terminated",
             reason="max_node_transitions_exceeded",
-            transitions="ctx.state.node_transitions",
+            transitions=ctx.state.node_transitions,
         )
-        ctx.state.error = "Graph terminated: maximum node transitions exceeded"
+        ctx.state.error = "Graph terminated: maximum node transitions exceeded."
         return "error_recovery"
 
     # HSM: State invariant check at transition boundary
@@ -613,7 +617,7 @@ async def dispatcher_step(
     # historical context is available before any plan steps execute.
     if ctx.state.step_cursor == 0 and not ctx.state.exploration_notes:
         logger.info(
-            "Dispatcher: First entry - routing to memory_selection for context enrichment."
+            "Dispatcher: First entry — routing to memory_selection for context enrichment."
         )
         return "memory_selection"
 
@@ -623,15 +627,16 @@ async def dispatcher_step(
     _RESEARCH_NODES = {"researcher", "architect"}
     if ctx.state.step_cursor == 0 and len(ctx.state.plan.steps) > 1:
         research = [s for s in ctx.state.plan.steps if s.node_id in _RESEARCH_NODES]
-        execution = [s for s in ctx.state.plan.steps if s.node_id in _RESEARCH_NODES]
-
+        execution = [
+            s for s in ctx.state.plan.steps if s.node_id not in _RESEARCH_NODES
+        ]
         if research and execution:
             reordered = research + execution
             if [s.node_id for s in reordered] != [
                 s.node_id for s in ctx.state.plan.steps
             ]:
                 logger.info(
-                    f"Dispatcher: Reordered plan - {len(research)} research step(s) "
+                    f"Dispatcher: Reordered plan — {len(research)} research step(s) "
                     f"moved before {len(execution)} execution step(s)."
                 )
                 ctx.state.plan.steps = reordered
@@ -639,7 +644,7 @@ async def dispatcher_step(
         # Emit plan_created event for UI transparency
         emit_graph_event(
             ctx.deps.event_queue,
-            event_type="plan_created",
+            "plan_created",
             steps=[
                 {"node_id": s.node_id, "is_parallel": s.is_parallel}
                 for s in ctx.state.plan.steps
@@ -651,7 +656,18 @@ async def dispatcher_step(
         f"Dispatcher: Handling graph execution (Step {ctx.state.step_cursor}/{len(ctx.state.plan.steps)})"
     )
     if ctx.state.step_cursor >= len(ctx.state.plan.steps):
-        # If we have gathered research or execution results, route to verifier for final summary
+        # All plan steps have been executed.  Mark every step completed
+        # and sync to ACP before handing off to the verifier.
+        for step in ctx.state.plan.steps:
+            step.status = "completed"
+        if ctx.deps.plan_sync:
+            try:
+                await ctx.deps.plan_sync(
+                    "step_completed", ctx.state.plan.to_acp_plan_entries()
+                )
+            except Exception:
+                pass
+
         logger.info(
             f"Dispatcher: Plan completed. Results registry keys: {list(ctx.state.results_registry.keys())}"
         )
@@ -691,14 +707,24 @@ async def dispatcher_step(
         logger.info(
             f"Dispatcher: Dispatching sequential expert task: {current_step.node_id}"
         )
-
         emit_graph_event(
             ctx.deps.event_queue,
-            event_type="step_dispatched",
+            "step_dispatched",
             node_id=current_step.node_id,
             step_index=ctx.state.step_cursor - 1,
             is_parallel=False,
         )
+
+        # Bridge: mark the step as in_progress in ACP plan state.
+        if ctx.deps.plan_sync:
+            try:
+                current_step.status = "in_progress"
+                await ctx.deps.plan_sync(
+                    "step_started", ctx.state.plan.to_acp_plan_entries()
+                )
+            except Exception:
+                pass
+
         ctx.state.pending_batch = ParallelBatch(tasks=[current_step])
         return "parallel_batch_processor"
 
@@ -717,7 +743,7 @@ async def dispatcher_step(
 
     emit_graph_event(
         ctx.deps.event_queue,
-        event_type="batch_dispatched",
+        "batch_dispatched",
         nodes=[s.node_id for s in batch],
         batch_size=len(batch),
     )
@@ -783,12 +809,14 @@ async def expert_executor_step(
                 f"Expert Execution: Attempt {ctx.state.current_node_retries + 1}/{max_retries + 1} for node '{node_id}'"
             )
 
-            # Special Handling for Researcher
+            # Check if this is a specialized prompt-based agent defined in the registry
+            registry = get_discovery_registry()
+            prompt_agents = {a.name for a in registry.agents if a.type == "prompt"}
+
             if node_id == "researcher":
                 await researcher_step(ctx)
 
-            # Any node_id in NODE_SKILL_MAP -> delegate to shared specialized logic
-            elif node_id in NODE_SKILL_MAP:
+            elif node_id in prompt_agents:
                 await _execute_specialized_step(ctx, node_id)
 
             # Generic MCP Step
@@ -856,7 +884,6 @@ async def expert_executor_step(
             else:
                 from .executor import agent_matches_node_id
 
-                # First check our dynamic MCP registry
                 registry = load_node_agents_registry()
 
                 mcp_agent = next(
@@ -987,21 +1014,23 @@ async def architect_step(
 async def verifier_step(
     ctx: StepContext[GraphState, GraphDeps, None],
 ) -> str:
-    """Validate execution results and route to synthesis or re-dispatch
+    """Validate execution results and route to synthesis or re-dispatch.
 
-    This node performs a structured quality audit of the accumulated execution results. It does NOT synthesize the final
-    response - that is handled by :func:`synthesizer_step`
+    This node performs a structured quality audit of the accumulated
+    execution results.  It does NOT synthesize the final response —
+    that is handled by :func:`synthesizer_step`.
 
     Routing decisions:
-    - **score >= 0.7** -> ``'synthesizer'`` for final response composition
-    - **0.4 <= score < 0.7** -> ``'dispatcher'`` for re-execution
-    - **score < 0.4** -> ``'planner'`` for a fresh approach
+    - **score >= 0.7** → ``'synthesizer'`` for final response composition
+    - **0.4 <= score < 0.7** → ``'dispatcher'`` for re-execution
+    - **score < 0.4** → ``'planner'`` for a fresh approach
 
     Args:
         ctx: The pydantic-graph step context containing all registry results.
 
     Returns:
-        The next node identifier (``'synthesizer'``, ``'dispatcher'``, ``'planner'``)
+        The next node identifier (``'synthesizer'``, ``'dispatcher'``,
+        or ``'planner'``).
 
     """
     # HSM: State invariant check
@@ -1014,9 +1043,9 @@ async def verifier_step(
         f"[LAYER:GRAPH:VERIFIER] Starting (attempt {ctx.state.verification_attempts + 1})..."
     )
     _emit_node_lifecycle(
-        eq=ctx.deps.event_queue,
-        node_name="verifier",
-        event="node_start",
+        ctx.deps.event_queue,
+        "verifier",
+        "node_start",
         attempt=ctx.state.verification_attempts + 1,
     )
 
@@ -1025,12 +1054,21 @@ async def verifier_step(
         [f"### {node}: {val}" for node, val in ctx.state.results_registry.items()]
     )
 
-    # Structured validation (quality gate)
+    # Structured Validation (quality gate)
     if ctx.state.verification_attempts < 2 and results_summary.strip():
         try:
+            from .executor import _get_domain_tools
+
+            domain_tools, domain_toolsets = await _get_domain_tools(
+                "verifier", ctx.deps
+            )
+
             validation_agent = Agent(
                 model=ctx.deps.agent_model,
                 output_type=ValidationResult,
+                deps_type=GraphDeps,
+                tools=domain_tools,
+                toolsets=domain_toolsets,
                 system_prompt=(
                     f"You are a quality gate. Evaluate whether the execution results "
                     f"fully and accurately answer the original query with specific data findings.\n\n"
@@ -1061,10 +1099,11 @@ async def verifier_step(
             ):
                 ctx.state.verification_attempts += 1
                 ctx.state.validation_feedback = validation.feedback
+
                 # Distinguish plan-level failures from execution-level failures.
                 # Very low scores (< 0.4) suggest the approach itself was wrong
-                # and a fresh plan is needed; moderate scores suggest the right plan
-                # was executed poorly and can be re-dispatched
+                # and a fresh plan is needed; moderate scores suggest the right
+                # plan was executed poorly and can be re-dispatched.
                 if validation.score < 0.4 and ctx.state.verification_attempts <= 2:
                     logger.warning(
                         f"Verifier: Score {validation.score:.2f} < 0.4. "
@@ -1090,13 +1129,10 @@ async def verifier_step(
             )
 
     # Validation passed (or was skipped). Route to synthesizer for
-    # final response composition. This separates the quality-gate
+    # final response composition.  This separates the quality-gate
     # concern from the response-generation concern.
     _emit_node_lifecycle(
-        eq=ctx.deps.event_queue,
-        node_name="verifier",
-        event="node_complete",
-        next_node="synthesizer",
+        ctx.deps.event_queue, "verifier", "node_complete", next_node="synthesizer"
     )
     return "synthesizer"
 
@@ -1106,24 +1142,23 @@ async def synthesizer_step(
 ) -> End[GraphResponse]:
     """Compose the final authoritative response from execution results.
 
-    This node is responsible for synthesizing a cohesive markdown response from the
-    disparate specialist findings stored in ``ctx.state.results_registry``. It also persists
-    session metadata to MEMORY.md for future context retrieval.
+    This node is responsible for synthesizing a cohesive markdown response
+    from the disparate specialist findings stored in
+    ``ctx.state.results_registry``.  It also persists session metadata to
+    MEMORY.md for future context retrieval.
 
-    The synthesizer is intentionally separate from the verifier so that synthesis work is never wasted on re-dispatch / re-plan cycles.
+    The synthesizer is intentionally separate from the verifier so that
+    synthesis work is never wasted on re-dispatch/re-plan cycles.
 
     Args:
         ctx: The pydantic-graph step context containing all registry results.
 
     Returns:
         A terminal ``End`` state with the ``GraphResponse`` instance.
+
     """
     logger.info("[LAYER:GRAPH:SYNTHESIZER] Composing final response...")
-    _emit_node_lifecycle(
-        eq=ctx.deps.event_queue,
-        node_name="synthesizer",
-        event="node_start",
-    )
+    _emit_node_lifecycle(ctx.deps.event_queue, "synthesizer", "node_start")
 
     validator_prompt = load_specialized_prompts("verifier")
 
@@ -1136,7 +1171,6 @@ async def synthesizer_step(
         extra_context += (
             f"\n### ARCHITECTURAL INTENT\n{ctx.state.architectural_decisions}\n"
         )
-
     if ctx.state.exploration_notes:
         extra_context += f"\n### EXPLORATION FINDINGS\n{ctx.state.exploration_notes}\n"
 
@@ -1157,14 +1191,13 @@ async def synthesizer_step(
 
     try:
         logger.debug(f"Synthesizer: Prompt summary length: {len(results_summary)}")
-        # Use a generous timeout for synthesis
         async with synthesizer.run_stream(
             "Consolidate and verify based on provided results. Be concise."
         ) as stream:
             async for chunk in stream.stream_text(delta=True):
                 emit_graph_event(
                     ctx.deps.event_queue,
-                    "agent-node-delta",
+                    "agent_node_delta",
                     content=chunk,
                     node="synthesizer",
                 )
@@ -1184,7 +1217,7 @@ async def synthesizer_step(
         )
         emit_graph_event(
             ctx.deps.event_queue,
-            event_type="synthesis_fallback",
+            "synthesis_fallback",
             reason=str(e)[:300],
             has_results=bool(results_summary.strip()),
         )
@@ -1275,20 +1308,20 @@ async def memory_selection_step(
     context for the current user query.
 
     When the selector finds no relevant memories and the query appears to
-    reqruire background research (more than a simple convesrational turn),
-    this node routes to the researcher for web/codebase discovery before returning to the dispatcher
+    require background research (more than a simple conversational turn),
+    this node routes to the researcher for web/codebase discovery before
+    returning to the dispatcher.
 
     Args:
         ctx: The pydantic-graph step context.
 
     Returns:
-        ``'dispatcher'`` with updated exploration nodes, or ``'researcher'`` when a context gap is detected.
+        ``'dispatcher'`` with updated exploration notes, or ``'researcher'``
+        when a context gap is detected.
 
     """
     logger.info("Memory Selection: Identifying relevant context...")
-    _emit_node_lifecycle(
-        eq=ctx.deps.event_queue, node_name="memory_selection", event="node_start"
-    )
+    _emit_node_lifecycle(ctx.deps.event_queue, "memory_selection", "node_start")
     prompt_content = load_specialized_prompts("memory_selection")
     root = ctx.state.project_root or os.getcwd()
     memories = []
@@ -1307,105 +1340,109 @@ async def memory_selection_step(
         except Exception as e:
             logger.warning(f"Memory selection failed: {e}")
 
-        if not memories:
-            logger.info("Memory Selection: No workspace memories found. Skipping.")
-            # Context gap detection: non-trivial queries with no memories benefit from a research pass before execution.
-            word_count = len(ctx.state.query.split())
-            already_researched = ctx.state.global_research_loops > 1
-            if (
-                word_count > 8
-                and not already_researched
-                and not ctx.state.exploration_notes
-            ):
-                logger.info(
-                    "Memory Selection: Context gap detected - routing to researcher"
-                )
-                emit_graph_event(
-                    ctx.deps.event_queue,
-                    event_type="context_gap_detected",
-                    reason="no_workspace_memories",
-                    query_words=word_count,
-                )
-                _emit_node_lifecycle(
-                    eq=ctx.deps.event_queue,
-                    node_name="memory_selection",
-                    event="node_complete",
-                    next_node="researcher",
-                )
-                return "researcher"
-            _emit_node_lifecycle(
-                eq=ctx.deps.event_queue,
-                node_name="memory_selection",
-                event="node_complete",
-                next_node="dispatcher",
-            )
-
-        selectors = Agent(
-            model=ctx.deps.agent_model,
-            system_prompt=prompt_content,
-            output_type=dict,
-        )
-        try:
-            res = await selectors.run(
-                f"Query: {ctx.state.query}\n\nAvailable memories:\n"
-                + "\n".join(memories[:20])
-            )
-            selected = res.output.get("selected_memories", [])
+    if not memories:
+        logger.info("Memory Selection: No workspace memories found. Skipping.")
+        # Context gap detection: non-trivial queries with no memories
+        # benefit from a research pass before execution.
+        word_count = len(ctx.state.query.split())
+        already_researched = ctx.state.global_research_loops > 1
+        if (
+            word_count > 8
+            and not already_researched
+            and not ctx.state.exploration_notes
+        ):
             logger.info(
-                f"Memory Selection: Selected {len(selected)} relevant files: {selected}"
+                "Memory Selection: Context gap detected — routing to researcher."
             )
-
-            loaded_context = []
-            for filename in selected:
-                for p in Path(root).rglob(filename):
-                    loaded_context.append(
-                        f"### {filename}\n{p.read_text(encoding='utf-8', errors='ignore')}"
-                    )
-                    break
-
-            ctx.state.exploration_notes += "\n\n### SELECTED MEMORIES\n" + "\n\n".join(
-                loaded_context
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "context_gap_detected",
+                reason="no_workspace_memories",
+                query_words=word_count,
             )
-            # Context gap: memories exist but none are relevant to this query
-            already_researched = ctx.state.global_research_loops > 1
-            if (
-                not selected
-                and not already_researched
-                and not ctx.state.exploration_notes.strip()
-            ):
-                logger.info(
-                    "Memory Selection: No relevant memories matched - routing to researcher."
-                )
-                emit_graph_event(
-                    ctx.deps.event_queue,
-                    event_type="context_gap_detected",
-                    reason="no_relevant_memories",
-                    available=len(memories),
-                    selected=0,
-                )
-                _emit_node_lifecycle(
-                    eq=ctx.deps.event_queue,
-                    node_name="memory_selection",
-                    event="node_complete",
-                    next_node="researcher",
-                )
-                return "researcher"
             _emit_node_lifecycle(
-                eq=ctx.deps.event_queue,
-                node_name="memory_selection",
-                event="node_complete",
-                next_node="dispatcher",
+                ctx.deps.event_queue,
+                "memory_selection",
+                "node_complete",
+                next_node="researcher",
             )
-            return "dispatcher"
-        except Exception as e:
-            logger.error(f"Memory Selection failed: {e}")
+            return "researcher"
+        _emit_node_lifecycle(
+            ctx.deps.event_queue,
+            "memory_selection",
+            "node_complete",
+            next_node="dispatcher",
+        )
+        return "dispatcher"
+
+    selectors = Agent(
+        model=ctx.deps.agent_model,
+        system_prompt=prompt_content,
+        output_type=dict,
+    )
+    try:
+        res = await selectors.run(
+            f"Query: {ctx.state.query}\n\nAvailable memories:\n"
+            + "\n".join(memories[:20])
+        )
+        selected = res.output.get("selected_memories", [])
+        logger.info(
+            f"Memory Selection: Selected {len(selected)} relevant files: {selected}"
+        )
+
+        loaded_context = []
+        for filename in selected:
+            for p in Path(root).rglob(filename):
+                loaded_context.append(
+                    f"### {filename}\n{p.read_text(encoding='utf-8', errors='ignore')}"
+                )
+                break
+
+        ctx.state.exploration_notes += "\n\n### SELECTED MEMORIES\n" + "\n\n".join(
+            loaded_context
+        )
+
+        # Context gap: memories exist but none are relevant to this query
+        already_researched = ctx.state.global_research_loops > 1
+        if (
+            not selected
+            and not already_researched
+            and not ctx.state.exploration_notes.strip()
+        ):
+            logger.info(
+                "Memory Selection: No relevant memories matched — routing to researcher."
+            )
+            emit_graph_event(
+                ctx.deps.event_queue,
+                "context_gap_detected",
+                reason="no_relevant_memories",
+                available=len(memories),
+                selected=0,
+            )
             _emit_node_lifecycle(
-                eq=ctx.deps.event_queue,
-                node_name="memory_selection",
-                event="node_complete",
-                next_node="dispatcher",
+                ctx.deps.event_queue,
+                "memory_selection",
+                "node_complete",
+                next_node="researcher",
             )
-            return "dispatcher"
+            return "researcher"
+
+        _emit_node_lifecycle(
+            ctx.deps.event_queue,
+            "memory_selection",
+            "node_complete",
+            next_node="dispatcher",
+        )
+        return "dispatcher"
+    except Exception as e:
+        logger.error(f"Memory Selection failed: {e}")
+        _emit_node_lifecycle(
+            ctx.deps.event_queue,
+            "memory_selection",
+            "node_complete",
+            next_node="dispatcher",
+        )
+        return "dispatcher"
 
 
 async def approval_gate_step(
@@ -1430,7 +1467,7 @@ async def approval_gate_step(
 
     safety_guard_prompt = load_specialized_prompts("safety_guard")
     logger.info(
-        "Approval Gate: Pausing for user review... "
+        f"Approval Gate: Pausing for user review. "
         f"Safety guard policy loaded ({len(safety_guard_prompt)} chars)."
     )
     ctx.state.human_approval_required = True
@@ -1507,21 +1544,23 @@ async def mcp_server_step(
                 await _execute_dynamic_mcp_agent(ctx, mcp_agent)
         else:
             # Fallback: create ad-hoc agent with all tools from this server
-            agent = Agent(
-                model=ctx.deps.agent_model,
-                system_prompt=f"You are a specialist for the '{server_name}' MCP server. Use the available tools to answer queries.",
-            )
-
+            matched_toolsets = []
             for toolset in ctx.deps.mcp_toolsets:
                 server_id = getattr(toolset, "id", getattr(toolset, "name", None))
                 if server_id and server_name in str(server_id):
-                    agent.toolsets.append(toolset)
+                    matched_toolsets.append(toolset)
+
+            agent = Agent(
+                model=ctx.deps.agent_model,
+                system_prompt=f"You are a specialist for the '{server_name}' MCP server. Use the available tools to answer queries.",
+                toolsets=matched_toolsets,
+            )
 
             async with agent.run_stream(query, deps=ctx.deps) as stream:
                 async for chunk in stream.stream_text(delta=True):
                     emit_graph_event(
                         ctx.deps.event_queue,
-                        "agent-node-delta",
+                        "agent_node_delta",
                         content=chunk,
                         node=ctx.node.name,
                     )
@@ -1557,7 +1596,7 @@ async def mcp_server_step(
                             if isinstance(part, ToolReturnPart):
                                 emit_graph_event(
                                     ctx.deps.event_queue,
-                                    event_type="tool-result",
+                                    event_type="tool_result",
                                     agent=server_name,
                                     tool=part.tool_name,
                                     result=str(part.content)[:500],
@@ -1580,16 +1619,16 @@ async def mcp_server_step(
 
 async def error_recovery_step(
     ctx: StepContext[GraphState, GraphDeps, Exception | str | Any],
-) -> End[dict]:
+) -> str | End[dict]:
     """Attempt graceful recovery before terminating the graph.
 
     Implements a two-tier recovery strategy:
 
     1. **Recoverable errors** (retry_count < 2 and partial results exist):
-        Injects the error as feedback and routes tot he planner for a fresh strategy,
-        preserving any partial results already gathered
+       Injects the error as feedback and routes to the planner for a
+       fresh strategy, preserving any partial results already gathered.
     2. **Terminal errors** (retries exhausted, policy violations, or
-        max-transition overflow): Terminates with a diagnostic report.
+       max-transition overflows): Terminates with a diagnostic report.
 
     Args:
         ctx: The pydantic-graph step context with the failure details as input.
@@ -1600,9 +1639,7 @@ async def error_recovery_step(
 
     """
     error_str = str(ctx.inputs) if ctx.inputs else (ctx.state.error or "Unknown error")
-    _emit_node_lifecycle(
-        eq=ctx.deps.event_queue, node_name="error_recovery", event="node_start"
-    )
+    _emit_node_lifecycle(ctx.deps.event_queue, "error_recovery", "node_start")
     logger.error(f"error_recovery_step: {error_str}")
 
     # Terminal conditions that should NOT retry
@@ -1625,32 +1662,32 @@ async def error_recovery_step(
         )
         emit_graph_event(
             ctx.deps.event_queue,
-            event_type="error_recovery_replan",
+            "error_recovery_replan",
             attempt=ctx.state.retry_count,
             error=error_str[:300],
         )
         _emit_node_lifecycle(
-            eq=ctx.deps.event_queue,
-            node_name="error_recovery",
-            event="node_complete",
+            ctx.deps.event_queue,
+            "error_recovery",
+            "node_complete",
             next_node="planner",
         )
         return "planner"
 
     logger.error(
         f"error_recovery_step: Terminal failure after {ctx.state.retry_count} retries. "
-        f"Error: {error_str[:300]}."
+        f"Error: {error_str[:300]}"
     )
     emit_graph_event(
         ctx.deps.event_queue,
-        event_type="error_recovery_terminal",
+        "error_recovery_terminal",
         error=error_str[:300],
         retries=ctx.state.retry_count,
     )
     _emit_node_lifecycle(
-        eq=ctx.deps.event_queue,
-        node_name="error_recovery",
-        event="node_complete",
+        ctx.deps.event_queue,
+        "error_recovery",
+        "node_complete",
         next_node="end",
     )
     return End({"error": error_str, "results": ctx.state.results})

@@ -52,26 +52,11 @@ def extract_section_from_md(content: str, header: str) -> Optional[str]:
     """
     escaped_header = re.escape(header)
 
-    # First find the level of the header
-    level_match = re.search(
-        rf"^\s*(#+)\s*{escaped_header}\s*$", content, re.MULTILINE | re.IGNORECASE
-    )
-    if not level_match:
-        return None
-
-    level_str = level_match.group(1)
-    level = len(level_str)
-    start_pos = level_match.end()
-
-    # Find the next header of equal or higher level (fewer or equal number of #)
-    # Stop at any line starting with 1 to 'level' number of '#'
-    pattern = rf"\n#{{1,{level}}}\s+"
-    next_header_match = re.search(pattern, content[start_pos:])
-
-    if next_header_match:
-        return content[start_pos : start_pos + next_header_match.start()].strip()
-    else:
-        return content[start_pos:].strip()
+    pattern = rf"^\s*#+\s*{escaped_header}\s*\n(.*?)(?=\n#|\Z)"
+    match = re.search(pattern, content, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return None
 
 
 def get_system_prompt_from_reference(agent_name: str) -> Optional[str]:

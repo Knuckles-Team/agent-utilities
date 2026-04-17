@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from agent_utilities.graph.steps import fetch_unified_context, _emit_node_lifecycle
 from agent_utilities.graph.config_helpers import emit_graph_event, load_mcp_config, load_node_agents_registry
 from agent_utilities.models import MCPConfigModel, MCPAgentRegistryModel

@@ -39,14 +39,12 @@ from ..base_utilities import (
 from ..mcp_utilities import load_mcp_config
 from ..models import GraphResponse
 from .config_helpers import (
-    load_node_agents_registry,
-    NODE_SKILL_MAP,
+    get_discovery_registry,
 )
 
 from .state import GraphState, GraphDeps
 
 from .executor import (
-    _execute_specialized_step,
     agent_package_step,
 )
 
@@ -184,6 +182,19 @@ def initialize_graph_from_workspace(
     discovery_metadata = {}
     if _mcp_cfg_path:
         agents_path = get_workspace_path(CORE_FILES["NODE_AGENTS"])
+        from ..agent_registry_builder import rebuild_node_agents_md
+        import asyncio
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is running, we can't use run_until_complete easily without task
+                asyncio.create_task(rebuild_node_agents_md())
+            else:
+                loop.run_until_complete(rebuild_node_agents_md())
+        except Exception as e:
+            logger.debug(f"Registry rebuild skip/fail: {e}")
+
         try:
             # Check if sync is required first
             needs_sync = should_sync(_mcp_cfg_path, agents_path)
@@ -195,18 +206,13 @@ def initialize_graph_from_workspace(
                 from ..mcp_agent_manager import sync_mcp_agents
 
                 try:
-                    import asyncio
-
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        logger.warning(
-                            "Initializing Graph: Skip standardization (loop already running)."
-                        )
-                    else:
+                    if not loop.is_running():
                         loop.run_until_complete(sync_mcp_agents(_mcp_cfg_path))
                         logger.info(
                             "Initializing Graph: MCP agents synced successfully."
                         )
+                    else:
+                        asyncio.create_task(sync_mcp_agents(_mcp_cfg_path))
                 except Exception as e:
                     logger.debug(f"Sync skip/fail: {e}")
             else:
@@ -217,7 +223,7 @@ def initialize_graph_from_workspace(
             # Build discovery_metadata directly from the registry
             from collections import defaultdict
 
-            registry = load_node_agents_registry()
+            registry = get_discovery_registry()
 
             tools_by_server = defaultdict(list)
             for agent in registry.agents:
@@ -232,12 +238,13 @@ def initialize_graph_from_workspace(
         except Exception as e:
             logger.warning(f"Failed to load MCP discovery metadata: {e}")
 
-    # Unified Discovery Logic
+    # Unified Discovery: merge MCP and A2A sources into a single roster
     logger.info("Initializing Graph: Discovering domain tags and agents...")
     from ..discovery import discover_all_specialists
 
     all_specialists = discover_all_specialists()
     tag_prompts = {s.tag: s.description for s in all_specialists}
+
     if not tag_prompts:
         from ..discovery import discover_agents
 
@@ -447,21 +454,8 @@ def create_graph_agent(
     # to ensure each unique node_id (tag) is only registered once in the graph.
     specialist_node_configs = {}
 
-    # 1. Base Skill-based Specialized Steps (from NODE_SKILL_MAP)
-    for _nid in NODE_SKILL_MAP:
-        if _nid in _dedicated_nodes:
-            continue
-
-        def _make_skill_step(nid: str):
-            async def _step(
-                ctx: StepContext[GraphState, GraphDeps, None],
-            ) -> str | End[Any]:
-                return await _execute_specialized_step(ctx, nid)
-
-            _step.__name__ = f"{nid}_step"
-            return _step
-
-        specialist_node_configs[_nid] = _make_skill_step(_nid)
+    # Steps for dedicated expert personas are predefined above (python_programmer, etc.)
+    # We now register any other specialists discovered in the unified registry.
 
     _python = g.step(python_programmer_step, node_id="python_programmer")
     _c = g.step(c_programmer_step, node_id="c_programmer")
@@ -511,6 +505,8 @@ def create_graph_agent(
 
     # 2. Expert Specialist Agents (prioritized over raw skills)
     for tag, meta in discovered_agents_map.items():
+        if tag in _dedicated_nodes or tag == "onboarding" or tag == "error_recovery":
+            continue
 
         def make_agent_step(t):
             async def agent_specific_step(
@@ -643,7 +639,7 @@ def create_graph_agent(
         g.edge_from(_execution_joiner).to(_dispatcher),
         # Error handling and Finalization
         g.edge_from(_error).label("Terminal Error").to(g.end_node),
-        g.edge_from(_error).label("Replace").to(_planner),
+        g.edge_from(_error).label("Replan").to(_planner),
         g.edge_from(_verifier).label("Accepted").to(_synthesizer),
         g.edge_from(_verifier).label("Self-Correction").to(_dispatcher),
         g.edge_from(_verifier).label("Re-plan").to(_planner),
@@ -751,4 +747,5 @@ def create_graph_agent(
     logger.debug(
         f"create_graph_agent: returning config with mcp_toolsets of len: {len(config['mcp_toolsets'])}"
     )
+
     return graph, config

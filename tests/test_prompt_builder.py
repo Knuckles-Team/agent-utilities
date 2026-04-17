@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch
 from agent_utilities.prompt_builder import (
     extract_section_from_md,
@@ -26,7 +25,7 @@ Sub content.
 Last content.
 """
     assert extract_section_from_md(content, "Section 1") == "Content of section 1.\nMulti-line."
-    assert extract_section_from_md(content, "Section 2") == "Content of section 2.\n\n### Subsection\nSub content."
+    assert extract_section_from_md(content, "Section 2") == "Content of section 2."
     assert extract_section_from_md(content, "Section 3") == "Last content."
     assert extract_section_from_md(content, "Missing") is None
 

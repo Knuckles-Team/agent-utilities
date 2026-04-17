@@ -44,6 +44,10 @@ WORKSPACE_DIR: Optional[str] = None
 def md_table_escape(text: str) -> str:
     """Escape markdown table delimiters and handle newlines for table safety.
 
+    This function ensures that literal pipes are escaped and newline characters
+    (both actual newlines and literal '\n' sequences) are converted to <br/>
+    to maintain table integrity.
+
     Args:
         text: The raw string to escape.
 
@@ -53,17 +57,39 @@ def md_table_escape(text: str) -> str:
     """
     if not text:
         return ""
-    # Replace pipe character which breaks markdown tables
-    escaped = text.replace("|", "\\|")
-    # Replace newlines with <br/> to keep the cell on one row
-    escaped = escaped.replace("\n", "<br/>")
+    # Standardize newlines and literal \n sequences to <br/>
+    escaped = text.replace("\n", "<br/>").replace("\\n", "<br/>")
+    # Escape pipe character which breaks markdown tables
+    escaped = escaped.replace("|", "\\|")
     return escaped.strip()
+
+
+def smart_truncate(text: str, limit: int) -> str:
+    """Truncate text to a limit while respecting word boundaries.
+
+    Args:
+        text: The string to truncate.
+        limit: The maximum character count.
+
+    Returns:
+        The truncated string with an ellipsis if applicable, cut at the last space
+        before the limit to avoid partial words.
+
+    """
+    if not text or len(text) <= limit:
+        return text or "-"
+
+    truncated = text[:limit]
+    # Respect word boundaries (split at last space)
+    if " " in truncated:
+        truncated = truncated.rsplit(" ", 1)[0]
+
+    return f"{truncated}..."
 
 
 CORE_FILES = {
     "IDENTITY": "IDENTITY.md",
     "USER": "USER.md",
-    "A2A_AGENTS": "A2A_AGENTS.md",
     "MEMORY": "MEMORY.md",
     "CRON": "CRON.md",
     "CRON_LOG": "CRON_LOG.md",
@@ -95,15 +121,6 @@ TEMPLATES = {
 
 * **Name:** User
 * **Emoji:** 👤
-""",
-    "A2A_AGENTS": """# A2A_AGENTS.md - Known A2A Peer Agents
-
-This file is the local registry of other A2A agents this agent can discover and call.
-
-## Registered A2A Peers
-
-| Name | Endpoint URL | Description | Capabilities | Auth | Notes / Last Connected |
-|------|--------------|-------------|--------------|------|------------------------|
 """,
     "MEMORY": """# MEMORY.md - Long-term Memory
 
@@ -145,13 +162,13 @@ This file tracks the generated agents from MCP servers, Universal Skills, and Sk
 
 ## Agent Mapping Table
 
-| Name | Description | System Prompt | Tools | Tag / ID | Source MCP / Skill |
-|------|-------------|---------------|-------|----------|--------------------|
+| Name | Type | Prompt File | Endpoint URL | Description | Capabilities / Skills | MCP Tools / Tags | Extra Config |
+|------|------|-------------|--------------|-------------|-----------------------|------------------|--------------|
 
 ## Tool Inventory Table
 
-| Tool Name | Description | Tag | Source |
-|-----------|-------------|-----|--------|
+| Tool Name | Description | Tag | Source | Score | Approval |
+|-----------|-------------|-----|--------|-------|----------|
 """,
 }
 
@@ -259,7 +276,7 @@ def get_agent_workspace() -> Path:
         return p
 
     pkg = retrieve_package_name()
-    if pkg and pkg != "agent_utilities":
+    if pkg:
         try:
             pkg_local_data = Path.cwd() / pkg / "agent_data"
             pkg_local_agent = Path.cwd() / pkg / "agent"
@@ -1062,46 +1079,64 @@ def parse_node_registry(content: str) -> MCPAgentRegistryModel:
 
         if (
             stripped.startswith("|")
-            and not any(x in stripped for x in ["|---", "|:---", "| :---"])
+            and not stripped.startswith("|---")
+            and ":---" not in stripped
             and not stripped.startswith("| Name")
             and not stripped.startswith("| Tool Name")
         ):
             parts = [p.strip() for p in stripped.strip("| ").split("|")]
-            if current_table == 1 and len(parts) >= 6:
-                # Parse optional tool_count and avg_relevance_score columns
-                tool_count = 0
-                avg_score = 0
-                if len(parts) >= 8:
-                    try:
-                        tool_count = int(parts[6])
-                    except (ValueError, IndexError):
-                        pass
-                    try:
-                        avg_score = int(parts[7])
-                    except (ValueError, IndexError):
-                        pass
+            if current_table == 1 and len(parts) >= 9:
+                try:
+                    score = int(parts[8]) if parts[8] and parts[8] != "-" else 0
+                except Exception:
+                    score = 0
+
+                # Heuristic for agent type
+                atype = "mcp"
+                if parts[2].endswith(".md"):
+                    atype = "prompt"
+                elif parts[5].startswith("http"):
+                    atype = "a2a"
 
                 agents.append(
                     MCPAgent(
                         name=parts[0],
-                        description=parts[1],
-                        system_prompt=parts[2],
-                        tools=[t.strip() for t in parts[3].split(",") if t.strip()],
-                        tag=parts[4] if parts[4] else None,
-                        mcp_server=parts[5],
-                        is_custom=False,
-                        tool_count=tool_count,
-                        avg_relevance_score=avg_score,
+                        description=parts[1].replace("<br/>", "\n"),
+                        system_prompt=(
+                            parts[2]
+                            if parts[2] != "-" and not parts[2].endswith(".md")
+                            else ""
+                        ),
+                        prompt_file=(
+                            parts[2]
+                            if parts[2] != "-" and parts[2].endswith(".md")
+                            else None
+                        ),
+                        mcp_tools=parts[3] if parts[3] != "-" else None,
+                        capabilities=[
+                            s.strip()
+                            for s in parts[4].split(",")
+                            if s.strip() and s.strip() != "-"
+                        ],
+                        endpoint_url=parts[5] if parts[5] != "-" else None,
+                        # skill_count (parts[6]) is derived
+                        tool_count=int(parts[7]) if parts[7].isdigit() else 0,
+                        avg_relevance_score=score,
+                        agent_type=atype,
+                        is_custom=True,
                     )
                 )
             elif current_table == 2 and len(parts) >= 4:
-                # Parse optional relevance_score column
+                # Parse optional relevance_score and requires_approval columns
                 score = 0
                 if len(parts) >= 5:
                     try:
                         score = int(parts[4])
                     except (ValueError, IndexError):
                         pass
+                approval = False
+                if len(parts) >= 6:
+                    approval = parts[5].strip().lower() in ("yes", "true", "1")
                 tools.append(
                     MCPToolInfo(
                         name=parts[0],
@@ -1109,6 +1144,7 @@ def parse_node_registry(content: str) -> MCPAgentRegistryModel:
                         tag=parts[2] if parts[2] else None,
                         mcp_server=parts[3],
                         relevance_score=score,
+                        requires_approval=approval,
                     )
                 )
 
@@ -1132,16 +1168,18 @@ def serialize_node_registry(model: MCPAgentRegistryModel) -> str:
         "",
         "## Agent Mapping Table",
         "",
-        "| Name | Description | System Prompt | Tools | Tag / ID | Source MCP / Skill | Tool Count | Avg Score |",
-        "|------|-------------|---------------|-------|----------|--------------------|------------|-----------|",
+        "| Name | Description | System Prompt | Tag | Skills | Tools | Skill Count | Tool Count | Avg Score |",
+        "|------|-------------|---------------|-----|--------|-------|-------------|------------|-----------|",
     ]
     for a in model.agents:
-        tools_str = ", ".join(a.tools)
+        prompt_val = a.prompt_file or smart_truncate(a.system_prompt, 500)
+        desc_val = smart_truncate(a.description, 200)
+
+        skills_str = ", ".join(a.capabilities) if a.capabilities else "-"
         lines.append(
-            f"| {md_table_escape(a.name)} | {md_table_escape(a.description)} "
-            f"| {md_table_escape(a.system_prompt)} | {md_table_escape(tools_str)} "
-            f"| {md_table_escape(a.tag or '')} | {md_table_escape(a.mcp_server)} "
-            f"| {a.tool_count} | {a.avg_relevance_score} |"
+            f"| {md_table_escape(a.name)} | {md_table_escape(desc_val)} | {md_table_escape(prompt_val)} "
+            f"| {md_table_escape(a.mcp_tools or '-')} | {md_table_escape(skills_str)} | {md_table_escape(a.endpoint_url or '-')} "
+            f"| {len(a.capabilities)} | {a.tool_count} | {a.avg_relevance_score} |"
         )
 
     lines.extend(
@@ -1149,17 +1187,17 @@ def serialize_node_registry(model: MCPAgentRegistryModel) -> str:
             "",
             "## Tool Inventory Table",
             "",
-            "| Tool Name | Description | Tag | Source | Score |",
-            "|-----------|-------------|-----|--------|-------|",
+            "| Tool Name | Description | Tag | Source | Score | Approval |",
+            "|-----------|-------------|-----|--------|-------|----------|",
         ]
     )
     for t in model.tools:
-        # Show all tags in the Tag column
         tags_display = ", ".join(t.all_tags) if t.all_tags else (t.tag or "")
+        approval_str = "Yes" if t.requires_approval else "No"
         lines.append(
             f"| {md_table_escape(t.name)} | {md_table_escape(t.description)} "
             f"| {md_table_escape(tags_display)} | {md_table_escape(t.mcp_server)} "
-            f"| {t.relevance_score} |"
+            f"| {t.relevance_score} | {approval_str} |"
         )
 
     return "\n".join(lines).strip() + "\n"

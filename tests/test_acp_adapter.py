@@ -1,7 +1,4 @@
-import pytest
-import os
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from agent_utilities.acp_adapter import build_acp_config
 
 def test_build_acp_config_defaults():

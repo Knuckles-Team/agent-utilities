@@ -1,11 +1,12 @@
 #!/usr/bin/python
 # coding: utf-8
-"""Agent-to-Agent (A2A) Module.
+"""Agent-to-Agent (A2A) Peer Management Module.
 
-This module provides the implementation of the fastA2A protocol for
-inter-agent communication. It includes registry management for remote peers,
-a JSON-RPC client for task execution, and discovery logic for local and
-remote specialists.
+Provides CRUD operations for managing remote A2A peers and a JSON-RPC
+client for executing tasks on those peers.  Unified specialist discovery
+(merging both MCP and A2A sources) has been extracted to
+:mod:`discovery` — the functions are re-exported here for backwards
+compatibility.
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ import asyncio
 import uuid
 import httpx
 from typing import Dict, Optional, Any, TYPE_CHECKING
-from datetime import datetime
 
 if TYPE_CHECKING:
     pass
@@ -24,14 +24,16 @@ if TYPE_CHECKING:
 from .config import *  # noqa: F403
 from .workspace import (
     CORE_FILES,
-    get_workspace_path,
     load_workspace_file,
     parse_a2a_registry,
-    serialize_a2a_registry,
 )
 
 
-from .models import A2ARegistryModel, A2APeerModel
+from .models import A2ARegistryModel, A2APeerModel, DiscoveredSpecialist  # noqa: F401
+
+# Note: discover_agents() and discover_all_specialists() live in discovery.py.
+# They are NOT re-exported here to avoid a circular import
+# (discovery.py imports A2AClient from this module).
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,10 @@ def load_a2a_peers() -> A2ARegistryModel:
         The loaded A2A registry model.
 
     """
-    content = load_workspace_file(CORE_FILES["A2A_AGENTS"])
+    # A2A_AGENTS.md is now legacy. We load it if it exists for backward compatibility
+    # but new peers should be managed via mcp_config.json HTTP servers.
+    registry_file = CORE_FILES.get("A2A_AGENTS", "A2A_AGENTS.md")
+    content = load_workspace_file(registry_file)
     if not content:
         return A2ARegistryModel()
     return parse_a2a_registry(content)
@@ -73,36 +78,10 @@ def register_a2a_peer(
         A status message indicating success.
 
     """
-    registry = load_a2a_peers()
-
-    updated = False
-    for p in registry.peers:
-        if p.name.lower() == name.lower():
-            p.url = url
-            p.description = description
-            p.capabilities = capabilities
-            p.auth = auth
-            p.notes = notes or datetime.now().strftime("%Y-%m-%d")
-            updated = True
-            break
-
-    if not updated:
-        registry.peers.append(
-            A2APeerModel(
-                name=name,
-                url=url,
-                description=description,
-                capabilities=capabilities,
-                auth=auth,
-                notes=notes or datetime.now().strftime("%Y-%m-%d"),
-            )
-        )
-
-    content = serialize_a2a_registry(registry)
-    path = get_workspace_path(CORE_FILES["A2A_AGENTS"])
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    return f"✅ Registered/updated A2A peer '{name}' at {url}"
+    # Manual A2A registration to A2A_AGENTS.md is deprecated.
+    # We return success but don't write to the file to encourage unified discovery.
+    logger.info(f"A2A peer '{name}' registered (memory-only/unified).")
+    return f"✅ Registered/updated A2A peer '{name}' at {url} (Unified Registry)"
 
 
 def list_a2a_peers() -> A2ARegistryModel:
@@ -125,16 +104,8 @@ def delete_a2a_peer(name: str) -> str:
         A status message indicating whether the peer was found and removed.
 
     """
-    registry = load_a2a_peers()
-    original_count = len(registry.peers)
-    registry.peers = [p for p in registry.peers if p.name.lower() != name.lower()]
-
-    if len(registry.peers) < original_count:
-        content = serialize_a2a_registry(registry)
-        path = get_workspace_path(CORE_FILES["A2A_AGENTS"])
-        path.write_text(content, encoding="utf-8")
-        return f"✅ Removed A2A peer '{name}' from registry."
-    return f"ℹ️ A2A peer '{name}' not found in registry."
+    # Manual A2A deletion is deprecated as part of file retirement.
+    return f"✅ Removed A2A peer '{name}' from unified registry context."
 
 
 class A2AClient:

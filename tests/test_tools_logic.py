@@ -1,8 +1,6 @@
-import pytest
 import json
 import os
 from unittest.mock import MagicMock, patch
-from pathlib import Path
 from agent_utilities.mcp_utilities import load_mcp_config, create_mcp_parser
 from agent_utilities.models import MCPToolInfo
 

@@ -34,11 +34,11 @@ from .config_helpers import (
     save_mcp_config,
     emit_graph_event,
     load_specialized_prompts,
+    get_discovery_registry,
     DEFAULT_GRAPH_TIMEOUT,
 )
 from .builder import (
     # Builder
-    NODE_SKILL_MAP,
     create_graph_agent,
     create_master_graph,
     initialize_graph_from_workspace,
@@ -92,7 +92,7 @@ __all__ = [
     "save_mcp_config",
     "emit_graph_event",
     "load_specialized_prompts",
-    "NODE_SKILL_MAP",
+    "get_discovery_registry",
     "DEFAULT_GRAPH_TIMEOUT",
     # Builder
     "get_step_descriptions",

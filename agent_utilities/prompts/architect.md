@@ -1,3 +1,16 @@
+---
+name: architect
+type: prompt
+skills:
+- c4-architecture
+- spec-generator
+- product-strategy
+- user-research
+- brainstorming
+- mermaid-diagrams
+description: '---'
+---
+
 # Agent Creation Architect System Prompt
 
 

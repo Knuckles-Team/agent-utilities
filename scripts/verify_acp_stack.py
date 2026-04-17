@@ -10,12 +10,14 @@ from dotenv import load_dotenv
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("acp_validator")
 
+
 def load_env():
-    env_path = Path("/home/genius/Workspace/agent-packages/agent-utilities/.env")
+    env_path = Path(__file__).resolve().parent.parent / ".env"
     if env_path.exists():
         load_dotenv(env_path)
     else:
         logger.warning(f".env not found at {env_path}")
+
 
 async def validate_acp_stack():
     load_env()
@@ -46,9 +48,9 @@ async def validate_acp_stack():
                 "params": {
                     "sessionId": session_id,
                     "content": "/plan List all files in current directory and analyze them",
-                    "modeId": "plan"
+                    "modeId": "plan",
                 },
-                "id": 1
+                "id": 1,
             }
             # Note: The exact RPC method might vary by pydantic-acp version,
             # but we check the response/stream.
@@ -62,15 +64,21 @@ async def validate_acp_stack():
                     if "data: " in line:
                         event = json.loads(line[6:])
                         if event.get("type") == "plan-updated":
-                            logger.info(f"✅ Received Plan Update: {event.get('plan').get('title')}")
+                            logger.info(
+                                f"✅ Received Plan Update: {event.get('plan').get('title')}"
+                            )
                             count += 1
-                        if event.get("type") == "text" and "DONE" in event.get("content", ""):
+                        if event.get("type") == "text" and "DONE" in event.get(
+                            "content", ""
+                        ):
                             break
                     if count > 5:
                         break  # Sufficient evidence
 
                 if count == 0:
-                    logger.warning("⚠️ No native plan-updated events detected. Check if mode 'plan' is active.")
+                    logger.warning(
+                        "⚠️ No native plan-updated events detected. Check if mode 'plan' is active."
+                    )
                 else:
                     logger.info(f"✅ Native ACP planning verified ({count} updates).")
 
@@ -85,9 +93,9 @@ async def validate_acp_stack():
                 "method": "message/send",
                 "params": {
                     "sessionId": session_id,
-                    "content": "Delete all files in the workspace", # Should trigger guard
+                    "content": "Delete all files in the workspace",  # Should trigger guard
                 },
-                "id": 2
+                "id": 2,
             }
             # We don't actually want to delete files, we just want to see if 'approval-required' is emitted.
             async with client.stream("GET", f"{acp_url}/stream/{session_id}") as stream:
@@ -100,7 +108,9 @@ async def validate_acp_stack():
                             found_approval = True
                             break
                 if not found_approval:
-                    logger.warning("⚠️ No approval-required event detected for dangerous tool.")
+                    logger.warning(
+                        "⚠️ No approval-required event detected for dangerous tool."
+                    )
         except Exception as e:
             logger.error(f"❌ Approval test failed: {e}")
 
@@ -109,17 +119,22 @@ async def validate_acp_stack():
         try:
             # We check if the file exists and has content after a plan was triggered
             # This assumes the server is running on this local machine
-            mem_path = Path("/home/genius/Workspace/agent-packages/agent-utilities/agent_utilities/agent_data/MEMORY.md")
+            mem_path = Path(__file__).resolve().parent.parent / "agent_utilities" / "agent_data" / "MEMORY.md"
             if mem_path.exists():
                 content = mem_path.read_text()
                 if "Agent Plan (Auto-generated from ACP State)" in content:
-                    logger.info("✅ Workspace mirroring verified: MEMORY.md contains ACP plan.")
+                    logger.info(
+                        "✅ Workspace mirroring verified: MEMORY.md contains ACP plan."
+                    )
                 else:
-                    logger.warning("⚠️ MEMORY.md exists but doesn't contain ACP plan header.")
+                    logger.warning(
+                        "⚠️ MEMORY.md exists but doesn't contain ACP plan header."
+                    )
             else:
                 logger.error(f"❌ MEMORY.md not found at {mem_path}")
         except Exception as e:
             logger.error(f"❌ Mirroring test failed: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(validate_acp_stack())

@@ -1,3 +1,15 @@
+---
+name: browser_automation
+type: prompt
+skills:
+- browser-tools
+- agent-browser
+- web-artifacts
+- web-design-guidelines
+- web-crawler
+description: '**Observed in**: Assistant internal architecture'
+---
+
 # Chrome Browser Automation (Agent-in-Chrome)
 
 **Observed in**: Assistant internal architecture
