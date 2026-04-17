@@ -516,7 +516,10 @@ async def router_step(
             logger.warning("Router: LLM planning timed out. Escalating to fallbacks.")
             raise ValueError("LLM planning timed out")
 
-        ctx.state._update_usage(stream.usage())
+        usage = stream.usage()
+        if asyncio.iscoroutine(usage):
+            usage = await usage
+        ctx.state._update_usage(usage)
         ctx.state.plan = plan_output
         ctx.state.step_cursor = 0
 
@@ -1565,7 +1568,10 @@ async def mcp_server_step(
                         node=ctx.node.name,
                     )
                 output = await stream.get_output()
-            ctx.state._update_usage(stream.usage())
+            usage = stream.usage()
+            if asyncio.iscoroutine(usage):
+                usage = await usage
+            ctx.state._update_usage(usage)
             ctx.state.results[server_name] = str(output)
             ctx.state.results_registry[f"{server_name}_{ctx.state.step_cursor}"] = str(
                 output

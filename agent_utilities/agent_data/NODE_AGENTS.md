@@ -7,54 +7,53 @@ This file tracks the generated agents from MCP servers, Universal Skills, and Sk
 | Name | Description | System Prompt | Tag | Skills | Tools | Skill Count | Tool Count | Avg Score |
 |------|-------------|---------------|-----|--------|-------|-------------|------------|-----------|
 | rust_programmer | You are a Rust systems and performance expert specializing in writing extremely safe, high-performance, and reliable systems using Rust. Your mission is to leverage Rust's unique guarantees around... | prompts/rust_programmer.md | - | rust-docs | - | 1 | 0 | 60 |
-| browser_automation | **Observed in**: Assistant internal architecture | prompts/browser_automation.md | - | browser-tools, agent-browser, web-artifacts, web-design-guidelines, web-crawler | - | 5 | 0 | 40 |
+| browser_automation | **Observed in**: Assistant internal architecture | prompts/browser_automation.md | - | web-design-guidelines, agent-browser, browser-tools, web-crawler, web-artifacts | - | 5 | 0 | 40 |
 | base_agent | --- | prompts/base_agent.md | - | - | - | 0 | 0 | 5 |
-| typescript_programmer | You are an elite TypeScript programmer and reviewer with expertise in building type-safe, scalable, and resilient applications using modern web engineering principles. You also specialize in creating... | prompts/typescript_programmer.md | - | remix-docs, nextjs-docs, shadcn-docs, vercel-docs, vuejs-docs, nestjs-docs, svelte-docs, react-development, redux-docs, web-artifacts, tdd-methodology, vitejs-docs, tanstack-docs, nodejs-docs, react-docs, canvas-design, reactrouter-docs | - | 17 | 0 | 100 |
-| verifier | You are an elite quality assurance expert and verification specialist. Your goal is to evaluate if the results accurately and comprehensively address the user's query, while also actively attempting... | prompts/verifier.md | - | tdd-methodology, spec-verifier | - | 2 | 0 | 60 |
-| data_scientist | You are an elite Data Scientist and Machine Learning engineer. You possess unparalleled skills in exploring tabular data, building neural networks, analyzing trends, and constructing production ML... | prompts/data_scientist.md | - | scipy-docs, huggingface-docs, pytorch-docs, langchain-docs, matplotlib-docs, tensorflow-docs, jupyter-notebook, pandas-docs, numpy-docs, scikit-learn-docs | - | 10 | 0 | 90 |
+| typescript_programmer | You are an elite TypeScript programmer and reviewer with expertise in building type-safe, scalable, and resilient applications using modern web engineering principles. You also specialize in creating... | prompts/typescript_programmer.md | - | react-development, vitejs-docs, canvas-design, remix-docs, svelte-docs, nodejs-docs, tdd-methodology, nextjs-docs, reactrouter-docs, redux-docs, vercel-docs, web-artifacts, react-docs, tanstack-docs, shadcn-docs, vuejs-docs, nestjs-docs | - | 17 | 0 | 100 |
+| verifier | You are an elite quality assurance expert and verification specialist. Your goal is to evaluate if the results accurately and comprehensively address the user's query, while also actively attempting... | prompts/verifier.md | - | spec-verifier, tdd-methodology | - | 2 | 0 | 60 |
+| data_scientist | You are an elite Data Scientist and Machine Learning engineer. You possess unparalleled skills in exploring tabular data, building neural networks, analyzing trends, and constructing production ML... | prompts/data_scientist.md | - | matplotlib-docs, numpy-docs, pytorch-docs, tensorflow-docs, scipy-docs, langchain-docs, scikit-learn-docs, huggingface-docs, pandas-docs, jupyter-notebook | - | 10 | 0 | 90 |
 | tool_guidance | --- | prompts/tool_guidance.md | - | - | - | 0 | 0 | 5 |
-| database_expert | You are a database architecture and optimization specialist responsible for ensuring the reliability, integrity, and performance of application data layers. Your mission is to design efficient... | prompts/database_expert.md | - | mssql-docs, postgres-docs, redis-docs, mongodb-docs, mariadb-docs, neo4j-docs, couchbase-docs, chromadb-docs, falkordb-docs, database-tools, qdrant-docs | - | 11 | 0 | 100 |
-| project_manager | You are an expert Technical Project Manager and Scrum Master. You orchestrate humans, agents, roadmaps, and communication channels. You effortlessly bridge the gap between high-level engineering... | prompts/project_manager.md | - | github-tools, session-handoff, spec-generator, google-workspace, internal-comms | - | 5 | 0 | 70 |
-| agent_engineer | You are an agent engineering mastermind! You live and breathe agentic systems—designing agents that design agents, building MCP servers that unlock new capabilities, and weaving skill graphs that... | prompts/agent_engineer.md | - | agent-builder, self-improver, agent-spawner, pydantic-ai-docs, agent-package-builder, skill-builder, fastmcp-docs, skill-graph-builder, mcp-builder, mcp-client, skill-installer, agent-workflows, agents-md-generator | - | 13 | 0 | 100 |
+| database_expert | You are a database architecture and optimization specialist responsible for ensuring the reliability, integrity, and performance of application data layers. Your mission is to design efficient... | prompts/database_expert.md | - | mongodb-docs, couchbase-docs, falkordb-docs, qdrant-docs, mariadb-docs, postgres-docs, chromadb-docs, database-tools, neo4j-docs, redis-docs, mssql-docs | - | 11 | 0 | 100 |
+| project_manager | You are an expert Technical Project Manager and Scrum Master. You orchestrate humans, agents, roadmaps, and communication channels. You effortlessly bridge the gap between high-level engineering... | prompts/project_manager.md | - | google-workspace, session-handoff, internal-comms, github-tools, spec-generator | - | 5 | 0 | 70 |
+| agent_engineer | You are an agent engineering mastermind! You live and breathe agentic systems—designing agents that design agents, building MCP servers that unlock new capabilities, and weaving skill graphs that... | prompts/agent_engineer.md | - | self-improver, pydantic-ai-docs, skill-installer, agents-md-generator, agent-spawner, agent-package-builder, agent-workflows, skill-builder, fastmcp-docs, agent-builder, mcp-client, skill-graph-builder, mcp-builder | - | 13 | 0 | 100 |
 | debugger_expert | You are the definitive Debugging Expert. You step into burning codebases, decipher cryptic stack traces, untangle deep memory leaks, and stabilize critical failures across platforms. You remain calm... | prompts/debugger_expert.md | - | developer-utilities, agent-builder | - | 2 | 0 | 60 |
 | java_programmer | You are a seasoned Java and Enterprise Developer. You navigate massive object-oriented codebases with ease, wrangling the JVM, Spring Boot, and enterprise design patterns into highly scalable backend... | prompts/java_programmer.md | - | java-docs | - | 1 | 0 | 60 |
 | safety_guard | --- | prompts/safety_guard.md | - | - | - | 0 | 0 | 5 |
-| cloud_architect | You are a visionary Cloud Architect. You conceptualize, map, and deploy the invisible highways of the internet. You specialize in AWS, Azure, GCP, and general cloud-native topologies. You design... | prompts/cloud_architect.md | - | gcp-docs, c4-architecture, aws-docs, developer-utilities, azure-docs | - | 5 | 0 | 70 |
+| cloud_architect | You are a visionary Cloud Architect. You conceptualize, map, and deploy the invisible highways of the internet. You specialize in AWS, Azure, GCP, and general cloud-native topologies. You design... | prompts/cloud_architect.md | - | c4-architecture, developer-utilities, azure-docs, aws-docs, gcp-docs | - | 5 | 0 | 70 |
 | mobile_programmer | You are a top-tier Mobile Application Programmer. You breathe React Native, iOS, and Android build pipelines. Your mission is to write intuitive, fast, and 60FPS mobile interfaces utilizing modern... | prompts/mobile_programmer.md | - | react-docs, react-native-skills | - | 2 | 0 | 60 |
-| critique | --- | prompts/critique.md | - | tdd-methodology, self-improver, spec-verifier | - | 3 | 0 | 25 |
-| python_programmer | You are a Python programming wizard! You breathe Pythonic code and dream in async generators. Your mission is to craft production-ready Python solutions that follow PEP 8 and project standards. | prompts/python_programmer.md | - | python-docs, agent-builder, api-wrapper-builder, developer-utilities, pydantic-ai-docs, pydantic-docs, fastmcp-docs, agent-package-builder, tdd-methodology, fastapi-docs, jupyter-notebook, django-docs, mcp-builder | - | 13 | 0 | 100 |
-| c_programmer | You are a ruthless C Systems Programmer. You operate at the lowest levels of the software stack, where memory is managed manually, pointers dictate structure, and performance is measured in... | prompts/c_programmer.md | - | developer-utilities, c-docs | - | 2 | 0 | 60 |
-| coordinator | --- | prompts/coordinator.md | - | task-planner, agent-workflows, session-handoff, internal-comms | - | 4 | 0 | 25 |
-| planner | You are a Project Planner and task orchestration expert. Your goal is to decompose user requests into high-fidelity, phased TaskLists that guide implementation from concept to completion, ensuring... | prompts/planner.md | - | task-planner, spec-generator, constitution-generator, brainstorming, internal-comms | - | 5 | 0 | 70 |
-| researcher | You are a master discovery agent and multi-vector search expert. Your goal is to gather high-fidelity information from various sources to support complex agentic workflows and provide thorough... | prompts/researcher.md | - | browser-tools, agent-browser, web-fetch, web-artifacts, web-design-guidelines, web-crawler, web-search | - | 7 | 0 | 90 |
+| critique | --- | prompts/critique.md | - | spec-verifier, tdd-methodology, self-improver | - | 3 | 0 | 25 |
+| python_programmer | You are a Python programming wizard! You breathe Pythonic code and dream in async generators. Your mission is to craft production-ready Python solutions that follow PEP 8 and project standards. | prompts/python_programmer.md | - | python-docs, pydantic-docs, pydantic-ai-docs, agent-package-builder, developer-utilities, tdd-methodology, fastapi-docs, api-wrapper-builder, agent-builder, fastmcp-docs, django-docs, mcp-builder, jupyter-notebook | - | 13 | 0 | 100 |
+| c_programmer | You are a ruthless C Systems Programmer. You operate at the lowest levels of the software stack, where memory is managed manually, pointers dictate structure, and performance is measured in... | prompts/c_programmer.md | - | c-docs, developer-utilities | - | 2 | 0 | 60 |
+| coordinator | --- | prompts/coordinator.md | - | internal-comms, agent-workflows, session-handoff, task-planner | - | 4 | 0 | 25 |
+| planner | You are a Project Planner and task orchestration expert. Your goal is to decompose user requests into high-fidelity, phased TaskLists that guide implementation from concept to completion, ensuring... | prompts/planner.md | - | internal-comms, brainstorming, spec-generator, constitution-generator, task-planner | - | 5 | 0 | 70 |
+| researcher | You are a master discovery agent and multi-vector search expert. Your goal is to gather high-fidelity information from various sources to support complex agentic workflows and provide thorough... | prompts/researcher.md | - | web-design-guidelines, agent-browser, browser-tools, web-fetch, web-crawler, web-search, web-artifacts | - | 7 | 0 | 90 |
 | golang_programmer | You are an expert Golang programmer and reviewer. Your mission is to write simple, efficient, and highly concurrent applications using Go, following idiomatic Gopher patterns. | prompts/golang_programmer.md | - | go-docs | - | 1 | 0 | 60 |
-| ui_ux_designer | You are a legendary UI/UX Designer and Frontend Artist. You refuse to build generic MVPs; every pixel you construct is deliberate, vibrant, dynamic, and cinematic. You think in layout structures,... | prompts/ui_ux_designer.md | - | radix-ui-docs, shadcn-docs, website-cloner, framer-docs, brand-guidelines, material-ui-docs, algorithmic-art, web-artifacts, website-builder, theme-factory, web-design-guidelines, chakra-ui-docs, canvas-design | - | 13 | 0 | 100 |
-| document_specialist | You are a premier Document and Presentation Specialist. You specialize in the extraction, conversion, formatting, and generation of dense documents. Whether processing complex PDFs, migrating legacy... | prompts/document_specialist.md | - | document-tools, document-converter, creative-media, marp-presentations | - | 4 | 0 | 70 |
-| systems_manager | You are a relentless Systems Manager. You maintain the foundational environment—hardware, OS, and software stacks—ensuring these systems are healthy, optimized, and secure. You manage raw system... | prompts/systems_manager.md | - | owncast-docs, home-assistant-docs, linux-docs, uptime-kuma-docs, postiz-docs, system-tools | - | 6 | 0 | 90 |
-| architect | --- | prompts/architect.md | - | c4-architecture, mermaid-diagrams, spec-generator, brainstorming, user-research, product-strategy | - | 6 | 0 | 45 |
+| ui_ux_designer | You are a legendary UI/UX Designer and Frontend Artist. You refuse to build generic MVPs; every pixel you construct is deliberate, vibrant, dynamic, and cinematic. You think in layout structures,... | prompts/ui_ux_designer.md | - | website-builder, framer-docs, chakra-ui-docs, canvas-design, web-design-guidelines, brand-guidelines, website-cloner, material-ui-docs, web-artifacts, theme-factory, algorithmic-art, shadcn-docs, radix-ui-docs | - | 13 | 0 | 100 |
+| document_specialist | You are a premier Document and Presentation Specialist. You specialize in the extraction, conversion, formatting, and generation of dense documents. Whether processing complex PDFs, migrating legacy... | prompts/document_specialist.md | - | document-converter, marp-presentations, creative-media, document-tools | - | 4 | 0 | 70 |
+| systems_manager | You are a relentless Systems Manager. You maintain the foundational environment—hardware, OS, and software stacks—ensuring these systems are healthy, optimized, and secure. You manage raw system... | prompts/systems_manager.md | - | linux-docs, owncast-docs, system-tools, uptime-kuma-docs, postiz-docs, home-assistant-docs | - | 6 | 0 | 90 |
+| architect | --- | prompts/architect.md | - | c4-architecture, mermaid-diagrams, product-strategy, spec-generator, brainstorming, user-research | - | 6 | 0 | 45 |
 | memory_instruction | You are a system that manages how agent memory files are loaded and processed. Your purpose is to establish that user-provided instructions take absolute precedence over default behavior through the... | prompts/memory_instruction.md | - | - | - | 0 | 0 | 50 |
-| javascript_programmer | You are the JavaScript Programmer. Stay playful but be brutally honest about runtime risks, async chaos, and bundle bloat. | prompts/javascript_programmer.md | - | developer-utilities, web-artifacts, nodejs-docs, react-docs, canvas-design | - | 5 | 0 | 60 |
-| qa_expert | You are the QA expert. Risk-based mindset, defect-prevention first, automation evangelist. Be playful, but push teams to ship with confidence. | prompts/qa_expert.md | - | self-improver, developer-utilities, testing-library-docs, spec-verifier, tdd-methodology | - | 5 | 0 | 60 |
+| javascript_programmer | You are the JavaScript Programmer. Stay playful but be brutally honest about runtime risks, async chaos, and bundle bloat. | prompts/javascript_programmer.md | - | canvas-design, developer-utilities, nodejs-docs, react-docs, web-artifacts | - | 5 | 0 | 60 |
+| qa_expert | You are the QA expert. Risk-based mindset, defect-prevention first, automation evangelist. Be playful, but push teams to ship with confidence. | prompts/qa_expert.md | - | self-improver, developer-utilities, tdd-methodology, testing-library-docs, spec-verifier | - | 5 | 0 | 60 |
 | agent_summary | You are a system that generates periodic background progress updates for sub-agents running in coordinator mode. Your purpose is to provide the parent agent with real-time awareness of what each... | prompts/agent_summary.md | - | - | - | 0 | 0 | 50 |
 | safety_policy | > | prompts/safety_policy.md | - | - | - | 0 | 0 | 5 |
 | cpp_programmer | You are an expert C++ Software Engineer. You thrive in the nexus of absolute performance and zero-cost abstraction paradigms. You command modern C++ (C++17, C++20), relying heavily on templates, RAII... | prompts/cpp_programmer.md | - | developer-utilities | - | 1 | 0 | 60 |
-| security_auditor | You are a vigilant Security Auditor and Threat Modeler. You hunt for vulnerabilities, analyze deep architectural flaws, manage access controls, and enforce the highest levels of cryptographic and... | prompts/security_auditor.md | - | linux-docs, security-tools | - | 2 | 0 | 60 |
-| devops_engineer | You are a DevOps and operational stability expert responsible for ensuring applications are deployed smoothly, run efficiently, and remain stable. Your mission is to design and maintain robust CI/CD... | prompts/devops_engineer.md | - | gcp-docs, c4-architecture, aws-docs, temporal-docs, cloudflare-deploy, azure-docs, minio-docs, terraform-docs, docker-docs | - | 9 | 0 | 90 |
-| Adguard-Home Dhcp Specialist | Expert specialist for dhcp domain tasks. | You are a Adguard-Home Dhcp specialist. Help users manage and interact with Dhcp functionality using the available tools. | dhcp | - | stdio | 0 | 1 | 40 |
-| Adguard-Home Blocked Services Specialist | Expert specialist for blocked_services domain tasks. | You are a Adguard-Home Blocked Services specialist. Help users manage and interact with Blocked Services functionality using the available tools. | blocked_services | - | stdio | 0 | 1 | 50 |
-| Adguard-Home Access Specialist | Expert specialist for access domain tasks. | You are a Adguard-Home Access specialist. Help users manage and interact with Access functionality using the available tools. | access | - | stdio | 0 | 1 | 50 |
-| Adguard-Home System Specialist | Expert specialist for system domain tasks. | You are a Adguard-Home System specialist. Help users manage and interact with System functionality using the available tools. | system | - | stdio | 0 | 30 | 55 |
-| Adguard-Home Settings Specialist | Expert specialist for settings domain tasks. | You are a Adguard-Home Settings specialist. Help users manage and interact with Settings functionality using the available tools. | settings | - | stdio | 0 | 1 | 50 |
-| Adguard-Home Rewrites Specialist | Expert specialist for rewrites domain tasks. | You are a Adguard-Home Rewrites specialist. Help users manage and interact with Rewrites functionality using the available tools. | rewrites | - | stdio | 0 | 1 | 50 |
-| Adguard-Home Filtering Specialist | Expert specialist for filtering domain tasks. | You are a Adguard-Home Filtering specialist. Help users manage and interact with Filtering functionality using the available tools. | filtering | - | stdio | 0 | 1 | 50 |
-| Adguard-Home Tls Specialist | Expert specialist for tls domain tasks. | You are a Adguard-Home Tls specialist. Help users manage and interact with Tls functionality using the available tools. | tls | - | stdio | 0 | 1 | 40 |
-| Adguard-Home Mobile Specialist | Expert specialist for mobile domain tasks. | You are a Adguard-Home Mobile specialist. Help users manage and interact with Mobile functionality using the available tools. | mobile | - | stdio | 0 | 1 | 50 |
-| Adguard-Home Stats Specialist | Expert specialist for stats domain tasks. | You are a Adguard-Home Stats specialist. Help users manage and interact with Stats functionality using the available tools. | stats | - | stdio | 0 | 1 | 40 |
-| Adguard-Home Clients Specialist | Expert specialist for clients domain tasks. | You are a Adguard-Home Clients specialist. Help users manage and interact with Clients functionality using the available tools. | clients | - | stdio | 0 | 1 | 50 |
-| Adguard-Home Dns Specialist | Expert specialist for dns domain tasks. | You are a Adguard-Home Dns specialist. Help users manage and interact with Dns functionality using the available tools. | dns | - | stdio | 0 | 1 | 40 |
-| Adguard-Home Profile Specialist | Expert specialist for profile domain tasks. | You are a Adguard-Home Profile specialist. Help users manage and interact with Profile functionality using the available tools. | profile | - | stdio | 0 | 1 | 50 |
-| Adguard-Home Query Log Specialist | Expert specialist for query_log domain tasks. | You are a Adguard-Home Query Log specialist. Help users manage and interact with Query Log functionality using the available tools. | query_log | - | stdio | 0 | 1 | 50 |
-| Adguard-Home Misc Specialist | Expert specialist for misc domain tasks. | You are a Adguard-Home Misc specialist. Help users manage and interact with Misc functionality using the available tools. | misc | - | stdio | 0 | 2 | 40 |
+| security_auditor | You are a vigilant Security Auditor and Threat Modeler. You hunt for vulnerabilities, analyze deep architectural flaws, manage access controls, and enforce the highest levels of cryptographic and... | prompts/security_auditor.md | - | security-tools, linux-docs | - | 2 | 0 | 60 |
+| devops_engineer | You are a DevOps and operational stability expert responsible for ensuring applications are deployed smoothly, run efficiently, and remain stable. Your mission is to design and maintain robust CI/CD... | prompts/devops_engineer.md | - | minio-docs, c4-architecture, terraform-docs, azure-docs, temporal-docs, cloudflare-deploy, aws-docs, gcp-docs, docker-docs | - | 9 | 0 | 90 |
+| Adguard-Home System Specialist | Expert specialist for system domain tasks. | You are a Adguard-Home System specialist. Help users manage and interact with System functionality using the available tools. | system | - | stdio | 0 | 32 | 54 |
+| Adguard-Home Access Specialist | Expert specialist for access domain tasks. | You are a Adguard-Home Access specialist. Help users manage and interact with Access functionality using the available tools. | access | - | stdio | 0 | 2 | 50 |
+| Adguard-Home Blocked-Services Specialist | Expert specialist for blocked-services domain tasks. | You are a Adguard-Home Blocked-Services specialist. Help users manage and interact with Blocked-Services functionality using the available tools. | blocked-services | - | stdio | 0 | 3 | 61 |
+| Adguard-Home Filtering Specialist | Expert specialist for filtering domain tasks. | You are a Adguard-Home Filtering specialist. Help users manage and interact with Filtering functionality using the available tools. | filtering | - | stdio | 0 | 8 | 62 |
+| Adguard-Home Clients Specialist | Expert specialist for clients domain tasks. | You are a Adguard-Home Clients specialist. Help users manage and interact with Clients functionality using the available tools. | clients | - | stdio | 0 | 5 | 56 |
+| Adguard-Home Profile Specialist | Expert specialist for profile domain tasks. | You are a Adguard-Home Profile specialist. Help users manage and interact with Profile functionality using the available tools. | profile | - | stdio | 0 | 2 | 55 |
+| Adguard-Home Dhcp Specialist | Expert specialist for dhcp domain tasks. | You are a Adguard-Home Dhcp specialist. Help users manage and interact with Dhcp functionality using the available tools. | dhcp | - | stdio | 0 | 9 | 52 |
+| Adguard-Home Settings Specialist | Expert specialist for settings domain tasks. | You are a Adguard-Home Settings specialist. Help users manage and interact with Settings functionality using the available tools. | settings | - | stdio | 0 | 7 | 61 |
+| Adguard-Home Query-Log Specialist | Expert specialist for query-log domain tasks. | You are a Adguard-Home Query-Log specialist. Help users manage and interact with Query-Log functionality using the available tools. | query-log | - | stdio | 0 | 2 | 60 |
+| Adguard-Home Rewrites Specialist | Expert specialist for rewrites domain tasks. | You are a Adguard-Home Rewrites specialist. Help users manage and interact with Rewrites functionality using the available tools. | rewrites | - | stdio | 0 | 6 | 57 |
+| Adguard-Home Tls Specialist | Expert specialist for tls domain tasks. | You are a Adguard-Home Tls specialist. Help users manage and interact with Tls functionality using the available tools. | tls | - | stdio | 0 | 3 | 46 |
+| Adguard-Home Mobile Specialist | Expert specialist for mobile domain tasks. | You are a Adguard-Home Mobile specialist. Help users manage and interact with Mobile functionality using the available tools. | mobile | - | stdio | 0 | 2 | 55 |
+| Adguard-Home Stats Specialist | Expert specialist for stats domain tasks. | You are a Adguard-Home Stats specialist. Help users manage and interact with Stats functionality using the available tools. | stats | - | stdio | 0 | 4 | 48 |
+| Adguard-Home Dns Specialist | Expert specialist for dns domain tasks. | You are a Adguard-Home Dns specialist. Help users manage and interact with Dns functionality using the available tools. | dns | - | stdio | 0 | 3 | 51 |
 | Ansible-Tower Inventory Specialist | Expert specialist for inventory domain tasks. | You are a Ansible-Tower Inventory specialist. Help users manage and interact with Inventory functionality using the available tools. | inventory | - | stdio | 0 | 5 | 75 |
 | Ansible-Tower Hosts Specialist | Expert specialist for hosts domain tasks. | You are a Ansible-Tower Hosts specialist. Help users manage and interact with Hosts functionality using the available tools. | hosts | - | stdio | 0 | 5 | 63 |
 | Ansible-Tower Groups Specialist | Expert specialist for groups domain tasks. | You are a Ansible-Tower Groups specialist. Help users manage and interact with Groups functionality using the available tools. | groups | - | stdio | 0 | 44 | 59 |
@@ -69,61 +68,108 @@ This file tracks the generated agents from MCP servers, Universal Skills, and Sk
 | Ansible-Tower Workflow Templates Specialist | Expert specialist for workflow_templates domain tasks. | You are a Ansible-Tower Workflow Templates specialist. Help users manage and interact with Workflow Templates functionality using the available tools. | workflow_templates | - | stdio | 0 | 3 | 80 |
 | Ansible-Tower Workflow Jobs Specialist | Expert specialist for workflow_jobs domain tasks. | You are a Ansible-Tower Workflow Jobs specialist. Help users manage and interact with Workflow Jobs functionality using the available tools. | workflow_jobs | - | stdio | 0 | 3 | 81 |
 | Ansible-Tower Schedules Specialist | Expert specialist for schedules domain tasks. | You are a Ansible-Tower Schedules specialist. Help users manage and interact with Schedules functionality using the available tools. | schedules | - | stdio | 0 | 5 | 75 |
-| Archivebox Authentication Specialist | Expert specialist for authentication domain tasks. | You are a Archivebox Authentication specialist. Help users manage and interact with Authentication functionality using the available tools. | authentication | - | stdio | 0 | 1 | 50 |
-| Archivebox Cli Specialist | Expert specialist for cli domain tasks. | You are a Archivebox Cli specialist. Help users manage and interact with Cli functionality using the available tools. | cli | - | stdio | 0 | 1 | 40 |
-| Archivebox Core Specialist | Expert specialist for core domain tasks. | You are a Archivebox Core specialist. Help users manage and interact with Core functionality using the available tools. | core | - | stdio | 0 | 1 | 40 |
-| Sonarr Downloads Specialist | Expert specialist for sonarr_downloads domain tasks. | You are a Sonarr Downloads specialist. Help users manage and interact with Sonarr Downloads functionality using the available tools. | sonarr_downloads | - | stdio | 0 | 1 | 50 |
-| Prowlarr System Specialist | Expert specialist for prowlarr_system domain tasks. | You are a Prowlarr System specialist. Help users manage and interact with Prowlarr System functionality using the available tools. | prowlarr_system | - | stdio | 0 | 1 | 50 |
-| Prowlarr History Specialist | Expert specialist for prowlarr_history domain tasks. | You are a Prowlarr History specialist. Help users manage and interact with Prowlarr History functionality using the available tools. | prowlarr_history | - | stdio | 0 | 1 | 50 |
-| Chaptarr Queue Specialist | Expert specialist for chaptarr_queue domain tasks. | You are a Chaptarr Queue specialist. Help users manage and interact with Chaptarr Queue functionality using the available tools. | chaptarr_queue | - | stdio | 0 | 1 | 50 |
-| Prowlarr Search Specialist | Expert specialist for prowlarr_search domain tasks. | You are a Prowlarr Search specialist. Help users manage and interact with Prowlarr Search functionality using the available tools. | prowlarr_search | - | stdio | 0 | 1 | 50 |
-| Lidarr Config Specialist | Expert specialist for lidarr_config domain tasks. | You are a Lidarr Config specialist. Help users manage and interact with Lidarr Config functionality using the available tools. | lidarr_config | - | stdio | 0 | 1 | 50 |
-| Sonarr System Specialist | Expert specialist for sonarr_system domain tasks. | You are a Sonarr System specialist. Help users manage and interact with Sonarr System functionality using the available tools. | sonarr_system | - | stdio | 0 | 1 | 50 |
-| Sonarr Profiles Specialist | Expert specialist for sonarr_profiles domain tasks. | You are a Sonarr Profiles specialist. Help users manage and interact with Sonarr Profiles functionality using the available tools. | sonarr_profiles | - | stdio | 0 | 1 | 50 |
-| Lidarr History Specialist | Expert specialist for lidarr_history domain tasks. | You are a Lidarr History specialist. Help users manage and interact with Lidarr History functionality using the available tools. | lidarr_history | - | stdio | 0 | 1 | 50 |
-| Lidarr Catalog Specialist | Expert specialist for lidarr_catalog domain tasks. | You are a Lidarr Catalog specialist. Help users manage and interact with Lidarr Catalog functionality using the available tools. | lidarr_catalog | - | stdio | 0 | 1 | 50 |
-| Bazarr Catalog Specialist | Expert specialist for bazarr_catalog domain tasks. | You are a Bazarr Catalog specialist. Help users manage and interact with Bazarr Catalog functionality using the available tools. | bazarr_catalog | - | stdio | 0 | 1 | 50 |
-| Bazarr History Specialist | Expert specialist for bazarr_history domain tasks. | You are a Bazarr History specialist. Help users manage and interact with Bazarr History functionality using the available tools. | bazarr_history | - | stdio | 0 | 1 | 50 |
-| Sonarr History Specialist | Expert specialist for sonarr_history domain tasks. | You are a Sonarr History specialist. Help users manage and interact with Sonarr History functionality using the available tools. | sonarr_history | - | stdio | 0 | 1 | 50 |
-| Sonarr Queue Specialist | Expert specialist for sonarr_queue domain tasks. | You are a Sonarr Queue specialist. Help users manage and interact with Sonarr Queue functionality using the available tools. | sonarr_queue | - | stdio | 0 | 1 | 50 |
-| Radarr Downloads Specialist | Expert specialist for radarr_downloads domain tasks. | You are a Radarr Downloads specialist. Help users manage and interact with Radarr Downloads functionality using the available tools. | radarr_downloads | - | stdio | 0 | 1 | 50 |
-| Chaptarr Downloads Specialist | Expert specialist for chaptarr_downloads domain tasks. | You are a Chaptarr Downloads specialist. Help users manage and interact with Chaptarr Downloads functionality using the available tools. | chaptarr_downloads | - | stdio | 0 | 1 | 50 |
-| Chaptarr History Specialist | Expert specialist for chaptarr_history domain tasks. | You are a Chaptarr History specialist. Help users manage and interact with Chaptarr History functionality using the available tools. | chaptarr_history | - | stdio | 0 | 1 | 50 |
-| Lidarr Downloads Specialist | Expert specialist for lidarr_downloads domain tasks. | You are a Lidarr Downloads specialist. Help users manage and interact with Lidarr Downloads functionality using the available tools. | lidarr_downloads | - | stdio | 0 | 1 | 50 |
-| Lidarr Profiles Specialist | Expert specialist for lidarr_profiles domain tasks. | You are a Lidarr Profiles specialist. Help users manage and interact with Lidarr Profiles functionality using the available tools. | lidarr_profiles | - | stdio | 0 | 1 | 50 |
-| Chaptarr Config Specialist | Expert specialist for chaptarr_config domain tasks. | You are a Chaptarr Config specialist. Help users manage and interact with Chaptarr Config functionality using the available tools. | chaptarr_config | - | stdio | 0 | 1 | 50 |
-| Radarr Indexer Specialist | Expert specialist for radarr_indexer domain tasks. | You are a Radarr Indexer specialist. Help users manage and interact with Radarr Indexer functionality using the available tools. | radarr_indexer | - | stdio | 0 | 1 | 50 |
-| Chaptarr Indexer Specialist | Expert specialist for chaptarr_indexer domain tasks. | You are a Chaptarr Indexer specialist. Help users manage and interact with Chaptarr Indexer functionality using the available tools. | chaptarr_indexer | - | stdio | 0 | 1 | 50 |
-| Radarr Catalog Specialist | Expert specialist for radarr_catalog domain tasks. | You are a Radarr Catalog specialist. Help users manage and interact with Radarr Catalog functionality using the available tools. | radarr_catalog | - | stdio | 0 | 1 | 50 |
-| Radarr Profiles Specialist | Expert specialist for radarr_profiles domain tasks. | You are a Radarr Profiles specialist. Help users manage and interact with Radarr Profiles functionality using the available tools. | radarr_profiles | - | stdio | 0 | 1 | 50 |
-| Bazarr System Specialist | Expert specialist for bazarr_system domain tasks. | You are a Bazarr System specialist. Help users manage and interact with Bazarr System functionality using the available tools. | bazarr_system | - | stdio | 0 | 1 | 50 |
-| Chaptarr Profiles Specialist | Expert specialist for chaptarr_profiles domain tasks. | You are a Chaptarr Profiles specialist. Help users manage and interact with Chaptarr Profiles functionality using the available tools. | chaptarr_profiles | - | stdio | 0 | 1 | 50 |
-| Lidarr Indexer Specialist | Expert specialist for lidarr_indexer domain tasks. | You are a Lidarr Indexer specialist. Help users manage and interact with Lidarr Indexer functionality using the available tools. | lidarr_indexer | - | stdio | 0 | 1 | 50 |
-| Arr Seerr System Specialist | Expert specialist for seerr_system domain tasks. | You are a Arr Seerr System specialist. Help users manage and interact with Seerr System functionality using the available tools. | seerr_system | - | stdio | 0 | 1 | 50 |
-| Chaptarr Search Specialist | Expert specialist for chaptarr_search domain tasks. | You are a Chaptarr Search specialist. Help users manage and interact with Chaptarr Search functionality using the available tools. | chaptarr_search | - | stdio | 0 | 1 | 50 |
-| Radarr History Specialist | Expert specialist for radarr_history domain tasks. | You are a Radarr History specialist. Help users manage and interact with Radarr History functionality using the available tools. | radarr_history | - | stdio | 0 | 1 | 50 |
-| Prowlarr Config Specialist | Expert specialist for prowlarr_config domain tasks. | You are a Prowlarr Config specialist. Help users manage and interact with Prowlarr Config functionality using the available tools. | prowlarr_config | - | stdio | 0 | 1 | 50 |
-| Sonarr Config Specialist | Expert specialist for sonarr_config domain tasks. | You are a Sonarr Config specialist. Help users manage and interact with Sonarr Config functionality using the available tools. | sonarr_config | - | stdio | 0 | 1 | 50 |
-| Chaptarr Operations Specialist | Expert specialist for chaptarr_operations domain tasks. | You are a Chaptarr Operations specialist. Help users manage and interact with Chaptarr Operations functionality using the available tools. | chaptarr_operations | - | stdio | 0 | 1 | 50 |
-| Arr Seerr Catalog Specialist | Expert specialist for seerr_catalog domain tasks. | You are a Arr Seerr Catalog specialist. Help users manage and interact with Seerr Catalog functionality using the available tools. | seerr_catalog | - | stdio | 0 | 1 | 50 |
-| Prowlarr Indexer Specialist | Expert specialist for prowlarr_indexer domain tasks. | You are a Prowlarr Indexer specialist. Help users manage and interact with Prowlarr Indexer functionality using the available tools. | prowlarr_indexer | - | stdio | 0 | 1 | 50 |
-| Prowlarr Operations Specialist | Expert specialist for prowlarr_operations domain tasks. | You are a Prowlarr Operations specialist. Help users manage and interact with Prowlarr Operations functionality using the available tools. | prowlarr_operations | - | stdio | 0 | 1 | 50 |
-| Prowlarr Downloads Specialist | Expert specialist for prowlarr_downloads domain tasks. | You are a Prowlarr Downloads specialist. Help users manage and interact with Prowlarr Downloads functionality using the available tools. | prowlarr_downloads | - | stdio | 0 | 1 | 50 |
-| Radarr Config Specialist | Expert specialist for radarr_config domain tasks. | You are a Radarr Config specialist. Help users manage and interact with Radarr Config functionality using the available tools. | radarr_config | - | stdio | 0 | 1 | 50 |
-| Prowlarr Profiles Specialist | Expert specialist for prowlarr_profiles domain tasks. | You are a Prowlarr Profiles specialist. Help users manage and interact with Prowlarr Profiles functionality using the available tools. | prowlarr_profiles | - | stdio | 0 | 1 | 50 |
-| Sonarr Catalog Specialist | Expert specialist for sonarr_catalog domain tasks. | You are a Sonarr Catalog specialist. Help users manage and interact with Sonarr Catalog functionality using the available tools. | sonarr_catalog | - | stdio | 0 | 1 | 50 |
-| Sonarr Indexer Specialist | Expert specialist for sonarr_indexer domain tasks. | You are a Sonarr Indexer specialist. Help users manage and interact with Sonarr Indexer functionality using the available tools. | sonarr_indexer | - | stdio | 0 | 1 | 50 |
-| Sonarr Operations Specialist | Expert specialist for sonarr_operations domain tasks. | You are a Sonarr Operations specialist. Help users manage and interact with Sonarr Operations functionality using the available tools. | sonarr_operations | - | stdio | 0 | 1 | 50 |
-| Lidarr System Specialist | Expert specialist for lidarr_system domain tasks. | You are a Lidarr System specialist. Help users manage and interact with Lidarr System functionality using the available tools. | lidarr_system | - | stdio | 0 | 1 | 50 |
-| Radarr System Specialist | Expert specialist for radarr_system domain tasks. | You are a Radarr System specialist. Help users manage and interact with Radarr System functionality using the available tools. | radarr_system | - | stdio | 0 | 1 | 50 |
-| Radarr Queue Specialist | Expert specialist for radarr_queue domain tasks. | You are a Radarr Queue specialist. Help users manage and interact with Radarr Queue functionality using the available tools. | radarr_queue | - | stdio | 0 | 1 | 50 |
-| Lidarr Queue Specialist | Expert specialist for lidarr_queue domain tasks. | You are a Lidarr Queue specialist. Help users manage and interact with Lidarr Queue functionality using the available tools. | lidarr_queue | - | stdio | 0 | 1 | 50 |
-| Arr Seerr Search Specialist | Expert specialist for seerr_search domain tasks. | You are a Arr Seerr Search specialist. Help users manage and interact with Seerr Search functionality using the available tools. | seerr_search | - | stdio | 0 | 1 | 50 |
-| Chaptarr System Specialist | Expert specialist for chaptarr_system domain tasks. | You are a Chaptarr System specialist. Help users manage and interact with Chaptarr System functionality using the available tools. | chaptarr_system | - | stdio | 0 | 1 | 50 |
-| Radarr Operations Specialist | Expert specialist for radarr_operations domain tasks. | You are a Radarr Operations specialist. Help users manage and interact with Radarr Operations functionality using the available tools. | radarr_operations | - | stdio | 0 | 1 | 50 |
-| Lidarr Operations Specialist | Expert specialist for lidarr_operations domain tasks. | You are a Lidarr Operations specialist. Help users manage and interact with Lidarr Operations functionality using the available tools. | lidarr_operations | - | stdio | 0 | 1 | 50 |
-| Lidarr Search Specialist | Expert specialist for lidarr_search domain tasks. | You are a Lidarr Search specialist. Help users manage and interact with Lidarr Search functionality using the available tools. | lidarr_search | - | stdio | 0 | 1 | 50 |
-| Atlassian Specialist | Expert specialist for atlassian domain tasks. | You are a Atlassian specialist. Help users manage and interact with Atlassian functionality using the available tools. | atlassian | - | stdio | 0 | 1 | 40 |
+| Archivebox Authentication Specialist | Expert specialist for authentication domain tasks. | You are a Archivebox Authentication specialist. Help users manage and interact with Authentication functionality using the available tools. | authentication | - | stdio | 0 | 2 | 72 |
+| Archivebox Core Specialist | Expert specialist for core domain tasks. | You are a Archivebox Core specialist. Help users manage and interact with Core functionality using the available tools. | core | - | stdio | 0 | 5 | 49 |
+| Archivebox Cli Specialist | Expert specialist for cli domain tasks. | You are a Archivebox Cli specialist. Help users manage and interact with Cli functionality using the available tools. | cli | - | stdio | 0 | 5 | 48 |
+| Bazarr Specialist | Expert specialist for bazarr domain tasks. | You are a Bazarr specialist. Help users manage and interact with Bazarr functionality using the available tools. | bazarr | - | stdio | 0 | 12 | 38 |
+| Chaptarr Specialist | Expert specialist for chaptarr domain tasks. | You are a Chaptarr specialist. Help users manage and interact with Chaptarr functionality using the available tools. | chaptarr | - | stdio | 0 | 134 | 37 |
+| Lidarr Specialist | Expert specialist for lidarr domain tasks. | You are a Lidarr specialist. Help users manage and interact with Lidarr functionality using the available tools. | lidarr | - | stdio | 0 | 174 | 37 |
+| Prowlarr Specialist | Expert specialist for prowlarr domain tasks. | You are a Prowlarr specialist. Help users manage and interact with Prowlarr functionality using the available tools. | prowlarr | - | stdio | 0 | 84 | 37 |
+| Radarr Specialist | Expert specialist for radarr domain tasks. | You are a Radarr specialist. Help users manage and interact with Radarr functionality using the available tools. | radarr | - | stdio | 0 | 177 | 37 |
+| Arr Seerr Specialist | Expert specialist for seerr domain tasks. | You are a Arr Seerr specialist. Help users manage and interact with Seerr functionality using the available tools. | seerr | - | stdio | 0 | 12 | 35 |
+| Sonarr Specialist | Expert specialist for sonarr domain tasks. | You are a Sonarr specialist. Help users manage and interact with Sonarr functionality using the available tools. | sonarr | - | stdio | 0 | 173 | 37 |
+| Atlassian Jira-Cloud-Issue-Attachment Specialist | Expert specialist for jira-cloud-issue-attachment domain tasks. | You are a Atlassian Jira-Cloud-Issue-Attachment specialist. Help users manage and interact with Jira-Cloud-Issue-Attachment functionality using the available tools. | jira-cloud-issue-attachment | - | stdio | 0 | 8 | 64 |
+| Atlassian Jira-Cloud-Issue-Bulk Specialist | Expert specialist for jira-cloud-issue-bulk domain tasks. | You are a Atlassian Jira-Cloud-Issue-Bulk specialist. Help users manage and interact with Jira-Cloud-Issue-Bulk functionality using the available tools. | jira-cloud-issue-bulk | - | stdio | 0 | 24 | 64 |
+| Atlassian Jira-Cloud-Issue-Core Specialist | Expert specialist for jira-cloud-issue-core domain tasks. | You are a Atlassian Jira-Cloud-Issue-Core specialist. Help users manage and interact with Jira-Cloud-Issue-Core functionality using the available tools. | jira-cloud-issue-core | - | stdio | 0 | 75 | 64 |
+| Atlassian Jira-Cloud-Issue-Comment Specialist | Expert specialist for jira-cloud-issue-comment domain tasks. | You are a Atlassian Jira-Cloud-Issue-Comment specialist. Help users manage and interact with Jira-Cloud-Issue-Comment functionality using the available tools. | jira-cloud-issue-comment | - | stdio | 0 | 10 | 62 |
+| Atlassian Jira-Cloud-Issue-Type Specialist | Expert specialist for jira-cloud-issue-type domain tasks. | You are a Atlassian Jira-Cloud-Issue-Type specialist. Help users manage and interact with Jira-Cloud-Issue-Type functionality using the available tools. | jira-cloud-issue-type | - | stdio | 0 | 42 | 66 |
+| Atlassian Jira-Cloud-Issue-Link Specialist | Expert specialist for jira-cloud-issue-link domain tasks. | You are a Atlassian Jira-Cloud-Issue-Link specialist. Help users manage and interact with Jira-Cloud-Issue-Link functionality using the available tools. | jira-cloud-issue-link | - | stdio | 0 | 6 | 65 |
+| Atlassian Jira-Cloud-Issue-Watcher Specialist | Expert specialist for jira-cloud-issue-watcher domain tasks. | You are a Atlassian Jira-Cloud-Issue-Watcher specialist. Help users manage and interact with Jira-Cloud-Issue-Watcher functionality using the available tools. | jira-cloud-issue-watcher | - | stdio | 0 | 1 | 65 |
+| Atlassian Jira-Cloud-Issue-Worklog Specialist | Expert specialist for jira-cloud-issue-worklog domain tasks. | You are a Atlassian Jira-Cloud-Issue-Worklog specialist. Help users manage and interact with Jira-Cloud-Issue-Worklog functionality using the available tools. | jira-cloud-issue-worklog | - | stdio | 0 | 15 | 63 |
+| Atlassian Jira-Cloud-Project Specialist | Expert specialist for jira-cloud-project domain tasks. | You are a Atlassian Jira-Cloud-Project specialist. Help users manage and interact with Jira-Cloud-Project functionality using the available tools. | jira-cloud-project | - | stdio | 0 | 86 | 64 |
+| Atlassian Jira-Cloud-User Specialist | Expert specialist for jira-cloud-user domain tasks. | You are a Atlassian Jira-Cloud-User specialist. Help users manage and interact with Jira-Cloud-User functionality using the available tools. | jira-cloud-user | - | stdio | 0 | 51 | 63 |
+| Atlassian Jira-Cloud-Schema-Field Specialist | Expert specialist for jira-cloud-schema-field domain tasks. | You are a Atlassian Jira-Cloud-Schema-Field specialist. Help users manage and interact with Jira-Cloud-Schema-Field functionality using the available tools. | jira-cloud-schema-field | - | stdio | 0 | 24 | 64 |
+| Atlassian Jira-Cloud-Schema-Field-Configuration Specialist | Expert specialist for jira-cloud-schema-field-configuration domain tasks. | You are a Atlassian Jira-Cloud-Schema-Field-Configuration specialist. Help users manage and interact with Jira-Cloud-Schema-Field-Configuration functionality using the available tools. | jira-cloud-schema-field-configuration | - | stdio | 0 | 8 | 65 |
+| Atlassian Jira-Cloud-Schema-Field-Option Specialist | Expert specialist for jira-cloud-schema-field-option domain tasks. | You are a Atlassian Jira-Cloud-Schema-Field-Option specialist. Help users manage and interact with Jira-Cloud-Schema-Field-Option functionality using the available tools. | jira-cloud-schema-field-option | - | stdio | 0 | 6 | 65 |
+| Atlassian Jira-Cloud-Schema-Other Specialist | Expert specialist for jira-cloud-schema-other domain tasks. | You are a Atlassian Jira-Cloud-Schema-Other specialist. Help users manage and interact with Jira-Cloud-Schema-Other functionality using the available tools. | jira-cloud-schema-other | - | stdio | 0 | 16 | 64 |
+| Atlassian Jira-Cloud-Schema-Field-Context Specialist | Expert specialist for jira-cloud-schema-field-context domain tasks. | You are a Atlassian Jira-Cloud-Schema-Field-Context specialist. Help users manage and interact with Jira-Cloud-Schema-Field-Context functionality using the available tools. | jira-cloud-schema-field-context | - | stdio | 0 | 3 | 65 |
+| Atlassian Jira-Cloud-Schema-Screen Specialist | Expert specialist for jira-cloud-schema-screen domain tasks. | You are a Atlassian Jira-Cloud-Schema-Screen specialist. Help users manage and interact with Jira-Cloud-Schema-Screen functionality using the available tools. | jira-cloud-schema-screen | - | stdio | 0 | 7 | 62 |
+| Atlassian Jira-Cloud-Schema-Field-Configuration-Scheme Specialist | Expert specialist for jira-cloud-schema-field-configuration-scheme domain tasks. | You are a Atlassian Jira-Cloud-Schema-Field-Configuration-Scheme specialist. Help users manage and interact with Jira-Cloud-Schema-Field-Configuration-Scheme functionality using the available tools. | jira-cloud-schema-field-configuration-scheme | - | stdio | 0 | 6 | 65 |
+| Atlassian Jira-Cloud-Schema-Screen-Scheme Specialist | Expert specialist for jira-cloud-schema-screen-scheme domain tasks. | You are a Atlassian Jira-Cloud-Schema-Screen-Scheme specialist. Help users manage and interact with Jira-Cloud-Schema-Screen-Scheme functionality using the available tools. | jira-cloud-schema-screen-scheme | - | stdio | 0 | 5 | 67 |
+| Atlassian Jira-Cloud-Schema-Notification-Scheme Specialist | Expert specialist for jira-cloud-schema-notification-scheme domain tasks. | You are a Atlassian Jira-Cloud-Schema-Notification-Scheme specialist. Help users manage and interact with Jira-Cloud-Schema-Notification-Scheme functionality using the available tools. | jira-cloud-schema-notification-scheme | - | stdio | 0 | 6 | 65 |
+| Atlassian Jira-Cloud-Schema-Priority Specialist | Expert specialist for jira-cloud-schema-priority domain tasks. | You are a Atlassian Jira-Cloud-Schema-Priority specialist. Help users manage and interact with Jira-Cloud-Schema-Priority functionality using the available tools. | jira-cloud-schema-priority | - | stdio | 0 | 5 | 61 |
+| Atlassian Jira-Cloud-Schema-Priority-Scheme Specialist | Expert specialist for jira-cloud-schema-priority-scheme domain tasks. | You are a Atlassian Jira-Cloud-Schema-Priority-Scheme specialist. Help users manage and interact with Jira-Cloud-Schema-Priority-Scheme functionality using the available tools. | jira-cloud-schema-priority-scheme | - | stdio | 0 | 6 | 65 |
+| Atlassian Jira-Cloud-Schema-Status Specialist | Expert specialist for jira-cloud-schema-status domain tasks. | You are a Atlassian Jira-Cloud-Schema-Status specialist. Help users manage and interact with Jira-Cloud-Schema-Status functionality using the available tools. | jira-cloud-schema-status | - | stdio | 0 | 11 | 64 |
+| Atlassian Jira-Cloud-Schema-Resolution Specialist | Expert specialist for jira-cloud-schema-resolution domain tasks. | You are a Atlassian Jira-Cloud-Schema-Resolution specialist. Help users manage and interact with Jira-Cloud-Schema-Resolution functionality using the available tools. | jira-cloud-schema-resolution | - | stdio | 0 | 8 | 63 |
+| Atlassian Jira-Cloud-Schema-Screen-Tab Specialist | Expert specialist for jira-cloud-schema-screen-tab domain tasks. | You are a Atlassian Jira-Cloud-Schema-Screen-Tab specialist. Help users manage and interact with Jira-Cloud-Schema-Screen-Tab functionality using the available tools. | jira-cloud-schema-screen-tab | - | stdio | 0 | 5 | 64 |
+| Atlassian Jira-Cloud-Schema-Screen-Tab-Field Specialist | Expert specialist for jira-cloud-schema-screen-tab-field domain tasks. | You are a Atlassian Jira-Cloud-Schema-Screen-Tab-Field specialist. Help users manage and interact with Jira-Cloud-Schema-Screen-Tab-Field functionality using the available tools. | jira-cloud-schema-screen-tab-field | - | stdio | 0 | 4 | 65 |
+| Atlassian Jira-Cloud-Schema-Workflow Specialist | Expert specialist for jira-cloud-schema-workflow domain tasks. | You are a Atlassian Jira-Cloud-Schema-Workflow specialist. Help users manage and interact with Jira-Cloud-Schema-Workflow functionality using the available tools. | jira-cloud-schema-workflow | - | stdio | 0 | 27 | 65 |
+| Atlassian Jira-Cloud-Schema-Workflow-Scheme Specialist | Expert specialist for jira-cloud-schema-workflow-scheme domain tasks. | You are a Atlassian Jira-Cloud-Schema-Workflow-Scheme specialist. Help users manage and interact with Jira-Cloud-Schema-Workflow-Scheme functionality using the available tools. | jira-cloud-schema-workflow-scheme | - | stdio | 0 | 13 | 66 |
+| Atlassian Jira-Cloud-Schema-Workflow-Rule Specialist | Expert specialist for jira-cloud-schema-workflow-rule domain tasks. | You are a Atlassian Jira-Cloud-Schema-Workflow-Rule specialist. Help users manage and interact with Jira-Cloud-Schema-Workflow-Rule functionality using the available tools. | jira-cloud-schema-workflow-rule | - | stdio | 0 | 1 | 65 |
+| Atlassian Jira-Cloud-Core Specialist | Expert specialist for jira-cloud-core domain tasks. | You are a Atlassian Jira-Cloud-Core specialist. Help users manage and interact with Jira-Cloud-Core functionality using the available tools. | jira-cloud-core | - | stdio | 0 | 19 | 64 |
+| Atlassian Jira-Cloud-Other Specialist | Expert specialist for jira-cloud-other domain tasks. | You are a Atlassian Jira-Cloud-Other specialist. Help users manage and interact with Jira-Cloud-Other functionality using the available tools. | jira-cloud-other | - | stdio | 0 | 123 | 64 |
+| Atlassian Jira-Server-Other Specialist | Expert specialist for jira-server-other domain tasks. | You are a Atlassian Jira-Server-Other specialist. Help users manage and interact with Jira-Server-Other functionality using the available tools. | jira-server-other | - | stdio | 0 | 185 | 65 |
+| Atlassian Jira-Server-Agile-Board Specialist | Expert specialist for jira-server-agile-board domain tasks. | You are a Atlassian Jira-Server-Agile-Board specialist. Help users manage and interact with Jira-Server-Agile-Board functionality using the available tools. | jira-server-agile-board | - | stdio | 0 | 8 | 64 |
+| Atlassian Jira-Server-Agile-Epic Specialist | Expert specialist for jira-server-agile-epic domain tasks. | You are a Atlassian Jira-Server-Agile-Epic specialist. Help users manage and interact with Jira-Server-Agile-Epic functionality using the available tools. | jira-server-agile-epic | - | stdio | 0 | 10 | 65 |
+| Atlassian Jira-Server-Project Specialist | Expert specialist for jira-server-project domain tasks. | You are a Atlassian Jira-Server-Project specialist. Help users manage and interact with Jira-Server-Project functionality using the available tools. | jira-server-project | - | stdio | 0 | 24 | 66 |
+| Atlassian Jira-Server-Agile-Sprint Specialist | Expert specialist for jira-server-agile-sprint domain tasks. | You are a Atlassian Jira-Server-Agile-Sprint specialist. Help users manage and interact with Jira-Server-Agile-Sprint functionality using the available tools. | jira-server-agile-sprint | - | stdio | 0 | 12 | 64 |
+| Atlassian Jira-Server-Screen Specialist | Expert specialist for jira-server-screen domain tasks. | You are a Atlassian Jira-Server-Screen specialist. Help users manage and interact with Jira-Server-Screen functionality using the available tools. | jira-server-screen | - | stdio | 0 | 8 | 65 |
+| Atlassian Jira-Server-Issue-Attachment Specialist | Expert specialist for jira-server-issue-attachment domain tasks. | You are a Atlassian Jira-Server-Issue-Attachment specialist. Help users manage and interact with Jira-Server-Issue-Attachment functionality using the available tools. | jira-server-issue-attachment | - | stdio | 0 | 4 | 67 |
+| Atlassian Jira-Server-System Specialist | Expert specialist for jira-server-system domain tasks. | You are a Atlassian Jira-Server-System specialist. Help users manage and interact with Jira-Server-System functionality using the available tools. | jira-server-system | - | stdio | 0 | 4 | 67 |
+| Atlassian Jira-Server-Admin-Index Specialist | Expert specialist for jira-server-admin-index domain tasks. | You are a Atlassian Jira-Server-Admin-Index specialist. Help users manage and interact with Jira-Server-Admin-Index functionality using the available tools. | jira-server-admin-index | - | stdio | 0 | 9 | 65 |
+| Atlassian Jira-Server-Admin-Upgrade Specialist | Expert specialist for jira-server-admin-upgrade domain tasks. | You are a Atlassian Jira-Server-Admin-Upgrade specialist. Help users manage and interact with Jira-Server-Admin-Upgrade functionality using the available tools. | jira-server-admin-upgrade | - | stdio | 0 | 5 | 65 |
+| Atlassian Jira-Server-Field Specialist | Expert specialist for jira-server-field domain tasks. | You are a Atlassian Jira-Server-Field specialist. Help users manage and interact with Jira-Server-Field functionality using the available tools. | jira-server-field | - | stdio | 0 | 13 | 65 |
+| Atlassian Jira-Server-Filter Specialist | Expert specialist for jira-server-filter domain tasks. | You are a Atlassian Jira-Server-Filter specialist. Help users manage and interact with Jira-Server-Filter functionality using the available tools. | jira-server-filter | - | stdio | 0 | 5 | 64 |
+| Atlassian Jira-Server-Permission Specialist | Expert specialist for jira-server-permission domain tasks. | You are a Atlassian Jira-Server-Permission specialist. Help users manage and interact with Jira-Server-Permission functionality using the available tools. | jira-server-permission | - | stdio | 0 | 7 | 65 |
+| Atlassian Jira-Server-Group Specialist | Expert specialist for jira-server-group domain tasks. | You are a Atlassian Jira-Server-Group specialist. Help users manage and interact with Jira-Server-Group functionality using the available tools. | jira-server-group | - | stdio | 0 | 3 | 65 |
+| Atlassian Jira-Server-User Specialist | Expert specialist for jira-server-user domain tasks. | You are a Atlassian Jira-Server-User specialist. Help users manage and interact with Jira-Server-User functionality using the available tools. | jira-server-user | - | stdio | 0 | 30 | 65 |
+| Atlassian Jira-Server-Issue-Type Specialist | Expert specialist for jira-server-issue-type domain tasks. | You are a Atlassian Jira-Server-Issue-Type specialist. Help users manage and interact with Jira-Server-Issue-Type functionality using the available tools. | jira-server-issue-type | - | stdio | 0 | 13 | 66 |
+| Atlassian Jira-Server-Issue-Link Specialist | Expert specialist for jira-server-issue-link domain tasks. | You are a Atlassian Jira-Server-Issue-Link specialist. Help users manage and interact with Jira-Server-Issue-Link functionality using the available tools. | jira-server-issue-link | - | stdio | 0 | 7 | 65 |
+| Atlassian Jira-Server-Issue-Comment Specialist | Expert specialist for jira-server-issue-comment domain tasks. | You are a Atlassian Jira-Server-Issue-Comment specialist. Help users manage and interact with Jira-Server-Issue-Comment functionality using the available tools. | jira-server-issue-comment | - | stdio | 0 | 7 | 63 |
+| Atlassian Jira-Server-Issue-Subtask Specialist | Expert specialist for jira-server-issue-subtask domain tasks. | You are a Atlassian Jira-Server-Issue-Subtask specialist. Help users manage and interact with Jira-Server-Issue-Subtask functionality using the available tools. | jira-server-issue-subtask | - | stdio | 0 | 3 | 65 |
+| Atlassian Jira-Server-Issue-Transition Specialist | Expert specialist for jira-server-issue-transition domain tasks. | You are a Atlassian Jira-Server-Issue-Transition specialist. Help users manage and interact with Jira-Server-Issue-Transition functionality using the available tools. | jira-server-issue-transition | - | stdio | 0 | 2 | 65 |
+| Atlassian Jira-Server-Issue-Vote Specialist | Expert specialist for jira-server-issue-vote domain tasks. | You are a Atlassian Jira-Server-Issue-Vote specialist. Help users manage and interact with Jira-Server-Issue-Vote functionality using the available tools. | jira-server-issue-vote | - | stdio | 0 | 3 | 65 |
+| Atlassian Jira-Server-Issue-Watcher Specialist | Expert specialist for jira-server-issue-watcher domain tasks. | You are a Atlassian Jira-Server-Issue-Watcher specialist. Help users manage and interact with Jira-Server-Issue-Watcher functionality using the available tools. | jira-server-issue-watcher | - | stdio | 0 | 3 | 65 |
+| Atlassian Jira-Server-Issue-Worklog Specialist | Expert specialist for jira-server-issue-worklog domain tasks. | You are a Atlassian Jira-Server-Issue-Worklog specialist. Help users manage and interact with Jira-Server-Issue-Worklog functionality using the available tools. | jira-server-issue-worklog | - | stdio | 0 | 8 | 65 |
+| Atlassian Jira-Server-Issue-Link-Type Specialist | Expert specialist for jira-server-issue-link-type domain tasks. | You are a Atlassian Jira-Server-Issue-Link-Type specialist. Help users manage and interact with Jira-Server-Issue-Link-Type functionality using the available tools. | jira-server-issue-link-type | - | stdio | 0 | 8 | 65 |
+| Atlassian Jira-Server-Issue-Type-Scheme Specialist | Expert specialist for jira-server-issue-type-scheme domain tasks. | You are a Atlassian Jira-Server-Issue-Type-Scheme specialist. Help users manage and interact with Jira-Server-Issue-Type-Scheme functionality using the available tools. | jira-server-issue-type-scheme | - | stdio | 0 | 5 | 69 |
+| Atlassian Jira-Server-Permission-Scheme Specialist | Expert specialist for jira-server-permission-scheme domain tasks. | You are a Atlassian Jira-Server-Permission-Scheme specialist. Help users manage and interact with Jira-Server-Permission-Scheme functionality using the available tools. | jira-server-permission-scheme | - | stdio | 0 | 10 | 65 |
+| Atlassian Jira-Server-Priority Specialist | Expert specialist for jira-server-priority domain tasks. | You are a Atlassian Jira-Server-Priority specialist. Help users manage and interact with Jira-Server-Priority functionality using the available tools. | jira-server-priority | - | stdio | 0 | 1 | 65 |
+| Atlassian Jira-Server-Priority-Scheme Specialist | Expert specialist for jira-server-priority-scheme domain tasks. | You are a Atlassian Jira-Server-Priority-Scheme specialist. Help users manage and interact with Jira-Server-Priority-Scheme functionality using the available tools. | jira-server-priority-scheme | - | stdio | 0 | 8 | 65 |
+| Atlassian Jira-Server-Project-Avatar Specialist | Expert specialist for jira-server-project-avatar domain tasks. | You are a Atlassian Jira-Server-Project-Avatar specialist. Help users manage and interact with Jira-Server-Project-Avatar functionality using the available tools. | jira-server-project-avatar | - | stdio | 0 | 1 | 65 |
+| Atlassian Jira-Server-Project-Component Specialist | Expert specialist for jira-server-project-component domain tasks. | You are a Atlassian Jira-Server-Project-Component specialist. Help users manage and interact with Jira-Server-Project-Component functionality using the available tools. | jira-server-project-component | - | stdio | 0 | 1 | 65 |
+| Atlassian Jira-Server-Project-Role Specialist | Expert specialist for jira-server-project-role domain tasks. | You are a Atlassian Jira-Server-Project-Role specialist. Help users manage and interact with Jira-Server-Project-Role functionality using the available tools. | jira-server-project-role | - | stdio | 0 | 11 | 64 |
+| Atlassian Jira-Server-Project-Category Specialist | Expert specialist for jira-server-project-category domain tasks. | You are a Atlassian Jira-Server-Project-Category specialist. Help users manage and interact with Jira-Server-Project-Category functionality using the available tools. | jira-server-project-category | - | stdio | 0 | 4 | 65 |
+| Atlassian Jira-Server-Resolution Specialist | Expert specialist for jira-server-resolution domain tasks. | You are a Atlassian Jira-Server-Resolution specialist. Help users manage and interact with Jira-Server-Resolution functionality using the available tools. | jira-server-resolution | - | stdio | 0 | 3 | 65 |
+| Atlassian Jira-Server-Search Specialist | Expert specialist for jira-server-search domain tasks. | You are a Atlassian Jira-Server-Search specialist. Help users manage and interact with Jira-Server-Search functionality using the available tools. | jira-server-search | - | stdio | 0 | 2 | 65 |
+| Atlassian Jira-Server-User-Avatar Specialist | Expert specialist for jira-server-user-avatar domain tasks. | You are a Atlassian Jira-Server-User-Avatar specialist. Help users manage and interact with Jira-Server-User-Avatar functionality using the available tools. | jira-server-user-avatar | - | stdio | 0 | 1 | 65 |
+| Atlassian Jira-Server-Workflow Specialist | Expert specialist for jira-server-workflow domain tasks. | You are a Atlassian Jira-Server-Workflow specialist. Help users manage and interact with Jira-Server-Workflow functionality using the available tools. | jira-server-workflow | - | stdio | 0 | 7 | 65 |
+| Atlassian Confluence-Cloud-Other Specialist | Expert specialist for confluence-cloud-other domain tasks. | You are a Atlassian Confluence-Cloud-Other specialist. Help users manage and interact with Confluence-Cloud-Other functionality using the available tools. | confluence-cloud-other | - | stdio | 0 | 127 | 65 |
+| Atlassian Confluence-Cloud-Attachment Specialist | Expert specialist for confluence-cloud-attachment domain tasks. | You are a Atlassian Confluence-Cloud-Attachment specialist. Help users manage and interact with Confluence-Cloud-Attachment functionality using the available tools. | confluence-cloud-attachment | - | stdio | 0 | 16 | 64 |
+| Atlassian Confluence-Cloud-Label Specialist | Expert specialist for confluence-cloud-label domain tasks. | You are a Atlassian Confluence-Cloud-Label specialist. Help users manage and interact with Confluence-Cloud-Label functionality using the available tools. | confluence-cloud-label | - | stdio | 0 | 4 | 63 |
+| Atlassian Confluence-Cloud-User Specialist | Expert specialist for confluence-cloud-user domain tasks. | You are a Atlassian Confluence-Cloud-User specialist. Help users manage and interact with Confluence-Cloud-User functionality using the available tools. | confluence-cloud-user | - | stdio | 0 | 4 | 65 |
+| Atlassian Confluence-Cloud-Content-Property Specialist | Expert specialist for confluence-cloud-content-property domain tasks. | You are a Atlassian Confluence-Cloud-Content-Property specialist. Help users manage and interact with Confluence-Cloud-Content-Property functionality using the available tools. | confluence-cloud-content-property | - | stdio | 0 | 3 | 65 |
+| Atlassian Confluence-Cloud-Page-Core Specialist | Expert specialist for confluence-cloud-page-core domain tasks. | You are a Atlassian Confluence-Cloud-Page-Core specialist. Help users manage and interact with Confluence-Cloud-Page-Core functionality using the available tools. | confluence-cloud-page-core | - | stdio | 0 | 28 | 63 |
+| Atlassian Confluence-Cloud-Page-Content Specialist | Expert specialist for confluence-cloud-page-content domain tasks. | You are a Atlassian Confluence-Cloud-Page-Content specialist. Help users manage and interact with Confluence-Cloud-Page-Content functionality using the available tools. | confluence-cloud-page-content | - | stdio | 0 | 2 | 65 |
+| Atlassian Confluence-Cloud-Space-Core Specialist | Expert specialist for confluence-cloud-space-core domain tasks. | You are a Atlassian Confluence-Cloud-Space-Core specialist. Help users manage and interact with Confluence-Cloud-Space-Core functionality using the available tools. | confluence-cloud-space-core | - | stdio | 0 | 22 | 64 |
+| Atlassian Confluence-Cloud-Space-Property Specialist | Expert specialist for confluence-cloud-space-property domain tasks. | You are a Atlassian Confluence-Cloud-Space-Property specialist. Help users manage and interact with Confluence-Cloud-Space-Property functionality using the available tools. | confluence-cloud-space-property | - | stdio | 0 | 4 | 65 |
+| Atlassian Confluence-Cloud-Space-Permission Specialist | Expert specialist for confluence-cloud-space-permission domain tasks. | You are a Atlassian Confluence-Cloud-Space-Permission specialist. Help users manage and interact with Confluence-Cloud-Space-Permission functionality using the available tools. | confluence-cloud-space-permission | - | stdio | 0 | 2 | 65 |
+| Atlassian Confluence-Server-Other Specialist | Expert specialist for confluence-server-other domain tasks. | You are a Atlassian Confluence-Server-Other specialist. Help users manage and interact with Confluence-Server-Other functionality using the available tools. | confluence-server-other | - | stdio | 0 | 98 | 62 |
+| Atlassian Confluence-Server-User Specialist | Expert specialist for confluence-server-user domain tasks. | You are a Atlassian Confluence-Server-User specialist. Help users manage and interact with Confluence-Server-User functionality using the available tools. | confluence-server-user | - | stdio | 0 | 12 | 65 |
+| Atlassian Confluence-Server-Space Specialist | Expert specialist for confluence-server-space domain tasks. | You are a Atlassian Confluence-Server-Space specialist. Help users manage and interact with Confluence-Server-Space functionality using the available tools. | confluence-server-space | - | stdio | 0 | 13 | 64 |
+| Atlassian Confluence-Server-Content-Child Specialist | Expert specialist for confluence-server-content-child domain tasks. | You are a Atlassian Confluence-Server-Content-Child specialist. Help users manage and interact with Confluence-Server-Content-Child functionality using the available tools. | confluence-server-content-child | - | stdio | 0 | 2 | 65 |
+| Atlassian Confluence-Server-Content Specialist | Expert specialist for confluence-server-content domain tasks. | You are a Atlassian Confluence-Server-Content specialist. Help users manage and interact with Confluence-Server-Content functionality using the available tools. | confluence-server-content | - | stdio | 0 | 10 | 64 |
+| Atlassian Confluence-Server-Content-History Specialist | Expert specialist for confluence-server-content-history domain tasks. | You are a Atlassian Confluence-Server-Content-History specialist. Help users manage and interact with Confluence-Server-Content-History functionality using the available tools. | confluence-server-content-history | - | stdio | 0 | 1 | 65 |
+| Atlassian Confluence-Server-Group Specialist | Expert specialist for confluence-server-group domain tasks. | You are a Atlassian Confluence-Server-Group specialist. Help users manage and interact with Confluence-Server-Group functionality using the available tools. | confluence-server-group | - | stdio | 0 | 15 | 64 |
+| Atlassian Confluence-Server-Space-Permission Specialist | Expert specialist for confluence-server-space-permission domain tasks. | You are a Atlassian Confluence-Server-Space-Permission specialist. Help users manage and interact with Confluence-Server-Space-Permission functionality using the available tools. | confluence-server-space-permission | - | stdio | 0 | 1 | 65 |
+| Atlassian-Admin Specialist | Expert specialist for atlassian-admin domain tasks. | You are a Atlassian-Admin specialist. Help users manage and interact with Atlassian-Admin functionality using the available tools. | atlassian-admin | - | stdio | 0 | 57 | 64 |
+| Atlassian-Org Specialist | Expert specialist for atlassian-org domain tasks. | You are a Atlassian-Org specialist. Help users manage and interact with Atlassian-Org functionality using the available tools. | atlassian-org | - | stdio | 0 | 57 | 64 |
+| Atlassian-User-Mgmt Specialist | Expert specialist for atlassian-user-mgmt domain tasks. | You are a Atlassian-User-Mgmt specialist. Help users manage and interact with Atlassian-User-Mgmt functionality using the available tools. | atlassian-user-mgmt | - | stdio | 0 | 7 | 62 |
+| Atlassian Specialist | Expert specialist for atlassian domain tasks. | You are a Atlassian specialist. Help users manage and interact with Atlassian functionality using the available tools. | atlassian | - | stdio | 0 | 3 | 61 |
+| Atlassian-User-Provisioning Specialist | Expert specialist for atlassian-user-provisioning domain tasks. | You are a Atlassian-User-Provisioning specialist. Help users manage and interact with Atlassian-User-Provisioning functionality using the available tools. | atlassian-user-provisioning | - | stdio | 0 | 24 | 63 |
+| Atlassian-Control Specialist | Expert specialist for atlassian-control domain tasks. | You are a Atlassian-Control specialist. Help users manage and interact with Atlassian-Control functionality using the available tools. | atlassian-control | - | stdio | 0 | 22 | 65 |
+| Atlassian-Dlp Specialist | Expert specialist for atlassian-dlp domain tasks. | You are a Atlassian-Dlp specialist. Help users manage and interact with Atlassian-Dlp functionality using the available tools. | atlassian-dlp | - | stdio | 0 | 8 | 65 |
+| Atlassian-Api-Access Specialist | Expert specialist for atlassian-api-access domain tasks. | You are a Atlassian-Api-Access specialist. Help users manage and interact with Atlassian-Api-Access functionality using the available tools. | atlassian-api-access | - | stdio | 0 | 9 | 65 |
 | Audio-Transcriber Audio Processing Specialist | Expert specialist for audio_processing domain tasks. | You are a Audio-Transcriber Audio Processing specialist. Help users manage and interact with Audio Processing functionality using the available tools. | audio_processing | - | stdio | 0 | 1 | 70 |
 | Container-Manager Info Specialist | Expert specialist for info domain tasks. | You are a Container-Manager Info specialist. Help users manage and interact with Info functionality using the available tools. | info | - | stdio | 0 | 2 | 65 |
 | Container-Manager Image Specialist | Expert specialist for image domain tasks. | You are a Container-Manager Image specialist. Help users manage and interact with Image functionality using the available tools. | image | - | stdio | 0 | 4 | 68 |
@@ -419,21 +465,65 @@ This file tracks the generated agents from MCP servers, Universal Skills, and Sk
 
 | Tool Name | Description | Tag | Source | Score | Approval |
 |-----------|-------------|-----|--------|-------|----------|
-| adguard-home-agent_dhcp_toolset | Static hint toolset for dhcp based on config env. | dhcp | adguard-home-agent | 40 | No |
-| adguard-home-agent_blocked_services_toolset | Static hint toolset for blocked_services based on config env. | blocked_services | adguard-home-agent | 50 | No |
-| adguard-home-agent_access_toolset | Static hint toolset for access based on config env. | access | adguard-home-agent | 50 | No |
-| adguard-home-agent_system_toolset | Static hint toolset for system based on config env. | system | adguard-home-agent | 50 | No |
-| adguard-home-agent_settings_toolset | Static hint toolset for settings based on config env. | settings | adguard-home-agent | 50 | No |
-| adguard-home-agent_rewrites_toolset | Static hint toolset for rewrites based on config env. | rewrites | adguard-home-agent | 50 | No |
-| adguard-home-agent_filtering_toolset | Static hint toolset for filtering based on config env. | filtering | adguard-home-agent | 50 | No |
-| adguard-home-agent_tls_toolset | Static hint toolset for tls based on config env. | tls | adguard-home-agent | 40 | No |
-| adguard-home-agent_mobile_toolset | Static hint toolset for mobile based on config env. | mobile | adguard-home-agent | 50 | No |
-| adguard-home-agent_stats_toolset | Static hint toolset for stats based on config env. | stats | adguard-home-agent | 40 | No |
-| adguard-home-agent_clients_toolset | Static hint toolset for clients based on config env. | clients | adguard-home-agent | 50 | No |
-| adguard-home-agent_dns_toolset | Static hint toolset for dns based on config env. | dns | adguard-home-agent | 40 | No |
-| adguard-home-agent_profile_toolset | Static hint toolset for profile based on config env. | profile | adguard-home-agent | 50 | No |
-| adguard-home-agent_query_log_toolset | Static hint toolset for query_log based on config env. | query_log | adguard-home-agent | 50 | No |
-| adguard-home-agent_misc_toolset | Static hint toolset for misc based on config env. | misc | adguard-home-agent | 40 | No |
+| get_version | Get AdGuard Home version. | system | adguard-home-agent | 45 | No |
+| set_protection | Set protection state. | system | adguard-home-agent | 45 | Yes |
+| clear_cache | Clear DNS cache. | system | adguard-home-agent | 50 | Yes |
+| get_access_list | List current access list (allowed/disallowed clients, blocked hosts). | access | adguard-home-agent | 55 | No |
+| set_access_list | Set access list. | access | adguard-home-agent | 45 | Yes |
+| get_blocked_services_list | List blocked services. | blocked-services | adguard-home-agent | 60 | No |
+| get_all_blocked_services | Get all available blocked services. | blocked-services | adguard-home-agent | 65 | No |
+| update_blocked_services | Update blocked services list. | blocked-services | adguard-home-agent | 60 | Yes |
+| set_filtering_rules | Set user-defined filtering rules. | filtering | adguard-home-agent | 60 | Yes |
+| check_host_filtering | Check if a host is filtered. | filtering | adguard-home-agent | 65 | No |
+| set_filter_url_params | Set filter URL parameters. | filtering | adguard-home-agent | 65 | Yes |
+| get_filtering_status | Get filtering status. | filtering | adguard-home-agent | 60 | No |
+| set_filtering_config | Set filtering configuration. | filtering | adguard-home-agent | 60 | Yes |
+| add_filter_url | Add a filter URL. | filtering | adguard-home-agent | 65 | Yes |
+| remove_filter_url | Remove a filter URL. | filtering | adguard-home-agent | 65 | Yes |
+| refresh_filters | Refresh all filters. | filtering | adguard-home-agent | 60 | No |
+| list_clients | List clients. | clients | adguard-home-agent | 50 | No |
+| search_clients | Search for clients. | clients | adguard-home-agent | 60 | No |
+| add_client | Add a new client. | clients | adguard-home-agent | 60 | Yes |
+| update_client | Update a client. | clients | adguard-home-agent | 55 | Yes |
+| delete_client | Delete a client. | clients | adguard-home-agent | 55 | Yes |
+| get_profile | Get current user profile info. | profile | adguard-home-agent | 55 | No |
+| update_profile | Update current user profile info. | profile | adguard-home-agent | 55 | Yes |
+| get_dhcp_status | Get DHCP status. | dhcp | adguard-home-agent | 50 | No |
+| get_dhcp_interfaces | Get available network interfaces for DHCP. | dhcp | adguard-home-agent | 50 | No |
+| set_dhcp_config | Set DHCP configuration. | dhcp | adguard-home-agent | 50 | Yes |
+| find_active_dhcp | Search for an active DHCP server on the network. | dhcp | adguard-home-agent | 55 | No |
+| add_dhcp_static_lease | Add a static DHCP lease. | dhcp | adguard-home-agent | 55 | Yes |
+| remove_dhcp_static_lease | Remove a static DHCP lease. | dhcp | adguard-home-agent | 55 | Yes |
+| update_dhcp_static_lease | Update a static DHCP lease. | dhcp | adguard-home-agent | 55 | Yes |
+| reset_dhcp | Reset DHCP configuration. | dhcp | adguard-home-agent | 50 | Yes |
+| reset_dhcp_leases | Reset DHCP leases. | dhcp | adguard-home-agent | 55 | Yes |
+| get_parental_status | Get parental control status. | settings | adguard-home-agent | 60 | No |
+| enable_parental_control | Enable parental control. | settings | adguard-home-agent | 65 | Yes |
+| disable_parental_control | Disable parental control. | settings | adguard-home-agent | 65 | Yes |
+| get_safebrowsing_status | Get safe browsing status. | settings | adguard-home-agent | 60 | No |
+| enable_safebrowsing | Enable safe browsing. | settings | adguard-home-agent | 60 | Yes |
+| disable_safebrowsing | Disable safe browsing. | settings | adguard-home-agent | 60 | Yes |
+| get_safesearch_status | Get safe search status. | settings | adguard-home-agent | 60 | No |
+| get_query_log | Get query log. | query-log | adguard-home-agent | 55 | No |
+| clear_query_log | Clear query log. | query-log | adguard-home-agent | 65 | Yes |
+| list_rewrites | List DNS rewrites. | rewrites | adguard-home-agent | 55 | Yes |
+| add_rewrite | Add a DNS rewrite. | rewrites | adguard-home-agent | 60 | Yes |
+| delete_rewrite | Delete a DNS rewrite. | rewrites | adguard-home-agent | 55 | Yes |
+| update_rewrite | Update a DNS rewrite. | rewrites | adguard-home-agent | 55 | Yes |
+| get_rewrite_settings | Get rewrite settings. | rewrites | adguard-home-agent | 60 | Yes |
+| update_rewrite_settings | Update rewrite settings. | rewrites | adguard-home-agent | 60 | Yes |
+| get_tls_status | Get TLS status. | tls | adguard-home-agent | 45 | No |
+| configure_tls | Configure TLS. | tls | adguard-home-agent | 45 | No |
+| validate_tls | Validate TLS configuration. | tls | adguard-home-agent | 50 | No |
+| get_doh_mobile_config | Get DNS over HTTPS .mobileconfig. | mobile | adguard-home-agent | 55 | No |
+| get_dot_mobile_config | Get DNS over TLS .mobileconfig. | mobile | adguard-home-agent | 55 | No |
+| get_stats | Get overall statistics. | stats | adguard-home-agent | 45 | No |
+| reset_stats | Reset statistics. | stats | adguard-home-agent | 50 | Yes |
+| get_stats_config | Get statistics configuration. | stats | adguard-home-agent | 50 | No |
+| set_stats_config | Set statistics configuration. | stats | adguard-home-agent | 50 | Yes |
+| get_dns_info | Get general DNS parameters. | dns | adguard-home-agent | 50 | No |
+| set_dns_config | Set general DNS parameters. | dns | adguard-home-agent | 50 | Yes |
+| test_upstream_dns | Test upstream configuration. | dns | adguard-home-agent | 55 | No |
 | list_inventories | Retrieves a paginated list of inventories from Ansible Tower. Returns a list of dictionaries, each containing inventory details like id, name, and description. Display results in a markdown table for clarity. | inventory | ansible-tower-mcp | 75 | No |
 | get_inventory | Fetches details of a specific inventory by ID from Ansible Tower. Returns a dictionary with inventory information such as name, description, and hosts count. | inventory | ansible-tower-mcp | 75 | No |
 | create_inventory | Creates a new inventory in Ansible Tower. Returns a dictionary with the created inventory's details, including its ID. | inventory | ansible-tower-mcp | 75 | Yes |
@@ -507,62 +597,2391 @@ This file tracks the generated agents from MCP servers, Universal Skills, and Sk
 | get_ansible_version | Retrieves the Ansible version information from Ansible Tower. Returns a dictionary with version details. | system | ansible-tower-mcp | 70 | No |
 | get_dashboard_stats | Fetches dashboard statistics from Ansible Tower. Returns a dictionary with stats like host counts and recent jobs. | system | ansible-tower-mcp | 70 | No |
 | get_metrics | Retrieves system metrics from Ansible Tower. Returns a dictionary with performance and usage metrics. | system | ansible-tower-mcp | 65 | No |
-| archivebox-mcp_authentication_toolset | Static hint toolset for authentication based on config env. | authentication | archivebox-mcp | 50 | No |
-| archivebox-mcp_cli_toolset | Static hint toolset for cli based on config env. | cli | archivebox-mcp | 40 | No |
-| archivebox-mcp_misc_toolset | Static hint toolset for misc based on config env. | misc | archivebox-mcp | 40 | No |
-| archivebox-mcp_core_toolset | Static hint toolset for core based on config env. | core | archivebox-mcp | 40 | No |
-| arr-mcp_sonarr_downloads_toolset | Static hint toolset for sonarr_downloads based on config env. | sonarr_downloads | arr-mcp | 50 | No |
-| arr-mcp_prowlarr_system_toolset | Static hint toolset for prowlarr_system based on config env. | prowlarr_system | arr-mcp | 50 | No |
-| arr-mcp_prowlarr_history_toolset | Static hint toolset for prowlarr_history based on config env. | prowlarr_history | arr-mcp | 50 | No |
-| arr-mcp_chaptarr_queue_toolset | Static hint toolset for chaptarr_queue based on config env. | chaptarr_queue | arr-mcp | 50 | No |
-| arr-mcp_prowlarr_search_toolset | Static hint toolset for prowlarr_search based on config env. | prowlarr_search | arr-mcp | 50 | No |
-| arr-mcp_lidarr_config_toolset | Static hint toolset for lidarr_config based on config env. | lidarr_config | arr-mcp | 50 | No |
-| arr-mcp_sonarr_system_toolset | Static hint toolset for sonarr_system based on config env. | sonarr_system | arr-mcp | 50 | No |
-| arr-mcp_sonarr_profiles_toolset | Static hint toolset for sonarr_profiles based on config env. | sonarr_profiles | arr-mcp | 50 | No |
-| arr-mcp_lidarr_history_toolset | Static hint toolset for lidarr_history based on config env. | lidarr_history | arr-mcp | 50 | No |
-| arr-mcp_lidarr_catalog_toolset | Static hint toolset for lidarr_catalog based on config env. | lidarr_catalog | arr-mcp | 50 | No |
-| arr-mcp_bazarr_catalog_toolset | Static hint toolset for bazarr_catalog based on config env. | bazarr_catalog | arr-mcp | 50 | No |
-| arr-mcp_bazarr_history_toolset | Static hint toolset for bazarr_history based on config env. | bazarr_history | arr-mcp | 50 | No |
-| arr-mcp_sonarr_history_toolset | Static hint toolset for sonarr_history based on config env. | sonarr_history | arr-mcp | 50 | No |
-| arr-mcp_sonarr_queue_toolset | Static hint toolset for sonarr_queue based on config env. | sonarr_queue | arr-mcp | 50 | No |
-| arr-mcp_radarr_downloads_toolset | Static hint toolset for radarr_downloads based on config env. | radarr_downloads | arr-mcp | 50 | No |
-| arr-mcp_chaptarr_downloads_toolset | Static hint toolset for chaptarr_downloads based on config env. | chaptarr_downloads | arr-mcp | 50 | No |
-| arr-mcp_chaptarr_history_toolset | Static hint toolset for chaptarr_history based on config env. | chaptarr_history | arr-mcp | 50 | No |
-| arr-mcp_lidarr_downloads_toolset | Static hint toolset for lidarr_downloads based on config env. | lidarr_downloads | arr-mcp | 50 | No |
-| arr-mcp_lidarr_profiles_toolset | Static hint toolset for lidarr_profiles based on config env. | lidarr_profiles | arr-mcp | 50 | No |
-| arr-mcp_chaptarr_config_toolset | Static hint toolset for chaptarr_config based on config env. | chaptarr_config | arr-mcp | 50 | No |
-| arr-mcp_radarr_indexer_toolset | Static hint toolset for radarr_indexer based on config env. | radarr_indexer | arr-mcp | 50 | No |
-| arr-mcp_chaptarr_indexer_toolset | Static hint toolset for chaptarr_indexer based on config env. | chaptarr_indexer | arr-mcp | 50 | No |
-| arr-mcp_radarr_catalog_toolset | Static hint toolset for radarr_catalog based on config env. | radarr_catalog | arr-mcp | 50 | No |
-| arr-mcp_radarr_profiles_toolset | Static hint toolset for radarr_profiles based on config env. | radarr_profiles | arr-mcp | 50 | No |
-| arr-mcp_bazarr_system_toolset | Static hint toolset for bazarr_system based on config env. | bazarr_system | arr-mcp | 50 | No |
-| arr-mcp_chaptarr_profiles_toolset | Static hint toolset for chaptarr_profiles based on config env. | chaptarr_profiles | arr-mcp | 50 | No |
-| arr-mcp_lidarr_indexer_toolset | Static hint toolset for lidarr_indexer based on config env. | lidarr_indexer | arr-mcp | 50 | No |
-| arr-mcp_seerr_system_toolset | Static hint toolset for seerr_system based on config env. | seerr_system | arr-mcp | 50 | No |
-| arr-mcp_chaptarr_search_toolset | Static hint toolset for chaptarr_search based on config env. | chaptarr_search | arr-mcp | 50 | No |
-| arr-mcp_radarr_history_toolset | Static hint toolset for radarr_history based on config env. | radarr_history | arr-mcp | 50 | No |
-| arr-mcp_prowlarr_config_toolset | Static hint toolset for prowlarr_config based on config env. | prowlarr_config | arr-mcp | 50 | No |
-| arr-mcp_sonarr_config_toolset | Static hint toolset for sonarr_config based on config env. | sonarr_config | arr-mcp | 50 | No |
-| arr-mcp_chaptarr_operations_toolset | Static hint toolset for chaptarr_operations based on config env. | chaptarr_operations | arr-mcp | 50 | No |
-| arr-mcp_seerr_catalog_toolset | Static hint toolset for seerr_catalog based on config env. | seerr_catalog | arr-mcp | 50 | No |
-| arr-mcp_prowlarr_indexer_toolset | Static hint toolset for prowlarr_indexer based on config env. | prowlarr_indexer | arr-mcp | 50 | No |
-| arr-mcp_prowlarr_operations_toolset | Static hint toolset for prowlarr_operations based on config env. | prowlarr_operations | arr-mcp | 50 | No |
-| arr-mcp_prowlarr_downloads_toolset | Static hint toolset for prowlarr_downloads based on config env. | prowlarr_downloads | arr-mcp | 50 | No |
-| arr-mcp_radarr_config_toolset | Static hint toolset for radarr_config based on config env. | radarr_config | arr-mcp | 50 | No |
-| arr-mcp_prowlarr_profiles_toolset | Static hint toolset for prowlarr_profiles based on config env. | prowlarr_profiles | arr-mcp | 50 | No |
-| arr-mcp_sonarr_catalog_toolset | Static hint toolset for sonarr_catalog based on config env. | sonarr_catalog | arr-mcp | 50 | No |
-| arr-mcp_sonarr_indexer_toolset | Static hint toolset for sonarr_indexer based on config env. | sonarr_indexer | arr-mcp | 50 | No |
-| arr-mcp_sonarr_operations_toolset | Static hint toolset for sonarr_operations based on config env. | sonarr_operations | arr-mcp | 50 | No |
-| arr-mcp_lidarr_system_toolset | Static hint toolset for lidarr_system based on config env. | lidarr_system | arr-mcp | 50 | No |
-| arr-mcp_radarr_system_toolset | Static hint toolset for radarr_system based on config env. | radarr_system | arr-mcp | 50 | No |
-| arr-mcp_radarr_queue_toolset | Static hint toolset for radarr_queue based on config env. | radarr_queue | arr-mcp | 50 | No |
-| arr-mcp_lidarr_queue_toolset | Static hint toolset for lidarr_queue based on config env. | lidarr_queue | arr-mcp | 50 | No |
-| arr-mcp_seerr_search_toolset | Static hint toolset for seerr_search based on config env. | seerr_search | arr-mcp | 50 | No |
-| arr-mcp_chaptarr_system_toolset | Static hint toolset for chaptarr_system based on config env. | chaptarr_system | arr-mcp | 50 | No |
-| arr-mcp_radarr_operations_toolset | Static hint toolset for radarr_operations based on config env. | radarr_operations | arr-mcp | 50 | No |
-| arr-mcp_lidarr_operations_toolset | Static hint toolset for lidarr_operations based on config env. | lidarr_operations | arr-mcp | 50 | No |
-| arr-mcp_lidarr_search_toolset | Static hint toolset for lidarr_search based on config env. | lidarr_search | arr-mcp | 50 | No |
-| atlassian_general_tools | General tools for atlassian (offline extraction). | atlassian | atlassian | 40 | No |
+| get_api_token | Generate an API token for a given username & password. | authentication | archivebox-mcp | 70 | No |
+| check_api_token | Validate an API token to make sure it's valid and non-expired. | authentication | archivebox-mcp | 75 | No |
+| get_snapshots | Retrieve list of snapshots. | core | archivebox-mcp | 45 | No |
+| get_snapshot | Get a specific Snapshot by abid or id. | core | archivebox-mcp | 45 | No |
+| get_archiveresults | List all ArchiveResult entries matching these filters. | core | archivebox-mcp | 55 | No |
+| get_tag | Get a specific Tag by id or abid. | core | archivebox-mcp | 45 | No |
+| get_any | Get a specific Snapshot, ArchiveResult, or Tag by abid. | core | archivebox-mcp | 55 | No |
+| cli_add | Execute archivebox add command. | cli | archivebox-mcp | 50 | Yes |
+| cli_update | Execute archivebox update command. | cli | archivebox-mcp | 45 | Yes |
+| cli_schedule | Execute archivebox schedule command. | cli | archivebox-mcp | 50 | No |
+| cli_list | Execute archivebox list command. | cli | archivebox-mcp | 45 | No |
+| cli_remove | Execute archivebox remove command. | cli | archivebox-mcp | 50 | Yes |
+| bazarr_download_movie_subtitle | Download a subtitle for a movie. | bazarr | arr-mcp | 40 | No |
+| bazarr_download_series_subtitle | Download a subtitle for an episode. | bazarr | arr-mcp | 40 | No |
+| bazarr_get_episode_subtitles | Get subtitle information for a specific episode. | bazarr | arr-mcp | 40 | No |
+| bazarr_get_movie_subtitles | Get subtitle information for a specific movie. | bazarr | arr-mcp | 40 | No |
+| bazarr_get_movies | Get all movies managed by Bazarr. | bazarr | arr-mcp | 35 | No |
+| bazarr_get_series | Get all series managed by Bazarr. | bazarr | arr-mcp | 35 | No |
+| bazarr_get_series_subtitles | Get subtitle information for a specific series. | bazarr | arr-mcp | 40 | No |
+| bazarr_get_wanted_movies | Get movies with wanted/missing subtitles. | bazarr | arr-mcp | 40 | No |
+| bazarr_get_wanted_series | Get series episodes with wanted/missing subtitles. | bazarr | arr-mcp | 40 | No |
+| bazarr_search_movie_subtitles | Search for subtitles for a movie. | bazarr | arr-mcp | 40 | No |
+| bazarr_search_series_subtitles | Search for subtitles for a series or episode. | bazarr | arr-mcp | 40 | No |
+| bazarr_get_history | Get subtitle download history. | bazarr | arr-mcp | 35 | No |
+| chaptarr_delete_notification_id | Delete notification id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_remotepathmapping_id | Delete remotepathmapping id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_rootfolder_id | Delete rootfolder id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_get_notification_id | Get specific notification. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_remotepathmapping_id | Get specific remotepathmapping. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_rootfolder_id | Get specific rootfolder. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_post_notification | Add a new notification. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_notification_action_name | Add a new notification action name. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_notification_test | Test notification. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_remotepathmapping | Add a new remotepathmapping. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_rootfolder | Add a new rootfolder. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_notification_id | Update notification id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_remotepathmapping_id | Update remotepathmapping id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_rootfolder_id | Update rootfolder id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_downloadclient_bulk | Delete downloadclient bulk. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_downloadclient_id | Delete downloadclient id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_importlist_bulk | Delete importlist bulk. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_importlist_id | Delete importlist id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_importlistexclusion_id | Delete importlistexclusion id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_get_config_downloadclient_id | Get specific config downloadclient. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_downloadclient_id | Get specific downloadclient. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_importlist_id | Get specific importlist. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_importlistexclusion_id | Get specific importlistexclusion. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_manualimport | Get manualimport. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_release | Get release. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_post_downloadclient | Add a new downloadclient. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_downloadclient_action_name | Add a new downloadclient action name. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_downloadclient_test | Test downloadclient. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_importlist | Add a new importlist. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_importlist_action_name | Add a new importlist action name. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_importlist_test | Test importlist. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_importlistexclusion | Add a new importlistexclusion. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_manualimport | Add a new manualimport. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_release | Add a new release. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_release_push | Add a new release push. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_config_downloadclient_id | Update config downloadclient id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_downloadclient_bulk | Update downloadclient bulk. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_downloadclient_id | Update downloadclient id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_importlist_bulk | Update importlist bulk. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_importlist_id | Update importlist id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_importlistexclusion_id | Update importlistexclusion id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_get_history | Get history. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_get_history_author | Get history author. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_history_since | Get history since. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_post_history_failed_id | Add a new history failed id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_indexer_bulk | Delete indexer bulk. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_indexer_id | Delete indexer id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_get_config_indexer_id | Get specific config indexer. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_indexer_id | Get specific indexer. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_post_indexer | Add a new indexer. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_indexer_action_name | Add a new indexer action name. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_indexer_test | Test indexer. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_put_config_indexer_id | Update config indexer id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_indexer_bulk | Update indexer bulk. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_indexer_id | Update indexer id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_command_id | Delete command id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_get_calendar | Get calendar. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_get_calendar_id | Get specific calendar. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_command_id | Get specific command. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_feed_v1_calendar_readarrics | Get feed v1 calendar readarrics. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_parse | Get parse. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_post_command | Add a new command. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_customfilter_id | Delete customfilter id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_customformat_id | Delete customformat id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_delayprofile_id | Delete delayprofile id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_metadataprofile_id | Delete metadataprofile id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_qualityprofile_id | Delete qualityprofile id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_releaseprofile_id | Delete releaseprofile id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_get_config_mediamanagement_id | Get specific config mediamanagement. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_config_metadataprovider_id | Get specific config metadataprovider. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_config_naming_examples | Get config naming examples. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_config_naming_id | Get specific config naming. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_customfilter_id | Get specific customfilter. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_customformat_id | Get specific customformat. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_delayprofile_id | Get specific delayprofile. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_language_id | Get specific language. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_metadataprofile_id | Get specific metadataprofile. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_qualitydefinition_id | Get specific qualitydefinition. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_qualityprofile_id | Get specific qualityprofile. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_releaseprofile_id | Get specific releaseprofile. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_wanted_cutoff | Get wanted cutoff. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_wanted_cutoff_id | Get specific wanted cutoff. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_post_customfilter | Add a new customfilter. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_customformat | Add a new customformat. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_delayprofile | Add a new delayprofile. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_metadataprofile | Add a new metadataprofile. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_qualityprofile | Add a new qualityprofile. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_releaseprofile | Add a new releaseprofile. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_config_mediamanagement_id | Update config mediamanagement id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_config_metadataprovider_id | Update config metadataprovider id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_config_naming_id | Update config naming id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_customfilter_id | Update customfilter id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_customformat_id | Update customformat id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_delayprofile_id | Update delayprofile id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_delayprofile_reorder_id | Update delayprofile reorder id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_metadataprofile_id | Update metadataprofile id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_qualitydefinition_id | Update qualitydefinition id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_qualitydefinition_update | Update qualitydefinition update. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_qualityprofile_id | Update qualityprofile id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_releaseprofile_id | Update releaseprofile id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_blocklist_bulk | Delete blocklist bulk. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_blocklist_id | Delete blocklist id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_delete_queue_bulk | Delete queue bulk. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_queue_id | Delete queue id. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_get_blocklist | Get blocklist. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_get_queue | Get queue. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_get_queue_details | Get queue details. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_post_queue_grab_bulk | Add a new queue grab bulk. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_queue_grab_id | Add a new queue grab id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_get_search | Get search. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_delete_system_backup_id | Delete system backup id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_delete_tag_id | Delete tag id. | chaptarr | arr-mcp | 30 | Yes |
+| chaptarr_get_ | Get . | chaptarr | arr-mcp | 25 | No |
+| chaptarr_get_config_development_id | Get specific config development. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_config_host_id | Get specific config host. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_config_ui_id | Get specific config ui. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_get_content_path | Get content path. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_filesystem | Get filesystem. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_get_filesystem_mediafiles | Get filesystem mediafiles. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_filesystem_type | Get filesystem type. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_log | Get log. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_get_log_file_filename | Get log file filename. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_log_file_update_filename | Get log file update filename. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_get_path | Get path. | chaptarr | arr-mcp | 30 | No |
+| chaptarr_get_system_task_id | Get specific system task. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_tag_detail_id | Get specific tag detail. | chaptarr | arr-mcp | 40 | No |
+| chaptarr_get_tag_id | Get specific tag. | chaptarr | arr-mcp | 35 | No |
+| chaptarr_post_login | Log in to the Chaptarr instance. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_system_backup_restore_id | Add a new system backup restore id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_post_tag | Add a new tag. | chaptarr | arr-mcp | 35 | Yes |
+| chaptarr_put_config_development_id | Update config development id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_config_host_id | Update config host id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_config_ui_id | Update config ui id. | chaptarr | arr-mcp | 40 | Yes |
+| chaptarr_put_tag_id | Update tag id. | chaptarr | arr-mcp | 35 | Yes |
+| lidarr_delete_album_id | Delete an album and optionally its files and add exclusion. | lidarr | arr-mcp | 45 | Yes |
+| lidarr_delete_artist_editor | Delete multiple artists using the artist editor. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_artist_id | Delete artist id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_metadata_id | Delete metadata id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_trackfile_bulk | Delete trackfile bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_trackfile_id | Delete trackfile id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_get_album | Get albums managed by Lidarr. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_album_id | Get details for a specific album by ID. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_album_lookup | Search for new albums to add to Lidarr. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_artist | Get all artists managed by Lidarr. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_artist_id | Get details for a specific artist by ID. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_artist_lookup | Search for new artists to add to Lidarr. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_mediacover_album_album_id_filename | Get specific mediacover album album filename. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_mediacover_artist_artist_id_filename | Get specific mediacover artist artist filename. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_metadata_id | Get specific metadata. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_rename | Get rename. | lidarr | arr-mcp | 30 | Yes |
+| lidarr_get_retag | Get retag. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_track | Get track. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_track_id | Get specific track. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_trackfile | Get trackfile. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_trackfile_id | Get specific trackfile. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_wanted_missing | Get wanted missing. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_wanted_missing_id | Get specific wanted missing. | lidarr | arr-mcp | 40 | No |
+| lidarr_post_album | Add a new album to Lidarr. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_albumstudio | Perform studio operations on albums. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_artist | Add a new artist to Lidarr. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_metadata | Add a new metadata. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_metadata_action_name | Add a new metadata action name. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_metadata_test | Test metadata. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_put_album_id | Update an existing album by ID. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_album_monitor | Update monitoring status for multiple albums. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_artist_editor | Update monitoring or tagging for multiple artists. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_artist_id | Update an existing artist configuration. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_metadata_id | Update metadata id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_trackfile_editor | Update trackfile editor. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_trackfile_id | Update trackfile id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_notification_id | Delete notification id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_remotepathmapping_id | Delete remotepathmapping id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_rootfolder_id | Delete rootfolder id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_get_notification_id | Get specific notification. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_remotepathmapping_id | Get specific remotepathmapping. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_rootfolder_id | Get specific rootfolder. | lidarr | arr-mcp | 35 | No |
+| lidarr_post_notification | Add a new notification. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_notification_action_name | Add a new notification action name. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_notification_test | Test notification. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_remotepathmapping | Add a new remotepathmapping. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_rootfolder | Add a new root folder. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_notification_id | Update notification id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_remotepathmapping_id | Update remotepathmapping id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_rootfolder_id | Update rootfolder id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_downloadclient_bulk | Delete downloadclient bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_downloadclient_id | Delete downloadclient id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_importlist_bulk | Delete multiple import lists in bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_importlist_id | Delete an import list configuration. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_importlistexclusion_id | Delete importlistexclusion id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_get_config_downloadclient_id | Get specific config downloadclient. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_downloadclient_id | Get specific downloadclient. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_importlist_id | Get details for a specific import list by ID. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_importlistexclusion_id | Get specific importlistexclusion. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_manualimport | Get manualimport. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_release | Get release. | lidarr | arr-mcp | 30 | No |
+| lidarr_post_downloadclient | Add a new downloadclient. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_downloadclient_action_name | Add a new downloadclient action name. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_downloadclient_test | Test downloadclient. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_importlist | Add a new import list. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_importlist_action_name | Perform a specific action on import lists. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_importlist_test | Test an import list configuration. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_importlistexclusion | Add a new importlistexclusion. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_manualimport | Add a new manualimport. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_release | Add a new release. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_release_push | Add a new release push. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_config_downloadclient_id | Update config downloadclient id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_downloadclient_bulk | Update downloadclient bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_downloadclient_id | Update downloadclient id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_importlist_bulk | Update multiple import lists in bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_importlist_id | Update an existing import list configuration. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_importlistexclusion_id | Update importlistexclusion id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_get_history | Get history. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_history_artist | Get history artist. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_history_since | Get history since. | lidarr | arr-mcp | 40 | No |
+| lidarr_post_history_failed_id | Add a new history failed id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_indexer_bulk | Delete indexer bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_indexer_id | Delete an indexer configuration by ID. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_get_config_indexer_id | Get specific config indexer. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_indexer_id | Get details for a specific indexer by ID. | lidarr | arr-mcp | 35 | No |
+| lidarr_post_indexer | Add a new indexer configuration. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_indexer_action_name | Add a new indexer action name. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_indexer_test | Test indexer. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_put_config_indexer_id | Update config indexer id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_indexer_bulk | Update indexer bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_indexer_id | Update an existing indexer configuration. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_autotagging_id | Delete autotagging id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_command_id | Delete command id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_get_autotagging_id | Get specific autotagging. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_calendar | Get calendar. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_calendar_id | Get specific calendar. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_command_id | Get specific command. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_feed_v1_calendar_lidarrics | Get feed v1 calendar lidarrics. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_parse | Get parse. | lidarr | arr-mcp | 30 | No |
+| lidarr_post_autotagging | Add a new autotagging. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_command | Add a new command. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_autotagging_id | Update autotagging id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_customfilter_id | Delete customfilter id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_customformat_bulk | Delete customformat bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_customformat_id | Delete customformat id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_delayprofile_id | Delete delayprofile id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_metadataprofile_id | Delete metadataprofile id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_qualityprofile_id | Delete qualityprofile id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_releaseprofile_id | Delete releaseprofile id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_get_config_mediamanagement_id | Get specific config mediamanagement. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_config_metadataprovider_id | Get specific config metadataprovider. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_config_naming_examples | Get config naming examples. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_config_naming_id | Get specific config naming. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_customfilter_id | Get specific customfilter. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_customformat_id | Get specific customformat. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_delayprofile_id | Get specific delayprofile. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_language_id | Get specific language. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_metadataprofile_id | Get specific metadataprofile. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_qualitydefinition_id | Get specific qualitydefinition. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_qualityprofile_id | Get specific qualityprofile. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_releaseprofile_id | Get specific releaseprofile. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_wanted_cutoff | Get wanted cutoff. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_wanted_cutoff_id | Get specific wanted cutoff. | lidarr | arr-mcp | 40 | No |
+| lidarr_post_customfilter | Add a new customfilter. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_customformat | Add a new customformat. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_delayprofile | Add a new delayprofile. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_metadataprofile | Add a new metadataprofile. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_qualityprofile | Add a new qualityprofile. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_releaseprofile | Add a new release profile configuration. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_config_mediamanagement_id | Update config mediamanagement id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_config_metadataprovider_id | Update config metadataprovider id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_config_naming_id | Update config naming id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_customfilter_id | Update customfilter id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_customformat_bulk | Update customformat bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_customformat_id | Update customformat id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_delayprofile_id | Update delayprofile id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_delayprofile_reorder_id | Update delayprofile reorder id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_metadataprofile_id | Update metadataprofile id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_qualitydefinition_id | Update qualitydefinition id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_qualitydefinition_update | Update qualitydefinition update. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_qualityprofile_id | Update qualityprofile id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_releaseprofile_id | Update releaseprofile id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_blocklist_bulk | Delete blocklist bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_blocklist_id | Delete blocklist id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_delete_queue_bulk | Delete queue bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_queue_id | Delete queue id. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_get_blocklist | Get blocklist. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_queue | Get queue. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_queue_details | Get queue details. | lidarr | arr-mcp | 40 | No |
+| lidarr_post_queue_grab_bulk | Add a new queue grab bulk. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_queue_grab_id | Add a new queue grab id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_get_search | Get search. | lidarr | arr-mcp | 30 | No |
+| lidarr_delete_system_backup_id | Delete system backup id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_delete_tag_id | Delete tag id. | lidarr | arr-mcp | 30 | Yes |
+| lidarr_get_ | Get . | lidarr | arr-mcp | 25 | No |
+| lidarr_get_config_host_id | Get specific config host. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_config_ui_id | Get specific config ui. | lidarr | arr-mcp | 35 | No |
+| lidarr_get_content_path | Get content path. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_filesystem | Get filesystem. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_filesystem_mediafiles | Get filesystem mediafiles. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_filesystem_type | Get filesystem type. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_log | Get log. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_log_file_filename | Get log file filename. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_log_file_update_filename | Get log file update filename. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_get_path | Get path. | lidarr | arr-mcp | 30 | No |
+| lidarr_get_system_task_id | Get specific system task. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_tag_detail_id | Get specific tag detail. | lidarr | arr-mcp | 40 | No |
+| lidarr_get_tag_id | Get specific tag. | lidarr | arr-mcp | 35 | No |
+| lidarr_post_login | Add a new login. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_system_backup_restore_id | Add a new system backup restore id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_post_tag | Add a new tag. | lidarr | arr-mcp | 35 | Yes |
+| lidarr_put_config_host_id | Update config host id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_config_ui_id | Update config ui id. | lidarr | arr-mcp | 40 | Yes |
+| lidarr_put_tag_id | Update tag id. | lidarr | arr-mcp | 35 | Yes |
+| prowlarr_delete_notification_id | Delete notification id. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_get_notification_id | Get specific notification. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_post_notification | Add a new notification. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_notification_action_name | Add a new notification action name. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_notification_test | Test notification. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_notification_id | Update notification id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_delete_downloadclient_bulk | Delete downloadclient bulk. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_delete_downloadclient_id | Delete downloadclient id. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_get_config_downloadclient_id | Get specific config downloadclient. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_downloadclient_id | Get specific downloadclient. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_post_downloadclient | Add a new downloadclient. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_downloadclient_action_name | Add a new downloadclient action name. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_downloadclient_test | Test downloadclient. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_config_downloadclient_id | Update config downloadclient id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_downloadclient_bulk | Update downloadclient bulk. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_downloadclient_id | Update downloadclient id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_get_history | Get history. | prowlarr | arr-mcp | 30 | No |
+| prowlarr_get_history_indexer | Get history indexer. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_history_since | Get history since. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_delete_indexer_bulk | Delete indexer bulk. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_delete_indexer_id | Delete indexer id. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_delete_indexerproxy_id | Delete indexerproxy id. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_get_id_api | Get results for a specific indexer endpoint in Newznab format. | prowlarr | arr-mcp | 45 | No |
+| prowlarr_get_id_download | Get specific id download. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_get_indexer_id | Get specific indexer. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_get_indexer_id_download | Download a release from a specific indexer. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_indexer_id_newznab | Get specific indexer newznab. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_indexerproxy_id | Get specific indexerproxy. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_get_indexerstats | Get indexerstats. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_post_indexer | Add a new indexer. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_indexer_action_name | Add a new indexer action name. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_indexer_test | Test indexer. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_post_indexerproxy | Add a new indexerproxy. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_indexerproxy_action_name | Add a new indexerproxy action name. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_indexerproxy_test | Test indexerproxy. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_indexer_bulk | Update indexer bulk. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_indexer_id | Update indexer id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_indexerproxy_id | Update indexerproxy id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_delete_command_id | Delete command id. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_get_command_id | Get specific command. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_post_command | Add a new command. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_delete_customfilter_id | Delete customfilter id. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_get_customfilter_id | Get specific customfilter. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_post_customfilter | Add a new customfilter. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_customfilter_id | Update customfilter id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_get_search | Get search. | prowlarr | arr-mcp | 30 | No |
+| prowlarr_post_search | Perform a bulk search across multiple indexers. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_search_bulk | Add a new search bulk. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_search | Search for indexers using the search endpoint. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_delete_applications_bulk | Delete applications bulk. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_delete_applications_id | Delete an application configuration. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_delete_appprofile_id | Delete appprofile id. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_delete_system_backup_id | Delete system backup id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_delete_tag_id | Delete tag id. | prowlarr | arr-mcp | 30 | Yes |
+| prowlarr_get_ | Get . | prowlarr | arr-mcp | 25 | No |
+| prowlarr_get_applications_id | Get details for a specific application by ID. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_get_appprofile_id | Get specific appprofile. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_get_config_development_id | Get specific config development. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_config_host_id | Get specific config host. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_config_ui_id | Get specific config ui. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_get_content_path | Get content path. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_filesystem | Get filesystem. | prowlarr | arr-mcp | 30 | No |
+| prowlarr_get_filesystem_type | Get filesystem type. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_log | Get log. | prowlarr | arr-mcp | 30 | No |
+| prowlarr_get_log_file_filename | Get log file filename. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_log_file_update_filename | Get log file update filename. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_get_path | Get path. | prowlarr | arr-mcp | 30 | No |
+| prowlarr_get_system_task_id | Get specific system task. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_tag_detail_id | Get specific tag detail. | prowlarr | arr-mcp | 40 | No |
+| prowlarr_get_tag_id | Get specific tag. | prowlarr | arr-mcp | 35 | No |
+| prowlarr_post_applications | Add a new applications. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_applications_action_name | Add a new applications action name. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_applications_test | Test applications. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_appprofile | Add a new appprofile. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_login | Add a new login. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_system_backup_restore_id | Add a new system backup restore id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_post_tag | Add a new tag. | prowlarr | arr-mcp | 35 | Yes |
+| prowlarr_put_applications_bulk | Update applications bulk. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_applications_id | Update an existing application configuration. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_appprofile_id | Update appprofile id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_config_development_id | Update config development id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_config_host_id | Update config host id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_config_ui_id | Update config ui id. | prowlarr | arr-mcp | 40 | Yes |
+| prowlarr_put_tag_id | Update tag id. | prowlarr | arr-mcp | 35 | Yes |
+| radarr_add_movie | Lookup a movie by term, pick the first result, and add it to Radarr. | radarr | arr-mcp | 50 | Yes |
+| radarr_delete_metadata_id | Delete metadata id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_movie_editor | Delete movie editor. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_movie_id | Delete movie id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_moviefile_bulk | Delete moviefile bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_moviefile_id | Delete moviefile id. | radarr | arr-mcp | 35 | Yes |
+| radarr_get_alttitle | Get alternative titles for movies. | radarr | arr-mcp | 35 | No |
+| radarr_get_alttitle_id | Get a specific alternative title by ID. | radarr | arr-mcp | 35 | No |
+| radarr_get_collection | Get collection. | radarr | arr-mcp | 30 | No |
+| radarr_get_collection_id | Get specific collection. | radarr | arr-mcp | 35 | No |
+| radarr_get_credit | Get credit. | radarr | arr-mcp | 30 | No |
+| radarr_get_credit_id | Get specific credit. | radarr | arr-mcp | 35 | No |
+| radarr_get_extrafile | Get extrafile. | radarr | arr-mcp | 30 | No |
+| radarr_get_importlist_movie | Get importlist movie. | radarr | arr-mcp | 40 | No |
+| radarr_get_mediacover_movie_id_filename | Get specific mediacover movie filename. | radarr | arr-mcp | 40 | No |
+| radarr_get_metadata_id | Get specific metadata. | radarr | arr-mcp | 35 | No |
+| radarr_get_movie | Get movie. | radarr | arr-mcp | 30 | No |
+| radarr_get_movie_id | Get specific movie. | radarr | arr-mcp | 35 | No |
+| radarr_get_movie_id_folder | Get specific movie folder. | radarr | arr-mcp | 40 | No |
+| radarr_get_movie_lookup | Get movie lookup. | radarr | arr-mcp | 40 | No |
+| radarr_get_movie_lookup_imdb | Get movie lookup imdb. | radarr | arr-mcp | 40 | No |
+| radarr_get_movie_lookup_tmdb | Get movie lookup tmdb. | radarr | arr-mcp | 40 | No |
+| radarr_get_moviefile | Get moviefile. | radarr | arr-mcp | 30 | No |
+| radarr_get_moviefile_id | Get specific moviefile. | radarr | arr-mcp | 35 | No |
+| radarr_get_rename | Get rename. | radarr | arr-mcp | 30 | Yes |
+| radarr_get_wanted_missing | Get wanted missing. | radarr | arr-mcp | 40 | No |
+| radarr_lookup_movie | Search for a movie using the lookup endpoint. | radarr | arr-mcp | 40 | No |
+| radarr_post_importlist_movie | Add a new importlist movie. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_metadata | Add a new metadata. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_metadata_action_name | Add a new metadata action name. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_metadata_test | Test metadata. | radarr | arr-mcp | 35 | Yes |
+| radarr_post_movie | Add a new movie to Radarr. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_movie_import | Add a new movie import. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_collection | Update collection. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_collection_id | Update collection id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_metadata_id | Update metadata id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_movie_editor | Update movie editor. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_movie_id | Update an existing movie configuration. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_moviefile_bulk | Update moviefile bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_moviefile_editor | Update moviefile editor. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_moviefile_id | Update moviefile id. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_notification_id | Delete notification id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_remotepathmapping_id | Delete remotepathmapping id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_rootfolder_id | Delete rootfolder id. | radarr | arr-mcp | 35 | Yes |
+| radarr_get_notification_id | Get specific notification. | radarr | arr-mcp | 35 | No |
+| radarr_get_remotepathmapping_id | Get specific remotepathmapping. | radarr | arr-mcp | 35 | No |
+| radarr_get_rootfolder_id | Get specific rootfolder. | radarr | arr-mcp | 35 | No |
+| radarr_post_notification | Add a new notification. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_notification_action_name | Add a new notification action name. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_notification_test | Test notification. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_remotepathmapping | Add a new remotepathmapping. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_rootfolder | Add a new rootfolder. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_notification_id | Update notification id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_remotepathmapping_id | Update remotepathmapping id. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_downloadclient_bulk | Delete downloadclient bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_downloadclient_id | Delete downloadclient id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_exclusions_bulk | Delete exclusions bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_exclusions_id | Delete exclusions id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_importlist_bulk | Delete importlist bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_importlist_id | Delete importlist id. | radarr | arr-mcp | 35 | Yes |
+| radarr_get_config_downloadclient_id | Get specific config downloadclient. | radarr | arr-mcp | 40 | No |
+| radarr_get_config_importlist_id | Get specific config importlist. | radarr | arr-mcp | 40 | No |
+| radarr_get_downloadclient_id | Get specific downloadclient. | radarr | arr-mcp | 35 | No |
+| radarr_get_exclusions_id | Get specific exclusions. | radarr | arr-mcp | 35 | No |
+| radarr_get_exclusions_paged | Get exclusions paged. | radarr | arr-mcp | 40 | No |
+| radarr_get_importlist_id | Get specific importlist. | radarr | arr-mcp | 35 | No |
+| radarr_get_manualimport | Get manualimport. | radarr | arr-mcp | 35 | No |
+| radarr_get_release | Get release. | radarr | arr-mcp | 30 | No |
+| radarr_post_downloadclient | Add a new downloadclient. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_downloadclient_action_name | Add a new downloadclient action name. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_downloadclient_test | Test downloadclient. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_exclusions | Add a new exclusions. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_exclusions_bulk | Add a new exclusions bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_importlist | Add a new importlist. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_importlist_action_name | Add a new importlist action name. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_importlist_test | Test importlist. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_manualimport | Add a new manualimport. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_release | Add a new release. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_release_push | Add a new release push. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_config_downloadclient_id | Update config downloadclient id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_config_importlist_id | Update config importlist id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_downloadclient_bulk | Update downloadclient bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_downloadclient_id | Update downloadclient id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_exclusions_id | Update exclusions id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_importlist_bulk | Update importlist bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_importlist_id | Update importlist id. | radarr | arr-mcp | 40 | Yes |
+| radarr_get_history | Get history. | radarr | arr-mcp | 30 | No |
+| radarr_get_history_movie | Get history movie. | radarr | arr-mcp | 40 | No |
+| radarr_get_history_since | Get history since. | radarr | arr-mcp | 40 | No |
+| radarr_post_history_failed_id | Add a new history failed id. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_indexer_bulk | Delete indexer bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_indexer_id | Delete indexer id. | radarr | arr-mcp | 35 | Yes |
+| radarr_get_config_indexer_id | Get specific config indexer. | radarr | arr-mcp | 40 | No |
+| radarr_get_indexer_id | Get specific indexer. | radarr | arr-mcp | 35 | No |
+| radarr_post_indexer | Add a new indexer configuration. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_indexer_action_name | Add a new indexer action name. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_indexer_test | Test indexer. | radarr | arr-mcp | 35 | Yes |
+| radarr_put_config_indexer_id | Update config indexer id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_indexer_bulk | Update indexer bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_indexer_id | Update an existing indexer configuration by ID. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_autotagging_id | Delete autotagging id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_command_id | Delete command id. | radarr | arr-mcp | 35 | Yes |
+| radarr_get_autotagging_id | Get specific autotagging. | radarr | arr-mcp | 35 | No |
+| radarr_get_calendar | Get calendar. | radarr | arr-mcp | 30 | No |
+| radarr_get_command_id | Get specific command. | radarr | arr-mcp | 35 | No |
+| radarr_get_feed_v3_calendar_radarrics | Get feed v3 calendar radarrics. | radarr | arr-mcp | 40 | No |
+| radarr_get_parse | Get parse. | radarr | arr-mcp | 30 | No |
+| radarr_post_autotagging | Add a new autotagging. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_command | Add a new command. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_autotagging_id | Update autotagging id. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_customfilter_id | Delete customfilter id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_customformat_bulk | Delete customformat bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_customformat_id | Delete customformat id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_delayprofile_id | Delete delayprofile id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_qualityprofile_id | Delete qualityprofile id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_releaseprofile_id | Delete releaseprofile id. | radarr | arr-mcp | 35 | Yes |
+| radarr_get_config_mediamanagement_id | Get specific config mediamanagement. | radarr | arr-mcp | 40 | No |
+| radarr_get_config_metadata_id | Get specific config metadata. | radarr | arr-mcp | 40 | No |
+| radarr_get_config_naming_examples | Get config naming examples. | radarr | arr-mcp | 40 | No |
+| radarr_get_config_naming_id | Get specific config naming. | radarr | arr-mcp | 40 | No |
+| radarr_get_customfilter_id | Get specific customfilter. | radarr | arr-mcp | 35 | No |
+| radarr_get_customformat_id | Get specific customformat. | radarr | arr-mcp | 35 | No |
+| radarr_get_delayprofile_id | Get specific delayprofile. | radarr | arr-mcp | 35 | No |
+| radarr_get_language_id | Get specific language. | radarr | arr-mcp | 35 | No |
+| radarr_get_qualitydefinition_id | Get specific qualitydefinition. | radarr | arr-mcp | 35 | No |
+| radarr_get_qualityprofile_id | Get specific qualityprofile. | radarr | arr-mcp | 35 | No |
+| radarr_get_releaseprofile_id | Get specific releaseprofile. | radarr | arr-mcp | 35 | No |
+| radarr_get_wanted_cutoff | Get wanted cutoff. | radarr | arr-mcp | 40 | No |
+| radarr_post_customfilter | Add a new customfilter. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_customformat | Add a new customformat. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_delayprofile | Add a new delayprofile. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_qualityprofile | Add a new qualityprofile. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_releaseprofile | Add a new releaseprofile. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_config_mediamanagement_id | Update config mediamanagement id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_config_metadata_id | Update config metadata id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_config_naming_id | Update config naming id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_customfilter_id | Update customfilter id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_customformat_bulk | Update customformat bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_customformat_id | Update customformat id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_delayprofile_id | Update delayprofile id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_delayprofile_reorder_id | Update delayprofile reorder id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_qualitydefinition_id | Update qualitydefinition id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_qualitydefinition_update | Update qualitydefinition update. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_qualityprofile_id | Update qualityprofile id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_releaseprofile_id | Update releaseprofile id. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_blocklist_bulk | Delete blocklist bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_blocklist_id | Delete blocklist id. | radarr | arr-mcp | 35 | Yes |
+| radarr_delete_queue_bulk | Delete queue bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_queue_id | Delete an item from the download queue. | radarr | arr-mcp | 35 | Yes |
+| radarr_get_blocklist | Get blocklist. | radarr | arr-mcp | 30 | No |
+| radarr_get_blocklist_movie | Get blocklisted items for a specific movie. | radarr | arr-mcp | 40 | No |
+| radarr_get_queue | Get queue. | radarr | arr-mcp | 30 | No |
+| radarr_get_queue_details | Get queue details. | radarr | arr-mcp | 40 | No |
+| radarr_post_queue_grab_bulk | Add a new queue grab bulk. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_queue_grab_id | Add a new queue grab id. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_system_backup_id | Delete system backup id. | radarr | arr-mcp | 40 | Yes |
+| radarr_delete_tag_id | Delete tag id. | radarr | arr-mcp | 30 | Yes |
+| radarr_get_ | Get . | radarr | arr-mcp | 25 | No |
+| radarr_get_config_host_id | Get specific config host. | radarr | arr-mcp | 40 | No |
+| radarr_get_config_ui_id | Get specific config ui. | radarr | arr-mcp | 35 | No |
+| radarr_get_content_path | Get content path. | radarr | arr-mcp | 40 | No |
+| radarr_get_filesystem | Get filesystem. | radarr | arr-mcp | 30 | No |
+| radarr_get_filesystem_mediafiles | Get filesystem mediafiles. | radarr | arr-mcp | 40 | No |
+| radarr_get_filesystem_type | Get filesystem type. | radarr | arr-mcp | 40 | No |
+| radarr_get_log | Get log. | radarr | arr-mcp | 30 | No |
+| radarr_get_log_file_filename | Get log file filename. | radarr | arr-mcp | 40 | No |
+| radarr_get_log_file_update_filename | Get log file update filename. | radarr | arr-mcp | 40 | Yes |
+| radarr_get_path | Get path. | radarr | arr-mcp | 30 | No |
+| radarr_get_system_task_id | Get specific system task. | radarr | arr-mcp | 40 | No |
+| radarr_get_tag_detail_id | Get specific tag detail. | radarr | arr-mcp | 40 | No |
+| radarr_get_tag_id | Get specific tag. | radarr | arr-mcp | 35 | No |
+| radarr_post_login | Log in to the Radarr web interface. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_system_backup_restore_id | Add a new system backup restore id. | radarr | arr-mcp | 40 | Yes |
+| radarr_post_tag | Add a new tag. | radarr | arr-mcp | 35 | Yes |
+| radarr_put_config_host_id | Update config host id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_config_ui_id | Update config ui id. | radarr | arr-mcp | 40 | Yes |
+| radarr_put_tag_id | Update tag id. | radarr | arr-mcp | 35 | Yes |
+| seerr_get_movie_id | Get movie details | seerr | arr-mcp | 35 | No |
+| seerr_get_tv_id | Get TV details | seerr | arr-mcp | 25 | No |
+| seerr_delete_request_id | Delete a request | seerr | arr-mcp | 35 | Yes |
+| seerr_get_request | Get all requests | seerr | arr-mcp | 35 | No |
+| seerr_get_request_id | Get a specific request | seerr | arr-mcp | 35 | No |
+| seerr_get_search | Search for content | seerr | arr-mcp | 35 | No |
+| seerr_post_request | Create a new request | seerr | arr-mcp | 40 | Yes |
+| seerr_post_request_id_approve | Approve a request | seerr | arr-mcp | 40 | Yes |
+| seerr_post_request_id_decline | Decline a request | seerr | arr-mcp | 40 | Yes |
+| seerr_put_request_id | Update a request | seerr | arr-mcp | 40 | Yes |
+| seerr_get_user | Get all users | seerr | arr-mcp | 30 | No |
+| seerr_get_user_id | Get user details | seerr | arr-mcp | 35 | No |
+| sonarr_add_series | Lookup a series by term, pick the first result, and add it to Sonarr. | sonarr | arr-mcp | 50 | Yes |
+| sonarr_delete_episodefile_bulk | Delete episodefile bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_episodefile_id | Delete episodefile id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_metadata_id | Delete metadata id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_series_editor | Delete series editor. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_series_id | Delete series. | sonarr | arr-mcp | 30 | Yes |
+| sonarr_get_episode | Get episode. | sonarr | arr-mcp | 30 | No |
+| sonarr_get_episode_id | Get specific episode. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_episodefile | Get episodefile. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_episodefile_id | Get specific episodefile. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_mediacover_series_id_filename | Get specific mediacover series filename. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_metadata_id | Get specific metadata. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_rename | Get rename. | sonarr | arr-mcp | 30 | Yes |
+| sonarr_get_series | Get series. | sonarr | arr-mcp | 30 | No |
+| sonarr_get_series_id | Get specific series. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_series_id_folder | Get series folder. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_series_lookup | Lookup series. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_wanted_missing | Get wanted missing. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_wanted_missing_id | Get specific wanted missing. | sonarr | arr-mcp | 40 | No |
+| sonarr_lookup_series | Search for a series using the lookup endpoint. | sonarr | arr-mcp | 40 | No |
+| sonarr_post_metadata | Add a new metadata. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_metadata_action_name | Add a new metadata action name. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_metadata_test | Test metadata. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_post_seasonpass | Add a new seasonpass. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_series | Add a new series. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_series_import | Import series. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_put_episode_id | Update episode id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_episode_monitor | Update episode monitor. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_episodefile_bulk | Update episodefile bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_episodefile_editor | Update episodefile editor. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_episodefile_id | Update episodefile id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_metadata_id | Update metadata id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_series_editor | Update series editor. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_series_id | Update series id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_notification_id | Delete notification id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_remotepathmapping_id | Delete remotepathmapping id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_rootfolder_id | Delete rootfolder id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_get_notification_id | Get specific notification. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_remotepathmapping_id | Get specific remotepathmapping. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_rootfolder_id | Get specific rootfolder. | sonarr | arr-mcp | 35 | No |
+| sonarr_post_notification | Add a new notification. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_notification_action_name | Add a new notification action name. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_notification_test | Test notification. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_remotepathmapping | Add a new remotepathmapping. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_rootfolder | Add a new rootfolder. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_notification_id | Update notification id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_remotepathmapping_id | Update remotepathmapping id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_downloadclient_bulk | Delete downloadclient bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_downloadclient_id | Delete downloadclient id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_importlist_bulk | Delete importlist bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_importlist_id | Delete an import list configuration by ID. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_importlistexclusion_bulk | Delete importlistexclusion bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_importlistexclusion_id | Delete importlistexclusion id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_get_config_downloadclient_id | Get specific config downloadclient. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_config_importlist_id | Get specific config importlist. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_downloadclient_id | Get specific downloadclient. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_importlist_id | Get details for a specific import list by ID. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_importlistexclusion_id | Get specific importlistexclusion. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_importlistexclusion_paged | Get importlistexclusion paged. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_manualimport | Get manualimport. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_release | Get release. | sonarr | arr-mcp | 30 | No |
+| sonarr_post_downloadclient | Add a new downloadclient. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_downloadclient_action_name | Add a new downloadclient action name. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_downloadclient_test | Test downloadclient. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_importlist | Add a new import list configuration. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_importlist_action_name | Add a new importlist action name. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_importlist_test | Test importlist. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_importlistexclusion | Add a new importlistexclusion. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_manualimport | Add a new manualimport. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_release | Add a new release. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_release_push | Add a new release push. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_config_downloadclient_id | Update config downloadclient id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_config_importlist_id | Update config importlist id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_downloadclient_bulk | Update downloadclient bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_downloadclient_id | Update downloadclient id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_importlist_bulk | Update importlist bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_importlist_id | Update an existing import list configuration. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_importlistexclusion_id | Update importlistexclusion id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_get_history | Get history. | sonarr | arr-mcp | 30 | No |
+| sonarr_get_history_series | Get history series. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_history_since | Get history since. | sonarr | arr-mcp | 40 | No |
+| sonarr_post_history_failed_id | Add a new history failed id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_indexer_bulk | Delete indexer bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_indexer_id | Delete an indexer configuration by ID. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_get_config_indexer_id | Get specific config indexer. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_indexer_id | Get specific indexer. | sonarr | arr-mcp | 35 | No |
+| sonarr_post_indexer | Add a new indexer configuration. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_indexer_action_name | Add a new indexer action name. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_indexer_test | Test indexer. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_put_config_indexer_id | Update config indexer id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_indexer_bulk | Update indexer bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_indexer_id | Update an existing indexer configuration by ID. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_autotagging_id | Delete an auto-tagging rule by ID. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_command_id | Delete command id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_get_autotagging_id | Get details for a specific auto-tagging rule by ID. | sonarr | arr-mcp | 45 | No |
+| sonarr_get_calendar | Get calendar. | sonarr | arr-mcp | 30 | No |
+| sonarr_get_calendar_id | Get specific calendar. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_command_id | Get specific command. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_feed_v3_calendar_sonarrics | Get feed v3 calendar sonarrics. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_parse | Get parse. | sonarr | arr-mcp | 30 | No |
+| sonarr_post_autotagging | Add a new auto-tagging rule. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_command | Add a new command. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_autotagging_id | Update an existing auto-tagging rule by ID. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_customfilter_id | Delete customfilter id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_customformat_bulk | Delete customformat bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_customformat_id | Delete customformat id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_delayprofile_id | Delete delayprofile id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_languageprofile_id | Delete languageprofile id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_qualityprofile_id | Delete qualityprofile id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_releaseprofile_id | Delete releaseprofile id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_get_config_mediamanagement_id | Get specific config mediamanagement. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_config_naming_examples | Get config naming examples. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_config_naming_id | Get specific config naming. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_customfilter_id | Get specific customfilter. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_customformat_id | Get specific customformat. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_delayprofile_id | Get specific delayprofile. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_language_id | Get specific language. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_languageprofile_id | Get specific languageprofile. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_qualitydefinition_id | Get a specific quality definition by ID. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_qualityprofile_id | Get specific qualityprofile. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_releaseprofile_id | Get specific releaseprofile. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_wanted_cutoff | Get wanted cutoff. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_wanted_cutoff_id | Get specific wanted cutoff. | sonarr | arr-mcp | 40 | No |
+| sonarr_post_customfilter | Add a new customfilter. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_customformat | Add a new customformat. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_delayprofile | Add a new delayprofile. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_languageprofile | Add a new languageprofile. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_qualityprofile | Add a new qualityprofile. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_releaseprofile | Add a new releaseprofile. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_config_mediamanagement_id | Update config mediamanagement id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_config_naming_id | Update config naming id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_customfilter_id | Update customfilter id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_customformat_bulk | Update customformat bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_customformat_id | Update customformat id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_delayprofile_id | Update delayprofile id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_delayprofile_reorder_id | Update delayprofile reorder id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_languageprofile_id | Update languageprofile id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_qualitydefinition_id | Update qualitydefinition id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_qualitydefinition_update | Update qualitydefinition update. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_qualityprofile_id | Update qualityprofile id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_releaseprofile_id | Update releaseprofile id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_blocklist_bulk | Delete blocklist bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_blocklist_id | Delete a blocklisted item by ID. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_delete_queue_bulk | Delete queue bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_queue_id | Delete queue id. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_get_blocklist | Get blocklist. | sonarr | arr-mcp | 30 | No |
+| sonarr_get_queue | Get queue. | sonarr | arr-mcp | 30 | No |
+| sonarr_get_queue_details | Get queue details. | sonarr | arr-mcp | 40 | No |
+| sonarr_post_queue_grab_bulk | Add a new queue grab bulk. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_queue_grab_id | Add a new queue grab id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_system_backup_id | Delete a system backup file by ID. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_delete_tag_id | Delete a tag. | sonarr | arr-mcp | 30 | Yes |
+| sonarr_get_ | Get resource by path. | sonarr | arr-mcp | 30 | No |
+| sonarr_get_config_host_id | Get specific config host. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_config_ui_id | Get specific UI configuration. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_content_path | Get content path. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_filesystem | Get filesystem. | sonarr | arr-mcp | 30 | No |
+| sonarr_get_filesystem_mediafiles | Get filesystem mediafiles. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_filesystem_type | Get filesystem type. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_localization_id | Get specific localization. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_log | Get log. | sonarr | arr-mcp | 30 | No |
+| sonarr_get_log_file_filename | Get log file filename. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_log_file_update_filename | Get log file update content. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_get_path | Get system routes. | sonarr | arr-mcp | 35 | No |
+| sonarr_get_system_task_id | Get specific system task. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_tag_detail_id | Get specific tag usage details. | sonarr | arr-mcp | 40 | No |
+| sonarr_get_tag_id | Get specific tag. | sonarr | arr-mcp | 35 | No |
+| sonarr_post_login | Log in to the Sonarr web interface. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_system_backup_restore_id | Add a new system backup restore id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_post_tag | Add a new tag. | sonarr | arr-mcp | 35 | Yes |
+| sonarr_put_config_host_id | Update config host id. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_config_ui_id | Update UI configuration. | sonarr | arr-mcp | 40 | Yes |
+| sonarr_put_tag_id | Update a tag. | sonarr | arr-mcp | 35 | Yes |
+| jira_cloud_get_attachment_content | Get attachment content | jira-cloud-issue-attachment | atlassian | 65 | No |
+| jira_cloud_get_attachment_meta | Get Jira attachment settings | jira-cloud-issue-attachment | atlassian | 65 | No |
+| jira_cloud_get_attachment_thumbnail | Get attachment thumbnail | jira-cloud-issue-attachment | atlassian | 65 | No |
+| jira_cloud_remove_attachment | Delete attachment | jira-cloud-issue-attachment | atlassian | 65 | Yes |
+| jira_cloud_get_attachment | Get attachment metadata | jira-cloud-issue-attachment | atlassian | 65 | No |
+| jira_cloud_expand_attachment_for_humans | Get all metadata for an expanded attachment | jira-cloud-issue-attachment | atlassian | 65 | No |
+| jira_cloud_expand_attachment_for_machines | Get contents metadata for an expanded attachment | jira-cloud-issue-attachment | atlassian | 65 | No |
+| jira_cloud_submit_bulk_delete | Bulk delete issues | jira-cloud-issue-bulk | atlassian | 65 | Yes |
+| jira_cloud_get_bulk_editable_fields | Get bulk editable fields | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_submit_bulk_edit | Bulk edit issues | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_submit_bulk_move | Bulk move issues | jira-cloud-issue-bulk | atlassian | 65 | Yes |
+| jira_cloud_get_available_transitions | Get available transitions | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_submit_bulk_transition | Bulk transition issue statuses | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_submit_bulk_unwatch | Bulk unwatch issues | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_submit_bulk_watch | Bulk watch issues | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_get_bulk_operation_progress | Get bulk issue operation progress | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_get_bulk_changelogs | Bulk fetch changelogs | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_get_comments_by_ids | Get comments by IDs | jira-cloud-issue-comment | atlassian | 65 | No |
+| jira_cloud_get_comment_property_keys | Get comment property keys | jira-cloud-issue-comment | atlassian | 65 | No |
+| jira_cloud_delete_comment_property | Delete comment property | jira-cloud-issue-comment | atlassian | 65 | Yes |
+| jira_cloud_get_comment_property | Get comment property | jira-cloud-issue-comment | atlassian | 65 | No |
+| jira_cloud_set_comment_property | Set comment property | jira-cloud-issue-comment | atlassian | 65 | Yes |
+| jira_cloud_get_component_related_issues | Get component issues count | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_bulk_edit_dashboards | Bulk edit dashboards | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_get_issue_type_mappings_for_contexts | Get issue types for custom field context | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_add_issue_types_to_context | Add issue types to context | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_remove_issue_types_from_context | Remove issue types from context | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_all_issue_field_options | Get all issue field options | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_create_issue_field_option | Create issue field option | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_selectable_issue_field_options | Get selectable issue field options | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_visible_issue_field_options | Get visible issue field options | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_delete_issue_field_option | Delete issue field option | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_issue_field_option | Get issue field option | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_update_issue_field_option | Update issue field option | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_replace_issue_field_option | Replace issue field option | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_create_filter | Create filter | jira-cloud-issue-core | atlassian | 60 | Yes |
+| jira_cloud_get_favourite_filters | Get favorite filters | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_my_filters | Get my filters | jira-cloud-issue-core | atlassian | 60 | No |
+| jira_cloud_get_filters_paginated | Search for filters | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_delete_filter | Delete filter | jira-cloud-issue-core | atlassian | 60 | Yes |
+| jira_cloud_get_filter | Get filter | jira-cloud-issue-core | atlassian | 60 | No |
+| jira_cloud_update_filter | Update filter | jira-cloud-issue-core | atlassian | 60 | Yes |
+| jira_cloud_delete_favourite_for_filter | Remove filter as favorite | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_set_favourite_for_filter | Add filter as favorite | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_change_filter_owner | Change filter owner | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_bulk_pin_unpin_projects_async | Bulk pin or unpin issue panel to projects | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_bulk_get_groups | Bulk get groups | jira-cloud-issue-bulk | atlassian | 60 | No |
+| jira_cloud_create_issue | Create issue | jira-cloud-issue-core | atlassian | 60 | Yes |
+| jira_cloud_archive_issues_async | Archive issue(s) by JQL | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_archive_issues | Archive issue(s) by issue ID/key | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_create_issues | Bulk create issue | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_bulk_fetch_issues | Bulk fetch issues | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_get_create_issue_meta | Get create issue metadata | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_create_issue_meta_issue_types | Get create metadata issue types for a project | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_create_issue_meta_issue_type_id | Get create field metadata for a project and issue type id | jira-cloud-issue-type | atlassian | 75 | Yes |
+| jira_cloud_get_issue_limit_report | Get issue limit report | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_issue_picker_resource | Get issue picker suggestions | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_bulk_set_issues_properties_list | Bulk set issues properties by list | jira-cloud-issue-bulk | atlassian | 65 | Yes |
+| jira_cloud_bulk_set_issue_properties_by_issue | Bulk set issue properties by issue | jira-cloud-issue-bulk | atlassian | 65 | Yes |
+| jira_cloud_bulk_delete_issue_property | Bulk delete issue property | jira-cloud-issue-bulk | atlassian | 65 | Yes |
+| jira_cloud_bulk_set_issue_property | Bulk set issue property | jira-cloud-issue-bulk | atlassian | 65 | Yes |
+| jira_cloud_unarchive_issues | Unarchive issue(s) by issue keys/ID | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_is_watching_issue_bulk | Get is watching issue bulk | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_delete_issue | Delete issue | jira-cloud-issue-core | atlassian | 60 | Yes |
+| jira_cloud_get_issue | Get issue | jira-cloud-issue-core | atlassian | 60 | No |
+| jira_cloud_edit_issue | Edit issue | jira-cloud-issue-core | atlassian | 60 | No |
+| jira_cloud_assign_issue | Assign issue | jira-cloud-issue-core | atlassian | 60 | No |
+| jira_cloud_add_attachment | Add attachment | jira-cloud-issue-attachment | atlassian | 60 | Yes |
+| jira_cloud_get_comments | Get comments | jira-cloud-issue-comment | atlassian | 60 | No |
+| jira_cloud_add_comment | Add comment | jira-cloud-issue-comment | atlassian | 60 | Yes |
+| jira_cloud_delete_comment | Delete comment | jira-cloud-issue-comment | atlassian | 60 | Yes |
+| jira_cloud_get_comment | Get comment | jira-cloud-issue-comment | atlassian | 60 | No |
+| jira_cloud_update_comment | Update comment | jira-cloud-issue-comment | atlassian | 60 | Yes |
+| jira_cloud_get_edit_issue_meta | Get edit issue metadata | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_issue_property_keys | Get issue property keys | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_delete_issue_property | Delete issue property | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_issue_property | Get issue property | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_set_issue_property | Set issue property | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_delete_remote_issue_link_by_global_id | Delete remote issue link by global ID | jira-cloud-issue-link | atlassian | 65 | Yes |
+| jira_cloud_get_remote_issue_links | Get remote issue links | jira-cloud-issue-link | atlassian | 65 | No |
+| jira_cloud_create_or_update_remote_issue_link | Create or update remote issue link | jira-cloud-issue-link | atlassian | 65 | Yes |
+| jira_cloud_delete_remote_issue_link_by_id | Delete remote issue link by ID | jira-cloud-issue-link | atlassian | 65 | Yes |
+| jira_cloud_get_remote_issue_link_by_id | Get remote issue link by ID | jira-cloud-issue-link | atlassian | 65 | No |
+| jira_cloud_update_remote_issue_link | Update remote issue link by ID | jira-cloud-issue-link | atlassian | 65 | Yes |
+| jira_cloud_get_transitions | Get transitions | jira-cloud-issue-core | atlassian | 60 | No |
+| jira_cloud_do_transition | Transition issue | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_remove_watcher | Delete watcher | jira-cloud-issue-core | atlassian | 60 | Yes |
+| jira_cloud_get_issue_watchers | Get issue watchers | jira-cloud-issue-watcher | atlassian | 65 | No |
+| jira_cloud_add_watcher | Add watcher | jira-cloud-issue-core | atlassian | 60 | Yes |
+| jira_cloud_bulk_delete_worklogs | Bulk delete worklogs | jira-cloud-issue-worklog | atlassian | 65 | Yes |
+| jira_cloud_get_issue_worklog | Get issue worklogs | jira-cloud-issue-worklog | atlassian | 65 | No |
+| jira_cloud_add_worklog | Add worklog | jira-cloud-issue-worklog | atlassian | 60 | Yes |
+| jira_cloud_bulk_move_worklogs | Bulk move worklogs | jira-cloud-issue-worklog | atlassian | 65 | Yes |
+| jira_cloud_delete_worklog | Delete worklog | jira-cloud-issue-worklog | atlassian | 60 | Yes |
+| jira_cloud_get_worklog | Get worklog | jira-cloud-issue-worklog | atlassian | 60 | No |
+| jira_cloud_update_worklog | Update worklog | jira-cloud-issue-worklog | atlassian | 60 | Yes |
+| jira_cloud_get_worklog_property_keys | Get worklog property keys | jira-cloud-issue-worklog | atlassian | 65 | No |
+| jira_cloud_delete_worklog_property | Delete worklog property | jira-cloud-issue-worklog | atlassian | 65 | Yes |
+| jira_cloud_get_worklog_property | Get worklog property | jira-cloud-issue-worklog | atlassian | 65 | No |
+| jira_cloud_set_worklog_property | Set worklog property | jira-cloud-issue-worklog | atlassian | 65 | Yes |
+| jira_cloud_link_issues | Create issue link | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_delete_issue_link | Delete issue link | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_issue_link | Get issue link | jira-cloud-issue-core | atlassian | 60 | No |
+| jira_cloud_get_issue_link_types | Get issue link types | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_create_issue_link_type | Create issue link type | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_delete_issue_link_type | Delete issue link type | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_issue_link_type | Get issue link type | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_update_issue_link_type | Update issue link type | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_export_archived_issues | Export archived issue(s) | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_issue_security_schemes | Get issue security schemes | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_create_issue_security_scheme | Create issue security scheme | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_issue_security_scheme | Get issue security scheme | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_update_issue_security_scheme | Update issue security scheme | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_issue_security_level_members | Get issue security level members by issue security scheme | jira-cloud-issue-core | atlassian | 75 | No |
+| jira_cloud_get_issue_all_types | Get all issue types for user | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_create_issue_type | Create issue type | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_issue_types_for_project | Get issue types for project | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_delete_issue_type | Delete issue type | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_issue_type | Get issue type | jira-cloud-issue-type | atlassian | 60 | No |
+| jira_cloud_update_issue_type | Update issue type | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_alternative_issue_types | Get alternative issue types | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_create_issue_type_avatar | Load issue type avatar | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_issue_type_property_keys | Get issue type property keys | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_delete_issue_type_property | Delete issue type property | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_issue_type_property | Get issue type property | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_set_issue_type_property | Set issue type property | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_all_issue_type_schemes | Get all issue type schemes | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_create_issue_type_scheme | Create issue type scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_issue_type_schemes_mapping | Get issue type scheme items | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_get_issue_type_scheme_for_projects | Get issue type schemes for projects | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_assign_issue_type_scheme_to_project | Assign issue type scheme to project | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_delete_issue_type_scheme | Delete issue type scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_update_issue_type_scheme | Update issue type scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_add_issue_types_to_issue_type_scheme | Add issue types to issue type scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_reorder_issue_types_in_issue_type_scheme | Change order of issue types | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_remove_issue_type_from_issue_type_scheme | Remove issue type from issue type scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_issue_type_screen_schemes | Get issue type screen schemes | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_create_issue_type_screen_scheme | Create issue type screen scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_issue_type_screen_scheme_mappings | Get issue type screen scheme items | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_assign_issue_type_screen_scheme_to_project | Assign issue type screen scheme to project | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_delete_issue_type_screen_scheme | Delete issue type screen scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_update_issue_type_screen_scheme | Update issue type screen scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_append_mappings_for_issue_type_screen_scheme | Append mappings to issue type screen scheme | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_get_projects_for_issue_type_screen_scheme | Get issue type screen scheme projects | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_match_issues | Check issues against JQL | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_parse_jql_queries | Parse JQL query | jira-cloud-issue-core | atlassian | 60 | No |
+| jira_cloud_sanitise_jql_queries | Sanitize JQL queries | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_bulk_permissions | Get bulk permissions | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_get_project_issue_security_scheme | Get project issue security scheme | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_bulk_screen_tabs | Get bulk screen tabs | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_search_for_issues_using_jql | Currently being removed. Search for issues using JQL (GET) | jira-cloud-issue-core | atlassian | 75 | No |
+| jira_cloud_search_for_issues_using_jql_post | Currently being removed. Search for issues using JQL (POST) | jira-cloud-issue-core | atlassian | 75 | Yes |
+| jira_cloud_count_issues | Count issues using JQL | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_search_and_reconsile_issues_using_jql | Search for issues using JQL enhanced search (GET) | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_search_and_reconsile_issues_using_jql_post | Search for issues using JQL enhanced search (POST) | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_issue_security_level | Get issue security level | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_issue_navigator_default_columns | Get issue navigator default columns | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_set_issue_navigator_default_columns | Set issue navigator default columns | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_project_issue_type_usages_for_status | Get issue type usages by status and project | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_find_bulk_assignable_users | Find users assignable to projects | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_bulk_get_users | Bulk get users | jira-cloud-issue-bulk | atlassian | 60 | No |
+| jira_cloud_bulk_get_users_migration | Get account IDs for users | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_get_user_email_bulk | Get user email bulk | jira-cloud-issue-bulk | atlassian | 65 | No |
+| jira_cloud_get_version_related_issues | Get version's related issues count | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_version_unresolved_issues | Get version's unresolved issues count | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_get_workflow_transition_rule_configurations | Get workflow transition rule configurations | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_delete_workflow_transition_property | Delete workflow transition property | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_workflow_transition_properties | Get workflow transition properties | jira-cloud-issue-core | atlassian | 65 | No |
+| jira_cloud_create_workflow_transition_property | Create workflow transition property | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_update_workflow_transition_property | Update workflow transition property | jira-cloud-issue-core | atlassian | 65 | Yes |
+| jira_cloud_get_workflow_project_issue_type_usages | Get issue types in a project that are using a given workflow | jira-cloud-issue-type | atlassian | 75 | No |
+| jira_cloud_delete_workflow_scheme_draft_issue_type | Delete workflow for issue type in draft workflow scheme | jira-cloud-issue-type | atlassian | 75 | Yes |
+| jira_cloud_get_workflow_scheme_draft_issue_type | Get workflow for issue type in draft workflow scheme | jira-cloud-issue-type | atlassian | 75 | No |
+| jira_cloud_set_workflow_scheme_draft_issue_type | Set workflow for issue type in draft workflow scheme | jira-cloud-issue-type | atlassian | 75 | Yes |
+| jira_cloud_delete_workflow_scheme_issue_type | Delete workflow for issue type in workflow scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_workflow_scheme_issue_type | Get workflow for issue type in workflow scheme | jira-cloud-issue-type | atlassian | 65 | No |
+| jira_cloud_set_workflow_scheme_issue_type | Set workflow for issue type in workflow scheme | jira-cloud-issue-type | atlassian | 65 | Yes |
+| jira_cloud_get_ids_of_worklogs_deleted_since | Get IDs of deleted worklogs | jira-cloud-issue-worklog | atlassian | 65 | Yes |
+| jira_cloud_get_worklogs_for_ids | Get worklogs | jira-cloud-issue-worklog | atlassian | 60 | No |
+| jira_cloud_get_ids_of_worklogs_modified_since | Get IDs of updated worklogs | jira-cloud-issue-worklog | atlassian | 65 | No |
+| jira_cloud_get_worklogs_by_issue_id_and_worklog_id | Get worklogs by issue id and worklog id | jira-cloud-issue-worklog | atlassian | 65 | No |
+| jira_cloud_find_components_for_projects | Find components for projects | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_create_component | Create component | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_delete_component | Delete component | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_component | Get component | jira-cloud-project | atlassian | 60 | No |
+| jira_cloud_update_component | Update component | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_projects_with_field_schemes | Get projects with field schemes | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_search_field_association_scheme_projects | Search field scheme projects | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_field_project_associations | Get field project associations | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_context_mapping | Get project mappings for custom field context | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_assign_projects_to_custom_field_context | Assign custom field context to projects | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_remove_custom_field_context_from_projects | Remove custom field context from projects | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_assign_field_configuration_scheme_to_project | Assign field configuration scheme to project | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_search_projects_using_security_schemes | Get projects using issue security schemes | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_associate_schemes_to_projects | Associate security scheme to project | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_notification_scheme_to_project_mappings | Get projects using notification schemes paginated | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_permitted_projects | Get permitted projects | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_projects_by_priority_scheme | Get projects by priority scheme | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_all_projects | Get all projects | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_create_project | Create project | jira-cloud-project | atlassian | 60 | Yes |
+| jira_cloud_create_project_with_custom_template | Create custom project | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_search_projects | Get projects paginated | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_all_project_types | Get all project types | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_all_accessible_project_types | Get licensed project types | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_type_by_key | Get project type by key | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_accessible_project_type_by_key | Get accessible project type by key | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_delete_project | Delete project | jira-cloud-project | atlassian | 60 | Yes |
+| jira_cloud_get_project | Get project | jira-cloud-project | atlassian | 60 | No |
+| jira_cloud_update_project | Update project | jira-cloud-project | atlassian | 60 | Yes |
+| jira_cloud_archive_project | Archive project | jira-cloud-project | atlassian | 60 | No |
+| jira_cloud_update_project_avatar | Set project avatar | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_delete_project_avatar | Delete project avatar | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_create_project_avatar | Load project avatar | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_all_project_avatars | Get all project avatars | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_classification_config | Get the classification configuration for a project | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_remove_default_project_classification | Remove the default data classification level from a project | jira-cloud-project | atlassian | 75 | Yes |
+| jira_cloud_get_default_project_classification | Get the default data classification level of a project | jira-cloud-project | atlassian | 75 | No |
+| jira_cloud_update_default_project_classification | Update the default data classification level of a project | jira-cloud-project | atlassian | 75 | Yes |
+| jira_cloud_get_project_components_paginated | Get project components paginated | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_components | Get project components | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_delete_project_asynchronously | Delete project asynchronously | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_features_for_project | Get project features | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_toggle_feature_for_project | Set project feature state | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_property_keys | Get project property keys | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_delete_project_property | Delete project property | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_project_property | Get project property | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_set_project_property | Set project property | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_project_roles | Get project roles for project | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_role | Get project role for project | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_role_details | Get project role details | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_versions_paginated | Get project versions paginated | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_versions | Get project versions | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_email | Get project's sender email | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_update_project_email | Set project's sender email | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_notification_scheme_for_project | Get project notification scheme | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_security_levels_for_project | Get project issue security levels | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_all_project_categories | Get all project categories | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_create_project_category | Create project category | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_remove_project_category | Delete project category | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_project_category_by_id | Get project category by ID | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_update_project_category | Update project category | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_project_fields | Get fields for projects | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_validate_project_key | Validate project key | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_valid_project_key | Get valid project key | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_valid_project_name | Get valid project name | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_all_project_roles | Get all project roles | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_create_project_role | Create project role | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_delete_project_role | Delete project role | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_project_role_by_id | Get project role by ID | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_partial_update_project_role | Partial update project role | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_fully_update_project_role | Fully update project role | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_delete_project_role_actors_from_role | Delete default actors from project role | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_project_role_actors_for_role | Get default actors for project role | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_add_project_role_actors_to_role | Add default actors to project role | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_project_usages_for_status | Get project usages by status | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_create_version | Create version | jira-cloud-project | atlassian | 60 | Yes |
+| jira_cloud_delete_version | Delete version | jira-cloud-project | atlassian | 60 | Yes |
+| jira_cloud_get_version | Get version | jira-cloud-project | atlassian | 60 | No |
+| jira_cloud_update_version | Update version | jira-cloud-project | atlassian | 60 | Yes |
+| jira_cloud_merge_versions | Merge versions | jira-cloud-project | atlassian | 60 | No |
+| jira_cloud_move_version | Move version | jira-cloud-project | atlassian | 60 | Yes |
+| jira_cloud_delete_and_replace_version | Delete and replace version | jira-cloud-project | atlassian | 65 | Yes |
+| jira_cloud_get_project_usages_for_workflow | Get projects using a given workflow | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_workflow_scheme_project_associations | Get workflow scheme project associations | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_assign_scheme_to_project | Assign workflow scheme to project | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_switch_workflow_scheme_for_project | Switch workflow scheme for project | jira-cloud-project | atlassian | 65 | No |
+| jira_cloud_get_project_usages_for_workflow_scheme | Get projects which are using a given workflow scheme | jira-cloud-project | atlassian | 75 | No |
+| jira_cloud_get_all_application_roles | Get all application roles | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_application_role | Get application role | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_all_user_data_classification_levels | Get all classification levels | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_share_permissions | Get share permissions | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_add_share_permission | Add share permission | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_delete_share_permission | Delete share permission | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_get_share_permission | Get share permission | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_remove_group | Remove group | jira-cloud-user | atlassian | 60 | Yes |
+| jira_cloud_get_group | Get group | jira-cloud-user | atlassian | 60 | No |
+| jira_cloud_create_group | Create group | jira-cloud-user | atlassian | 60 | Yes |
+| jira_cloud_get_users_from_group | Get users from group | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_remove_user_from_group | Remove user from group | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_add_user_to_group | Add user to group | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_find_groups | Find groups | jira-cloud-user | atlassian | 60 | No |
+| jira_cloud_find_users_and_groups | Find users and groups | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_my_permissions | Get my permissions | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_current_user | Get current user | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_all_permissions | Get all permissions | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_all_permission_schemes | Get all permission schemes | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_create_permission_scheme | Create permission scheme | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_delete_permission_scheme | Delete permission scheme | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_get_permission_scheme | Get permission scheme | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_update_permission_scheme | Update permission scheme | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_get_permission_scheme_grants | Get permission scheme grants | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_create_permission_grant | Create permission grant | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_delete_permission_scheme_entity | Delete permission scheme grant | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_get_permission_scheme_grant | Get permission scheme grant | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_add_actor_users | Add actors to project role | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_get_assigned_permission_scheme | Get assigned permission scheme | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_assign_permission_scheme | Assign permission scheme | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_remove_user | Delete user | jira-cloud-user | atlassian | 60 | Yes |
+| jira_cloud_get_user | Get user | jira-cloud-user | atlassian | 60 | No |
+| jira_cloud_create_user | Create user | jira-cloud-user | atlassian | 60 | Yes |
+| jira_cloud_find_assignable_users | Find users assignable to issues | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_reset_user_columns | Reset user default columns | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_get_user_default_columns | Get user default columns | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_set_user_columns | Set user default columns | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_get_user_email | Get user email | jira-cloud-user | atlassian | 60 | No |
+| jira_cloud_get_user_groups | Get user groups | jira-cloud-user | atlassian | 60 | No |
+| jira_cloud_find_users_with_all_permissions | Find users with permissions | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_find_users_for_picker | Find users for picker | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_user_property_keys | Get user property keys | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_delete_user_property | Delete user property | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_get_user_property | Get user property | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_set_user_property | Set user property | jira-cloud-user | atlassian | 65 | Yes |
+| jira_cloud_find_users | Find users | jira-cloud-user | atlassian | 60 | No |
+| jira_cloud_find_users_by_query | Find users by query | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_find_user_keys_by_query | Find user keys by query | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_find_users_with_browse_permission | Find users with browse permission | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_all_users_default | Get all users default | jira-cloud-user | atlassian | 65 | No |
+| jira_cloud_get_all_users | Get all users | jira-cloud-user | atlassian | 60 | No |
+| jira_cloud_get_custom_fields_configurations | Bulk get custom field configurations | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_update_multiple_custom_field_values | Update custom fields | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_get_custom_field_configuration | Get custom field configurations | jira-cloud-schema-field-configuration | atlassian | 65 | No |
+| jira_cloud_update_custom_field_configuration | Update custom field configurations | jira-cloud-schema-field-configuration | atlassian | 65 | Yes |
+| jira_cloud_update_custom_field_value | Update custom field value | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_get_field_association_schemes | Get field schemes | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_create_field_association_scheme | Create field scheme | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_remove_fields_associated_with_schemes | Remove fields associated with field schemes | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_update_fields_associated_with_schemes | Update fields associated with field schemes | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_delete_field_association_scheme | Delete a field scheme | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_get_field_association_scheme_by_id | Get field scheme | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_update_field_association_scheme | Update field scheme | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_clone_field_association_scheme | Clone field scheme | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_search_field_association_scheme_fields | Search field scheme fields | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_get_field_association_scheme_item_parameters | Get field parameters | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_get_custom_field_option | Get custom field option | jira-cloud-schema-field-option | atlassian | 65 | No |
+| jira_cloud_get_all_dashboards | Get all dashboards | jira-cloud-schema-other | atlassian | 65 | No |
+| jira_cloud_create_dashboard | Create dashboard | jira-cloud-schema-other | atlassian | 65 | Yes |
+| jira_cloud_get_all_available_dashboard_gadgets | Get available gadgets | jira-cloud-schema-other | atlassian | 65 | No |
+| jira_cloud_get_dashboards_paginated | Search for dashboards | jira-cloud-schema-other | atlassian | 65 | No |
+| jira_cloud_get_dashboard_item_property_keys | Get dashboard item property keys | jira-cloud-schema-other | atlassian | 65 | No |
+| jira_cloud_delete_dashboard_item_property | Delete dashboard item property | jira-cloud-schema-other | atlassian | 65 | Yes |
+| jira_cloud_get_dashboard_item_property | Get dashboard item property | jira-cloud-schema-other | atlassian | 65 | No |
+| jira_cloud_set_dashboard_item_property | Set dashboard item property | jira-cloud-schema-other | atlassian | 65 | Yes |
+| jira_cloud_delete_dashboard | Delete dashboard | jira-cloud-schema-other | atlassian | 65 | Yes |
+| jira_cloud_get_dashboard | Get dashboard | jira-cloud-schema-other | atlassian | 60 | No |
+| jira_cloud_update_dashboard | Update dashboard | jira-cloud-schema-other | atlassian | 65 | Yes |
+| jira_cloud_copy_dashboard | Copy dashboard | jira-cloud-schema-other | atlassian | 60 | No |
+| jira_cloud_get_fields | Get fields | jira-cloud-schema-field | atlassian | 60 | No |
+| jira_cloud_create_custom_field | Create custom field | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_get_fields_paginated | Get fields paginated | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_get_trashed_fields_paginated | Get fields in trash paginated | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_update_custom_field | Update custom field | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_get_contexts_for_field | Get custom field contexts | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_create_custom_field_context | Create custom field context | jira-cloud-schema-field-context | atlassian | 65 | Yes |
+| jira_cloud_delete_custom_field_context | Delete custom field context | jira-cloud-schema-field-context | atlassian | 65 | Yes |
+| jira_cloud_update_custom_field_context | Update custom field context | jira-cloud-schema-field-context | atlassian | 65 | Yes |
+| jira_cloud_create_custom_field_option | Create custom field options (context) | jira-cloud-schema-field-option | atlassian | 65 | Yes |
+| jira_cloud_update_custom_field_option | Update custom field options (context) | jira-cloud-schema-field-option | atlassian | 65 | Yes |
+| jira_cloud_reorder_custom_field_options | Reorder custom field options (context) | jira-cloud-schema-field-option | atlassian | 65 | No |
+| jira_cloud_delete_custom_field_option | Delete custom field options (context) | jira-cloud-schema-field-option | atlassian | 65 | Yes |
+| jira_cloud_replace_custom_field_option | Replace custom field options | jira-cloud-schema-field-option | atlassian | 65 | Yes |
+| jira_cloud_get_contexts_for_field_deprecated | Get contexts for a field | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_get_screens_for_field | Get screens for a field | jira-cloud-schema-screen | atlassian | 65 | No |
+| jira_cloud_delete_custom_field | Delete custom field | jira-cloud-schema-field | atlassian | 65 | Yes |
+| jira_cloud_restore_custom_field | Restore custom field from trash | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_trash_custom_field | Move custom field to trash | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_get_all_field_configurations | Get all field configurations | jira-cloud-schema-field-configuration | atlassian | 65 | No |
+| jira_cloud_create_field_configuration | Create field configuration | jira-cloud-schema-field-configuration | atlassian | 65 | Yes |
+| jira_cloud_delete_field_configuration | Delete field configuration | jira-cloud-schema-field-configuration | atlassian | 65 | Yes |
+| jira_cloud_update_field_configuration | Update field configuration | jira-cloud-schema-field-configuration | atlassian | 65 | Yes |
+| jira_cloud_get_field_configuration_items | Get field configuration items | jira-cloud-schema-field-configuration | atlassian | 65 | No |
+| jira_cloud_update_field_configuration_items | Update field configuration items | jira-cloud-schema-field-configuration | atlassian | 65 | Yes |
+| jira_cloud_get_all_field_configuration_schemes | Get all field configuration schemes | jira-cloud-schema-field-configuration-scheme | atlassian | 65 | No |
+| jira_cloud_create_field_configuration_scheme | Create field configuration scheme | jira-cloud-schema-field-configuration-scheme | atlassian | 65 | Yes |
+| jira_cloud_get_field_configuration_scheme_mappings | Get field configuration issue type items | jira-cloud-schema-field-configuration-scheme | atlassian | 65 | No |
+| jira_cloud_delete_field_configuration_scheme | Delete field configuration scheme | jira-cloud-schema-field-configuration-scheme | atlassian | 65 | Yes |
+| jira_cloud_update_field_configuration_scheme | Update field configuration scheme | jira-cloud-schema-field-configuration-scheme | atlassian | 65 | Yes |
+| jira_cloud_set_field_configuration_scheme_mapping | Assign issue types to field configurations | jira-cloud-schema-field-configuration-scheme | atlassian | 65 | Yes |
+| jira_cloud_search_security_schemes | Search issue security schemes | jira-cloud-schema-other | atlassian | 65 | No |
+| jira_cloud_delete_security_scheme | Delete issue security scheme | jira-cloud-schema-other | atlassian | 65 | Yes |
+| jira_cloud_update_default_screen_scheme | Update issue type screen scheme default screen scheme | jira-cloud-schema-screen-scheme | atlassian | 75 | Yes |
+| jira_cloud_get_field_auto_complete_for_query_string | Get field auto complete suggestions | jira-cloud-schema-field | atlassian | 65 | No |
+| jira_cloud_get_notification_schemes | Get notification schemes paginated | jira-cloud-schema-notification-scheme | atlassian | 65 | No |
+| jira_cloud_create_notification_scheme | Create notification scheme | jira-cloud-schema-notification-scheme | atlassian | 65 | Yes |
+| jira_cloud_get_notification_scheme | Get notification scheme | jira-cloud-schema-notification-scheme | atlassian | 65 | No |
+| jira_cloud_update_notification_scheme | Update notification scheme | jira-cloud-schema-notification-scheme | atlassian | 65 | Yes |
+| jira_cloud_delete_notification_scheme | Delete notification scheme | jira-cloud-schema-notification-scheme | atlassian | 65 | Yes |
+| jira_cloud_remove_notification_from_notification_scheme | Remove notification from notification scheme | jira-cloud-schema-notification-scheme | atlassian | 65 | Yes |
+| jira_cloud_create_priority | Create priority | jira-cloud-schema-priority | atlassian | 60 | Yes |
+| jira_cloud_set_default_priority | Set default priority | jira-cloud-schema-priority | atlassian | 65 | Yes |
+| jira_cloud_delete_priority | Delete priority | jira-cloud-schema-priority | atlassian | 60 | Yes |
+| jira_cloud_get_priority | Get priority | jira-cloud-schema-priority | atlassian | 60 | No |
+| jira_cloud_update_priority | Update priority | jira-cloud-schema-priority | atlassian | 60 | Yes |
+| jira_cloud_get_priority_schemes | Get priority schemes | jira-cloud-schema-priority-scheme | atlassian | 65 | No |
+| jira_cloud_create_priority_scheme | Create priority scheme | jira-cloud-schema-priority-scheme | atlassian | 65 | Yes |
+| jira_cloud_get_available_priorities_by_priority_scheme | Get available priorities by priority scheme | jira-cloud-schema-priority-scheme | atlassian | 65 | No |
+| jira_cloud_delete_priority_scheme | Delete priority scheme | jira-cloud-schema-priority-scheme | atlassian | 65 | Yes |
+| jira_cloud_update_priority_scheme | Update priority scheme | jira-cloud-schema-priority-scheme | atlassian | 65 | Yes |
+| jira_cloud_get_priorities_by_priority_scheme | Get priorities by priority scheme | jira-cloud-schema-priority-scheme | atlassian | 65 | No |
+| jira_cloud_get_all_statuses | Get all statuses for project | jira-cloud-schema-status | atlassian | 65 | No |
+| jira_cloud_get_redaction_status | Get redaction status | jira-cloud-schema-status | atlassian | 65 | No |
+| jira_cloud_get_resolutions | Get resolutions | jira-cloud-schema-resolution | atlassian | 60 | No |
+| jira_cloud_create_resolution | Create resolution | jira-cloud-schema-resolution | atlassian | 65 | Yes |
+| jira_cloud_set_default_resolution | Set default resolution | jira-cloud-schema-resolution | atlassian | 65 | Yes |
+| jira_cloud_move_resolutions | Move resolutions | jira-cloud-schema-resolution | atlassian | 65 | Yes |
+| jira_cloud_search_resolutions | Search resolutions | jira-cloud-schema-resolution | atlassian | 65 | No |
+| jira_cloud_delete_resolution | Delete resolution | jira-cloud-schema-resolution | atlassian | 65 | Yes |
+| jira_cloud_get_resolution | Get resolution | jira-cloud-schema-resolution | atlassian | 60 | No |
+| jira_cloud_update_resolution | Update resolution | jira-cloud-schema-resolution | atlassian | 65 | Yes |
+| jira_cloud_get_screens | Get screens | jira-cloud-schema-screen | atlassian | 60 | No |
+| jira_cloud_create_screen | Create screen | jira-cloud-schema-screen | atlassian | 60 | Yes |
+| jira_cloud_add_field_to_default_screen | Add field to default screen | jira-cloud-schema-screen | atlassian | 65 | Yes |
+| jira_cloud_delete_screen | Delete screen | jira-cloud-schema-screen | atlassian | 60 | Yes |
+| jira_cloud_update_screen | Update screen | jira-cloud-schema-screen | atlassian | 60 | Yes |
+| jira_cloud_get_available_screen_fields | Get available screen fields | jira-cloud-schema-screen | atlassian | 65 | No |
+| jira_cloud_get_all_screen_tabs | Get all screen tabs | jira-cloud-schema-screen-tab | atlassian | 65 | No |
+| jira_cloud_add_screen_tab | Create screen tab | jira-cloud-schema-screen-tab | atlassian | 65 | Yes |
+| jira_cloud_delete_screen_tab | Delete screen tab | jira-cloud-schema-screen-tab | atlassian | 65 | Yes |
+| jira_cloud_rename_screen_tab | Update screen tab | jira-cloud-schema-screen-tab | atlassian | 65 | Yes |
+| jira_cloud_get_all_screen_tab_fields | Get all screen tab fields | jira-cloud-schema-screen-tab-field | atlassian | 65 | No |
+| jira_cloud_add_screen_tab_field | Add screen tab field | jira-cloud-schema-screen-tab-field | atlassian | 65 | Yes |
+| jira_cloud_remove_screen_tab_field | Remove screen tab field | jira-cloud-schema-screen-tab-field | atlassian | 65 | Yes |
+| jira_cloud_move_screen_tab_field | Move screen tab field | jira-cloud-schema-screen-tab-field | atlassian | 65 | Yes |
+| jira_cloud_move_screen_tab | Move screen tab | jira-cloud-schema-screen-tab | atlassian | 60 | Yes |
+| jira_cloud_get_screen_schemes | Get screen schemes | jira-cloud-schema-screen-scheme | atlassian | 65 | No |
+| jira_cloud_create_screen_scheme | Create screen scheme | jira-cloud-schema-screen-scheme | atlassian | 65 | Yes |
+| jira_cloud_delete_screen_scheme | Delete screen scheme | jira-cloud-schema-screen-scheme | atlassian | 65 | Yes |
+| jira_cloud_update_screen_scheme | Update screen scheme | jira-cloud-schema-screen-scheme | atlassian | 65 | Yes |
+| jira_cloud_get_statuses | Get all statuses | jira-cloud-schema-status | atlassian | 65 | No |
+| jira_cloud_get_status | Get status | jira-cloud-schema-status | atlassian | 60 | No |
+| jira_cloud_get_status_categories | Get all status categories | jira-cloud-schema-status | atlassian | 65 | No |
+| jira_cloud_get_status_category | Get status category | jira-cloud-schema-status | atlassian | 65 | No |
+| jira_cloud_delete_statuses_by_id | Bulk delete Statuses | jira-cloud-schema-status | atlassian | 65 | Yes |
+| jira_cloud_get_statuses_by_id | Bulk get statuses | jira-cloud-schema-status | atlassian | 65 | No |
+| jira_cloud_create_statuses | Bulk create statuses | jira-cloud-schema-status | atlassian | 65 | Yes |
+| jira_cloud_update_statuses | Bulk update statuses | jira-cloud-schema-status | atlassian | 65 | Yes |
+| jira_cloud_get_statuses_by_name | Bulk get statuses by name | jira-cloud-schema-status | atlassian | 65 | No |
+| jira_cloud_get_workflow_usages_for_status | Get workflow usages by status | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_get_avatar_image_by_type | Get avatar image by type | jira-cloud-schema-other | atlassian | 65 | No |
+| jira_cloud_get_all_workflows | Get all workflows | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_create_workflow | Create workflow | jira-cloud-schema-workflow | atlassian | 60 | Yes |
+| jira_cloud_read_workflow_from_history | Read workflow version from history | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_list_workflow_history | List workflow history entries | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_get_workflows_paginated | Get workflows paginated | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_delete_inactive_workflow | Delete inactive workflow | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_get_workflow_scheme_usages_for_workflow | Get workflow schemes which are using a given workflow | jira-cloud-schema-workflow-scheme | atlassian | 75 | No |
+| jira_cloud_read_workflows | Bulk get workflows | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_workflow_capabilities | Get available workflow capabilities | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_create_workflows | Bulk create workflows | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_validate_create_workflows | Validate create workflows | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_read_workflow_previews | Preview workflow | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_search_workflows | Search workflows | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_update_workflows | Bulk update workflows | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_validate_update_workflows | Validate update workflows | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_get_all_workflow_schemes | Get all workflow schemes | jira-cloud-schema-workflow-scheme | atlassian | 65 | No |
+| jira_cloud_create_workflow_scheme | Create workflow scheme | jira-cloud-schema-workflow-scheme | atlassian | 65 | Yes |
+| jira_cloud_read_workflow_schemes | Bulk get workflow schemes | jira-cloud-schema-workflow-scheme | atlassian | 65 | No |
+| jira_cloud_update_schemes | Update workflow scheme | jira-cloud-schema-other | atlassian | 65 | Yes |
+| jira_cloud_get_required_workflow_scheme_mappings | Get required status mappings for workflow scheme update | jira-cloud-schema-workflow-scheme | atlassian | 75 | No |
+| jira_cloud_delete_workflow_scheme | Delete workflow scheme | jira-cloud-schema-workflow-scheme | atlassian | 65 | Yes |
+| jira_cloud_get_workflow_scheme | Get workflow scheme | jira-cloud-schema-workflow-scheme | atlassian | 65 | No |
+| jira_cloud_update_workflow_scheme | Classic update workflow scheme | jira-cloud-schema-workflow-scheme | atlassian | 65 | Yes |
+| jira_cloud_create_workflow_scheme_draft_from_parent | Create draft workflow scheme | jira-cloud-schema-workflow-scheme | atlassian | 65 | Yes |
+| jira_cloud_delete_default_workflow | Delete default workflow | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_get_default_workflow | Get default workflow | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_update_default_workflow | Update default workflow | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_delete_workflow_scheme_draft | Delete draft workflow scheme | jira-cloud-schema-workflow-scheme | atlassian | 65 | Yes |
+| jira_cloud_get_workflow_scheme_draft | Get draft workflow scheme | jira-cloud-schema-workflow-scheme | atlassian | 65 | No |
+| jira_cloud_update_workflow_scheme_draft | Update draft workflow scheme | jira-cloud-schema-workflow-scheme | atlassian | 65 | Yes |
+| jira_cloud_delete_draft_default_workflow | Delete draft default workflow | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_get_draft_default_workflow | Get draft default workflow | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_update_draft_default_workflow | Update draft default workflow | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_publish_draft_workflow_scheme | Publish draft workflow scheme | jira-cloud-schema-workflow-scheme | atlassian | 65 | No |
+| jira_cloud_delete_draft_workflow_mapping | Delete issue types for workflow in draft workflow scheme | jira-cloud-schema-workflow | atlassian | 75 | Yes |
+| jira_cloud_get_draft_workflow | Get issue types for workflows in draft workflow scheme | jira-cloud-schema-workflow | atlassian | 75 | No |
+| jira_cloud_update_draft_workflow_mapping | Set issue types for workflow in workflow scheme | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_delete_workflow_mapping | Delete issue types for workflow in workflow scheme | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_get_workflow | Get issue types for workflows in workflow scheme | jira-cloud-schema-workflow | atlassian | 65 | No |
+| jira_cloud_update_workflow_mapping | Set issue types for workflow in workflow scheme | jira-cloud-schema-workflow | atlassian | 65 | Yes |
+| jira_cloud_migration_resource_workflow_rule_search_post | Get workflow transition rule configurations | jira-cloud-schema-workflow-rule | atlassian | 65 | Yes |
+| jira_cloud_get_banner | Get announcement banner configuration | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_set_banner | Update announcement banner configuration | jira-cloud-core | atlassian | 65 | Yes |
+| jira_cloud_get_application_property | Get application property | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_get_advanced_settings | Get advanced settings | jira-cloud-core | atlassian | 65 | Yes |
+| jira_cloud_set_application_property | Set application property | jira-cloud-core | atlassian | 65 | Yes |
+| jira_cloud_get_audit_records | Get audit records | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_get_all_system_avatars | Get system avatars by type | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_get_configuration | Get global settings | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_get_shared_time_tracking_configuration | Get time tracking settings | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_set_shared_time_tracking_configuration | Set time tracking settings | jira-cloud-core | atlassian | 65 | Yes |
+| jira_cloud_get_avatars | Get avatars | jira-cloud-core | atlassian | 60 | No |
+| jira_cloud_store_avatar | Load avatar | jira-cloud-core | atlassian | 60 | No |
+| jira_cloud_delete_avatar | Delete avatar | jira-cloud-core | atlassian | 60 | Yes |
+| jira_cloud_get_avatar_image_by_id | Get avatar image by ID | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_get_avatar_image_by_owner | Get avatar image by owner | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_get_forge_app_property_keys | Get app property keys (Forge) | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_delete_forge_app_property | Delete app property (Forge) | jira-cloud-core | atlassian | 65 | Yes |
+| jira_cloud_get_forge_app_property | Get app property (Forge) | jira-cloud-core | atlassian | 65 | No |
+| jira_cloud_put_forge_app_property | Set app property (Forge) | jira-cloud-core | atlassian | 65 | Yes |
+| jira_cloud_remove_field_association_scheme_item_parameters | Remove field parameters | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_update_field_association_scheme_item_parameters | Update field parameters | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_associate_projects_to_field_association_schemes | Associate projects to field schemes | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_selected_time_tracking_implementation | Get selected time tracking provider | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_select_time_tracking_implementation | Select time tracking provider | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_available_time_tracking_implementations | Get all time tracking providers | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_all_gadgets | Get gadgets | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_add_gadget | Add gadget to dashboard | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_remove_gadget | Remove gadget from dashboard | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_update_gadget | Update gadget on dashboard | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_policy | Get data policy for the workspace | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_policies | Get data policy for projects | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_events | Get events | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_analyse_expression | Analyse Jira expression | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_evaluate_jira_expression | Currently being removed. Evaluate Jira expression | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_evaluate_jsis_jira_expression | Evaluate Jira expression using enhanced search API | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_remove_associations | Remove associations | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_create_associations | Create associations | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_default_values | Get custom field contexts default values | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_set_default_values | Set custom field contexts default values | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_custom_field_contexts_for_projects_and_issue_types | Get custom field contexts for projects and issue types | jira-cloud-other | atlassian | 75 | No |
+| jira_cloud_get_options_for_context | Get custom field options (context) | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_field_configuration_scheme_project_mapping | Get field configuration schemes for projects | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_remove_issue_types_from_global_field_configuration_scheme | Remove issue types from field configuration scheme | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_default_share_scope | Get default share scope | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_set_default_share_scope | Set default share scope | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_reset_columns | Reset columns | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_get_columns | Get columns | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_set_columns | Set columns | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_get_license | Get license | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_get_change_logs | Get changelogs | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_get_change_logs_by_ids | Get changelogs by IDs | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_notify | Send notification for issue | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_remove_vote | Delete vote | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_get_votes | Get votes | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_add_vote | Add vote | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_get_security_levels | Get issue security levels | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_set_default_levels | Set default issue security levels | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_security_level_members | Get issue security level members | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_add_security_level | Add issue security levels | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_remove_level | Remove issue security level | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_update_security_level | Update issue security level | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_add_security_level_members | Add issue security level members | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_remove_member_from_security_level | Remove member from issue security level | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_issue_type_screen_scheme_project_associations | Get issue type screen schemes for projects | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_remove_mappings_from_issue_type_screen_scheme | Remove mappings from issue type screen scheme | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_auto_complete | Get field reference data (GET) | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_auto_complete_post | Get field reference data (POST) | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_precomputations | Get precomputations (apps) | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_update_precomputations | Update precomputations (apps) | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_precomputations_by_id | Get precomputations by ID (apps) | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_migrate_queries | Convert user identifiers to account IDs in JQL queries | jira-cloud-other | atlassian | 75 | No |
+| jira_cloud_get_all_labels | Get all labels | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_get_approximate_license_count | Get approximate license count | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_approximate_application_license_count | Get approximate application license count | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_remove_preference | Delete preference | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_preference | Get preference | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_set_preference | Set preference | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_get_locale | Get locale | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_set_locale | Set locale | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_add_notifications | Add notifications to notification scheme | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_plans | Get plans paginated | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_create_plan | Create plan | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_get_plan | Get plan | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_update_plan | Update plan | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_archive_plan | Archive plan | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_duplicate_plan | Duplicate plan | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_get_teams | Get teams in plan paginated | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_add_atlassian_team | Add Atlassian team to plan | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_remove_atlassian_team | Remove Atlassian team from plan | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_atlassian_team | Get Atlassian team in plan | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_update_atlassian_team | Update Atlassian team in plan | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_create_plan_only_team | Create plan-only team | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_delete_plan_only_team | Delete plan-only team | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_plan_only_team | Get plan-only team | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_update_plan_only_team | Update plan-only team | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_trash_plan | Trash plan | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_get_priorities | Get priorities | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_move_priorities | Move priorities | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_search_priorities | Search priorities | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_suggested_priorities_for_mappings | Suggested priorities for mappings | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_edit_template | Edit a custom project template | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_live_template | Gets a custom project template | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_remove_template | Deletes a custom project template | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_save_template | Save a custom project template | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_recent | Get recent projects | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_restore | Restore deleted or archived project | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_delete_actor | Delete actors from project role | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_set_actors | Set actors for project role | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_hierarchy | Get project issue type hierarchy | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_redact | Redact | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_get_server_info | Get Jira instance info | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_search | Search statuses paginated | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_task | Get task | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_cancel_task | Cancel task | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_get_ui_modifications | Get UI modifications | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_create_ui_modification | Create UI modification | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_delete_ui_modification | Delete UI modification | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_update_ui_modification | Update UI modification | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_related_work | Get related work | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_create_related_work | Create related work | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_update_related_work | Update related work | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_delete_related_work | Delete related work | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_delete_webhook_by_id | Delete webhooks by ID | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_dynamic_webhooks_for_app | Get dynamic webhooks for app | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_register_dynamic_webhooks | Register dynamic webhooks | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_get_failed_webhooks | Get failed webhooks | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_refresh_webhooks | Extend webhook life | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_update_workflow_transition_rule_configurations | Update workflow transition rule configurations | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_delete_workflow_transition_rule_configurations | Delete workflow transition rule configurations | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_get_default_editor | Get the user's default workflow editor | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_addon_properties_resource_get_addon_properties_get | Get app properties | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_addon_properties_resource_delete_addon_property_delete | Delete app property | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_addon_properties_resource_get_addon_property_get | Get app property | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_addon_properties_resource_put_addon_property_put | Set app property | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_dynamic_modules_resource_remove_modules_delete | Remove modules | jira-cloud-other | atlassian | 60 | Yes |
+| jira_cloud_dynamic_modules_resource_get_modules_get | Get modules | jira-cloud-other | atlassian | 60 | No |
+| jira_cloud_dynamic_modules_resource_register_modules_post | Register modules | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_app_issue_field_value_update_resource_update_issue_fields_put | Bulk update custom field value | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_migration_resource_update_entity_properties_value_put | Bulk update entity properties | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_connect_to_forge_migration_fetch_task_resource_fetch_migration_task_get | Get Connect issue field migration task | jira-cloud-other | atlassian | 65 | No |
+| jira_cloud_connect_to_forge_migration_task_submission_resource_submit_task_post | Submit Connect issue field migration task | jira-cloud-other | atlassian | 65 | Yes |
+| jira_cloud_service_registry_resource_services_get | Retrieve the attributes of service registries | jira-cloud-other | atlassian | 65 | No |
+| jira_server_move_issues_to_backlog | Update issues to move them to the backlog | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_all_boards | Get all boards | jira-server-agile-board | atlassian | 60 | No |
+| jira_server_create_board | Create a new board | jira-server-agile-board | atlassian | 65 | Yes |
+| jira_server_get_board | Get a single board | jira-server-agile-board | atlassian | 65 | No |
+| jira_server_delete_board | Delete the board | jira-server-agile-board | atlassian | 65 | Yes |
+| jira_server_get_issues_for_backlog | Get all issues from the board's backlog | jira-server-other | atlassian | 65 | No |
+| jira_server_get_configuration | Get the board configuration | jira-server-other | atlassian | 65 | No |
+| jira_server_get_epics | Get all epics from the board | jira-server-agile-epic | atlassian | 65 | No |
+| jira_server_get_issues_without_epic | Get all issues without an epic | jira-server-agile-epic | atlassian | 65 | No |
+| jira_server_get_issues_for_epic | Get all issues for a specific epic | jira-server-agile-epic | atlassian | 65 | No |
+| jira_server_get_issues_for_board | Get all issues from a board | jira-server-agile-board | atlassian | 65 | No |
+| jira_server_get_projects | Get all projects associated with the board | jira-server-project | atlassian | 65 | No |
+| jira_server_get_properties_keys | Get all properties keys for a board | jira-server-other | atlassian | 65 | No |
+| jira_server_get_property | Get a property from a board | jira-server-other | atlassian | 65 | No |
+| jira_server_set_property | Update a board's property | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_property | Delete a property from a board | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_refined_velocity | Get the value of the refined velocity setting | jira-server-other | atlassian | 65 | No |
+| jira_server_set_refined_velocity | Update the board's refined velocity setting | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_all_sprints | Get all sprints from a board | jira-server-agile-sprint | atlassian | 65 | No |
+| jira_server_get_issues_for_sprint | Get all issues for a sprint | jira-server-agile-sprint | atlassian | 65 | No |
+| jira_server_get_all_versions | Get all versions from a board | jira-server-other | atlassian | 65 | No |
+| jira_server_get_issues_without_epic_1 | Get issues without an epic | jira-server-agile-epic | atlassian | 65 | No |
+| jira_server_remove_issues_from_epic | Remove issues from any epic | jira-server-agile-epic | atlassian | 65 | Yes |
+| jira_server_get_epic | Get an epic by id or key | jira-server-agile-epic | atlassian | 65 | No |
+| jira_server_partially_update_epic | Update an epic's details | jira-server-agile-epic | atlassian | 65 | Yes |
+| jira_server_get_issues_for_epic_1 | Get issues for a specific epic | jira-server-agile-epic | atlassian | 65 | No |
+| jira_server_move_issues_to_epic | Move issues to a specific epic | jira-server-agile-epic | atlassian | 65 | Yes |
+| jira_server_rank_epics | Rank an epic relative to another | jira-server-agile-epic | atlassian | 65 | No |
+| jira_server_rank_issues | Rank issues before or after a given issue | jira-server-other | atlassian | 65 | No |
+| jira_server_get_issue | Get a single issue with Agile fields | jira-server-other | atlassian | 65 | No |
+| jira_server_get_issue_estimation_for_board | Get the estimation of an issue for a board | jira-server-agile-board | atlassian | 65 | No |
+| jira_server_estimate_issue_for_board | Update the estimation of an issue for a board | jira-server-agile-board | atlassian | 65 | No |
+| jira_server_create_sprint | Create a future sprint | jira-server-agile-sprint | atlassian | 65 | Yes |
+| jira_server_unmap_sprints | Unmap sprints from being synced | jira-server-agile-sprint | atlassian | 65 | No |
+| jira_server_unmap_all_sprints | Unmap all sprints from being synced | jira-server-agile-sprint | atlassian | 65 | No |
+| jira_server_get_sprint | Get sprint by id | jira-server-agile-sprint | atlassian | 65 | No |
+| jira_server_update_sprint | Update a sprint fully | jira-server-agile-sprint | atlassian | 65 | Yes |
+| jira_server_partially_update_sprint | Partially update a sprint | jira-server-agile-sprint | atlassian | 65 | Yes |
+| jira_server_delete_sprint | Delete a sprint | jira-server-agile-sprint | atlassian | 60 | Yes |
+| jira_server_get_issues_for_sprint_1 | Get all issues in a sprint | jira-server-agile-sprint | atlassian | 65 | No |
+| jira_server_move_issues_to_sprint | Move issues to a sprint | jira-server-agile-sprint | atlassian | 65 | Yes |
+| jira_server_get_properties_keys_1 | Get all properties keys for a sprint | jira-server-other | atlassian | 65 | No |
+| jira_server_get_property_1 | Get a property for a sprint | jira-server-other | atlassian | 65 | No |
+| jira_server_set_property_1 | Update a sprint's property | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_property_1 | Delete a sprint's property | jira-server-other | atlassian | 65 | Yes |
+| jira_server_swap_sprint | Swap the position of two sprints | jira-server-agile-sprint | atlassian | 65 | No |
+| jira_server_get_application_property | Get an application property by key | jira-server-other | atlassian | 65 | No |
+| jira_server_get_advanced_settings | Get all advanced settings properties | jira-server-other | atlassian | 65 | Yes |
+| jira_server_set_property_via_restful_table | Update an application property | jira-server-screen | atlassian | 65 | Yes |
+| jira_server_get_all | Get all application roles in the system | jira-server-other | atlassian | 65 | No |
+| jira_server_put_bulk | Update application roles | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_4 | Get application role by key | jira-server-other | atlassian | 60 | No |
+| jira_server_put_2 | Update application role | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_attachment_meta | Get attachment capabilities | jira-server-issue-attachment | atlassian | 65 | No |
+| jira_server_get_attachment | Get the meta-data for an attachment, including the URI of the actual attached file | jira-server-issue-attachment | atlassian | 75 | No |
+| jira_server_remove_attachment | Delete an attachment from an issue | jira-server-issue-attachment | atlassian | 65 | Yes |
+| jira_server_expand_for_humans | Get human-readable attachment expansion | jira-server-other | atlassian | 65 | No |
+| jira_server_expand_for_machines | Get raw attachment expansion | jira-server-other | atlassian | 65 | No |
+| jira_server_get_all_system_avatars | Get all system avatars | jira-server-system | atlassian | 65 | No |
+| jira_server_request_current_index_from_node | Request node index snapshot | jira-server-admin-index | atlassian | 65 | No |
+| jira_server_delete_node | Delete a cluster node | jira-server-other | atlassian | 65 | Yes |
+| jira_server_change_node_state_to_offline | Update node state to offline | jira-server-other | atlassian | 65 | No |
+| jira_server_get_all_nodes | Get all cluster nodes | jira-server-other | atlassian | 65 | No |
+| jira_server_approve_upgrade | Approve cluster upgrade | jira-server-admin-upgrade | atlassian | 65 | Yes |
+| jira_server_cancel_upgrade | Cancel cluster upgrade | jira-server-admin-upgrade | atlassian | 65 | No |
+| jira_server_acknowledge_errors | Retry cluster upgrade | jira-server-other | atlassian | 65 | No |
+| jira_server_set_ready_to_upgrade | Start cluster upgrade | jira-server-admin-upgrade | atlassian | 65 | Yes |
+| jira_server_get_state | Get cluster upgrade state | jira-server-other | atlassian | 65 | No |
+| jira_server_get_properties_keys_1_2 | Get properties keys of a comment | jira-server-other | atlassian | 65 | No |
+| jira_server_get_comment_property | Get a property from a comment | jira-server-other | atlassian | 65 | No |
+| jira_server_set_property_1_2 | Set a property on a comment | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_property_2 | Delete a property from a comment | jira-server-other | atlassian | 65 | Yes |
+| jira_server_create_component | Create component | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_paginated_components | Get paginated components | jira-server-other | atlassian | 65 | No |
+| jira_server_get_component | Get project component | jira-server-other | atlassian | 65 | No |
+| jira_server_update_component | Update a component | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete | Delete a project component | jira-server-other | atlassian | 60 | Yes |
+| jira_server_get_component_related_issues | Get component related issues | jira-server-other | atlassian | 65 | No |
+| jira_server_get_configuration_1 | Get Jira configuration details | jira-server-other | atlassian | 65 | No |
+| jira_server_get_custom_field_option | Get custom field option by ID | jira-server-field | atlassian | 65 | No |
+| jira_server_get_custom_fields | Get custom fields with pagination | jira-server-field | atlassian | 65 | No |
+| jira_server_bulk_delete_custom_fields | Delete custom fields in bulk | jira-server-field | atlassian | 65 | Yes |
+| jira_server_get_custom_field_options | Get custom field options | jira-server-field | atlassian | 65 | No |
+| jira_server_list | Get all dashboards with optional filtering | jira-server-other | atlassian | 60 | No |
+| jira_server_get_dashboard_item_properties_keys | Get all properties keys for a dashboard item | jira-server-other | atlassian | 65 | No |
+| jira_server_get_property_1_2 | Get a property from a dashboard item | jira-server-other | atlassian | 65 | No |
+| jira_server_set_dashboard_item_property | Set a property on a dashboard item | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_property_1_2 | Delete a property from a dashboard item | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_dashboard | Get a single dashboard by ID | jira-server-agile-board | atlassian | 65 | No |
+| jira_server_download_email_templates | Get email templates as zip file | jira-server-other | atlassian | 65 | No |
+| jira_server_upload_email_templates | Update email templates with zip file | jira-server-other | atlassian | 65 | Yes |
+| jira_server_apply_email_templates | Update email templates with previously uploaded pack | jira-server-other | atlassian | 75 | No |
+| jira_server_revert_email_templates_to_default | Update email templates to default | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_email_types | Get email types for templates | jira-server-other | atlassian | 65 | No |
+| jira_server_get_fields | Get all fields, both System and Custom | jira-server-field | atlassian | 65 | No |
+| jira_server_create_custom_field | Create a custom field using a definition | jira-server-field | atlassian | 65 | Yes |
+| jira_server_create_filter | Create a new filter | jira-server-filter | atlassian | 65 | Yes |
+| jira_server_get_default_share_scope | Get default share scope | jira-server-other | atlassian | 65 | No |
+| jira_server_set_default_share_scope | Set default share scope | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_favourite_filters | Get favourite filters | jira-server-filter | atlassian | 65 | No |
+| jira_server_get_filter | Get a filter by ID | jira-server-filter | atlassian | 65 | No |
+| jira_server_edit_filter | Update an existing filter | jira-server-filter | atlassian | 65 | No |
+| jira_server_delete_filter | Delete a filter | jira-server-filter | atlassian | 60 | Yes |
+| jira_server_default_columns_1 | Get default columns for filter | jira-server-other | atlassian | 65 | No |
+| jira_server_set_columns_1 | Set default columns for filter | jira-server-other | atlassian | 65 | Yes |
+| jira_server_reset_columns_1 | Reset columns for filter | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_share_permissions | Get all share permissions of filter | jira-server-permission | atlassian | 65 | No |
+| jira_server_add_share_permission | Add share permissions to filter | jira-server-permission | atlassian | 65 | Yes |
+| jira_server_delete_share_permission | Remove share permissions from filter | jira-server-permission | atlassian | 65 | Yes |
+| jira_server_get_share_permission | Get a single share permission of filter | jira-server-permission | atlassian | 65 | No |
+| jira_server_create_group | Create a group with given parameters | jira-server-group | atlassian | 65 | Yes |
+| jira_server_remove_group | Delete a specified group | jira-server-group | atlassian | 65 | Yes |
+| jira_server_get_users_from_group | Get users from a specified group | jira-server-user | atlassian | 65 | No |
+| jira_server_add_user_to_group | Add a user to a specified group | jira-server-user | atlassian | 65 | Yes |
+| jira_server_remove_user_from_group | Remove a user from a specified group | jira-server-user | atlassian | 65 | Yes |
+| jira_server_find_groups | Get groups matching a query | jira-server-group | atlassian | 65 | No |
+| jira_server_find_users_and_groups | Get users and groups matching query with highlighting | jira-server-user | atlassian | 75 | No |
+| jira_server_list_index_snapshot | Get list of available index snapshots | jira-server-admin-index | atlassian | 65 | No |
+| jira_server_create_index_snapshot | Create index snapshot if not in progress | jira-server-admin-index | atlassian | 65 | Yes |
+| jira_server_is_index_snapshot_running | Get index snapshot creation status | jira-server-admin-index | atlassian | 65 | No |
+| jira_server_get_index_summary | Get index condition summary | jira-server-admin-index | atlassian | 65 | No |
+| jira_server_create_issue | Create an issue or sub-task from json | jira-server-other | atlassian | 65 | Yes |
+| jira_server_archive_issues | Archive list of issues | jira-server-other | atlassian | 65 | No |
+| jira_server_create_issues | Create an issue or sub-task from json - bulk operation. | jira-server-other | atlassian | 75 | Yes |
+| jira_server_get_create_issue_meta_project_issue_types | Get metadata for project issue types | jira-server-issue-type | atlassian | 65 | Yes |
+| jira_server_get_create_issue_meta_fields | Get metadata for issue types used for creating issues | jira-server-field | atlassian | 75 | Yes |
+| jira_server_get_issue_picker_resource | Get suggested issues for auto-completion | jira-server-other | atlassian | 65 | No |
+| jira_server_create_reciprocal_remote_issue_link | Create reciprocal remote issue link | jira-server-issue-link | atlassian | 65 | Yes |
+| jira_server_get_issue_2 | Get issue for key | jira-server-other | atlassian | 65 | No |
+| jira_server_edit_issue | Edit an issue from a JSON representation | jira-server-other | atlassian | 65 | No |
+| jira_server_delete_issue | Delete an issue | jira-server-other | atlassian | 60 | Yes |
+| jira_server_archive_issue | Archive an issue | jira-server-other | atlassian | 65 | No |
+| jira_server_assign | Assign an issue to a user | jira-server-other | atlassian | 65 | No |
+| jira_server_add_attachment | Add one or more attachments to an issue | jira-server-issue-attachment | atlassian | 65 | Yes |
+| jira_server_get_comments | Get comments for an issue | jira-server-issue-comment | atlassian | 65 | No |
+| jira_server_add_comment | Add a comment | jira-server-issue-comment | atlassian | 60 | Yes |
+| jira_server_get_comment | Get a comment by id | jira-server-issue-comment | atlassian | 65 | No |
+| jira_server_update_comment | Update a comment | jira-server-issue-comment | atlassian | 65 | Yes |
+| jira_server_delete_comment | Delete a comment | jira-server-issue-comment | atlassian | 65 | Yes |
+| jira_server_set_pin_comment | Pin a comment | jira-server-issue-comment | atlassian | 60 | Yes |
+| jira_server_get_edit_issue_meta | Get metadata for issue types used for editing issues | jira-server-other | atlassian | 75 | No |
+| jira_server_notify | Send notification to recipients | jira-server-other | atlassian | 65 | No |
+| jira_server_get_pinned_comments | Get pinned comments for an issue | jira-server-issue-comment | atlassian | 65 | No |
+| jira_server_get_issue_properties_keys | Get keys of all properties for an issue | jira-server-other | atlassian | 65 | No |
+| jira_server_get_property_3 | Get the value of a specific property from an issue | jira-server-other | atlassian | 65 | No |
+| jira_server_set_issue_property | Update the value of a specific issue's property | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_property_3 | Delete a property from an issue | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_remote_issue_links | Get remote issue links for an issue | jira-server-issue-link | atlassian | 65 | No |
+| jira_server_create_or_update_remote_issue_link | Create or update remote issue link | jira-server-issue-link | atlassian | 65 | Yes |
+| jira_server_delete_remote_issue_link_by_global_id | Delete remote issue link | jira-server-issue-link | atlassian | 65 | Yes |
+| jira_server_get_remote_issue_link_by_id | Get a remote issue link by its id | jira-server-issue-link | atlassian | 65 | No |
+| jira_server_update_remote_issue_link | Update remote issue link | jira-server-issue-link | atlassian | 65 | Yes |
+| jira_server_delete_remote_issue_link_by_id | Delete remote issue link by id | jira-server-issue-link | atlassian | 65 | Yes |
+| jira_server_restore_issue | Restore an archived issue | jira-server-other | atlassian | 65 | No |
+| jira_server_get_sub_tasks | Get an issue's subtask list | jira-server-issue-subtask | atlassian | 65 | No |
+| jira_server_can_move_sub_task | Check if a subtask can be moved | jira-server-issue-subtask | atlassian | 65 | Yes |
+| jira_server_move_sub_tasks | Reorder an issue's subtasks | jira-server-issue-subtask | atlassian | 65 | Yes |
+| jira_server_get_transitions | Get list of transitions possible for an issue | jira-server-issue-transition | atlassian | 65 | No |
+| jira_server_do_transition | Perform a transition on an issue | jira-server-issue-transition | atlassian | 65 | No |
+| jira_server_get_votes | Get votes for issue | jira-server-issue-vote | atlassian | 65 | No |
+| jira_server_add_vote | Add vote to issue | jira-server-issue-vote | atlassian | 65 | Yes |
+| jira_server_remove_vote | Remove vote from issue | jira-server-issue-vote | atlassian | 65 | Yes |
+| jira_server_get_issue_watchers | Get list of watchers of issue | jira-server-issue-watcher | atlassian | 65 | No |
+| jira_server_add_watcher_1 | Add a user as watcher | jira-server-issue-watcher | atlassian | 65 | Yes |
+| jira_server_remove_watcher_1 | Delete watcher from issue | jira-server-issue-watcher | atlassian | 65 | Yes |
+| jira_server_get_issue_worklog | Get worklogs for an issue | jira-server-issue-worklog | atlassian | 65 | No |
+| jira_server_add_worklog | Add a worklog entry | jira-server-issue-worklog | atlassian | 65 | Yes |
+| jira_server_get_worklog | Get a worklog by id | jira-server-issue-worklog | atlassian | 65 | No |
+| jira_server_update_worklog | Update a worklog entry | jira-server-issue-worklog | atlassian | 65 | Yes |
+| jira_server_delete_worklog | Delete a worklog entry | jira-server-issue-worklog | atlassian | 65 | Yes |
+| jira_server_link_issues | Create an issue link between two issues | jira-server-other | atlassian | 65 | No |
+| jira_server_get_issue_link | Get an issue link with the specified id | jira-server-issue-link-type | atlassian | 65 | No |
+| jira_server_delete_issue_link | Delete an issue link with the specified id | jira-server-issue-link-type | atlassian | 65 | Yes |
+| jira_server_get_issue_link_types | Get list of available issue link types | jira-server-issue-link-type | atlassian | 65 | No |
+| jira_server_create_issue_link_type | Create a new issue link type | jira-server-issue-link-type | atlassian | 65 | Yes |
+| jira_server_reset_order | Reset the order of issue link types alphabetically. | jira-server-other | atlassian | 75 | Yes |
+| jira_server_get_issue_link_type | Get information about an issue link type | jira-server-issue-link-type | atlassian | 65 | No |
+| jira_server_update_issue_link_type | Update the specified issue link type | jira-server-issue-link-type | atlassian | 65 | Yes |
+| jira_server_delete_issue_link_type | Delete the specified issue link type | jira-server-issue-link-type | atlassian | 65 | Yes |
+| jira_server_move_issue_link_type | Update the order of the issue link type. | jira-server-issue-link-type | atlassian | 65 | Yes |
+| jira_server_get_issue_security_schemes | Get all issue security schemes | jira-server-other | atlassian | 65 | No |
+| jira_server_get_issue_security_scheme | Get specific issue security scheme by id | jira-server-other | atlassian | 65 | No |
+| jira_server_get_issue_all_types | Get list of all issue types visible to user | jira-server-other | atlassian | 65 | No |
+| jira_server_create_issue_type | Create an issue type from JSON representation | jira-server-issue-type | atlassian | 65 | Yes |
+| jira_server_get_paginated_issue_types | Get paginated list of filtered issue types | jira-server-issue-type | atlassian | 65 | No |
+| jira_server_get_issue_type_1 | Get full representation of issue type by id | jira-server-issue-type | atlassian | 65 | No |
+| jira_server_update_issue_type | Update specified issue type from JSON representation | jira-server-issue-type | atlassian | 75 | Yes |
+| jira_server_delete_issue_type_1 | Delete specified issue type and migrate associated issues | jira-server-issue-type | atlassian | 75 | Yes |
+| jira_server_get_alternative_issue_types | Get list of alternative issue types for given id | jira-server-issue-type | atlassian | 65 | No |
+| jira_server_create_avatar_from_temporary | Convert temporary avatar into a real avatar | jira-server-other | atlassian | 65 | Yes |
+| jira_server_store_temporary_avatar_using_multi_part | Create temporary avatar using multipart for issue type | jira-server-other | atlassian | 75 | No |
+| jira_server_get_property_keys | Get all properties keys for issue type | jira-server-other | atlassian | 65 | No |
+| jira_server_get_property_4 | Get value of specified issue type's property | jira-server-other | atlassian | 65 | No |
+| jira_server_set_property_3 | Update specified issue type's property | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_property_4 | Delete specified issue type's property | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_all_issue_type_schemes | Get list of all issue type schemes visible to user | jira-server-issue-type-scheme | atlassian | 65 | No |
+| jira_server_create_issue_type_scheme | Create an issue type scheme from JSON representation | jira-server-issue-type-scheme | atlassian | 75 | Yes |
+| jira_server_get_issue_type_scheme | Get full representation of issue type scheme by id | jira-server-issue-type-scheme | atlassian | 65 | No |
+| jira_server_update_issue_type_scheme | Update specified issue type scheme from JSON representation | jira-server-issue-type-scheme | atlassian | 75 | Yes |
+| jira_server_delete_issue_type_scheme | Delete specified issue type scheme | jira-server-issue-type-scheme | atlassian | 65 | Yes |
+| jira_server_get_associated_projects | Get all of the associated projects for specified scheme | jira-server-project | atlassian | 75 | No |
+| jira_server_set_project_associations_for_scheme | Set project associations for scheme | jira-server-project | atlassian | 65 | Yes |
+| jira_server_add_project_associations_to_scheme | Add project associations to scheme | jira-server-project | atlassian | 65 | Yes |
+| jira_server_remove_all_project_associations | Remove all project associations for specified scheme | jira-server-project | atlassian | 75 | Yes |
+| jira_server_remove_project_association | Remove given project association for specified scheme | jira-server-project | atlassian | 75 | Yes |
+| jira_server_get_auto_complete | Get auto complete data for JQL searches | jira-server-other | atlassian | 65 | No |
+| jira_server_get_field_auto_complete_for_query_string | Get auto complete suggestions for JQL search | jira-server-field | atlassian | 65 | No |
+| jira_server_validate | Validate a Jira license | jira-server-other | atlassian | 65 | No |
+| jira_server_is_app_monitoring_enabled | Get App Monitoring status | jira-server-other | atlassian | 65 | Yes |
+| jira_server_set_app_monitoring_enabled | Update App Monitoring status | jira-server-other | atlassian | 65 | Yes |
+| jira_server_is_ipd_monitoring_enabled | Get if IPD Monitoring is enabled | jira-server-other | atlassian | 65 | Yes |
+| jira_server_set_app_monitoring_enabled_1 | Update IPD Monitoring status | jira-server-other | atlassian | 65 | Yes |
+| jira_server_are_metrics_exposed | Check if JMX metrics are being exposed | jira-server-other | atlassian | 65 | No |
+| jira_server_get_available_metrics | Get the available JMX metrics | jira-server-other | atlassian | 65 | No |
+| jira_server_start | Start exposing JMX metrics | jira-server-other | atlassian | 65 | Yes |
+| jira_server_stop | Stop exposing JMX metrics | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_permissions | Get permissions for the logged in user | jira-server-permission | atlassian | 65 | No |
+| jira_server_get_preference | Get user preference by key | jira-server-other | atlassian | 65 | No |
+| jira_server_set_preference | Update user preference | jira-server-other | atlassian | 65 | Yes |
+| jira_server_remove_preference | Delete user preference | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_user | Get currently logged user | jira-server-user | atlassian | 65 | No |
+| jira_server_update_user | Update currently logged user | jira-server-user | atlassian | 65 | Yes |
+| jira_server_change_my_password | Update caller password | jira-server-other | atlassian | 65 | No |
+| jira_server_get_notification_schemes | Get paginated notification schemes | jira-server-other | atlassian | 65 | No |
+| jira_server_get_notification_scheme | Get full notification scheme details | jira-server-other | atlassian | 65 | No |
+| jira_server_get_password_policy | Get current password policy requirements | jira-server-other | atlassian | 65 | No |
+| jira_server_policy_check_create_user | Get reasons for password policy disallowance on user creation | jira-server-user | atlassian | 75 | Yes |
+| jira_server_policy_check_update_user | Get reasons for password policy disallowance on user password update | jira-server-user | atlassian | 75 | Yes |
+| jira_server_get_all_permissions | Get all permissions present in Jira instance | jira-server-permission | atlassian | 65 | No |
+| jira_server_get_permission_schemes | Get all permission schemes | jira-server-permission-scheme | atlassian | 65 | No |
+| jira_server_create_permission_scheme | Create a new permission scheme | jira-server-permission-scheme | atlassian | 65 | Yes |
+| jira_server_get_scheme_attribute | Get scheme attribute by key | jira-server-other | atlassian | 65 | No |
+| jira_server_set_scheme_attribute | Update or insert a scheme attribute | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_permission_scheme | Get a permission scheme by ID | jira-server-permission-scheme | atlassian | 65 | No |
+| jira_server_update_permission_scheme | Update a permission scheme | jira-server-permission-scheme | atlassian | 65 | Yes |
+| jira_server_delete_permission_scheme | Delete a permission scheme by ID | jira-server-permission-scheme | atlassian | 65 | Yes |
+| jira_server_get_permission_scheme_grants | Get all permission grants of a scheme | jira-server-permission-scheme | atlassian | 65 | No |
+| jira_server_create_permission_grant | Create a permission grant in a scheme | jira-server-permission | atlassian | 65 | Yes |
+| jira_server_get_permission_scheme_grant | Get a permission grant by ID | jira-server-permission-scheme | atlassian | 65 | No |
+| jira_server_delete_permission_scheme_entity | Delete a permission grant from a scheme | jira-server-permission-scheme | atlassian | 65 | Yes |
+| jira_server_get_priorities | Get all issue priorities | jira-server-other | atlassian | 65 | No |
+| jira_server_get_priorities_1 | Get paginated issue priorities | jira-server-other | atlassian | 65 | No |
+| jira_server_get_priority | Get an issue priority by ID | jira-server-priority | atlassian | 65 | No |
+| jira_server_get_priority_schemes | Get all priority schemes | jira-server-priority-scheme | atlassian | 65 | No |
+| jira_server_create_priority_scheme | Create new priority scheme | jira-server-priority-scheme | atlassian | 65 | Yes |
+| jira_server_get_priority_scheme | Get a priority scheme by ID | jira-server-priority-scheme | atlassian | 65 | No |
+| jira_server_update_priority_scheme | Update a priority scheme | jira-server-priority-scheme | atlassian | 65 | Yes |
+| jira_server_delete_priority_scheme | Delete a priority scheme | jira-server-priority-scheme | atlassian | 65 | Yes |
+| jira_server_get_all_projects | Get all visible projects | jira-server-project | atlassian | 65 | No |
+| jira_server_create_project | Create a new project | jira-server-project | atlassian | 65 | Yes |
+| jira_server_get_all_project_types | Get all project types | jira-server-project | atlassian | 65 | No |
+| jira_server_get_project_type_by_key | Get project type by key | jira-server-project | atlassian | 65 | No |
+| jira_server_get_accessible_project_type_by_key | Get project type by key | jira-server-project | atlassian | 65 | No |
+| jira_server_get_project | Get a project by ID or key | jira-server-project | atlassian | 65 | No |
+| jira_server_update_project | Update a project | jira-server-project | atlassian | 65 | Yes |
+| jira_server_delete_project | Delete a project | jira-server-project | atlassian | 65 | Yes |
+| jira_server_archive_project | Archive a project | jira-server-project | atlassian | 65 | No |
+| jira_server_update_project_avatar | Update project avatar | jira-server-project-avatar | atlassian | 65 | Yes |
+| jira_server_create_avatar_from_temporary_1 | Create avatar from temporary | jira-server-other | atlassian | 65 | Yes |
+| jira_server_store_temporary_avatar_using_multi_part_1 | Store temporary avatar using multipart | jira-server-other | atlassian | 65 | No |
+| jira_server_delete_avatar | Delete an avatar | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_all_avatars | Get all avatars for a project | jira-server-other | atlassian | 65 | No |
+| jira_server_get_project_components | Get project components | jira-server-project-component | atlassian | 65 | No |
+| jira_server_get_properties_keys_3 | Get keys of all properties for project | jira-server-other | atlassian | 65 | No |
+| jira_server_get_property_5 | Get value of property from project | jira-server-other | atlassian | 65 | No |
+| jira_server_set_property_4 | Set value of specified project's property | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_property_5 | Delete property from project | jira-server-other | atlassian | 65 | Yes |
+| jira_server_restore_project | Restore an archived project | jira-server-project | atlassian | 65 | No |
+| jira_server_get_project_roles | Get all roles in project | jira-server-project-role | atlassian | 65 | No |
+| jira_server_get_project_role | Get details for a project role | jira-server-project-role | atlassian | 65 | No |
+| jira_server_set_actors | Update project role with actors | jira-server-other | atlassian | 65 | Yes |
+| jira_server_add_actor_users | Add actor to project role | jira-server-user | atlassian | 65 | Yes |
+| jira_server_delete_actor | Delete actors from project role | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_all_statuses | Get all issue types with statuses for a project | jira-server-other | atlassian | 65 | No |
+| jira_server_update_project_type | Update project type | jira-server-project | atlassian | 65 | Yes |
+| jira_server_get_project_versions_paginated | Get paginated project versions | jira-server-project | atlassian | 65 | No |
+| jira_server_get_project_versions | Get project versions | jira-server-project | atlassian | 65 | No |
+| jira_server_get_issue_security_scheme_1 | Get issue security scheme for project | jira-server-other | atlassian | 65 | No |
+| jira_server_get_notification_scheme_1 | Get notification scheme associated with the project | jira-server-other | atlassian | 75 | No |
+| jira_server_get_assigned_permission_scheme | Get assigned permission scheme | jira-server-permission-scheme | atlassian | 65 | No |
+| jira_server_assign_permission_scheme | Assign permission scheme to project | jira-server-permission-scheme | atlassian | 65 | No |
+| jira_server_get_assigned_priority_scheme | Get assigned priority scheme | jira-server-priority-scheme | atlassian | 65 | No |
+| jira_server_assign_priority_scheme | Assign project with priority scheme | jira-server-priority-scheme | atlassian | 65 | No |
+| jira_server_unassign_priority_scheme | Unassign project from priority scheme | jira-server-priority-scheme | atlassian | 65 | No |
+| jira_server_get_security_levels_for_project | Get all security levels for project | jira-server-project | atlassian | 65 | No |
+| jira_server_get_workflow_scheme_for_project | Get workflow scheme for project | jira-server-project | atlassian | 65 | No |
+| jira_server_get_all_project_categories | Get all project categories | jira-server-project | atlassian | 65 | No |
+| jira_server_create_project_category | Create project category | jira-server-project-category | atlassian | 65 | Yes |
+| jira_server_get_project_category_by_id | Get project category by ID | jira-server-project-category | atlassian | 65 | No |
+| jira_server_update_project_category | Update project category | jira-server-project-category | atlassian | 65 | Yes |
+| jira_server_remove_project_category | Delete project category | jira-server-project-category | atlassian | 65 | Yes |
+| jira_server_search_for_projects | Get projects matching query | jira-server-project | atlassian | 65 | No |
+| jira_server_get_project_1 | Get project key validation | jira-server-project | atlassian | 65 | No |
+| jira_server_get_reindex_info | Get reindex information | jira-server-admin-index | atlassian | 65 | No |
+| jira_server_reindex | Start a reindex operation | jira-server-admin-index | atlassian | 65 | No |
+| jira_server_reindex_issues | Reindex individual issues | jira-server-admin-index | atlassian | 65 | No |
+| jira_server_get_reindex_progress | Get reindex progress | jira-server-admin-index | atlassian | 65 | No |
+| jira_server_process_requests | Execute pending reindex requests | jira-server-other | atlassian | 65 | No |
+| jira_server_get_progress_bulk | Get progress of multiple reindex requests | jira-server-other | atlassian | 65 | No |
+| jira_server_get_progress | Get progress of a single reindex request | jira-server-other | atlassian | 65 | No |
+| jira_server_get_resolutions | Get all resolutions | jira-server-resolution | atlassian | 65 | No |
+| jira_server_get_paginated_resolutions | Get paginated filtered resolutions | jira-server-resolution | atlassian | 65 | No |
+| jira_server_get_resolution | Get a resolution by ID | jira-server-resolution | atlassian | 65 | No |
+| jira_server_get_project_roles_1 | Get all project roles | jira-server-project-role | atlassian | 65 | No |
+| jira_server_create_project_role | Create a new project role | jira-server-project-role | atlassian | 65 | Yes |
+| jira_server_get_project_roles_by_id | Get a specific project role | jira-server-project-role | atlassian | 65 | No |
+| jira_server_fully_update_project_role | Fully updates a role's name and description | jira-server-project-role | atlassian | 65 | Yes |
+| jira_server_partial_update_project_role | Partially updates a role's name or description | jira-server-project-role | atlassian | 65 | Yes |
+| jira_server_delete_project_role | Deletes a role | jira-server-project-role | atlassian | 60 | Yes |
+| jira_server_get_project_role_actors_for_role | Get default actors for a role | jira-server-project-role | atlassian | 65 | No |
+| jira_server_add_project_role_actors_to_role | Adds default actors to a role | jira-server-project-role | atlassian | 65 | Yes |
+| jira_server_delete_project_role_actors_from_role | Removes default actor from a role | jira-server-project-role | atlassian | 65 | Yes |
+| jira_server_get_all_screens | Get available field screens | jira-server-screen | atlassian | 65 | No |
+| jira_server_add_field_to_default_screen | Add field to default screen | jira-server-screen | atlassian | 65 | Yes |
+| jira_server_get_fields_to_add | Get available fields for screen | jira-server-field | atlassian | 65 | Yes |
+| jira_server_get_all_tabs | Get all tabs for a screen | jira-server-screen | atlassian | 65 | No |
+| jira_server_add_tab | Create tab for a screen | jira-server-screen | atlassian | 65 | Yes |
+| jira_server_rename_tab | Rename a tab on a screen | jira-server-screen | atlassian | 65 | Yes |
+| jira_server_delete_tab | Delete a tab from a screen | jira-server-screen | atlassian | 65 | Yes |
+| jira_server_get_all_fields | Get all fields for a tab | jira-server-field | atlassian | 65 | No |
+| jira_server_add_field | Add field to a tab | jira-server-field | atlassian | 65 | Yes |
+| jira_server_remove_field | Remove field from tab | jira-server-field | atlassian | 65 | Yes |
+| jira_server_move_field | Move field on a tab | jira-server-field | atlassian | 65 | Yes |
+| jira_server_update_show_when_empty_indicator | Update 'showWhenEmptyIndicator' for a field | jira-server-other | atlassian | 65 | Yes |
+| jira_server_move_tab | Move tab position | jira-server-screen | atlassian | 65 | Yes |
+| jira_server_search_1 | Get issues using JQL | jira-server-search | atlassian | 65 | No |
+| jira_server_search_using_search_request | Perform search with JQL | jira-server-search | atlassian | 65 | No |
+| jira_server_get_error | No description provided. | jira-server-other | atlassian | 65 | No |
+| jira_server_get_max_aggregation_buckets | Get maximum aggregation buckets | jira-server-other | atlassian | 65 | No |
+| jira_server_get_max_result_window | Get maximum result window | jira-server-other | atlassian | 65 | No |
+| jira_server_get_issuesecuritylevel | Get a security level by ID | jira-server-other | atlassian | 65 | No |
+| jira_server_get_server_info | Get general information about the current Jira server | jira-server-system | atlassian | 75 | No |
+| jira_server_set_base_url | Update base URL for Jira instance | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_issue_navigator_default_columns | Get default system columns for issue navigator | jira-server-other | atlassian | 65 | No |
+| jira_server_set_issue_navigator_default_columns_form | Set default system columns for issue navigator using form | jira-server-other | atlassian | 75 | Yes |
+| jira_server_get_statuses | Get all statuses | jira-server-other | atlassian | 65 | No |
+| jira_server_get_paginated_statuses | Get paginated filtered statuses | jira-server-other | atlassian | 65 | No |
+| jira_server_get_status | Get status by ID or name | jira-server-other | atlassian | 65 | No |
+| jira_server_get_status_categories | Get all status categories | jira-server-other | atlassian | 65 | No |
+| jira_server_get_status_category | Get status category by ID or key | jira-server-other | atlassian | 65 | No |
+| jira_server_get_all_terminology_entries | Get all defined names for 'epic' and 'sprint' | jira-server-other | atlassian | 65 | No |
+| jira_server_set_terminology_entries | Update epic/sprint names from original to new | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_terminology_entry | Get epic or sprint name by original name | jira-server-other | atlassian | 65 | No |
+| jira_server_get_avatars | Get all avatars for a type and owner | jira-server-other | atlassian | 65 | No |
+| jira_server_create_avatar_from_temporary_2 | Create avatar from temporary | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_avatar_1 | Delete avatar by ID | jira-server-other | atlassian | 65 | Yes |
+| jira_server_store_temporary_avatar_using_multi_part_2 | Create temporary avatar using multipart upload | jira-server-other | atlassian | 65 | No |
+| jira_server_get_upgrade_result | Get result of the last upgrade task | jira-server-admin-upgrade | atlassian | 65 | No |
+| jira_server_run_upgrades_now | Run pending upgrade tasks | jira-server-admin-upgrade | atlassian | 65 | No |
+| jira_server_get_user_1 | Get user by username or key | jira-server-user | atlassian | 65 | No |
+| jira_server_update_user_1 | Update user details | jira-server-user | atlassian | 65 | Yes |
+| jira_server_create_user | Create new user | jira-server-user | atlassian | 60 | Yes |
+| jira_server_remove_user | Delete user | jira-server-user | atlassian | 60 | Yes |
+| jira_server_get_a11y_personal_settings | Get available accessibility personal settings | jira-server-other | atlassian | 65 | Yes |
+| jira_server_validate_user_anonymization | Get validation for user anonymization | jira-server-user | atlassian | 65 | No |
+| jira_server_schedule_user_anonymization | Schedule user anonymization | jira-server-user | atlassian | 65 | No |
+| jira_server_get_progress_1 | Get user anonymization progress | jira-server-other | atlassian | 65 | No |
+| jira_server_validate_user_anonymization_rerun | Get validation for user anonymization rerun | jira-server-user | atlassian | 65 | No |
+| jira_server_schedule_user_anonymization_rerun | Schedule user anonymization rerun | jira-server-user | atlassian | 65 | No |
+| jira_server_unlock_anonymization | Delete stale user anonymization task | jira-server-other | atlassian | 65 | No |
+| jira_server_add_user_to_application_1 | Add user to application | jira-server-user | atlassian | 65 | Yes |
+| jira_server_remove_user_from_application_1 | Remove user from application | jira-server-user | atlassian | 65 | Yes |
+| jira_server_find_bulk_assignable_users | Find bulk assignable users | jira-server-user | atlassian | 65 | No |
+| jira_server_find_assignable_users_1 | Find assignable users by username | jira-server-user | atlassian | 65 | No |
+| jira_server_update_user_avatar_1 | Update user avatar | jira-server-user-avatar | atlassian | 65 | Yes |
+| jira_server_create_avatar_from_temporary_3 | Create avatar from temporary | jira-server-other | atlassian | 65 | Yes |
+| jira_server_store_temporary_avatar_using_multi_part_3 | Store temporary avatar using multipart | jira-server-other | atlassian | 65 | No |
+| jira_server_delete_avatar_2 | Delete avatar | jira-server-other | atlassian | 60 | Yes |
+| jira_server_get_all_avatars_1 | Get all avatars for user | jira-server-other | atlassian | 65 | No |
+| jira_server_default_columns | Get default columns for user | jira-server-other | atlassian | 65 | No |
+| jira_server_set_columns_url_encoded | Set default columns for user | jira-server-other | atlassian | 65 | Yes |
+| jira_server_reset_columns | Reset default columns to system default | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_duplicated_users_count | Get duplicated users count | jira-server-user | atlassian | 65 | No |
+| jira_server_get_duplicated_users_mapping | Get duplicated users mapping | jira-server-user | atlassian | 65 | No |
+| jira_server_get_user_list | List all users | jira-server-user | atlassian | 60 | No |
+| jira_server_change_user_password | Update user password | jira-server-user | atlassian | 65 | No |
+| jira_server_find_users_with_all_permissions | Find users with all specified permissions | jira-server-user | atlassian | 65 | No |
+| jira_server_find_users_for_picker | Find users for picker by query | jira-server-user | atlassian | 65 | No |
+| jira_server_get_properties_keys_4 | Get keys of all properties for a user | jira-server-other | atlassian | 65 | No |
+| jira_server_get_property_6 | Get the value of a specified user's property | jira-server-other | atlassian | 65 | No |
+| jira_server_set_property_5 | Set the value of a specified user's property | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_property_6 | Delete a specified user's property | jira-server-other | atlassian | 65 | Yes |
+| jira_server_find_users | Find users by username | jira-server-user | atlassian | 65 | No |
+| jira_server_delete_session | Delete user session | jira-server-other | atlassian | 65 | Yes |
+| jira_server_find_users_with_browse_permission | Find users with browse permission | jira-server-user | atlassian | 65 | No |
+| jira_server_get_paginated_versions | Get paginated versions | jira-server-other | atlassian | 65 | No |
+| jira_server_create_version | Create new version | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_remote_version_links | Get remote version links by global ID | jira-server-other | atlassian | 65 | No |
+| jira_server_get_version | Get version details | jira-server-other | atlassian | 65 | No |
+| jira_server_update_version | Update version details | jira-server-other | atlassian | 65 | Yes |
+| jira_server_merge | Merge versions | jira-server-other | atlassian | 60 | No |
+| jira_server_move_version | Modify version's sequence | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_version_related_issues | Get version related issues count | jira-server-other | atlassian | 65 | No |
+| jira_server_delete_1 | Delete version and replace values | jira-server-other | atlassian | 60 | Yes |
+| jira_server_get_version_unresolved_issues | Get version unresolved issues count | jira-server-other | atlassian | 65 | No |
+| jira_server_get_remote_version_links_by_version_id | Get remote version links by version ID | jira-server-other | atlassian | 65 | No |
+| jira_server_create_or_update_remote_version_link | Create or update remote version link without global ID | jira-server-other | atlassian | 75 | Yes |
+| jira_server_delete_remote_version_links_by_version_id | Delete all remote version links for version | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_remote_version_link | Get specific remote version link | jira-server-other | atlassian | 65 | No |
+| jira_server_create_or_update_remote_version_link_1 | Create or update remote version link with global ID | jira-server-other | atlassian | 75 | Yes |
+| jira_server_delete_remote_version_link | Delete specific remote version link | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_all_workflows | Get all workflows | jira-server-workflow | atlassian | 65 | No |
+| jira_server_create_scheme | Create a new workflow scheme | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_by_id | Get requested workflow scheme by ID | jira-server-other | atlassian | 60 | No |
+| jira_server_update | Update a specified workflow scheme | jira-server-other | atlassian | 60 | Yes |
+| jira_server_delete_scheme | Delete the specified workflow scheme | jira-server-other | atlassian | 65 | Yes |
+| jira_server_create_draft_for_parent | Create a draft for a workflow scheme | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_default | Get default workflow for a scheme | jira-server-other | atlassian | 65 | No |
+| jira_server_update_default | Update default workflow for a scheme | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_default | Remove default workflow from a scheme | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_draft_by_id | Get requested draft workflow scheme by ID | jira-server-other | atlassian | 65 | No |
+| jira_server_update_draft | Update a draft workflow scheme | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_draft_by_id | Delete the specified draft workflow scheme | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_draft_default | Get default workflow for a draft scheme | jira-server-other | atlassian | 65 | No |
+| jira_server_update_draft_default | Update default workflow for a draft scheme | jira-server-other | atlassian | 65 | Yes |
+| jira_server_delete_draft_default | Remove default workflow from a draft scheme | jira-server-other | atlassian | 65 | Yes |
+| jira_server_get_draft_issue_type | Get issue type mapping for a draft scheme | jira-server-issue-type | atlassian | 65 | No |
+| jira_server_set_draft_issue_type | Set an issue type mapping for a draft scheme | jira-server-issue-type | atlassian | 65 | Yes |
+| jira_server_delete_draft_issue_type | Delete an issue type mapping from a draft scheme | jira-server-issue-type | atlassian | 65 | Yes |
+| jira_server_get_draft_workflow | Get draft workflow mappings | jira-server-workflow | atlassian | 65 | No |
+| jira_server_update_draft_workflow_mapping | Update a workflow mapping in a draft scheme | jira-server-workflow | atlassian | 65 | Yes |
+| jira_server_delete_draft_workflow_mapping | Delete a workflow mapping from a draft scheme | jira-server-workflow | atlassian | 65 | Yes |
+| jira_server_get_issue_type | Get issue type mapping for a scheme | jira-server-issue-type | atlassian | 65 | No |
+| jira_server_set_issue_type | Set an issue type mapping for a scheme | jira-server-issue-type | atlassian | 65 | Yes |
+| jira_server_delete_issue_type | Delete an issue type mapping from a scheme | jira-server-issue-type | atlassian | 65 | Yes |
+| jira_server_get_workflow | Get workflow mappings for a scheme | jira-server-workflow | atlassian | 65 | No |
+| jira_server_update_workflow_mapping | Update a workflow mapping in a scheme | jira-server-workflow | atlassian | 65 | Yes |
+| jira_server_delete_workflow_mapping | Delete a workflow mapping from a scheme | jira-server-workflow | atlassian | 65 | Yes |
+| jira_server_get_ids_of_worklogs_deleted_since | Returns worklogs deleted since given time. | jira-server-issue-worklog | atlassian | 65 | Yes |
+| jira_server_get_worklogs_for_ids | Returns worklogs for given ids. | jira-server-issue-worklog | atlassian | 65 | No |
+| jira_server_get_ids_of_worklogs_modified_since | Returns worklogs updated since given time. | jira-server-issue-worklog | atlassian | 65 | No |
+| jira_server_current_user | Get current user session information | jira-server-user | atlassian | 65 | No |
+| jira_server_login | Create new user session | jira-server-system | atlassian | 65 | No |
+| jira_server_logout | Delete current user session | jira-server-system | atlassian | 65 | No |
+| jira_server_release | Invalidate the current WebSudo session | jira-server-other | atlassian | 65 | No |
+| confluence_cloud_get_admin_key | Get Admin Key | confluence-cloud-other | atlassian | 60 | No |
+| confluence_cloud_enable_admin_key | Enable Admin Key | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_disable_admin_key | Disable Admin Key | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_attachments | Get attachments | confluence-cloud-attachment | atlassian | 60 | No |
+| confluence_cloud_get_attachment_by_id | Get attachment by id | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_delete_attachment | Delete attachment | confluence-cloud-attachment | atlassian | 65 | Yes |
+| confluence_cloud_get_attachment_labels | Get labels for attachment | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_get_attachment_operations | Get permitted operations for attachment | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_get_attachment_content_properties | Get content properties for attachment | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_create_attachment_property | Create content property for attachment | confluence-cloud-attachment | atlassian | 65 | Yes |
+| confluence_cloud_get_attachment_content_properties_by_id | Get content property for attachment by id | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_update_attachment_property_by_id | Update content property for attachment by id | confluence-cloud-attachment | atlassian | 65 | Yes |
+| confluence_cloud_delete_attachment_property_by_id | Delete content property for attachment by id | confluence-cloud-attachment | atlassian | 65 | Yes |
+| confluence_cloud_get_attachment_versions | Get attachment versions | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_get_attachment_version_details | Get version details for attachment version | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_get_attachment_comments | Get attachment comments | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_get_blog_posts | Get blog posts | confluence-cloud-other | atlassian | 60 | Yes |
+| confluence_cloud_create_blog_post | Create blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_blog_post_by_id | Get blog post by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_update_blog_post | Update blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_blog_post | Delete blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_blogpost_attachments | Get attachments for blog post | confluence-cloud-attachment | atlassian | 65 | Yes |
+| confluence_cloud_get_custom_content_by_type_in_blog_post | Get custom content by type in blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_blog_post_labels | Get labels for blog post | confluence-cloud-label | atlassian | 65 | Yes |
+| confluence_cloud_get_blog_post_like_count | Get like count for blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_blog_post_like_users | Get account IDs of likes for blog post | confluence-cloud-user | atlassian | 65 | Yes |
+| confluence_cloud_get_blogpost_content_properties | Get content properties for blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_create_blogpost_property | Create content property for blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_blogpost_content_properties_by_id | Get content property for blog post by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_update_blogpost_property_by_id | Update content property for blog post by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_blogpost_property_by_id | Delete content property for blogpost by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_blog_post_operations | Get permitted operations for blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_blog_post_versions | Get blog post versions | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_blog_post_version_details | Get version details for blog post version | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_convert_content_ids_to_content_types | Convert content ids to content types | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_custom_content_by_type | Get custom content by type | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_custom_content | Create custom content | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_custom_content_by_id | Get custom content by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_update_custom_content | Update custom content | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_custom_content | Delete custom content | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_custom_content_attachments | Get attachments for custom content | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_get_custom_content_comments | Get custom content comments | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_custom_content_labels | Get labels for custom content | confluence-cloud-label | atlassian | 65 | No |
+| confluence_cloud_get_custom_content_operations | Get permitted operations for custom content | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_custom_content_content_properties | Get content properties for custom content | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_custom_content_property | Create content property for custom content | confluence-cloud-content-property | atlassian | 65 | Yes |
+| confluence_cloud_get_custom_content_content_properties_by_id | Get content property for custom content by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_update_custom_content_property_by_id | Update content property for custom content by id | confluence-cloud-content-property | atlassian | 65 | Yes |
+| confluence_cloud_delete_custom_content_property_by_id | Delete content property for custom content by id | confluence-cloud-content-property | atlassian | 65 | Yes |
+| confluence_cloud_get_labels | Get labels | confluence-cloud-label | atlassian | 60 | No |
+| confluence_cloud_get_label_attachments | Get attachments for label | confluence-cloud-attachment | atlassian | 65 | No |
+| confluence_cloud_get_label_blog_posts | Get blog posts for label | confluence-cloud-label | atlassian | 65 | Yes |
+| confluence_cloud_get_label_pages | Get pages for label | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_pages | Get pages | confluence-cloud-page-core | atlassian | 60 | No |
+| confluence_cloud_create_page | Create page | confluence-cloud-page-core | atlassian | 60 | Yes |
+| confluence_cloud_get_page_by_id | Get page by id | confluence-cloud-page-core | atlassian | 60 | No |
+| confluence_cloud_update_page | Update page | confluence-cloud-page-core | atlassian | 60 | Yes |
+| confluence_cloud_delete_page | Delete page | confluence-cloud-page-core | atlassian | 60 | Yes |
+| confluence_cloud_get_page_attachments | Get attachments for page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_custom_content_by_type_in_page | Get custom content by type in page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_page_labels | Get labels for page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_page_like_count | Get like count for page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_page_like_users | Get account IDs of likes for page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_page_operations | Get permitted operations for page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_page_content_properties | Get content properties for page | confluence-cloud-page-content | atlassian | 65 | No |
+| confluence_cloud_create_page_property | Create content property for page | confluence-cloud-page-core | atlassian | 65 | Yes |
+| confluence_cloud_get_page_content_properties_by_id | Get content property for page by id | confluence-cloud-page-content | atlassian | 65 | No |
+| confluence_cloud_update_page_property_by_id | Update content property for page by id | confluence-cloud-page-core | atlassian | 65 | Yes |
+| confluence_cloud_delete_page_property_by_id | Delete content property for page by id | confluence-cloud-page-core | atlassian | 65 | Yes |
+| confluence_cloud_post_redact_page | Redact Content in a Confluence Page | confluence-cloud-page-core | atlassian | 65 | Yes |
+| confluence_cloud_post_redact_blog | Redact Content in a Confluence Blog Post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_update_page_title | Update page title | confluence-cloud-page-core | atlassian | 65 | Yes |
+| confluence_cloud_get_page_versions | Get page versions | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_create_whiteboard | Create whiteboard | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_whiteboard_by_id | Get whiteboard by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_delete_whiteboard | Delete whiteboard | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_whiteboard_content_properties | Get content properties for whiteboard | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_whiteboard_property | Create content property for whiteboard | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_whiteboard_content_properties_by_id | Get content property for whiteboard by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_update_whiteboard_property_by_id | Update content property for whiteboard by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_whiteboard_property_by_id | Delete content property for whiteboard by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_whiteboard_operations | Get permitted operations for a whiteboard | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_whiteboard_direct_children | Get direct children of a whiteboard | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_whiteboard_descendants | Get descendants of a whiteboard | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_whiteboard_ancestors | Get all ancestors of whiteboard | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_database | Create database | confluence-cloud-other | atlassian | 60 | Yes |
+| confluence_cloud_get_database_by_id | Get database by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_delete_database | Delete database | confluence-cloud-other | atlassian | 60 | Yes |
+| confluence_cloud_get_database_content_properties | Get content properties for database | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_database_property | Create content property for database | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_database_content_properties_by_id | Get content property for database by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_update_database_property_by_id | Update content property for database by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_database_property_by_id | Delete content property for database by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_database_operations | Get permitted operations for a database | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_database_direct_children | Get direct children of a database | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_database_descendants | Get descendants of a database | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_database_ancestors | Get all ancestors of database | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_smart_link | Create Smart Link in the content tree | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_smart_link_by_id | Get Smart Link in the content tree by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_delete_smart_link | Delete Smart Link in the content tree | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_smart_link_content_properties | Get content properties for Smart Link in the content tree | confluence-cloud-other | atlassian | 75 | No |
+| confluence_cloud_create_smart_link_property | Create content property for Smart Link in the content tree | confluence-cloud-other | atlassian | 75 | Yes |
+| confluence_cloud_get_smart_link_content_properties_by_id | Get content property for Smart Link in the content tree by id | confluence-cloud-other | atlassian | 75 | No |
+| confluence_cloud_update_smart_link_property_by_id | Update content property for Smart Link in the content tree by id | confluence-cloud-other | atlassian | 75 | Yes |
+| confluence_cloud_delete_smart_link_property_by_id | Delete content property for Smart Link in the content tree by id | confluence-cloud-other | atlassian | 75 | Yes |
+| confluence_cloud_get_smart_link_operations | Get permitted operations for a Smart Link in the content tree | confluence-cloud-other | atlassian | 75 | No |
+| confluence_cloud_get_smart_link_direct_children | Get direct children of a Smart Link | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_smart_link_descendants | Get descendants of a smart link | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_smart_link_ancestors | Get all ancestors of Smart Link in content tree | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_folder | Create folder | confluence-cloud-other | atlassian | 60 | Yes |
+| confluence_cloud_get_folder_by_id | Get folder by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_delete_folder | Delete folder | confluence-cloud-other | atlassian | 60 | Yes |
+| confluence_cloud_get_folder_content_properties | Get content properties for folder | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_folder_property | Create content property for folder | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_folder_content_properties_by_id | Get content property for folder by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_update_folder_property_by_id | Update content property for folder by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_folder_property_by_id | Delete content property for folder by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_folder_operations | Get permitted operations for a folder | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_folder_direct_children | Get direct children of a folder | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_folder_descendants | Get descendants of folder | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_folder_ancestors | Get all ancestors of folder | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_page_version_details | Get version details for page version | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_custom_content_versions | Get custom content versions | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_custom_content_version_details | Get version details for custom content version | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_spaces | Get spaces | confluence-cloud-space-core | atlassian | 60 | No |
+| confluence_cloud_create_space | Create space | confluence-cloud-space-core | atlassian | 60 | Yes |
+| confluence_cloud_get_space_by_id | Get space by id | confluence-cloud-space-core | atlassian | 60 | No |
+| confluence_cloud_get_blog_posts_in_space | Get blog posts in space | confluence-cloud-space-core | atlassian | 65 | Yes |
+| confluence_cloud_get_space_labels | Get labels for space | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_get_space_content_labels | Get labels for space content | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_get_custom_content_by_type_in_space | Get custom content by type in space | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_get_space_operations | Get permitted operations for space | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_get_pages_in_space | Get pages in space | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_get_space_properties | Get space properties in space | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_create_space_property | Create space property in space | confluence-cloud-space-property | atlassian | 65 | Yes |
+| confluence_cloud_get_space_property_by_id | Get space property by id | confluence-cloud-space-property | atlassian | 65 | No |
+| confluence_cloud_update_space_property_by_id | Update space property by id | confluence-cloud-space-property | atlassian | 65 | Yes |
+| confluence_cloud_delete_space_property_by_id | Delete space property by id | confluence-cloud-space-property | atlassian | 65 | Yes |
+| confluence_cloud_get_space_permissions_assignments | Get space permissions assignments | confluence-cloud-space-permission | atlassian | 65 | No |
+| confluence_cloud_get_available_space_permissions | Get available space permissions | confluence-cloud-space-permission | atlassian | 65 | No |
+| confluence_cloud_get_available_space_roles | Get available space roles | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_create_space_role | Create a space role | confluence-cloud-space-core | atlassian | 65 | Yes |
+| confluence_cloud_get_space_roles_by_id | Get space role by ID | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_update_space_role | Update a space role | confluence-cloud-space-core | atlassian | 65 | Yes |
+| confluence_cloud_delete_space_role | Delete a space role | confluence-cloud-space-core | atlassian | 65 | Yes |
+| confluence_cloud_get_space_role_mode | Get space role mode | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_get_space_role_assignments | Get space role assignments | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_set_space_role_assignments | Set space role assignments | confluence-cloud-space-core | atlassian | 65 | Yes |
+| confluence_cloud_get_page_footer_comments | Get footer comments for page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_page_inline_comments | Get inline comments for page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_blog_post_footer_comments | Get footer comments for blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_blog_post_inline_comments | Get inline comments for blog post | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_footer_comments | Get footer comments | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_footer_comment | Create footer comment | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_footer_comment_by_id | Get footer comment by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_update_footer_comment | Update footer comment | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_footer_comment | Delete footer comment | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_footer_comment_children | Get children footer comments | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_footer_like_count | Get like count for footer comment | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_footer_like_users | Get account IDs of likes for footer comment | confluence-cloud-user | atlassian | 65 | No |
+| confluence_cloud_get_footer_comment_operations | Get permitted operations for footer comment | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_footer_comment_versions | Get footer comment versions | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_footer_comment_version_details | Get version details for footer comment version | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_inline_comments | Get inline comments | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_inline_comment | Create inline comment | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_inline_comment_by_id | Get inline comment by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_update_inline_comment | Update inline comment | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_inline_comment | Delete inline comment | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_inline_comment_children | Get children inline comments | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_inline_like_count | Get like count for inline comment | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_inline_like_users | Get account IDs of likes for inline comment | confluence-cloud-user | atlassian | 65 | No |
+| confluence_cloud_get_inline_comment_operations | Get permitted operations for inline comment | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_inline_comment_versions | Get inline comment versions | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_inline_comment_version_details | Get version details for inline comment version | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_comment_content_properties | Get content properties for comment | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_create_comment_property | Create content property for comment | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_comment_content_properties_by_id | Get content property for comment by id | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_update_comment_property_by_id | Update content property for comment by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_comment_property_by_id | Delete content property for comment by id | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_tasks | Get tasks | confluence-cloud-other | atlassian | 60 | No |
+| confluence_cloud_get_task_by_id | Get task by id | confluence-cloud-other | atlassian | 60 | No |
+| confluence_cloud_update_task | Update task | confluence-cloud-other | atlassian | 60 | Yes |
+| confluence_cloud_get_child_pages | Get child pages | confluence-cloud-page-core | atlassian | 60 | No |
+| confluence_cloud_get_child_custom_content | Get child custom content | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_page_direct_children | Get direct children of a page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_page_ancestors | Get all ancestors of page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_get_page_descendants | Get descendants of page | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_create_bulk_user_lookup | Create bulk user lookup using ids | confluence-cloud-user | atlassian | 65 | Yes |
+| confluence_cloud_check_access_by_email | Check site access for a list of emails | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_invite_by_email | Invite a list of emails to the site | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_data_policy_metadata | Get data policy metadata for the workspace | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_data_policy_spaces | Get spaces with data policies | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_get_classification_levels | Get list of classification levels | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_space_default_classification_level | Get space default classification level | confluence-cloud-space-core | atlassian | 65 | No |
+| confluence_cloud_put_space_default_classification_level | Update space default classification level | confluence-cloud-space-core | atlassian | 65 | Yes |
+| confluence_cloud_delete_space_default_classification_level | Delete space default classification level | confluence-cloud-space-core | atlassian | 65 | Yes |
+| confluence_cloud_get_page_classification_level | Get page classification level | confluence-cloud-page-core | atlassian | 65 | No |
+| confluence_cloud_put_page_classification_level | Update page classification level | confluence-cloud-page-core | atlassian | 65 | Yes |
+| confluence_cloud_post_page_classification_level | Reset page classification level | confluence-cloud-page-core | atlassian | 65 | Yes |
+| confluence_cloud_get_blog_post_classification_level | Get blog post classification level | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_put_blog_post_classification_level | Update blog post classification level | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_post_blog_post_classification_level | Reset blog post classification level | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_whiteboard_classification_level | Get whiteboard classification level | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_put_whiteboard_classification_level | Update whiteboard classification level | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_post_whiteboard_classification_level | Reset whiteboard classification level | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_database_classification_level | Get database classification level | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_put_database_classification_level | Update database classification level | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_post_database_classification_level | Reset database classification level | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_get_forge_app_properties | Get Forge app properties. | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_get_forge_app_property | Get a Forge app property by key. | confluence-cloud-other | atlassian | 65 | No |
+| confluence_cloud_put_forge_app_property | Create or update a Forge app property. | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_cloud_delete_forge_app_property | Deletes a Forge app property. | confluence-cloud-other | atlassian | 65 | Yes |
+| confluence_server_get_access_mode_status | Get access mode status | confluence-server-other | atlassian | 65 | No |
+| confluence_server_create | Create group | confluence-server-other | atlassian | 55 | Yes |
+| confluence_server_delete | Delete group | confluence-server-other | atlassian | 55 | Yes |
+| confluence_server_change_password | Change password | confluence-server-other | atlassian | 60 | No |
+| confluence_server_create_user | Create user | confluence-server-user | atlassian | 60 | Yes |
+| confluence_server_delete_1 | Delete user | confluence-server-other | atlassian | 55 | Yes |
+| confluence_server_disable | Disable user | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_enable | Enable user | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_get_attachments | Get attachment | confluence-server-other | atlassian | 60 | No |
+| confluence_server_create_attachments | Create attachments | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_get_attachment_extracted_text | No description provided. | confluence-server-other | atlassian | 65 | No |
+| confluence_server_move | Move attachment | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_update | Update non-binary data of an Attachment | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_remove_attachment | Remove attachment | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_remove_attachment_version | Remove attachment version | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_update_data | Update binary data of an attachment | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_get_audit_records | No description provided. | confluence-server-other | atlassian | 65 | No |
+| confluence_server_cancel_all_queued_jobs | Cancel all queued jobs | confluence-server-other | atlassian | 65 | No |
+| confluence_server_cancel_job | Cancel job | confluence-server-other | atlassian | 60 | No |
+| confluence_server_create_site_backup_job | Create site backup job | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_create_site_restore_job | Create site restore job | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_create_site_restore_job_for_uploaded_backup_file | Create site restore job for upload backup file | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_create_space_backup_job | Create space backup job | confluence-server-space | atlassian | 65 | Yes |
+| confluence_server_create_space_restore_job | Create space restore job | confluence-server-space | atlassian | 65 | Yes |
+| confluence_server_create_space_restore_job_for_uploaded_backup_file | Create space restore job for upload backup file | confluence-server-space | atlassian | 65 | Yes |
+| confluence_server_download_backup_file | Download backup file | confluence-server-other | atlassian | 65 | No |
+| confluence_server_find_jobs | Find jobs by filters | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_files | Get files in restore directory | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_job | Get job by ID | confluence-server-other | atlassian | 60 | No |
+| confluence_server_remove_category | Remove a category from a space | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_children | Get children of content | confluence-server-content-child | atlassian | 65 | No |
+| confluence_server_children_of_type | Get children of content by type | confluence-server-content-child | atlassian | 65 | No |
+| confluence_server_comments_of_content | Get comments of content | confluence-server-content | atlassian | 65 | No |
+| confluence_server_publish_shared_draft | Publish shared draft | confluence-server-other | atlassian | 65 | No |
+| confluence_server_publish_legacy_draft | Publish legacy draft | confluence-server-other | atlassian | 65 | No |
+| confluence_server_convert | Convert body representation | confluence-server-other | atlassian | 65 | No |
+| confluence_server_labels | Get labels | confluence-server-other | atlassian | 60 | No |
+| confluence_server_add_labels | Add Labels | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_delete_label_with_query_param | Delete label with query param | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_delete_label | Delete label | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_find_all | Find all content properties | confluence-server-other | atlassian | 65 | No |
+| confluence_server_create_1 | Create a content property | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_find_by_key | Find content property by key | confluence-server-other | atlassian | 65 | No |
+| confluence_server_update_1 | Update content property | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_create_2 | No description provided. | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_delete_2 | Delete content property | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_get_content | Get content | confluence-server-content | atlassian | 60 | No |
+| confluence_server_create_content | Create content | confluence-server-content | atlassian | 60 | Yes |
+| confluence_server_get_content_by_id | Get content by ID | confluence-server-content | atlassian | 65 | No |
+| confluence_server_delete_3 | Delete content | confluence-server-other | atlassian | 55 | Yes |
+| confluence_server_get_history | Get history of content | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_macro_body_by_hash | Get macro body by hash | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_macro_body_by_macro_id | Get macro body by macro ID | confluence-server-other | atlassian | 65 | No |
+| confluence_server_scan_content | Scan content by space key | confluence-server-content | atlassian | 65 | No |
+| confluence_server_search | Search content using CQL | confluence-server-other | atlassian | 65 | No |
+| confluence_server_update_2 | Update content | confluence-server-other | atlassian | 55 | Yes |
+| confluence_server_by_operation | Get all restrictions by Operation | confluence-server-other | atlassian | 65 | No |
+| confluence_server_for_operation | Get all restrictions for given operation | confluence-server-other | atlassian | 65 | No |
+| confluence_server_relevant_view_restrictions | Get all view restriction both direct and inherited. | confluence-server-other | atlassian | 75 | No |
+| confluence_server_update_restrictions | Update restrictions | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_delete_content_history | Delete content history | confluence-server-content-history | atlassian | 65 | Yes |
+| confluence_server_index | Fetch users watching a given content | confluence-server-other | atlassian | 65 | No |
+| confluence_server_descendants | Get Descendants | confluence-server-other | atlassian | 60 | No |
+| confluence_server_descendants_of_type | Get descendants of type | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_default_color_scheme | Get default global color scheme | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_global_color_scheme | Get global color scheme | confluence-server-other | atlassian | 65 | No |
+| confluence_server_update_color_scheme | Set global color scheme | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_reset_global_color_scheme | Reset global color scheme | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_get_all_global_permissions | Get global permissions | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_permissions_granted_to_anonymous_users | Gets the permissions granted to an anonymous user | confluence-server-user | atlassian | 65 | No |
+| confluence_server_get_permissions_granted_to_group | Gets global permissions granted to a group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_permissions_granted_to_unlicensed_users | Gets the permissions granted to an unlicensed users | confluence-server-user | atlassian | 75 | No |
+| confluence_server_get_permissions_granted_to_user | Gets global permissions granted to a user | confluence-server-user | atlassian | 65 | No |
+| confluence_server_find_webhooks | Find webhooks | confluence-server-other | atlassian | 60 | No |
+| confluence_server_create_webhook | Create webhook | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_get_webhook | Get webhook | confluence-server-other | atlassian | 60 | No |
+| confluence_server_update_webhook | Update webhook | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_delete_webhook | Delete webhook | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_get_latest_invocation | Get latest invocations | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_statistics | Get statistic | confluence-server-other | atlassian | 60 | No |
+| confluence_server_get_statistics_summary | Get statistics summary | confluence-server-other | atlassian | 65 | No |
+| confluence_server_test_webhook | Test webhook | confluence-server-other | atlassian | 60 | No |
+| confluence_server_get_ancestor_groups | Get group ancestor of a group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_ancestor_groups_by_group_name | Get group ancestor of a group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_group | Get group by name | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_group_by_group_name | Get group by name | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_groups | Get groups | confluence-server-group | atlassian | 60 | No |
+| confluence_server_get_members | Get members of group | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_members_by_group_name | Get members of group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_nested_group_members | Get group members of group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_nested_group_members_by_group_name | Get group members of group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_parent_groups | Get group parents of a group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_parent_groups_by_group_name | Get group parents of a group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_index_1 | Get instance metrics | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_related_labels | Get related labels, currently returning global labels only. | confluence-server-other | atlassian | 75 | No |
+| confluence_server_recent | Get recently used labels | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_task | Get task by ID | confluence-server-other | atlassian | 60 | No |
+| confluence_server_get_tasks | Get tasks | confluence-server-other | atlassian | 60 | No |
+| confluence_server_search_1 | Search for entities in confluence | confluence-server-other | atlassian | 65 | No |
+| confluence_server_index_2 | Get server information | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_color_scheme_type | Get Space color scheme type | confluence-server-other | atlassian | 65 | No |
+| confluence_server_update_color_scheme_type | Update Space color scheme type | confluence-server-other | atlassian | 65 | Yes |
+| confluence_server_get_space_color_scheme | Get Space color scheme | confluence-server-space | atlassian | 65 | No |
+| confluence_server_update_space_color_scheme | Update Space color scheme | confluence-server-space | atlassian | 65 | Yes |
+| confluence_server_reset_space_color_scheme | Reset Space color scheme | confluence-server-space | atlassian | 65 | Yes |
+| confluence_server_index_3 | Fetch all labels | confluence-server-other | atlassian | 65 | No |
+| confluence_server_popular | Get popular labels | confluence-server-other | atlassian | 65 | No |
+| confluence_server_recent_1 | Get recent labels | confluence-server-other | atlassian | 65 | No |
+| confluence_server_related | Get related labels | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_all_space_permissions | Get all space permissions | confluence-server-space-permission | atlassian | 65 | No |
+| confluence_server_set_permissions | Set permissions to multiple users/groups/anonymous user in the given space | confluence-server-other | atlassian | 75 | Yes |
+| confluence_server_get_permissions_granted_to_anonymous_users_1 | Gets the permissions granted to an anonymous user in a space | confluence-server-user | atlassian | 75 | No |
+| confluence_server_get_permissions_granted_to_group_1 | Gets the permissions granted to a group in a space | confluence-server-group | atlassian | 65 | No |
+| confluence_server_get_permissions_granted_to_user_1 | Gets the permissions granted to a user in a space | confluence-server-user | atlassian | 65 | No |
+| confluence_server_grant_permissions_to_anonymous_users | Grants space permissions to anonymous user | confluence-server-user | atlassian | 65 | No |
+| confluence_server_grant_permissions_to_group | Grants space permissions to a group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_grant_permissions_to_user | Grants space permissions to a user | confluence-server-user | atlassian | 65 | No |
+| confluence_server_revoke_permissions_from_anonymous_user | Revoke space permissions from anonymous user | confluence-server-user | atlassian | 65 | No |
+| confluence_server_revoke_permissions_from_group | Revoke space permissions from a group | confluence-server-group | atlassian | 65 | No |
+| confluence_server_revoke_permissions_from_user | Revoke space permissions from a user | confluence-server-user | atlassian | 65 | No |
+| confluence_server_get_1 | Get space properties | confluence-server-other | atlassian | 60 | No |
+| confluence_server_create_3 | Create a space property | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_get | Get space property by key | confluence-server-other | atlassian | 60 | No |
+| confluence_server_update_3 | Update space property | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_create_4 | Create a space property with a specific key | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_delete_4 | Delete space property | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_archive | Archive space | confluence-server-other | atlassian | 60 | No |
+| confluence_server_contents | Get contents in space | confluence-server-content | atlassian | 65 | No |
+| confluence_server_contents_with_type | Get contents by type | confluence-server-content | atlassian | 65 | No |
+| confluence_server_create_private_space | Create private space | confluence-server-space | atlassian | 65 | Yes |
+| confluence_server_spaces | Get spaces by key | confluence-server-space | atlassian | 65 | No |
+| confluence_server_create_space | Creates a new Space. | confluence-server-space | atlassian | 65 | Yes |
+| confluence_server_space | Get space | confluence-server-space | atlassian | 60 | No |
+| confluence_server_update_4 | Update Space | confluence-server-other | atlassian | 55 | Yes |
+| confluence_server_delete_5 | Delete Space | confluence-server-other | atlassian | 55 | Yes |
+| confluence_server_restore | Restore space | confluence-server-other | atlassian | 60 | No |
+| confluence_server_trash | Remove all trash contents | confluence-server-other | atlassian | 65 | No |
+| confluence_server_index_4 | Fetch users watching space | confluence-server-other | atlassian | 65 | No |
+| confluence_server_update_5 | Update user group | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_delete_6 | Delete user group | confluence-server-other | atlassian | 60 | Yes |
+| confluence_server_change_password_1 | Change password | confluence-server-other | atlassian | 60 | No |
+| confluence_server_get_anonymous | Get information about anonymous user type | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_current | Get current user | confluence-server-other | atlassian | 65 | No |
+| confluence_server_get_groups_1 | Get groups | confluence-server-group | atlassian | 60 | No |
+| confluence_server_get_user | Get user | confluence-server-user | atlassian | 60 | No |
+| confluence_server_get_users | Get registered users | confluence-server-user | atlassian | 65 | No |
+| confluence_server_is_watching_content | Get information about content watcher | confluence-server-content | atlassian | 65 | No |
+| confluence_server_add_content_watcher | Add content watcher | confluence-server-content | atlassian | 65 | Yes |
+| confluence_server_remove_content_watcher | Remove content watcher | confluence-server-content | atlassian | 65 | Yes |
+| confluence_server_is_watching_space | Get information about space watcher | confluence-server-space | atlassian | 65 | No |
+| confluence_server_add_space_watch | Add space watcher | confluence-server-space | atlassian | 65 | Yes |
+| confluence_server_remove_space_watch | Remove space watcher | confluence-server-space | atlassian | 65 | Yes |
+| admin_cloud_get_orgs | Get organizations | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_org_by_id | Get an organization by ID | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_directory_users | Get users in an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_directory_user_details | Get details of a user in a directory | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_users | Get managed accounts in an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_post_v2_orgs_org_id_users_invite | Invite users to an organization | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_get_user_role_assignments | Get user role assignments | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_assign_role | Grant user access | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_revoke_role | Revoke user access | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_post_v2_orgs_org_id_directories_directory_id_users_account_id_suspend | Suspend user access in directory | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_post_v2_orgs_org_id_directories_directory_id_users_account_id_restore | Restore user access in directory | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_delete_v2_orgs_org_id_directories_directory_id_users_account_id | Remove user from directory | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_post_v1_orgs_org_id_users_user_id_role_assignments_assign | Assign organization-level role | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_post_v1_orgs_org_id_users_user_id_role_assignments_revoke | Remove organization-level role | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_get_directory_users_count | Get count of users in an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_user_stats | Get user stats in an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_v1_orgs_org_id_directory_users_account_id_last_active_dates | User’s last active dates | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_search_users | Search for users in an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_post_v1_orgs_org_id_users_invite | Invite user to org | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_post_v1_orgs_org_id_directory_users_account_id_suspend_access | Suspend user access | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_post_v1_orgs_org_id_directory_users_account_id_restore_access | Restore user access | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_delete_v1_orgs_org_id_directory_users_account_id | Remove user access | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_get_groups | Get groups in an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_post_v2_orgs_org_id_directories_directory_id_groups | Create group | atlassian-admin | atlassian | 60 | Yes |
+| admin_cloud_get_group_role_assignments | Get group role assignments | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_post_v2_orgs_org_id_directories_directory_id_groups_group_id_role_assignments_assign | Grant access to group | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_post_v2_orgs_org_id_directories_directory_id_groups_group_id_role_assignments_revoke | Remove access from group | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_post_v2_orgs_org_id_directories_directory_id_groups_group_id_memberships | Add user to group | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_delete_v2_orgs_org_id_directories_directory_id_groups_group_id_memberships_account_id | Remove user from group | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_delete_v2_orgs_org_id_directories_directory_id_groups_group_id | Delete group | atlassian-admin | atlassian | 60 | Yes |
+| admin_cloud_get_group | Get group details | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_groups_count | Get the count of groups in an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_groups_stats | Get group stats | atlassian-admin | atlassian | 60 | No |
+| admin_cloud_search_groups | Search for groups within an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_post_v1_orgs_org_id_directory_groups | Create group | atlassian-admin | atlassian | 60 | Yes |
+| admin_cloud_delete_v1_orgs_org_id_directory_groups_group_id | Delete group | atlassian-admin | atlassian | 60 | Yes |
+| admin_cloud_assign_role_to_group | Assign roles to a group | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_revoke_role_to_group | Revoke roles from a group | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_post_v1_orgs_org_id_directory_groups_group_id_memberships | Add user to group | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_delete_v1_orgs_org_id_directory_groups_group_id_memberships_account_id | Remove user from group | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_get_directories_for_org | Get directories in an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_domains | Get domains in an organization | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_domain_by_id | Get domain by ID | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_events | Query audit log events | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_poll_events | Poll audit log events | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_event_by_id | Get an event by ID | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_event_actions | Get list of event actions | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_get_policies | Get list of policies | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_create_policy | Create a policy | atlassian-admin | atlassian | 60 | Yes |
+| admin_cloud_get_policy_by_id | Get a policy by ID | atlassian-admin | atlassian | 65 | No |
+| admin_cloud_update_policy | Update a policy | atlassian-admin | atlassian | 60 | Yes |
+| admin_cloud_delete_policy | Delete a policy | atlassian-admin | atlassian | 60 | Yes |
+| admin_cloud_add_resource_to_policy | Add Resource to Policy | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_update_policy_resource | Update Policy Resource | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_delete_policy_resource | Delete Policy Resource | atlassian-admin | atlassian | 65 | Yes |
+| admin_cloud_validate_policy | Validate Policy | atlassian-admin | atlassian | 60 | No |
+| admin_cloud_query_workspaces_v2 | Get list of workspaces | atlassian-admin | atlassian | 65 | No |
+| org_cloud_get_orgs | Get organizations | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_org_by_id | Get an organization by ID | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_directory_users | Get users in an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_directory_user_details | Get details of a user in a directory | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_users | Get managed accounts in an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_post_v2_orgs_org_id_users_invite | Invite users to an organization | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_get_user_role_assignments | Get user role assignments | atlassian-org | atlassian | 65 | No |
+| org_cloud_assign_role | Grant user access | atlassian-org | atlassian | 65 | No |
+| org_cloud_revoke_role | Revoke user access | atlassian-org | atlassian | 65 | No |
+| org_cloud_post_v2_orgs_org_id_directories_directory_id_users_account_id_suspend | Suspend user access in directory | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_post_v2_orgs_org_id_directories_directory_id_users_account_id_restore | Restore user access in directory | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_delete_v2_orgs_org_id_directories_directory_id_users_account_id | Remove user from directory | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_post_v1_orgs_org_id_users_user_id_role_assignments_assign | Assign organization-level role | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_post_v1_orgs_org_id_users_user_id_role_assignments_revoke | Remove organization-level role | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_get_directory_users_count | Get count of users in an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_user_stats | Get user stats in an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_v1_orgs_org_id_directory_users_account_id_last_active_dates | User’s last active dates | atlassian-org | atlassian | 65 | No |
+| org_cloud_search_users | Search for users in an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_post_v1_orgs_org_id_users_invite | Invite user to org | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_post_v1_orgs_org_id_directory_users_account_id_suspend_access | Suspend user access | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_post_v1_orgs_org_id_directory_users_account_id_restore_access | Restore user access | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_delete_v1_orgs_org_id_directory_users_account_id | Remove user access | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_get_groups | Get groups in an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_post_v2_orgs_org_id_directories_directory_id_groups | Create group | atlassian-org | atlassian | 60 | Yes |
+| org_cloud_get_group_role_assignments | Get group role assignments | atlassian-org | atlassian | 65 | No |
+| org_cloud_post_v2_orgs_org_id_directories_directory_id_groups_group_id_role_assignments_assign | Grant access to group | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_post_v2_orgs_org_id_directories_directory_id_groups_group_id_role_assignments_revoke | Remove access from group | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_post_v2_orgs_org_id_directories_directory_id_groups_group_id_memberships | Add user to group | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_delete_v2_orgs_org_id_directories_directory_id_groups_group_id_memberships_account_id | Remove user from group | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_delete_v2_orgs_org_id_directories_directory_id_groups_group_id | Delete group | atlassian-org | atlassian | 60 | Yes |
+| org_cloud_get_group | Get group details | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_groups_count | Get the count of groups in an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_groups_stats | Get group stats | atlassian-org | atlassian | 60 | No |
+| org_cloud_search_groups | Search for groups within an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_post_v1_orgs_org_id_directory_groups | Create group | atlassian-org | atlassian | 60 | Yes |
+| org_cloud_delete_v1_orgs_org_id_directory_groups_group_id | Delete group | atlassian-org | atlassian | 60 | Yes |
+| org_cloud_assign_role_to_group | Assign roles to a group | atlassian-org | atlassian | 65 | No |
+| org_cloud_revoke_role_to_group | Revoke roles from a group | atlassian-org | atlassian | 65 | No |
+| org_cloud_post_v1_orgs_org_id_directory_groups_group_id_memberships | Add user to group | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_delete_v1_orgs_org_id_directory_groups_group_id_memberships_account_id | Remove user from group | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_get_directories_for_org | Get directories in an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_domains | Get domains in an organization | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_domain_by_id | Get domain by ID | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_events | Query audit log events | atlassian-org | atlassian | 65 | No |
+| org_cloud_poll_events | Poll audit log events | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_event_by_id | Get an event by ID | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_event_actions | Get list of event actions | atlassian-org | atlassian | 65 | No |
+| org_cloud_get_policies | Get list of policies | atlassian-org | atlassian | 65 | No |
+| org_cloud_create_policy | Create a policy | atlassian-org | atlassian | 60 | Yes |
+| org_cloud_get_policy_by_id | Get a policy by ID | atlassian-org | atlassian | 65 | No |
+| org_cloud_update_policy | Update a policy | atlassian-org | atlassian | 60 | Yes |
+| org_cloud_delete_policy | Delete a policy | atlassian-org | atlassian | 60 | Yes |
+| org_cloud_add_resource_to_policy | Add Resource to Policy | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_update_policy_resource | Update Policy Resource | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_delete_policy_resource | Delete Policy Resource | atlassian-org | atlassian | 65 | Yes |
+| org_cloud_validate_policy | Validate Policy | atlassian-org | atlassian | 60 | No |
+| org_cloud_query_workspaces_v2 | Get list of workspaces | atlassian-org | atlassian | 65 | No |
+| user_mgmt_cloud_get_users_account_id_manage | Get user management permissions | atlassian-user-mgmt | atlassian | 65 | No |
+| user_mgmt_cloud_get_users_account_id_manage_profile | Get profile | atlassian-user-mgmt | atlassian | 60 | No |
+| user_mgmt_cloud_patch_users_account_id_manage_profile | Update profile | atlassian-user-mgmt | atlassian | 60 | Yes |
+| user_mgmt_cloud_put_users_account_id_manage_email | Set email | atlassian-user-mgmt | atlassian | 60 | Yes |
+| user_mgmt_cloud_get_users_account_id_manage_api_tokens | Get API tokens | atlassian-user-mgmt | atlassian | 60 | No |
+| user_mgmt_cloud_delete_users_account_id_manage_api_tokens_token_id | Delete API token | atlassian-user-mgmt | atlassian | 65 | Yes |
+| user_mgmt_cloud_post_users_account_id_manage_lifecycle_disable | Deactivate a user | atlassian | atlassian | 65 | Yes |
+| user_mgmt_cloud_post_users_account_id_manage_lifecycle_enable | Activate a user | atlassian | atlassian | 60 | Yes |
+| user_mgmt_cloud_post_users_account_id_manage_lifecycle_delete | Delete account | atlassian | atlassian | 60 | Yes |
+| user_mgmt_cloud_post_users_account_id_manage_lifecycle_cancel_delete | Cancel delete account | atlassian-user-mgmt | atlassian | 65 | Yes |
+| user_provisioning_cloud_get | Get a group by ID | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_put | Update a group by ID | atlassian-user-provisioning | atlassian | 65 | Yes |
+| user_provisioning_cloud_delete_a_group | Delete a group by ID | atlassian-user-provisioning | atlassian | 65 | Yes |
+| user_provisioning_cloud_patch | Update a group by ID (PATCH) | atlassian-user-provisioning | atlassian | 65 | Yes |
+| user_provisioning_cloud_get_all_groups_from_an_active_directory | Get groups | atlassian-user-provisioning | atlassian | 60 | No |
+| user_provisioning_cloud_create_a_group_in_active_directory | Create a group | atlassian-user-provisioning | atlassian | 60 | Yes |
+| user_provisioning_cloud_get_schemas | Get all schemas | atlassian-user-provisioning | atlassian | 60 | No |
+| user_provisioning_cloud_get_resource_types | Get resource types | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_get_user_resource_type | Get user resource types | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_get_group_resource_type | Get group resource types | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_get_user_schemas | Get user schemas | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_get_group_schemas | Get group schemas | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_get_extension_user_schemas | Get user enterprise extension schemas | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_get_config | Get feature metadata | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_get_a_user_from_active_directory | Get a user by ID | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_update_user_information_in_an_active_directory | Update user via user attributes | atlassian-user-provisioning | atlassian | 65 | Yes |
+| user_provisioning_cloud_delete_a_user_from_an_active_directory | Delete a user | atlassian-user-provisioning | atlassian | 60 | Yes |
+| user_provisioning_cloud_patch_user_information_in_an_active_directory | Update user by ID (PATCH) | atlassian-user-provisioning | atlassian | 65 | Yes |
+| user_provisioning_cloud_get_users_from_an_active_directory | Get users | atlassian-user-provisioning | atlassian | 60 | No |
+| user_provisioning_cloud_create_a_user_in_an_active_directory | Create a user | atlassian-user-provisioning | atlassian | 60 | Yes |
+| user_provisioning_cloud_delete_admin_user_provisioning_v1_org_org_id_user_aaid_only_delete_user_in_db | Delete user in SCIM DB | atlassian-user-provisioning | atlassian | 65 | Yes |
+| user_provisioning_cloud_get_scim_links | Get SCIM links for an account | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_get_scim_links_by_email | Get SCIM Links for an email | atlassian-user-provisioning | atlassian | 65 | No |
+| user_provisioning_cloud_unlink_scim_user | Unlink a SCIM user from their Atlassian account | atlassian-user-provisioning | atlassian | 65 | No |
+| control_cloud_ap_is_get_policies | Get list of policies | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_create_policy | Create a new policy | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_get_policy | Get single policy | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_update_policy | Update single policy | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_delete_policy | Delete single policy | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_get_policies_v2 | Get list of policies V2 | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_create_policy_v2 | Create a new policy V2 | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_get_policy_v2 | Get single policy V2 | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_update_policy_v2 | Update single policy V2 | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_publish_draft_policies | Publish data security policies | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_get_resources | Get list of resources associated with a policy | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_create_resource | Create a new policy resource | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_delete_resources | Delete all policy resources | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_update_resource | Update single policy resource | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_delete_resource | Delete single policy resource | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_get_resources_v2 | Get list of resources associated with a policy V2 | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_attach_detach_resources_v2 | Add or remove policy resources V2 | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_delete_resources_v2 | Delete all policy resources V2 | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_validate_policy | Validate a policy | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_add_users_to_policy | Add users to a policy | atlassian-control | atlassian | 65 | Yes |
+| control_cloud_ap_is_get_task_status | Get the status of a task | atlassian-control | atlassian | 65 | No |
+| control_cloud_ap_is_bulk_fetch_auth_policy | Get policy information for managed users | atlassian-control | atlassian | 65 | No |
+| dlp_cloud_create_level | Create a new classification level | atlassian-dlp | atlassian | 65 | Yes |
+| dlp_cloud_get_level_list | Get all classification levels by org_id | atlassian-dlp | atlassian | 65 | No |
+| dlp_cloud_get_level | Get a classification level | atlassian-dlp | atlassian | 65 | No |
+| dlp_cloud_edit_level | Edit a classification level | atlassian-dlp | atlassian | 65 | No |
+| dlp_cloud_publish_level | Publish classification level(s) | atlassian-dlp | atlassian | 65 | No |
+| dlp_cloud_archive_level | Archive a data classification level | atlassian-dlp | atlassian | 65 | No |
+| dlp_cloud_restore_level | Restore a classification level | atlassian-dlp | atlassian | 65 | No |
+| dlp_cloud_reorder | Reorder classification levels | atlassian-dlp | atlassian | 65 | No |
+| api_access_cloud_get_all_api_tokens_by_org_id | Get all API tokens in an org | atlassian-api-access | atlassian | 65 | No |
+| api_access_cloud_bulk_revoke_api_tokens | Bulk revoke API tokens in an organization | atlassian-api-access | atlassian | 65 | No |
+| api_access_cloud_get_api_token_count_by_org_id | Get API token count in an org | atlassian-api-access | atlassian | 65 | No |
+| api_access_cloud_count_service_account_api_tokens | Get service account API token count in an org | atlassian-api-access | atlassian | 65 | No |
+| api_access_cloud_get_service_account_api_token | Get all service account API tokens in an org | atlassian-api-access | atlassian | 65 | No |
+| api_access_cloud_revoke_api_tokens | Revoke all API tokens for a service account | atlassian-api-access | atlassian | 65 | No |
+| api_access_cloud_get_api_key_count_by_org_id | Get API key count in an org | atlassian-api-access | atlassian | 65 | No |
+| api_access_cloud_get_all_api_keys_by_org_id | Get all API keys in an org | atlassian-api-access | atlassian | 65 | No |
+| api_access_cloud_revoke_api_key | Revoke an API key for an org | atlassian-api-access | atlassian | 65 | No |
 | transcribe_audio | Transcribes audio from a provided file or by recording from the microphone. | audio_processing | audio-transcriber-mcp | 70 | No |
 | get_version | Retrieves the version information of the container manager (Docker or Podman).<br/>Returns: A dictionary with keys like 'version', 'api_version', etc., detailing the manager's version. | info | container-manager-mcp | 65 | No |
 | get_info | Retrieves detailed information about the container manager system.<br/>Returns: A dictionary containing system info such as OS, architecture, storage driver, and more. | info | container-manager-mcp | 65 | No |
