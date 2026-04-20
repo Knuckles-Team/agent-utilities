@@ -130,17 +130,15 @@ from .base_utilities import (
 
 from .embedding_utilities import create_embedding_model
 
-from .event_aggregator import aggregate_orchestrated_data
 
 from .models import (
     PeriodicTask,
     DiscoveredSpecialist,
     ProjectConstitution,
-    FeatureSpec,
+    Spec,
     ImplementationPlan,
-    TaskList,
+    Tasks,
     Task,
-    TaskPhase,
 )
 
 from .sdd import SDDManager
@@ -209,8 +207,6 @@ __all__ = [
     "require_optional_import",
     # Embedding
     "create_embedding_model",
-    # Event aggregator
-    "aggregate_orchestrated_data",
     # HSM hooks
     "register_on_enter_hook",
     "register_on_exit_hook",
@@ -219,11 +215,10 @@ __all__ = [
     "PeriodicTask",
     "DiscoveredSpecialist",
     "ProjectConstitution",
-    "FeatureSpec",
+    "Spec",
     "ImplementationPlan",
-    "TaskList",
+    "Tasks",
     "Task",
-    "TaskPhase",
     # SDD
     "SDDManager",
 ]

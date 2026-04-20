@@ -14,43 +14,41 @@ from .workspace import CORE_FILES, load_workspace_file
 
 
 def discover_agents() -> dict[str, dict[str, Any]]:
-    """Discover agents from the unified registry.
+    """Discover agents from the Knowledge Graph.
 
     Returns:
         A dictionary mapping domain tags to agent metadata.
     """
-    from .workspace import parse_node_registry
+    from .graph.config_helpers import get_discovery_registry
 
     agent_descriptions = {}
 
-    # Read the unified registry
-    registry_content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
-    if registry_content:
-        registry = parse_node_registry(registry_content)
-        for agent in registry.agents:
-            # Type-specific mapping
-            if agent.agent_type == "prompt":
-                agent_descriptions[agent.name] = {
-                    "description": agent.description,
-                    "name": agent.name,
-                    "type": "prompt",
-                    "skills": agent.capabilities,
-                }
-            elif agent.agent_type == "mcp":
-                agent_descriptions[agent.name] = {
-                    "package": agent.name,
-                    "description": agent.description,
-                    "name": agent.name,
-                    "type": "local_mcp",
-                }
-            elif agent.agent_type == "a2a":
-                agent_descriptions[agent.name.lower()] = {
-                    "url": agent.endpoint_url,
-                    "name": agent.name,
-                    "description": agent.description,
-                    "capabilities": ", ".join(agent.capabilities),
-                    "type": "remote_a2a",
-                }
+    # Read from the Knowledge Graph
+    registry = get_discovery_registry()
+    for agent in registry.agents:
+        # Type-specific mapping
+        if agent.agent_type == "prompt":
+            agent_descriptions[agent.name] = {
+                "description": agent.description,
+                "name": agent.name,
+                "type": "prompt",
+                "skills": agent.capabilities,
+            }
+        elif agent.agent_type == "mcp":
+            agent_descriptions[agent.name] = {
+                "package": agent.name,
+                "description": agent.description,
+                "name": agent.name,
+                "type": "local_mcp",
+            }
+        elif agent.agent_type == "a2a":
+            agent_descriptions[agent.name.lower()] = {
+                "url": agent.endpoint_url,
+                "name": agent.name,
+                "description": agent.description,
+                "capabilities": ", ".join(agent.capabilities),
+                "type": "remote_a2a",
+            }
 
     # Also read A2A_AGENTS for backward compatibility if it exists
     a2a_content = ""
@@ -78,28 +76,27 @@ def discover_agents() -> dict[str, dict[str, Any]]:
 
 
 def discover_all_specialists() -> List[DiscoveredSpecialist]:
-    """Discover all specialist agents from the unified registry.
+    """Discover all specialist agents from the Knowledge Graph.
 
     Returns:
         A list of DiscoveredSpecialist objects.
     """
-    specialists: List[DiscoveredSpecialist] = []
-    from .workspace import parse_node_registry
+    from .graph.config_helpers import get_discovery_registry
 
-    registry_content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
-    if registry_content:
-        registry = parse_node_registry(registry_content)
-        for agent in registry.agents:
-            specialists.append(
-                DiscoveredSpecialist(
-                    tag=agent.name,
-                    name=agent.name,
-                    description=agent.description or "",
-                    source=agent.agent_type,
-                    mcp_server=agent.mcp_server or "",
-                    url=agent.endpoint_url or "",
-                    capabilities=agent.capabilities,
-                )
+    specialists: List[DiscoveredSpecialist] = []
+    registry = get_discovery_registry()
+
+    for agent in registry.agents:
+        specialists.append(
+            DiscoveredSpecialist(
+                tag=agent.name,
+                name=agent.name,
+                description=agent.description or "",
+                source=agent.agent_type,
+                mcp_server=agent.mcp_server or "",
+                url=agent.endpoint_url or "",
+                capabilities=agent.capabilities,
             )
+        )
 
     return specialists

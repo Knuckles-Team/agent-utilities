@@ -32,14 +32,14 @@ Last content.
 def test_build_system_prompt_from_workspace():
     """Test aggregation of core workspace files."""
     mock_files = {
-        "IDENTITY.md": "I am an agent.",
+        "main_agent.md": "I am an agent.",
         "USER.md": "You are a user.",
         "MEMORY.md": ""
     }
 
     with patch("agent_utilities.prompt_builder.load_workspace_file", side_effect=lambda x: mock_files.get(x, "")):
         prompt = build_system_prompt_from_workspace(fallback_prompt="Special info.")
-        assert "IDENTITY.md" in prompt
+        assert "main_agent.md" in prompt
         assert "I am an agent." in prompt
         assert "USER.md" in prompt
         assert "You are a user." in prompt
@@ -57,7 +57,7 @@ def test_resolve_prompt():
 
 def test_extract_agent_metadata():
     """Test extraction of metadata from identity content."""
-    content = """# IDENTITY.md
+    content = """# main_agent.md
 ## [default]
  * **Name:** TestBot
  * **Role:** Tester

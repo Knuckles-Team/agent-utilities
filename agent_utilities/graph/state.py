@@ -14,9 +14,12 @@ import asyncio
 import os
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine, Optional
+from typing import Any, Callable, Coroutine, Optional, TYPE_CHECKING
 
 from pydantic_ai import Agent
+
+if TYPE_CHECKING:
+    from ..knowledge_graph.engine import RegistryGraphEngine
 
 from ..config import (
     DEFAULT_PROVIDER,
@@ -32,7 +35,7 @@ from ..config import (
 
 
 from ..models import (
-    TaskList,
+    Tasks,
     ProgressLog,
     SprintContract,
     UsageStatistics,
@@ -105,6 +108,9 @@ class GraphDeps:
     :func:`~agent_utilities.approval_manager.run_with_approvals` instead
     of terminating when ``DeferredToolRequests`` is returned."""
 
+    knowledge_engine: Optional["RegistryGraphEngine"] = None
+    """Engine for topological and semantic discovery of specialists and memories."""
+
 
 @dataclass
 class GraphState:
@@ -155,8 +161,8 @@ class GraphState:
     parallel_domains: list[str] = field(default_factory=list)
     """List of domains for parallel execution."""
 
-    task_list: TaskList = field(default_factory=TaskList)
-    """Phased task list for Project Mode."""
+    task_list: Tasks = field(default_factory=Tasks)
+    """Ordered tasks for Spec-Driven Development."""
 
     progress_log: ProgressLog = field(default_factory=ProgressLog)
     """Historical progress log for Project Mode."""
@@ -256,12 +262,10 @@ class GraphState:
 
         cost = self.session_usage.estimated_cost_usd
         total = self.session_usage.total_tokens
-        
+
         # Safe logging to avoid formatting errors on Mocks (though _to_int should handle it)
         cost_str = f"{cost:.4f}" if isinstance(cost, (int, float)) else str(cost)
-        logger.debug(
-            f"Usage Updated: ${cost_str} ({total} tokens)"
-        )
+        logger.debug(f"Usage Updated: ${cost_str} ({total} tokens)")
 
     def sync_to_disk(self, artifact_prefix: str = ""):
         """Persist key state artifacts to the local workspace for inspection.
@@ -306,7 +310,7 @@ class GraphState:
         """
         root = self.project_root or os.getcwd()
         mappings = {
-            "tasks.json": ("task_list", TaskList),
+            "tasks.json": ("task_list", Tasks),
             "progress.json": ("progress_log", ProgressLog),
             "sprint.json": ("sprint_contract", SprintContract),
             "usage.json": ("session_usage", UsageStatistics),

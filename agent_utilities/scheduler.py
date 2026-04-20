@@ -22,16 +22,6 @@ if TYPE_CHECKING:
 
 
 from .config import DEFAULT_MAX_CRON_LOG_ENTRIES
-from .workspace import (
-    CORE_FILES,
-    parse_cron_registry,
-    serialize_cron_registry,
-    parse_cron_log,
-    serialize_cron_log,
-    load_workspace_file,
-    get_workspace_path,
-    initialize_workspace,
-)
 from .prompt_builder import resolve_prompt
 from .chat_persistence import save_chat_to_disk
 
@@ -46,35 +36,79 @@ logger = logging.getLogger(__name__)
 
 
 def get_cron_tasks_from_md() -> CronRegistryModel:
-    """Retrieve the current scheduled tasks from the CRON.md registry.
+    """Retrieve the current scheduled tasks from the Knowledge Graph.
 
     Returns:
         A CronRegistryModel object containing the list of active tasks.
 
     """
-    content = load_workspace_file(CORE_FILES["CRON"])
-    if not content:
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
         return CronRegistryModel()
-    return parse_cron_registry(content)
+
+    try:
+        res = engine.backend.execute(
+            "MATCH (j:Job) RETURN j.id, j.name, j.schedule, j.command, j.last_run, j.next_approx"
+        )
+        tasks = []
+        for row in res:
+            tasks.append(
+                CronTaskModel(
+                    id=row.get("j.id", ""),
+                    name=row.get("j.name", ""),
+                    interval_minutes=int(row.get("j.schedule", 0)),
+                    prompt=row.get("j.command", ""),
+                    last_run=row.get("j.last_run", "—"),
+                    next_approx=row.get("j.next_approx", "—"),
+                )
+            )
+        return CronRegistryModel(tasks=tasks)
+    except Exception as e:
+        logger.debug(f"Failed to fetch Job nodes: {e}")
+        return CronRegistryModel()
 
 
 def get_cron_logs_from_md() -> CronLogModel:
-    """Retrieve the historical task execution logs from CRON_LOG.md.
+    """Retrieve the historical task execution logs from the Knowledge Graph.
 
     Returns:
         A CronLogModel object containing the history of task runs.
 
     """
-    content = load_workspace_file(CORE_FILES["CRON_LOG"])
-    if not content:
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
         return CronLogModel()
-    return parse_cron_log(content)
+
+    try:
+        res = engine.backend.execute(
+            "MATCH (l:Log) RETURN l.timestamp, l.task_id, l.task_name, l.status, l.output, l.chat_id ORDER BY l.timestamp DESC LIMIT 100"
+        )
+        entries = []
+        for row in res:
+            entries.append(
+                CronLogEntryModel(
+                    timestamp=row.get("l.timestamp", ""),
+                    task_id=row.get("l.task_id", ""),
+                    task_name=row.get("l.task_name", ""),
+                    status=row.get("l.status", "success"),
+                    message=row.get("l.output", ""),
+                    chat_id=row.get("l.chat_id"),
+                )
+            )
+        return CronLogModel(entries=entries)
+    except Exception as e:
+        logger.debug(f"Failed to fetch Log nodes: {e}")
+        return CronLogModel()
 
 
 def update_cron_task_in_cron_md(
     task_id: str, name: str, interval_min: int, prompt: str
 ):
-    """Update or create a task definition in the CRON.md workspace file.
+    """Update or create a task definition in the Knowledge Graph.
 
     Args:
         task_id: Unique identifier for the task.
@@ -83,36 +117,33 @@ def update_cron_task_in_cron_md(
         prompt: The prompt or internal command to execute.
 
     """
-    registry = get_cron_tasks_from_md()
+    from .knowledge_graph.engine import IntelligenceGraphEngine
 
-    updated = False
-    for t in registry.tasks:
-        if t.id == task_id:
-            t.name = name
-            t.interval_minutes = interval_min
-            t.prompt = prompt
-            t.last_run = datetime.now().strftime("%H:%M")
-            updated = True
-            break
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
+        return
 
-    if not updated:
-        registry.tasks.append(
-            CronTaskModel(
-                id=task_id,
-                name=name,
-                interval_minutes=interval_min,
-                prompt=prompt,
-                last_run=datetime.now().strftime("%H:%M"),
-            )
-        )
-
-    content = serialize_cron_registry(registry)
-    path = get_workspace_path(CORE_FILES["CRON"])
-    path.write_text(content, encoding="utf-8")
+    query = """
+    MERGE (j:Job {id: $id})
+    SET j.name = $name,
+        j.schedule = $schedule,
+        j.command = $command,
+        j.last_run = $last_run
+    """
+    engine.backend.execute(
+        query,
+        {
+            "id": task_id,
+            "name": name,
+            "schedule": str(interval_min),
+            "command": prompt,
+            "last_run": datetime.now().strftime("%H:%M"),
+        },
+    )
 
 
 def schedule_task(task_id: str, name: str, interval_minutes: int, prompt: str) -> str:
-    """Public helper to schedule a new task and persist it to disk.
+    """Public helper to schedule a new task and persist it to the graph.
 
     Args:
         task_id: Unique identifier.
@@ -155,7 +186,7 @@ def schedule_task(task_id: str, name: str, interval_minutes: int, prompt: str) -
 
 
 def delete_scheduled_task(task_id: str) -> str:
-    """Permanently remove a scheduled task from both memory and disk.
+    """Permanently remove a scheduled task from both memory and the graph.
 
     Args:
         task_id: The ID of the task to delete.
@@ -164,27 +195,18 @@ def delete_scheduled_task(task_id: str) -> str:
         A success or failure status message.
 
     """
-    registry = get_cron_tasks_from_md()
-    original_count = len(registry.tasks)
-    registry.tasks = [t for t in registry.tasks if t.id != task_id]
+    from .knowledge_graph.engine import IntelligenceGraphEngine
 
-    if len(registry.tasks) < original_count:
-        content = serialize_cron_registry(registry)
-        path = get_workspace_path(CORE_FILES["CRON"])
-        path.write_text(content, encoding="utf-8")
+    engine = IntelligenceGraphEngine.get_active()
+    if engine and engine.backend:
+        engine.backend.execute(
+            "MATCH (j:Job {id: $id}) DETACH DELETE j", {"id": task_id}
+        )
 
     global tasks
-    tasks_to_keep = []
-    for t in tasks:
-        if t.id == task_id:
-            continue
-        tasks_to_keep.append(t)
+    tasks[:] = [t for t in tasks if t.id != task_id]
 
-    tasks[:] = tasks_to_keep
-
-    if task_id in [t.id for t in tasks]:
-        return f"✅ Deleted scheduled task '{task_id}'"
-    return f"ℹ️ Task '{task_id}' not found."
+    return f"✅ Deleted scheduled task '{task_id}'"
 
 
 def list_scheduled_tasks() -> CronRegistryModel:
@@ -198,49 +220,79 @@ def list_scheduled_tasks() -> CronRegistryModel:
 
 
 def append_cron_log(
-    task_id: str, task_name: str, output: str, chat_id: Optional[str] = None
+    task_id: str,
+    task_name: str,
+    output: str,
+    status: str = "success",
+    chat_id: Optional[str] = None,
 ):
-    """Log the outcome of a periodic task run to CRON_LOG.md.
+    """Log the outcome of a periodic task run to the Knowledge Graph.
 
     Args:
         task_id: ID of the task.
         task_name: Name of the task.
         output: Text output or error message from the run.
+        status: Run status ('success' or 'error').
         chat_id: Optional reference to a persistent chat log.
 
     """
-    path = get_workspace_path("CRON_LOG.md")
-    if not path.exists():
-        initialize_workspace()
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
+        return
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    chat_info = f" | [View Chat](/{chat_id})" if chat_id else ""
-    entry = (
-        f"\n### [{ts}] {task_name} (`{task_id}`){chat_info}\n\n"
-        f"{output.strip()}\n\n"
-        f"---\n"
+    log_id = f"log:{task_id}:{datetime.now().timestamp()}"
+
+    query = """
+    CREATE (l:Log {id: $id})
+    SET l.timestamp = $ts,
+        l.task_id = $task_id,
+        l.task_name = $task_name,
+        l.status = $status,
+        l.output = $output,
+        l.chat_id = $chat_id
+    WITH l
+    MATCH (j:Job {id: $task_id})
+    MERGE (j)-[:HAS_LOG]->(l)
+    """
+    engine.backend.execute(
+        query,
+        {
+            "id": log_id,
+            "ts": ts,
+            "task_id": task_id,
+            "task_name": task_name,
+            "status": status,
+            "output": output,
+            "chat_id": chat_id,
+        },
     )
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(entry)
-    logger.debug(f"Appended cron log entry for {task_id}")
+    logger.debug(f"Logged task execution for {task_id}")
 
 
 def cleanup_cron_log(max_entries: int = DEFAULT_MAX_CRON_LOG_ENTRIES):
-    """Prune the CRON_LOG.md file to maintain a manageable size.
+    """Prune old Log nodes in the Knowledge Graph.
 
     Args:
         max_entries: The number of recent log entries to retain.
 
     """
-    log_model = get_cron_logs_from_md()
-    if len(log_model.entries) <= max_entries:
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
         return
 
-    log_model.entries = log_model.entries[-max_entries:]
-    content = serialize_cron_log(log_model)
-    path = get_workspace_path(CORE_FILES["CRON_LOG"])
-    path.write_text(content, encoding="utf-8")
-    logger.debug(f"Pruned cron log entries, kept {max_entries}")
+    # Delete logs older than the last max_entries
+    query = """
+    MATCH (l:Log)
+    WITH l ORDER BY l.timestamp DESC SKIP $skip
+    DETACH DELETE l
+    """
+    engine.backend.execute(query, {"skip": max_entries})
+    logger.debug(f"Pruned Knowledge Graph logs, kept {max_entries}")
 
 
 async def reload_cron_tasks():

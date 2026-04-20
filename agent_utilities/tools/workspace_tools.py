@@ -14,13 +14,6 @@ from typing import Any, Union
 from pydantic_ai import RunContext
 from ..workspace import (
     CORE_FILES,
-    parse_identity,
-    parse_user_info,
-    parse_memory,
-    parse_cron_registry,
-    parse_a2a_registry,
-    parse_node_registry,
-    parse_cron_log,
     read_md_file,
     append_to_md_file,
     create_new_skill,
@@ -29,12 +22,6 @@ from ..workspace import (
     read_skill_md,
 )
 from ..models import (
-    IdentityModel,
-    UserModel,
-    MemoryModel,
-    CronRegistryModel,
-    A2ARegistryModel,
-    CronLogModel,
     MCPConfigModel,
 )
 
@@ -42,18 +29,12 @@ logger = logging.getLogger(__name__)
 
 
 async def read_workspace_file(ctx: RunContext[Any], filename: str) -> Union[
-    IdentityModel,
-    UserModel,
-    MemoryModel,
-    CronRegistryModel,
-    A2ARegistryModel,
-    CronLogModel,
     MCPConfigModel,
     str,
 ]:
     """Read and parse the content of a file within the workspace.
 
-    Core configuration files (e.g., IDENTITY.md, CRON.md) are automatically
+    Core configuration files (e.g., mcp_config.json) are automatically
     parsed into their respective structured models. Other files are returned
     as raw strings.
 
@@ -74,22 +55,8 @@ async def read_workspace_file(ctx: RunContext[Any], filename: str) -> Union[
             with open(full_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-    # Match against core files to return structured models
-    if filename == CORE_FILES["IDENTITY"]:
-        return parse_identity(content)
-    if filename == CORE_FILES["USER"]:
-        return parse_user_info(content)
-    if filename == CORE_FILES["MEMORY"]:
-        return parse_memory(content)
-    if filename == CORE_FILES["CRON"]:
-        return parse_cron_registry(content)
-    if filename == CORE_FILES["A2A_AGENTS"]:
-        return parse_a2a_registry(content)
-    if filename == CORE_FILES["NODE_AGENTS"]:
-        return parse_node_registry(content)
-    if filename == CORE_FILES["CRON_LOG"]:
-        return parse_cron_log(content)
-    if filename == CORE_FILES["MCP_CONFIG"]:
+    # Match against remaining core files
+    if filename == CORE_FILES.get("MCP_CONFIG"):
         try:
             return MCPConfigModel.model_validate(json.loads(content))
         except Exception:

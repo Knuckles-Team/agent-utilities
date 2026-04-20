@@ -17,6 +17,17 @@ from ..models import AgentDeps
 
 logger = logging.getLogger(__name__)
 
+from .knowledge_tools import (
+    search_knowledge_graph,
+    add_knowledge_memory,
+    get_knowledge_memory,
+    update_knowledge_memory,
+    delete_knowledge_memory,
+    link_knowledge_nodes,
+    sync_feature_to_memory,
+    get_code_impact,
+)
+
 
 class ShellCommandOutput(BaseModel):
     """Structured output from a shell command execution."""
@@ -237,4 +248,12 @@ developer_tools = [
     run_shell_with_diagnostics,
     create_file,
     delete_file,
+    search_knowledge_graph,
+    add_knowledge_memory,
+    get_knowledge_memory,
+    update_knowledge_memory,
+    delete_knowledge_memory,
+    link_knowledge_nodes,
+    sync_feature_to_memory,
+    get_code_impact,
 ]

@@ -49,10 +49,9 @@ def build_sensitive_tool_names() -> set[str]:
 
     Merges two sources:
 
-    1. **NODE_AGENTS.md registry** — tools where the ``Approval`` column
-       is ``Yes``.  This is the persistent, human-editable source of truth.
+    1. **Knowledge Graph** — tools where ``requires_approval`` is True.
     2. **Live pattern matching** — any tool name matching
-       ``SENSITIVE_TOOL_PATTERNS`` is included even if the registry hasn't
+       ``SENSITIVE_TOOL_PATTERNS`` is included even if the graph hasn't
        been re-synced yet.
 
     Returns:
@@ -61,16 +60,14 @@ def build_sensitive_tool_names() -> set[str]:
     """
     sensitive: set[str] = set()
 
-    # Source 1: NODE_AGENTS.md registry
+    # Source 1: Knowledge Graph
     try:
-        from .workspace import load_workspace_file, parse_node_registry, CORE_FILES
+        from .graph.config_helpers import get_discovery_registry
 
-        content = load_workspace_file(CORE_FILES["nodes"])
-        if content:
-            registry = parse_node_registry(content)
-            for tool in registry.tools:
-                if tool.requires_approval:
-                    sensitive.add(tool.name.lower())
+        registry = get_discovery_registry()
+        for tool in registry.tools:
+            if tool.requires_approval:
+                sensitive.add(tool.name.lower())
     except Exception:
         pass
 

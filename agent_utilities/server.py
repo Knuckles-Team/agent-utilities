@@ -486,24 +486,23 @@ def build_agent_app(
             """Lifespan context manager for the agent server."""
             from .mcp_agent_manager import sync_mcp_agents, should_sync
             from .workspace import (
-                CORE_FILES,
-                get_workspace_path,
                 resolve_mcp_config_path,
             )
 
             try:
                 # Use environment-provided MCP config if available, otherwise default workspace path
                 _mcp_path = resolve_mcp_config_path(mcp_config)
-                _agents_path = get_workspace_path(CORE_FILES["NODE_AGENTS"])
 
                 # Trigger sync on startup if ACP is enabled or if config has changed
-                if _mcp_path and (enable_acp or should_sync(_mcp_path, _agents_path)):
+                if _mcp_path and (enable_acp or should_sync(_mcp_path)):
                     logger.info(
-                        f"Startup Sync: Synchronizing MCP agents from {_mcp_path}..."
+                        f"Startup Sync: Ingesting MCP tools from {_mcp_path} to Knowledge Graph..."
                     )
                     await sync_mcp_agents(config_path=_mcp_path)
             except Exception as e:
-                logger.error(f"Automatic MCP sync failed on startup: {e}")
+                logger.error(
+                    f"Automatic Knowledge Graph ingestion failed on startup: {e}"
+                )
 
             processor_task = asyncio.create_task(background_processor(_agent_instance))
             shutdown_event = anyio.Event()
@@ -1032,6 +1031,52 @@ def build_agent_app(
                     model_id or os.environ.get("MODEL_ID") or "google/gemma-4-31b"
                 )
 
+                def _graph_native_list_skills():
+                    from .knowledge_graph.backends import create_backend
+
+                    ws_path = get_workspace_path("")
+                    db_path = str(ws_path / "knowledge_graph.db")
+                    backend = create_backend(db_path=db_path)
+                    if backend is None:
+                        return []
+
+                    skills = []
+                    try:
+                        prompts = backend.execute(
+                            "MATCH (p:Prompt) RETURN p.id AS id, p.name AS name, p.description AS desc"
+                        )
+                        for p in prompts:
+                            skills.append(
+                                {
+                                    "id": p.get("id"),
+                                    "name": p.get("name"),
+                                    "description": p.get("desc", ""),
+                                    "enabled": True,
+                                    "type": "prompt",
+                                }
+                            )
+                    except Exception:
+                        pass
+
+                    try:
+                        tools = backend.execute(
+                            "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS desc, t.mcp_server AS server"
+                        )
+                        for t in tools:
+                            skills.append(
+                                {
+                                    "id": t.get("id"),
+                                    "name": t.get("name"),
+                                    "description": f"[{t.get('server', 'mcp')}] {t.get('desc', '')}",
+                                    "enabled": True,
+                                    "type": "tool",
+                                }
+                            )
+                    except Exception:
+                        pass
+
+                    return sorted(skills, key=lambda x: x.get("name", "").lower())
+
                 helpers = {
                     "agent_name": _name,
                     "agent_description": identity_meta.get(
@@ -1044,19 +1089,7 @@ def build_agent_app(
                     "write_md_file": write_md_file,
                     "list_workspace_files": list_workspace_files,
                     "initialize_workspace": initialize_workspace,
-                    "list_skills": lambda: [
-                        {
-                            "id": s.id if hasattr(s, "id") else s.get("id"),
-                            "name": s.name if hasattr(s, "name") else s.get("name"),
-                            "description": (
-                                s.description
-                                if hasattr(s, "description")
-                                else s.get("description")
-                            ),
-                            "enabled": True,
-                        }
-                        for s in skills_list
-                    ],
+                    "list_skills": _graph_native_list_skills,
                     "get_cron_calendar": get_cron_tasks_from_md,
                     "get_cron_logs": get_cron_logs_from_md,
                     "get_agent_icon_path": get_agent_icon_path,
@@ -1344,20 +1377,20 @@ def create_graph_agent_server(
     else:
         if tag_prompts is None:
             from .workspace import (
-                CORE_FILES,
-                get_workspace_path,
                 resolve_mcp_config_path,
+                get_agent_workspace,
             )
             from .mcp_agent_manager import should_sync
             from .graph_orchestration import initialize_graph_from_workspace
 
             _mcp_cfg_path = resolve_mcp_config_path(mcp_config)
-            _agents_reg_path = get_workspace_path(CORE_FILES["NODE_AGENTS"])
 
-            if _mcp_cfg_path and should_sync(_mcp_cfg_path, _agents_reg_path):
+            if _mcp_cfg_path and should_sync(_mcp_cfg_path):
                 from .mcp_agent_manager import sync_mcp_agents
 
-                logger.info(f"Regenerating MCP registry from {_mcp_cfg_path}...")
+                logger.info(
+                    f"Ingesting MCP tools from {_mcp_cfg_path} to Knowledge Graph..."
+                )
                 asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
 
             graph, graph_config = initialize_graph_from_workspace(

@@ -35,16 +35,86 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 - **Advanced Graph Orchestration**: Router → Planner → Dispatcher pipeline with parallel fan-out execution. Dynamic step registration for both hardcoded skill agents and MCP-discovered specialists.
 - **Self-Healing**: Circuit breaker for MCP Servers (closed/open/half-open), specialist fallback chain, tool-level retries with exponential backoff, per-node timeout, and automatic re-planning on failure.
 - **Self-Correcting**: Verifier feedback loop with structured `ValidationResult` scoring. Low-quality results trigger re-dispatch with feedback injection and preserved message history.
-- **Self-Improving**: Execution memory persisted to `MEMORY.md` after each run. Past failure patterns automatically inform future routing decisions.
+- **Self-Improving**: Execution memory persisted natively to the Knowledge Graph after each run. Past failure patterns automatically inform future routing decisions.
 - **Resilience & Accuracy**: Error recovery with local retries, re-planning loops, and result verification via the Verifier quality gate.
 - **Observability**: Real-time **Graph Streaming** (SSE) and lifecycle events. Early OTEL/logfire gate.
 - **Typed Foundation**: Zero-config dependency injection using `AgentDeps`.
 - **Specialist Discovery**: Automated discovery of domain specialists from `NODE_AGENTS.md` and `A2A_AGENTS.md` registries.
+- **Autonomous Memory Architecture**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Agent Lightning-style self-improvement loops. Unifies code awareness, chat memory, and agent orchestration into a singular, schema-enforced graph.
 - **Agent Server**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/acp` (Standardized Protocol), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation**: Runtime generation of OpenAPI specifications for all agent server APIs.
-- **Workspace Management**: Automated management of agent state through standard markdown files (`IDENTITY.md`, `MEMORY.md`, `USER.md`).
-- **Spec-Driven Development (SDD)**: High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`FeatureSpec`), Implementation Plans, and dependency-aware Task Lists. Ensures technical precision and parallel execution safety.
+- **Workspace Management**: Automated management of agent state through standardized structures. (Note: Flat files like `IDENTITY.md` and `USER.md` have been migrated to the Knowledge Graph and `main_agent.md` templates).
+- **Spec-Driven Development (SDD)**: High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`Spec`), Implementation Plans, and dependency-aware Tasks. Ensures technical precision and parallel execution safety.
+- **Unified Intelligence Graph**: A powerful 12-phase topological pipeline that unifies **NetworkX** in-memory analysis with Cypher persistence. Enables deep structural codebase awareness, cross-repository symbol mapping, and long-term agent memory.
+- **Graph Database Abstraction**: Out-of-the-box support for multiple Cypher-compatible backends including **LadybugDB** (default embedded), **FalkorDB**, and **Neo4j**.
+- **Graph-Native Ecosystem State**: Flat-file management (`MEMORY.md`, `USER.md`, `HEARTBEAT.md`, `CRON.md`) has been fully deprecated. Agent memory, execution logs, client profiles, and background scheduled tasks are now stored natively as highly-relational nodes within the Knowledge Graph.
+- **Automated Graph Maintenance**: Built-in Cypher-driven maintenance routines (`maintenance.py`) that handle vector embedding enrichment via LM Studio, scheduled cron log pruning, and intelligent chat summarization to ensure sustainable long-term memory.
 - **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies are lazy-loaded only when requested via optional extras.
+- **Autonomous Graph-Native Memory**: State-of-the-art architecture combining **MAGMA** orthogonal retrieval with **Agent Lightning** self-optimization loops. Supports unified ingestion of MCP, A2A, and Skill-based resources with automated importance scoring and temporal decay.
+
+## 🧠 Intelligence Graph
+
+Agent Utilities implements a sophisticated 12-phase pipeline to map and analyze your workspace. This system unifies **NetworkX** (for topological algorithms) and **LadybugDB** (for persistent Cypher queries and hybrid search).
+
+### The 12-Phase Unified Intelligence Pipeline
+
+| Phase | Name | Purpose |
+| :--- | :--- | :--- |
+| **1** | **Memory** | Hydrates existing state (Nodes/Edges) from **LadybugDB** to maintain session continuity. |
+| **2** | **Scan** | Performs the initial directory walk, respecting `.gitignore`, to identify all source code files. |
+| **3** | **Registry** | Parses `NODE_AGENTS.md` and `prompts/*.md` to extract agent specialists and tool signatures. |
+| **4** | **Parse** | AST parsing (**tree-sitter**) to extract symbols (Classes, Functions) and raw import statements. |
+| **5** | **Resolve** | Maps raw import strings into actual graph edges between `File` and `Symbol` nodes. |
+| **6** | **MRO** | Calculates Method Resolution Order and inheritance hierarchies for OOP structures. |
+| **7** | **Reference** | Builds the call graph by identifying where specific symbols are referenced or invoked. |
+| **8** | **Communities** | Clusters nodes into tightly-coupled modules using topological algorithms like **Louvain**. |
+| **9** | **Centrality** | Runs **PageRank** analysis to identify critical path "God Objects" and core utilities. |
+| **10** | **Embedding** | Generates semantic vector embeddings for all symbols to enable high-fidelity hybrid search. |
+| **11** | **Registry Int**| Maps MCP tools and agent skills directly to the code structures that implement them. |
+| **12** | **Sync** | Projects the in-memory NetworkX graph into the persistent **LadybugDB** Cypher store. |
+
+### Architecture
+
+```mermaid
+graph TD
+    subgraph Ingestion_Pipeline [12-Phase Intelligence Pipeline]
+        direction LR
+        Scan --> Parse --> Resolve --> MRO --> Ref --> Comm --> Cent --> Emb --> Sync
+    end
+
+    subgraph Memory_Layer [In-Memory Graph]
+        NX[(NetworkX MultiDiGraph)]
+        NX -- "Topological Algorithms" --> NX
+    end
+
+    subgraph Persistence_Layer [Persistent Graph Storage]
+        LDB[(LadybugDB)]
+        LDB -- "Cypher & Vectors" --> LDB
+    end
+
+    subgraph Query_Layer [Tool / CLI Interface]
+        Q_Impact[get_code_impact]
+        Q_Query[search_knowledge_graph]
+    end
+
+    Ingestion_Pipeline -- "Mutates" --> Memory_Layer
+    Memory_Layer -- "Syncs To" --> Persistence_Layer
+    Query_Layer -- "Query" --> Persistence_Layer
+
+    subgraph Autonomous_Loop [Autonomous Self-Improvement Loop]
+        direction TB
+        Outcome[Outcome Evaluation] --> Critique[Critique / Textual Gradient]
+        Critique --> Evolution[Prompt/Skill Evolution]
+        Evolution --> Persistence_Layer
+    end
+```
+
+### MAGMA-Inspired Orthogonal Reasoning Views
+The graph engine supports policy-guided retrieval across four orthogonal views:
+- **Semantic View**: Traditional RAG/vector search for conceptual similarity.
+- **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
+- **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
+- **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
 
 ## Architecture & Orchestration
 
@@ -184,10 +254,10 @@ C4Container
 `agent-utilities` implements a rigorous SDD workflow to ensure that complex feature requests are handled with absolute technical fidelity and measurable success criteria.
 
 1.  **Project Constitution** (`constitution-generator`): Establishes the governing principles, tech stack standards, and quality gates for the entire agent workshop.
-2.  **Requirement Specification** (`spec-generator`): Decomposes user intent into a formal `FeatureSpec` including user scenarios, functional requirements, and measurable success metrics.
-3.  **Technical Implementation Plan** (`task-planner`): Generates a step-by-step architectural approach and a `TaskList` with explicit dependencies and file-path affinity for collision-free parallel execution.
+2.  **Requirement Specification** (`spec-generator`): Decomposes user intent into a formal `Spec` including user scenarios, functional requirements, and measurable success metrics.
+3.  **Technical Implementation Plan** (`task-planner`): Generates a step-by-step architectural approach and a `Tasks` model with explicit dependencies and file-path affinity for collision-free parallel execution.
 4.  **Parallel Execution** (`SDDManager`): The `dispatcher` leverages the SDD analysis engine to identify safe parallel execution batches, fanning out implementation tasks to domain specialists (Python, TS, etc.).
-5.  **Quality Verification** (`spec-verifier`): Audits the implemented results against the original `FeatureSpec` before finalizing the release, ensuring 100% adherence to requirements.
+5.  **Quality Verification** (`spec-verifier`): Audits the implemented results against the original `Spec` before finalizing the release, ensuring 100% adherence to requirements.
 
 ### Execution Flow: Dynamic Multi-Layer Parallelism
 `agent-utilities` implements a multi-stage execution pipeline with **autonomous gap analysis** and **resilient feedback loops**. The system can "fan out" research tasks in parallel before coalescing results. If implementation fails, it can automatically retry locally or loop back to research.

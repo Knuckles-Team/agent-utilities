@@ -15,7 +15,7 @@ import re
 import logging
 
 
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
@@ -28,9 +28,7 @@ from universal_skills.skill_utilities import (
 
 
 from .workspace import (
-    CORE_FILES,
     load_workspace_file,
-    parse_identity,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,7 +101,7 @@ def get_system_prompt_from_reference(agent_name: str) -> Optional[str]:
 def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     """Aggregate core workspace files into a unified system prompt.
 
-    Combines IDENTITY.md, USER.md, and MEMORY.md content with an optional
+    Combines main_agent.md content with an optional
     fallback string. The order of aggregation is fixed to ensure proper LLM
     instruction hierarchy.
 
@@ -120,18 +118,26 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     logger.debug(
         f"Building system prompt from workspace. Fallback provided: {bool(fallback_prompt)}"
     )
-    for key in ["IDENTITY", "USER", "MEMORY"]:
-        filename = CORE_FILES[key]
-        logger.debug(f"Checking for {key} file: {filename}")
-        content = load_workspace_file(filename)
-        if content.strip():
-            logger.debug(
-                f"Including {filename} in system prompt (Snippet: {content[:50]}...)"
-            )
-            parts.append(f"---\n# {filename}\n{content}\n---")
-            included_files.append(filename)
-        else:
-            logger.debug(f"File {filename} is empty or missing content.")
+
+    # Try to load main_agent.md from workspace first
+    content = load_workspace_file("main_agent.md")
+    if content:
+        parts.append(f"---\n# main_agent.md\n{content}\n---")
+        included_files.append("main_agent.md")
+    else:
+        # Fallback to package resources
+        try:
+            from importlib.resources import files
+
+            prompts_dir = files("agent_utilities") / "prompts"
+            main_agent_path = prompts_dir / "main_agent.md"
+            if main_agent_path.is_file():
+                content = main_agent_path.read_text(encoding="utf-8")
+                if content.strip():
+                    parts.append(f"---\n# main_agent.md\n{content}\n---")
+                    included_files.append("main_agent.md (pkg)")
+        except Exception as e:
+            logger.warning(f"Could not load main_agent.md from package: {e}")
 
     if fallback_prompt:
         parts.append(fallback_prompt)
@@ -167,40 +173,85 @@ def resolve_prompt(prompt_str: str) -> str:
     return prompt_str
 
 
-def extract_agent_metadata(content: str) -> Dict[str, str]:
-    """Extract structured agent metadata from IDENTITY.md content.
+def extract_agent_metadata(content: str) -> Dict[str, Any]:
+    """Extract metadata (name, description, emoji, vibe, etc.) from prompt content.
 
-    Args:
-        content: Raw markdown text from an identity file.
-
-    Returns:
-        A dictionary containing agent parameters like 'name', 'description',
-        'emoji', 'vibe', and the extracted 'system_prompt'.
-
+    Supports both YAML frontmatter (modern) and the legacy star-based format.
     """
-    model = parse_identity(content)
-    return {
-        "name": model.name,
-        "description": model.role,
-        "emoji": model.emoji,
-        "vibe": model.vibe,
-        "content": model.system_prompt,
+    meta = {
+        "name": "Agent",
+        "description": "AI Agent",
+        "emoji": "🤖",
+        "content": content,
+        "vibe": "Neutral",
     }
+
+    # 1. Try YAML frontmatter
+    import yaml
+
+    fm_match = re.search(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+    if fm_match:
+        try:
+            fm_data = yaml.safe_load(fm_match.group(1))
+            if isinstance(fm_data, dict):
+                # Standardize keys
+                if "role" in fm_data and "description" not in fm_data:
+                    fm_data["description"] = fm_data.pop("role")
+
+                meta.update(fm_data)
+                meta["content"] = content[fm_match.end() :].strip()
+                return meta
+        except Exception:
+            pass
+
+    # 2. Try legacy star-based format
+    # Example: * **Name:** TestBot
+    name_match = re.search(r"\* \*\*Name:\*\* (.*)", content)
+    if name_match:
+        meta["name"] = name_match.group(1).strip()
+
+    role_match = re.search(r"\* \*\*(Role|Description):\*\* (.*)", content)
+    if role_match:
+        meta["description"] = role_match.group(2).strip()
+
+    emoji_match = re.search(r"\* \*\*Emoji:\*\* (.*)", content)
+    if emoji_match:
+        meta["emoji"] = emoji_match.group(1).strip()
+
+    vibe_match = re.search(r"\* \*\*Vibe:\*\* (.*)", content)
+    if vibe_match:
+        meta["vibe"] = vibe_match.group(1).strip()
+
+    # System Prompt section
+    sp_match = re.search(
+        r"### System Prompt\s*\n(.*?)(?=\n#|\Z)", content, re.DOTALL | re.MULTILINE
+    )
+    if sp_match:
+        meta["content"] = sp_match.group(1).strip()
+
+    return meta
 
 
 def load_identity(tag: Optional[str] = None) -> Dict[str, str]:
-    """Load the primary IDENTITY.md file and return agent metadata.
+    """Load the primary main_agent.md file and return agent metadata.
 
     Args:
         tag: Optional tag filter (not currently used in base implementation).
 
     Returns:
         A dictionary of agent metadata. Defaults to generic values if
-        IDENTITY.md is missing.
+        main_agent.md is missing.
 
     """
-    content = load_workspace_file("IDENTITY.md")
-    if not content:
-        return {"name": "Agent", "description": "AI Agent", "content": ""}
+    try:
+        from importlib.resources import files
 
-    return extract_agent_metadata(content)
+        prompts_dir = files("agent_utilities") / "prompts"
+        main_agent_path = prompts_dir / "main_agent.md"
+        if main_agent_path.is_file():
+            content = main_agent_path.read_text(encoding="utf-8")
+            return extract_agent_metadata(content)
+    except Exception as e:
+        logger.warning(f"Could not load main_agent.md identity: {e}")
+
+    return {"name": "Agent", "description": "AI Agent", "content": ""}

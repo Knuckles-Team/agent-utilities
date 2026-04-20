@@ -7,24 +7,13 @@ detecting project technology stacks, and initializing core metadata files
 like IDENTITY.md and MEMORY.md.
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, List
-from datetime import datetime
 from pydantic_ai import RunContext
 
 from ..models import (
     AgentDeps,
-    IdentityModel,
-    UserModel,
-    MCPAgentRegistryModel,
-)
-from ..workspace import (
-    CORE_FILES,
-    serialize_identity,
-    serialize_user_info,
-    serialize_node_registry,
 )
 
 logger = logging.getLogger(__name__)
@@ -114,70 +103,26 @@ def scan_for_entry_points(root: Path) -> List[str]:
 
 
 async def bootstrap_project(ctx: RunContext[AgentDeps]) -> str:
-    """Initialize core metadata files by scanning the workspace.
-
-    This tool identifies the project's technical stack and creates missing
-    files such as IDENTITY.md, USER.md, and MEMORY.md with initial context.
+    """Identify the project's technical stack and entry points.
 
     Args:
         ctx: The agent run context.
 
     Returns:
-        A summary message describing the bootstrapped files and detected stack.
+        A summary message describing the detected stack.
 
     """
     root = ctx.deps.workspace_path
-    logger.info(f"Bootstrapping project at {root}...")
+    logger.info(f"Analyzing project at {root}...")
 
     stack = detect_tech_stack(root)
-    entries = scan_for_entry_points(root)
+    entry_points = scan_for_entry_points(root)
 
-    written = []
-
-    # 1. IDENTITY.md
-    identity_path = root / CORE_FILES["IDENTITY"]
-    if not identity_path.exists():
-        id_model = IdentityModel(
-            name="New Agent",
-            role="Technical Specialist",
-            emoji="🤖",
-            vibe="Professional and efficient",
-            system_prompt="You are a helpful coding assistant for this project.",
-        )
-        identity_path.write_text(serialize_identity(id_model), encoding="utf-8")
-        written.append(CORE_FILES["IDENTITY"])
-
-    # 2. USER.md
-    user_path = root / CORE_FILES["USER"]
-    if not user_path.exists():
-        u_model = UserModel(name="The Human", emoji="👤")
-        user_path.write_text(serialize_user_info(u_model), encoding="utf-8")
-        written.append(CORE_FILES["USER"])
-
-    # 4. NODE_AGENTS.md
-    mcp_path = root / CORE_FILES["NODE_AGENTS"]
-    if not mcp_path.exists():
-        mcp_path.write_text(
-            serialize_node_registry(MCPAgentRegistryModel(agents=[], tools=[])),
-            encoding="utf-8",
-        )
-        written.append(CORE_FILES["NODE_AGENTS"])
-
-    # 5. MEMORY.md
-    memory_path = root / CORE_FILES["MEMORY"]
-    if not memory_path.exists():
-        memory_content = "# Project Memory (MEMORY.md)\n\n"
-        memory_content += "## Tech Stack Metadata\n"
-        memory_content += json.dumps(stack, indent=2) + "\n\n"
-        memory_content += "## Architectural Context\n"
-        memory_content += f"Initial scan performed on {datetime.now().strftime('%Y-%m-%d')}. Detected {len(entries)} entry points: {', '.join(entries)}.\n"
-        memory_path.write_text(memory_content, encoding="utf-8")
-        written.append(CORE_FILES["MEMORY"])
-
-    if written:
-        return f"Successfully bootstrapped {', '.join(written)} based on detected tech stack: {stack}"
-    else:
-        return f"Project already has metadata files. Detected tech stack: {stack}"
+    return (
+        f"Project analysis complete.\n"
+        f"Detected Languages/Tools: {', '.join(stack['languages'] + stack['tools'])}\n"
+        f"Potential Entry Points: {', '.join(entry_points)}"
+    )
 
 
 # Registration list

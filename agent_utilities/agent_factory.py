@@ -77,6 +77,15 @@ from .tool_filtering import (
 )
 from .prompt_builder import build_system_prompt_from_workspace
 from .models import AgentDeps
+from .capabilities import (
+    StuckLoopDetection,
+    HooksCapability,
+    ContextLimitWarner,
+    CheckpointMiddleware,
+    ToolOutputEviction,
+    TeamCapability,
+    InMemoryCheckpointStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +232,21 @@ def create_agent(
     current_port: int = None,
     tool_guard_mode: str = "on",
     isolate_mcp: bool = False,
+    # Reliability & Capabilities
+    stuck_loop_detection: bool = True,
+    stuck_loop_max_repeated: int = 3,
+    stuck_loop_action: str = "warn",
+    hooks: list = None,
+    auto_graph_trace: bool = True,
+    context_warnings: bool = True,
+    max_context_tokens: Optional[int] = None,
+    include_checkpoints: bool = False,
+    checkpoint_store: Any = None,
+    checkpoint_frequency: str = "every_tool",
+    include_teams: bool = False,
+    output_style: Optional[str] = None,
+    output_eviction: bool = True,
+    eviction_threshold_chars: int = 80_000,
 ) -> Tuple[Agent, List[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
@@ -420,6 +444,56 @@ def create_agent(
         logger.debug(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
         system_prompt_str = system_prompt
 
+    # Initialize Capabilities
+    agent_capabilities = []
+
+    if stuck_loop_detection:
+        agent_capabilities.append(
+            StuckLoopDetection(
+                max_repeated=stuck_loop_max_repeated,
+                action=stuck_loop_action,
+            )
+        )
+
+    if context_warnings:
+        agent_capabilities.append(
+            ContextLimitWarner(
+                max_tokens=max_context_tokens,
+            )
+        )
+
+    if output_eviction:
+        agent_capabilities.append(
+            ToolOutputEviction(
+                threshold_chars=eviction_threshold_chars,
+            )
+        )
+
+    if include_checkpoints:
+        store = checkpoint_store or InMemoryCheckpointStore()
+        agent_capabilities.append(
+            CheckpointMiddleware(
+                store=store,
+                frequency=checkpoint_frequency,
+            )
+        )
+
+    if include_teams:
+        agent_capabilities.append(TeamCapability())
+
+    # Unified Hooks
+    all_hooks = hooks or []
+    if auto_graph_trace:
+        # HooksCapability handles auto_graph_trace in its before/after tool hooks
+        pass
+
+    agent_capabilities.append(
+        HooksCapability(
+            hooks=all_hooks,
+            auto_graph_trace=auto_graph_trace,
+        )
+    )
+
     agent = Agent(
         model=model,
         model_settings=settings,
@@ -430,7 +504,18 @@ def create_agent(
         toolsets=agent_toolsets,
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
         deps_type=AgentDeps,
+        capabilities=agent_capabilities,
     )
+
+    if output_style:
+        from .tools.style_tools import BUILTIN_STYLES
+
+        style_instr = BUILTIN_STYLES.get(output_style.lower(), "")
+        if style_instr:
+
+            @agent.instructions
+            def inject_style_prompt() -> str:
+                return f"\n\nOUTPUT STYLE: {style_instr}"
 
     @agent.instructions
     def inject_system_prompt() -> str:

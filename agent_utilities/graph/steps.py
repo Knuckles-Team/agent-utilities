@@ -48,6 +48,7 @@ from .config_helpers import (
     load_node_agents_registry,
     get_discovery_registry,
 )
+from ..tools.knowledge_tools import knowledge_tools
 
 from .hsm import (
     assert_state_valid,
@@ -58,7 +59,6 @@ from .executor import (
     _execute_specialized_step,
     _execute_domain_logic,
     _execute_dynamic_mcp_agent,
-    _execute_agent_package_logic,
 )
 
 from .graph_models import ValidationResult
@@ -199,7 +199,7 @@ async def researcher_step(
     researcher = Agent(
         model=ctx.deps.agent_model,
         system_prompt=(f"{researcher_prompt}\n\nWorkspace Context: {unified_context}"),
-        tools=[project_search, read_workspace_file],
+        tools=[project_search, read_workspace_file] + knowledge_tools,
         toolsets=list(ctx.deps.mcp_toolsets),
     )
 
@@ -343,7 +343,6 @@ async def fetch_unified_context() -> str:
     if mcp_agents and len(mcp_agents.splitlines()) > 500:
         mcp_agents = "\n".join(mcp_agents.splitlines()[:500]) + "\n\n... (truncated)"
 
-    memory = load_workspace_file(CORE_FILES["MEMORY"])
     # Run git status directly or use our new tool if available
     try:
         git_status = subprocess.check_output(
@@ -355,7 +354,6 @@ async def fetch_unified_context() -> str:
     return (
         f"### PROJECT CONTEXT (Agent OS)\n\n"
         f"**NODE_AGENTS.md (Specialist Registry):**\n{mcp_agents or '(empty)'}\n\n"
-        f"**MEMORY.md (Historical Context):**\n{memory or '(empty)'}\n\n"
         f"**Git Status:**\n{git_status or '(clean)'}"
     )
 
@@ -452,6 +450,55 @@ async def router_step(
             logger.warning(
                 f"Router: tag_prompts is empty, falling back to registry tags ({len(routing_tags)} tags)"
             )
+
+    # Topological Pre-Routing: Check the Knowledge Graph for direct tool matches and context
+    discovery_context = ""
+    if deps.knowledge_engine:
+        logger.info(
+            "[LAYER:GRAPH:ROUTER] Performing topological and hybrid discovery..."
+        )
+
+        # 1. Direct tool lookup (keyword based)
+        words = re.findall(r"\b[a-z0-9_]{3,}\b", ctx.state.query.lower())
+        matched_agents = set()
+        for word in words:
+            agents = deps.knowledge_engine.find_agent_for_tool(word)
+            if agents:
+                matched_agents.update(agents)
+
+        # 2. Hybrid Search (Semantic + Keyword)
+        hybrid_results = deps.knowledge_engine.search_hybrid(ctx.state.query, top_k=5)
+
+        discovery_sections = []
+        if matched_agents:
+            discovery_sections.append(
+                f"The following agents are confirmed to provide tools matching keywords in the query:\n"
+                f"- {', '.join(matched_agents)}"
+            )
+
+        if hybrid_results:
+            results_text = []
+            for res in hybrid_results:
+                rtype = res.get("type", "node").upper()
+                name = res.get("name", res.get("id"))
+                results_text.append(
+                    f"- [{rtype}] {name}: {res.get('description', '')[:150]}..."
+                )
+
+            discovery_sections.append(
+                "Knowledge Graph search found the following relevant entities:\n"
+                + "\n".join(results_text)
+            )
+
+        if discovery_sections:
+            discovery_context = (
+                "### KNOWLEDGE GRAPH DISCOVERY\n"
+                + "\n\n".join(discovery_sections)
+                + "\n\nPRIORITIZE using these agents or referencing this context in your plan.\n\n"
+            )
+            logger.info(
+                f"Router: Knowledge Graph discovery found {len(matched_agents)} tool-matched agents and {len(hybrid_results)} hybrid results."
+            )
     # Reset cursor for the new plan
     ctx.state.step_cursor = 0
 
@@ -486,6 +533,7 @@ async def router_step(
             f"You are a HIGH-LEVEL ARCHITECT. You DO NOT have access to functional tools (e.g. get_stack, Docker tools, etc.).\n"
             f"Your ONLY responsibility is to create the execution plan. DO NOT attempt to fulfill the query yourself.\n\n"
             f"### FAILURE CONTEXT\n{failure_context}\n\n"
+            f"{discovery_context}"
             f"### AVAILABLE SPECIALIST NODES\n{step_info}\n\n"
             f"### PROJECT CONTEXT\n{unified_context}"
         )
@@ -812,17 +860,15 @@ async def expert_executor_step(
                 f"Expert Execution: Attempt {ctx.state.current_node_retries + 1}/{max_retries + 1} for node '{node_id}'"
             )
 
-            # Check if this is a specialized prompt-based agent defined in the registry
-            registry = get_discovery_registry()
-            prompt_agents = {a.name for a in registry.agents if a.type == "prompt"}
-
+            # CORE ARCHITECTURE STEPS (Preserved for pipeline stability)
             if node_id == "researcher":
                 await researcher_step(ctx)
-
-            elif node_id in prompt_agents:
-                await _execute_specialized_step(ctx, node_id)
-
-            # Generic MCP Step
+            elif node_id == "architect":
+                await architect_step(ctx)
+            elif node_id == "planner":
+                await planner_step(ctx)
+            elif node_id == "verifier":
+                await verifier_step(ctx)
             elif node_id == "mcp_server":
                 domain = ""
                 input_data = step.input_data
@@ -830,92 +876,69 @@ async def expert_executor_step(
                     domain = input_data.get("domain", "")
                 await _execute_domain_logic(ctx, domain)
 
-            elif node_id == "architect":
-                await architect_step(ctx)
-            elif node_id == "planner":
-                await planner_step(ctx)
-            elif node_id == "verifier":
-                await verifier_step(ctx)
-
-            # Professional Expert Steps
-            elif node_id == "python_programmer":
-                await python_programmer_step(ctx)
-            elif (
-                node_id == "typescript_programmer" or node_id == "javascript_programmer"
-            ):
-                await typescript_programmer_step(ctx)
-            elif node_id == "rust_programmer":
-                await rust_programmer_step(ctx)
-            elif node_id == "golang_programmer":
-                await golang_programmer_step(ctx)
-            elif node_id == "security_auditor":
-                await security_auditor_step(ctx)
-            elif node_id == "qa_expert":
-                await qa_expert_step(ctx)
-            elif node_id == "debugger_expert" or node_id == "debugger_step":
-                await debugger_expert_step(ctx)
-            elif node_id == "ui_ux_designer" or node_id == "ui_ux_step":
-                await ui_ux_designer_step(ctx)
-            elif node_id == "devops_engineer" or node_id == "devops_step":
-                await devops_engineer_step(ctx)
-            elif node_id == "cloud_architect" or node_id == "cloud_step":
-                await cloud_architect_step(ctx)
-            elif node_id == "database_expert" or node_id == "database_step":
-                await database_expert_step(ctx)
-            elif node_id == "java_programmer":
-                await java_programmer_step(ctx)
-            elif node_id == "data_scientist":
-                await data_scientist_step(ctx)
-            elif node_id == "document_specialist":
-                await document_specialist_step(ctx)
-            elif node_id == "mobile_programmer":
-                await mobile_programmer_step(ctx)
-            elif node_id == "agent_engineer":
-                await agent_engineer_step(ctx)
-            elif node_id == "project_manager":
-                await project_manager_step(ctx)
-            elif node_id == "systems_manager":
-                await systems_manager_step(ctx)
-            elif node_id == "browser_automation":
-                await browser_automation_step(ctx)
-            elif node_id == "coordinator":
-                await coordinator_step(ctx)
-            elif node_id == "critique":
-                await critique_step(ctx)
-
-            # Dynamic Discovery Execution
+            # DYNAMIC GRAPH-NATIVE AGENT SPAWNING
             else:
-                from .executor import agent_matches_node_id
-
-                registry = load_node_agents_registry()
-
-                mcp_agent = next(
-                    (a for a in registry.agents if agent_matches_node_id(a, node_id)),
-                    None,
+                logger.info(
+                    f"Expert Execution: Spawning dynamic agent for task '{node_id}'"
                 )
 
-                if mcp_agent:
-                    logger.info(
-                        f"Expert: Matched node_id='{node_id}' -> agent='{mcp_agent.name}' (tag='{mcp_agent.tag}')"
-                    )
-                    await _execute_dynamic_mcp_agent(ctx, mcp_agent)
-                else:
-                    from ..discovery import discover_agents
+                # 1. Query Knowledge Graph for best tools & prompts
+                engine = ctx.deps.knowledge_engine
+                system_prompt = (
+                    f"You are a specialized agent handling the task: {node_id}."
+                )
+                tools_to_inject = []
 
-                    discovered = discover_agents()
-                    if node_id in discovered:
-                        meta = discovered[node_id]
-                        await _execute_agent_package_logic(ctx, node_id, meta)
-                    else:
-                        avail_tags = sorted(
-                            set(a.tag for a in registry.agents if a.tag)
-                        )[:15]
-                        logger.error(
-                            f"Node execution failed: Agent '{node_id}' not found in registry or discovery. "
-                            f"Available tags: {avail_tags}..."
-                        )
-                        ctx.state.error = f"Agent '{node_id}' not found."
-                        return "error_recovery"
+                if engine:
+                    # Check for explicit prompt node
+                    prompt_res = engine.query_cypher(
+                        "MATCH (p:Prompt) WHERE toLower(p.name) CONTAINS toLower($name) RETURN p.system_prompt AS sp LIMIT 1",
+                        {"name": node_id},
+                    )
+                    if prompt_res and "sp" in prompt_res[0]:
+                        system_prompt = prompt_res[0]["sp"]
+
+                    # Find relevant tools (by tag or semantic overlap if we had embeddings, using tag heuristic for now)
+                    tool_res = engine.query_cypher(
+                        "MATCH (t:Tool) WHERE any(tag IN t.tags WHERE toLower(tag) CONTAINS toLower($name)) OR toLower(t.name) CONTAINS toLower($name) RETURN t.name AS name, t.mcp_server AS server ORDER BY t.relevance_score DESC LIMIT 5",
+                        {"name": node_id},
+                    )
+                    tools_to_inject = [t["name"] for t in tool_res]
+
+                logger.info(
+                    f"Dynamic Agent '{node_id}': Injecting {len(tools_to_inject)} tools from Knowledge Graph."
+                )
+
+                # 2. Execute Dynamic Agent
+                from .executor import _get_domain_tools
+
+                domain_tools, domain_toolsets = await _get_domain_tools(
+                    "mcp_server_execution", ctx.deps
+                )
+
+                # Filter down to the exact tools
+                if tools_to_inject:
+                    filtered_tools = [
+                        t for t in domain_tools if t.__name__ in tools_to_inject
+                    ]
+                    if filtered_tools:
+                        domain_tools = filtered_tools
+
+                dynamic_agent = Agent(
+                    model=ctx.deps.agent_model,
+                    system_prompt=system_prompt,
+                    tools=domain_tools,
+                    toolsets=domain_toolsets,
+                )
+
+                async with dynamic_agent.run_stream(
+                    f"Task context: {step.input_data}"
+                ) as stream:
+                    res = await asyncio.wait_for(
+                        stream.get_output(), timeout=ctx.deps.verifier_timeout
+                    )
+
+                ctx.state.results_registry[node_id] = str(res)
 
             # Execution successful, clear error and break retry loop
             ctx.state.error = None
@@ -1001,6 +1024,7 @@ async def architect_step(
     architect = Agent(
         model=ctx.deps.agent_model,
         system_prompt=architect_prompt + f"\n\nContext:\n{ctx.state.exploration_notes}",
+        tools=knowledge_tools,
     )
 
     try:
@@ -1237,20 +1261,24 @@ async def synthesizer_step(
 
     # Persist session metadata for future context retrieval
     try:
-        from ..workspace import append_to_md_file
         from datetime import datetime
 
         memory_entry = (
-            f"\n### Execution {ctx.state.session_id or 'unknown'} "
+            f"Execution {ctx.state.session_id or 'unknown'} "
             f"({datetime.now().isoformat()})\n"
             f"- Query: {ctx.state.query[:200]}\n"
             f"- Plan: {[s.node_id for s in ctx.state.plan.steps]}\n"
             f"- Results: {list(ctx.state.results_registry.keys())}\n"
             f"- Failures: {ctx.state.error or 'none'}\n"
             f"- Tokens: {ctx.state.session_usage.total_tokens}\n"
-            f"- Verification attempts: {ctx.state.verification_attempts}\n"
+            f"- Verification attempts: {ctx.state.verification_attempts}"
         )
-        append_to_md_file("MEMORY.md", memory_entry)
+        if ctx.deps.knowledge_engine:
+            ctx.deps.knowledge_engine.add_memory(
+                memory_entry,
+                name=f"Execution {ctx.state.session_id or 'unknown'}",
+                category="historical_execution",
+            )
     except Exception as e:
         logger.debug(f"Failed to write execution memory: {e}")
 
@@ -1329,19 +1357,48 @@ async def memory_selection_step(
     root = ctx.state.project_root or os.getcwd()
     memories = []
 
+    # Phase 1: Scan Workspace Documentation (Markdown files)
     for p in Path(root).rglob("*.md"):
         if ".gemini" in str(p) or "node_modules" in str(p):
             continue
         try:
             content = p.read_text(encoding="utf-8", errors="ignore")
-            description = "General project memory"
+            description = "General project documentation"
             if content.startswith("---"):
                 match = re.search(r"description:\s*(.*)", content)
                 if match:
                     description = match.group(1).strip()
-            memories.append(f"- {p.name}: {description}")
+            memories.append(f"- [Doc] {p.name}: {description}")
         except Exception as e:
-            logger.warning(f"Memory selection failed: {e}")
+            logger.warning(f"Context document scanning failed: {e}")
+
+    # Phase 2: Knowledge Graph Memory Lookup (Unified Layer)
+    kg_memories = []
+    if ctx.deps.knowledge_engine:
+        logger.info(
+            "Memory Selection: Querying Knowledge Graph for contextual memories..."
+        )
+        # Simple extraction of potential memory keywords
+        words = re.findall(r"\b[a-z0-9_]{4,}\b", ctx.state.query.lower())
+        seen_mem_ids = set()
+        for word in words:
+            for node_id, data in ctx.deps.knowledge_engine.graph.nodes(data=True):
+                if node_id in seen_mem_ids:
+                    continue
+                if data.get("type") == "memory" and (
+                    word in data.get("description", "").lower()
+                    or word in data.get("name", "").lower()
+                ):
+                    kg_memories.append(
+                        f"- [KnowledgeGraph Memory] {data['name']}: {data['description'][:300]}"
+                    )
+                    seen_mem_ids.add(node_id)
+
+        if kg_memories:
+            logger.info(
+                f"Memory Selection: Retrieved {len(kg_memories)} memories from Knowledge Graph."
+            )
+            memories.extend(kg_memories)
 
     if not memories:
         logger.info("Memory Selection: No workspace memories found. Skipping.")

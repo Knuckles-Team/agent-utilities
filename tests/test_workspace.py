@@ -15,8 +15,7 @@ def test_get_workspace_path():
 def test_initialize_workspace(tmp_path):
     with patch("agent_utilities.workspace.get_agent_workspace", return_value=tmp_path):
         initialize_workspace()
-        assert (tmp_path / "IDENTITY.md").exists()
-        assert (tmp_path / "MEMORY.md").exists()
+        assert (tmp_path / "main_agent.md").exists()
 
 def test_write_and_load_file(tmp_path):
     with patch("agent_utilities.workspace.get_agent_workspace", return_value=tmp_path):

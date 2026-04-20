@@ -17,27 +17,22 @@ from typing import List, Dict, Optional, Any
 from .workspace import (
     get_workspace_path,
     CORE_FILES,
-    load_workspace_file,
-    write_workspace_file,
-    parse_node_registry,
-    serialize_node_registry,
 )
-from .models import MCPAgent, MCPAgentRegistryModel, MCPToolInfo
+from .models import MCPToolInfo
 from .mcp_utilities import load_mcp_config
 from .tool_guard import is_sensitive_tool
 
 logger = logging.getLogger(__name__)
 
 
-def should_sync(config_path: Path, agents_path: Path) -> bool:
+def should_sync(config_path: Path) -> bool:
     """Determine if a synchronization of MCP agents is required.
 
-    Compares the modification times of the MCP config and the agent registry
-    to decide if updates are necessary.
+    Compares the modification time of the MCP config with the last sync
+    recorded in the Knowledge Graph.
 
     Args:
         config_path: Path to the mcp_config.json file.
-        agents_path: Path to the NODE_AGENTS.md registry file.
 
     Returns:
         True if synchronization is needed, False otherwise.
@@ -46,23 +41,25 @@ def should_sync(config_path: Path, agents_path: Path) -> bool:
     if not config_path.exists():
         return False
 
-    if not agents_path.exists() or agents_path.stat().st_size == 0:
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
         return True
 
-    # Check if the registry is actually empty (only headers)
+    # Check if we have any tools and when they were last synced
     try:
-        content = agents_path.read_text(encoding="utf-8")
-        registry = parse_node_registry(content)
-        if not registry.agents:
+        res = engine.backend.execute(
+            "MATCH (t:Tool) RETURN max(t.last_sync) as last_sync"
+        )
+        last_sync = res[0].get("last_sync") if res else 0
+        if not last_sync:
+            return True
+
+        config_mtime = config_path.stat().st_mtime
+        if config_mtime > last_sync + 2.0:
             return True
     except Exception:
-        return True
-
-    # Check if config is newer than registry
-    config_mtime = config_path.stat().st_mtime
-    agents_mtime = agents_path.stat().st_mtime
-
-    if config_mtime > agents_mtime + 2.0:
         return True
 
     return False
@@ -485,15 +482,10 @@ async def generate_system_prompt(
 async def sync_mcp_agents(
     force_reprompt: bool = False, config_path: Optional[Path] = None
 ):
-    """Orchestrate the full synchronization of MCP servers with the agent registry.
+    """Orchestrate the full synchronization of MCP servers with the Knowledge Graph.
 
-    Performs metadata extraction, tool partitioning, and registry updates
-    in NODE_AGENTS.md.
-
-    Args:
-        force_reprompt: Whether to regenerate system prompts for existing agents.
-        config_path: Optional path override for mcp_config.json.
-
+    Performs metadata extraction, tool scoring, and stores them natively as
+    ToolNode entities in the Cypher backend.
     """
     if not config_path:
         config_path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
@@ -516,102 +508,62 @@ async def sync_mcp_agents(
         f"avg relevance {avg_score}/100"
     )
 
-    # 2. Partition Tools
-    partitions = await partition_tools(tools_inventory)
+    # 2. Ingest into Knowledge Graph
+    from .workspace import get_agent_workspace
+    from .knowledge_graph.backends import create_backend
 
-    # 3. Load Current Registry
+    ws_path = get_agent_workspace()
+    db_path = str(ws_path / "knowledge_graph.db")
+
+    backend = create_backend(db_path=db_path)
+    if backend is None:
+        logger.error("Graph backend is not available. Cannot sync tools to graph.")
+        return
+
+    # 2a. Sync Prompts from registry builder
     from .agent_registry_builder import rebuild_node_agents_md
 
-    # Trigger full rebuild first to ensure we have latest prompts/A2A
-    await rebuild_node_agents_md()
+    await rebuild_node_agents_md()  # This will be modified to ingest prompts to graph
 
-    content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
-    current_registry = parse_node_registry(content)
+    # 2b. Upsert Tool Nodes
+    import time
 
-    new_agents = []
+    sync_ts = int(time.time())
 
-    # Mapping of existing custom agents to preserve them
-    custom_agents = {a.name: a for a in current_registry.agents if a.is_custom}
-    existing_generated_agents = {
-        a.name: a for a in current_registry.agents if not a.is_custom
-    }
+    for tool in tools_inventory:
+        query = "MERGE (t:Tool {id: $id}) SET t.name = $name, t.description = $description, t.mcp_server = $mcp_server, t.relevance_score = $score, t.tags = $tags, t.requires_approval = $requires_approval, t.last_sync = $sync_ts"
+        props = {
+            "id": f"tool:{tool.name}",
+            "name": tool.name,
+            "description": tool.description,
+            "mcp_server": tool.mcp_server,
+            "score": tool.relevance_score,
+            "tags": tool.all_tags or [tool.tag] if tool.tag else [],
+            "requires_approval": tool.requires_approval,
+            "sync_ts": sync_ts,
+        }
+        backend.execute(query, props)
 
-    # 4. Process Partitions
-    for tag, group in partitions.items():
-        server_name = group[0].mcp_server
-        clean_server = (
-            server_name.replace("-mcp", "")
-            .replace("-agent", "")
-            .replace("_", " ")
-            .title()
+        # Link Tool to Server node
+        query_link = "MERGE (s:Server {id: $server_id}) SET s.name = $server_name WITH s MATCH (t:Tool {id: $tool_id}) MERGE (s)-[:PROVIDES]->(t)"
+        backend.execute(
+            query_link,
+            {
+                "server_id": f"server:{tool.mcp_server}",
+                "server_name": tool.mcp_server,
+                "tool_id": f"tool:{tool.name}",
+            },
         )
 
-        # Handle partitioned suffixes (e.g. group_1, group_2) to keep names unique but descriptive
-        clean_tag = tag.replace("_", " ").title()
+    # Cleanup old tools that were not in this sync
+    try:
+        query_clean = "MATCH (t:Tool) WHERE t.last_sync < $sync_ts OR t.last_sync IS NULL DETACH DELETE t"
+        backend.execute(query_clean, {"sync_ts": sync_ts})
+    except Exception as e:
+        logger.debug(f"Tool cleanup skipped (likely empty DB): {e}")
 
-        if clean_server.lower() in clean_tag.lower():
-            agent_name = f"{clean_tag} Specialist"
-        else:
-            agent_name = f"{clean_server} {clean_tag} Specialist"
-
-        # Check if we already have a custom version
-        if agent_name in custom_agents:
-            # Preserve custom agent BUT update its tools/tag metadata if needed?
-            # User wants to be able to modify, so we should keep their custom version
-            new_agents.append(custom_agents[agent_name])
-            continue
-
-        # Check if we should regenerate or create new
-        if agent_name in existing_generated_agents and not force_reprompt:
-            existing = existing_generated_agents[agent_name]
-            # Update tools just in case
-            existing.tools = [t.name for t in group]
-            existing.mcp_tools = tag
-            new_agents.append(existing)
-        else:
-            # Create NEW agent
-            logger.info(
-                f"Generating deterministic system prompt for NEW agent: {agent_name}"
-            )
-            description = f"Expert specialist for {tag} domain tasks."
-            system_prompt = await generate_system_prompt(
-                agent_name, group, tag, server_name
-            )
-
-            new_agents.append(
-                MCPAgent(
-                    name=agent_name,
-                    agent_type="mcp",
-                    endpoint_url="stdio" if "command" in group[0].mcp_server else "-",
-                    description=description,
-                    system_prompt=system_prompt,
-                    tools=[t.name for t in group],
-                    mcp_server=group[0].mcp_server,
-                    mcp_tools=tag,
-                    is_custom=False,
-                    tool_count=len(group),
-                    avg_relevance_score=(
-                        sum(t.relevance_score for t in group) // len(group)
-                        if group
-                        else 0
-                    ),
-                )
-            )
-
-    # 5. Update Registry Model (Merge back prompt agents from before)
-    # We should preserve agents from the current_registry that are NOT in existing_generated_agents or custom_agents of this run
-    prompt_agents = [a for a in current_registry.agents if a.agent_type == "prompt"]
-    a2a_agents = [a for a in current_registry.agents if a.agent_type == "a2a"]
-
-    updated_registry = MCPAgentRegistryModel(
-        agents=prompt_agents + a2a_agents + new_agents, tools=tools_inventory
-    )
-
-    # 6. Write back to disk
-    new_content = serialize_node_registry(updated_registry)
-    write_workspace_file(CORE_FILES["NODE_AGENTS"], new_content)
     logger.info(
-        f"✅ Synced {len(new_agents)} MCP specialists and updated unified registry."
+        f"✅ Synced {len(tools_inventory)} MCP tools directly to the Knowledge Graph."
     )
 
 

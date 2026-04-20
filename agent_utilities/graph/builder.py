@@ -32,7 +32,6 @@ from ..config import (
     DEFAULT_MCP_URL,
     DEFAULT_MCP_CONFIG,
 )
-from ..workspace import get_workspace_path, CORE_FILES
 from ..base_utilities import (
     is_loopback_url,
 )
@@ -66,30 +65,6 @@ from .steps import (
     dynamic_mcp_routing_step,
     mcp_server_step,
     error_recovery_step,
-    python_programmer_step,
-    c_programmer_step,
-    cpp_programmer_step,
-    golang_programmer_step,
-    javascript_programmer_step,
-    typescript_programmer_step,
-    security_auditor_step,
-    qa_expert_step,
-    debugger_expert_step,
-    ui_ux_designer_step,
-    devops_engineer_step,
-    cloud_architect_step,
-    database_expert_step,
-    rust_programmer_step,
-    java_programmer_step,
-    data_scientist_step,
-    document_specialist_step,
-    mobile_programmer_step,
-    agent_engineer_step,
-    project_manager_step,
-    systems_manager_step,
-    browser_automation_step,
-    coordinator_step,
-    critique_step,
 )
 
 from pydantic_graph import End, Graph
@@ -181,7 +156,6 @@ def initialize_graph_from_workspace(
     _mcp_cfg_path = resolve_mcp_config_path(mcp_config) if mcp_config else None
     discovery_metadata = {}
     if _mcp_cfg_path:
-        agents_path = get_workspace_path(CORE_FILES["NODE_AGENTS"])
         from ..agent_registry_builder import rebuild_node_agents_md
         import asyncio
 
@@ -196,12 +170,12 @@ def initialize_graph_from_workspace(
             logger.debug(f"Registry rebuild skip/fail: {e}")
 
         try:
-            # Check if sync is required first
-            needs_sync = should_sync(_mcp_cfg_path, agents_path)
+            # Check if sync is required first (querying graph last_sync vs mcp_config mtime)
+            needs_sync = should_sync(_mcp_cfg_path)
 
             if needs_sync:
                 logger.info(
-                    "Initializing Graph: Registry out of sync. Standardizing MCP agents..."
+                    "Initializing Graph: Graph state out of sync with mcp_config. Standardizing MCP agents..."
                 )
                 from ..mcp_agent_manager import sync_mcp_agents
 
@@ -387,6 +361,41 @@ def create_graph_agent(
     if tag_env_vars is None:
         tag_env_vars = build_tag_env_map(list(tag_prompts.keys()))
 
+    # Initialize Knowledge Graph Engine for topological discovery
+    knowledge_engine = None
+    try:
+        from ..knowledge_graph.pipeline import RegistryPipeline
+        from ..knowledge_graph.engine import RegistryGraphEngine
+        from ..knowledge_graph.models import PipelineConfig
+        from ..workspace import get_agent_workspace
+
+        ws = get_agent_workspace()
+        reg_config = PipelineConfig(
+            workspace_path=str(ws),
+            persist_to_ladybug=True,
+            ladybug_path=str(ws / "registry_graph.db"),
+        )
+        reg_pipeline = RegistryPipeline(reg_config)
+        # We run the pipeline synchronously here during initialization
+        import asyncio
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We can't easily wait for a task in a sync function if the loop is running
+                # but we need the engine. We'll try to load it from the database if it exists,
+                # or just initialize an empty graph for now.
+                pass
+            else:
+                loop.run_until_complete(reg_pipeline.run())
+                knowledge_engine = RegistryGraphEngine(
+                    reg_pipeline.graph, db_path=reg_config.ladybug_path
+                )
+        except Exception as e:
+            logger.debug(f"Knowledge engine initialization failed: {e}")
+    except ImportError:
+        logger.debug("Registry Graph subpackage not found or dependencies missing.")
+
     # Initialize GraphBuilder
 
     g = GraphBuilder(
@@ -454,35 +463,9 @@ def create_graph_agent(
     # to ensure each unique node_id (tag) is only registered once in the graph.
     specialist_node_configs = {}
 
-    # Steps for dedicated expert personas are predefined above (python_programmer, etc.)
-    # We now register any other specialists discovered in the unified registry.
+    # Steps for dedicated expert personas are removed.
+    # They are now instantiated dynamically via Knowledge Graph context in expert_executor_step.
 
-    _python = g.step(python_programmer_step, node_id="python_programmer")
-    _c = g.step(c_programmer_step, node_id="c_programmer")
-    _cpp = g.step(cpp_programmer_step, node_id="cpp_programmer")
-    _golang = g.step(golang_programmer_step, node_id="golang_programmer")
-    _javascript = g.step(javascript_programmer_step, node_id="javascript_programmer")
-    _typescript = g.step(typescript_programmer_step, node_id="typescript_programmer")
-    _security = g.step(security_auditor_step, node_id="security_auditor")
-    _qa = g.step(qa_expert_step, node_id="qa_expert")
-    _debugger = g.step(debugger_expert_step, node_id="debugger_expert")
-    _ui_ux = g.step(ui_ux_designer_step, node_id="ui_ux_designer")
-    _devops = g.step(devops_engineer_step, node_id="devops_engineer")
-    _cloud = g.step(cloud_architect_step, node_id="cloud_architect")
-    _database = g.step(database_expert_step, node_id="database_expert")
-    _rust = g.step(rust_programmer_step, node_id="rust_programmer")
-    _java = g.step(java_programmer_step, node_id="java_programmer")
-    _data_scientist = g.step(data_scientist_step, node_id="data_scientist")
-    _document_specialist = g.step(
-        document_specialist_step, node_id="document_specialist"
-    )
-    _mobile = g.step(mobile_programmer_step, node_id="mobile_programmer")
-    _agent_engineer = g.step(agent_engineer_step, node_id="agent_engineer")
-    _project_manager = g.step(project_manager_step, node_id="project_manager")
-    _systems_manager = g.step(systems_manager_step, node_id="systems_manager")
-    _browser_automation = g.step(browser_automation_step, node_id="browser_automation")
-    _coordinator = g.step(coordinator_step, node_id="coordinator")
-    _critique = g.step(critique_step, node_id="critique")
     _memory_selection = g.step(memory_selection_step, node_id="memory_selection")
 
     _mcp_router = g.step(dynamic_mcp_routing_step, node_id="mcp_router")
@@ -547,30 +530,6 @@ def create_graph_agent(
         "memory_selection": _memory_selection,
         "mcp_router": _mcp_router,
         "mcp_server_execution": _mcp_server,
-        "python_programmer": _python,
-        "c_programmer": _c,
-        "cpp_programmer": _cpp,
-        "golang_programmer": _golang,
-        "javascript_programmer": _javascript,
-        "typescript_programmer": _typescript,
-        "security_auditor": _security,
-        "qa_expert": _qa,
-        "debugger_expert": _debugger,
-        "ui_ux_designer": _ui_ux,
-        "devops_engineer": _devops,
-        "cloud_architect": _cloud,
-        "database_expert": _database,
-        "rust_programmer": _rust,
-        "java_programmer": _java,
-        "data_scientist": _data_scientist,
-        "document_specialist": _document_specialist,
-        "mobile_programmer": _mobile,
-        "agent_engineer": _agent_engineer,
-        "project_manager": _project_manager,
-        "systems_manager": _systems_manager,
-        "browser_automation": _browser_automation,
-        "coordinator": _coordinator,
-        "critique": _critique,
         **{nid: step for nid, step in expert_nodes.items()},
     }
 
@@ -742,6 +701,7 @@ def create_graph_agent(
         "routing_strategy": routing_strategy,
         "nodes": nodes_registry,
         "discovery_metadata": kwargs.get("discovery_metadata") or {},
+        "knowledge_engine": knowledge_engine,
     }
 
     logger.debug(
