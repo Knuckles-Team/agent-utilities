@@ -32,7 +32,6 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
     """
     # Late imports to avoid circularity during initialization
     from .tools.workspace_tools import workspace_tools
-    from .tools.memory_tools import memory_tools
     from .tools.scheduler_tools import scheduler_tools
     from .tools.a2a_tools import a2a_tools
     from .tools.git_tools import git_tools
@@ -66,94 +65,118 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
     if graph_bundle:
         graph, config = graph_bundle
 
-        @agent.tool
-        async def run_graph_flow(
-            ctx: RunContext[AgentDeps], prompt: str
-        ) -> Union[str, Any]:
-            """Execute a complex query through the graph orchestrator.
+        if "run_graph_flow" not in agent.tools:
 
-            The graph automatically classifies and routes the request to specialized
-            domain nodes (e.g., Python Programmer, DevOps Engineer), executes the
-            necessary steps in parallel or sequence, and synthesizes a final result.
+            @agent.tool
+            async def run_graph_flow(
+                ctx: RunContext[AgentDeps], prompt: str
+            ) -> Union[str, Any]:
+                """Execute a complex query through the graph orchestrator.
 
-            Args:
-                ctx: The run context containing agent dependencies.
-                prompt: The user query to be processed by the graph orchestrator.
+                The graph automatically classifies and routes the request to specialized
+                domain nodes (e.g., Python Programmer, DevOps Engineer), executes the
+                necessary steps in parallel or sequence, and synthesizes a final result.
 
-            Returns:
-                The synthesized output from the graph execution or an error message.
+                Args:
+                    ctx: The run context containing agent dependencies.
+                    prompt: The user query to be processed by the graph orchestrator.
 
-            """
-            eq = getattr(ctx.deps, "graph_event_queue", None) if ctx.deps else None
-            from .graph_orchestration import run_graph
+                Returns:
+                    The synthesized output from the graph execution or an error message.
 
-            # Forward runtime MCP toolsets and LLM config from AgentDeps so the graph uses alread-conencted servers and current credentials instead of None values baked in from the default config
-            runtime_toolsets = (
-                getattr(ctx.deps, "mcp_toolsets", None) if ctx.deps else None
-            )
-            result = await run_graph(
-                graph,
-                config,
-                prompt,
-                eq=eq,
-                mcp_toolsets=runtime_toolsets or config.get("mcp_toolsets"),
-            )
+                """
+                eq = getattr(ctx.deps, "graph_event_queue", None) if ctx.deps else None
+                from .graph_orchestration import run_graph
 
-            if hasattr(result, "results"):
-                output = result.results.get("output", result.results)
-                if not output or str(output).lower() == "none":
-                    return (
-                        "The analysis completed, but no specific data was returned for your query. "
-                        "This may happen if the target system has no matching resources, if synthesis failed, or if tools were not loaded correctly."
-                    )
-                return str(output)
-            return str(result)
+                # Forward runtime MCP toolsets and LLM config from AgentDeps so the graph uses alread-conencted servers and current credentials instead of None values baked in from the default config
+                runtime_toolsets = (
+                    getattr(ctx.deps, "mcp_toolsets", None) if ctx.deps else None
+                )
+                result = await run_graph(
+                    graph,
+                    config,
+                    prompt,
+                    eq=eq,
+                    mcp_toolsets=runtime_toolsets or config.get("mcp_toolsets"),
+                )
+
+                if hasattr(result, "results"):
+                    output = result.results.get("output", result.results)
+                    if not output or str(output).lower() == "none":
+                        return (
+                            "The analysis completed, but no specific data was returned for your query. "
+                            "This may happen if the target system has no matching resources, if synthesis failed, or if tools were not loaded correctly."
+                        )
+                    return str(output)
+                return str(result)
 
         # STRICT ISOLATION: If we are a graph orchestrator, we ONLY have run_graph_flow.
         # We skip all other local tools to avoid confusion and force routing.
         return
 
+    # Helper to register tools only if not already present
+    def _safe_tool(func):
+        name = getattr(func, "name", func.__name__)
+        if name not in agent.tools:
+            agent.tool(func)
+
     # 2. Workspace Tools
     if DEFAULT_WORKSPACE_TOOLS:
         for tool in workspace_tools:
-            agent.tool(tool)
-
-    # 3. Memory Tools
-    for tool in memory_tools:
-        agent.tool(tool)
+            _safe_tool(tool)
 
     # 4. Git & Worktree Tools
     if DEFAULT_GIT_TOOLS:
         for tool in git_tools:
-            agent.tool(tool)
+            _safe_tool(tool)
 
     # 5. Developer Tools (Ported from code_puppy)
     if DEFAULT_DEVELOPER_TOOLS:
         for tool in developer_tools:
-            agent.tool(tool)
+            _safe_tool(tool)
 
     # 6. A2A & Scheduler Tools
     if DEFAULT_A2A_TOOLS:
         for tool in a2a_tools:
-            agent.tool(tool)
+            _safe_tool(tool)
 
     if DEFAULT_SCHEDULER_TOOLS:
         for tool in scheduler_tools:
-            agent.tool(tool)
+            _safe_tool(tool)
 
     # 7. Browser Tools (Ported from code_puppy)
     if DEFAULT_BROWSER_TOOLS:
         for tool in browser_tools:
-            agent.tool(tool)
+            _safe_tool(tool)
 
     # 8. Specialized Agent Tools
-    agent.tool(invoke_specialized_agent)
-    agent.tool(list_available_agents)
-    agent.tool(share_reasoning)
+    _safe_tool(invoke_specialized_agent)
+    _safe_tool(list_available_agents)
+    _safe_tool(share_reasoning)
 
     # 9. Onboarding Tools
     for tool in onboarding_tools:
-        agent.tool(tool)
+        _safe_tool(tool)
 
     # 10. MCP Management Tools
-    agent.tool(trigger_mcp_sync)
+    _safe_tool(trigger_mcp_sync)
+
+    # 11. Knowledge Graph & KB Tools
+    from .tools.knowledge_tools import knowledge_tools, KB_TOOLS
+
+    for tool in knowledge_tools:
+        _safe_tool(tool)
+    for tool in KB_TOOLS:
+        _safe_tool(tool)
+
+    # 12. Team Coordination Tools
+    from .tools.team_tools import TEAM_TOOLS
+
+    for tool in TEAM_TOOLS:
+        _safe_tool(tool)
+
+    # 13. Output Style Tools
+    from .tools.style_tools import set_output_style, list_output_styles
+
+    _safe_tool(set_output_style)
+    _safe_tool(list_output_styles)

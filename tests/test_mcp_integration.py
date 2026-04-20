@@ -1,88 +1,64 @@
-import json
 import pytest
-from unittest.mock import patch
-from agent_utilities.mcp_agent_manager import sync_mcp_agents, extract_tool_metadata
+import networkx as nx
+from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend
 
+@pytest.fixture
+def graph_engine():
+    backend = LadybugBackend(db_path=":memory:")
+    backend.create_schema()
+    engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), backend=backend)
+    return engine
 
-@pytest.mark.skip(reason="ImportError for StdioServer in pydantic-ai")
-@pytest.mark.asyncio
-async def test_extract_tool_metadata_real(tmp_path):
-    """Test extracting tool metadata from a real (stdio) MCP server."""
-    # Create a tiny MCP server script
-    mcp_script = tmp_path / "tiny_mcp.py"
-    mcp_script.write_text("""
-from fastmcp import FastMCP
-mcp = FastMCP("TinyMCP")
-@mcp.tool()
-def add(a: int, b: int) -> int:
-    "Add two numbers"
-    return a + b
-if __name__ == "__main__":
-    mcp.run()
-""")
+def test_mcp_server_ingestion_and_discovery(graph_engine):
+    """Test full cycle of MCP server ingestion, discovery, and spawning."""
+    tools = [
+        {"name": "get_weather", "description": "Get weather for a city", "capabilities": ["weather", "search"]},
+        {"name": "post_tweet", "description": "Post a message to Twitter", "capabilities": ["social", "write"]}
+    ]
 
-    # Create mcp_config.json
-    config_path = tmp_path / "mcp_config.json"
-    config_data = {
-        "mcpServers": {"tiny-mcp": {"command": "python", "args": [str(mcp_script)]}}
-    }
-    config_path.write_text(json.dumps(config_data))
-
-    # We need to mock get_workspace_path to find this config
-    with (
-        patch(
-            "agent_utilities.mcp_agent_manager.get_workspace_path",
-            return_value=config_path,
-        ),
-        patch("agent_utilities.mcp_agent_manager.load_mcp_config") as mock_load,
-    ):
-        # We'll use the real load_mcp_servers if possible,
-        # but to be safe and fast, let's mock the server session but use the real logic
-        from pydantic_ai.mcp import StdioServer
-
-        server = StdioServer(command="python", args=[str(mcp_script)])
-        mock_load.return_value = [server]
-
-        tools = await extract_tool_metadata(config_path)
-        assert len(tools) > 0
-        assert tools[0].name == "add"
-        assert tools[0].mcp_server == "TinyMCP"
-
-
-@pytest.mark.asyncio
-async def test_sync_mcp_agents_flow(tmp_path):
-    """Test the full sync flow."""
-    config_path = tmp_path / "mcp_config.json"
-    config_data = {"mcpServers": {}}
-    config_path.write_text(json.dumps(config_data))
-
-    tmp_path / "NODE_AGENTS.md"
-
-    from agent_utilities.models import MCPToolInfo
-
-    mock_tool = MCPToolInfo(
-        name="test_tool",
-        description="A test tool",
-        tag="test",
-        mcp_server="test_server",
+    # 1. Ingest MCP Server
+    graph_engine.ingest_mcp_server(
+        name="WeatherTwitter",
+        url="http://localhost:8000/mcp",
+        tools=tools
     )
 
-    with (
-        patch(
-            "agent_utilities.mcp_agent_manager.extract_tool_metadata",
-            return_value=[mock_tool],
-        ),
-        patch("agent_utilities.mcp_agent_manager.get_workspace_path") as mock_ws_path,
-        patch("agent_utilities.mcp_agent_manager.load_workspace_file", return_value=""),
-        patch("agent_utilities.mcp_agent_manager.write_workspace_file") as mock_write,
-    ):
-        mock_ws_path.side_effect = lambda f: tmp_path / f
+    # 2. Verify CallableResources exist
+    res = graph_engine.query_cypher("MATCH (r:CallableResource) RETURN r.name as name, r.resource_type as type")
+    assert len(res) == 2
+    names = [r["name"] for r in res]
+    assert "get_weather" in names
+    assert "post_tweet" in names
 
-        await sync_mcp_agents(config_path=config_path)
+    # 3. Discovery based on task
+    discovered = graph_engine.find_relevant_callable_resources("What is the weather in London?")
+    assert len(discovered) > 0
+    assert "get_weather" in [d["name"] for d in discovered]
 
-        # Verify write was called with NODE_AGENTS.md content
-        mock_write.assert_called_once()
-        args, kwargs = mock_write.call_args
-        assert "NODE_AGENTS.md" in args[0]
-        assert "test_tool" in args[1]
-        assert "Test Server Test Specialist" in args[1]
+    # 4. Spawn agent with discovered tools
+    tool_ids = [d["id"] for d in discovered]
+    agent_id = graph_engine.spawn_specialized_agent(
+        task_description="Check London weather and tweet it",
+        tool_ids=tool_ids
+    )
+
+    # 5. Verify agent is linked to tools
+    links = graph_engine.query_cypher("MATCH (a:SpawnedAgent {id: $aid})-[:USES]->(r:CallableResource) RETURN r.name as name", {"aid": agent_id})
+    assert len(links) > 0
+    assert "get_weather" in [l["name"] for l in links]
+
+def test_mcp_metadata_linkage(graph_engine):
+    """Test that ToolMetadata is correctly linked and queryable."""
+    tools = [{"name": "search_docs", "description": "Search documentation", "tags": ["docs", "internal"]}]
+    graph_engine.ingest_mcp_server("DocServer", "http://docs.local", tools)
+
+    # Query via metadata tags
+    query = """
+    MATCH (r:CallableResource)-[:HAS_METADATA]->(m:ToolMetadata)
+    WHERE 'docs' IN m.tags
+    RETURN r.name as name
+    """
+    res = graph_engine.query_cypher(query)
+    assert len(res) > 0
+    assert res[0]["name"] == "search_docs"

@@ -22,13 +22,6 @@ if TYPE_CHECKING:
 
 
 from .config import *  # noqa: F403
-from .workspace import (
-    CORE_FILES,
-    load_workspace_file,
-    parse_a2a_registry,
-)
-
-
 from .models import A2ARegistryModel, A2APeerModel, DiscoveredSpecialist  # noqa: F401
 
 # Note: discover_agents() and discover_all_specialists() live in discovery.py.
@@ -36,6 +29,41 @@ from .models import A2ARegistryModel, A2APeerModel, DiscoveredSpecialist  # noqa
 # (discovery.py imports A2AClient from this module).
 
 logger = logging.getLogger(__name__)
+
+
+def parse_a2a_registry(content: str) -> A2ARegistryModel:
+    """Parse A2A_AGENTS.md markdown table content into an A2ARegistryModel."""
+    peers = []
+    lines = content.splitlines()
+    in_table = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("| Name") or stripped.startswith("| ID"):
+            in_table = True
+            continue
+        if (
+            in_table
+            and stripped.startswith("|")
+            and "|" in stripped
+            and not (
+                stripped.startswith("|---")
+                or stripped.startswith("| ID")
+                or stripped.startswith("| Name")
+            )
+        ):
+            parts = [p.strip() for p in stripped.strip("| ").split("|")]
+            if len(parts) >= 2:
+                peers.append(
+                    A2APeerModel(
+                        name=parts[0],
+                        url=parts[1],
+                        description=parts[2] if len(parts) > 2 else "",
+                        capabilities=parts[3] if len(parts) > 3 else "",
+                        auth=parts[4] if len(parts) > 4 else "none",
+                        notes=parts[5] if len(parts) > 5 else "",
+                    )
+                )
+    return A2ARegistryModel(peers=peers)
 
 
 def load_a2a_peers() -> A2ARegistryModel:
@@ -47,10 +75,10 @@ def load_a2a_peers() -> A2ARegistryModel:
         The loaded A2A registry model.
 
     """
+    from .workspace import load_workspace_file
+
     # A2A_AGENTS.md is now legacy. We load it if it exists for backward compatibility
-    # but new peers should be managed via mcp_config.json HTTP servers.
-    registry_file = CORE_FILES.get("A2A_AGENTS", "A2A_AGENTS.md")
-    content = load_workspace_file(registry_file)
+    content = load_workspace_file("A2A_AGENTS.md")
     if not content:
         return A2ARegistryModel()
     return parse_a2a_registry(content)

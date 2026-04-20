@@ -11,7 +11,6 @@ stored conversations.
 from __future__ import annotations
 
 import sys
-import json
 import logging
 
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -25,85 +24,149 @@ from pydantic_ai import Agent
 
 
 from .config import *  # noqa: F403
-from .workspace import (
-    get_workspace_path,
-    CORE_FILES,
-)
 
 logger = logging.getLogger(__name__)
 
 
 def save_chat_to_disk(chat_id: str, messages: List[Dict[str, Any]]):
-    """Save a chat conversation to a JSON file in the chats directory."""
-    chats_dir = get_workspace_path(CORE_FILES["CHATS"])
-    chats_dir.mkdir(parents=True, exist_ok=True)
-    path = chats_dir / f"{chat_id}.json"
+    """Save a chat conversation to the Knowledge Graph."""
+    from .knowledge_graph.engine import IntelligenceGraphEngine
 
-    chat_data = {
-        "id": chat_id,
-        "timestamp": datetime.now().isoformat(),
-        "messages": messages,
-    }
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
+        logger.warning("Graph backend not available for chat persistence.")
+        return
 
-    path.write_text(json.dumps(chat_data, indent=2), encoding="utf-8")
-    logger.debug(f"Saved chat {chat_id} to disk")
+    ts = datetime.now().isoformat()
+    # Create or update ThreadNode
+    query_thread = """
+    MERGE (t:Thread {id: $id})
+    SET t.title = $title,
+        t.created_at = $ts
+    """
+    first_msg = ""
+    if messages:
+        first_msg = str(messages[0].get("content", ""))[:100]
+
+    engine.backend.execute(
+        query_thread,
+        {"id": chat_id, "title": first_msg or "Untitled Chat", "ts": ts},
+    )
+
+    # Create MessageNodes and link to Thread
+    for i, msg in enumerate(messages):
+        msg_id = f"msg:{chat_id}:{i}"
+        query_msg = """
+        MERGE (m:Message {id: $id})
+        SET m.role = $role,
+            m.content = $content,
+            m.timestamp = $ts
+        WITH m
+        MATCH (t:Thread {id: $chat_id})
+        MERGE (t)-[:CONTAINS]->(m)
+        """
+        engine.backend.execute(
+            query_msg,
+            {
+                "id": msg_id,
+                "role": msg.get("role", "user"),
+                "content": str(msg.get("content", "")),
+                "ts": ts,
+                "chat_id": chat_id,
+            },
+        )
+
+    logger.debug(f"Saved chat {chat_id} to Knowledge Graph")
 
 
 def list_chats_from_disk() -> List[Dict[str, Any]]:
-    """List all chats stored in the workspace."""
-    chats_dir = get_workspace_path(CORE_FILES["CHATS"])
-    if not chats_dir.exists():
+    """List all chats stored in the Knowledge Graph."""
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
         return []
 
-    chats = []
-    for f in chats_dir.glob("*.json"):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            message_text = ""
-            if data.get("messages") and len(data["messages"]) > 0:
-                first_msg = data["messages"][0]
-                if isinstance(first_msg.get("content"), str):
-                    message_text = first_msg["content"]
-                elif isinstance(first_msg.get("content"), list):
-                    message_text = str(first_msg["content"][0])
-
+    try:
+        res = engine.backend.execute(
+            "MATCH (t:Thread) RETURN t.id, t.title, t.created_at ORDER BY t.created_at DESC"
+        )
+        chats = []
+        for row in res:
             chats.append(
                 {
-                    "id": data.get("id", f.stem),
-                    "firstMessage": message_text[:100],
-                    "timestamp": data.get(
-                        "timestamp",
-                        datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-                    ),
+                    "id": row.get("t.id", ""),
+                    "firstMessage": row.get("t.title", ""),
+                    "timestamp": row.get("t.created_at", ""),
                 }
             )
-        except Exception as e:
-            logger.debug(f"Error loading chat file {f}: {e}")
-
-    return sorted(chats, key=lambda x: x["timestamp"], reverse=True)
+        return chats
+    except Exception as e:
+        logger.debug(f"Failed to list chats from graph: {e}")
+        return []
 
 
 def get_chat_from_disk(chat_id: str) -> Optional[Dict[str, Any]]:
-    """Retrieve a specific chat from disk."""
-    path = get_workspace_path(CORE_FILES["CHATS"]) / f"{chat_id}.json"
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.error(f"Error reading chat {chat_id}: {e}")
-    return None
+    """Retrieve a specific chat from the Knowledge Graph."""
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
+        return None
+
+    try:
+        res_thread = engine.backend.execute(
+            "MATCH (t:Thread {id: $id}) RETURN t.id, t.created_at", {"id": chat_id}
+        )
+        if not res_thread:
+            return None
+
+        thread = res_thread[0]
+        res_msgs = engine.backend.execute(
+            "MATCH (t:Thread {id: $id})-[:CONTAINS]->(m:Message) RETURN m.role, m.content, m.timestamp ORDER BY m.id",
+            {"id": chat_id},
+        )
+        messages = []
+        for rm in res_msgs:
+            messages.append(
+                {
+                    "role": rm.get("m.role", ""),
+                    "content": rm.get("m.content", ""),
+                    "timestamp": rm.get("m.timestamp", ""),
+                }
+            )
+
+        return {
+            "id": thread.get("t.id"),
+            "timestamp": thread.get("t.created_at"),
+            "messages": messages,
+        }
+    except Exception as e:
+        logger.error(f"Error reading chat {chat_id} from graph: {e}")
+        return None
 
 
 def delete_chat_from_disk(chat_id: str) -> bool:
-    """Delete a chat file from workspace."""
-    path = get_workspace_path(CORE_FILES["CHATS"]) / f"{chat_id}.json"
-    if path.exists():
-        try:
-            path.unlink()
-            return True
-        except Exception as e:
-            logger.error(f"Error deleting chat {chat_id}: {e}")
-    return False
+    """Delete a chat and its messages from the Knowledge Graph."""
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
+        return False
+
+    try:
+        # Detach and delete thread and its contained messages
+        engine.backend.execute(
+            "MATCH (t:Thread {id: $id})-[:CONTAINS]->(m:Message) DETACH DELETE m",
+            {"id": chat_id},
+        )
+        engine.backend.execute(
+            "MATCH (t:Thread {id: $id}) DETACH DELETE t", {"id": chat_id}
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error deleting chat {chat_id} from graph: {e}")
+        return False
 
 
 def prune_large_messages(messages: list[Any], max_length: int = 5000) -> list[Any]:

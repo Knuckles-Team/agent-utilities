@@ -9,17 +9,19 @@ dependency analysis.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import List, Optional, Type, TypeVar, Union
 
 from .models import (
     ProjectConstitution,
-    FeatureSpec,
+    Spec,
     ImplementationPlan,
-    TaskList,
+    Tasks,
+    TaskStatus,
 )
 
-T = TypeVar("T", ProjectConstitution, FeatureSpec, ImplementationPlan, TaskList)
+T = TypeVar("T", ProjectConstitution, Spec, ImplementationPlan, Tasks)
 
 
 class SDDManager:
@@ -37,13 +39,13 @@ class SDDManager:
         if feature_id is None:
             raise ValueError(f"feature_id is required for {model_type.__name__}")
 
-        if model_type == FeatureSpec:
+        if model_type == Spec:
             return self.agent_data / "specs" / f"{feature_id}.json"
 
         if model_type == ImplementationPlan:
             return self.agent_data / "plans" / f"{feature_id}.json"
 
-        if model_type == TaskList:
+        if model_type == Tasks:
             return self.agent_data / "tasks" / f"{feature_id}.json"
 
         raise ValueError(f"Unsupported SDD model type: {model_type}")
@@ -70,7 +72,7 @@ class SDDManager:
             data = json.load(f)
             return model_type.model_validate(data)
 
-    def get_parallel_opportunities(self, task_list: TaskList) -> List[List[str]]:
+    def get_parallel_opportunities(self, task_list: Tasks) -> List[List[str]]:
         """Identify groups of tasks that can be safely run in parallel.
 
         Calculates parallel groups based on:
@@ -79,13 +81,12 @@ class SDDManager:
         """
         completed = set()
         all_tasks = {}
-        for phase in task_list.phases:
-            for task in phase.tasks:
-                all_tasks[task.id] = task
-                if task.status == "completed":
-                    completed.add(task.id)
+        for task in task_list.tasks:
+            all_tasks[task.id] = task
+            if task.status == TaskStatus.COMPLETED:
+                completed.add(task.id)
 
-        pending = [t for t in all_tasks.values() if t.status != "completed"]
+        pending = [t for t in all_tasks.values() if t.status != TaskStatus.COMPLETED]
 
         groups = []
         current_batch = []
@@ -93,7 +94,7 @@ class SDDManager:
 
         for task in pending:
             # Check if all dependencies are met
-            deps_met = all(d in completed for d in task.dependencies)
+            deps_met = all(d in completed for d in task.depends_on)
 
             if deps_met:
                 # Check for file collisions with the current batch
@@ -113,3 +114,110 @@ class SDDManager:
             groups.append(current_batch)
 
         return groups
+
+    def export_to_markdown(self, model: Union[Spec, Tasks], feature_id: str) -> Path:
+        """Export an SDD model to a human-readable Markdown file.
+
+        This provides spec-kit parity by maintaining mirrored .md files in the workspace.
+        """
+        if isinstance(model, Spec):
+            path = self.workspace_root / f"spec-{feature_id}.md"
+            content = self._render_spec_md(model)
+        elif isinstance(model, Tasks):
+            path = self.workspace_root / f"tasks-{feature_id}.md"
+            content = self._render_tasks_md(model)
+        else:
+            raise ValueError(f"Unsupported model for markdown export: {type(model)}")
+
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def _render_spec_md(self, spec: Spec) -> str:
+        md = [f"# Spec: {spec.title} ({spec.feature_id})\n"]
+        md.append("## User Stories")
+        for us in spec.user_stories:
+            md.append(f"- **{us.title}**: {us.description}")
+            for ac in us.acceptance_criteria:
+                md.append(f"  - [ ] {ac}")
+
+        if spec.non_functional_requirements:
+            md.append("\n## Non-Functional Requirements")
+            for req in spec.non_functional_requirements:
+                md.append(f"- {req}")
+
+        return "\n".join(md)
+
+    def _render_tasks_md(self, tasks: Tasks) -> str:
+        md = [f"# Tasks: {tasks.feature_id}\n"]
+        for task in tasks.tasks:
+            status_marker = "[x]" if task.status == TaskStatus.COMPLETED else "[ ]"
+            parallel_marker = " [P]" if task.parallel else ""
+            md.append(f"### {status_marker} {task.id}: {task.title}{parallel_marker}")
+            md.append(f"{task.description}")
+            if task.depends_on:
+                md.append(f"\n**Depends on**: {', '.join(task.depends_on)}")
+            if task.file_paths:
+                md.append(f"\n**Files**: {', '.join(task.file_paths)}")
+            md.append("")
+
+        return "\n".join(md)
+
+    def import_from_markdown(
+        self, markdown_path: Union[str, Path], feature_id: str
+    ) -> Tasks:
+        """Parse a tasks.md file back into a structured Tasks model.
+
+        Supports spec-kit [P] markers for parallel execution detection.
+        """
+        path = Path(markdown_path)
+        content = path.read_text(encoding="utf-8")
+
+        tasks = []
+        # Pattern for "### [ ] T1: Title [P]"
+        task_pattern = re.compile(
+            r"### \[(?P<status>[ xX])\] (?P<id>[A-Za-z0-9_-]+): (?P<title>.*?)(?P<parallel> \[P\])?$"
+        )
+
+        current_task = None
+        for line in content.splitlines():
+            match = task_pattern.match(line)
+            if match:
+                if current_task:
+                    tasks.append(current_task)
+
+                status_char = match.group("status").lower()
+                status = (
+                    TaskStatus.COMPLETED if status_char == "x" else TaskStatus.PENDING
+                )
+
+                current_task = {
+                    "id": match.group("id"),
+                    "title": match.group("title").strip(),
+                    "description": "",
+                    "status": status,
+                    "parallel": bool(match.group("parallel")),
+                    "depends_on": [],
+                    "file_paths": [],
+                }
+            elif current_task:
+                if line.startswith("**Depends on**:"):
+                    deps = line.replace("**Depends on**:", "").strip()
+                    current_task["depends_on"] = [
+                        d.strip() for d in deps.split(",") if d.strip()
+                    ]
+                elif line.startswith("**Files**:"):
+                    files = line.replace("**Files**:", "").strip()
+                    current_task["file_paths"] = [
+                        f.strip() for f in files.split(",") if f.strip()
+                    ]
+                elif (
+                    line.strip()
+                    and not line.startswith("#")
+                    and not line.startswith("##")
+                ):
+                    current_task["description"] += line.strip() + "\n"
+
+        if current_task:
+            tasks.append(current_task)
+
+        return Tasks(feature_id=feature_id, tasks=tasks)

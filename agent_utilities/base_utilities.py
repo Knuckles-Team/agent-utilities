@@ -301,7 +301,14 @@ def ensure_package_installed(package_name: str, auto_install: bool = False) -> b
         import subprocess
 
         subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", package_name],
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--break-system-packages",
+                package_name,
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

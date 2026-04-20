@@ -21,8 +21,6 @@ from typing import Optional
 from ..workspace import (
     get_workspace_path,
     CORE_FILES,
-    load_workspace_file,
-    parse_node_registry,
 )
 from ..base_utilities import to_integer
 from ..models import MCPConfigModel, MCPAgentRegistryModel
@@ -33,19 +31,59 @@ DEFAULT_GRAPH_TIMEOUT = to_integer(os.environ.get("GRAPH_TIMEOUT", "1200000"))
 
 
 def get_discovery_registry() -> MCPAgentRegistryModel:
-    """Load the unified agent discovery registry from NODE_AGENTS.md.
+    """Load the unified agent discovery registry from the Knowledge Graph.
 
     Returns:
-        The parsed MCPAgentRegistryModel.
+        The populated MCPAgentRegistryModel.
     """
-    content = load_workspace_file(CORE_FILES["NODE_AGENTS"])
-    if not content:
+    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..models import MCPAgent, MCPToolInfo
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
+        # Fallback to local prompt discovery if graph not active
         return MCPAgentRegistryModel()
+
+    agents = []
+    # 1. Fetch Prompt Agents
     try:
-        return parse_node_registry(content)
+        prompt_rows = engine.backend.execute(
+            "MATCH (p:Prompt) RETURN p.name, p.desc, p.capabilities, p.content"
+        )
+        for row in prompt_rows:
+            agents.append(
+                MCPAgent(
+                    name=row.get("p.name", ""),
+                    description=row.get("p.desc", ""),
+                    agent_type="prompt",
+                    capabilities=row.get("p.capabilities", []),
+                    system_prompt=row.get("p.content", ""),
+                )
+            )
     except Exception as e:
-        logger.error(f"Failed to parse Agent Registry: {e}")
-        return MCPAgentRegistryModel()
+        logger.debug(f"Failed to fetch Prompt nodes: {e}")
+
+    # 2. Fetch Tools
+    tools = []
+    try:
+        tool_rows = engine.backend.execute(
+            "MATCH (t:Tool) RETURN t.name, t.description, t.mcp_server, t.relevance_score, t.tags, t.requires_approval"
+        )
+        for row in tool_rows:
+            tools.append(
+                MCPToolInfo(
+                    name=row.get("t.name", ""),
+                    description=row.get("t.description", ""),
+                    mcp_server=row.get("t.mcp_server", "unknown"),
+                    relevance_score=row.get("t.relevance_score", 0),
+                    all_tags=row.get("t.tags", []),
+                    requires_approval=row.get("t.requires_approval", False),
+                )
+            )
+    except Exception as e:
+        logger.debug(f"Failed to fetch Tool nodes: {e}")
+
+    return MCPAgentRegistryModel(agents=agents, tools=tools)
 
 
 def load_node_agents_registry() -> MCPAgentRegistryModel:

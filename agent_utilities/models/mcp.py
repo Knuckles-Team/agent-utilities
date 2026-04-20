@@ -1,0 +1,93 @@
+import time
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field
+
+
+class MCPConfigModel(BaseModel):
+    mcpServers: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPAgent(BaseModel):
+    name: str = Field(description="Unique agent identifier / tag")
+    agent_type: str = Field("prompt", description="Type: prompt, mcp, a2a")
+    prompt_file: Optional[str] = Field(None, description="Markdown prompt file path")
+    endpoint_url: Optional[str] = Field(None, description="Connection URL / cmd")
+    description: str = Field("", description="Specialized agent description")
+    system_prompt: str = Field("", description="Synthesized system prompt")
+    tools: List[str] = Field(default_factory=list, description="Tool names")
+    mcp_server: Optional[str] = Field(None, description="Source MCP server name")
+    capabilities: List[str] = Field(
+        default_factory=list, description="Skills/Capabilities"
+    )
+    mcp_tools: Optional[str] = Field(None, description="MCP tool/tag patterns")
+    extra_config: Dict[str, Any] = Field(default_factory=dict, description="Metadata")
+    is_custom: bool = Field(False, description="True if manually edited")
+    tool_count: int = Field(default=0, description="Number of tools")
+    avg_relevance_score: int = Field(default=0, description="Mean score (0-100)")
+
+
+class MCPToolInfo(BaseModel):
+    name: str = Field(description="Full tool name")
+    description: str = Field(description="Tool description")
+    tag: Optional[str] = Field(None, description="Primary tool tag for partitioning")
+    mcp_server: str = Field(description="Source MCP server")
+    all_tags: List[str] = Field(
+        default_factory=list, description="All tags associated with the tool"
+    )
+    relevance_score: int = Field(
+        default=0, description="Deterministic quality score (0-100)"
+    )
+    requires_approval: bool = Field(
+        default=False,
+        description="Whether this tool requires human-in-the-loop approval",
+    )
+
+
+class MCPAgentRegistryModel(BaseModel):
+    agents: List[MCPAgent] = Field(default_factory=list)
+    tools: List[MCPToolInfo] = Field(default_factory=list)
+
+
+class DiscoveredSpecialist(BaseModel):
+    tag: str = Field(description="Routing key used by the dispatcher")
+    name: str = Field(description="Human-readable display name")
+    description: str = Field(default="", description="Specialist summary")
+    source: str = Field(description="Origin: 'prompt', 'mcp', or 'a2a'")
+    mcp_server: str = Field(default="", description="Source MCP server (MCP only)")
+    tools: List[str] = Field(default_factory=list, description="Known tool names")
+    url: str = Field(default="", description="Agent endpoint URL (A2A/MCP only)")
+    capabilities: List[str] = Field(
+        default_factory=list, description="Rich capabilities"
+    )
+    extra_config: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
+
+
+class MCPServerHealth(BaseModel):
+    server_name: str = ""
+    failures: int = 0
+    last_failure: float = 0.0
+    state: str = "closed"
+    cooldown_seconds: float = 60.0
+    max_failures: int = 3
+
+    def record_failure(self) -> None:
+        self.failures += 1
+        self.last_failure = time.time()
+        if self.failures >= self.max_failures:
+            self.state = "open"
+
+    def record_success(self) -> None:
+        self.failures = 0
+        self.state = "closed"
+
+    def is_available(self) -> bool:
+        if self.state == "closed":
+            return True
+        if self.state == "open":
+            if time.time() - self.last_failure > self.cooldown_seconds:
+                self.state = "half-open"
+                return True
+            return False
+        return True

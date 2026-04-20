@@ -33,10 +33,28 @@ except ImportError:
 
     # Type stubs for when package is missing
     class AdapterConfig:
-        pass
+        def __init__(self, **kwargs):
+            pass
 
     class PrepareToolsMode:
-        pass
+        def __init__(self, **kwargs):
+            pass
+
+    class PrepareToolsBridge:
+        def __init__(self, **kwargs):
+            pass
+
+    class ThinkingBridge:
+        def __init__(self, **kwargs):
+            pass
+
+    class FileSessionStore:
+        def __init__(self, **kwargs):
+            pass
+
+    class NativeApprovalBridge:
+        def __init__(self, **kwargs):
+            pass
 
 
 logger = logging.getLogger(__name__)

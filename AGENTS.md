@@ -8,19 +8,18 @@
 - **Unified Specialist Discovery**: All specialist agents—prompt-based, MCP-derived, and A2A peers—are consolidated into a single, declarative source of truth: `NODE_AGENTS.md`. This unified registry is dynamically rebuilt from prompt frontmatter and MCP configurations, ensuring consistent registration, tag-prompting, and tool binding across the entire orchestration layer.
 - **Key Principles**:
     - Functional and modular utility design.
-    - Standardized workspace management (`IDENTITY.md`, `MEMORY.md`).
+    - Standardized workspace management (`IDENTITY.md`, `Knowledge Graph`).
     - **Elicitation First**: Robust support for structured user input during tool calls, bridging MCP and Web UIs.
 
 ## Package Relationships
 `agent-utilities` is the core Python engine. It provides the backend server that serves both the `agent-webui` assets and the `agent-terminal-ui` client.
 - **Backend (`agent-utilities`)**: Handles LLM orchestration, tool execution, and a multi-protocol interface layer.
 - **Web Frontend (`agent-webui`)**: A React application using Vercel AI SDK that provides a cinematic chat interface.
-- **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction.
+- **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction. Aiming for feature parity with **Claude Code** (slash commands, diffs, cost tracking).
 - **Communication**: Frontends primarily connect via the Agent Communication Protocol (ACP) for standardized sessions, planning, and streaming across the ecosystem.
 - **Legacy Compatibility**: A secondary **AG-UI protocol layer** is exposed at `/ag-ui`, providing a standard streaming interface compatible with native Pydantic AI and Agent UI clients.
 
 ## Ecosystem Dependency Graph
-This diagram visualizes the high-level relationships and core dependencies across the three primary ecosystem packages.
 
 ```mermaid
 graph TD
@@ -83,7 +82,6 @@ graph TD
     Web --> Vite
 ```
 
-
 ## Core Architecture Diagram
 ```mermaid
 graph TD
@@ -97,6 +95,22 @@ graph TD
     subgraph AgentUtilities [agent-utilities]
         Backend --> UnifiedExec["Unified Execution Layer<br/>(graph/unified.py)"]
         UnifiedExec --> Graph[Pydantic Graph Agent]
+        Graph --> KG[Intelligence Graph Engine]
+
+        subgraph MemoryArchitecture [Autonomous Memory Architecture]
+            KG --> MAGMA[MAGMA: Orthogonal Views]
+            KG --> Lightning[Agent Lightning: Self-Improvement]
+            KG --> UnifiedDB[(Unified Graph DB: Ladybug/Neo4j)]
+
+            MAGMA --> Semantic[Semantic View]
+            MAGMA --> Temporal[Temporal View]
+            MAGMA --> Causal[Causal View]
+            MAGMA --> Entity[Entity View]
+
+            Lightning --> Rewards[Outcome Rewards]
+            Lightning --> Critiques[Textual Gradients]
+            Lightning --> Evolution[Prompt/Skill Evolution]
+        end
 
         subgraph ProtocolAdapters [Protocol Adapters]
             AGUI_Adapter[AG-UI Adapter]
@@ -143,68 +157,268 @@ graph TD
     Backend -- 6. Future.resolve --> AM
 ```
 
-## MCP Loading & Registry Architecture
-This diagram illustrates how MCP servers are discovered, specialized, and persisted in the graph.
-The **Unified Discovery** phase merges MCP and A2A sources into a single roster before graph initialization.
+## Knowledge Graph (Unified Intelligence & Memory)
+The ecosystem leverages a **Unified Intelligence Graph** that bridges long-term agent memory with deep structural codebase awareness. This single, intelligence-driven ecosystem allows agents to reason simultaneously about specialists, tools, memory, and code-level architectural impacts.
 
 ```mermaid
 graph TD
-    subgraph Registry_Phase ["1. Registry Synchronization (Deployment)"]
-        Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp_agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
-        Registry["<b>NODE_AGENTS.md</b><br/><i>(MCP Specialist Registry)</i>"] -.->|Read Hash| Manager
-
-        Manager -->|Config Hash Match?| Branch{Decision}
-        Branch -- "Yes (Cache Hit)" --> Skip["Skip Tool Extraction"]
-        Branch -- "No (Cache Miss)" --> Parallel["<b>Parallel Dispatch</b><br/>(Semaphore 30)"]
-
-        Parallel -->|Deploy STDIO / HTTPs| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]
-        Servers -->|JSON-RPC list_tools| Parallel
-        Parallel -->|Metadata| Registry
+    subgraph Ingestion_Pipeline [12-Phase Unified Intelligence Pipeline]
+        direction LR
+        Memory[1. Memory] --> Scan[2. Scan]
+        Scan --> Registry[3. Registry]
+        Registry --> Parse[4. Parse]
+        Parse --> Resolve[5. Resolve]
+        Resolve --> MRO[6. MRO]
+        MRO --> Ref[7. Reference]
+        Ref --> Comm[8. Communities]
+        Comm --> Cent[9. Centrality]
+        Cent --> Emb[10. Embedding]
+        Emb --> RegInt[11. Registry Int]
+        RegInt --> Sync[12. Sync]
     end
 
-    subgraph Unified_Discovery ["2. Unified Discovery (Bootstrap)"]
-        Registry --> UAL["<b>get_discovery_registry()</b><br/><i>config_helpers.py</i>"]
-        UAL -->|Consolidated Roster| Roster["<b>MCPAgentRegistryModel</b><br/><i>name, agent_type, tools, url</i>"]
+    subgraph Memory_Layer [In-Memory Graph]
+        direction TB
+        NX[(NetworkX MultiDiGraph)]
+        NX -- "Topological Algorithms" --> NX
     end
 
-    subgraph Initialization_Phase ["3. Graph Initialization (Runtime)"]
-        Config -->|Per-server loading| Loader["<b>builder.py</b><br/><i>Per-server resilient load</i><br/>Skips servers with missing env-vars"]
-        Roster --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
-        Loader -->|MCPServerStdio| ToolPool["<b>mcp_toolsets</b>"]
-        Builder -->|Register Registry Nodes| Specialists["<b>Specialist Superstates</b>"]
-        Specialists -->|Compile| Graph["<b>Pydantic Graph Agent</b>"]
+    subgraph Persistence_Layer [Persistent Graph Storage]
+        direction TB
+        Backend(GraphBackend Abstraction)
+        LDB[(LadybugDB)]
+        FDB[(FalkorDB)]
+        N4J[(Neo4j)]
+
+        Backend -- default --> LDB
+        Backend -.-> FDB
+        Backend -.-> N4J
+        LDB -- "Cypher & Vectors" --> LDB
     end
 
-    subgraph Operation_Phase ["4. Persistent Operation (Execution)"]
-        Graph --> Lifespan["<b>runner.py</b><br/><i>run_graph() AsyncExitStack</i>"]
-        Lifespan -->|Parallel connect<br/>with per-server error reporting| ConnPool["<b>Active Connection Pool</b><br/>(Warm Toolsets)<br/>❌ failing servers skipped & logged"]
-        ConnPool -->|Zero-Latency Call| Servers
+    subgraph Query_Layer [MCP / CLI / Tool Interface]
+        direction LR
+        Q_Impact[get_code_impact]
+        Q_Query[search_knowledge_graph]
+        Q_CRUD[Memory CRUD]
     end
 
-    subgraph Telemetry_Phase ["5. Tool-Count Telemetry (Per-Specialist)"]
-        ConnPool --> Bind["<b> Tool Binding</b><br/>Deduplicated by object identity"]
-        Bind --> TelLog["<b>[TELEMETRY] log</b><br/>0 tools = blind warning<br/>50+ tools = overload warning"]
-        Bind --> TelEvent["<b>tools-bound</b> sideband event<br/>count, toolset_count, dev_tools, mcp_tools"]
+    Ingestion_Pipeline -- "Mutates" --> Memory_Layer
+    Memory_Layer -- "Syncs To" --> Persistence_Layer
+    Query_Layer -- "Query" --> Persistence_Layer
+    Query_Layer -- "Fallback" --> Memory_Layer
+
+    subgraph Autonomous_Loop [Autonomous Self-Improvement Loop]
+        direction TB
+        Outcome[Outcome Evaluation] --> Critique[Critique / Textual Gradient]
+        Critique --> PromptEvolution[Prompt/Skill Evolution]
+        PromptEvolution --> Persistence_Layer
     end
 
-    %% Styling
-    style Config fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style A2AReg fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style Manager fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    style Parallel fill:#f8cecc,stroke:#b85450,stroke-width:2px
-    style ConnPool fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style Graph fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    style Loader fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style UAL fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-    style Roster fill:#fff2cc,stroke:#d6b656,stroke-width:2px
-    style Bind fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style TelLog fill:#fef9e7,stroke:#d6b656,stroke-width:1px
-    style TelEvent fill:#fef9e7,stroke:#d6b656,stroke-width:1px
+    style Ingestion_Pipeline fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+    style Memory_Layer fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style Persistence_Layer fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style Query_Layer fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    style Autonomous_Loop fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 ```
 
+### Unified Intelligence Pipeline (12 Phases)
+To provide robust cross-repository intelligence, the graph is built using a sequential, topological DAG pipeline. Each phase adds a layer of intelligence:
+
+| Phase | Name | Purpose |
+|-------|------|---------|
+| 1 | **Memory** | Hydrates existing state (Nodes/Edges) from **LadybugDB** to maintain continuity. |
+| 2 | **Scan** | Walks the filesystem, respects `.gitignore`, and identifies all source code files. |
+| 3 | **Registry** | Parses `NODE_AGENTS.md` and `prompts/*.md` to extract agent specialists and tool signatures. |
+| 4 | **Parse** | AST parsing (**tree-sitter**) to extract symbols (Classes, Functions, Imports) from code. |
+| 5 | **Resolve** | Maps raw import strings to actual `File` or `Symbol` nodes across the workspace. |
+| 6 | **MRO** | Resolves Method Resolution Order and inheritance chains for OO structures. |
+| 7 | **Reference** | Builds the call graph by identifying where specific symbols are referenced or invoked. |
+| 8 | **Communities** | Clusters nodes into tightly-coupled modules using **Louvain** topological clustering. |
+| 9 | **Centrality** | Runs **PageRank** analysis to identify critical path "God Objects" and core utilities. |
+| 10 | **Embedding** | Generates semantic vector embeddings via LM Studio (`text-embedding-nomic-embed-text-v2-moe`) for hybrid search. |
+| 11 | **Registry Int**| Maps MCP tools and agent skills directly to the code structures that implement them. |
+| 12 | **Sync** | Projects the NetworkX graph into the persistent **LadybugDB** Cypher store. |
+| 13 | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
+| 14 | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
+
+### Operational Reliability & Coordination
+The ecosystem integrates advanced operational primitives to ensure long-term autonomy and resilient multi-agent collaboration.
+
+| Capability | Logic | Graph Integration |
+| :--- | :--- | :--- |
+| **Stuck Loop Detection** | Detects repetitive tool calls, alternating patterns, and no-op loops. | Records `SelfEvaluationNode` for long-term pattern auditing. |
+| **Lifecycle Hooks** | Unified PRE/POST_TOOL_USE and BEFORE/AFTER_RUN hooks for auditing. | Auto-traces every tool call as a `ToolCallNode` in the graph. |
+| **Context Warnings** | Proactively warns model as token budget nears 70% (URGENT) and 90% (CRITICAL). | Records critical context pressure events in the graph memory. |
+| **Output Eviction** | Intercepts massive tool outputs (>80k chars) and moves them to KB. | Stores full content as `RawSource` node; leaves preview in history. |
+| **Conversation Checkpoints**| Full conversation snapshots (checkpoints) at tool/turn boundaries. | Persisted as `CheckpointNode` for cross-process fork/rewind. |
+| **Agent Teams** | Shared task management and P2P messaging across agent groups. | Persists `TeamNode` and `TaskNode` with assigned relationships. |
+| **Output Styles** | Dynamic response style discovery (concise, formal, etc.) via KB. | Styles are stored as `Article` nodes in `kb:output-styles`. |
+
+### Agent Communication Protocol (ACP)
+All inter-agent coordination (Teams) and frontend communication (TUI/Web) leverages the **Agent Communication Protocol (ACP)**. This provides a standardized message bus for sideband events (approvals, logs, status) and P2P message routing between agent specialists.
+
+### Memory & Code Lifecycle (CRUD + Analysis)
+Agents interact with this layer using the `knowledge_tools` suite to manage memory, reason about the codebase, and manage the ecosystem state.
+
+| Operation | Tool | Trigger Criteria |
+| :--- | :--- | :--- |
+| **CREATE MEMORY** | `add_knowledge_memory` | When a new **project fact**, **user preference**, or **permanent decision** is established. |
+| **READ MEMORY** | `get_knowledge_memory` | When the agent needs the **full context** or timestamp for a historical decision/memory. |
+| **SEARCH** | `search_knowledge_graph` | **Hybrid Search**: Performs a keyword and topological search across agents, tools, code, and memories. |
+| **IMPACT** | `get_code_impact` | **Topological Analysis**: Before making changes, analyzes which symbols or files will be affected. |
+| **UPDATE MEMORY** | `update_knowledge_memory`| When a previous memory is found to be **outdated, incomplete, or refined**. |
+| **DELETE MEMORY** | `delete_knowledge_memory`| When a memory is proven **false, irrelevant, or superseded**. |
+| **LINK** | `link_knowledge_nodes` | When a relationship is discovered between disparate items (e.g., linking a memory to a code symbol). |
+| **SYNC** | `sync_feature_to_memory`| Automatically captures the full **SDD lifecycle** (Spec, Plan, Tasks) after a feature is completed. |
+| **HEARTBEAT** | `log_heartbeat` | Agent telemetry logging to the `Heartbeat` node schema. |
+| **CLIENT/USER** | `create_client` / `create_user` / `save_preference` | Creating user profiles and preferences directly into the graph schema. |
+| **CHAT/CRON** | `save_chat_message` / `log_cron_execution` | Storing execution and dialog logs, maintained dynamically by background pruning tasks. |
+| **REASONING** | `ingest_episode` / `record_outcome` | Capturing reasoning traces and evaluating outcomes for self-improvement. |
+| **MAGMA** | `retrieve_orthogonal_context` | Policy-guided retrieval across Semantic, Temporal, Causal, and Entity views. |
+| **SPAWNING** | `spawn_specialized_agent` | Creating dynamic sub-agents with curated toolsets for complex tasks. |
+
+### MAGMA-Inspired Orthogonal Reasoning Views
+The graph engine supports policy-guided retrieval across four orthogonal views, ensuring the agent has the right context for the right task:
+- **Semantic View**: Traditional RAG/vector search for conceptual similarity.
+- **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
+- **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
+- **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
+
+### Agent Lightning Self-Improvement Loop
+The system autonomously refines its own performance through a continuous feedback loop:
+1. **Outcome Evaluation**: Every significant episode is evaluated for success (Reward) using `record_outcome`.
+2. **Critique (Textual Gradients)**: Unsuccessful episodes generate "textual gradients" (Critiques) identifying failure points.
+3. **Prompt Evolution**: Critiques are used to generate improved versions of system prompts (`SystemPrompt` nodes) via `optimize_prompt`.
+4. **Skill Spawning**: The agent can propose and persist new Python skills (`ProposedSkill`) based on observed needs.
+
+### Unified Resource Management (CallableResource)
+All external resources are first-class graph nodes, allowing the agent to reason over its own capabilities:
+- **MCP_TOOL**: Tools discovered from external MCP servers.
+- **A2A_AGENT**: Remote agent peers reachable via fastA2A.
+- **AGENT_SKILL**: Local Python skills defined with YAML/Markdown frontmatter.
+- **SPAWNED_AGENT**: Dynamically created sub-agent instances with minimal, curated toolsets.
+
+### Memory Maintenance & Pruning
+The `GraphMaintainer` class (`maintenance.py`) runs seven background maintenance operations:
+1. **Embedding Enrichment**: Vectorizes unembedded content via LM Studio.
+2. **Cron Log Pruning**: Deletes successful logs older than 30 days.
+3. **Chat Summarization**: Compresses old threads into `ChatSummary` nodes.
+4. **Importance Scoring**: PageRank-based centrality scoring for all nodes.
+5. **Temporal Decay**: Ebbinghaus-style 5%/day decay on importance scores.
+6. **Memory Consolidation**: Distills old episodes into semantic summaries.
+7. **Low-Signal Pruning**: Removes nodes below importance threshold (0.05).
+
+### Backend Abstraction Layer
+All graph storage is routed through the `GraphBackend` ABC (`backends/base.py`), providing **hot-swappable** database backends. The `create_backend()` factory function (`backends/__init__.py`) is the **single entry point** for backend creation across the entire codebase.
+
+**Supported Backends:**
+| Backend | Status | Connection | Use Case |
+|---|---|---|---|
+| **LadybugDB** | Full (default) | File path (`knowledge_graph.db`) | Embedded, zero-config, schema-enforced Cypher |
+| **FalkorDB** | Stub | `host:port` (Redis protocol) | Distributed, high-throughput graph workloads |
+| **Neo4j** | Stub | `bolt://host:port` | Enterprise, ACID-compliant graph databases |
+
+**Factory Usage:**
+```python
+from agent_utilities.knowledge_graph.backends import create_backend
+
+# Default: LadybugDB at knowledge_graph.db
+backend = create_backend()
+
+# Explicit backend selection
+backend = create_backend(backend_type="neo4j", uri="bolt://prod-neo4j:7687")
+backend = create_backend(backend_type="falkordb", host="redis-host", port=6380)
+
+# With db_path for LadybugDB
+backend = create_backend(db_path="/data/agent.db")
+```
+
+**Environment Variables:**
+| Variable | Description | Default |
+|---|---|---|
+| `GRAPH_BACKEND` | Backend type: `ladybug`, `falkordb`, `neo4j` | `ladybug` |
+| `GRAPH_DB_PATH` | File path for LadybugDB | `knowledge_graph.db` |
+| `GRAPH_DB_HOST` | Host for FalkorDB/Neo4j | `localhost` |
+| `GRAPH_DB_PORT` | Port for FalkorDB (6379) or Neo4j (7687) | varies |
+| `GRAPH_DB_URI` | Full URI for Neo4j | `bolt://localhost:7687` |
+| `GRAPH_DB_USER` | Username for Neo4j | `neo4j` |
+| `GRAPH_DB_PASSWORD` | Password for Neo4j | `password` |
+| `GRAPH_DB_NAME` | Database name for FalkorDB | `agent_graph` |
+
+**Architecture:** All consumers (engine, pipeline phases, server, MCP manager, registry builder) use `create_backend()` or receive a shared `backend` instance via dependency injection. No module directly imports a specific backend class — the factory handles selection based on config/env.
+
+### Knowledge Base (KB) Layer
+An LLM-maintained personal wiki system built directly into the knowledge graph — replacing Obsidian as the "IDE frontend" with a graph-native, agent-queryable alternative.
+
+**Architecture Flow:**
+```
+Raw Sources (PDF/DOCX/EPUB/MD/URL)
+    ↓ KBDocumentParser (vector-mcp pattern: SimpleDirectoryReader + chunking)
+DocumentChunks (hash-deduplicated)
+    ↓ KBExtractor (Pydantic AI: result_type=ExtractedArticle)
+Validated Articles / Facts / Concepts (type-safe)
+    ↓ KBIngestionEngine
+Graph Nodes: KnowledgeBase → Article → KBConcept / KBFact / KBIndex
+    ↓ Phase 13 / Backend Sync
+Persistent Storage (LadybugDB / Neo4j / FalkorDB)
+    ↓ KB Tools (list, search, get, health, archive, export)
+Agent Q&A and Knowledge Queries
+```
+
+**KB Node Hierarchy:**
+- `KnowledgeBase` (namespace root, e.g., `kb:pydantic-ai-docs`) — top-level namespace for agent discoverability
+  - `Article` — compiled wiki article with full markdown content and embedding
+  - `KBConcept` — key concepts extracted from articles (linked via `ABOUT`)
+  - `KBFact` — atomic facts with certainty scores (linked via `CITES` to sources)
+  - `RawSource` — original ingested documents (linked via `COMPILED_FROM`)
+  - `KBIndex` — auto-maintained discovery index with suggested queries (linked via `INDEXES_KB`)
+
+**Agent Discoverability:** Agents call `list_knowledge_bases()` to get a flat list of all KBs with topics, article counts, and example queries — then drill in with `search_knowledge_base_tool()` or `get_kb_article()`.
+
+**Supported Source Formats:**
+| Format | Parser | Notes |
+|---|---|---|
+| Markdown (`.md`) | Native | Primary format, skill-graphs use this |
+| PDF (`.pdf`) | pypdf / LlamaIndex | Optional dep |
+| Word (`.docx`) | python-docx | Optional dep |
+| EPUB (`.epub`) | ebooklib | Optional dep |
+| HTML / Web-clip | BeautifulSoup + httpx | URL or local file |
+| Skill-Graph dirs | SKILL.md frontmatter + reference/ | Auto-detected |
+
+**KB Tools (8 total):**
+| Tool | Description |
+|---|---|
+| `ingest_knowledge_base` | Ingest directory, file, URL, or skill-graph into a named KB |
+| `list_knowledge_bases` | List all KBs with status, article counts, and suggested queries |
+| `search_knowledge_base_tool` | Hybrid keyword search within a specific or all KBs |
+| `get_kb_article` | Retrieve full markdown content of a specific article |
+| `update_knowledge_base` | Incrementally re-ingest changed files (hash-based, cheap) |
+| `run_kb_health_check` | LLM-backed audit: contradictions, orphans, gaps, suggestions |
+| `archive_knowledge_base` | Compress low-importance articles to summary-only (saves memory) |
+| `export_knowledge_base` | Export to Obsidian-compatible markdown with YAML frontmatter |
+
+**Maintenance Operations (added to GraphMaintainer):**
+- **KB Article Compression** (op 8): Articles > `kb_archive_age_days` old + importance < `kb_archive_importance_threshold` → summary-only
+- **KB Index Refresh** (op 9): Weekly refresh of `KBIndex` nodes for KBs with new/changed articles
+- **KB Contradiction Resolution** (op 10): Scan `CONTRADICTS_KB` edges → flag for LLM review
+
+**PipelineConfig KB Fields:**
+```python
+enable_knowledge_base: bool = True           # Enable Phase 13
+kb_auto_ingest_skill_graphs: bool = False    # Auto-ingest enabled skill-graphs at startup
+kb_chunk_size: int = 1024                    # Tokens per document chunk (matches vector-mcp)
+kb_extraction_model: Optional[str] = None   # LLM model for extraction (None = default)
+kb_archive_age_days: int = 180              # Age threshold for archiving
+kb_archive_importance_threshold: float = 0.3 # Importance threshold for compression
+```
+
+**Visualization:**
+- **agent-webui**: `/kb` route — KB browser sidebar, article viewer, D3.js minimap of article→concept links
+- **agent-terminal-ui**: `\kb list`, `\kb search <query>`, `\kb article <title>`, `\kb health` commands
 
 ## Graph Orchestration Architecture
+
 ```mermaid
   graph TB
   Start([User Query + Images]) --> ACPLayer["<b>ACP / AG-UI / SSE </b><br/><i>(Unified Protocol Layer)</i>"]
@@ -215,7 +429,7 @@ graph TD
   router_step -- "Trivial Query" --> End
   router_step -- "Full Pipeline" --> dispatcher[Dispatcher: Dynamic Routing]
   dispatcher -- "First Entry" --> mem_step[Memory: Context Retrieval]
-  mem_step --> dispatcher[Dispatcher: Dynamic Routing]
+  mem_step --> dispatcher
 
   subgraph "Discovery Phase"
     direction TB
@@ -261,119 +475,107 @@ graph TD
       UIUX["<b>UI/UX</b><br/>---<br/><i>u-skill:</i> theme-factory, brand-guidelines, algorithmic-art<br/><i>g-skill:</i> shadcn-docs, framer-docs<br/><i>t-tool:</i> developer_tools"]
       Debug["<b>Debugger</b><br/>---<br/><i>u-skill:</i> developer-utilities, agent-builder<br/><i>t-tool:</i> developer_tools"]
     end
-
-    subgraph Ecosystem ["Agent Ecosystem"]
-      direction TB
-
-      subgraph Infra_Management ["Infrastructure & DevOps"]
-        AdGuardHome["<b>AdGuard Home Agent</b><br/>---<br/><i>mcp-tool:</i> adguard-mcp<br/>"]
-        AnsibleTower["<b>Ansible Tower Agent</b><br/>---<br/><i>mcp-tool:</i> ansible-tower-mcp<br/>"]
-        ContainerManager["<b>Container Manager Agent</b><br/>---<br/><i>mcp-tool:</i> container-mcp<br/>"]
-        Microsoft["<b>Microsoft Agent</b><br/>---<br/><i>mcp-tool:</i> microsoft-mcp<br/>"]
-        Portainer["<b>Portainer Agent</b><br/>---<br/><i>mcp-tool:</i> portainer-mcp<br/>"]
-        SystemsManager["<b>Systems Manager</b><br/>---<br/><i>mcp-tool:</i> systems-mcp<br/>"]
-        TunnelManager["<b>Tunnel Manager</b><br/>---<br/><i>mcp-tool:</i> tunnel-mcp<br/>"]
-        UptimeKuma["<b>Uptime Kuma Agent</b><br/>---<br/><i>mcp-tool:</i> uptime-mcp<br/>"]
-        RepositoryManager["<b>Repository Manager</b><br/>---<br/><i>mcp-tool:</i> repository-mcp<br/>"]
-      end
-
-      subgraph Media_HomeLab ["Media & Home Lab"]
-        ArchiveBox["<b>ArchiveBox API</b><br/>---<br/><i>mcp-tool:</i> archivebox-mcp<br/>"]
-        Arr["<b>Arr (Radarr/Sonarr)</b><br/>---<br/><i>mcp-tool:</i> arr-mcp<br/>"]
-        AudioTranscriber["<b>Audio Transcriber</b><br/>---<br/><i>mcp-tool:</i> audio-transcriber-mcp<br/>"]
-        Jellyfin["<b>Jellyfin Agent</b><br/>---<br/><i>mcp-tool:</i> jellyfin-mcp<br/>"]
-        MediaDownloader["<b>Media Downloader</b><br/>---<br/><i>mcp-tool:</i> media-mcp<br/>"]
-        Owncast["<b>Owncast Agent</b><br/>---<br/><i>mcp-tool:</i> owncast-mcp<br/>"]
-        qBittorrent["<b>qBittorrent Agent</b><br/>---<br/><i>mcp-tool:</i> qbittorrent-mcp<br/>"]
-      end
-
-      subgraph Productive_Dev ["Productivity & Development"]
-        Atlassian["<b>Atlassian Agent</b><br/>---<br/><i>mcp-tool:</i> atlassian-mcp<br/>"]
-        Genius["<b>Genius Agent</b><br/>---<br/><i>mcp-tool:</i> genius-mcp<br/>"]
-        GitHub["<b>GitHub Agent</b><br/>---<br/><i>mcp-tool:</i> github-mcp<br/>"]
-        GitLab["<b>GitLab API</b><br/>---<br/><i>mcp-tool:</i> gitlab-mcp<br/>"]
-        Langfuse["<b>Langfuse Agent</b><br/>---<br/><i>mcp-tool:</i> langfuse-mcp<br/>"]
-        LeanIX["<b>LeanIX Agent</b><br/>---<br/><i>mcp-tool:</i> leanix-mcp<br/>"]
-        Plane["<b>Plane Agent</b><br/>---<br/><i>mcp-tool:</i> plane-mcp<br/>"]
-        Postiz["<b>Postiz Agent</b><br/>---<br/><i>mcp-tool:</i> postiz-mcp<br/>"]
-        ServiceNow["<b>ServiceNow API</b><br/>---<br/><i>mcp-tool:</i> servicenow-mcp<br/>"]
-        StirlingPDF["<b>StirlingPDF Agent</b><br/>---<br/><i>mcp-tool:</i> stirlingpdf-mcp<br/>"]
-      end
-
-      subgraph Data_Lifestyle ["Data & Lifestyle"]
-        DocumentDB["<b>DocumentDB Agent</b><br/>---<br/><i>mcp-tool:</i> documentdb-mcp<br/>"]
-        HomeAssistant["<b>Home Assistant Agent</b><br/>---<br/><i>mcp-tool:</i> home-assistant-mcp<br/>"]
-        Mealie["<b>Mealie Agent</b><br/>---<br/><i>mcp-tool:</i> mealie-mcp<br/>"]
-        Nextcloud["<b>Nextcloud Agent</b><br/>---<br/><i>mcp-tool:</i> nextcloud-mcp<br/>"]
-        Searxng["<b>Searxng Agent</b><br/>---<br/><i>mcp-tool:</i> searxng-mcp<br/>"]
-        Vector["<b>Vector Agent</b><br/>---<br/><i>mcp-tool:</i> vector-mcp<br/>"]
-        Wger["<b>Wger Agent</b><br/>---<br/><i>mcp-tool:</i> wger-mcp<br/>"]
-      end
-    end
   end
 
   dispatcher -- "Parallel Dispatch" --> Programmers
   dispatcher -- "Parallel Dispatch" --> Infrastructure
   dispatcher -- "Parallel Dispatch" --> Specialized
-  dispatcher -- "Parallel Dispatch" --> Ecosystem
 
   Programmers --> exe_joiner[Execution Joiner: Barrier Sync]
   Infrastructure --> exe_joiner
   Specialized --> exe_joiner
-  Ecosystem --> exe_joiner
 
   exe_joiner -- "Implementation Results" --> dispatcher
 
   dispatcher -- "Plan Complete" --> verifier[Verifier: Quality Gate]
-  verifier -- "Pass (Score >= 0.7)" --> End
-  verifier -- "Fail (Score < 0.7)" --> dispatcher
+  verifier -- "Pass: Score >= 0.7" --> synthesizer[Synthesizer: Response Composition]
+  verifier -- "Fail: Score < 0.7" --> dispatcher
   dispatcher -- "Terminal Failure" --> End
   planner_step --> dispatcher
   synthesizer -- "Final Response" --> End
-  dispatcher -- "Terminal Failure" --> End
 
-  subgraph SDD_Lifecycle ["<b>Spec-Driven Development (SDD)</b>"]
+  subgraph SDD_Lifecycle ["<b>Spec-Driven Development</b>"]
     direction TB
-    Const["<b>Constitution</b><br/>(Governance)"] --> Spec["<b>Specification</b><br/>(FeatureSpec)"]
+    Const["<b>Constitution</b><br/>(Governance)"] --> Spec["<b>Specification</b><br/>(Spec)"]
     Spec --> SDDPlan["<b>Technical Plan</b><br/>(ImplementationPlan)"]
-    SDDPlan --> SDDTasks["<b>Task List</b><br/>(TaskList)"]
+    SDDPlan --> SDDTasks["<b>Tasks</b><br/>(Tasks)"]
     SDDTasks --> SDDExec["<b>Execution</b><br/>(Parallel Dispatch)"]
     SDDExec --> SDDVerify["<b>Verification</b><br/>(Spec Audit)"]
   end
 
-  %% Styling
   style Researcher fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
   style Architect fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-  style A2ADiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
   style MCPDiscovery fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
-
   style Programmers fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-  style PyP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style TSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style GoP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style RustP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style CSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style CPP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-  style JSP fill:#dae8fe,stroke:#6c8ebf,stroke-width:1px
-
   style Infrastructure fill:#fad9b8,stroke:#d6b656,stroke-width:2px
-  style DevOps fill:#fad9b8,stroke:#d6b656,stroke-width:1px
-  style Cloud fill:#fad9b8,stroke:#d6b656,stroke-width:1px
-  style DBA fill:#fad9b8,stroke:#d6b656,stroke-width:1px
-
   style Specialized fill:#e0d3f5,stroke:#82b366,stroke-width:2px
-  style Sec fill:#e0d3f5,stroke:#82b366,stroke-width:1px
-  style QA fill:#e0d3f5,stroke:#82b366,stroke-width:1px
-  style UIUX fill:#e0d3f5,stroke:#82b366,stroke-width:1px
-  style Debug fill:#e0d3f5,stroke:#82b366,stroke-width:1px
-
-  style Ecosystem fill:#f5f1d3,stroke:#d6b656,stroke-width:2px
-  style Infra_Management fill:#fef9e7,stroke:#d6b656,stroke-width:1px
-  style Media_HomeLab fill:#fef9e7,stroke:#d6b656,stroke-width:1px
-  style Productive_Dev fill:#fef9e7,stroke:#d6b656,stroke-width:1px
-  style Data_Lifestyle fill:#fef9e7,stroke:#d6b656,stroke-width:1px
-
   style verifier fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+  style synthesizer fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+  style planner_step fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+  style End fill:#f8cecc,stroke:#b85450,stroke-width:2px
+  style res_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
+  style exe_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
+  style dispatcher fill:#d5e8d4,stroke:#666,stroke-width:2px
+  style Start fill:#38B6FF
+  style ACPLayer fill:#38B6FF,stroke-width:2px
+```
+
+> **Note:** MCP ecosystem agents (AdGuard, Jellyfin, Ansible Tower, etc.) are dynamically spawned as `CallableResource` nodes in the Knowledge Graph. They are discovered at runtime from `mcp_config.json` and do not appear in this static diagram.
+
+## MCP Loading & Registry Architecture
+
+```mermaid
+graph TD
+    subgraph Registry_Phase ["1. Registry Synchronization (Deployment)"]
+        Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp_agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
+        Registry["<b>NODE_AGENTS.md</b><br/><i>(MCP Specialist Registry)</i>"] -.->|Read Hash| Manager
+
+        Manager -->|Config Hash Match?| Branch{Decision}
+        Branch -- "Yes (Cache Hit)" --> Skip["Skip Tool Extraction"]
+        Branch -- "No (Cache Miss)" --> Parallel["<b>Parallel Dispatch</b><br/>(Semaphore 30)"]
+
+        Parallel -->|Deploy STDIO / HTTPs| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]
+        Servers -->|JSON-RPC list_tools| Parallel
+        Parallel -->|Metadata| Registry
+    end
+
+    subgraph Unified_Discovery ["2. Unified Discovery (Bootstrap)"]
+        Registry --> UAL["<b>get_discovery_registry()</b><br/><i>config_helpers.py</i>"]
+        UAL -->|Consolidated Roster| Roster["<b>MCPAgentRegistryModel</b><br/><i>name, agent_type, tools, url</i>"]
+    end
+
+    subgraph Initialization_Phase ["3. Graph Initialization (Runtime)"]
+        Config -->|Per-server loading| Loader["<b>builder.py</b><br/><i>Per-server resilient load</i><br/>Skips servers with missing env-vars"]
+        Roster --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
+        Loader -->|MCPServerStdio| ToolPool["<b>mcp_toolsets</b>"]
+        Builder -->|Register Registry Nodes| Specialists["<b>Specialist Superstates</b>"]
+        Specialists -->|Compile| GraphA["<b>Pydantic Graph Agent</b>"]
+    end
+
+    subgraph Operation_Phase ["4. Persistent Operation (Execution)"]
+        GraphA --> Lifespan["<b>runner.py</b><br/><i>run_graph() AsyncExitStack</i>"]
+        Lifespan -->|Parallel connect<br/>with per-server error reporting| ConnPool["<b>Active Connection Pool</b><br/>(Warm Toolsets)<br/>Failing servers skipped and logged"]
+        ConnPool -->|Zero-Latency Call| Servers
+    end
+
+    subgraph Telemetry_Phase ["5. Tool-Count Telemetry (Per-Specialist)"]
+        ConnPool --> Bind["<b> Tool Binding</b><br/>Deduplicated by object identity"]
+        Bind --> TelLog["<b>TELEMETRY log</b><br/>0 tools = blind warning<br/>50+ tools = overload warning"]
+        Bind --> TelEvent["<b>tools-bound</b> sideband event<br/>count, toolset_count, dev_tools, mcp_tools"]
+    end
+
+    style Config fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+    style Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+    style Manager fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    style Parallel fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style ConnPool fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style GraphA fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style Loader fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style UAL fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+    style Roster fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+    style Bind fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style TelLog fill:#fef9e7,stroke:#d6b656,stroke-width:1px
+    style TelEvent fill:#fef9e7,stroke:#d6b656,stroke-width:1px
 ```
 
 ## Spec-Driven Development (SDD) Lifecycle
@@ -388,172 +590,54 @@ The `agent-utilities` ecosystem implements a high-fidelity orchestration pipelin
 The **Dispatcher** reads the `tasks.md` and routes sub-tasks to specialized agents.
 - **Dependency Tracking**: Tasks are executed in parallel if they have no unmet dependencies.
 - **Context Isolation**: Each specialist receives only relevant context for its assigned task.
+- **`[P]` Markers**: The `Task.parallel: bool` field and `[P]` markdown markers enable explicit parallel-wave control.
 
 ### Phase 3: Continuous Verification
 1.  **Quality Gate**: After execution, the **Verifier** node uses `spec-verifier` to evaluate the results against the original `spec.md`.
 2.  **Self-Correction**: If verification fails (score < 0.7), feedback is injected back into the **Planner** for targeted re-planning and execution.
 
+### Phase 4: Long-Term Memory Evolution
+1.  **Memory Capture**: The `sync_feature_to_memory` tool is invoked to summarize the `Spec`, `ImplementationPlan`, and execution results.
+2.  **Historical Reference**: Future planning sessions can search the Knowledge Graph to retrieve technical context from previous related work.
+
+### SDD Model Flow & Persistence
+
+| Phase | Input Model | Output Model | Workspace Artifact | Tool / Skill |
+| :--- | :--- | :--- | :--- | :--- |
+| **Governance** | - | `ProjectConstitution` | `agent_data/constitution.json` | `constitution-generator` |
+| **Requirements** | `ProjectConstitution` | `Spec` | `agent_data/specs/{id}.json` | `spec-generator` |
+| **Architecture** | `Spec` | `ImplementationPlan` | `agent_data/plans/{id}.json` | `task-planner` |
+| **Planning** | `ImplementationPlan` | `Tasks` | `agent_data/tasks/{id}.json` | `task-planner` |
+| **Execution** | `Tasks` | `Tasks` (Updated) | `agent_data/tasks/{id}.json` | `sdd-implementer` |
+| **Verification** | `Tasks` + `Spec` | `ValidationResult` | - | `spec-verifier` |
+
 ### SDD Skills Reference
-| Skill | Purpose | Bound To |
-|:------|:--------|:---------|
-| `constitution-generator` | Establish project governance and stack. | Planner |
-| `spec-generator` | Create feature-level specifications. | Planner, Architect, Project Manager |
-| `task-planner` | Generate technical implementation plans. | Planner, Coordinator |
-| `spec-verifier` | Evaluate results against specifications. | Verifier, QA Expert, Critique |
-  style synthesizer fill: #d5e8d4,stroke:#82b366,stroke-width:2px
-  style planner_step fill: #dae8fe,stroke:#6c8ebf,stroke-width:2px
-  style End fill:#f8cecc,stroke:#b85450,stroke-width:2px
-  style res_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
-  style exe_joiner fill:#f5f5f5,stroke:#666,stroke-dasharray: 5 5
-  style dispatcher fill:#f5f5f5,stroke:#666,stroke-width:2px
-  style Start color:#000000,fill:#38B6FF
-	style subGraph0 color:#000000,fill:#f5ebd3
-	style subGraph5 color:#000000,fill:#f5f1d3
-	style dispatcher fill:#d5e8d4,stroke:#666,stroke-width:2px
-  style Ecosystem fill:#f5d0ef,stroke:#d6b656,stroke-width:2px
-  style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
-	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
-  style ACPLayer color:#000000,fill:#38B6FF,stroke-width:2px
-  style Start color:#000000,fill:#38B6FF
-	style subGraph0 color:#000000,fill:#f5ebd3
-	style subGraph5 color:#000000,fill:#f5f1d3
-	style dispatcher fill:#d5e8d4,stroke:#666,stroke-width:2px
-  style Ecosystem fill:#f5d0ef,stroke:#d6b656,stroke-width:2px
-  style LocalAgents fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
-	style RemotePeers fill:#f5d0ef,stroke:#d6b656,stroke-width:1px
-```
+| Skill | Group | Purpose | Bound To |
+|:------|:------|:--------|:---------|
+| `constitution-generator` | sdd | Establish project governance and stack. | Planner |
+| `spec-generator` | sdd | Create feature-level specifications. | Planner, Architect, Project Manager |
+| `task-planner` | sdd | Generate technical implementation plans with `[P]` markers. | Planner, Coordinator |
+| `spec-verifier` | sdd | Evaluate results against specifications. | Verifier, QA Expert, Critique |
+| `sdd-implementer` | sdd | Execute tasks from the generated plan. | Specialist Programmers |
+| `workspace-manager` | sdd | Bootstrap and manage `.specify/` directory layout. | Planner |
 
-## Server Endpoint Reference
+### Spec-Kit Command Parity
+| Spec-Kit Command | Agent-Utilities Tool | Description |
+| :--- | :--- | :--- |
+| `speckit init` | `setup_sdd` | Initializes the `agent_data` structure. |
+| `speckit spec` | `save_spec` / `export_sdd_to_markdown` | Creates and mirrors specifications. |
+| `speckit tasks` | `save_tasks` / `export_sdd_to_markdown` | Creates and mirrors task lists. |
+| `speckit implement` | `get_sdd_parallel_batches` | Identifies parallel execution opportunities. |
+| `speckit verify` | `spec-verifier` skill | Audits implementation against specification. |
 
-All endpoints are registered on the FastAPI application in `server.py`.
-
-| Endpoint | Method | Tag | Description |
-|---|---|---|---|
-| `/health` | GET | Core | Health check and server metadata |
-| `/ag-ui` | POST | Agent UI | AG-UI streaming endpoint with sideband graph events and merged agent/elicitation streams |
-| `/stream` | POST | Agent UI | Generic SSE stream endpoint for graph agent execution |
-| `/acp` | MOUNT | ACP | Agent Communication Protocol (pydantic-acp). Handles sessions, planning, approvals, and streaming |
-| `/a2a` | MOUNT | A2A | Agent-to-Agent (fastA2A) JSON-RPC endpoint for inter-agent communication |
-| `/api/approve` | POST | Human-in-the-Loop | Resolves pending tool approvals and MCP elicitation requests. Body: `{request_id, decisions, feedback}` |
-| `/chats` | GET | Core | List all stored chat sessions |
-| `/chats/{chat_id}` | GET | Core | Get full message history for a specific chat |
-| `/chats/{chat_id}` | DELETE | Core | Delete a specific chat session |
-| `/mcp/config` | GET | Interoperability | Return the current MCP server configuration |
-| `/mcp/tools` | GET | Interoperability | List all tools from connected MCP servers |
-| `/mcp/reload` | POST | Interoperability | Hot-reload MCP servers and rebuild graph without restarting |
-
-## The Complete Execution Journey
-
-The graph orchestration system follows a rigorous, multi-stage pipeline designed for maximum precision, resilience, and multi-modal understanding.
-
-### Phase 1: Ingress & Protocol Handling
-1. **Entry**: A user query (text + optional images) arrives via any supported protocol: AG-UI (`/ag-ui`), ACP (`/acp`), SSE (`/stream`), or REST (`/api/chat`).
-2. **Unified Execution**: All protocols funnel through the same graph engine via `graph/unified.py`. ACP requests are routed through the full HSM pipeline using `create_graph_acp_app()`.
-3. **State Initialization**: A fresh `GraphState` is initialized with the consolidated `query_parts`.
-
-### Phase 2: Safety & Policy Enforcement
-4. **Usage Guard**: The `usage_guard_step` triggers immediately. It checks the session's token usage and estimated cost against safety limits (e.g., $5.00 / 500k tokens).
-5. **Policy Check**: If enabled, a lightweight LLM check validates the query against security policies before any expensive operations begin.
-
-### Phase 3: Routing & Planning
-6. **Fast-Path Check**: Trivial or conversational queries (e.g. "hello", "thanks") are detected and answered directly, bypassing the full graph pipeline.
-7. **Routing**: The `router_step` analyzes the multi-modal intent and generates a `GraphPlan` (a sequence of `ExecutionStep` objects) using the router LLM model.
-8. **Infinite-Loop Guard**: A `node_transitions` counter (max 50) prevents runaway graph execution.
-
-### Phase 4: Context Enrichment & Dispatch
-9. **Memory Selection**: ON first entry, the `dispatcher` routes to `memory_selection_step` which performs as RAG-style lookup across workspace `.md` files to inject relevant historical context.
-10. **Research-Before-Execution Ordering**: The dispatcher reorders the plan to guarantee all research steps (researcher, architect) execute before any specialist execution steps.
-11. **Dispatch**: The `dispatcher` spawns the selected specialist nodes. If multiple domains are involved, it leverages `parallel_batch_processor` for concurrent execution.
-
-### Phase 5: Parallel Execution
-12. **Specialist Loop**: Each specialist (e.g., `python_programmer_step`) enters a high-fidelity `Agent.run()` loop. They have access to:
-    - Dedicated system prompts from `prompts/`.
-    - Domain-specific toolsets (MCP + Universal Skills).
-    - The original multi-modal query parts for visual reasoning.
-13. **Convergence**: Results from all specialists are coalesced at the `execution_joiner` and written to the unified `results_registry`.
-
-### Phase 6: Verification & Synthesis
-14. **Verification**: The `verifier_step` acts as a quality gate. It compares the accumulated results against the original user intent using a structured `ValidationResult` scoring (0.0-1.0).
-15. **Two-Tier Feedback Loop**:
-    - **Score 0.4-0.7** (execution failure): Re-dispatches the same plan with feedback injection for a corrective run.
-    - **Score < 0.4** (plan failure): Routes to `planner_step` which generates a **new plan** incorporating verification feedback and previous results.
-16. **Synthesis**: Once validated (score >= 0.7), the `synthesizer_step` composes the final markdown response from the `results_registry`. This is separate from validation to avoid wasting synthesis work on re-dispatch cycles.
-17. **Memory Persistence**: Execution metadata (query, plan, results, tokens, verification attempts) is persisted to `MEMORY.md` for future context retrieval.
-
-
-## Graph Event System & Phase Map
-
-Every significant state transition in the graph emits a structured event via `emit_graph_event()` (defined in `graph/config_helpers.py`). These events serve **two purposes**:
-
-1. **Server-side structured logging** — The `_log_graph_trace()` function uses `_PHASE_MAP` to prefix each log line with a phase label (e.g., `[ROUTING] routing_started`, `[EXECUTION] specialist_enter`). This provides a human-readable execution trace in server logs without needing the UI.
-
-2. **Real-time UI sideband streaming** — Each event is pushed to an `asyncio.Queue` as a `data-graph-event` payload, which is streamed to connected frontends (web UI, terminal UI) via SSE. The frontends consume the raw `event` field (e.g., `routing_started`, `expert_tool_call`) to drive the graph activity visualizer, approval cards, and status indicators.
-
-### Event Emission Contract
-
-```python
-emit_graph_event(
-    eq=event_queue,           # asyncio.Queue (or None to skip)
-    event_type="routing_started",  # Must be a key in _PHASE_MAP
-    query=ctx.state.query,    # Arbitrary metadata kwargs
-)
-```
-
-This produces:
-- **Log line**: `[ROUTING] routing_started query=...`
-- **SSE payload**: `{"type": "data-graph-event", "data": {"event": "routing_started", "timestamp": 1234567890.0, "query": "..."}}`
-
-### `_PHASE_MAP` Reference
-
-The `_PHASE_MAP` (in `graph/config_helpers.py`) maps every event type to a high-level execution phase. Events not in the map fall back to the generic `"GRAPH"` phase. All event types use `snake_case` (no hyphens).
-
-| Phase | Event Types | Emitted By |
-|---|---|---|
-| **LIFECYCLE** | `graph_start`, `graph_complete`, `node_start`, `node_complete` | `runner.py`, `steps.py` |
-| **SAFETY** | `safety_warning` | `steps.py` (usage_guard) |
-| **ROUTING** | `routing_started`, `routing_completed` | `steps.py` (router) |
-| **PLANNING** | `plan_created` | `steps.py` (dispatcher) |
-| **REPLANNING** | `replanning_started`, `replanning_completed` | `steps.py` (planner) |
-| **DISPATCH** | `step_dispatched`, `batch_dispatched` | `steps.py` (dispatcher) |
-| **ENRICHMENT** | `context_gap_detected` | `steps.py` (memory_selection) |
-| **EXECUTION** | `specialist_enter`, `specialist_exit`, `expert_metadata`, `expert_thinking`, `expert_warning`, `expert_text`, `expert_complete`, `tools_bound`, `subagent_started`, `subagent_completed`, `subagent_thought` | `hsm.py`, `executor.py` |
-| **FALLBACK** | `specialist_fallback` | `executor.py` |
-| **TOOL_CALL** | `expert_tool_call`, `subagent_tool_call` | `executor.py`, `steps.py` |
-| **TOOL_RESULT** | `tool_result` | `executor.py`, `steps.py` |
-| **PARALLEL** | `orthogonal_regions_start`, `orthogonal_regions_complete`, `region_start`, `region_complete` | `hsm.py` |
-| **VERIFICATION** | `verification_result` | `steps.py` (verifier) |
-| **SYNTHESIS** | `agent_node_delta`, `synthesis_fallback` | `executor.py`, `steps.py` |
-| **APPROVAL** | `approval_required`, `approval_resolved`, `elicitation` | `approval_manager.py`, `executor.py` |
-| **RECOVERY** | `error_recovery_replan`, `error_recovery_terminal` | `steps.py` (error_recovery) |
-| **TERMINATION** | `graph_force_terminated` | `steps.py` (dispatcher) |
-
-### When to Update `_PHASE_MAP`
-
-**You must add an entry to `_PHASE_MAP`** whenever you:
-- Add a new `emit_graph_event()` call with a new event type string
-- Add a new `_emit_node_lifecycle()` call with a new event name
-
-If you emit an event type that is NOT in `_PHASE_MAP`, the log line will show `[GRAPH]` as a generic fallback, which makes debugging harder. The phase map is the authoritative registry of all graph events.
-
-**Naming convention**: Always use `snake_case` for event types (e.g., `specialist_enter`, not `specialist-enter`).
-
-### Frontend Event Consumers
-
-The frontends consume these events from the SSE sideband stream:
-
-| Frontend | Events Used | Purpose |
-|---|---|---|
-| **agent-webui** (`graph-activity.tsx`) | `routing_started`, `routing_completed`, `expert_tool_call`, `subagent_tool_call`, `approval_required` | Graph activity visualizer, approval cards |
-| **agent-terminal-ui** (`app.py`) | `specialist_enter`, `routing_started`, `routing_completed`, `approval_required` | Status line updates, tool approval modal |
-
-When adding new events that the frontends should display, coordinate the event type name with both UI projects.
-
+**Extended Features:**
+- **Markdown Sync**: All structured models (JSON) can be mirrored to Markdown for human review using `export_sdd_to_markdown`. Default output is Markdown; JSON is supported.
+- **Parallel Markers**: Support for the `[P]` marker in Markdown task lists. Use `import_sdd_from_markdown` to ingest manual changes.
+- **File Collision Safety**: Automatic detection of file path overlaps to prevent race conditions during parallel execution.
 
 ## Hierarchical State Machine (HSM) Architecture
 
-The graph orchestration system is a **Hierarchical State Machine**. It follows the same formal model used in robotics,
-game engines, UML statecharts, and SCXML workflow engines. Understanding the HSM framing provides critical guidance for
-future enhancements.
+The graph orchestration system is a **Hierarchical State Machine**. It follows the same formal model used in robotics, game engines, UML statecharts, and SCXML workflow engines.
 
 ### HSM Level Mapping
 ```
@@ -580,21 +664,6 @@ Level 3: Leaf States - MCP Tool Execution
     Atomic operations: get_project(), list_branches(), run_cypher_query(), etc.
 ```
 
-### Maintaining the Specialist Registry (NODE_AGENTS.md)
-
-The specialist ecosystem is managed via `NODE_AGENTS.md`. This registry is the primary source of truth for routing and specialized proficiency of each node in the cluster.
-
-**How it works**
-1. Each entry in `NODE_AGENTS.md` (e.g. `python_programmer`, `researcher`) matches to a `.md` markdown file in `agent_utilities/prompts/` (for prompt agents) or a remote endpoint (for A2A/MCP agents).
-2. The `agent_registry_builder.py` script automatically synchronizes this registry by parsing prompt frontmatter and MCP server configurations.
-3. When the `builder.py` graph generator spawns the orchestrator, it loads all agents from this registry, bypassing the need for hardcoded skill maps.
-4. Capability tags (e.g., `web-search`, `git-operations`) are assigned to agents in the registry, and the `expert_executor` uses these tags to dynamically bind the correct toolsets at runtime.
-
-**Future Enhancements & Best Practices**
-- When adding a new role, create the corresponding `[role].md` with YAML frontmatter in `agent_utilities/prompts/`.
-- Run the registry rebuilder to update `NODE_AGENTS.md`: `python3 -m agent_utilities.agent_registry_builder`.
-- The `agent-webui` interface will naturally ingest the new node ID. Keep role IDs in `snake_case`.
-
 ### Concept Mapping
 | agent-utilities Concept        | HSM Concept            | Details                                           |
 |--------------------------------|------------------------|---------------------------------------------------|
@@ -605,269 +674,54 @@ The specialist ecosystem is managed via `NODE_AGENTS.md`. This registry is the p
 | `NODE_SKILL_MAP` agents        | Superstates (L1)       | N hardcoded domains                               |
 | Dynamic agents (unified)       | Superstates (L1)       | N from `discover_all_specialists()` (MCP + A2A)   |
 | `_execute_specialized_step()`  | Enter superstate       | Loads prompt + skills + deduplicated MCP toolsets |
-| `_execute_dynamic_mcp_agent()` | Enter superstate       | Loads prompt + MCP tools + telemetry               |
 | `Agent.run()` internal loop    | Substates (L2)         | Model request/tool cycles                         |
 | MCP tool call (stdio)          | Leaf states (L3)       | Atomic operations                                 |
-| `return "execution_joiner"`    | Exit superstate        | Returns to parent                                 |
 | Verifier feedback loop         | Re-entry transition    | Parent re-dispatches to child                     |
-| Verifier re-plan               | Cross-level transition | Routes to planner on plan failure                 |
 | Circuit breaker (open)         | Guard condition        | Blocks entry to failed state                      |
-| Specialist fallback            | Default transition     | Redirects on failure                              |
 | `node_transitions` guard       | Watchdog timer         | Force-terminates after 50 transitions             |
 | Memory-first dispatch          | Entry action           | Enriches context before first step                |
 | Research-before-execution      | Phase ordering         | Discovery completes before execution              |
 
-### HSM Design Principals for Future Growth
-
-1. **Treat subgraphs as macro-states.** A specialist should behave as a single opaque state to the dispatcher. Define
-   clear input/output contracts. Never route from the parent into a specialist's internal state.
-2. **Scale horizonatally, not vertically.** Instead of adding nodes to an existing graph, add new subgraphs (new MCP servers, new agent packages). This keeps graph sizes small and startup cost bounded.
-3. **Plan enhancements by level.** Routing concern → L0. Planning concern → L0 planner.
-   Domain behavior → L1 specialist. Tool-level fix → L3 MCP. This prevents "logic gravity" where everything sinks into one layer.
-4. **Use types as boundaries.** `ExecutionStep`, `GraphPlan`, `GraphResponse`, and `MCPAgent` are the boundary
-   contracts between levels. Internal state is private.
-5. **Defer flattening.** Never try to visualize or reason about the full system as one graph. Visualize one level at a time. Debug at the current level.
-6. **The growth test:** If you feel tempted to add more nodes to a graph, pause and ask whether you should add a new state machine instead.
+### HSM Design Principles
+1. **Treat subgraphs as macro-states.** A specialist should behave as a single opaque state to the dispatcher. Define clear input/output contracts.
+2. **Scale horizontally, not vertically.** Add new subgraphs (new MCP servers, new agent packages) instead of adding nodes to existing graphs.
+3. **Plan enhancements by level.** Routing concern → L0. Domain behavior → L1 specialist. Tool-level fix → L3 MCP.
+4. **Use types as boundaries.** `ExecutionStep`, `GraphPlan`, `GraphResponse`, and `MCPAgent` are the boundary contracts between levels.
+5. **Defer flattening.** Never visualize the full system as one graph. Visualize one level at a time.
+6. **The growth test:** If tempted to add more nodes to a graph, ask whether you should add a new state machine instead.
 
 ### Behavior Tree (BT) Concepts
+The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 
-The graph also incorporates key Behavior Tree patterns **inside** the HSM structure.
-The principle: *graphs decide where you are; BT-style logic decides what to do next inside that place.*
-
-| agent-utilities Concept                                                                | Behavior Tree (BT) Concept   | Details                                                                         |
-|----------------------------------------------------------------------------------------|------------------------------|---------------------------------------------------------------------------------|
-| `_attempt_specialist_fallback`, `static_route_query`, `check_specialist_preconditions` | Selector (priority/fallback) | Specialist fallback chain, static route before LLM call |
-| `dispatcher_step`, `assert_state_valid`                                                | Sequence (fail-fast)         | Plan step execution with cursor, state invariant assertions                     |
-| `_execute_dynamic_mcp_agent`, `expert_executor_step`                                   | Retry decorator              | Tool-level retries with exponential backoff, expert retries, re-plan on failure |
-| `asyncio.wait_for()` in specialist execution                                           | Timeout decorator            | Per-node timeout via `ExecutionStep.timeout`                                    |
-| `graph.NodeResult`                                                                     | Tri-state result             | `NodeResult.SUCCESS / FAILURE / RUNNING` enum                                   |
-| `check_specialist_preconditions`                                                       | Precondition guard           | Check server health + tool availability before entering specialist               |
-| `assert_state_valid()`                                                                 | Boundary re-evaluation       | State invariants at dispatcher and verifier boundaries                          |
-
-### Spec-Driven Development (SDD) Layer
-The SDD layer sits between the **Planner** and the **Execution** phase of the HSM. It provides a formal, machine-readable contract that domain specialists must fulfill.
-
-**SDD State Transitions:**
-- **Planner (Initial)**: Invokes `constitution-generator` and `spec-generator`.
-- **Planner (Strategic)**: Invokes `task-planner` to create the `TaskList`.
-- **Dispatcher**: Uses `SDDManager` to analyze the `TaskList` for parallelization batches.
-- **Verifier**: Invokes `spec-verifier` to perform high-fidelity audits against the `FeatureSpec`.
-- **Planner (Recovery)**: Re-runs `task-planner` with feedback on failure to adjust the strategy.
-
-**SDD Models & Persistence:**
-All SDD artifacts are stored in the agent's `agent_data/` directory:
-- `constitution.json` -> Global project rules.
-- `specs/[feature_id].json` -> Detailed feature requirements.
-- `plans/[feature_id].json` -> Technical implementation strategy.
-- `tasks/[feature_id].json` -> Structured progress and dependency tracking.
-
-**Design Rule:** The `TaskList` (JSON) is the authoritative source for the orchestrator, while `tasks.md` remains the human-readable mirror for user transparency.
+| agent-utilities Concept | BT Concept | Details |
+|---|---|---|
+| `_attempt_specialist_fallback`, `static_route_query` | Selector (priority/fallback) | Specialist fallback chain, static route before LLM |
+| `dispatcher_step`, `assert_state_valid` | Sequence (fail-fast) | Plan step execution with cursor |
+| `_execute_dynamic_mcp_agent`, `expert_executor_step` | Retry decorator | Tool-level retries with exponential backoff |
+| `asyncio.wait_for()` in specialist execution | Timeout decorator | Per-node timeout via `ExecutionStep.timeout` |
+| `check_specialist_preconditions` | Precondition guard | Check server health before entering specialist |
+| `assert_state_valid()` | Boundary re-evaluation | State invariants at dispatcher and verifier boundaries |
 
 **Design rule:** If logic chooses between options → BT concept. If logic defines long-lived phases → HSM concept.
 
-## Commands (run these exactly)
-# Development & Quality
-ruff check --fix .
-ruff format .
-pytest
+## Human-in-the-Loop & Tool Safety
 
-# Running a single test
-# To run a specific test file:
-#   pytest tests/test_example.py
-# To run a specific test function in a file:
-#   pytest tests/test_example.py::test_function_name
-# To run tests matching a keyword:
-#   pytest -k "keyword"
-
-# Installation
-pip install -e .      # Install in editable mode
-pip install -e .[all] # Install with all optional extras
-
-## Validation & Diagnostics
-
-To ensure the graph orchestrator and its specialists are functioning correctly, use the following validation tools:
-
-### End-to-End Specialist Validation
-High-fidelity testing of individual specialist nodes through the SSE streaming protocol. This bypasses the Web UI and provides granular execution logs to monitor tool calls and result registration.
-
-**Usage:**
-```bash
-# From the project root
-python scripts/verify_graph.py "List all projects in the workspace"
-```
-
-**Monitored Events:**
-- **Graph Lifecycle**: `graph-start`, `node-start`, `graph-complete` events.
-- **Tool Execution**: `expert_tool_call` and `expert_tool_result` events with detailed payloads.
-- **Payload Integrity**: Verifies unified result storage in `results_registry` for expert nodes.
-
-### Integration Test Suite
-Comprehensive tests located in `tests/` validate the entire stack from registry sync to tool execution:
-- **Registry Sync**: Validates discovery of MCP tools and specialist tags from `mcp_config.json`.
-- **Connection Resilience**: Tests parallel AnyIO initialization of toolsets without structured concurrency violations.
-- **Port Stability**: Robust port cleanup and health check coordination for local development.
-
-## Project Structure Quick Reference
-- `agent_utilities/agent/` → Agent templates and `IDENTITY.md` definitions.
-- `agent_utilities/agent_utilities.py` → Main entry point for `create_agent` and `create_agent_server`.
-- `agent_utilities/agent_factory.py` → CLI factory for creating agents with argparse.
-- `agent_utilities/mcp_utilities.py` → Utilities for FastMCP and MCP tool registration.
-- `agent_utilities/base_utilities.py` → Generic helpers for file handling, type conversions, and CLI flags.
-- `agent_utilities/tools/` → Built-in agent tools (developer_tools, git_tools, workspace_tools).
-- `agent_utilities/embedding_utilities.py` → Vector DB and embedding integration (LlamaIndex based).
-- `agent_utilities/api_utilities.py` → Generic API helpers
-- `agent_utilities/models.py` → Shared Pydantic models (`GraphResponse`, `GraphPlan`, `MCPAgent`, `DiscoveredSpecialist`, etc.)
-- `agent_utilities/chat_persistence.py` → Chat history persistence utilities
-- `agent_utilities/config.py` → Configuration management
-- `agent_utilities/custom_observability.py` → Custom observability and tracing utilities
-- `agent_utilities/decorators.py` → Utility decorators for caching, retries, etc.
-- `agent_utilities/exceptions.py` → Custom exception classes
-- `agent_utilities/graph/` → **Graph orchestration subpackage** (the core engine):
-  - `graph/builder.py` → `initialize_graph_from_workspace()`, unified discovery, per-server resilient MCP loading
-  - `graph/unified.py` → `execute_graph()`, `execute_graph_stream()` - protocol-agnostic entry points
-  - `graph/runner.py` → `run_graph()` with sequential MCP connect + clear failure reporting
-  - `graph/steps.py` → All graph node step functions (router, dispatcher, verifier, synthesizer, etc.)
-  - `graph/executor.py` → Specialist execution, `agent_matches_node_id()`, tool-count telemetry, deduplicated binding
-  - `graph/state.py` → `GraphState`, `GraphDeps` Pydantic models
-  - `graph/hsm.py` → HSM/BT entry/exit hooks, preconditions, static routing
-  - `graph/config_helpers.py` → `load_mcp_agents_registry()`, `NODE_SKILL_MAP`, emit helpers, structured trace logger
-- `agent_utilities/model_factory.py` → Factory for creating LLM models
-- `agent_utilities/memory.py` → Memory management for agents
-- `agent_utilities/middlewares.py` → HTTP middleware utilities
-- `agent_utilities/persistence.py` → General persistence utilities
-- `agent_utilities/prompt_builder.py` → Prompt construction utilities
-- `agent_utilities/scheduler.py` → Task scheduling utilities
-- `agent_utilities/server.py` → HTTP server implementation
-- `agent_utilities/tool_filtering.py` → Tool filtering utilities for tag-based access control
-- `agent_utilities/tool_guard.py` → Universal tool guard implementation
-- `agent_utilities/approval_manager.py` → Human-in-the-loop approval manager (`ApprovalManager`, `run_with_approvals`, `global_elicitation_callback`)
-- `agent_utilities/acp_adapter.py` → ACP protocol adapter with graph-backed execution and native plan integration
-- `agent_utilities/acp_providers.py` → ACP plan persistence provider (mirrors plan state to PLAN.md)
-- `agent_utilities/discovery.py` → Unified specialist discovery (`discover_agents`, `discover_all_specialists`)
-- `agent_utilities/event_aggregator.py` → CRON/HEARTBEAT aggregation for orchestrated agents
-- `agent_utilities/workspace.py` → Workspace management utilities
-- `agent_utilities/a2a.py` → Agent-to-Agent communication, unified discovery (`discover_all_specialists()`)
-- `agent_utilities/prompts/` → Prompt templates (one `.md` per specialist role)
-- `agent_utilities/agent_data/` → Workspace data files (IDENTITY.md, MEMORY.md, NODE_AGENTS.md, etc.)
-
-## Code Style & Conventions
-
-**Always:**
-- Use the `try/except ImportError` guardrail pattern for optional dependencies.
-- Use `agent_utilities.base_utilities.to_boolean` for parsing environment variables and CLI flags.
-- Support `SSL_VERIFY` environment variable and `--insecure` CLI flag for all network operations.
-- Prefer `pathlib.Path` for file path manipulations.
-
-**Imports:**
-- Standard library imports first, then third-party, then local application imports.
-- Within each group, sort alphabetically.
-- Avoid wildcard imports (`from module import *`).
-
-**Formatting:**
-- Maximum line length: 88 characters (as per Ruff/Black).
-- Use 4 spaces per indentation level.
-- No trailing whitespace.
-- Use empty lines to separate functions and classes (2 blank lines before a class or function, 1 blank line between methods in a class).
-
-**Types:**
-- Use type hints for all function arguments and return values.
-- Use `typing` module for complex types (List, Dict, Optional, etc.).
-- Avoid using `Any` unless absolutely necessary.
-
-**Naming Conventions:**
-- Classes: CapWords (PascalCase).
-- Functions and variables: snake_case.
-- Constants: UPPER_SNAKE_CASE.
-- Private functions and variables: single leading underscore (_snake_case).
-- Private classes: single leading underscore (_CapWords) [though rare].
-
-**Error Handling:**
-- Catch specific exceptions, not bare `except:`.
-- When raising exceptions, provide a clear error message.
-- Use custom exception classes for module-specific errors.
-- In general, prefer to raise exceptions and let the caller handle them, unless you can handle them locally.
-
-**Good example (Guardrail):**
-```python
-try:
-    from some_external_lib import feature
-except ImportError:
-    print("Error: Missing 'some_external_lib'. Please install with extras.")
-    sys.exit(1)
-```
-
-## Dos and Don'ts
-**Do:**
-- Use `create_agent` for all new agent instances to ensure consistent workspace setup.
-- Use `create_agent_factory` for CLI agent creation with argparse.
-- Register tools with descriptive docstrings as they are parsed by the LLM.
-- Keep `base_utilities` free of heavy dependencies.
-- Utilize lazy imports for optional dependencies like FastAPI and LlamaIndex.
-- Follow the existing patterns in each module when adding new functionality.
-- Pass **all toolsets at Agent construction time** via `Agent(toolsets=[...])`.
-- Use `ApprovalRequiredToolset` from `pydantic_ai.toolsets.approval_required` for MCP tool approval.
-- Use the public `agent.toolsets` property (read-only) for inspection; iterate with `isinstance(ts, FunctionToolset)` to find function tools.
-
-**Don't:**
-- Import `fastapi` or `llama_index` at the top level (use lazy imports inside functions or classes).
-- Hardcode file paths; use relative paths from the workspace root or environment variables.
-- Modify global state unnecessarily; prefer functional approaches.
-- **NEVER** append to `agent.toolsets` after construction — it is a **read-only property** that returns a new list each call. `agent.toolsets.append(x)` is a silent no-op.
-- **NEVER** access `agent._function_toolset`, `agent._user_toolsets`, or any underscore-prefixed pydantic-ai attributes. These are private implementation details that break across versions.
-- **NEVER** set custom attributes on toolset objects (e.g., `toolset._my_flag = True`). Use a local `set[int]` with `id(toolset)` for tracking.
-- **NEVER** import from `pydantic_acp.runtime._*` internal modules. Use only public `pydantic_acp` exports.
-
-## Safety & Boundaries
-**Always do:**
-- Validate user-provided file paths to prevent traversal attacks.
-- Run `ruff` and `pytest` before submitting PRs.
-- Test error conditions and edge cases.
-
-**Ask first:**
-- Introducing new top-level dependencies.
-- Changes to the `IDENTITY.md` or `MEMORY.md` management logic.
-- Major architectural changes to the agent creation or graph orchestration systems.
-
-**Never do:**
-- Commit API keys or hardcoded secrets.
-- Run tests that require external API access without proper mocks or environment configuration.
-- Break backward compatibility without a strong justification.
-
-## Universal Tool Guard (Global Safety)
+### Universal Tool Guard (Global Safety)
 By default, `agent-utilities` implements a **Universal Tool Guard** that automatically intercepts sensitive tool calls from MCP servers and graph specialist sub-agents.
 
 Any tool matching specific "danger" patterns (e.g., `delete_*`, `write_*`, `execute_*`, `drop_*`) is flagged with pydantic-ai's native `requires_approval=True` attribute. When a specialist sub-agent calls a flagged tool, the graph **pauses at that exact node** and waits for explicit user approval before continuing.
 
-### Key Features
+**Key Features:**
 - **Zero Config**: Protections are applied automatically based on tool names via `apply_tool_guard_approvals()`.
 - **True Pause-and-Resume**: The graph does NOT terminate on approval requests. It suspends via `asyncio.Future` and resumes when the user responds.
 - **Protocol-Agnostic**: Works identically across AG-UI (web UI), terminal UI, ACP, and SSE protocols.
 - **Persistent Choices**: When using ACP, users can select "Always Allow" / "Always Deny" for specific tools.
 - **Customizable**: Disable with `TOOL_GUARD_MODE=off` or `DISABLE_TOOL_GUARD=True`.
 
-### Sensitive Patterns
-The guard currently monitors for:
+**Sensitive Patterns:**
 `delete`, `write`, `execute`, `rm_`, `rmdir`, `drop`, `truncate`, `update`, `patch`, `post`, `put`, `create`, `add`, `upload`, `set`, `reset`, `clear`, `revert`, `replace`, `rename`, `move`, `start`, `stop`, `restart`, `kill`, `terminate`, `reboot`, `shutdown`, `git_*`.
 
-### Tool Approval Registry (`NODE_AGENTS.md`)
-
-The **Tool Inventory Table** in `NODE_AGENTS.md` includes an `Approval` column that records which MCP tools require human approval:
-
-```markdown
-| Tool Name | Description | Tag | Source | Score | Approval |
-|-----------|-------------|-----|--------|-------|----------|
-| get_records | Fetch table records | records | servicenow-mcp | 85 | No |
-| delete_record | Delete a table record | records | servicenow-mcp | 90 | Yes |
-| execute_script | Run a server-side script | scripts | servicenow-mcp | 70 | Yes |
-```
-
-**How it works:**
-1. During `sync_mcp_agents()`, the `is_sensitive_tool()` function pattern-matches each tool name and auto-populates the `Approval` column.
-2. You can manually override by editing `NODE_AGENTS.md` — set `Yes` to force approval on tools that don't match patterns, or `No` to exempt trusted tools.
-3. At graph runtime, `build_sensitive_tool_names()` reads the registry and `flag_mcp_tool_definitions()` wraps MCP toolsets with pydantic-ai's native `ApprovalRequiredToolset`.  When a flagged tool is called, the wrapper raises `ApprovalRequired` (unless `ctx.tool_call_approved` is already `True` from a prior approval round), causing pydantic-ai to return `DeferredToolRequests`.
-4. When the specialist agent calls a flagged tool, pydantic-ai returns `DeferredToolRequests` instead of executing it, and `run_with_approvals()` pauses the graph until the user responds.
-
-### Human-in-the-Loop Architecture
+### Approval Manager Architecture
 
 ```mermaid
 sequenceDiagram
@@ -917,12 +771,10 @@ sequenceDiagram
 | `ApprovalCard.tsx` | `agent-webui` | Web UI approval component |
 | `ToolApprovalScreen` | `agent-terminal-ui` | Terminal UI modal for tool approval |
 
----
+### How to use Elicitation
+Elicitation is used when an MCP tool requires additional structured input or confirmation from the user. Both tool approval and MCP elicitation use the same underlying `ApprovalManager` pause/resume mechanism.
 
-## How to use Elicitation
-Elicitation is used when an MCP tool requires additional structured input or confirmation from the user. Both tool approval (sensitive tool interception) and MCP elicitation (structured forms) use the same underlying `ApprovalManager` pause/resume mechanism.
-
-### In MCP Tools (FastMCP)
+**In MCP Tools (FastMCP):**
 ```python
 from fastmcp import FastMCP, Context
 
@@ -930,7 +782,6 @@ mcp = FastMCP("MyServer")
 
 @mcp.tool()
 async def book_table(restaurant: str, ctx: Context) -> str:
-    # Trigger elicitation for confirmation and additional details
     confirmation = await ctx.elicit(
         message=f"Please confirm booking for {restaurant}",
         schema={
@@ -942,77 +793,251 @@ async def book_table(restaurant: str, ctx: Context) -> str:
             "required": ["guests", "time"]
         }
     )
-
     if confirmation.get("_action") == "cancel":
         return "Booking cancelled by user."
-
     return f"Booked for {confirmation['guests']} at {confirmation['time']}"
 ```
 
-### Flow Details
-1.  **Request**: MCP tool calls `ctx.elicit` inside its handler.
-2.  **Callback**: `global_elicitation_callback()` pushes an `elicitation` event to the sideband queue and creates an `asyncio.Future` via `ApprovalManager`.
-3.  **Streaming**: Backend streams the event to the UI (web or terminal) via SSE sideband.
-4.  **UI**: `ElicitationModal` (web) or a terminal prompt renders the form from JSON Schema.
-5.  **Response**: User submits, UI sends `POST /api/approve` with the structured data.
-6.  **Resume**: `ApprovalManager.resolve()` sets the future result, unblocking the MCP tool which continues execution with the user's data.
+**Flow:** MCP tool calls `ctx.elicit` → `global_elicitation_callback()` pushes event to sideband queue + creates `asyncio.Future` → Backend streams to UI → User submits `POST /api/approve` → `ApprovalManager.resolve()` unblocks MCP tool.
 
-## When Stuck
-- Refer to `agent_utilities.py` for the implementation details of `create_agent`.
-- Refer to `agent_factory.py` for CLI agent creation implementation.
-- Review `mcp_utilities.py` for how tools are being registered and exposed to MCP.
-- Review `graph_orchestration.py` for graph-based agent orchestration.
-- Ask for clarification if the multi-agent supervisor logic is unclear.
+## The Complete Execution Journey
 
-## Pydantic AI VercelAIAdapter Integration Notes
-When using `pydantic-ai` with the `VercelAIAdapter` (which handles `/api/chat` requests from the React frontend):
+### Phase 1: Ingress & Protocol Handling
+1. **Entry**: A user query (text + optional images) arrives via any supported protocol: AG-UI (`/ag-ui`), ACP (`/acp`), SSE (`/stream`), or REST (`/api/chat`).
+2. **Unified Execution**: All protocols funnel through the same graph engine via `graph/unified.py`.
+3. **State Initialization**: A fresh `GraphState` is initialized with the consolidated `query_parts`.
+
+### Phase 2: Safety & Policy Enforcement
+4. **Usage Guard**: The `usage_guard_step` checks session's token usage and estimated cost against safety limits.
+5. **Policy Check**: If enabled, a lightweight LLM check validates the query against security policies.
+
+### Phase 3: Routing & Planning
+6. **Fast-Path Check**: Trivial or conversational queries are answered directly, bypassing the full graph pipeline.
+7. **Routing**: The `router_step` analyzes the multi-modal intent and generates a `GraphPlan`.
+8. **Infinite-Loop Guard**: A `node_transitions` counter (max 50) prevents runaway graph execution.
+
+### Phase 4: Context Enrichment & Dispatch
+9. **Memory Selection**: On first entry, the `dispatcher` routes to `memory_selection_step` for RAG-style context injection.
+10. **Research-Before-Execution**: The dispatcher reorders the plan to guarantee research steps execute before specialist steps.
+11. **Dispatch**: The `dispatcher` spawns selected specialist nodes with concurrent execution via `parallel_batch_processor`.
+
+### Phase 5: Parallel Execution
+12. **Specialist Loop**: Each specialist enters a high-fidelity `Agent.run()` loop with dedicated system prompts, domain-specific toolsets, and original multi-modal query parts.
+13. **Convergence**: Results are coalesced at the `execution_joiner` and written to the `results_registry`.
+
+### Phase 6: Verification & Synthesis
+14. **Verification**: The `verifier_step` compares results against user intent using a `ValidationResult` score (0.0-1.0).
+15. **Feedback Loop**: Score 0.4-0.7 → re-dispatch same plan with feedback. Score < 0.4 → full re-plan via `planner_step`.
+16. **Synthesis**: Once validated (score >= 0.7), the `synthesizer_step` composes the final markdown response.
+17. **Memory Persistence**: Execution metadata is persisted to the Knowledge Graph as a `historical_execution` memory.
+
+## Graph Event System & Phase Map
+
+Every significant state transition emits a structured event via `emit_graph_event()` (`graph/config_helpers.py`). Events serve two purposes:
+1. **Server-side structured logging** — `_log_graph_trace()` uses `_PHASE_MAP` to prefix each log line with a phase label.
+2. **Real-time UI sideband streaming** — Each event is pushed as a `data-graph-event` payload via SSE.
+
+### Event Emission Contract
+```python
+emit_graph_event(
+    eq=event_queue,           # asyncio.Queue (or None to skip)
+    event_type="routing_started",  # Must be a key in _PHASE_MAP
+    query=ctx.state.query,    # Arbitrary metadata kwargs
+)
+```
+
+### `_PHASE_MAP` Reference
+
+| Phase | Event Types | Emitted By |
+|---|---|---|
+| **LIFECYCLE** | `graph_start`, `graph_complete`, `node_start`, `node_complete` | `runner.py`, `steps.py` |
+| **SAFETY** | `safety_warning` | `steps.py` (usage_guard) |
+| **ROUTING** | `routing_started`, `routing_completed` | `steps.py` (router) |
+| **PLANNING** | `plan_created` | `steps.py` (dispatcher) |
+| **REPLANNING** | `replanning_started`, `replanning_completed` | `steps.py` (planner) |
+| **DISPATCH** | `step_dispatched`, `batch_dispatched` | `steps.py` (dispatcher) |
+| **ENRICHMENT** | `context_gap_detected` | `steps.py` (memory_selection) |
+| **EXECUTION** | `specialist_enter`, `specialist_exit`, `expert_metadata`, `expert_thinking`, `expert_text`, `expert_complete`, `tools_bound`, `subagent_started`, `subagent_completed` | `hsm.py`, `executor.py` |
+| **TOOL_CALL** | `expert_tool_call`, `subagent_tool_call` | `executor.py`, `steps.py` |
+| **TOOL_RESULT** | `tool_result` | `executor.py`, `steps.py` |
+| **PARALLEL** | `orthogonal_regions_start`, `orthogonal_regions_complete`, `region_start`, `region_complete` | `hsm.py` |
+| **VERIFICATION** | `verification_result` | `steps.py` (verifier) |
+| **SYNTHESIS** | `agent_node_delta`, `synthesis_fallback` | `executor.py`, `steps.py` |
+| **APPROVAL** | `approval_required`, `approval_resolved`, `elicitation` | `approval_manager.py`, `executor.py` |
+| **RECOVERY** | `error_recovery_replan`, `error_recovery_terminal` | `steps.py` (error_recovery) |
+| **TERMINATION** | `graph_force_terminated` | `steps.py` (dispatcher) |
+
+**You must add an entry to `_PHASE_MAP`** whenever you add a new `emit_graph_event()` call. Always use `snake_case` for event types.
+
+### Frontend Event Consumers
+| Frontend | Events Used | Purpose |
+|---|---|---|
+| **agent-webui** (`graph-activity.tsx`) | `routing_started`, `routing_completed`, `expert_tool_call`, `subagent_tool_call`, `approval_required` | Graph activity visualizer, approval cards |
+| **agent-terminal-ui** (`app.py`) | `specialist_enter`, `routing_started`, `routing_completed`, `approval_required` | Status line updates, tool approval modal |
+
+## Server Endpoint Reference
+
+| Endpoint | Method | Tag | Description |
+|---|---|---|---|
+| `/health` | GET | Core | Health check and server metadata |
+| `/ag-ui` | POST | Agent UI | AG-UI streaming endpoint with sideband graph events |
+| `/stream` | POST | Agent UI | Generic SSE stream endpoint for graph agent execution |
+| `/acp` | MOUNT | ACP | Agent Communication Protocol (pydantic-acp) |
+| `/a2a` | MOUNT | A2A | Agent-to-Agent (fastA2A) JSON-RPC endpoint |
+| `/api/approve` | POST | Human-in-the-Loop | Resolves pending tool approvals and MCP elicitation requests |
+| `/chats` | GET | Core | List all stored chat sessions |
+| `/chats/{chat_id}` | GET | Core | Get full message history for a specific chat |
+| `/chats/{chat_id}` | DELETE | Core | Delete a specific chat session |
+| `/mcp/config` | GET | Interoperability | Return the current MCP server configuration |
+| `/mcp/tools` | GET | Interoperability | List all tools from connected MCP servers |
+| `/mcp/reload` | POST | Interoperability | Hot-reload MCP servers and rebuild graph |
+
+## Development Reference
+
+### Maintaining the Specialist Registry (NODE_AGENTS.md)
+The specialist ecosystem is managed via `NODE_AGENTS.md`. This registry is the primary source of truth for routing.
+
+**How it works:**
+1. Each entry in `NODE_AGENTS.md` matches to a `.md` file in `agent_utilities/prompts/` (for prompt agents) or a remote endpoint (for A2A/MCP agents).
+2. The `agent_registry_builder.py` script automatically synchronizes this registry by parsing prompt frontmatter and MCP server configurations.
+3. When `builder.py` spawns the orchestrator, it loads all agents from this registry.
+4. Capability tags are assigned to agents, and the `expert_executor` uses these tags to dynamically bind toolsets at runtime.
+
+**Adding a new role:**
+1. Create `[role].md` with YAML frontmatter in `agent_utilities/prompts/`.
+2. Run the registry rebuilder: `python3 -m agent_utilities.agent_registry_builder`.
+3. Keep role IDs in `snake_case`.
+
+### Commands (run these exactly)
+```bash
+# Development & Quality
+ruff check --fix .
+ruff format .
+pytest
+
+# Running a single test
+pytest tests/test_example.py
+pytest tests/test_example.py::test_function_name
+pytest -k "keyword"
+
+# Installation
+pip install -e .      # Install in editable mode
+pip install -e .[all] # Install with all optional extras
+```
+
+### Validation & Diagnostics
+
+**End-to-End Specialist Validation:**
+```bash
+python scripts/verify_graph.py "List all projects in the workspace"
+```
+
+**Integration Test Suite:**
+Comprehensive tests in `tests/` validate the entire stack:
+- `test_knowledge_graph_integration.py` — Full KG lifecycle (30 tests): schema, CRUD, ingestion, MAGMA, spawning, self-improvement, maintenance.
+- `test_graph_enhancements.py` — Engine features: episode ingestion, MAGMA retrieval, agent spawning, Lightning self-improvement.
+- `test_knowledge_graph_backend.py` — Backend abstraction: LadybugDB, FalkorDB, Neo4j stubs.
+- `test_knowledge_maintenance.py` — Pruning, enrichment, summarization.
+- `test_mcp_integration.py` — MCP server ingestion, metadata linkage.
+- `test_sdd_logic.py` — SDD serialization, parallel opportunities.
+- `test_acp_integration.py` — ACP graph delegation, session persistence, event mapping.
+
+**Terminal UI Parity (Claude Code):**
+| Feature | Status | Implementation |
+| :--- | :--- | :--- |
+| **Slash Commands** | Supported | `/init`, `/review`, `/test`, `/search`, `/stats`, `/cost` |
+| **Streaming Diffs** | Planned | Integration with `developer_tools` for rich diff rendering. |
+| **Cost Tracking** | Supported | Real-time token and USD cost display in status line. |
+| **ACP Sessions** | Supported | Full session resume and history browsing. |
+
+### Project Structure Quick Reference
+- `agent_utilities/agent/` → Agent templates and `IDENTITY.md` definitions.
+- `agent_utilities/agent_utilities.py` → Main entry point for `create_agent` and `create_agent_server`.
+- `agent_utilities/agent_factory.py` → CLI factory for creating agents with argparse.
+- `agent_utilities/mcp_utilities.py` → Utilities for FastMCP and MCP tool registration.
+- `agent_utilities/base_utilities.py` → Generic helpers for file handling, type conversions, and CLI flags.
+- `agent_utilities/tools/` → Built-in agent tools (developer_tools, git_tools, workspace_tools).
+- `agent_utilities/embedding_utilities.py` → Vector DB and embedding integration (LlamaIndex based).
+- `agent_utilities/models/` → **Unified Models Package** (SDD + Knowledge Graph models).
+  - `models/knowledge_graph.py` → 30+ Pydantic node/edge types (Episode, ReasoningTrace, CallableResource, etc.)
+  - `models/schema_definition.py` → DDL schema (30 node tables, 27+ relationship tables)
+  - `models/sdd.py` → SDD models (Spec, Task, Tasks, ImplementationPlan, ProjectConstitution)
+- `agent_utilities/knowledge_graph/` → **Knowledge Graph subpackage**:
+  - `engine.py` → `IntelligenceGraphEngine` (CRUD, MAGMA retrieval, spawning, Lightning)
+  - `maintenance.py` → `GraphMaintainer` (7 maintenance operations)
+  - `backends/` → `GraphBackend` ABC + `create_backend()` factory + LadybugDB, FalkorDB, Neo4j implementations
+  - `pipeline/` → 12-phase topological pipeline (Kahn's algorithm runner)
+- `agent_utilities/graph/` → **Graph orchestration subpackage** (the core engine):
+  - `graph/builder.py` → `initialize_graph_from_workspace()`, unified discovery
+  - `graph/unified.py` → `execute_graph()`, `execute_graph_stream()` - protocol-agnostic entry
+  - `graph/runner.py` → `run_graph()` with sequential MCP connect + clear failure reporting
+  - `graph/steps.py` → All graph node step functions (router, dispatcher, verifier, synthesizer)
+  - `graph/executor.py` → Specialist execution, tool-count telemetry, deduplicated binding
+  - `graph/state.py` → `GraphState`, `GraphDeps` Pydantic models
+  - `graph/hsm.py` → HSM/BT entry/exit hooks, preconditions, static routing
+  - `graph/config_helpers.py` → `load_mcp_agents_registry()`, emit helpers, `_PHASE_MAP`
+- `agent_utilities/approval_manager.py` → Human-in-the-loop (ApprovalManager, run_with_approvals, elicitation)
+- `agent_utilities/acp_adapter.py` → ACP protocol adapter with graph-backed execution
+- `agent_utilities/sdd.py` → SDDManager (save/load/export/import with [P] markers)
+- `agent_utilities/server.py` → HTTP server implementation
+- `agent_utilities/tool_guard.py` → Universal tool guard implementation
+
+### Code Style & Conventions
+
+**Always:**
+- Use `try/except ImportError` guardrail pattern for optional dependencies.
+- Use `agent_utilities.base_utilities.to_boolean` for parsing environment variables.
+- Support `SSL_VERIFY` environment variable and `--insecure` CLI flag.
+- Prefer `pathlib.Path` for file path manipulations.
+- Use type hints for all function arguments and return values.
+- Maximum line length: 88 characters (Ruff/Black). 4 spaces per indentation level.
+
+**Naming Conventions:**
+- Classes: PascalCase. Functions/variables: snake_case. Constants: UPPER_SNAKE_CASE.
+
+**Do:**
+- Use `create_agent` for all new agent instances.
+- Register tools with descriptive docstrings as they are parsed by the LLM.
+- Pass **all toolsets at Agent construction time** via `Agent(toolsets=[...])`.
+- Use `ApprovalRequiredToolset` for MCP tool approval.
+
+**Don't:**
+- Import `fastapi` or `llama_index` at the top level (use lazy imports).
+- **NEVER** append to `agent.toolsets` after construction (it's a read-only property).
+- **NEVER** access `agent._function_toolset` or any underscore-prefixed pydantic-ai attributes.
+- **NEVER** import from `pydantic_acp.runtime._*` internal modules.
+
+### Safety & Boundaries
+**Always do:** Validate file paths. Run `ruff` and `pytest` before PRs. Test error conditions.
+
+**Ask first:** Introducing new top-level dependencies. Changes to Knowledge Graph management logic. Major architectural changes.
+
+**Never do:** Commit API keys. Run tests requiring external APIs without mocks. Break backward compatibility.
+
+### Pydantic AI VercelAIAdapter Note
 - The frontend (Vercel AI SDK) provides the **entire conversation history** in every payload.
-- Pydantic AI's `UserPromptNode` logic assumes that if a `message_history` is provided, the conversation is simply being "resumed".
-- As a result, Pydantic AI **skips** applying any static `system_prompt`s defined in `Agent.__init__` because it assumes the system prompt must have been added earlier in the history.
-- The `agent-webui` React application does *not* explicitly pass the system message in its payload. Therefore, static system prompts get silently dropped during `/api/chat` inferences.
-- **Solution:** Always use the dynamic `@agent.instructions` decorator for critical agent identity injection. Pydantic AI's graph evaluates dynamic instructions on *every* `ModelRequest` regardless of existing message history, ensuring the identity is always passed to the LLM.
+- Pydantic AI **skips** static `system_prompt`s when `message_history` is provided.
+- **Solution:** Always use the dynamic `@agent.instructions` decorator for critical agent identity injection.
 
-## Agent Data Files
-The `agent_utilities/agent_data/` directory contains important workspace files:
-- `IDENTITY.md` - Defines the agent's identity, purpose, and behavior guidelines
-- `MEMORY.md` - Persistent memory for the agent across sessions
-- `USER.md` - Information about the current user
+### Agent Data Files
+The `agent_utilities/agent_data/` directory contains workspace files:
+- `IDENTITY.md` - Agent identity, purpose, and behavior guidelines
+- `Knowledge Graph` - Persistent memory via LadybugDB
+- `USER.md` - Current user information
 - `A2A_AGENTS.md` - Agent-to-Agent communication protocols
-- `CRON.md` - Scheduled task definitions
-- `CRON_LOG.md` - Execution logs for cron tasks
-- `HEARTBEAT.md` - Agent health and status indicators
+- `NODE_AGENTS.md` - Unified specialist registry (tools, agents, capabilities)
 
-These files are automatically managed by the workspace system and should be referenced when building agents that need to maintain state or identity.
+### Adding New Modules
+1. Follow existing code style and conventions
+2. Add type hints and comprehensive docstrings
+3. Add unit tests in `tests/`
+4. Export in `__init__.py` if part of public API
+5. Use lazy imports for heavy dependencies
+6. Update this AGENTS.md to document the new module
 
-## Adding New Modules
-When adding new utility modules to the agent_utilities package:
-1. Follow the existing code style and conventions
-2. Add appropriate type hints
-3. Include comprehensive docstrings
-4. Add unit tests in the tests/ directory
-5. Export public functions/classes in `__init__.py` if they should be part of the public API
-6. Consider if the module should have lazy imports for heavy dependencies
-7. Follow the pattern of existing similar modules for consistency
-8. Update this AGENTS.md file to document the new module's purpose
-
-## Testing Guidelines
-- Write tests for all new functionality
-- Aim for high test coverage, especially for utility functions
-- Use pytest fixtures for common test setup
-- Mock external dependencies when possible
-- Test both success and failure paths
-- Follow the existing test patterns in the tests/ directory
-
-## Documentation Standards
-- All public functions and classes should have docstrings
-- Docstrings should follow Google or NumPy style
-- Complex algorithms should include explanatory comments
-- Examples should be provided for non-trivial functions
-- Keep documentation up-to-date when making changes
-
-## Dependency Management
-- Prefer to keep dependencies minimal
-- For optional dependencies, use try/except ImportError patterns
-- Document any new dependencies in pyproject.toml
-- Consider if heavy dependencies should be lazy-loaded
-- Follow semantic versioning for dependencies when possible
+### When Stuck
+- `agent_utilities.py` → `create_agent` implementation
+- `agent_factory.py` → CLI agent creation
+- `mcp_utilities.py` → MCP tool registration
+- `graph/builder.py` → Graph initialization and workspace discovery
+- `knowledge_graph/engine.py` → Intelligence Graph API

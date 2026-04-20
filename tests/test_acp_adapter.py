@@ -1,5 +1,8 @@
 from unittest.mock import patch
-from agent_utilities.acp_adapter import build_acp_config
+from agent_utilities.acp_adapter import build_acp_config, _ACP_INSTALLED
+import pytest
+
+pytestmark = pytest.mark.skipif(not _ACP_INSTALLED, reason="pydantic-acp not installed")
 
 def test_build_acp_config_defaults():
     """Test build_acp_config with default values."""

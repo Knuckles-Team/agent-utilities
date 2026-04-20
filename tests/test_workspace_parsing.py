@@ -12,14 +12,15 @@ from agent_utilities.workspace import (
 from agent_utilities.models import IdentityModel, UserModel, A2ARegistryModel, A2APeerModel
 
 def test_parse_identity():
-    content = """# IDENTITY.md
- * **Name:** TestBot
- * **Role:** Tester
- * **Emoji:** bot
- * **Vibe:** Chill
+    content = """---
+name: TestBot
+role: Tester
+emoji: bot
+vibe: Chill
+---
+# TestBot
 
- ### System Prompt
- This is a test prompt.
+This is a test prompt.
 """
     model = parse_identity(content)
     assert model.name == "TestBot"
@@ -31,7 +32,8 @@ def test_parse_identity():
 def test_serialize_identity():
     model = IdentityModel(name="TestBot", role="Tester", emoji="bot", vibe="Chill", system_prompt="Do test.")
     res = serialize_identity(model)
-    assert "**Name:** TestBot" in res
+    assert "name: TestBot" in res
+    assert "role: Tester" in res
     assert "Do test." in res
 
 def test_parse_user_info():
