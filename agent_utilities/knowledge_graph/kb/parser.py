@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """KB Document Parser.
 
 Parses raw source documents into DocumentChunk objects for KB ingestion.
@@ -11,7 +10,7 @@ Hash-based deduplication avoids re-processing unchanged files.
 import hashlib
 import logging
 from pathlib import Path
-from typing import List, Optional
+
 import yaml
 
 from ...models.knowledge_base import DocumentChunk, ParsedSource
@@ -41,7 +40,7 @@ def _count_words(text: str) -> int:
     return len(text.split())
 
 
-def _chunk_text(text: str, chunk_size: int = 1024) -> List[str]:
+def _chunk_text(text: str, chunk_size: int = 1024) -> list[str]:
     """Split text into word-count-bounded chunks with overlap."""
     words = text.split()
     chunks = []
@@ -66,7 +65,7 @@ class KBDocumentParser:
 
     def parse_directory(
         self, path: str | Path, recursive: bool = True
-    ) -> List[ParsedSource]:
+    ) -> list[ParsedSource]:
         """Parse all supported files in a directory."""
         path = Path(path)
         if not path.exists():
@@ -84,7 +83,7 @@ class KBDocumentParser:
                     logger.warning(f"Failed to parse {fpath}: {e}")
         return sources
 
-    def parse_file(self, path: str | Path) -> Optional[ParsedSource]:
+    def parse_file(self, path: str | Path) -> ParsedSource | None:
         """Parse a single file into a ParsedSource."""
         path = Path(path)
         if not path.exists():
@@ -127,7 +126,7 @@ class KBDocumentParser:
             chunks=chunks,
         )
 
-    def parse_url(self, url: str, kb_name: str = "web") -> Optional[ParsedSource]:
+    def parse_url(self, url: str, kb_name: str = "web") -> ParsedSource | None:
         """Fetch a URL and parse its content as HTML → Markdown."""
         try:
             import httpx
@@ -166,7 +165,7 @@ class KBDocumentParser:
             chunks=chunks,
         )
 
-    def parse_skill_graph(self, graph_path: str | Path) -> List[ParsedSource]:
+    def parse_skill_graph(self, graph_path: str | Path) -> list[ParsedSource]:
         """Parse a skill-graph directory (reads SKILL.md frontmatter + reference/ files).
 
         Skill-graphs contain a SKILL.md with YAML frontmatter describing the
@@ -299,8 +298,8 @@ class KBDocumentParser:
         """Extract text from EPUB (requires ebooklib + BeautifulSoup)."""
         try:
             import ebooklib
-            from ebooklib import epub
             from bs4 import BeautifulSoup
+            from ebooklib import epub
 
             book = epub.read_epub(str(path))
             texts = []

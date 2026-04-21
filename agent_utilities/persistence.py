@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """State Persistence Module.
 
 This module provides various backends for persisting graph execution state,
@@ -10,30 +9,30 @@ process restarts.
 
 from __future__ import annotations
 
-import os
 import json
 import logging
-from typing import Any, List, Optional, TypeVar, Union
-from pathlib import Path
+import os
 from dataclasses import asdict
+from pathlib import Path
+from typing import Any, TypeVar
 
 from pydantic import TypeAdapter
 
 try:
     from pydantic_graph.persistence import (
         BaseStatePersistence,
-        NodeSnapshot,
         EndSnapshot,
+        NodeSnapshot,
     )
 except ImportError:
-    BaseStatePersistence = Any
-    NodeSnapshot = Any
-    EndSnapshot = Any
+    BaseStatePersistence = Any  # type: ignore
+    NodeSnapshot = Any  # type: ignore
+    EndSnapshot = Any  # type: ignore
 
 try:
     from pydantic_graph.persistence.file import FileStatePersistence
 except ImportError:
-    FileStatePersistence = None
+    FileStatePersistence = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +55,12 @@ class EnhancedFileStatePersistence(BaseStatePersistence[StateT]):
     async def snapshot_end(self, snapshot: EndSnapshot[StateT]) -> None:
         return await self._internal.snapshot_end(snapshot)
 
-    async def load_next(self, run_id: str) -> Optional[NodeSnapshot[StateT]]:
+    async def load_next(self, run_id: str) -> NodeSnapshot[StateT] | None:
         return await self._internal.load_next(run_id)
 
     async def load_all(
         self, run_id: str
-    ) -> List[Union[NodeSnapshot[StateT], EndSnapshot[StateT]]]:
+    ) -> list[NodeSnapshot[StateT] | EndSnapshot[StateT]]:
         return await self._internal.load_all(run_id)
 
 
@@ -77,12 +76,16 @@ class PostgresStatePersistence(BaseStatePersistence[StateT]):
         try:
             import asyncpg
         except ImportError:
-            raise ImportError("asyncpg is required for PostgresStatePersistence")
+            raise ImportError(
+                "asyncpg is required for PostgresStatePersistence"
+            ) from None
 
         if self._pool is None:
             self._pool = await asyncpg.create_pool(self.dsn)
-            async with self._pool.acquire() as conn:
-                await conn.execute(f"""
+        if self._pool is None:
+            raise RuntimeError("Failed to create postgres pool")
+        async with self._pool.acquire() as conn:
+            await conn.execute(f"""
                     CREATE TABLE IF NOT EXISTS {self.table_name} (
                         run_id TEXT,
                         timestamp TIMESTAMPTZ,
@@ -142,12 +145,12 @@ class PostgresStatePersistence(BaseStatePersistence[StateT]):
                 True,
             )
 
-    async def load_next(self, run_id: str) -> Optional[NodeSnapshot[StateT]]:
+    async def load_next(self, run_id: str) -> NodeSnapshot[StateT] | None:
         return None
 
     async def load_all(
         self, run_id: str
-    ) -> List[Union[NodeSnapshot[StateT], EndSnapshot[StateT]]]:
+    ) -> list[NodeSnapshot[StateT] | EndSnapshot[StateT]]:
         return []
 
 
@@ -163,7 +166,7 @@ class RedisStatePersistence(BaseStatePersistence[StateT]):
         try:
             import redis.asyncio as redis
         except ImportError:
-            raise ImportError("redis is required for RedisStatePersistence")
+            raise ImportError("redis is required for RedisStatePersistence") from None
 
         if self._redis is None:
             self._redis = redis.from_url(self.url, decode_responses=True)
@@ -201,18 +204,18 @@ class RedisStatePersistence(BaseStatePersistence[StateT]):
         }
         await r.hset(key, "end", json.dumps(data))
 
-    async def load_next(self, run_id: str) -> Optional[NodeSnapshot[StateT]]:
+    async def load_next(self, run_id: str) -> NodeSnapshot[StateT] | None:
         return None
 
     async def load_all(
         self, run_id: str
-    ) -> List[Union[NodeSnapshot[StateT], EndSnapshot[StateT]]]:
+    ) -> list[NodeSnapshot[StateT] | EndSnapshot[StateT]]:
         return []
 
 
 def persistence_factory(
-    persistence_type: str = "file", run_id: Optional[str] = None, **kwargs
-) -> Optional[BaseStatePersistence]:
+    persistence_type: str = "file", run_id: str | None = None, **kwargs
+) -> BaseStatePersistence | None:
     """Factory to return a pydantic-graph persistence backend."""
     ptype = persistence_type.lower()
 

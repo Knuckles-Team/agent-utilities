@@ -1,17 +1,16 @@
 #!/usr/bin/python
-# coding: utf-8
 """Agent Registry Builder Module.
 
-This module provides logic to rebuild the unified NODE_AGENTS.md registry
-by merging definitions from prompt frontmatter, MCP configurations,
-and remote A2A peers.
+This module provides logic to ingest specialized prompt metadata from
+markdown frontmatter directly into the Knowledge Graph as PromptNodes.
 """
 
-import yaml
 import logging
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
+
+import yaml
 
 from .workspace import (
     get_agent_workspace,
@@ -20,7 +19,7 @@ from .workspace import (
 logger = logging.getLogger(__name__)
 
 
-def parse_frontmatter(content: str) -> Optional[Dict[str, Any]]:
+def parse_frontmatter(content: str) -> dict[str, Any] | None:
     """Parse YAML frontmatter from a markdown string."""
     match = re.search(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
     if match:
@@ -31,10 +30,11 @@ def parse_frontmatter(content: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-async def rebuild_node_agents_md():
+async def ingest_prompts_to_graph():
     """Ingest local prompt files into the Knowledge Graph as PromptNodes.
 
-    (Kept name for backwards compatibility, but it no longer writes NODE_AGENTS.md)
+    This replaces the legacy NODE_AGENTS.md registry with a dynamic KG-native
+    discovery mechanism.
     """
     workspace = get_agent_workspace()
 
@@ -83,23 +83,25 @@ async def rebuild_node_agents_md():
             capabilities = metadata.get("skills", metadata.get("capabilities", []))
 
             # Store in Knowledge Graph as PromptNode
-            query = """
-            MERGE (p:Prompt {id: $id})
-            SET p.name = $name,
-                p.desc = $desc,
-                p.content = $content,
-                p.capabilities = $capabilities
-            """
-            backend.execute(
-                query,
-                {
-                    "id": f"prompt:{agent_name}",
-                    "name": agent_name,
-                    "desc": description,
-                    "content": content,
-                    "capabilities": capabilities,
-                },
+            data = {
+                "id": f"prompt:{agent_name}",
+                "name": agent_name,
+                "description": description,
+                "system_prompt": content,
+                "capabilities": capabilities,
+                "type": "prompt",
+            }
+            # Ladybug compatibility: use MATCH/SET then CREATE
+            set_clause = ", ".join([f"p.{k} = ${k}" for k in data.keys() if k != "id"])
+            update_query = (
+                f"MATCH (p:Prompt) WHERE p.id = $id SET {set_clause} RETURN p.id"
             )
+            res = backend.execute(update_query, data)
+
+            if not res:
+                cols = ", ".join([f"{k}: ${k}" for k in data.keys()])
+                create_query = f"CREATE (p:Prompt {{{cols}}})"
+                backend.execute(create_query, data)
 
     logger.info("Local prompt files ingested into the Knowledge Graph.")
     return None
@@ -109,4 +111,4 @@ if __name__ == "__main__":
     import asyncio
 
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(rebuild_node_agents_md())
+    asyncio.run(ingest_prompts_to_graph())

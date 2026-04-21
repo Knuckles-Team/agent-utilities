@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Tool Filtering Module.
 
 This module provides utility functions for filtering skills and MCP tools based
@@ -10,11 +9,12 @@ tool definition objects.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
-import logging
+from typing import TYPE_CHECKING, Any
+
 import yaml
-from typing import Any, List, Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from fasta2a import Skill
@@ -23,7 +23,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
+def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Skill | None:
     """Parse a skill definition from a SKILL.md markdown file.
 
     Extracts frontmatter metadata (name, description, version, tags) to
@@ -37,11 +37,11 @@ def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
         A Skill object if parsing is successful, otherwise None.
 
     """
-    from fasta2a import Skill
     import yaml
+    from fasta2a import Skill
 
     try:
-        with open(skill_file, "r") as f:
+        with open(skill_file) as f:
             content = f.read()
 
             fm_match = re.search(
@@ -78,7 +78,7 @@ def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Optional[Skill]:
     return None
 
 
-def load_skills_from_directory(directory: str) -> List[Skill]:
+def load_skills_from_directory(directory: str) -> list[Skill]:
     """Load all skills found in a specified directory.
 
     Scans the directory for SKILL.md files directly or within subdirectories
@@ -91,7 +91,7 @@ def load_skills_from_directory(directory: str) -> List[Skill]:
         A list of loaded Skill objects.
 
     """
-    skills = []
+    skills: list[Skill] = []
     base_path = Path(directory)
 
     if not base_path.exists():
@@ -116,7 +116,7 @@ def load_skills_from_directory(directory: str) -> List[Skill]:
     return skills
 
 
-def extract_skill_tags(skill_path: str) -> List[str]:
+def extract_skill_tags(skill_path: str) -> list[str]:
     """Extract tags from the frontmatter of a skill's SKILL.md file.
 
     Args:
@@ -131,7 +131,7 @@ def extract_skill_tags(skill_path: str) -> List[str]:
         return []
 
     try:
-        with open(skill_file, "r") as f:
+        with open(skill_file) as f:
             content = f.read()
             if content.startswith("---"):
                 parts = content.split("---", 2)
@@ -164,7 +164,7 @@ def skill_in_tag(skill_path: str, tag: str) -> bool:
     return tag in tool_tags
 
 
-def filter_skills_by_tag(skills: List[str], tag: str) -> List[str]:
+def filter_skills_by_tag(skills: list[str], tag: str) -> list[str]:
     """Filter a list of skill paths based on a given tag.
 
     Args:
@@ -178,7 +178,7 @@ def filter_skills_by_tag(skills: List[str], tag: str) -> List[str]:
     return [s for s in skills if skill_in_tag(s, tag)]
 
 
-def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
+def get_skill_directories_by_tag(base_dir: str, tag: str) -> list[str]:
     """Find all skill directories within a base directory that match a tag.
 
     Args:
@@ -189,7 +189,7 @@ def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
         A list of absolute or relative paths to matching skill directories.
 
     """
-    skill_dirs = []
+    skill_dirs: list[str] = []
     base_path = Path(base_dir)
 
     if not base_path.exists() or not base_path.is_dir():
@@ -202,7 +202,7 @@ def get_skill_directories_by_tag(base_dir: str, tag: str) -> List[str]:
     return skill_dirs
 
 
-def skill_matches_tags(skill_dir: str, tags: List[str]) -> bool:
+def skill_matches_tags(skill_dir: str, tags: list[str]) -> bool:
     """Check if a skill directory matches any of the provided tags.
 
     Reads frontmatter 'tags' and 'categories' to perform a multi-vector match.
@@ -220,10 +220,11 @@ def skill_matches_tags(skill_dir: str, tags: List[str]) -> bool:
         return False
 
     try:
-        with open(skill_md, "r") as f:
+        with open(skill_md) as f:
             content = f.read()
 
         import re
+
         import yaml
 
         fm_match = re.search(r"^---\s*\n(.*?)\n---", content, re.DOTALL | re.MULTILINE)
@@ -251,7 +252,7 @@ def skill_matches_tags(skill_dir: str, tags: List[str]) -> bool:
         return False
 
 
-def extract_tool_tags(tool_def: Any) -> List[str]:
+def extract_tool_tags(tool_def: Any) -> list[str]:
     """Extract tags from multiple potential locations in a tool definition.
 
     Handles FastMCP tool metadata, standard Pydantic AI metadata dictionaries,
@@ -319,7 +320,7 @@ def tool_in_tag(tool_def: Any, tag: str) -> bool:
         return False
 
 
-def filter_tools_by_tag(tools: Any, tags: Union[str, List[str]]) -> Any:
+def filter_tools_by_tag(tools: Any, tags: str | list[str]) -> Any:
     """Filter a list of tools or a ToolSet by one or more tags.
 
     If multiple tags are provided, a tool is included if it matches any

@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Stuck loop detection capability with knowledge graph integration.
 
 Detects repetitive agent behavior and intervenes, recording the event

@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Lifecycle hooks capability with knowledge graph integration.
 
 Provides PRE_TOOL_USE, POST_TOOL_USE, BEFORE_RUN, and AFTER_RUN hooks
@@ -11,10 +10,11 @@ from __future__ import annotations
 import enum
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 
-from pydantic_ai import RunContext
+from pydantic_ai import AgentRunResult, RunContext
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
@@ -36,23 +36,23 @@ class HookEvent(enum.Enum):
 class HookInput:
     event: HookEvent
     ctx: RunContext[Any]
-    tool_def: Optional[ToolDefinition] = None
-    call: Optional[ToolCallPart] = None
-    args: Optional[Dict[str, Any]] = None
-    result: Optional[Any] = None
-    error: Optional[Exception] = None
-    start_time: Optional[float] = None
+    tool_def: ToolDefinition | None = None
+    call: ToolCallPart | None = None
+    args: dict[str, Any] | None = None
+    result: Any | None = None
+    error: Exception | None = None
+    start_time: float | None = None
 
 
 @dataclass
 class HookResult:
-    modify_args: Optional[Dict[str, Any]] = None
-    modify_result: Optional[Any] = None
+    modify_args: dict[str, Any] | None = None
+    modify_result: Any | None = None
     cancel: bool = False
-    cancel_reason: Optional[str] = None
+    cancel_reason: str | None = None
 
 
-Hook = Callable[[HookInput], Union[HookResult, None]]
+Hook = Callable[[HookInput], HookResult | None]
 
 
 @dataclass
@@ -63,10 +63,10 @@ class HooksCapability(AbstractCapability[Any]):
     ToolCallNode entities in the knowledge graph.
     """
 
-    hooks: List[Hook] = field(default_factory=list)
+    hooks: list[Hook] = field(default_factory=list)
     auto_graph_trace: bool = True
 
-    _tool_sessions: Dict[str, float] = field(
+    _tool_sessions: dict[str, float] = field(
         default_factory=dict, init=False, repr=False
     )
 
@@ -93,8 +93,13 @@ class HooksCapability(AbstractCapability[Any]):
     async def before_run(self, ctx: RunContext[Any]) -> None:
         await self._run_hooks(HookInput(event=HookEvent.BEFORE_RUN, ctx=ctx))
 
-    async def after_run(self, ctx: RunContext[Any]) -> None:
-        await self._run_hooks(HookInput(event=HookEvent.AFTER_RUN, ctx=ctx))
+    async def after_run(
+        self, ctx: RunContext[Any], *, result: AgentRunResult[Any]
+    ) -> AgentRunResult[Any]:
+        await self._run_hooks(
+            HookInput(event=HookEvent.AFTER_RUN, ctx=ctx, result=result)
+        )
+        return result
 
     async def before_tool_execute(
         self,
@@ -102,8 +107,8 @@ class HooksCapability(AbstractCapability[Any]):
         *,
         call: ToolCallPart,
         tool_def: ToolDefinition,
-        args: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
         self._tool_sessions[call.tool_call_id] = time.time()
 
         # Auto-trace to graph
@@ -152,7 +157,7 @@ class HooksCapability(AbstractCapability[Any]):
         *,
         call: ToolCallPart,
         tool_def: ToolDefinition,
-        args: Dict[str, Any],
+        args: dict[str, Any],
         result: Any,
     ) -> Any:
         start_time = self._tool_sessions.pop(call.tool_call_id, time.time())

@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Browser Management Module.
 
 This module implements a singleton BrowserManager that handles the
@@ -8,8 +7,14 @@ context initialization and page tracking.
 """
 
 import logging
-from typing import List, Optional
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    Page,
+    Playwright,
+    async_playwright,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +27,17 @@ class BrowserManager:
     session.
     """
 
-    def __init__(self):
-        self.playwright: Optional[async_playwright] = None
-        self.browser: Optional[Browser] = None
-        self.context: Optional[BrowserContext] = None
-        self.pages: List[Page] = []
+    def __init__(self) -> None:
+        self.playwright: Playwright | None = None
+        self.browser: Browser | None = None
+        self.context: BrowserContext | None = None
+        self.pages: list[Page] = []
         self.headless: bool = True
         self.browser_type: str = "chromium"
         self.homepage: str = "https://www.google.com"
         self._initialized: bool = False
 
-    async def async_initialize(self):
+    async def async_initialize(self) -> None:
         """Asynchronously launch the browser engine and create a default context.
 
         Initializes Playwright, launches the specified browser type
@@ -52,13 +57,15 @@ class BrowserManager:
         else:
             raise ValueError(f"Unsupported browser type: {self.browser_type}")
 
+        if self.browser is None:
+            raise RuntimeError("Failed to launch browser")
         self.context = await self.browser.new_context()
-        page = await self.context.new_page()
+        page: Page = await self.context.new_page()
         await page.goto(self.homepage)
         self.pages.append(page)
         self._initialized = True
 
-    async def get_current_page(self) -> Optional[Page]:
+    async def get_current_page(self) -> Page | None:
         """Retrieve the last active page in the current context.
 
         Returns:
@@ -67,7 +74,7 @@ class BrowserManager:
         """
         return self.pages[-1] if self.pages else None
 
-    async def new_page(self, url: Optional[str] = None) -> Page:
+    async def new_page(self, url: str | None = None) -> Page:
         """Open a new tab/page within the active browser context.
 
         Args:
@@ -79,13 +86,15 @@ class BrowserManager:
         """
         if not self._initialized:
             await self.async_initialize()
+        if self.context is None:
+            raise RuntimeError("Browser context not initialized")
         page = await self.context.new_page()
         if url:
             await page.goto(url)
         self.pages.append(page)
         return page
 
-    async def close(self):
+    async def close(self) -> None:
         """Shutdown the browser engine and release all system resources.
 
         Closes all contexts and pages, and stops the Playwright driver.
@@ -98,7 +107,7 @@ class BrowserManager:
         self.pages = []
 
 
-_BROWSER_MANAGER: Optional[BrowserManager] = None
+_BROWSER_MANAGER: BrowserManager | None = None
 
 
 def get_browser_manager() -> BrowserManager:

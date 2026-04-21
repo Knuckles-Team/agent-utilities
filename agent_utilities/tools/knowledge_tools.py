@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Knowledge Graph Tools.
 
 This module provides MCP-style tools for interacting with the unified
@@ -7,25 +6,25 @@ Knowledge Graph, allowing agents to persist and retrieve memories.
 """
 
 import logging
-import uuid
 import time
-from typing import List, Optional
-from ..knowledge_graph.engine import RegistryGraphEngine
-from ..sdd import SDDManager
-from ..models import (
-    AgentDeps,
-    Spec,
-    ImplementationPlan,
-    Tasks,
-    TaskStatus,
-)
-
-logger = logging.getLogger(__name__)
+import uuid
 
 from pydantic_ai import RunContext
 
+from ..knowledge_graph.engine import RegistryGraphEngine
+from ..models import (
+    AgentDeps,
+    ImplementationPlan,
+    Spec,
+    Tasks,
+    TaskStatus,
+)
+from ..sdd import SDDManager
 
-def get_knowledge_engine(ctx: RunContext[AgentDeps]) -> Optional[RegistryGraphEngine]:
+logger = logging.getLogger(__name__)
+
+
+def get_knowledge_engine(ctx: RunContext[AgentDeps]) -> RegistryGraphEngine | None:
     """Helper to retrieve the knowledge engine from the context/deps."""
     return getattr(ctx.deps, "knowledge_engine", None)
 
@@ -83,7 +82,7 @@ async def add_knowledge_memory(
     content: str,
     name: str = "",
     category: str = "general",
-    tags: List[str] = None,
+    tags: list[str] | None = None,
 ) -> str:
     """Add a new long-term memory or observation to the Knowledge Graph (CREATE).
 
@@ -123,9 +122,9 @@ async def get_knowledge_memory(ctx: RunContext[AgentDeps], memory_id: str) -> st
 async def update_knowledge_memory(
     ctx: RunContext[AgentDeps],
     memory_id: str,
-    content: str = None,
-    category: str = None,
-    tags: List[str] = None,
+    content: str | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
 ) -> str:
     """Update an existing memory in the Knowledge Graph (UPDATE).
 
@@ -140,7 +139,9 @@ async def update_knowledge_memory(
     if not engine:
         return "Knowledge Graph not available."
 
-    updates = {}
+    from typing import Any
+
+    updates: dict[str, Any] = {}
     if content:
         updates["description"] = content
     if category:
@@ -274,7 +275,7 @@ async def log_heartbeat(
     ctx: RunContext[AgentDeps],
     agent_name: str,
     status: str,
-    issues: List[str] = None,
+    issues: list[str] | None = None,
     raw_data: str = "",
 ) -> str:
     """Log a heartbeat to the Knowledge Graph."""
@@ -335,7 +336,10 @@ async def create_client(
 
 
 async def create_user(
-    ctx: RunContext[AgentDeps], name: str, role: str = "user", client_id: str = None
+    ctx: RunContext[AgentDeps],
+    name: str,
+    role: str = "user",
+    client_id: str | None = None,
 ) -> str:
     """Create a User node in the Knowledge Graph and link to a Client."""
     engine = get_knowledge_engine(ctx)
@@ -604,7 +608,7 @@ async def list_knowledge_bases(ctx: RunContext[AgentDeps]) -> str:
 async def search_knowledge_base_tool(
     ctx: RunContext[AgentDeps],
     query: str,
-    kb_id: Optional[str] = None,
+    kb_id: str | None = None,
     top_k: int = 5,
 ) -> str:
     """Search knowledge bases for relevant articles and facts.

@@ -1,22 +1,21 @@
-import time
-from typing import Dict, List
 import logging
+import time
 
 from .types import (
-    PipelinePhase,
-    PipelineContext,
     PhaseResult,
+    PipelineContext,
+    PipelinePhase,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class PipelineRunner:
-    def __init__(self, phases: List[PipelinePhase]):
+    def __init__(self, phases: list[PipelinePhase]):
         self.phases = {p.name: p for p in phases}
         self.sorted_phases = self._topological_sort()
 
-    def _topological_sort(self) -> List[PipelinePhase]:
+    def _topological_sort(self) -> list[PipelinePhase]:
         """Kahn's algorithm for topological sorting."""
         in_degree = {name: 0 for name in self.phases}
         for phase in self.phases.values():
@@ -44,7 +43,7 @@ class PipelineRunner:
 
         return [self.phases[name] for name in sorted_names]
 
-    async def run(self, ctx: PipelineContext) -> Dict[str, PhaseResult]:
+    async def run(self, ctx: PipelineContext) -> dict[str, PhaseResult]:
         for phase in self.sorted_phases:
             logger.info(f"Executing phase: {phase.name}")
             start_time = time.time()

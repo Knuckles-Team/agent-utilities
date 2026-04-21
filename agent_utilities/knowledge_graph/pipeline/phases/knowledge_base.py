@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Phase 13: Knowledge Base Sync.
 
 Runs after Phase 12 (Sync) and handles automatic ingestion of enabled
@@ -10,16 +9,16 @@ skill-graphs and any KB updates. Controlled by PipelineConfig:
 
 import logging
 import time
-from typing import Any, Dict
+from typing import Any
 
-from ..types import PipelinePhase, PipelineContext, PhaseResult
+from ..types import PhaseResult, PipelineContext, PipelinePhase
 
 logger = logging.getLogger(__name__)
 
 
 async def execute_knowledge_base(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Phase 13: KB Sync — auto-ingest enabled skill-graphs if configured."""
     if not ctx.config.enable_knowledge_base:
         return {"status": "skipped", "reason": "knowledge base disabled"}

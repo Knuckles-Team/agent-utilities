@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Custom Exceptions Module.
 
 This module defines specialized exception classes used across the agent

@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Unified Execution Layer Module.
 
 This module provides protocol-agnostic entry points for graph execution,
@@ -10,7 +9,8 @@ the core runner logic to provide a consistent execution contract.
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from .runner import run_graph, run_graph_stream
 
@@ -43,7 +43,7 @@ async def execute_graph(
     query: str,
     run_id: str | None = None,
     mode: str = "ask",
-    mcp_toolsets: List[Any] | None = None,
+    mcp_toolsets: list[Any] | None = None,
     plan_sync=None,
     **kwargs,
 ) -> dict:
@@ -81,8 +81,8 @@ async def execute_graph_stream(
     query: str,
     run_id: str | None = None,
     mode: str = "ask",
-    mcp_toolsets: List[Any] | None = None,
-    handler: Optional[GraphEventHandler] = None,
+    mcp_toolsets: list[Any] | None = None,
+    handler: GraphEventHandler | None = None,
     **kwargs,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Unified entry point for asynchronous streaming graph execution.

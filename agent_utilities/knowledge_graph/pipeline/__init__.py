@@ -1,17 +1,16 @@
 #!/usr/bin/python
-# coding: utf-8
 """Unified Intelligence Pipeline Package."""
 
 import logging
 import time
-from typing import Optional
 
 import networkx as nx
+
 from ...models.knowledge_graph import PipelineConfig, RegistryGraphMetadata
 from ..backends.base import GraphBackend
-from .types import PipelineContext
-from .runner import PipelineRunner
 from .phases import PHASES
+from .runner import PipelineRunner
+from .types import PipelineContext
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 class IntelligencePipeline:
     """Orchestrator for the Unified Intelligence Pipeline."""
 
-    def __init__(self, config: PipelineConfig, backend: Optional[GraphBackend] = None):
+    def __init__(self, config: PipelineConfig, backend: GraphBackend | None = None):
         self.config = config
         self.graph = nx.MultiDiGraph()
         self.metadata = RegistryGraphMetadata()

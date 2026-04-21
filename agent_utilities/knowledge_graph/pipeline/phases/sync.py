@@ -1,11 +1,12 @@
 import logging
-from typing import Any, Dict
-from ..types import (
-    PipelinePhase,
-    PipelineContext,
-    PhaseResult,
-)
+from typing import Any
+
 from ...backends import create_backend
+from ..types import (
+    PhaseResult,
+    PipelineContext,
+    PipelinePhase,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,8 @@ _TYPE_TO_TABLE = {
 
 
 async def execute_sync(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Phase 12: Persist to the configured graph backend."""
     if not ctx.config.persist_to_ladybug:
         return {"status": "skipped", "reason": "persistence disabled"}

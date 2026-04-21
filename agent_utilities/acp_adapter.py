@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """ACP Adapter Module.
 
 This module provides the integration layer between the agent ecosystem and
@@ -9,10 +8,10 @@ bridges, and high-fidelity interaction modes.
 
 from __future__ import annotations
 
-import os
 import logging
+import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Dict, List
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent
 
@@ -31,28 +30,29 @@ try:
 except ImportError:
     _ACP_INSTALLED = False
 
+if not _ACP_INSTALLED:
     # Type stubs for when package is missing
-    class AdapterConfig:
+    class AdapterConfig:  # type: ignore
         def __init__(self, **kwargs):
             pass
 
-    class PrepareToolsMode:
+    class PrepareToolsMode:  # type: ignore
         def __init__(self, **kwargs):
             pass
 
-    class PrepareToolsBridge:
+    class PrepareToolsBridge:  # type: ignore
         def __init__(self, **kwargs):
             pass
 
-    class ThinkingBridge:
+    class ThinkingBridge:  # type: ignore
         def __init__(self, **kwargs):
             pass
 
-    class FileSessionStore:
+    class FileSessionStore:  # type: ignore
         def __init__(self, **kwargs):
             pass
 
-    class NativeApprovalBridge:
+    class NativeApprovalBridge:  # type: ignore
         def __init__(self, **kwargs):
             pass
 
@@ -64,10 +64,10 @@ if TYPE_CHECKING:
 
 
 def build_acp_config(
-    session_root: Optional[Path] = None,
+    session_root: Path | None = None,
     enable_approvals: bool = True,
     enable_thinking: bool = True,
-    modes: Optional[List[PrepareToolsMode]] = None,
+    modes: list[PrepareToolsMode] | None = None,
 ) -> AdapterConfig:
     """Construct a production-ready ACP AdapterConfig.
 
@@ -109,12 +109,12 @@ def build_acp_config(
             ),
         ]
 
-    bridges: List[Any] = [PrepareToolsBridge(default_mode_id="ask", modes=modes)]
+    bridges: list[Any] = [PrepareToolsBridge(default_mode_id="ask", modes=modes)]
     if enable_thinking:
         bridges.append(ThinkingBridge())
 
     # Wire in the workspace persistence provider so that ACP's native plan
-    # state is mirrored to MEMORY.md.  This must be set on the
+    # state is mirrored to the workspace.  This must be set on the
     # ``native_plan_persistence_provider`` key (write-only sink) — NOT on
     # ``plan_provider`` (read-only source) which would disable ACP's
     # built-in plan tools (acp_get_plan, acp_set_plan, etc.).
@@ -122,7 +122,7 @@ def build_acp_config(
 
     plan_persistence = get_workspace_persistence_provider()
 
-    config_params: Dict[str, Any] = {
+    config_params: dict[str, Any] = {
         "session_store": FileSessionStore(root=session_root),
         "capability_bridges": bridges,
         "native_plan_persistence_provider": plan_persistence,
@@ -154,8 +154,8 @@ def create_acp_app(agent: Agent, config: AdapterConfig):
 def create_graph_acp_app(
     agent: Agent,
     config: AdapterConfig,
-    graph_bundle: tuple | None = None,
-    mcp_toolsets: list | None = None,
+    graph_bundle: tuple[Any, Any] | None = None,
+    mcp_toolsets: list[Any] | None = None,
 ) -> Any:
     """Create an ACP app that routes execution through the graph pipeline.
 
@@ -214,7 +214,7 @@ def create_graph_acp_app(
             mode=mode,
             mcp_toolsets=mcp_toolsets or graph_config.get("mcp_toolsets", []),
         )
-        return result.results.get("output", str(result.results))
+        return result.get("results", {}).get("output", str(result.get("results", {})))
 
     graph_agent = Agent(
         model=agent.model,

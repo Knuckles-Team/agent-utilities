@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Graph Builder Module.
 
 This module provides the factory and registration logic for constructing
@@ -9,66 +8,61 @@ registration, and the definition of the graph's dynamic routing topology.
 
 from __future__ import annotations
 
-import os
 import logging
-
-
-from typing import Any, Optional, Literal
-
+import os
+from typing import Any, Literal
 
 from pydantic_ai import Agent
+from pydantic_graph import End, Graph
+from pydantic_graph.beta import GraphBuilder, StepContext
 
-
-from ..config import (
-    DEFAULT_PROVIDER,
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_API_KEY,
-    DEFAULT_SSL_VERIFY,
-    DEFAULT_MIN_CONFIDENCE,
-    DEFAULT_ROUTING_STRATEGY,
-    DEFAULT_VALIDATION_MODE,
-    DEFAULT_ROUTER_MODEL,
-    DEFAULT_GRAPH_AGENT_MODEL,
-    DEFAULT_MCP_URL,
-    DEFAULT_MCP_CONFIG,
-)
 from ..base_utilities import (
     is_loopback_url,
+)
+from ..config import (
+    DEFAULT_GRAPH_AGENT_MODEL,
+    DEFAULT_LLM_API_KEY,
+    DEFAULT_LLM_BASE_URL,
+    DEFAULT_MCP_CONFIG,
+    DEFAULT_MCP_URL,
+    DEFAULT_MIN_CONFIDENCE,
+    DEFAULT_PROVIDER,
+    DEFAULT_ROUTER_MODEL,
+    DEFAULT_ROUTING_STRATEGY,
+    DEFAULT_SSL_VERIFY,
+    DEFAULT_VALIDATION_MODE,
 )
 from ..mcp_utilities import load_mcp_config
 from ..models import GraphResponse
 from .config_helpers import (
     get_discovery_registry,
 )
-
-from .state import GraphState, GraphDeps
-
 from .executor import (
     agent_package_step,
 )
-
+from .nodes import (
+    LoadAndExecuteProcessFlow,
+)
+from .state import GraphDeps, GraphState
 from .steps import (
-    usage_guard_step,
-    router_step,
-    planner_step,
-    researcher_step,
+    approval_gate_step,
+    architect_step,
     dispatcher_step,
-    parallel_batch_processor,
+    dynamic_mcp_routing_step,
+    error_recovery_step,
     expert_executor_step,
     join_step,
-    architect_step,
-    verifier_step,
-    synthesizer_step,
-    onboarding_step,
-    memory_selection_step,
-    approval_gate_step,
-    dynamic_mcp_routing_step,
     mcp_server_step,
-    error_recovery_step,
+    memory_selection_step,
+    onboarding_step,
+    parallel_batch_processor,
+    planner_step,
+    researcher_step,
+    router_step,
+    synthesizer_step,
+    usage_guard_step,
+    verifier_step,
 )
-
-from pydantic_graph import End, Graph
-from pydantic_graph.beta import GraphBuilder, StepContext
 
 _PYDANTIC_GRAPH_AVAILABLE = True
 
@@ -98,16 +92,16 @@ def build_tag_env_map(tag_names: list[str]) -> dict[str, str]:
 
 
 def initialize_graph_from_workspace(
-    mcp_config: Optional[str] = "mcp_config.json",
-    router_model: Optional[str] = None,
-    agent_model: Optional[str] = None,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
-    workspace: Optional[str] = None,
-    custom_headers: Optional[dict] = None,
-    ssl_verify: Optional[bool] = True,
-    router_timeout: Optional[float] = None,
-    verifier_timeout: Optional[float] = None,
+    mcp_config: str | None = "mcp_config.json",
+    router_model: str | None = None,
+    agent_model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    workspace: str | None = None,
+    custom_headers: dict[str, Any] | None = None,
+    ssl_verify: bool | None = True,
+    router_timeout: float | None = None,
+    verifier_timeout: float | None = None,
 ) -> tuple[Graph, dict]:
     """Initialize a graph bundle by discovering domains in the current workspace.
 
@@ -141,31 +135,31 @@ def initialize_graph_from_workspace(
         logger.info(f"Initializing Graph: workspace pinned to {workspace}")
 
     # load_node_agents_registry is in this module
-    from ..discovery import discover_agents
-    from ..mcp_agent_manager import sync_mcp_agents, should_sync
-
     # build_tag_env_map is in this module
     from ..config import (
-        DEFAULT_ROUTER_MODEL,
         DEFAULT_GRAPH_AGENT_MODEL,
         DEFAULT_MCP_URL,
+        DEFAULT_ROUTER_MODEL,
     )
-
+    from ..discovery import discover_agents
+    from ..mcp_agent_manager import should_sync, sync_mcp_agents
     from ..workspace import resolve_mcp_config_path
 
     _mcp_cfg_path = resolve_mcp_config_path(mcp_config) if mcp_config else None
     discovery_metadata = {}
     if _mcp_cfg_path:
-        from ..agent_registry_builder import rebuild_node_agents_md
         import asyncio
 
+        from ..agent_registry_builder import ingest_prompts_to_graph
+
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             if loop.is_running():
-                # If loop is running, we can't use run_until_complete easily without task
-                asyncio.create_task(rebuild_node_agents_md())
+                asyncio.create_task(ingest_prompts_to_graph())
             else:
-                loop.run_until_complete(rebuild_node_agents_md())
+                loop.run_until_complete(ingest_prompts_to_graph())
+        except RuntimeError:
+            asyncio.run(ingest_prompts_to_graph())
         except Exception as e:
             logger.debug(f"Registry rebuild skip/fail: {e}")
 
@@ -181,12 +175,14 @@ def initialize_graph_from_workspace(
 
                 try:
                     if not loop.is_running():
-                        loop.run_until_complete(sync_mcp_agents(_mcp_cfg_path))
+                        loop.run_until_complete(
+                            sync_mcp_agents(config_path=_mcp_cfg_path)
+                        )
                         logger.info(
                             "Initializing Graph: MCP agents synced successfully."
                         )
                     else:
-                        asyncio.create_task(sync_mcp_agents(_mcp_cfg_path))
+                        asyncio.create_task(sync_mcp_agents(config_path=_mcp_cfg_path))
                 except Exception as e:
                     logger.debug(f"Sync skip/fail: {e}")
             else:
@@ -296,7 +292,10 @@ def create_master_graph(
                 "description", f"Specialized skill agent for {tag}"
             )
 
-    sub_agents = {name: package_name for name, package_name in agents.items()}
+    sub_agents: dict[str, str | Agent] = {
+        name: str(package_meta.get("package", name))
+        for name, package_meta in agents.items()
+    }
     for tag in _skill_agents.keys():
         if tag not in sub_agents:
             sub_agents[tag] = tag
@@ -315,8 +314,8 @@ def create_graph_agent(
     mcp_url: str | None = DEFAULT_MCP_URL,
     mcp_config: str | None = DEFAULT_MCP_CONFIG,
     name: str = "GraphAgent",
-    router_model: str = DEFAULT_ROUTER_MODEL,
-    agent_model: str = DEFAULT_GRAPH_AGENT_MODEL,
+    router_model: str | None = DEFAULT_ROUTER_MODEL,
+    agent_model: str | None = DEFAULT_GRAPH_AGENT_MODEL,
     min_confidence: float = DEFAULT_MIN_CONFIDENCE,
     sub_agents: dict[str, str | Agent] | None = None,
     mcp_toolsets: list[Any] | None = None,
@@ -364,9 +363,9 @@ def create_graph_agent(
     # Initialize Knowledge Graph Engine for topological discovery
     knowledge_engine = None
     try:
-        from ..knowledge_graph.pipeline import RegistryPipeline
         from ..knowledge_graph.engine import RegistryGraphEngine
         from ..knowledge_graph.models import PipelineConfig
+        from ..knowledge_graph.pipeline import RegistryPipeline
         from ..workspace import get_agent_workspace
 
         ws = get_agent_workspace()
@@ -409,6 +408,7 @@ def create_graph_agent(
     _planner = g.step(planner_step, node_id="planner")
     _onboarding = g.step(onboarding_step, node_id="onboarding")
     _error = g.step(error_recovery_step, node_id="error_recovery")
+    _process_executor = g.step(LoadAndExecuteProcessFlow, node_id="process_executor")
 
     # Dynamic Dispatcher Nodes
     _dispatcher = g.step(dispatcher_step, node_id="dispatcher")
@@ -530,6 +530,7 @@ def create_graph_agent(
         "memory_selection": _memory_selection,
         "mcp_router": _mcp_router,
         "mcp_server_execution": _mcp_server,
+        "process_executor": _process_executor,
         **{nid: step for nid, step in expert_nodes.items()},
     }
 
@@ -554,6 +555,7 @@ def create_graph_agent(
         ("onboarding", _onboarding),
         ("expert_executor", _expert_executor),
         ("memory_selection", _memory_selection),
+        ("process_executor", _process_executor),
     ]
     for nid, node in _sequential_routes:
         _dispatcher_route.branches.append(g.match(Literal[nid]).to(node))
@@ -580,6 +582,7 @@ def create_graph_agent(
         g.edge_from(_dispatcher).to(_dispatcher_route),
         # Dead-end elimination for unused but registered nodes
         g.edge_from(_planner).to(_dispatcher),
+        g.edge_from(_process_executor).to(_dispatcher),
         g.edge_from(_memory_selection).to(_dispatcher),
         g.edge_from(_memory_selection).label("Context Gap").to(_researcher),
         # Rest of the graph

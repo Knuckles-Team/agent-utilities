@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Output style tools with knowledge base integration.
 
 Allows agents to set and discover response styles (concise, formal, etc.)

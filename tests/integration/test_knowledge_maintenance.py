@@ -9,7 +9,7 @@ class DummyBackend:
         self.execute_results = execute_results or []
         self.idx = 0
 
-    def execute(self, query: str, props: dict = None):
+    def execute(self, query: str, props: dict | None = None):
         self.queries.append({"query": query, "props": props})
         if self.idx < len(self.execute_results):
             res = self.execute_results[self.idx]

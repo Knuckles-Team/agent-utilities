@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Tool Registry Module.
 
 This module provides a centralized system for registering agent tools. It handles
@@ -8,7 +7,8 @@ and applies environment-based gating to control which tools are exposed to the a
 """
 
 import os
-from typing import Any, Optional, Union
+from typing import Any
+
 from pydantic_ai import Agent, RunContext
 
 from .models import AgentDeps
@@ -16,7 +16,7 @@ from .models import AgentDeps
 __version__ = "0.2.40"
 
 
-def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> None:
+def register_agent_tools(agent: Agent, graph_bundle: tuple | None = None) -> None:
     """Central aggregator for registering all Agent OS tools.
 
     Groups tools by domain and applies environment-based gating using
@@ -31,22 +31,26 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
 
     """
     # Late imports to avoid circularity during initialization
-    from .tools.workspace_tools import workspace_tools
-    from .tools.scheduler_tools import scheduler_tools
+    # Default gating via environment variables
+    from .base_utilities import to_boolean
     from .tools.a2a_tools import a2a_tools
-    from .tools.git_tools import git_tools
-    from .tools.developer_tools import developer_tools
     from .tools.agent_tools import (
         invoke_specialized_agent,
         list_available_agents,
         share_reasoning,
     )
     from .tools.browser import browser_tools
-    from .tools.onboarding_tools import onboarding_tools
+    from .tools.developer_tools import developer_tools
+    from .tools.git_tools import git_tools
     from .tools.mcp_sync_tool import trigger_mcp_sync
-
-    # Default gating via environment variables
-    from .base_utilities import to_boolean
+    from .tools.onboarding_tools import onboarding_tools
+    from .tools.scheduler_tools import scheduler_tools
+    from .tools.self_improvement_tools import (
+        propose_skills_from_history,
+        query_experiment_results,
+        run_self_improvement_cycle,
+    )
+    from .tools.workspace_tools import workspace_tools
 
     DEFAULT_WORKSPACE_TOOLS = to_boolean(
         string=os.environ.get("WORKSPACE_TOOLS", "True")
@@ -61,16 +65,41 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
         string=os.environ.get("DEVELOPER_TOOLS", "True")
     )
 
+    def _is_tool_registered(name: str) -> bool:
+        """Check if a tool with the given name is already registered on the agent."""
+        # 1. Check native function tools
+        try:
+            from pydantic_ai.toolsets.function import FunctionToolset
+
+            for ts in agent.toolsets:
+                if isinstance(ts, FunctionToolset):
+                    if name in ts.tools:
+                        return True
+        except (ImportError, AttributeError):
+            pass
+
+        # 2. Check internal _function_toolset (legacy/internal fallback)
+        try:
+            if (
+                hasattr(agent, "_function_toolset")
+                and name in agent._function_toolset.tools
+            ):
+                return True
+        except (AttributeError, TypeError):
+            pass
+
+        return False
+
     # 1. Graph Flow Tool (Orchestration)
     if graph_bundle:
         graph, config = graph_bundle
 
-        if "run_graph_flow" not in agent.tools:
+        if not _is_tool_registered("run_graph_flow"):
 
             @agent.tool
             async def run_graph_flow(
                 ctx: RunContext[AgentDeps], prompt: str
-            ) -> Union[str, Any]:
+            ) -> str | Any:
                 """Execute a complex query through the graph orchestrator.
 
                 The graph automatically classifies and routes the request to specialized
@@ -117,7 +146,7 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
     # Helper to register tools only if not already present
     def _safe_tool(func):
         name = getattr(func, "name", func.__name__)
-        if name not in agent.tools:
+        if not _is_tool_registered(name):
             agent.tool(func)
 
     # 2. Workspace Tools
@@ -162,7 +191,7 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
     _safe_tool(trigger_mcp_sync)
 
     # 11. Knowledge Graph & KB Tools
-    from .tools.knowledge_tools import knowledge_tools, KB_TOOLS
+    from .tools.knowledge_tools import KB_TOOLS, knowledge_tools
 
     for tool in knowledge_tools:
         _safe_tool(tool)
@@ -176,7 +205,17 @@ def register_agent_tools(agent: Agent, graph_bundle: Optional[tuple] = None) -> 
         _safe_tool(tool)
 
     # 13. Output Style Tools
-    from .tools.style_tools import set_output_style, list_output_styles
+    from .tools.style_tools import list_output_styles, set_output_style
 
     _safe_tool(set_output_style)
     _safe_tool(list_output_styles)
+
+    # 14. Self-Improvement & Learning Tools
+    _safe_tool(run_self_improvement_cycle)
+    _safe_tool(propose_skills_from_history)
+    _safe_tool(query_experiment_results)
+
+    # 15. Apply Security Guards
+    from .tool_guard import apply_tool_guard_approvals
+
+    apply_tool_guard_approvals(agent)

@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Context limit warning capability with graph integration.
 
 Monitors token usage and injects warnings into the model context as
@@ -11,13 +10,13 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelRequest, SystemPromptPart
 
-from ..models.knowledge_graph import RegistryNodeType, MemoryNode
+from ..models.knowledge_graph import MemoryNode, RegistryNodeType
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ class ContextLimitWarner(AbstractCapability[Any]):
 
     warn_at: float = 0.70
     critical_at: float = 0.90
-    max_tokens: Optional[int] = None
+    max_tokens: int | None = None
 
     _has_warned: bool = False
     _has_criticized: bool = False

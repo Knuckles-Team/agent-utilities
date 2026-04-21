@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """ACP Providers Module.
 
 This module implements custom persistence providers for the ACP protocol.
@@ -15,8 +14,9 @@ markdown file (default: ``PLAN.md``).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Sequence, Optional
+from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from acp.schema import PlanEntry
@@ -39,7 +39,7 @@ class WorkspacePlanPersistenceProvider:
 
     def __init__(
         self,
-        workspace_root: Optional[Path] = None,
+        workspace_root: Path | None = None,
         plan_filename: str = "PLAN.md",
     ):
         self.workspace_root = workspace_root or Path(".")
@@ -47,9 +47,9 @@ class WorkspacePlanPersistenceProvider:
 
     async def persist_plan_state(
         self,
-        session: "AcpSessionContext",
+        session: AcpSessionContext,
         agent: Any,
-        entries: Sequence["PlanEntry"],
+        entries: Sequence[PlanEntry],
         plan_markdown: str | None,
     ) -> None:
         """Persist the current ACP plan state to a workspace markdown file.

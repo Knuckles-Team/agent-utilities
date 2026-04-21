@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """FastMCP Middlewares Module.
 
 This module defines custom middlewares for FastMCP servers. It handles
@@ -8,7 +7,8 @@ enhanced observability and authorization context during tool execution.
 """
 
 import threading
-from fastmcp.server.middleware import MiddlewareContext, Middleware
+
+from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.utilities.logging import get_logger
 
 local = threading.local()

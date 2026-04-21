@@ -1,15 +1,17 @@
-from typing import Any, Dict
+from typing import Any
+
 import networkx as nx
+
 from ..types import (
-    PipelinePhase,
-    PipelineContext,
     PhaseResult,
+    PipelineContext,
+    PipelinePhase,
 )
 
 
 async def execute_communities(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Detect communities in the graph using the Louvain algorithm."""
     graph = ctx.nx_graph
     if graph.number_of_nodes() == 0:

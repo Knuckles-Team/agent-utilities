@@ -1,11 +1,10 @@
 #!/usr/bin/python
-# coding: utf-8
 """Knowledge Graph Maintenance & Pruning."""
 
 import logging
+from datetime import UTC, datetime, timedelta
+
 import requests
-from typing import List, Optional
-from datetime import datetime, timedelta
 
 from .engine import IntelligenceGraphEngine
 
@@ -16,7 +15,7 @@ LM_STUDIO_URL = "http://localhost:1234/v1/embeddings"
 EMBEDDING_MODEL = "nomic-embed-text-v1.5"
 
 
-def generate_embedding(text: str) -> Optional[List[float]]:
+def generate_embedding(text: str) -> list[float] | None:
     """Generate embedding vector using local LM Studio."""
     try:
         payload = {"model": EMBEDDING_MODEL, "input": text}
@@ -99,7 +98,7 @@ class GraphMaintainer:
             t_id = t["id"]
             # Fetch messages
             m_query = "MATCH (m:Message)-[:PART_OF]->(t:Thread {id: $t_id}) RETURN m.content as content"
-            msgs = self.engine.backend.execute(m_query, {"t_id": t_id})
+            msgs = self.engine.backend.execute(m_query, {"t_id": t_id}) or []
 
             if len(msgs) > 0:
                 combined_text = "\\n".join([m["content"] for m in msgs])
@@ -167,14 +166,12 @@ class GraphMaintainer:
         if not self.engine.backend:
             return 0
 
-        from datetime import timezone
-
         # Ensure we handle potential string/float conversion issues from backend
         results = self.engine.backend.execute(
             "MATCH (n) WHERE n.importance_score IS NOT NULL AND n.timestamp IS NOT NULL RETURN n.id as id, n.timestamp as ts, n.importance_score as score"
         )
         updated = 0
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for row in results:
             try:
                 # Basic ISO format parsing
@@ -182,7 +179,7 @@ class GraphMaintainer:
                 ts = datetime.fromisoformat(ts_str)
                 # Ensure ts is aware
                 if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts = ts.replace(tzinfo=UTC)
 
                 days = (now - ts).days
                 if days > 0:
@@ -239,16 +236,123 @@ class GraphMaintainer:
         return len(episodes)
 
     def prune_low_importance_nodes(self, threshold: float = 0.05) -> int:
-        """Remove low-signal nodes to maintain scalability."""
+        """Remove low-signal nodes to maintain scalability, protecting permanent nodes."""
         if not self.engine.backend:
             return 0
 
-        # Protect certain labels from pruning
-        query = "MATCH (n) WHERE n.importance_score < $threshold AND NOT n:Agent AND NOT n:Server DETACH DELETE n"
+        # Protect nodes marked as is_permanent=True
+        query = """
+        MATCH (n)
+        WHERE n.importance_score < $threshold
+        AND (n.is_permanent IS NULL OR n.is_permanent = False)
+        AND NOT (n:Agent OR n:Tool OR n:Skill)
+        DETACH DELETE n
+        """
         self.engine.backend.execute(query, {"threshold": threshold})
 
-        logger.info(f"Pruned nodes with importance below {threshold}.")
+        logger.info(f"Pruned non-permanent nodes with importance below {threshold}.")
         return 1
+
+    def merge_similar_concepts(self, similarity_threshold: float = 0.95) -> int:
+        """Find and merge similar Concept nodes based on semantic embeddings."""
+        if not self.engine.backend:
+            return 0
+
+        # This is a complex operation; simplified here for LadybugDB compatibility
+        # We fetch all concepts with embeddings and find pairs locally
+        query = "MATCH (c:Concept) WHERE c.embedding IS NOT NULL RETURN c.id as id, c.name as name, c.embedding as embedding"
+        concepts = self.engine.backend.execute(query) or []
+
+        from ..knowledge_graph.engine import cosine_similarity
+
+        merged_count = 0
+        processed_ids = set()
+
+        for i, c1 in enumerate(concepts):
+            if c1["id"] in processed_ids:
+                continue
+            for j in range(i + 1, len(concepts)):
+                c2 = concepts[j]
+                if c2["id"] in processed_ids:
+                    continue
+
+                sim = cosine_similarity(c1["embedding"], c2["embedding"])
+                if sim > similarity_threshold:
+                    # Merge c2 into c1
+                    logger.info(
+                        f"Merging similar concepts: {c1['name']} and {c2['name']} (sim={sim:.4f})"
+                    )
+                    # Simplified merge logic - in a real system we'd handle all relationship types
+                    self.engine.backend.execute(
+                        "MATCH (old:Concept {id: $old_id}) DETACH DELETE old",
+                        {"old_id": c2["id"]},
+                    )
+                    processed_ids.add(c2["id"])
+                    merged_count += 1
+
+        return merged_count
+
+    def validate_all_graph_models(self) -> int:
+        """Run Pydantic validation + basic ontology checks on every node type."""
+        from ..graph.models import Policy, ProcessFlow
+
+        if not self.engine.backend:
+            return 0
+
+        validated = 0
+        # Validate Policies
+        policies = self.engine.backend.execute("MATCH (n:Policy) RETURN n")
+        for record in policies:
+            try:
+                Policy.model_validate(record.get("n", record))
+                validated += 1
+            except Exception as e:
+                logger.warning(f"⚠️ Invalid Policy node: {e}")
+
+        # Validate ProcessFlows
+        flows = self.engine.backend.execute("MATCH (n:ProcessFlow) RETURN n")
+        for record in flows:
+            try:
+                ProcessFlow.model_validate(record.get("n", record))
+                validated += 1
+            except Exception as e:
+                logger.warning(f"⚠️ Invalid ProcessFlow node: {e}")
+
+        logger.info(f"Validated {validated} graph nodes against Pydantic models.")
+        return validated
+
+    def link_topics_to_policies_and_processes(self) -> int:
+        """Auto-link new KnowledgeBaseTopic nodes to Policies/Processes via semantic similarity."""
+        if not self.engine.backend:
+            return 0
+
+        # Use simple semantic linking based on embeddings if available
+        # Note: Vector search in Ladybug is usually done via dedicated tool or specialized query
+        query = """
+        MATCH (t:KnowledgeBaseTopic)
+        WHERE NOT EXISTS { (t)-[:GROUNDED_IN|REFERENCES]->() }
+        MATCH (p:Policy)
+        WHERE vector.similarity(t.embedding, p.embedding) > 0.75
+        MERGE (t)-[:GROUNDED_IN]->(p)
+        """
+        try:
+            self.engine.backend.execute(query)
+
+            # Link to ProcessFlows
+            query_flow = """
+            MATCH (t:KnowledgeBaseTopic)
+            MATCH (f:ProcessFlow)
+            WHERE vector.similarity(t.embedding, f.embedding) > 0.75
+            MERGE (t)-[:REFERENCES]->(f)
+            """
+            self.engine.backend.execute(query_flow)
+            logger.info(
+                "✅ Topic linking complete (Policies & ProcessFlows now grounded in KBs)"
+            )
+            return 1
+        except Exception as e:
+            logger.debug(f"Topic linking skipped or failed: {e}")
+            return 0
 
     def run_all(self):
         """Run all maintenance tasks."""
@@ -259,3 +363,6 @@ class GraphMaintainer:
         self.prune_low_importance_nodes()
         self.update_importance_scores()
         self.apply_temporal_decay()
+        self.merge_similar_concepts()
+        self.validate_all_graph_models()
+        self.link_topics_to_policies_and_processes()

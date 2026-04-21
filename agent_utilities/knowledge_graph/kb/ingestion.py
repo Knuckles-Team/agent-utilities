@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """KB Ingestion Engine.
 
 Orchestrates the full ingestion pipeline:
@@ -14,7 +13,6 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import List, Optional
 
 import networkx as nx
 
@@ -72,8 +70,8 @@ class KBIngestionEngine:
     def __init__(
         self,
         graph: nx.MultiDiGraph,
-        backend: Optional[GraphBackend] = None,
-        extractor: Optional[KBExtractor] = None,
+        backend: GraphBackend | None = None,
+        extractor: KBExtractor | None = None,
         chunk_size: int = 1024,
     ):
         self.graph = graph
@@ -122,8 +120,8 @@ class KBIngestionEngine:
     async def ingest_directory(
         self,
         path: str | Path,
-        kb_name: Optional[str] = None,
-        topic: Optional[str] = None,
+        kb_name: str | None = None,
+        topic: str | None = None,
         recursive: bool = True,
         force: bool = False,
     ) -> KnowledgeBaseMetadata:
@@ -156,7 +154,7 @@ class KBIngestionEngine:
         self,
         url: str,
         kb_name: str,
-        topic: Optional[str] = None,
+        topic: str | None = None,
         force: bool = False,
     ) -> KnowledgeBaseMetadata:
         """Ingest a web URL into a knowledge base.
@@ -180,7 +178,7 @@ class KBIngestionEngine:
             force=force,
         )
 
-    async def update_kb(self, kb_id: str) -> Optional[KnowledgeBaseMetadata]:
+    async def update_kb(self, kb_id: str) -> KnowledgeBaseMetadata | None:
         """Re-ingest any changed source files for an existing KB.
 
         Uses stored content hashes to detect changes — only changed or new
@@ -217,9 +215,9 @@ class KBIngestionEngine:
                 if new_source and new_source.content_hash != old_hash:
                     logger.info(f"Re-ingesting changed source: {file_path}")
                     # Update the source node
-                    self.graph.nodes[source_id][
-                        "content_hash"
-                    ] = new_source.content_hash
+                    self.graph.nodes[source_id]["content_hash"] = (
+                        new_source.content_hash
+                    )
                     # Re-extract any articles compiled from this source
                     await self._process_source(
                         new_source, kb_id, kb_data.get("topic", ""), force=True
@@ -243,7 +241,7 @@ class KBIngestionEngine:
             status="ready",
         )
 
-    async def run_health_check(self, kb_id: str) -> KBHealthReport:
+    async def run_health_check(self, kb_id: str) -> KBHealthReport | None:
         """Run LLM-backed health check: find contradictions, orphans, gaps.
 
         Args:
@@ -325,7 +323,7 @@ class KBIngestionEngine:
             archive_timestamp=_now(),
         )
 
-    def list_knowledge_bases(self) -> List[dict]:
+    def list_knowledge_bases(self) -> list[dict]:
         """Return lightweight summaries of all KBs in the graph.
 
         This is the fast 'discovery' method for agents — reads from the graph
@@ -349,8 +347,8 @@ class KBIngestionEngine:
         return sorted(kbs, key=lambda x: x["name"])
 
     def search_knowledge_base(
-        self, query: str, kb_id: Optional[str] = None, top_k: int = 5
-    ) -> List[dict]:
+        self, query: str, kb_id: str | None = None, top_k: int = 5
+    ) -> list[dict]:
         """Simple keyword-based search across KB articles (offline fallback).
 
         For semantic search, use the backend's vector capabilities directly.
@@ -417,10 +415,10 @@ class KBIngestionEngine:
         kb_name: str,
         topic: str,
         source_type: str,
-        sources: List[ParsedSource],
+        sources: list[ParsedSource],
         description: str = "",
         force: bool = False,
-        extra_metadata: Optional[dict] = None,
+        extra_metadata: dict | None = None,
     ) -> KnowledgeBaseMetadata:
         """Core ingestion pipeline: parse → extract → write graph → sync."""
         kb_id = _kb_id(kb_name)

@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Chat Persistence Module.
 
 This module handles the serialization and retrieval of chat histories from
@@ -10,11 +9,10 @@ stored conversations.
 
 from __future__ import annotations
 
-import sys
 import logging
-
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+import sys
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     pass
@@ -22,13 +20,12 @@ if TYPE_CHECKING:
 
 from pydantic_ai import Agent
 
-
 from .config import *  # noqa: F403
 
 logger = logging.getLogger(__name__)
 
 
-def save_chat_to_disk(chat_id: str, messages: List[Dict[str, Any]]):
+def save_chat_to_disk(chat_id: str, messages: list[dict[str, Any]]):
     """Save a chat conversation to the Knowledge Graph."""
     from .knowledge_graph.engine import IntelligenceGraphEngine
 
@@ -79,7 +76,7 @@ def save_chat_to_disk(chat_id: str, messages: List[Dict[str, Any]]):
     logger.debug(f"Saved chat {chat_id} to Knowledge Graph")
 
 
-def list_chats_from_disk() -> List[Dict[str, Any]]:
+def list_chats_from_disk() -> list[dict[str, Any]]:
     """List all chats stored in the Knowledge Graph."""
     from .knowledge_graph.engine import IntelligenceGraphEngine
 
@@ -106,7 +103,7 @@ def list_chats_from_disk() -> List[Dict[str, Any]]:
         return []
 
 
-def get_chat_from_disk(chat_id: str) -> Optional[Dict[str, Any]]:
+def get_chat_from_disk(chat_id: str) -> dict[str, Any] | None:
     """Retrieve a specific chat from the Knowledge Graph."""
     from .knowledge_graph.engine import IntelligenceGraphEngine
 
@@ -212,7 +209,7 @@ async def chat(agent: Agent, prompt: str):
     print(f"Response:\n\n{result.output}", file=sys.stderr)
 
 
-async def node_chat(agent: Agent, prompt: str) -> List:
+async def node_chat(agent: Agent, prompt: str) -> list:
     nodes = []
     async with agent.iter(prompt) as agent_run:
         async for node in agent_run:

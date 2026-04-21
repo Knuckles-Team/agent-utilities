@@ -1,14 +1,15 @@
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
+
 from ..types import (
-    PipelinePhase,
-    PipelineContext,
     PhaseResult,
+    PipelineContext,
+    PipelinePhase,
 )
 
 
-def resolve_relative_import(current_file: str, raw_import: str) -> Optional[str]:
+def resolve_relative_import(current_file: str, raw_import: str) -> str | None:
     """Resolve a relative import like '.models' or '..utils' to a potential file path."""
     if not raw_import.startswith("."):
         return None
@@ -29,8 +30,8 @@ def resolve_relative_import(current_file: str, raw_import: str) -> Optional[str]
 
 
 async def execute_resolve(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Resolve cross-file dependencies by matching imports to file nodes."""
     graph = ctx.nx_graph
 

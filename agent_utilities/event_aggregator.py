@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Event Aggregator Module.
 
 This module provides utilities for aggregating scheduling (CRON.md) and
@@ -8,16 +7,15 @@ the discovery of installed agent data directories and the merging of their
 diagnostic requirements into a unified workspace.
 """
 
-import logging
-from pathlib import Path
-from typing import Optional
 import importlib.util
-from importlib.resources import files, as_file
+import logging
+from importlib.resources import as_file, files
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
-def find_package_data_dir(package_name: str) -> Optional[Path]:
+def find_package_data_dir(package_name: str) -> Path | None:
     """Locate the data or configuration directory for an installed package.
 
     Args:

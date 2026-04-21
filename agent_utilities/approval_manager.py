@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Approval Manager Module.
 
 Provides a protocol-agnostic, asyncio-based pause/resume mechanism for
@@ -29,8 +28,9 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Any
 
 from pydantic_ai.tools import (
     DeferredToolRequests,
@@ -142,7 +142,7 @@ async def run_with_approvals(
     query: str | Sequence[Any],
     *,
     approval_manager: ApprovalManager,
-    event_queue: Optional[asyncio.Queue] = None,
+    event_queue: asyncio.Queue | None = None,
     request_id_prefix: str = "",
     approval_timeout: float = 0.0,
     max_rounds: int = _MAX_APPROVAL_ROUNDS,
@@ -223,7 +223,7 @@ async def run_with_approvals(
             resolution = await approval_manager.wait_for_approval(
                 request_id, timeout=approval_timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(f"Approval timed out for {request_id}")
             # Deny all on timeout
             resolution = {
@@ -271,7 +271,7 @@ async def run_with_approvals(
 # server callbacks.  Set by the server/AG-UI endpoint before running
 # the agent and read by the callback below.
 
-elicitation_queue_var: contextvars.ContextVar[Optional[asyncio.Queue]] = (
+elicitation_queue_var: contextvars.ContextVar[asyncio.Queue | None] = (
     contextvars.ContextVar("elicitation_queue", default=None)
 )
 

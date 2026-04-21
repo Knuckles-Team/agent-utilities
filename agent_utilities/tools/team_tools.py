@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Agent team coordination tools.
 
 Exposes team management, task assignment, and P2P messaging to agents,
@@ -8,14 +7,15 @@ backed by the TeamCapability and ACP.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any
+
 from pydantic_ai import RunContext
 
 from ..capabilities.teams import TeamCapability
 
 
 async def spawn_team(
-    ctx: RunContext[Any], team_name: str, member_ids: List[str]
+    ctx: RunContext[Any], team_name: str, member_ids: list[str]
 ) -> str:
     """Create a new agent team with the specified members.
 
@@ -25,14 +25,14 @@ async def spawn_team(
     if not capability:
         # Auto-initialize if missing
         capability = TeamCapability()
-        setattr(ctx, "team_capability", capability)
+        ctx.team_capability = capability
 
     team_id = await capability.create_team(ctx, team_name, member_ids)
     return f"Team '{team_name}' created with ID: {team_id}. Members: {', '.join(member_ids)}"
 
 
 async def assign_team_task(
-    ctx: RunContext[Any], content: str, assigned_to: Optional[str] = None
+    ctx: RunContext[Any], content: str, assigned_to: str | None = None
 ) -> str:
     """Assign a task to the team or a specific member.
 

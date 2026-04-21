@@ -1,17 +1,18 @@
 #!/usr/bin/python
-# coding: utf-8
+from __future__ import annotations
+
 """Browser Control Tools Module.
 
 This module provides tools for lifecycle management of the browser
 instance, including initialization, status monitoring, and resource cleanup.
 """
 
-from typing import Any, Dict, Optional
-from .browser_manager import get_browser_manager
-
+from typing import Any
 
 from pydantic_ai import RunContext
+
 from ...models import AgentDeps
+from .browser_manager import get_browser_manager
 
 
 async def initialize_browser(
@@ -19,7 +20,7 @@ async def initialize_browser(
     headless: bool = True,
     browser_type: str = "chromium",
     homepage: str = "https://www.google.com",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Initialize the global browser instance with custom configuration.
 
     Args:
@@ -47,7 +48,7 @@ async def initialize_browser(
     }
 
 
-async def close_browser(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
+async def close_browser(ctx: RunContext[AgentDeps]) -> dict[str, Any]:
     """Close the active browser instance and release all associated resources.
 
     Args:
@@ -62,7 +63,7 @@ async def close_browser(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
     return {"success": True, "message": "Browser closed"}
 
 
-async def browser_status(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
+async def browser_status(ctx: RunContext[AgentDeps]) -> dict[str, Any]:
     """Retrieve the current initialization state and active URL of the browser.
 
     Args:
@@ -82,8 +83,8 @@ async def browser_status(ctx: RunContext[AgentDeps]) -> Dict[str, Any]:
 
 
 async def browser_new_page(
-    ctx: RunContext[AgentDeps], url: Optional[str] = None
-) -> Dict[str, Any]:
+    ctx: RunContext[AgentDeps], url: str | None = None
+) -> dict[str, Any]:
     """Open a new tab or page in the active browser instance.
 
     Args:

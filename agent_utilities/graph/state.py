@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Graph State Module.
 
 This module defines the core data structures for managing the state and
@@ -11,36 +10,36 @@ execution results, and usage statistics across the agent lifecycle.
 from __future__ import annotations
 
 import asyncio
-import os
 import logging
+import os
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent
 
 if TYPE_CHECKING:
     from ..knowledge_graph.engine import RegistryGraphEngine
+    from .models import Policy, ProcessFlow
 
 from ..config import (
-    DEFAULT_PROVIDER,
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_API_KEY,
-    DEFAULT_SSL_VERIFY,
-    DEFAULT_ROUTER_MODEL,
     DEFAULT_GRAPH_AGENT_MODEL,
     DEFAULT_GRAPH_ROUTER_TIMEOUT,
     DEFAULT_GRAPH_VERIFIER_TIMEOUT,
+    DEFAULT_LLM_API_KEY,
+    DEFAULT_LLM_BASE_URL,
+    DEFAULT_PROVIDER,
+    DEFAULT_ROUTER_MODEL,
+    DEFAULT_SSL_VERIFY,
     TOOL_GUARD_MODE,
 )
-
-
 from ..models import (
-    Tasks,
-    ProgressLog,
-    SprintContract,
-    UsageStatistics,
     GraphPlan,
     ParallelBatch,
+    ProgressLog,
+    SprintContract,
+    Tasks,
+    UsageStatistics,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,15 +69,15 @@ class GraphDeps:
     Typed as Any to avoid circular dependencies with Step."""
     mcp_url: str = ""
     mcp_config: str = ""
-    router_model: str = DEFAULT_ROUTER_MODEL
-    agent_model: str = DEFAULT_GRAPH_AGENT_MODEL
+    router_model: Any | None = DEFAULT_ROUTER_MODEL
+    agent_model: Any | None = DEFAULT_GRAPH_AGENT_MODEL
     min_confidence: float = 0.6
     sub_agents: dict[str, str | Agent] = field(default_factory=dict)
-    provider: str = DEFAULT_PROVIDER
-    base_url: Optional[str] = DEFAULT_LLM_BASE_URL
-    api_key: Optional[str] = DEFAULT_LLM_API_KEY
+    provider: str | None = DEFAULT_PROVIDER
+    base_url: str | None = DEFAULT_LLM_BASE_URL
+    api_key: str | None = DEFAULT_LLM_API_KEY
     ssl_verify: bool = DEFAULT_SSL_VERIFY
-    event_queue: Optional[asyncio.Queue] = None
+    event_queue: asyncio.Queue[Any] | None = None
     request_id: str = ""
     routing_strategy: str = "hybrid"
     enable_llm_validation: bool = False
@@ -95,20 +94,20 @@ class GraphDeps:
     discovery_metadata: dict[str, list[str]] = field(default_factory=dict)
     """Map of server_id to list of tool names found during discovery phase."""
 
-    plan_sync: Optional[PlanSyncCallback] = None
+    plan_sync: PlanSyncCallback | None = None
     """Optional async callback for syncing graph plan state to ACP.
     Set by the ACP adapter when running inside an ACP session.
     Called with (event_type, plan_entries_as_dicts) where event_type
     is 'plan_created', 'step_started', or 'step_completed'."""
 
-    approval_manager: Optional[Any] = None
+    approval_manager: Any | None = None
     """Optional :class:`~agent_utilities.approval_manager.ApprovalManager`
     instance for human-in-the-loop tool approval.  Typed as Any to avoid
     a circular import.  When set, the graph executor uses
     :func:`~agent_utilities.approval_manager.run_with_approvals` instead
     of terminating when ``DeferredToolRequests`` is returned."""
 
-    knowledge_engine: Optional["RegistryGraphEngine"] = None
+    knowledge_engine: RegistryGraphEngine | None = None
     """Engine for topological and semantic discovery of specialists and memories."""
 
 
@@ -176,7 +175,7 @@ class GraphState:
     current_batch_ids: list[str] = field(default_factory=list)
     """IDs of tasks currently executing in parallel."""
 
-    last_git_commit: Optional[str] = None
+    last_git_commit: str | None = None
     """The last recorded git commit hash for this session/project."""
 
     human_approval_required: bool = False
@@ -185,7 +184,7 @@ class GraphState:
     session_usage: UsageStatistics = field(default_factory=UsageStatistics)
     """Aggregated token usage and cost for this session."""
 
-    user_redirect_feedback: Optional[str] = None
+    user_redirect_feedback: str | None = None
     """Feedback from a triage pause that redirects the graph to a different domain."""
 
     # Dynamic Planning State
@@ -213,7 +212,7 @@ class GraphState:
     deferred_events: list[dict[str, Any]] = field(default_factory=list)
     """Events received asynchronously during execution that need to be processed by the dispatcher."""
 
-    pending_batch: Optional[ParallelBatch] = None
+    pending_batch: ParallelBatch | None = None
     """Temporary storage for a batch of tasks during transition from dispatcher to processor."""
 
     needs_replan: bool = False
@@ -224,6 +223,15 @@ class GraphState:
 
     MAX_NODE_TRANSITIONS: int = 50
     """Hard ceiling on the total number of node transitions before the graph force-terminates."""
+
+    current_flow_id: str | None = None
+    """ID of the current ProcessFlow being executed."""
+
+    current_process_flow: ProcessFlow | None = None
+    """The full ProcessFlow model for the current session."""
+
+    active_policies: list[Policy] = field(default_factory=list)
+    """List of policies applicable to the current context."""
 
     def _update_usage(self, result_usage: Any):
         """Update the accumulated session usage statistics.
@@ -316,11 +324,12 @@ class GraphState:
             "usage.json": ("session_usage", UsageStatistics),
         }
         loaded = False
-        for filename, (attr, model_cls) in mappings.items():
+        for filename, (attr, m_cls) in mappings.items():
+            model_cls: Any = m_cls
             path = os.path.join(root, filename)
             if os.path.exists(path):
                 try:
-                    with open(path, "r") as f:
+                    with open(path) as f:
                         data = f.read()
                         if data.strip():
                             setattr(self, attr, model_cls.model_validate_json(data))

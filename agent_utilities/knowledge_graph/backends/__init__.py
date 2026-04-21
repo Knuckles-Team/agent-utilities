@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Graph Database Backends.
 
 Provides the `GraphBackend` ABC and concrete implementations for LadybugDB,
@@ -19,16 +18,15 @@ Environment Variables:
 
 import logging
 import os
-from typing import Optional
 
 from .base import GraphBackend
-from .ladybug_backend import LadybugBackend, LADYBUG_AVAILABLE
 from .falkordb_backend import FalkorDBBackend
+from .ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
 from .neo4j_backend import Neo4jBackend
 
 logger = logging.getLogger(__name__)
 
-_ACTIVE_BACKEND: Optional[GraphBackend] = None
+_ACTIVE_BACKEND: GraphBackend | None = None
 
 __all__ = [
     "GraphBackend",
@@ -42,7 +40,7 @@ __all__ = [
 ]
 
 
-def get_active_backend() -> Optional[GraphBackend]:
+def get_active_backend() -> GraphBackend | None:
     """Retrieve the currently active graph backend instance."""
     return _ACTIVE_BACKEND
 
@@ -54,15 +52,15 @@ def set_active_backend(backend: GraphBackend):
 
 
 def create_backend(
-    backend_type: Optional[str] = None,
-    db_path: Optional[str] = None,
-    host: Optional[str] = None,
-    port: Optional[int] = None,
-    uri: Optional[str] = None,
-    user: Optional[str] = None,
-    password: Optional[str] = None,
-    db_name: Optional[str] = None,
-) -> Optional[GraphBackend]:
+    backend_type: str | None = None,
+    db_path: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    uri: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
+    db_name: str | None = None,
+) -> GraphBackend | None:
     """Factory function to create the appropriate graph backend.
 
     Resolves configuration from explicit arguments first, then falls back to
@@ -87,31 +85,35 @@ def create_backend(
     global _ACTIVE_BACKEND
 
     backend_type = (
-        (backend_type or os.environ.get("GRAPH_BACKEND", "ladybug")).lower().strip()
+        (backend_type or os.environ.get("GRAPH_BACKEND") or "ladybug").lower().strip()
     )
 
-    backend = None
+    backend: GraphBackend | None = None
     if backend_type == "ladybug":
         if not LADYBUG_AVAILABLE:
             logger.warning(
                 "LadybugDB requested but 'ladybug' package is not installed."
             )
             return None
-        resolved_path = db_path or os.environ.get("GRAPH_DB_PATH", "knowledge_graph.db")
+        resolved_path = (
+            db_path or os.environ.get("GRAPH_DB_PATH") or "knowledge_graph.db"
+        )
         backend = LadybugBackend(resolved_path)
 
     elif backend_type == "falkordb":
-        resolved_host = host or os.environ.get("GRAPH_DB_HOST", "localhost")
+        resolved_host = host or os.environ.get("GRAPH_DB_HOST") or "localhost"
         resolved_port = port or int(os.environ.get("GRAPH_DB_PORT", "6379"))
-        resolved_name = db_name or os.environ.get("GRAPH_DB_NAME", "agent_graph")
+        resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
         backend = FalkorDBBackend(
             host=resolved_host, port=resolved_port, db_name=resolved_name
         )
 
     elif backend_type == "neo4j":
-        resolved_uri = uri or os.environ.get("GRAPH_DB_URI", "bolt://localhost:7687")
-        resolved_user = user or os.environ.get("GRAPH_DB_USER", "neo4j")
-        resolved_password = password or os.environ.get("GRAPH_DB_PASSWORD", "password")
+        resolved_uri = uri or os.environ.get("GRAPH_DB_URI") or "bolt://localhost:7687"
+        resolved_user = user or os.environ.get("GRAPH_DB_USER") or "neo4j"
+        resolved_password = (
+            password or os.environ.get("GRAPH_DB_PASSWORD") or "password"
+        )
         backend = Neo4jBackend(
             uri=resolved_uri, user=resolved_user, password=resolved_password
         )
@@ -121,6 +123,12 @@ def create_backend(
             f"Unknown graph backend type: '{backend_type}'. Supported: ladybug, falkordb, neo4j"
         )
         return None
+
+    if backend:
+        try:
+            backend.create_schema()
+        except Exception as e:
+            logger.debug(f"Failed to auto-initialize graph schema: {e}")
 
     if backend and _ACTIVE_BACKEND is None:
         _ACTIVE_BACKEND = backend

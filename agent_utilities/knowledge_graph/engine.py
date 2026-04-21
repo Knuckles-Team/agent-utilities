@@ -1,5 +1,6 @@
 #!/usr/bin/python
-# coding: utf-8
+from __future__ import annotations
+
 """Unified Intelligence Graph Engine.
 
 This module provides the high-level interface for querying the unified knowledge graph,
@@ -9,39 +10,58 @@ supporting structural Cypher queries, topological impact analysis, and hybrid se
 import logging
 import time
 import uuid
-from typing import List, Dict, Any, Optional
-import networkx as nx
+from typing import Any
 
-from .backends.base import GraphBackend
-from .backends import create_backend, get_active_backend
+import networkx as nx  # type: ignore
+
 from ..models.knowledge_graph import (
+    CallableResourceNode,
+    CritiqueNode,
+    EpisodeNode,
+    ExperimentNode,
+    MemoryNode,
+    OutcomeEvaluationNode,
+    ProposedSkillNode,
     RegistryEdgeType,
     RegistryNodeType,
-    MemoryNode,
-    EpisodeNode,
-    CallableResourceNode,
-    ToolMetadataNode,
+    SelfEvaluationNode,
     SpawnedAgentNode,
     SystemPromptNode,
-    OutcomeEvaluationNode,
-    CritiqueNode,
+    ToolMetadataNode,
 )
+from .backends import create_backend, get_active_backend
+from .backends.base import GraphBackend
 
 logger = logging.getLogger(__name__)
+
+
+def cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    """Calculate cosine similarity between two vectors."""
+    import math
+
+    if not v1 or not v2 or len(v1) != len(v2):
+        return 0.0
+    dot_product = sum(a * b for a, b in zip(v1, v2, strict=False))
+    magnitude1 = math.sqrt(sum(a * a for a in v1))
+    magnitude2 = math.sqrt(sum(a * a for a in v2))
+    if magnitude1 == 0 or magnitude2 == 0:
+        return 0.0
+    return dot_product / (magnitude1 * magnitude2)
 
 
 class IntelligenceGraphEngine:
     """Engine for querying the unified intelligence graph (Agents, Tools, Code, Memory)."""
 
-    _ACTIVE_ENGINE: Optional["IntelligenceGraphEngine"] = None
+    _ACTIVE_ENGINE: IntelligenceGraphEngine | None = None
 
     def __init__(
         self,
         graph: nx.MultiDiGraph,
-        backend: Optional[GraphBackend] = None,
-        db_path: Optional[str] = None,
+        backend: GraphBackend | None = None,
+        db_path: str | None = None,
     ):
         self.graph = graph
+        self.backend: GraphBackend | None = None
 
         # Use provided backend, or check for an active one, or create one from factory
         if backend is not None:
@@ -60,16 +80,16 @@ class IntelligenceGraphEngine:
             IntelligenceGraphEngine._ACTIVE_ENGINE = self
 
     @classmethod
-    def get_active(cls) -> Optional["IntelligenceGraphEngine"]:
+    def get_active(cls) -> IntelligenceGraphEngine | None:
         """Retrieve the currently active engine instance."""
         return cls._ACTIVE_ENGINE
 
     @classmethod
-    def set_active(cls, engine: "IntelligenceGraphEngine"):
+    def set_active(cls, engine: IntelligenceGraphEngine):
         """Explicitly set the active engine instance."""
         cls._ACTIVE_ENGINE = engine
 
-    def _get_allowed_columns(self, label: str) -> List[str]:
+    def _get_allowed_columns(self, label: str) -> list[str]:
         """Get the list of allowed columns for a given node label from the schema."""
         try:
             from ..models.schema_definition import SCHEMA
@@ -81,10 +101,10 @@ class IntelligenceGraphEngine:
             pass
         return []
 
-    def _serialize_node(self, node: Any, label: Optional[str] = None) -> Dict[str, Any]:
+    def _serialize_node(self, node: Any, label: str | None = None) -> dict[str, Any]:
         """Serialize a Pydantic node for backend storage, handling Enums and JSON fields."""
-        from enum import Enum
         import json
+        from enum import Enum
 
         data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
         clean_data = {}
@@ -116,7 +136,7 @@ class IntelligenceGraphEngine:
                 clean_data[k] = v
         return clean_data
 
-    def _get_set_clause(self, data: Dict[str, Any], alias: str = "n") -> str:
+    def _get_set_clause(self, data: dict[str, Any], alias: str = "n") -> str:
         """Generate a SET clause for a Cypher query from a dictionary."""
         sets = []
         for k in data.keys():
@@ -125,7 +145,7 @@ class IntelligenceGraphEngine:
             sets.append(f"{alias}.{k} = ${k}")
         return " SET " + ", ".join(sets) if sets else ""
 
-    def _upsert_node(self, label: str, node_id: str, data: Dict[str, Any]):
+    def _upsert_node(self, label: str, node_id: str, data: dict[str, Any]):
         """Perform an idempotent upsert of a node using MATCH/SET then CREATE."""
         if not self.backend:
             return
@@ -142,15 +162,82 @@ class IntelligenceGraphEngine:
             self.backend.execute(create_query, data)
 
     def query_cypher(
-        self, query: str, params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute a Cypher query against the persistent Graph store."""
         if not self.backend:
-            logger.warning("GraphBackend not initialized; Cypher queries unavailable.")
-            return []
+            logger.warning(
+                "GraphBackend not initialized; using basic NetworkX fallback for Cypher query."
+            )
+            return self._query_nx_fallback(query, params)
         return self.backend.execute(query, params or {})
 
-    def search_hybrid(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+    def _query_nx_fallback(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Basic fallback to NetworkX for simple Cypher queries (MATCH ... RETURN)."""
+        query_lower = query.lower()
+        results = []
+
+        # Case 1: Pull recent failures
+        if "o:outcomeevaluation" in query_lower and "reward < 0.5" in query_lower:
+            # MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward < 0.5
+            for u, v, data in self.graph.edges(data=True):
+                if data.get("type") == "PRODUCED_OUTCOME":
+                    o_data = self.graph.nodes.get(v, {})
+                    if (
+                        o_data.get("type") == RegistryNodeType.OUTCOME_EVALUATION
+                        and o_data.get("reward", 1.0) < 0.5
+                    ):
+                        e_data = self.graph.nodes.get(u, {})
+                        results.append(
+                            {"id": u, "description": e_data.get("description", "")}
+                        )
+            return results
+
+        # Case 2: Frequent tool sequences (handled in propose_new_skill_from_experience)
+        if (
+            "e:episode" in query_lower
+            and "o:outcomeevaluation" in query_lower
+            and "reward >= 0.8" in query_lower
+        ):
+            logger.info("NX Fallback: Searching for successful episodes...")
+            # MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward >= 0.8
+            # MATCH (e)-[:USED_TOOL]->(t:ToolCall)
+            for e_id, e_data in self.graph.nodes(data=True):
+                # logger.info(f"Checking node {e_id} type={e_data.get('type')}")
+                n_type = str(e_data.get("type", "")).lower()
+                if n_type == "episode" or "episode" in n_type:
+                    # Check reward
+                    has_reward = False
+                    for _, v, d in self.graph.out_edges(e_id, data=True):
+                        logger.info(f"  Checking edge {e_id}->{v} type={d.get('type')}")
+                        if d.get("type") == "PRODUCED_OUTCOME":
+                            o_data = self.graph.nodes.get(v, {})
+                            logger.info(
+                                f"    Found outcome node {v} reward={o_data.get('reward')}"
+                            )
+                            if o_data.get("reward", 0.0) >= 0.8:
+                                has_reward = True
+                                break
+                    if has_reward:
+                        logger.info(f"NX Fallback: Found successful episode {e_id}")
+                        for _, v, d in self.graph.out_edges(e_id, data=True):
+                            if d.get("type") == "USED_TOOL":
+                                t_data = self.graph.nodes.get(v, {})
+                                results.append(
+                                    {
+                                        "ep_id": e_id,
+                                        "tool": t_data.get("tool_name", ""),
+                                        "ts": t_data.get("timestamp", ""),
+                                    }
+                                )
+            logger.info(f"NX Fallback: Found {len(results)} tool calls.")
+            return results
+
+        return []
+
+    def search_hybrid(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
         """Perform a multi-faceted search across code, agents, and memory."""
         results = []
         query_lower = query.lower()
@@ -180,12 +267,12 @@ class IntelligenceGraphEngine:
 
         return results[:top_k]
 
-    def search_memories(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search_memories(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         """Search specifically for memory nodes."""
         results = self.search_hybrid(query, top_k=50)
         return [r for r in results if r.get("type") == RegistryNodeType.MEMORY][:top_k]
 
-    def query_impact(self, symbol_or_file: str) -> List[Dict[str, Any]]:
+    def query_impact(self, symbol_or_file: str) -> list[dict[str, Any]]:
         """Calculate the topological impact set for a code entity."""
         target_id = symbol_or_file
         if target_id not in self.graph:
@@ -202,18 +289,18 @@ class IntelligenceGraphEngine:
         impact_nodes = nx.ancestors(self.graph, target_id)
         return [{"id": n, **self.graph.nodes[n]} for n in impact_nodes]
 
-    def find_path(self, source: str, target: str) -> List[str]:
+    def find_path(self, source: str, target: str) -> list[str]:
         """Find the shortest logical path between two nodes."""
         try:
             return nx.shortest_path(self.graph, source, target)
         except (nx.NodeNotFound, nx.NetworkXNoPath):
             return []
 
-    def get_shortest_path(self, source: str, target: str) -> List[str]:
+    def get_shortest_path(self, source: str, target: str) -> list[str]:
         """Alias for find_path."""
         return self.find_path(source, target)
 
-    def get_agent_tools(self, agent_name: str) -> List[str]:
+    def get_agent_tools(self, agent_name: str) -> list[str]:
         """Get all tools provided by a specific agent."""
         tools = []
         if agent_name in self.graph:
@@ -222,7 +309,7 @@ class IntelligenceGraphEngine:
                     tools.append(v.replace("tool:", ""))
         return tools
 
-    def find_agent_for_tool(self, tool_name: str) -> List[str]:
+    def find_agent_for_tool(self, tool_name: str) -> list[str]:
         """Find all agents that provide a specific tool."""
         agents = []
         tool_id = f"tool:{tool_name}"
@@ -238,7 +325,7 @@ class IntelligenceGraphEngine:
         content: str,
         name: str = "",
         category: str = "general",
-        tags: List[str] = None,
+        tags: list[str] | None = None,
     ) -> str:
         """Add a new memory to the unified graph."""
         memory_id = f"mem:{uuid.uuid4().hex[:8]}"
@@ -270,7 +357,7 @@ class IntelligenceGraphEngine:
                 "MATCH (n {id: $id}) DETACH DELETE n", {"id": memory_id}
             )
 
-    def get_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
+    def get_memory(self, memory_id: str) -> dict[str, Any] | None:
         """Retrieve a specific memory by ID from the graph."""
         # Check NetworkX first (in-memory)
         if memory_id in self.graph:
@@ -297,7 +384,7 @@ class IntelligenceGraphEngine:
     # --- Enhanced Memory & Ingestion Tools ---
 
     def ingest_episode(
-        self, content: str, source: str = "chat", timestamp: Optional[str] = None
+        self, content: str, source: str = "chat", timestamp: str | None = None
     ) -> str:
         """Ingest a new episode into the graph with automatic layer distribution."""
         ep_id = f"ep:{uuid.uuid4().hex[:8]}"
@@ -320,8 +407,8 @@ class IntelligenceGraphEngine:
         self,
         name: str,
         url: str,
-        tools: List[Dict[str, Any]],
-        resources: Optional[Dict[str, Any]] = None,
+        tools: list[dict[str, Any]],
+        resources: dict[str, Any] | None = None,
     ):
         """Ingest MCP server tools and metadata as CallableResource nodes."""
         server_id = f"srv:{name}"
@@ -380,7 +467,7 @@ class IntelligenceGraphEngine:
                         {"rid": res_id, "mid": meta_id},
                     )
 
-    def ingest_a2a_agent_card(self, url: str, card: Dict[str, Any]):
+    def ingest_a2a_agent_card(self, url: str, card: dict[str, Any]):
         """Ingest an A2A agent card as a CallableResource node."""
         agent_id = f"agent:{card.get('name', uuid.uuid4().hex[:8])}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -426,7 +513,7 @@ class IntelligenceGraphEngine:
             )
 
     def ingest_agent_skill(
-        self, skill_file_path: str, frontmatter: Dict[str, Any], content: str
+        self, skill_file_path: str, frontmatter: dict[str, Any], content: str
     ):
         """Ingest a Claude-style agent skill with frontmatter metadata."""
         skill_id = f"skill:{frontmatter.get('name', uuid.uuid4().hex[:8])}"
@@ -473,8 +560,10 @@ class IntelligenceGraphEngine:
     # --- Discovery & Retrieval Tools ---
 
     def find_relevant_callable_resources(
-        self, task_description: str, required_caps: List[str] = []
-    ) -> List[Dict[str, Any]]:
+        self, task_description: str, required_caps: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        if required_caps is None:
+            required_caps = []
         """Find the most relevant Tools, Agents, or Skills for a given task."""
         # Hybrid search: semantic similarity + capability filtering
         candidates = self.search_hybrid(task_description, top_k=20)
@@ -516,10 +605,12 @@ class IntelligenceGraphEngine:
     def retrieve_orthogonal_context(
         self,
         query: str,
-        views: List[str] = ["semantic", "temporal", "causal", "entity"],
-    ) -> Dict[str, Any]:
+        views: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if views is None:
+            views = ["semantic", "temporal", "causal", "entity"]
         """Perform policy-guided retrieval across orthogonal MAGMA views."""
-        context = {"query": query, "views": {}}
+        context: dict[str, Any] = {"query": query, "views": {}}
         if "semantic" in views:
             context["views"]["semantic"] = self.search_hybrid(query, top_k=5)
         if "temporal" in views:
@@ -537,13 +628,31 @@ class IntelligenceGraphEngine:
             )
         return context
 
+    def find_relevant_policies(self, query: str) -> list[dict[str, Any]]:
+        """Search for policies that apply to the current query context."""
+        # Hybrid search for policies
+        results = self.query_cypher(
+            "MATCH (p:Policy) WHERE p.name CONTAINS $q OR p.description CONTAINS $q RETURN p",
+            {"q": query},
+        )
+        # Note: If LadybugDB supports vector search, we would use it here as well
+        return [r.get("p", r) for r in results]
+
+    def find_relevant_processes(self, query: str) -> list[dict[str, Any]]:
+        """Search for process flows that match the current query goal."""
+        results = self.query_cypher(
+            "MATCH (f:ProcessFlow) WHERE f.goal CONTAINS $q OR f.name CONTAINS $q RETURN f",
+            {"q": query},
+        )
+        return [r.get("f", r) for r in results]
+
     # --- Agent Spawning Tools ---
 
     def spawn_specialized_agent(
         self,
         task_description: str,
-        tool_ids: List[str],
-        parent_task_id: Optional[str] = None,
+        tool_ids: list[str],
+        parent_task_id: str | None = None,
     ) -> str:
         """Spawn a specialized sub-agent with a curated toolset and composed prompt."""
         agent_id = f"spawn:{uuid.uuid4().hex[:8]}"
@@ -585,7 +694,13 @@ class IntelligenceGraphEngine:
 
     # --- Self-Improvement Tools (Lightning style) ---
 
-    def record_outcome(self, episode_id: str, reward: float, feedback: str):
+    def record_outcome(
+        self,
+        episode_id: str,
+        reward: float,
+        feedback: str,
+        success_criteria_met: list[str] | None = None,
+    ):
         """Record the outcome and reward for an episode (Lightning step 1)."""
         eval_id = f"eval:{uuid.uuid4().hex[:8]}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -593,18 +708,84 @@ class IntelligenceGraphEngine:
             id=eval_id,
             name=f"Eval {episode_id}",
             reward=reward,
+            success_criteria_met=success_criteria_met or [],
             feedback_text=feedback,
             timestamp=ts,
         )
+        # Always add to in-memory graph
+        self.graph.add_node(node.id, **node.model_dump())
+
         if self.backend:
             data = self._serialize_node(node, label="OutcomeEvaluation")
             self._upsert_node("OutcomeEvaluation", eval_id, data)
             # Ladybug requires labels for relationship creation
-            label = "Episode" if episode_id.startswith("ep:") else "ReasoningTrace"
+            label = (
+                "Episode"
+                if episode_id.startswith("ep:") or episode_id.startswith("run:")
+                else "ReasoningTrace"
+            )
             self.backend.execute(
                 f"MATCH (e:{label}), (o:OutcomeEvaluation) WHERE e.id = $eid AND o.id = $oid MERGE (e)-[:PRODUCED_OUTCOME]->(o)",
                 {"eid": episode_id, "oid": eval_id},
             )
+
+        # Link in NetworkX as well
+        # Note: we don't know the label in NX nodes reliably without checking 'type' property
+        if episode_id in self.graph:
+            self.graph.add_edge(episode_id, eval_id, type="PRODUCED_OUTCOME")
+
+        return eval_id
+
+    def record_self_evaluation(
+        self, episode_id: str, confidence: float, difficulty: float
+    ):
+        """Record the agent's internal self-evaluation (confidence calibration)."""
+        eval_id = f"self_eval:{uuid.uuid4().hex[:8]}"
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        node = SelfEvaluationNode(
+            id=eval_id,
+            name=f"Self-Eval {episode_id}",
+            confidence_calibration=confidence,
+            task_difficulty=difficulty,
+            timestamp=ts,
+        )
+        # Always add to in-memory graph
+        self.graph.add_node(node.id, **node.model_dump())
+
+        if self.backend:
+            data = self._serialize_node(node, label="SelfEvaluation")
+            self._upsert_node("SelfEvaluation", eval_id, data)
+            self.backend.execute(
+                "MATCH (e:Episode), (s:SelfEvaluation) WHERE e.id = $eid AND s.id = $sid MERGE (e)-[:SELF_REFLECTS_ON]->(s)",
+                {"eid": episode_id, "sid": eval_id},
+            )
+
+        if episode_id in self.graph:
+            self.graph.add_edge(episode_id, eval_id, type="SELF_REFLECTS_ON")
+
+        return eval_id
+
+    def record_experiment(
+        self, name: str, variants: list[str], status: str = "running"
+    ):
+        """Record a new A/B experiment for prompt or tool variants."""
+        exp_id = f"exp:{uuid.uuid4().hex[:8]}"
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        node = ExperimentNode(
+            id=exp_id,
+            name=name,
+            status=status,
+            timestamp=ts,
+        )
+        # Always add to in-memory graph
+        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.nodes[node.id]["variants"] = variants
+
+        if self.backend:
+            data = self._serialize_node(node, label="Experiment")
+            data["variants"] = variants
+            self._upsert_node("Experiment", exp_id, data)
+        return exp_id
 
     def generate_critique(self, reasoning_trace_id: str, textual_gradient: str) -> str:
         """Generate a critique (textual gradient) for a reasoning trace (Lightning step 2)."""
@@ -616,6 +797,9 @@ class IntelligenceGraphEngine:
             textual_gradient=textual_gradient,
             timestamp=ts,
         )
+        # Always add to in-memory graph
+        self.graph.add_node(node.id, **node.model_dump())
+
         if self.backend:
             data = self._serialize_node(node, label="Critique")
             self._upsert_node("Critique", crit_id, data)
@@ -623,6 +807,10 @@ class IntelligenceGraphEngine:
                 "MATCH (r:ReasoningTrace), (c:Critique) WHERE r.id = $rid AND c.id = $cid MERGE (r)-[:GENERATED_CRITIQUE]->(c)",
                 {"rid": reasoning_trace_id, "cid": crit_id},
             )
+
+        if reasoning_trace_id in self.graph:
+            self.graph.add_edge(reasoning_trace_id, crit_id, type="GENERATED_CRITIQUE")
+
         return crit_id
 
     def optimize_prompt(self, prompt_id: str, critique_id: str) -> str:
@@ -668,20 +856,120 @@ class IntelligenceGraphEngine:
         """Autonomous loop for background optimization (Lightning trainer)."""
         # 1. Pull recent failures (low reward)
         failures = self.query_cypher(
-            "MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward < 0.0 RETURN e.id as id, e.description as description LIMIT 5"
+            "MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward < 0.5 RETURN e.id as id, e.description as description LIMIT 5"
         )
+        logger.info(f"Self-improvement cycle: found {len(failures)} failures.")
         for fail in failures:
-            # 2. Generate pseudo-critique if missing (placeholder for LLM)
+            logger.info(f"Processing failure: {fail['id']}")
+            # 2. Generate pseudo-critique if missing
             crit_id = self.generate_critique(
-                fail["id"], f"Failure in episode: {fail['description']}"
+                fail["id"],
+                f"Improve the following based on failure: {fail.get('description', '')}",
             )
+
             # 3. Optimize linked prompt
-            prompt = self.query_cypher(
-                "MATCH (a:SpawnedAgent)-[:USES]->(p:SystemPrompt) RETURN p.id as id LIMIT 1"
+            # Step-by-step traversal for robustness
+            agent_res = self.query_cypher(
+                "MATCH (e {id: $eid})-[:EXECUTED_BY]->(a) RETURN a.id as id LIMIT 1",
+                {"eid": fail["id"]},
             )
+            prompt = None
+            if agent_res:
+                aid = agent_res[0]["id"]
+                prompt_res = self.query_cypher(
+                    "MATCH (a {id: $aid})-[:USES]->(p:SystemPrompt) RETURN p.id as id LIMIT 1",
+                    {"aid": aid},
+                )
+                if prompt_res:
+                    prompt = prompt_res
+
             if prompt:
+                logger.info(
+                    f"Optimizing prompt {prompt[0]['id']} for failure {fail['id']}"
+                )
                 self.optimize_prompt(prompt[0]["id"], crit_id)
+            else:
+                logger.warning(
+                    f"No prompt linked to failure {fail['id']} via Episode->Agent->Prompt path."
+                )
+
+        # 4. Propose new skills
+        new_skill_id = self.propose_new_skill_from_experience()
+        if new_skill_id:
+            logger.info(f"Proposed new skill: {new_skill_id}")
+
         logger.info("Self-improvement cycle completed.")
+
+    def propose_new_skill_from_experience(self) -> str | None:
+        """Analyze successful trajectories and propose a new skill node."""
+        # Removed if not self.backend return to allow NX fallback
+
+        # Strategy A: Frequent Tool Sequences
+        # Fetch successful episodes and their tool calls in order
+        query = """
+        MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation)
+        WHERE o.reward >= 0.8
+        MATCH (e)-[:USED_TOOL]->(t:ToolCall)
+        RETURN e.id as ep_id, t.tool_name as tool, t.timestamp as ts
+        ORDER BY ep_id, ts
+        """
+        results = self.query_cypher(query)
+
+        episodes: dict[str, list[str]] = {}
+        for row in results:
+            ep_id = row["ep_id"]
+            if ep_id not in episodes:
+                episodes[ep_id] = []
+            episodes[ep_id].append(row["tool"])
+
+        # Count sequence frequency
+        sequences: dict[tuple[str, ...], int] = {}
+        for tools in episodes.values():
+            if len(tools) >= 2:
+                # Use window of 2-3 tools
+                for i in range(len(tools) - 1):
+                    seq = tuple(tools[i : i + 2])
+                    sequences[seq] = sequences.get(seq, 0) + 1
+
+        # Find most frequent sequence
+        if not sequences:
+            return None
+
+        best_seq = max(sequences, key=lambda k: sequences[k])
+        freq = sequences[best_seq]
+
+        if freq < 3:  # Threshold for "repeated a lot"
+            return None
+
+        # Create ProposedSkillNode
+        skill_id = f"skill_prop:{uuid.uuid4().hex[:8]}"
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        name = f"Sequence: {' -> '.join(best_seq)}"
+        node = ProposedSkillNode(
+            id=skill_id,
+            name=name,
+            code_content=f"# Auto-generated skill for repeated sequence: {' -> '.join(best_seq)}\n"
+            f"def frequent_sequence_skill(ctx, **kwargs):\n"
+            f"    # This skill automates the frequent sequence detected in the KG\n"
+            f"    pass",
+            frontmatter={
+                "name": name.lower().replace(" ", "_").replace(":", ""),
+                "description": f"Automated skill for the frequent tool sequence: {', '.join(best_seq)}",
+                "tools": list(best_seq),
+                "frequency": freq,
+            },
+            timestamp=ts,
+        )
+
+        # Always add to in-memory graph
+        self.graph.add_node(node.id, **node.model_dump())
+
+        if self.backend:
+            data = self._serialize_node(node, label="ProposedSkill")
+            self._upsert_node("ProposedSkill", skill_id, data)
+
+        return skill_id
 
 
 # Alias for backward compatibility

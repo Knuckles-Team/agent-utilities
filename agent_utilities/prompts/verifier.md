@@ -64,6 +64,13 @@ End your evaluation with a clear binary result for the caller:
 - **`is_valid: False`** (if using structured JSON mode)
 - **`VERDICT: FAIL`** (if using text mode)
 
+### Knowledge Graph Feedback (Lightning Rewards)
+When in structured output mode, always include an `outcome_evaluation` block:
+- `reward`: A float from 0.0 to 1.0.
+- `success_criteria_met`: A list of requirements from spec.md that were verified.
+- `feedback_text`: Brief explanation of the score.
+- `confidence_calibration`: How certain you are of this verdict (0.0 to 1.0).
+
 ### Feedback & Collaboration Guidelines
 - When validating results, provide specific, actionable feedback
 - Reference the original request to ensure completeness

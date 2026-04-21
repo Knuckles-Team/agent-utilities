@@ -1,32 +1,32 @@
 #!/usr/bin/python
-# coding: utf-8
 """Developer Utilities Tools Module.
 
 This module provides high-level tools for code search, file manipulation,
 and shell command execution with diagnostics and error handling.
 """
 
+import asyncio
+import difflib
+import logging
 import os
 import subprocess
-import logging
-import difflib
-import asyncio
+
 from pydantic import BaseModel
 from pydantic_ai import RunContext
+
 from ..models import AgentDeps
+from .knowledge_tools import (
+    add_knowledge_memory,
+    delete_knowledge_memory,
+    get_code_impact,
+    get_knowledge_memory,
+    link_knowledge_nodes,
+    search_knowledge_graph,
+    sync_feature_to_memory,
+    update_knowledge_memory,
+)
 
 logger = logging.getLogger(__name__)
-
-from .knowledge_tools import (
-    search_knowledge_graph,
-    add_knowledge_memory,
-    get_knowledge_memory,
-    update_knowledge_memory,
-    delete_knowledge_memory,
-    link_knowledge_nodes,
-    sync_feature_to_memory,
-    get_code_impact,
-)
 
 
 class ShellCommandOutput(BaseModel):
@@ -124,7 +124,7 @@ async def replace_in_file(
         return f"Error: File '{path}' not found."
 
     try:
-        with open(abs_path, "r", encoding="utf-8") as f:
+        with open(abs_path, encoding="utf-8") as f:
             content = f.read()
 
         if old_str not in content:
@@ -172,7 +172,7 @@ async def run_shell_with_diagnostics(
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(), timeout=timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             stdout, stderr = await process.communicate()
             return ShellCommandOutput(

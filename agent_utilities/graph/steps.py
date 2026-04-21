@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Graph Steps Module.
 
 This module contains the functional step definitions for the pydantic-graph
@@ -18,54 +17,43 @@ next node to execute, enabling flexible and resilient graph flows.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import re
-import logging
-import asyncio
 import subprocess
 from pathlib import Path
-
-from typing import Any, List
-
+from typing import Any
 
 from pydantic_ai import Agent
 from pydantic_graph import End
-
+from pydantic_graph.beta import StepContext
 
 from ..models import (
     ExecutionStep,
-    ParallelBatch,
     GraphPlan,
     GraphResponse,
-)
-
-from ..workspace import CORE_FILES, load_workspace_file
-
-from .config_helpers import (
-    emit_graph_event,
-    load_specialized_prompts,
-    load_mcp_config,
-    load_node_agents_registry,
-    get_discovery_registry,
+    ParallelBatch,
 )
 from ..tools.knowledge_tools import knowledge_tools
-
-from .hsm import (
-    assert_state_valid,
-    StateInvariantError,
+from .config_helpers import (
+    emit_graph_event,
+    get_discovery_registry,
+    load_mcp_config,
+    load_node_agents_registry,
+    load_specialized_prompts,
 )
-
 from .executor import (
-    _execute_specialized_step,
     _execute_domain_logic,
     _execute_dynamic_mcp_agent,
+    _execute_specialized_step,
 )
-
 from .graph_models import ValidationResult
-
-from pydantic_graph.beta import StepContext
-
-from .state import GraphState, GraphDeps
+from .hsm import (
+    StateInvariantError,
+    assert_state_valid,
+)
+from .state import GraphDeps, GraphState
 
 logger = logging.getLogger(__name__)
 
@@ -278,12 +266,36 @@ async def planner_step(
     results_section = ""
     if previous_results:
         results_section = (
-            f"### PREVIOUS EXECUTION RESULTS (for context)\n" f"{previous_results}\n\n"
+            f"### PREVIOUS EXECUTION RESULTS (for context)\n{previous_results}\n\n"
         )
 
     from .executor import _get_domain_tools
+    from .nodes import find_best_matching_process_flow_via_kg
 
     domain_tools, domain_toolsets = await _get_domain_tools("planner", ctx.deps)
+
+    # 0. Discover Processes and Policies from Knowledge Graph
+    policies_context = ""
+    process_context = ""
+    if ctx.deps.knowledge_engine:
+        logger.info("Planner: Discovering relevant policies and processes from KG...")
+        relevant_policies = ctx.deps.knowledge_engine.find_relevant_policies(
+            ctx.state.query
+        )
+        if relevant_policies:
+            policies_context = "### APPLICABLE POLICIES\n" + "\n".join(
+                [f"- {p['name']}: {p['description']}" for p in relevant_policies]
+            )
+
+        best_flow = await find_best_matching_process_flow_via_kg(ctx.state.query)
+        if best_flow:
+            process_context = (
+                f"### RECOMMENDED PROCESS FLOW\n"
+                f"A matching process flow '{best_flow.name}' was found in the Knowledge Graph:\n"
+                f"Goal: {best_flow.goal}\n"
+                f"You should strongly consider following this established process."
+            )
+            ctx.state.current_flow_id = best_flow.flow_id
 
     planner = Agent(
         model=ctx.deps.agent_model,
@@ -296,6 +308,8 @@ async def planner_step(
             f"{feedback_section}"
             f"{error_section}"
             f"{results_section}"
+            f"{policies_context}\n\n"
+            f"{process_context}\n\n"
             f"### ARCHITECTURAL DECISIONS\n{ctx.state.architectural_decisions}\n\n"
             f"### WORKSPACE CONTEXT\n{unified_context}"
         ),
@@ -339,11 +353,23 @@ async def fetch_unified_context() -> str:
         recent memory, and git status.
 
     """
-    mcp_agents = load_workspace_file(CORE_FILES["NODE_AGENTS"])
-    if mcp_agents and len(mcp_agents.splitlines()) > 500:
-        mcp_agents = "\n".join(mcp_agents.splitlines()[:500]) + "\n\n... (truncated)"
+    # 1. Fetch agents from Knowledge Graph
+    try:
+        registry = get_discovery_registry()
+        agents_info = []
+        for agent in registry.agents:
+            agents_info.append(f"- {agent.name}: {agent.description}")
 
-    # Run git status directly or use our new tool if available
+        mcp_agents = "\n".join(agents_info)
+        if len(mcp_agents.splitlines()) > 500:
+            mcp_agents = (
+                "\n".join(mcp_agents.splitlines()[:500]) + "\n\n... (truncated)"
+            )
+    except Exception as e:
+        logger.debug(f"Failed to fetch agents for context: {e}")
+        mcp_agents = "(empty or graph unavailable)"
+
+    # 2. Run git status
     try:
         git_status = subprocess.check_output(
             ["git", "status", "--short"], text=True
@@ -353,7 +379,7 @@ async def fetch_unified_context() -> str:
 
     return (
         f"### PROJECT CONTEXT (Agent OS)\n\n"
-        f"**NODE_AGENTS.md (Specialist Registry):**\n{mcp_agents or '(empty)'}\n\n"
+        f"**Registered Agents (Knowledge Graph):**\n{mcp_agents or '(empty)'}\n\n"
         f"**Git Status:**\n{git_status or '(clean)'}"
     )
 
@@ -469,7 +495,30 @@ async def router_step(
         # 2. Hybrid Search (Semantic + Keyword)
         hybrid_results = deps.knowledge_engine.search_hybrid(ctx.state.query, top_k=5)
 
+        # 3. Policy and Process Discovery
+        relevant_policies = deps.knowledge_engine.find_relevant_policies(
+            ctx.state.query
+        )
+        relevant_processes = deps.knowledge_engine.find_relevant_processes(
+            ctx.state.query
+        )
+
         discovery_sections = []
+        if relevant_policies:
+            discovery_sections.append(
+                "### APPLICABLE POLICIES (Governance)\n"
+                + "\n".join(
+                    [f"- {p['name']}: {p['description']}" for p in relevant_policies]
+                )
+            )
+
+        if relevant_processes:
+            discovery_sections.append(
+                "### MATCHING PROCESS FLOWS (SOPs)\n"
+                + "\n".join(
+                    [f"- {f['name']}: Goal={f['goal']}" for f in relevant_processes]
+                )
+            )
         if matched_agents:
             discovery_sections.append(
                 f"The following agents are confirmed to provide tools matching keywords in the query:\n"
@@ -560,9 +609,9 @@ async def router_step(
             logger.info(
                 f"[LAYER:GRAPH:ROUTER] Plan Step Count: {len(plan_output.steps)}"
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Router: LLM planning timed out. Escalating to fallbacks.")
-            raise ValueError("LLM planning timed out")
+            raise ValueError("LLM planning timed out") from None
 
         usage = stream.usage()
         if asyncio.iscoroutine(usage):
@@ -961,10 +1010,10 @@ async def expert_executor_step(
             # Short sleep before local retry
             await asyncio.sleep(1)
 
-            # Return to appropriate joiner for synchronization
-            if node_id in ["researcher", "architect", "planner"]:
-                return "research_joiner"
-            return "execution_joiner"
+    # Return to appropriate joiner for synchronization
+    if node_id in ["researcher", "architect", "planner"]:
+        return "research_joiner"
+    return "execution_joiner"
 
 
 async def join_step(
@@ -1172,7 +1221,7 @@ async def synthesizer_step(
     This node is responsible for synthesizing a cohesive markdown response
     from the disparate specialist findings stored in
     ``ctx.state.results_registry``.  It also persists session metadata to
-    MEMORY.md for future context retrieval.
+    the Knowledge Graph for future context retrieval.
 
     The synthesizer is intentionally separate from the verifier so that
     synthesis work is never wasted on re-dispatch/re-plan cycles.
@@ -1300,7 +1349,7 @@ async def onboarding_step(
     """Initialize a new agent workspace and bootstrap core project files.
 
     Handles the creation of the standard agent directory structure and
-    essential files (e.g., A2A_AGENTS.md, NODE_AGENTS.md, MEMORY.md) for
+    essential files for a new project.
     a new project.
 
     Args:
@@ -1543,7 +1592,7 @@ async def approval_gate_step(
 
 async def dynamic_mcp_routing_step(
     ctx: StepContext[GraphState, GraphDeps, None],
-) -> List[str]:
+) -> list[str]:
     """Calculate the list of target MCP servers for dynamic tool discovery.
 
     Parses the local MCP configuration to identify available servers
@@ -1637,10 +1686,10 @@ async def mcp_server_step(
             # Stream events to WebUI
             if ctx.deps.event_queue:
                 from pydantic_ai.messages import (
+                    ModelRequest,
                     ModelResponse,
                     ToolCallPart,
                     ToolReturnPart,
-                    ModelRequest,
                 )
 
                 for msg in stream.all_messages():

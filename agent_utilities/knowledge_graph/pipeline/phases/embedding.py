@@ -1,10 +1,11 @@
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from ..types import (
-    PipelinePhase,
-    PipelineContext,
     PhaseResult,
+    PipelineContext,
+    PipelinePhase,
 )
 
 logger = logging.getLogger(__name__)
@@ -16,7 +17,7 @@ EMBEDDING_MODEL = os.environ.get(
 )
 
 
-def _generate_embedding_batch(texts: List[str]) -> Optional[List[List[float]]]:
+def _generate_embedding_batch(texts: list[str]) -> list[list[float]] | None:
     """Generate embeddings via LM Studio's OpenAI-compatible endpoint.
 
     Uses the same pattern as vector-mcp's create_embedding_model() and
@@ -43,7 +44,7 @@ def _generate_embedding_batch(texts: List[str]) -> Optional[List[List[float]]]:
     return None
 
 
-def _generate_embedding_llamaindex(texts: List[str]) -> Optional[List[List[float]]]:
+def _generate_embedding_llamaindex(texts: list[str]) -> list[list[float]] | None:
     """Generate embeddings via LlamaIndex create_embedding_model (vector-mcp pattern).
 
     Falls back to this method if the direct HTTP approach is preferred to use
@@ -66,8 +67,8 @@ def _generate_embedding_llamaindex(texts: List[str]) -> Optional[List[List[float
 
 
 async def execute_embedding(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Generate semantic embeddings for graph nodes using LM Studio.
 
     Uses the local LM Studio OpenAI-compatible endpoint (same pattern as
@@ -119,12 +120,12 @@ async def execute_embedding(
             embeddings = _generate_embedding_llamaindex(texts)
 
         if embeddings and len(embeddings) == len(batch):
-            for (node_id, _), embedding in zip(batch, embeddings):
+            for (node_id, _), embedding in zip(batch, embeddings, strict=False):
                 graph.nodes[node_id]["embedding"] = embedding
                 embeddings_generated += 1
         else:
             errors += len(batch)
-            logger.warning(f"Failed to embed batch {i//batch_size + 1}")
+            logger.warning(f"Failed to embed batch {i // batch_size + 1}")
 
     return {
         "status": "completed",

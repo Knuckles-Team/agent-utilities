@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """HSM/BT Infrastructure Module.
 
 This module implements Hierarchical State Machine (HSM) and Behavior Tree (BT)
@@ -10,12 +9,14 @@ and static routing junctions.
 
 from __future__ import annotations
 
-import logging
 import asyncio
+import logging
 import time
-from typing import Any, Optional, Callable
+from collections.abc import Callable
+from typing import Any
 
 from pydantic_ai import Agent
+
 from ..models import MCPServerHealth
 from .config_helpers import emit_graph_event
 
@@ -126,7 +127,7 @@ async def run_orthogonal_regions(
     queries: list[str],
     deps: Any = None,
     timeout: float = 120.0,
-    event_queue: Optional[asyncio.Queue] = None,
+    event_queue: asyncio.Queue[Any] | None = None,
     agent_name: str = "",
 ) -> dict[str, str]:
     """Execute multiple independent sub-tasks concurrently within a single specialist.
@@ -289,7 +290,7 @@ def check_specialist_preconditions(
     server_name = getattr(agent_info, "mcp_server", "")
 
     # Check circuit breaker
-    if server_name and hasattr(agent_info, "server_health"):
+    if server_name and hasattr(deps, "server_health"):
         health = deps.server_health.get(server_name)
         if health and not health.is_available():
             return (

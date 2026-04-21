@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Graph Executor Module.
 
 This module implements the core logic for executing specialized agent nodes
@@ -10,32 +9,32 @@ automated fallback strategies for resilience in production workflows.
 
 from __future__ import annotations
 
-import os
-import logging
 import asyncio
-from typing import Any, Tuple, List
+import logging
+import os
+from typing import Any
 
 from pydantic_ai import Agent
-
-from ..models import (
-    MCPAgent,
-    MCPServerHealth,
-    ExecutionStep,
-)
-from ..agent_factory import create_agent
-from ..tool_filtering import filter_tools_by_tag
-from .config_helpers import (
-    load_node_agents_registry,
-    get_discovery_registry,
-    emit_graph_event,
-    load_specialized_prompts,
-    DEFAULT_GRAPH_TIMEOUT,
-)
-from .hsm import on_enter_specialist, on_exit_specialist, check_specialist_preconditions
 from pydantic_graph import End
 from pydantic_graph.beta import StepContext
-from .state import GraphState, GraphDeps
+
+from ..agent_factory import create_agent
+from ..models import (
+    ExecutionStep,
+    MCPAgent,
+    MCPServerHealth,
+)
+from ..tool_filtering import filter_tools_by_tag
+from .config_helpers import (
+    DEFAULT_GRAPH_TIMEOUT,
+    emit_graph_event,
+    get_discovery_registry,
+    load_node_agents_registry,
+    load_specialized_prompts,
+)
+from .hsm import check_specialist_preconditions, on_enter_specialist, on_exit_specialist
 from .runner import run_graph
+from .state import GraphDeps, GraphState
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +94,12 @@ def agent_matches_node_id(agent: MCPAgent, node_id: str) -> bool:
 
 async def _get_domain_tools(
     node_id: str, deps: GraphDeps
-) -> Tuple[List[Any], List[Any]]:
+) -> tuple[list[Any], list[Any]]:
     """Dynamically discover and load toolsets specialized for a domain expert.
 
     Starts with universal developer tools and augments them with domain-specific
     These tools are resolved by matching the node identifier against the
-    unified specialist registry (NODE_AGENTS.md) to discover assigned
+    Knowledge Graph specialist registry to discover assigned
     capability tags and MCP server associations.
 
     Returns:
@@ -126,11 +125,12 @@ async def _get_domain_tools(
 
     try:
         from pydantic_ai_skills import SkillsToolset
+
         from ..workspace import get_skills_path
 
         skill_dirs: list[str] = []
         if skills_path := get_skills_path():
-            skill_dirs.append(skills_path)
+            skill_dirs.extend(skills_path)
 
         try:
             from universal_skills.skill_utilities import get_universal_skills_path
@@ -251,7 +251,7 @@ async def _execute_dynamic_mcp_agent(
         ctx_deps=ctx.deps,
         ctx_state=ctx.state,
         agent_name=agent_name,
-        server_name=server_name,
+        server_name=server_name or "unknown",
     )
 
     # BT: Precondition guard - Check before committing to this specialist
@@ -265,7 +265,7 @@ async def _execute_dynamic_mcp_agent(
             ctx_state=ctx.state,
             agent_name=agent_name,
             success=False,
-            server_name=server_name,
+            server_name=server_name or "unknown",
         )
         fallback_result = await _attempt_specialist_fallback(
             ctx=ctx, failed_agent=agent_info
@@ -284,7 +284,7 @@ async def _execute_dynamic_mcp_agent(
         f"agent_info.tools={agent_info.tools}"
     )
     if hasattr(ctx.deps, "discovery_metadata") and ctx.deps.discovery_metadata:
-        target_server = agent_info.mcp_server.lower()
+        target_server = (agent_info.mcp_server or "").lower()
         for s_id, tools in ctx.deps.discovery_metadata.items():
             if (
                 s_id.lower() == target_server
@@ -328,10 +328,10 @@ async def _execute_dynamic_mcp_agent(
     emit_graph_event(
         ctx.deps.event_queue,
         "expert_metadata",
-        domain=agent_info.tag or "unknown",
+        domain=agent_info.name or "unknown",
         expert=agent_info.name,
-        target_server=agent_info.mcp_server,
-        domain_tag=agent_info.tag,
+        target_server=agent_info.mcp_server or "unknown",
+        domain_tag=agent_info.name,
         expected_tools=total_tools,
         node_id=getattr(ctx, "node_id", "unknown"),
     )
@@ -355,7 +355,7 @@ async def _execute_dynamic_mcp_agent(
 
         server_id = getattr(toolset, "id", getattr(toolset, "name", None))
         if server_id:
-            target = agent_info.mcp_server.lower().replace("-", "_")
+            target = (agent_info.mcp_server or "").lower().replace("-", "_")
             current = server_id.lower().replace("-", "_")
 
             if (
@@ -380,7 +380,7 @@ async def _execute_dynamic_mcp_agent(
 
     # Wrap MCP toolsets with the tool guard so sensitive tools are flagged
     # as 'unapproved' and trigger the DeferredToolRequests flow.
-    from ..tool_guard import flag_mcp_tool_definitions, build_sensitive_tool_names
+    from ..tool_guard import build_sensitive_tool_names, flag_mcp_tool_definitions
 
     guarded_toolsets = flag_mcp_tool_definitions(
         matched_toolsets, build_sensitive_tool_names()
@@ -388,15 +388,15 @@ async def _execute_dynamic_mcp_agent(
 
     # Include DeferredToolRequests in output type so the agent can defer
     # sensitive tool calls instead of failing.
+
     from pydantic_ai import DeferredToolRequests
-    from typing import Union
 
     agent = Agent(
         model=ctx.deps.agent_model,
         system_prompt=agent_sys_prompt,
         deps_type=GraphDeps,
         toolset=guarded_toolsets,
-        output_type=Union[str, DeferredToolRequests],
+        output_type=str | DeferredToolRequests,
         end_strategy="early",
         output_retries=2,
     )
@@ -462,7 +462,7 @@ async def _execute_dynamic_mcp_agent(
         )
         try:
             logger.info(
-                f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Starting (attempt {attempt+1}). Prompt length: {len(agent_sys_prompt)}"
+                f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Starting (attempt {attempt + 1}). Prompt length: {len(agent_sys_prompt)}"
             )
             run_input = (
                 ctx.state.query_parts
@@ -483,12 +483,12 @@ async def _execute_dynamic_mcp_agent(
                 logger.debug(f"Failed to update cache for '{cache_key}': {e}")
                 pass
 
-            # Record success on circuit breaker
-            if server_name not in ctx.deps.server_health:
-                ctx.deps.server_health[server_name] = MCPServerHealth(
-                    server_name=server_name,
+                # Record success on circuit breaker
+                srv_name = server_name or "unknown"
+                ctx.deps.server_health[srv_name] = MCPServerHealth(
+                    server_name=srv_name,
                 )
-            ctx.deps.server_health[server_name].record_success()
+            ctx.deps.server_health[server_name or "unknown"].record_success()
 
             # Stream events to WebUI
             if ctx.deps.event_queue:
@@ -506,7 +506,7 @@ async def _execute_dynamic_mcp_agent(
                                 emit_graph_event(
                                     ctx.deps.event_queue,
                                     "expert_tool_call",
-                                    domain=agent_info.tag or "unknown",
+                                    domain=agent_info.name or "unknown",
                                     tool_name=part.tool_name,
                                     args=part.args,
                                 )
@@ -514,7 +514,7 @@ async def _execute_dynamic_mcp_agent(
                                 emit_graph_event(
                                     ctx.deps.event_queue,
                                     "expert_text",
-                                    domain=agent_info.tag or "unknown",
+                                    domain=agent_info.name or "unknown",
                                     content=part.content,
                                 )
                     elif isinstance(msg, ModelRequest):
@@ -562,7 +562,7 @@ async def _execute_dynamic_mcp_agent(
                     )
             node_uid = f"{cache_key}_{ctx.state.step_cursor}"
             ctx.state.results_registry[node_uid] = result_str
-            result_key = agent_info.tag or cache_key
+            result_key = agent_info.name or cache_key
             ctx.state.results[result_key] = result_str
             ctx.state.routed_domain = result_key
             logger.info(
@@ -573,7 +573,7 @@ async def _execute_dynamic_mcp_agent(
             emit_graph_event(
                 ctx.deps.event_queue,
                 "subagent_completed",
-                domain=agent_info.tag or "unknown",
+                domain=agent_info.name or "unknown",
                 status="success",
             )
             # HSM: Exit action (success)
@@ -582,11 +582,11 @@ async def _execute_dynamic_mcp_agent(
                 ctx_state=ctx.state,
                 agent_name=agent_name,
                 success=True,
-                server_name=server_name,
+                server_name=server_name or "unknown",
             )
             return "execution_joiner"
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             last_error = f"Timeout after {node_timeout}s"
             logger.warning(
                 f"Expert '{agent_name}' timed out (attempt {attempt + 1}/{max_attempts})"
@@ -605,7 +605,7 @@ async def _execute_dynamic_mcp_agent(
             emit_graph_event(
                 ctx.deps.event_queue,
                 "subagent_tool_call",
-                domain=agent_info.tag or "unknown",
+                domain=agent_info.name or "unknown",
                 tool_name=getattr(e, "tool_name", "unknown"),
                 args=getattr(e, "args", {}),
             )
@@ -629,7 +629,7 @@ async def _execute_dynamic_mcp_agent(
         ctx_state=ctx.state,
         agent_name=agent_name,
         success=False,
-        server_name=server_name,
+        server_name=server_name or "unknown",
     )
 
     # Try fallback specialist from same server
@@ -667,7 +667,7 @@ async def _attempt_specialist_fallback(
         a
         for a in registry.agents
         if a.mcp_server == failed_agent.mcp_server
-        and a.tag != failed_agent.tag
+        and a.name != failed_agent.name
         and a.name != failed_agent.name
     ]
 
@@ -680,7 +680,9 @@ async def _attempt_specialist_fallback(
     best_score = 0
 
     for sibling in siblings:
-        tag_words = set(sibling.tag.lower().replace("-", " ").replace("_", " ").split())
+        tag_words = set(
+            sibling.name.lower().replace("-", " ").replace("_", " ").split()
+        )
         score = len(query_words & tag_words)
         if score > best_score:
             best_score = score
@@ -769,7 +771,7 @@ async def _execute_agent_package_logic(
         else:
             # Fallback to generic expert node with all tools if metadata is missing
             logger.warning(
-                f"Expert Execution: Node '{node_id}' fallback. No NODE_AGENTS.md metadata found."
+                f"Expert Execution: Node '{node_id}' fallback. No specialist metadata found in the Knowledge Graph."
             )
             await _execute_domain_logic(ctx, node_id)
 
@@ -853,7 +855,7 @@ async def _execute_specialized_step(
 
     # Filter MCP toolsets by domain tag AND node_id (prompt_name) with deduplication.
     # Wrap each with the tool guard so sensitive tools trigger approval.
-    from ..tool_guard import flag_mcp_tool_definitions, build_sensitive_tool_names
+    from ..tool_guard import build_sensitive_tool_names, flag_mcp_tool_definitions
 
     _sensitive_names = build_sensitive_tool_names()
 
@@ -901,8 +903,8 @@ async def _execute_specialized_step(
     # Build the agent with ALL toolsets at construction time.
     # agent.toolsets is a read-only property — appending after construction
     # is a silent no-op.
+
     from pydantic_ai import DeferredToolRequests
-    from typing import Union
 
     agent = Agent(
         model=ctx.deps.agent_model,
@@ -915,7 +917,7 @@ async def _execute_specialized_step(
         ),
         tools=custom_tools,
         toolsets=collected_mcp_toolsets + skill_toolsets,
-        output_type=Union[str, DeferredToolRequests],
+        output_type=str | DeferredToolRequests,
     )
 
     # Tool-count telemetry for specialized steps
@@ -1065,14 +1067,13 @@ async def _execute_domain_logic(
             try:
                 target = sub_agent_target
                 if isinstance(target, dict) and "tags" in target:
-                    target = create_agent(
+                    target, _ = create_agent(
                         name=domain,
                         system_prompt=target.get(
                             "description", f"Specialized assistant for {domain}"
                         ),
                         enable_skills=True,
-                        load_universal_skills=True,
-                        load_skill_graphs=True,
+                        skill_types=["universal", "graphs"],
                         tool_tags=target["tags"],
                         tool_guard_mode="off",
                     )
@@ -1125,7 +1126,7 @@ async def _execute_domain_logic(
             if ctx.state.validation_feedback:
                 query = f"{query}\n\n[SELF-CORRECTION FEEDBACK]: {ctx.state.validation_feedback}"
 
-            sub_agent = create_agent(
+            sub_agent, _ = create_agent(
                 provider=deps.provider,
                 model_id=deps.agent_model,
                 base_url=deps.base_url,

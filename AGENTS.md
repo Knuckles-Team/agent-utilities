@@ -5,10 +5,10 @@
 - **Core Framework**: [Pydantic AI](https://ai.pydantic.dev) & [Pydantic Graph](https://ai.pydantic.dev/pydantic-graph/)
 - **Tooling**: `requests`, `pydantic`, `pyyaml`, `python-dotenv`, `fastapi`, `llama_index`
 - **Architecture**: Centered around the `create_agent` factory, which has been modernized to support a **Unified Skill Loading** model (`skill_types`) and automated **Graph Orchestration**.
-- **Unified Specialist Discovery**: All specialist agents—prompt-based, MCP-derived, and A2A peers—are consolidated into a single, declarative source of truth: `NODE_AGENTS.md`. This unified registry is dynamically rebuilt from prompt frontmatter and MCP configurations, ensuring consistent registration, tag-prompting, and tool binding across the entire orchestration layer.
+- **Unified Specialist Discovery**: All specialist agents—prompt-based, MCP-derived, and A2A peers—are consolidated into a single, declarative source of truth: the **Knowledge Graph**. This unified registry is dynamically built from prompt frontmatter and MCP configurations, ensuring consistent registration, tag-prompting, and tool binding across the entire orchestration layer.
 - **Key Principles**:
     - Functional and modular utility design.
-    - Standardized workspace management (`IDENTITY.md`, `Knowledge Graph`).
+    - Standardized workspace management (`main_agent.md`, `Knowledge Graph`).
     - **Elicitation First**: Robust support for structured user input during tool calls, bridging MCP and Web UIs.
 
 ## Package Relationships
@@ -130,8 +130,8 @@ graph TD
 
         subgraph UnifiedDiscovery ["Unified Discovery Layer (config_helpers.py)"]
             DAL["get_discovery_registry()"]
-            NodeAgents["NODE_AGENTS.md<br/>(Unified Specialist Registry)"]
-            NodeAgents --> DAL
+            KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"]
+            KG_Registry --> DAL
             DAL --> DSRoster["MCPAgentRegistryModel"]
         end
 
@@ -157,8 +157,39 @@ graph TD
     Backend -- 6. Future.resolve --> AM
 ```
 
-## Knowledge Graph (Unified Intelligence & Memory)
-The ecosystem leverages a **Unified Intelligence Graph** that bridges long-term agent memory with deep structural codebase awareness. This single, intelligence-driven ecosystem allows agents to reason simultaneously about specialists, tools, memory, and code-level architectural impacts.
+## The Unified Intelligence Graph (UIG)
+The ecosystem leverages a **Unified Intelligence Graph** (UIG) that bridges long-term agent memory with deep structural codebase awareness and cross-domain research knowledge. This single, intelligence-driven cognitive substrate allows agents to reason simultaneously about specialists, tools, memory, code, and external standard operating procedures.
+
+### Core Components
+- **Autonomous Memory & Reasoning**:
+    - **Episodes**: Discrete interaction units (e.g., a specific tool run or chat turn).
+    - **Reasoning Traces**: Step-by-step "chains of thought" stored as linked nodes.
+    - **Reflections & Goals**: High-level summaries and objective nodes that guide future planning.
+- **Research Knowledge Base (KB)**:
+    - **Topics & Concepts**: Domain-specific hubs (e.g., "Medical Oncology") linked to atomic knowledge units ("p53 gene").
+    - **Evidence & Sources**: Verifiable claims grounded in original documents (Sources) with metadata like DOI and authors.
+    - **Cross-Domain Emergence**: Unrelated topics (e.g., Chemistry and Medicine) automatically link through shared concepts or molecular pathways.
+- **Temporal Dynamics & Importance**:
+    - **Importance Scoring**: Every node has an `importance_score` (0.0 - 1.0) calculated via PageRank centrality.
+    - **Temporal Decay**: Ebbinghaus-style decay reduces the importance of old memories over time, allowing the graph to "forget" low-signal noise.
+    - **Hub Node Protection**: Critical foundational concepts can be marked as `is_permanent` to prevent automated pruning.
+- **Unified Discovery Library**:
+    - **Tools**: Dynamic registry of MCP tools, A2A agents, and internal skill graphs.
+    - **Prompts**: Versioned system prompts and templates discovered via semantic search.
+- **Governance & Policies**:
+    - **Guardrails**: Graph-native policies that enforce constraints (e.g., "Always use TDD").
+    - **SOP Execution**: Process flows and step sequences retrieved from the KG to guide agent behavior.
+
+### Maintenance & Scalability
+The `GraphMaintainer` autonomously manages the graph's health:
+1. **Validation**: Pydantic-based schema validation for all entity types.
+2. **Pruning**: Automated detached deletion of low-importance, non-permanent nodes.
+3. **Consolidation**: Distilling old chat episodes into high-level summaries.
+4. **Deduplication**: Merging similar concepts via semantic embedding similarity.
+
+---
+
+## Knowledge Graph Architecture
 
 ```mermaid
 graph TD
@@ -229,7 +260,7 @@ To provide robust cross-repository intelligence, the graph is built using a sequ
 |-------|------|---------|
 | 1 | **Memory** | Hydrates existing state (Nodes/Edges) from **LadybugDB** to maintain continuity. |
 | 2 | **Scan** | Walks the filesystem, respects `.gitignore`, and identifies all source code files. |
-| 3 | **Registry** | Parses `NODE_AGENTS.md` and `prompts/*.md` to extract agent specialists and tool signatures. |
+| 3 | **Registry** | Ingests `prompts/*.md` and MCP server definitions into the **Knowledge Graph** as specialist nodes. |
 | 4 | **Parse** | AST parsing (**tree-sitter**) to extract symbols (Classes, Functions, Imports) from code. |
 | 5 | **Resolve** | Maps raw import strings to actual `File` or `Symbol` nodes across the workspace. |
 | 6 | **MRO** | Resolves Method Resolution Order and inheritance chains for OO structures. |
@@ -253,6 +284,8 @@ The ecosystem integrates advanced operational primitives to ensure long-term aut
 | **Output Eviction** | Intercepts massive tool outputs (>80k chars) and moves them to KB. | Stores full content as `RawSource` node; leaves preview in history. |
 | **Conversation Checkpoints**| Full conversation snapshots (checkpoints) at tool/turn boundaries. | Persisted as `CheckpointNode` for cross-process fork/rewind. |
 | **Agent Teams** | Shared task management and P2P messaging across agent groups. | Persists `TeamNode` and `TaskNode` with assigned relationships. |
+| **Governance** | Policies and guardrails discovered from the graph during planning. | `PolicyNode` linked to topics and agents. |
+| **Process Flows** | Standard Operating Procedures (SOPs) fetched and executed dynamically. | `ProcessFlowNode` and `ProcessStepNode` sequences. |
 | **Output Styles** | Dynamic response style discovery (concise, formal, etc.) via KB. | Styles are stored as `Article` nodes in `kb:output-styles`. |
 
 ### Agent Communication Protocol (ACP)
@@ -278,6 +311,16 @@ Agents interact with this layer using the `knowledge_tools` suite to manage memo
 | **MAGMA** | `retrieve_orthogonal_context` | Policy-guided retrieval across Semantic, Temporal, Causal, and Entity views. |
 | **SPAWNING** | `spawn_specialized_agent` | Creating dynamic sub-agents with curated toolsets for complex tasks. |
 
+### Example: Research Knowledge Base
+The UIG can be used to store and reason over complex research domains. For example, in **Medical Oncology**:
+1.  **Topic**: `Medical Oncology` (Hub node).
+2.  **Concept**: `p53 Gene` linked to `Medical Oncology`.
+3.  **Source**: A PubMed paper (`Nature 2026`) linked to `p53 Gene` via `:SUPPORTS`.
+4.  **Evidence**: A claim ("p53 mutations drive apoptosis failure") linked to the `Source`.
+5.  **Person**: The researcher who authored the paper linked via `:AUTHORED`.
+
+Because the graph is domain-agnostic, a separate topic like **Environmental Chemistry** can link to the same `p53 Gene` concept if a toxin affects the same pathway, surfacing **hidden cross-domain relationships** automatically.
+
 ### MAGMA-Inspired Orthogonal Reasoning Views
 The graph engine supports policy-guided retrieval across four orthogonal views, ensuring the agent has the right context for the right task:
 - **Semantic View**: Traditional RAG/vector search for conceptual similarity.
@@ -299,18 +342,26 @@ All external resources are first-class graph nodes, allowing the agent to reason
 - **AGENT_SKILL**: Local Python skills defined with YAML/Markdown frontmatter.
 - **SPAWNED_AGENT**: Dynamically created sub-agent instances with minimal, curated toolsets.
 
+### Governance & Operational Workflows
+The Knowledge Graph now serves as the unified registry for project governance (Policies) and operational workflows (Process Flows). This integration allows the agent to reason over established SOPs and guardrails during the planning and execution phases.
+
+- **Policies**: Declarative constraints and guardrails (e.g., "Always use TDD", "No destructive operations on production"). Policies are grounded in Knowledge Base topics and applied based on the current context.
+- **Process Flows**: Procedural step-by-step execution guides (SOPs) retrieved from the KG. The Planner agent discovers relevant flows and can choose to follow them for consistent execution.
+- **Dynamic Execution**: The `LoadAndExecuteProcessFlow` node (`process_executor`) allows the graph to transition into a guided execution mode based on a retrieved SOP.
+
 ### Memory Maintenance & Pruning
-The `GraphMaintainer` class (`maintenance.py`) runs seven background maintenance operations:
+The `GraphMaintainer` class (`maintenance.py`) runs several background maintenance operations using the unified `GraphBackend.prune()` interface:
 1. **Embedding Enrichment**: Vectorizes unembedded content via LM Studio.
 2. **Cron Log Pruning**: Deletes successful logs older than 30 days.
 3. **Chat Summarization**: Compresses old threads into `ChatSummary` nodes.
 4. **Importance Scoring**: PageRank-based centrality scoring for all nodes.
 5. **Temporal Decay**: Ebbinghaus-style 5%/day decay on importance scores.
 6. **Memory Consolidation**: Distills old episodes into semantic summaries.
-7. **Low-Signal Pruning**: Removes nodes below importance threshold (0.05).
+7. **Low-Signal Pruning**: Removes nodes below importance threshold (0.05) using the backend-native pruning logic.
+8. **Knowledge Base Maintenance**: Archiving and health checks for the KB layer.
 
 ### Backend Abstraction Layer
-All graph storage is routed through the `GraphBackend` ABC (`backends/base.py`), providing **hot-swappable** database backends. The `create_backend()` factory function (`backends/__init__.py`) is the **single entry point** for backend creation across the entire codebase.
+All graph storage is routed through the `GraphBackend` ABC (`backends/base.py`), providing **hot-swappable** database backends with unified methods for execution, schema creation, and **functional pruning**.
 
 **Supported Backends:**
 | Backend | Status | Connection | Use Case |
@@ -528,7 +579,7 @@ kb_archive_importance_threshold: float = 0.3 # Importance threshold for compress
 graph TD
     subgraph Registry_Phase ["1. Registry Synchronization (Deployment)"]
         Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp_agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
-        Registry["<b>NODE_AGENTS.md</b><br/><i>(MCP Specialist Registry)</i>"] -.->|Read Hash| Manager
+        KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"] -.->|Read Hash| Manager
 
         Manager -->|Config Hash Match?| Branch{Decision}
         Branch -- "Yes (Cache Hit)" --> Skip["Skip Tool Extraction"]
@@ -540,7 +591,7 @@ graph TD
     end
 
     subgraph Unified_Discovery ["2. Unified Discovery (Bootstrap)"]
-        Registry --> UAL["<b>get_discovery_registry()</b><br/><i>config_helpers.py</i>"]
+        KG_Registry --> UAL["<b>get_discovery_registry()</b><br/><i>config_helpers.py</i>"]
         UAL -->|Consolidated Roster| Roster["<b>MCPAgentRegistryModel</b><br/><i>name, agent_type, tools, url</i>"]
     end
 
@@ -565,7 +616,7 @@ graph TD
     end
 
     style Config fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+    style KG_Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
     style Manager fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
     style Parallel fill:#f8cecc,stroke:#b85450,stroke-width:2px
     style ConnPool fill:#d5e8d4,stroke:#82b366,stroke-width:2px
@@ -650,7 +701,7 @@ Level 0: Root Graph (N Orchestration Nodes)
 └── planner (re-planning on verification failure)
 
 Level 1: Superstates - Specialist Agents
-├── Specialist Roster (from NODE_AGENTS.md: Unified Specialist Registry)
+├── Specialist Roster (Dynamically discovered from the **Knowledge Graph**)
 │   Each loads: name-matched prompt + discovered capabilities + mapped MCP toolsets
 │   Supports: 'prompt' (local), 'mcp' (stdio), and 'a2a' (remote) agent types
 └── Unified Execution: Dynamic routing based on registry-provided metadata
@@ -681,6 +732,8 @@ Level 3: Leaf States - MCP Tool Execution
 | `node_transitions` guard       | Watchdog timer         | Force-terminates after 50 transitions             |
 | Memory-first dispatch          | Entry action           | Enriches context before first step                |
 | Research-before-execution      | Phase ordering         | Discovery completes before execution              |
+| Process-Guided Planning        | Knowledge Influx        | KG-native SOPs injected into Planner context      |
+| Policy Guardrails              | Transition Guard       | Policies enforce constraints at state boundaries |
 
 ### HSM Design Principles
 1. **Treat subgraphs as macro-states.** A specialist should behave as a single opaque state to the dispatcher. Define clear input/output contracts.
@@ -894,18 +947,18 @@ emit_graph_event(
 
 ## Development Reference
 
-### Maintaining the Specialist Registry (NODE_AGENTS.md)
-The specialist ecosystem is managed via `NODE_AGENTS.md`. This registry is the primary source of truth for routing.
+### Maintaining the Specialist Registry (Discovery Phase)
+The specialist ecosystem is managed via the **Knowledge Graph**. This registry is the primary source of truth for routing.
 
 **How it works:**
-1. Each entry in `NODE_AGENTS.md` matches to a `.md` file in `agent_utilities/prompts/` (for prompt agents) or a remote endpoint (for A2A/MCP agents).
-2. The `agent_registry_builder.py` script automatically synchronizes this registry by parsing prompt frontmatter and MCP server configurations.
-3. When `builder.py` spawns the orchestrator, it loads all agents from this registry.
+1. Each specialist entry in the graph matches to a `.md` file in `agent_utilities/prompts/` (for prompt agents) or a remote endpoint (for A2A/MCP agents).
+2. The `agent_registry_builder.py` script automatically synchronizes this registry by parsing prompt frontmatter and ingesting them as `PromptNode`s.
+3. When `builder.py` spawns the orchestrator, it loads all agents via `get_discovery_registry()`.
 4. Capability tags are assigned to agents, and the `expert_executor` uses these tags to dynamically bind toolsets at runtime.
 
 **Adding a new role:**
 1. Create `[role].md` with YAML frontmatter in `agent_utilities/prompts/`.
-2. Run the registry rebuilder: `python3 -m agent_utilities.agent_registry_builder`.
+2. The graph will automatically pick up the new role during the next ingestion phase or server reload.
 3. Keep role IDs in `snake_case`.
 
 ### Commands (run these exactly)
@@ -1021,11 +1074,25 @@ Comprehensive tests in `tests/` validate the entire stack:
 
 ### Agent Data Files
 The `agent_utilities/agent_data/` directory contains workspace files:
-- `IDENTITY.md` - Agent identity, purpose, and behavior guidelines
-- `Knowledge Graph` - Persistent memory via LadybugDB
-- `USER.md` - Current user information
-- `A2A_AGENTS.md` - Agent-to-Agent communication protocols
-- `NODE_AGENTS.md` - Unified specialist registry (tools, agents, capabilities)
+- `main_agent.md` - Primary orchestrator identity and configuration
+- `Knowledge Graph` - Persistent memory and specialist registry via LadybugDB
+- `mcp_config.json` - External tool server configurations
+- `skills/` - Local Python skills with YAML frontmatter
+
+### Ingestion Optimization
+Starting in `v0.2.56`, MCP tool ingestion is performed in **parallel** using `anyio` task groups. This significantly reduces startup time for agents with multiple MCP servers, preventing the 60s timeout common in large clusters.
+
+### Troubleshooting Multi-Agent Environments
+
+#### Startup Timeouts
+If agents timeout during "Ingesting MCP tools", ensure:
+1. All MCP servers are reachable and start within 10-15s individually.
+2. Parallel ingestion is not disabled (default is 5 concurrent connections).
+
+#### Database Lock Contention
+When running multiple agents on the same host, LadybugDB (DuckDB) may encounter file locks if multiple processes try to sync to the same `knowledge_graph.db`.
+- **Recommendation**: Set a unique `GRAPH_DB_PATH` per agent (e.g., `GRAPH_DB_PATH=./agent_data/graph.db`).
+- **Resilience**: The backend now includes a 5-attempt retry mechanism with exponential backoff and jitter to handle transient lock contention.
 
 ### Adding New Modules
 1. Follow existing code style and conventions

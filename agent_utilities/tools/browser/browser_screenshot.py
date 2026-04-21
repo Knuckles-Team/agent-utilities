@@ -1,5 +1,6 @@
 #!/usr/bin/python
-# coding: utf-8
+from __future__ import annotations
+
 """Browser Screenshot Tools Module.
 
 This module provides tools for capturing visual snapshots of the active
@@ -9,15 +10,17 @@ storage.
 
 import os
 import tempfile
-from typing import Any, Dict, Optional
-from .browser_manager import get_browser_manager
+from typing import Any
+
 from pydantic_ai import RunContext
+
 from ...models import AgentDeps
+from .browser_manager import get_browser_manager
 
 
 async def take_screenshot(
-    ctx: RunContext[AgentDeps], path: Optional[str] = None
-) -> Dict[str, Any]:
+    ctx: RunContext[AgentDeps], path: str | None = None
+) -> dict[str, Any]:
     """Capture a visual snapshot of the currently active browser page.
 
     Args:
@@ -31,6 +34,8 @@ async def take_screenshot(
     """
     manager = get_browser_manager()
     page = await manager.get_current_page()
+    if not page:
+        return {"success": False, "error": "No active page found."}
 
     if not path:
         temp_dir = tempfile.gettempdir()
@@ -41,8 +46,8 @@ async def take_screenshot(
 
 
 async def take_element_screenshot(
-    ctx: RunContext[AgentDeps], selector: str, path: Optional[str] = None
-) -> Dict[str, Any]:
+    ctx: RunContext[AgentDeps], selector: str, path: str | None = None
+) -> dict[str, Any]:
     """Capture a visual snapshot of a specific web element.
 
     Args:
@@ -57,7 +62,11 @@ async def take_element_screenshot(
     """
     manager = get_browser_manager()
     page = await manager.get_current_page()
+    if not page:
+        return {"success": False, "error": "No active page found."}
     element = await page.query_selector(selector)
+    if not element:
+        return {"success": False, "error": f"Element not found: {selector}"}
 
     if not path:
         temp_dir = tempfile.gettempdir()

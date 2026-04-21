@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """API Utilities Module.
 
 This module serves as a central export point for API-related
@@ -9,12 +8,12 @@ agent ecosystem.
 
 __version__ = "0.2.40"
 
+from .decorators import require_auth  # noqa: F401
 from .exceptions import (  # noqa: F401
-    AuthError,
     ApiError,
-    UnauthorizedError,
+    AuthError,
+    LoginRequiredError,
     MissingParameterError,
     ParameterError,
-    LoginRequiredError,
+    UnauthorizedError,
 )
-from .decorators import require_auth  # noqa: F401

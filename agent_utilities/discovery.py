@@ -1,19 +1,20 @@
 #!/usr/bin/python
-# coding: utf-8
 """Agent Discovery Module.
 
-This module provides functionality for discovering local MCP agents and remote
-A2A peer agents. it consolidates information from NODE_AGENTS.md and
-A2A_AGENTS.md into a unified specialist registry for the graph orchestrator.
+This module provides functionality for discovering local specialists, MCP tools,
+and remote A2A peer agents. All discovery is performed via the Knowledge Graph,
+which serves as the unified specialist registry for the graph orchestrator.
 """
 
-from typing import Any, List
+from typing import Any
 
 from .models import DiscoveredSpecialist
-from .workspace import CORE_FILES, load_workspace_file
 
 
-def discover_agents() -> dict[str, dict[str, Any]]:
+def discover_agents(
+    include_packages: list[str] | None = None,
+    exclude_packages: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Discover agents from the Knowledge Graph.
 
     Returns:
@@ -21,11 +22,17 @@ def discover_agents() -> dict[str, dict[str, Any]]:
     """
     from .graph.config_helpers import get_discovery_registry
 
-    agent_descriptions = {}
+    agent_descriptions: dict[str, dict[str, Any]] = {}
 
     # Read from the Knowledge Graph
     registry = get_discovery_registry()
     for agent in registry.agents:
+        # Filtering
+        if include_packages and agent.name not in include_packages:
+            continue
+        if exclude_packages and agent.name in exclude_packages:
+            continue
+
         # Type-specific mapping
         if agent.agent_type == "prompt":
             agent_descriptions[agent.name] = {
@@ -50,32 +57,10 @@ def discover_agents() -> dict[str, dict[str, Any]]:
                 "type": "remote_a2a",
             }
 
-    # Also read A2A_AGENTS for backward compatibility if it exists
-    a2a_content = ""
-    try:
-        a2a_file = CORE_FILES.get("A2A_AGENTS", "A2A_AGENTS.md")
-        a2a_content = load_workspace_file(a2a_file)
-    except Exception:
-        pass
-
-    if a2a_content:
-        from .a2a import parse_a2a_registry
-
-        a2a_registry = parse_a2a_registry(a2a_content)
-        for agent in a2a_registry.peers:
-            if agent.name.lower() not in agent_descriptions:
-                agent_descriptions[agent.name.lower()] = {
-                    "url": agent.url,
-                    "name": agent.name,
-                    "description": agent.description,
-                    "capabilities": ", ".join(agent.capabilities),
-                    "type": "remote_a2a",
-                }
-
     return agent_descriptions
 
 
-def discover_all_specialists() -> List[DiscoveredSpecialist]:
+def discover_all_specialists() -> list[DiscoveredSpecialist]:
     """Discover all specialist agents from the Knowledge Graph.
 
     Returns:
@@ -83,7 +68,7 @@ def discover_all_specialists() -> List[DiscoveredSpecialist]:
     """
     from .graph.config_helpers import get_discovery_registry
 
-    specialists: List[DiscoveredSpecialist] = []
+    specialists: list[DiscoveredSpecialist] = []
     registry = get_discovery_registry()
 
     for agent in registry.agents:

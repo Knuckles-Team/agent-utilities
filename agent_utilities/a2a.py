@@ -1,139 +1,26 @@
-#!/usr/bin/python
-# coding: utf-8
 """Agent-to-Agent (A2A) Peer Management Module.
 
-Provides CRUD operations for managing remote A2A peers and a JSON-RPC
-client for executing tasks on those peers.  Unified specialist discovery
-(merging both MCP and A2A sources) has been extracted to
-:mod:`discovery` — the functions are re-exported here for backwards
-compatibility.
+This module provides a JSON-RPC client for executing tasks on remote A2A peer agents.
+All discovery and registration of peers is now handled via the Knowledge Graph.
 """
 
 from __future__ import annotations
 
-import logging
 import asyncio
+import logging
 import uuid
+from typing import TYPE_CHECKING, Any
+
 import httpx
-from typing import Dict, Optional, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
 
 
 from .config import *  # noqa: F403
-from .models import A2ARegistryModel, A2APeerModel, DiscoveredSpecialist  # noqa: F401
-
-# Note: discover_agents() and discover_all_specialists() live in discovery.py.
-# They are NOT re-exported here to avoid a circular import
-# (discovery.py imports A2AClient from this module).
+from .models import A2APeerModel, A2ARegistryModel, DiscoveredSpecialist  # noqa: F401
 
 logger = logging.getLogger(__name__)
-
-
-def parse_a2a_registry(content: str) -> A2ARegistryModel:
-    """Parse A2A_AGENTS.md markdown table content into an A2ARegistryModel."""
-    peers = []
-    lines = content.splitlines()
-    in_table = False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("| Name") or stripped.startswith("| ID"):
-            in_table = True
-            continue
-        if (
-            in_table
-            and stripped.startswith("|")
-            and "|" in stripped
-            and not (
-                stripped.startswith("|---")
-                or stripped.startswith("| ID")
-                or stripped.startswith("| Name")
-            )
-        ):
-            parts = [p.strip() for p in stripped.strip("| ").split("|")]
-            if len(parts) >= 2:
-                peers.append(
-                    A2APeerModel(
-                        name=parts[0],
-                        url=parts[1],
-                        description=parts[2] if len(parts) > 2 else "",
-                        capabilities=parts[3] if len(parts) > 3 else "",
-                        auth=parts[4] if len(parts) > 4 else "none",
-                        notes=parts[5] if len(parts) > 5 else "",
-                    )
-                )
-    return A2ARegistryModel(peers=peers)
-
-
-def load_a2a_peers() -> A2ARegistryModel:
-    """Load the A2A peer registry from the workspace.
-
-    Parses the A2A_AGENTS.md file into a structured A2ARegistryModel.
-
-    Returns:
-        The loaded A2A registry model.
-
-    """
-    from .workspace import load_workspace_file
-
-    # A2A_AGENTS.md is now legacy. We load it if it exists for backward compatibility
-    content = load_workspace_file("A2A_AGENTS.md")
-    if not content:
-        return A2ARegistryModel()
-    return parse_a2a_registry(content)
-
-
-def register_a2a_peer(
-    name: str,
-    url: str,
-    description: str = "",
-    capabilities: str = "",
-    auth: str = "none",
-    notes: str = "",
-) -> str:
-    """Add or update an A2A peer in the registry.
-
-    Args:
-        name: Unique name identifier for the peer.
-        url: Base URL of the peer agent.
-        description: Brief description of the agent's purpose.
-        capabilities: Metadata string describing supported features.
-        auth: Authentication type ('none', 'bearer', etc.).
-        notes: Optional registrar notes.
-
-    Returns:
-        A status message indicating success.
-
-    """
-    # Manual A2A registration to A2A_AGENTS.md is deprecated.
-    # We return success but don't write to the file to encourage unified discovery.
-    logger.info(f"A2A peer '{name}' registered (memory-only/unified).")
-    return f"✅ Registered/updated A2A peer '{name}' at {url} (Unified Registry)"
-
-
-def list_a2a_peers() -> A2ARegistryModel:
-    """List all agents currently registered in the A2A system.
-
-    Returns:
-        The complete registry of A2A peers.
-
-    """
-    return load_a2a_peers()
-
-
-def delete_a2a_peer(name: str) -> str:
-    """Remove an A2A peer from the registry.
-
-    Args:
-        name: The name identifier of the peer to remove.
-
-    Returns:
-        A status message indicating whether the peer was found and removed.
-
-    """
-    # Manual A2A deletion is deprecated as part of file retirement.
-    return f"✅ Removed A2A peer '{name}' from unified registry context."
 
 
 class A2AClient:
@@ -154,7 +41,7 @@ class A2AClient:
         self.timeout = timeout
         self.ssl_verify = ssl_verify
 
-    def fetch_card_sync(self, url: str) -> Optional[Dict[str, Any]]:
+    def fetch_card_sync(self, url: str) -> dict[str, Any] | None:
         """Fetch the agent-card.json from a remote agent (synchronous).
 
         Args:
@@ -174,7 +61,7 @@ class A2AClient:
                 logger.debug(f"Failed (sync) to fetch agent card from {card_url}: {e}")
         return None
 
-    async def fetch_card(self, url: str) -> Optional[Dict[str, Any]]:
+    async def fetch_card(self, url: str) -> dict[str, Any] | None:
         """Fetch the agent-card.json from a remote agent (asynchronous).
 
         Args:
@@ -194,7 +81,7 @@ class A2AClient:
                 logger.debug(f"Failed to fetch agent card from {card_url}: {e}")
         return None
 
-    async def execute_task(self, url: str, query: str) -> Optional[Any]:
+    async def execute_task(self, url: str, query: str) -> Any | None:
         """Execute a task on a remote agent via A2A message/send and polling.
 
         Args:
@@ -270,3 +157,98 @@ class A2AClient:
             except Exception as e:
                 return f"A2A Communication Error: {e}"
         return "Error: A2A execution timed out or failed."
+
+
+# --- Registry Utilities (Graph-Native Fallbacks) ---
+
+
+def register_a2a_peer(
+    name: str,
+    url: str,
+    description: str = "",
+    capabilities: str = "",
+    auth: str = "none",
+) -> str:
+    """Register or update an A2A agent in the Knowledge Graph.
+
+    Args:
+        name: The unique identifier for the peer agent.
+        url: The connection URL for the peer service.
+        description: A brief summary of the peer's purpose.
+        capabilities: A comma-separated list of peer specialties.
+        auth: Authentication type.
+
+    Returns:
+        A confirmation message.
+    """
+    import time
+
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+    from .models.knowledge_graph import AgentNode, RegistryNodeType
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine:
+        return "Error: Knowledge Graph engine is not active."
+
+    agent_id = f"a2a:{name.lower().replace(' ', '_')}"
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    node = AgentNode(
+        id=agent_id,
+        name=name,
+        type=RegistryNodeType.AGENT,
+        agent_type="a2a",
+        description=description,
+        endpoint_url=url,
+        timestamp=ts,
+        metadata={"capabilities": capabilities.split(","), "auth": auth},
+    )
+
+    try:
+        engine.graph.add_node(node.id, **node.model_dump())
+        return f"A2A peer '{name}' registered successfully in the Knowledge Graph."
+    except Exception as e:
+        return f"Error registering A2A peer: {e}"
+
+
+def delete_a2a_peer(name: str) -> str:
+    """Remove an A2A peer agent from the Knowledge Graph."""
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine:
+        return "Error: Knowledge Graph engine is not active."
+
+    agent_id = f"a2a:{name.lower().replace(' ', '_')}"
+
+    try:
+        if agent_id in engine.graph:
+            engine.graph.remove_node(agent_id)
+            return f"A2A peer '{name}' removed from the Knowledge Graph."
+        else:
+            return f"Error: A2A peer '{name}' not found."
+    except Exception as e:
+        return f"Error removing A2A peer: {e}"
+
+
+def list_a2a_peers() -> Any:
+    """List all known A2A peer agents from the Knowledge Graph."""
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine:
+        return A2ARegistryModel(peers=[])
+
+    query = "MATCH (a:Agent {agent_type: 'a2a'}) RETURN a.name as name, a.description as description, a.endpoint_url as url, a.metadata as meta"
+    results = engine.query_cypher(query)
+
+    peers = {}
+    for r in results:
+        peers[r["name"]] = A2APeerModel(
+            name=r["name"],
+            url=r["url"],
+            description=r["description"],
+            capabilities=",".join(r.get("meta", {}).get("capabilities", [])),
+        )
+
+    return A2ARegistryModel(peers=list(peers.values()))

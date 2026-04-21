@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Agent Server Module.
 
 This module provides the core web server functionality for the agent ecosystem.
@@ -10,95 +9,102 @@ agent lifecycle, workspace initialization, and observability setup.
 
 from __future__ import annotations
 
-import os
-import sys
+import asyncio
 import json
 import logging
-import asyncio
+import os
+import sys
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
 import anyio
 import httpx
-from typing import Any, List, Optional, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 import base64
-from pathlib import Path
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from starlette.responses import Response
 from pydantic_ai import Agent, BinaryContent
+from starlette.responses import Response
+
+from .agent_factory import create_agent
+from .approval_manager import ApprovalManager
+from .base_utilities import (
+    __version__,
+    to_boolean,
+)
+from .chat_persistence import (
+    delete_chat_from_disk,
+    get_chat_from_disk,
+    list_chats_from_disk,
+    save_chat_to_disk,
+)
 from .config import (
-    DEFAULT_ROUTER_MODEL,
-    DEFAULT_GRAPH_AGENT_MODEL,
-    DEFAULT_PROVIDER,
-    DEFAULT_MODEL_ID,
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_API_KEY,
-    DEFAULT_MCP_URL,
-    DEFAULT_AGENT_NAME,
-    DEFAULT_AGENT_DESCRIPTION,
-    DEFAULT_AGENT_SYSTEM_PROMPT,
-    DEFAULT_CUSTOM_SKILLS_DIRECTORY,
-    DEFAULT_DEBUG,
-    DEFAULT_HOST,
-    DEFAULT_PORT,
-    DEFAULT_ENABLE_WEB_UI,
-    DEFAULT_SSL_VERIFY,
-    DEFAULT_ENABLE_OTEL,
-    DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
-    DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
-    DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     DEFAULT_A2A_BROKER,
     DEFAULT_A2A_BROKER_URL,
     DEFAULT_A2A_STORAGE,
     DEFAULT_A2A_STORAGE_URL,
-    DEFAULT_APPROVAL_TIMEOUT,
-    DEFAULT_MCP_CONFIG,
-    DEFAULT_MIN_CONFIDENCE,
-    DEFAULT_GRAPH_PERSISTENCE_TYPE,
-    DEFAULT_GRAPH_PERSISTENCE_PATH,
-    DEFAULT_ENABLE_TERMINAL_UI,
-    DEFAULT_ENABLE_ACP,
     DEFAULT_ACP_SESSION_ROOT,
+    DEFAULT_AGENT_DESCRIPTION,
+    DEFAULT_AGENT_NAME,
+    DEFAULT_AGENT_SYSTEM_PROMPT,
+    DEFAULT_APPROVAL_TIMEOUT,
+    DEFAULT_CUSTOM_SKILLS_DIRECTORY,
+    DEFAULT_DEBUG,
+    DEFAULT_ENABLE_ACP,
+    DEFAULT_ENABLE_OTEL,
+    DEFAULT_ENABLE_TERMINAL_UI,
+    DEFAULT_ENABLE_WEB_UI,
+    DEFAULT_GRAPH_AGENT_MODEL,
+    DEFAULT_GRAPH_PERSISTENCE_PATH,
+    DEFAULT_GRAPH_PERSISTENCE_TYPE,
+    DEFAULT_HOST,
+    DEFAULT_LLM_API_KEY,
+    DEFAULT_LLM_BASE_URL,
+    DEFAULT_MCP_CONFIG,
+    DEFAULT_MCP_URL,
+    DEFAULT_MIN_CONFIDENCE,
+    DEFAULT_MODEL_ID,
+    DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+    DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    DEFAULT_PORT,
+    DEFAULT_PROVIDER,
+    DEFAULT_ROUTER_MODEL,
+    DEFAULT_SSL_VERIFY,
 )
-from .workspace import (
-    WORKSPACE_DIR,
-    initialize_workspace,
-    get_workspace_path,
-    load_workspace_file,
-    write_workspace_file,
-    write_md_file,
-    list_workspace_files,
-    get_agent_icon_path,
-    get_skills_path,
-)
-from .scheduler import background_processor
-from .base_utilities import (
-    to_boolean,
-    __version__,
-)
+from .custom_observability import setup_otel
 from .graph_orchestration import (
     create_graph_agent,
     get_graph_mermaid,
 )
-from .custom_observability import setup_otel
+from .models import AgentDeps
+from .prompt_builder import load_identity
+from .scheduler import (
+    background_processor,
+    get_cron_logs_from_md,
+    get_cron_tasks_from_md,
+)
 from .tool_filtering import (
     load_skills_from_directory,
 )
-from .prompt_builder import load_identity
-from .scheduler import get_cron_tasks_from_md, get_cron_logs_from_md
-from .chat_persistence import (
-    save_chat_to_disk,
-    list_chats_from_disk,
-    get_chat_from_disk,
-    delete_chat_from_disk,
+from .workspace import (
+    WORKSPACE_DIR,
+    get_agent_icon_path,
+    get_skills_path,
+    get_workspace_path,
+    initialize_workspace,
+    list_workspace_files,
+    load_workspace_file,
+    write_md_file,
+    write_workspace_file,
 )
-from .agent_factory import create_agent
-from .models import AgentDeps
-from .approval_manager import ApprovalManager
 
 logger = logging.getLogger(__name__)
 
@@ -223,47 +229,47 @@ def inject_reload_app(app: FastAPI, reload_app: ReloadableApp):
 
 
 def build_agent_app(
-    provider: str = DEFAULT_PROVIDER,
-    model_id: str = DEFAULT_MODEL_ID,
-    base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
-    api_key: Optional[str] = DEFAULT_LLM_API_KEY,
-    mcp_url: str = DEFAULT_MCP_URL,
-    mcp_config: Optional[str] = None,
-    custom_skills_directory: Optional[str] = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
-    debug: Optional[bool] = DEFAULT_DEBUG,
-    host: Optional[str] = DEFAULT_HOST,
-    port: Optional[int] = DEFAULT_PORT,
-    enable_web_ui: Optional[bool] = DEFAULT_ENABLE_WEB_UI,
-    custom_web_app: Optional[Callable[[Agent], Any]] = None,
+    provider: str | None = DEFAULT_PROVIDER,
+    model_id: str | None = DEFAULT_MODEL_ID,
+    base_url: str | None = DEFAULT_LLM_BASE_URL,
+    api_key: str | None = DEFAULT_LLM_API_KEY,
+    mcp_url: str | None = DEFAULT_MCP_URL,
+    mcp_config: str | None = None,
+    custom_skills_directory: str | None = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
+    debug: bool | None = DEFAULT_DEBUG,
+    host: str | None = DEFAULT_HOST,
+    port: int | None = DEFAULT_PORT,
+    enable_web_ui: bool | None = DEFAULT_ENABLE_WEB_UI,
+    custom_web_app: Callable[[Agent], Any] | None = None,
     custom_web_mount_path: str = "/",
-    web_ui_instructions: Optional[str] = None,
-    html_source: Optional[str | Path] = None,
+    web_ui_instructions: str | None = None,
+    html_source: str | Path | None = None,
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
-    name: Optional[str] = None,
-    system_prompt: Optional[str] = None,
-    enable_otel: Optional[bool] = DEFAULT_ENABLE_OTEL,
-    otel_endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    otel_headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
-    otel_public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    otel_secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
-    otel_protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
-    workspace: Optional[str] = None,
+    name: str | None = None,
+    system_prompt: str | None = None,
+    enable_otel: bool | None = DEFAULT_ENABLE_OTEL,
+    otel_endpoint: str | None = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    otel_headers: str | None = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    otel_public_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    otel_secret_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    otel_protocol: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+    workspace: str | None = None,
     a2a_broker: str = DEFAULT_A2A_BROKER,
-    a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
+    a2a_broker_url: str | None = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
-    a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
-    skill_types: Optional[List[str]] = None,
-    agent_instance: Optional[Agent] = None,
-    graph_bundle: Optional[tuple] = None,
+    a2a_storage_url: str | None = DEFAULT_A2A_STORAGE_URL,
+    skill_types: list[str] | None = None,
+    agent_instance: Agent | None = None,
+    graph_bundle: tuple[Any, ...] | None = None,
     persistence_type: str = "file",
-    persistence_path: Optional[str] = None,
-    persistence_dsn: Optional[str] = None,
-    persistence_url: Optional[str] = None,
+    persistence_path: str | None = None,
+    persistence_dsn: str | None = None,
+    persistence_url: str | None = None,
     enable_terminal_ui: bool = False,
     enable_acp: bool = DEFAULT_ENABLE_ACP,
-    acp_session_root: Optional[str] = DEFAULT_ACP_SESSION_ROOT,
+    acp_session_root: str | None = DEFAULT_ACP_SESSION_ROOT,
     isolate_mcp: bool = False,
-    mcp_toolsets: Optional[List[Any]] = None,
+    mcp_toolsets: list[Any] | None = None,
 ) -> FastAPI:
     """Construct and configure a complete Agent FastAPI application.
 
@@ -325,7 +331,7 @@ def build_agent_app(
         _ws_mod.WORKSPACE_DIR = workspace
         logger.info(f"Workspace override set to: {workspace}")
 
-    reloadable: ReloadableApp = None  # Forward declaration for closure
+    reloadable: ReloadableApp | None = None  # Forward declaration for closure
 
     def app_factory() -> FastAPI:
         """Internal factory to build the agent and its web apps."""
@@ -350,7 +356,7 @@ def build_agent_app(
         _agent_emoji = identity_meta.get("emoji", "🤖")
 
         _agent_instance = agent_instance
-        _initialized_mcp_toolsets = []
+        _initialized_mcp_toolsets: list[Any] = []
         if _agent_instance is None:
             _agent_instance, _initialized_mcp_toolsets = create_agent(
                 provider=provider,
@@ -477,14 +483,14 @@ def build_agent_app(
             description=DEFAULT_AGENT_DESCRIPTION,
             version=__version__,
             skills=skills_list,
-            debug=debug,
+            debug=debug or False,
             **a2a_kwargs,
         )
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
             """Lifespan context manager for the agent server."""
-            from .mcp_agent_manager import sync_mcp_agents, should_sync
+            from .mcp_agent_manager import should_sync, sync_mcp_agents
             from .workspace import (
                 resolve_mcp_config_path,
             )
@@ -571,7 +577,7 @@ def build_agent_app(
             title=f"{_agent_emoji} {_name} - Agent Server",
             description=_agent_description,
             version=__version__,
-            debug=debug,
+            debug=debug or False,
             lifespan=lifespan,
             openapi_tags=[
                 {"name": "Core", "description": "Essential agent lifecycle endpoints"},
@@ -591,7 +597,7 @@ def build_agent_app(
         @app.get("/health", tags=["Core"], summary="Health Check")
         async def health_check():
             """Returns the current status of the agent server."""
-            health_info = {
+            health_info: dict[str, Any] = {
                 "status": "OK",
                 "agent": _name,
                 "version": __version__,
@@ -602,9 +608,11 @@ def build_agent_app(
                     from .graph.config_helpers import get_discovery_registry
 
                     registry = get_discovery_registry()
-                    skill_agents = [a for a in registry.agents if a.type == "prompt"]
-                    mcp_agents = [a for a in registry.agents if a.type == "mcp"]
-                    a2a_agents = [a for a in registry.agents if a.type == "a2a"]
+                    skill_agents = [
+                        a for a in registry.agents if a.agent_type == "prompt"
+                    ]
+                    mcp_agents = [a for a in registry.agents if a.agent_type == "mcp"]
+                    a2a_agents = [a for a in registry.agents if a.agent_type == "a2a"]
 
                     health_info["graph"] = {
                         "skill_agents": len(skill_agents),
@@ -618,8 +626,8 @@ def build_agent_app(
 
         if enable_acp:
             from .acp_adapter import (
-                create_graph_acp_app,
                 build_acp_config,
+                create_graph_acp_app,
                 is_acp_available,
             )
 
@@ -667,8 +675,9 @@ def build_agent_app(
                     {"status": "error", "message": "AG-UI not available"},
                     status_code=501,
                 )
-            from fastapi.responses import StreamingResponse
             from uuid import uuid4
+
+            from fastapi.responses import StreamingResponse
 
             run_id = uuid4().hex
             logger.info(
@@ -684,8 +693,8 @@ def build_agent_app(
             except Exception:
                 pass
 
-            graph_event_queue = asyncio.Queue()
-            elicitation_queue = asyncio.Queue()
+            graph_event_queue: asyncio.Queue[Any] = asyncio.Queue()
+            elicitation_queue: asyncio.Queue[Any] = asyncio.Queue()
 
             deps = AgentDeps(
                 workspace_path=Path(WORKSPACE_DIR or "."),
@@ -733,7 +742,7 @@ def build_agent_app(
                     yield agent_response.body
                     return
 
-                combined_queue = asyncio.Queue()
+                combined_queue: asyncio.Queue = asyncio.Queue()
 
                 async def poll_agent():
                     try:
@@ -794,7 +803,7 @@ def build_agent_app(
                                 try:
                                     ev = await task
                                     if ev:
-                                        packet = f"8:{json.dumps(ev)}\n".encode("utf-8")
+                                        packet = f"8:{json.dumps(ev)}\n".encode()
                                         await combined_queue.put(("chunk", packet))
                                         # Force immediate flush for sideband annotations
                                         await combined_queue.put(("chunk", b'0 " "\n'))
@@ -834,7 +843,7 @@ def build_agent_app(
                                 break
                             yield data
                             combined_queue.task_done()
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             yield b'0 " "\n'
                             if agent_task.done() and combined_queue.empty():
                                 break
@@ -999,14 +1008,14 @@ def build_agent_app(
         async def reload_mcp_config():
             """Re-sync MCP agents from config and rebuild graph without restarting."""
             try:
+                from .graph_orchestration import load_node_agents_registry
                 from .mcp_agent_manager import sync_mcp_agents
                 from .workspace import resolve_mcp_config_path
-                from .graph_orchestration import load_mcp_agents_registry
 
                 _mcp_cfg_path = resolve_mcp_config_path(mcp_config or "mcp_config.json")
                 if _mcp_cfg_path:
                     await sync_mcp_agents(config_path=_mcp_cfg_path)
-                registry = load_mcp_agents_registry()
+                registry = load_node_agents_registry()
                 return {
                     "status": "reloaded",
                     "agents": len(registry.agents),
@@ -1125,47 +1134,47 @@ def build_agent_app(
 
 
 def create_agent_server(
-    provider: str = DEFAULT_PROVIDER,
-    model_id: str = DEFAULT_MODEL_ID,
-    base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
-    api_key: Optional[str] = DEFAULT_LLM_API_KEY,
-    mcp_url: Optional[str] = DEFAULT_MCP_URL,
-    mcp_config: Optional[str] = DEFAULT_MCP_CONFIG,
-    custom_skills_directory: Optional[str] = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
-    debug: Optional[bool] = DEFAULT_DEBUG,
-    host: Optional[str] = DEFAULT_HOST,
-    port: Optional[int] = DEFAULT_PORT,
-    enable_web_ui: Optional[bool] = DEFAULT_ENABLE_WEB_UI,
-    custom_web_app: Optional[Callable[[Agent], Any]] = None,
+    provider: str | None = DEFAULT_PROVIDER,
+    model_id: str | None = DEFAULT_MODEL_ID,
+    base_url: str | None = DEFAULT_LLM_BASE_URL,
+    api_key: str | None = DEFAULT_LLM_API_KEY,
+    mcp_url: str | None = DEFAULT_MCP_URL,
+    mcp_config: str | None = DEFAULT_MCP_CONFIG,
+    custom_skills_directory: str | None = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
+    debug: bool | None = DEFAULT_DEBUG,
+    host: str | None = DEFAULT_HOST,
+    port: int | None = DEFAULT_PORT,
+    enable_web_ui: bool | None = DEFAULT_ENABLE_WEB_UI,
+    custom_web_app: Callable[[Agent], Any] | None = None,
     custom_web_mount_path: str = "/",
-    web_ui_instructions: Optional[str] = None,
-    html_source: Optional[str | Path] = None,
+    web_ui_instructions: str | None = None,
+    html_source: str | Path | None = None,
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
-    name: Optional[str] = None,
-    system_prompt: Optional[str] = None,
-    enable_otel: Optional[bool] = DEFAULT_ENABLE_OTEL,
-    otel_endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    otel_headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
-    otel_public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    otel_secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
-    otel_protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
-    workspace: Optional[str] = None,
+    name: str | None = None,
+    system_prompt: str | None = None,
+    enable_otel: bool | None = DEFAULT_ENABLE_OTEL,
+    otel_endpoint: str | None = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    otel_headers: str | None = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    otel_public_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    otel_secret_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    otel_protocol: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+    workspace: str | None = None,
     a2a_broker: str = DEFAULT_A2A_BROKER,
-    a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
+    a2a_broker_url: str | None = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
-    a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
-    skill_types: Optional[List[str]] = None,
-    agent_instance: Optional[Agent] = None,
-    graph_bundle: Optional[tuple] = None,
+    a2a_storage_url: str | None = DEFAULT_A2A_STORAGE_URL,
+    skill_types: list[str] | None = None,
+    agent_instance: Agent | None = None,
+    graph_bundle: tuple[Any, ...] | None = None,
     persistence_type: str = "file",
-    persistence_path: Optional[str] = None,
-    persistence_dsn: Optional[str] = None,
-    persistence_url: Optional[str] = None,
+    persistence_path: str | None = None,
+    persistence_dsn: str | None = None,
+    persistence_url: str | None = None,
     enable_terminal_ui: bool = False,
     enable_acp: bool = DEFAULT_ENABLE_ACP,
-    acp_session_root: Optional[str] = DEFAULT_ACP_SESSION_ROOT,
+    acp_session_root: str | None = DEFAULT_ACP_SESSION_ROOT,
     isolate_mcp: bool = False,
-    mcp_toolsets: Optional[List[Any]] = None,
+    mcp_toolsets: list[Any] | None = None,
 ):
     """Create and run an agent server with FastAPI and FastMCP."""
     import uvicorn
@@ -1185,7 +1194,7 @@ def create_agent_server(
         model_id=model_id,
         base_url=base_url,
         api_key=api_key,
-        mcp_url=mcp_url,
+        mcp_url=mcp_url or "",
         mcp_config=mcp_config,
         custom_skills_directory=custom_skills_directory,
         debug=debug,
@@ -1229,9 +1238,9 @@ def create_agent_server(
     )
 
     if enable_terminal_ui:
+        import subprocess
         import threading
         import time
-        import subprocess
 
         def run_server():
             uvicorn.run(
@@ -1276,8 +1285,8 @@ def create_agent_server(
 
     uvicorn.run(
         reloadable,
-        host=host,
-        port=port,
+        host=host or "0.0.0.0",
+        port=port or 9000,
         timeout_keep_alive=1800,
         timeout_graceful_shutdown=60,
         log_level="debug" if debug else "info",
@@ -1289,46 +1298,46 @@ def create_graph_agent_server(
     tag_env_vars: dict[str, str] | None = None,
     mcp_url: str | None = DEFAULT_MCP_URL,
     graph_name: str = "GraphAgent",
-    router_model: str = DEFAULT_ROUTER_MODEL,
-    agent_model: str = DEFAULT_GRAPH_AGENT_MODEL,
+    router_model: str | None = DEFAULT_ROUTER_MODEL,
+    agent_model: str | None = DEFAULT_GRAPH_AGENT_MODEL,
     min_confidence: float = DEFAULT_MIN_CONFIDENCE,
-    provider: str = DEFAULT_PROVIDER,
-    model_id: str = DEFAULT_MODEL_ID,
-    base_url: Optional[str] = DEFAULT_LLM_BASE_URL,
-    api_key: Optional[str] = DEFAULT_LLM_API_KEY,
-    mcp_config: Optional[str] = DEFAULT_MCP_CONFIG,
-    custom_skills_directory: Optional[str] = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
-    debug: Optional[bool] = DEFAULT_DEBUG,
-    host: Optional[str] = DEFAULT_HOST,
-    port: Optional[int] = DEFAULT_PORT,
-    enable_web_ui: Optional[bool] = DEFAULT_ENABLE_WEB_UI,
-    custom_web_app: Optional[Callable[[Agent], Any]] = None,
+    provider: str | None = DEFAULT_PROVIDER,
+    model_id: str | None = DEFAULT_MODEL_ID,
+    base_url: str | None = DEFAULT_LLM_BASE_URL,
+    api_key: str | None = DEFAULT_LLM_API_KEY,
+    mcp_config: str | None = DEFAULT_MCP_CONFIG,
+    custom_skills_directory: str | None = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
+    debug: bool | None = DEFAULT_DEBUG,
+    host: str | None = DEFAULT_HOST,
+    port: int | None = DEFAULT_PORT,
+    enable_web_ui: bool | None = DEFAULT_ENABLE_WEB_UI,
+    custom_web_app: Callable[[Agent], Any] | None = None,
     custom_web_mount_path: str = "/",
-    web_ui_instructions: Optional[str] = None,
-    html_source: Optional[str | Path] = None,
+    web_ui_instructions: str | None = None,
+    html_source: str | Path | None = None,
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
-    name: Optional[str] = None,
-    system_prompt: Optional[str] = None,
-    enable_otel: Optional[bool] = DEFAULT_ENABLE_OTEL,
-    otel_endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    otel_headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
-    otel_public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    otel_secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
-    otel_protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
-    workspace: Optional[str] = None,
+    name: str | None = None,
+    system_prompt: str | None = None,
+    enable_otel: bool | None = DEFAULT_ENABLE_OTEL,
+    otel_endpoint: str | None = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    otel_headers: str | None = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    otel_public_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    otel_secret_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    otel_protocol: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+    workspace: str | None = None,
     a2a_broker: str = DEFAULT_A2A_BROKER,
-    a2a_broker_url: Optional[str] = DEFAULT_A2A_BROKER_URL,
+    a2a_broker_url: str | None = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
-    a2a_storage_url: Optional[str] = DEFAULT_A2A_STORAGE_URL,
-    graph_bundle: Optional[tuple] = None,
-    sub_agents: Optional[dict] = None,
+    a2a_storage_url: str | None = DEFAULT_A2A_STORAGE_URL,
+    graph_bundle: tuple[Any, ...] | None = None,
+    sub_agents: dict[str, Any] | None = None,
     persistence_type: str = DEFAULT_GRAPH_PERSISTENCE_TYPE,
-    persistence_path: Optional[str] = DEFAULT_GRAPH_PERSISTENCE_PATH,
-    persistence_dsn: Optional[str] = None,
-    persistence_url: Optional[str] = None,
+    persistence_path: str | None = DEFAULT_GRAPH_PERSISTENCE_PATH,
+    persistence_dsn: str | None = None,
+    persistence_url: str | None = None,
     enable_terminal_ui: bool = DEFAULT_ENABLE_TERMINAL_UI,
-    skill_types: Optional[List[str]] = None,
-    custom_headers: Optional[dict] = None,
+    skill_types: list[str] | None = None,
+    custom_headers: dict[str, Any] | None = None,
 ):
     """Create and start a graph-based agent server.
 
@@ -1376,14 +1385,14 @@ def create_graph_agent_server(
         sub_agents = graph_config.get("sub_agents", {})
     else:
         if tag_prompts is None:
-            from .workspace import (
-                resolve_mcp_config_path,
-                get_agent_workspace,
-            )
-            from .mcp_agent_manager import should_sync
             from .graph_orchestration import initialize_graph_from_workspace
+            from .mcp_agent_manager import should_sync
+            from .workspace import (
+                get_agent_workspace,
+                resolve_mcp_config_path,
+            )
 
-            _mcp_cfg_path = resolve_mcp_config_path(mcp_config)
+            _mcp_cfg_path = resolve_mcp_config_path(mcp_config or "")
 
             if _mcp_cfg_path and should_sync(_mcp_cfg_path):
                 from .mcp_agent_manager import sync_mcp_agents
@@ -1418,9 +1427,10 @@ def create_graph_agent_server(
                 sub_agents=sub_agents,
             )
 
-    logger.info(
-        f"Graph Agent '{graph_name}' initialized with {len(tag_prompts)} domain nodes"
-    )
+    if tag_prompts:
+        logger.info(
+            f"Graph Agent '{graph_name}' initialized with {len(tag_prompts)} domain nodes"
+        )
     logger.info(f"Mermaid diagram:\n{get_graph_mermaid(graph, graph_config)}")
 
     domain_list = ", ".join(graph_config["valid_domains"])

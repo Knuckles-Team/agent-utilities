@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """MCP Utilities Module.
 
 This module provides boilerplate and helper functions for working with the
@@ -8,13 +7,13 @@ automated server initialization with middleware stacks, and robust loading
 of MCP configurations from JSON files with environment variable expansion.
 """
 
-import os
 import argparse
-from typing import Union, Any
-from pathlib import Path
 import logging
+import os
+from pathlib import Path
+from typing import Any
 
-from .base_utilities import to_boolean, GET_DEFAULT_SSL_VERIFY
+from .base_utilities import GET_DEFAULT_SSL_VERIFY, to_boolean
 from .config import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 # MCP-specific auth/delegation config (not in config.py)
-config = {
+mcp_auth_config = {
     "enable_delegation": to_boolean(os.environ.get("ENABLE_DELEGATION", "False")),
     "audience": os.environ.get("AUDIENCE", None),
     "delegated_scopes": os.environ.get("DELEGATED_SCOPES", "api"),
@@ -271,24 +270,23 @@ def create_mcp_server(
 
     """
     import requests as _requests
-
     from fastmcp import FastMCP
-    from fastmcp.server.auth.oidc_proxy import OIDCProxy
     from fastmcp.server.auth import OAuthProxy, RemoteAuthProvider
+    from fastmcp.server.auth.oidc_proxy import OIDCProxy
     from fastmcp.server.auth.providers.jwt import JWTVerifier, StaticTokenVerifier
-    from fastmcp.server.middleware.logging import LoggingMiddleware
-    from fastmcp.server.middleware.timing import TimingMiddleware
-    from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
     from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
+    from fastmcp.server.middleware.logging import LoggingMiddleware
+    from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
+    from fastmcp.server.middleware.timing import TimingMiddleware
 
     try:
         from agent_utilities.middlewares import (
-            UserTokenMiddleware,
             JWTClaimsLoggingMiddleware,
+            UserTokenMiddleware,
         )
     except ImportError:
-        UserTokenMiddleware = None
-        JWTClaimsLoggingMiddleware = None
+        UserTokenMiddleware = None  # type: ignore
+        JWTClaimsLoggingMiddleware = None  # type: ignore
 
     parser = create_mcp_parser()
     args, _ = parser.parse_known_args()
@@ -305,43 +303,52 @@ def create_mcp_server(
 
         sys.exit(1)
 
-    config["enable_delegation"] = args.enable_delegation
-    config["audience"] = args.audience or config["audience"]
-    config["delegated_scopes"] = args.delegated_scopes or config["delegated_scopes"]
+    mcp_auth_config["enable_delegation"] = args.enable_delegation
+    mcp_auth_config["audience"] = args.audience or mcp_auth_config["audience"]
+    mcp_auth_config["delegated_scopes"] = (
+        args.delegated_scopes or mcp_auth_config["delegated_scopes"]
+    )
 
     if hasattr(args, "oidc_config_url"):
-        config["oidc_config_url"] = args.oidc_config_url or config["oidc_config_url"]
+        mcp_auth_config["oidc_config_url"] = (
+            args.oidc_config_url or mcp_auth_config["oidc_config_url"]
+        )
     if hasattr(args, "oidc_client_id"):
-        config["oidc_client_id"] = args.oidc_client_id or config["oidc_client_id"]
+        mcp_auth_config["oidc_client_id"] = (
+            args.oidc_client_id or mcp_auth_config["oidc_client_id"]
+        )
     if hasattr(args, "oidc_client_secret"):
-        config["oidc_client_secret"] = (
-            args.oidc_client_secret or config["oidc_client_secret"]
+        mcp_auth_config["oidc_client_secret"] = (
+            args.oidc_client_secret or mcp_auth_config["oidc_client_secret"]
         )
 
-    if config["enable_delegation"]:
+    if mcp_auth_config["enable_delegation"]:
         import sys as _sys
 
         if args.auth_type != "oidc-proxy":
             logger.error("Error: Token delegation requires auth-type=oidc-proxy")
             _sys.exit(1)
-        if not config["audience"]:
+        if not mcp_auth_config["audience"]:
             logger.error("Error: audience is required for delegation")
             _sys.exit(1)
         if not all(
             [
-                config["oidc_config_url"],
-                config["oidc_client_id"],
-                config["oidc_client_secret"],
+                mcp_auth_config["oidc_config_url"],
+                mcp_auth_config["oidc_client_id"],
+                mcp_auth_config["oidc_client_secret"],
             ]
         ):
             logger.error("Error: Delegation requires complete OIDC configuration")
             _sys.exit(1)
         try:
-            oidc_config_resp = _requests.get(config["oidc_config_url"])
+            config_url = mcp_auth_config["oidc_config_url"]
+            if not isinstance(config_url, str):
+                raise ValueError("oidc_config_url must be a string")
+            oidc_config_resp = _requests.get(config_url)
             oidc_config_resp.raise_for_status()
             oidc_config = oidc_config_resp.json()
-            config["token_endpoint"] = oidc_config.get("token_endpoint")
-            if not config["token_endpoint"]:
+            mcp_auth_config["token_endpoint"] = oidc_config.get("token_endpoint")
+            if not mcp_auth_config["token_endpoint"]:
                 raise ValueError("No token_endpoint found in OIDC configuration")
         except Exception as e:
             logger.error(f"Failed to fetch OIDC configuration: {e}")
@@ -384,7 +391,7 @@ def create_mcp_server(
 
         if args.token_public_key and os.path.isfile(args.token_public_key):
             try:
-                with open(args.token_public_key, "r") as f:
+                with open(args.token_public_key) as f:
                     public_key_pem = f.read()
             except Exception as e:
                 logger.error(f"Failed to read public key file: {e}")
@@ -515,9 +522,9 @@ def create_mcp_server(
     if JWTClaimsLoggingMiddleware is not None:
         middlewares.append(JWTClaimsLoggingMiddleware())
 
-    if config["enable_delegation"] or args.auth_type == "jwt":
+    if mcp_auth_config["enable_delegation"] or args.auth_type == "jwt":
         if UserTokenMiddleware is not None:
-            middlewares.insert(0, UserTokenMiddleware(config=config))
+            middlewares.insert(0, UserTokenMiddleware(config=mcp_auth_config))
 
     if args.eunomia_type in ["embedded", "remote"]:
         try:
@@ -542,7 +549,7 @@ def create_mcp_server(
     return args, mcp, middlewares
 
 
-def load_mcp_config(config_path: Union[str, Path]) -> list[Any]:
+def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
     """Load and expand environment variables in an MCP config file.
 
     Reads the specified mcp_config.json, expands any environment variable
@@ -557,11 +564,13 @@ def load_mcp_config(config_path: Union[str, Path]) -> list[Any]:
         MCPToolSet in newer versions, but returned as list of servers here).
 
     """
-    import tempfile
     import json
     import shutil
-    from .base_utilities import expand_env_vars
+    import tempfile
+
     from pydantic_ai.mcp import load_mcp_servers
+
+    from .base_utilities import expand_env_vars
 
     try:
         path = Path(config_path)
@@ -607,14 +616,14 @@ def load_mcp_config(config_path: Union[str, Path]) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"][
-                            "PYTHONWARNINGS"
-                        ] = "ignore:urllib3 (2.3.0) or chardet"
+                        cfg["env"]["PYTHONWARNINGS"] = (
+                            "ignore:urllib3 (2.3.0) or chardet"
+                        )
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"][
-                                "PYTHONWARNINGS"
-                            ] += ",ignore:urllib3 (2.3.0) or chardet"
+                            cfg["env"]["PYTHONWARNINGS"] += (
+                                ",ignore:urllib3 (2.3.0) or chardet"
+                            )
                     modified = True
 
             if modified:
@@ -653,3 +662,21 @@ def load_mcp_config(config_path: Union[str, Path]) -> list[Any]:
     except Exception as e:
         logger.error(f"Failed to load MCP config {config_path}: {e}")
         return []
+
+
+# Maintain backward compatibility for local usage
+config = mcp_auth_config
+load_mcp_config = load_mcp_servers_from_config
+
+__all__ = [
+    "create_mcp_parser",
+    "create_mcp_server",
+    "load_mcp_servers_from_config",
+    "mcp_auth_config",
+    "DEFAULT_TRANSPORT",
+    "DEFAULT_SSL_VERIFY",
+    "DEFAULT_PROVIDER",
+    "DEFAULT_MODEL_ID",
+    "DEFAULT_LLM_BASE_URL",
+    "DEFAULT_LLM_API_KEY",
+]

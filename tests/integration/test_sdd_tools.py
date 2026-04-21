@@ -58,6 +58,7 @@ async def test_spec_tools(mock_ctx):
 
     # Test Load
     loaded = await load_spec(mock_ctx, feature_id)
+    assert loaded is not None
     assert loaded.title == "Test Feature"
 
 @pytest.mark.asyncio
@@ -72,6 +73,7 @@ async def test_tasks_tools(mock_ctx):
 
     # Test Load
     loaded = await load_tasks(mock_ctx, feature_id)
+    assert loaded is not None
     assert len(loaded.tasks) == 0
 
 @pytest.mark.asyncio

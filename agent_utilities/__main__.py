@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
-import os
 import logging
+import os
 
 from . import (
     build_system_prompt_from_workspace,

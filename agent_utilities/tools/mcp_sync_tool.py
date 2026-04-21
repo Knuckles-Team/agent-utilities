@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """MCP Synchronization Tool Module.
 
 This module provides a tool for manually triggering a synchronization
@@ -8,7 +7,9 @@ of the dynamic MCP specialist agent registry from the workspace configuration.
 
 import logging
 from typing import Any
+
 from pydantic_ai import RunContext
+
 from ..mcp_agent_manager import sync_mcp_agents
 
 logger = logging.getLogger(__name__)
