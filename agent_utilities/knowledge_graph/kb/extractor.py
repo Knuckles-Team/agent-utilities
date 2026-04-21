@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """KB Structured Extraction Engine.
 
 Uses Pydantic AI with typed result_type= to extract structured articles,
@@ -9,7 +8,6 @@ is validated by Pydantic before entering the knowledge graph.
 
 import logging
 import os
-from typing import List, Optional
 
 from ...models.knowledge_base import (
     DocumentChunk,
@@ -64,10 +62,10 @@ class KBExtractor:
 
     def __init__(
         self,
-        model: Optional[str] = None,
-        provider: Optional[str] = None,
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
+        model: str | None = None,
+        provider: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
     ):
         self._model_str = model or os.environ.get("MODEL_ID", "gpt-4o-mini")
         self._provider = provider or os.environ.get("PROVIDER", "openai")
@@ -80,9 +78,9 @@ class KBExtractor:
     def _get_model(self):
         """Lazily build the Pydantic AI model instance."""
         try:
-            from agent_utilities.agent_utilities import _build_model
+            from agent_utilities.model_factory import create_model
 
-            return _build_model(
+            return create_model(
                 provider=self._provider,
                 model_id=self._model_str,
                 base_url=self._base_url,
@@ -142,10 +140,10 @@ class KBExtractor:
 
     async def extract_article(
         self,
-        chunks: List[DocumentChunk],
+        chunks: list[DocumentChunk],
         topic: str,
-        existing_article: Optional[ExtractedArticle] = None,
-    ) -> Optional[ExtractedArticle]:
+        existing_article: ExtractedArticle | None = None,
+    ) -> ExtractedArticle | None:
         """Extract a structured article from document chunks.
 
         If existing_article is provided, only the new chunks are processed
@@ -184,8 +182,8 @@ class KBExtractor:
             return self._fallback_article(chunks, topic)
 
     async def run_health_check(
-        self, kb_id: str, kb_name: str, articles: List[dict]
-    ) -> Optional[KBHealthReport]:
+        self, kb_id: str, kb_name: str, articles: list[dict]
+    ) -> KBHealthReport | None:
         """Lint a knowledge base: find contradictions, gaps, orphans.
 
         Args:
@@ -231,8 +229,8 @@ class KBExtractor:
             )
 
     async def generate_index(
-        self, kb_id: str, articles: List[ExtractedArticle]
-    ) -> Optional[ExtractedKBIndex]:
+        self, kb_id: str, articles: list[ExtractedArticle]
+    ) -> ExtractedKBIndex | None:
         """Generate or refresh the KB discovery index.
 
         The index is what agents read first to understand what a KB contains
@@ -259,7 +257,7 @@ class KBExtractor:
     # ------------------------------------------------------------------
 
     def _fallback_article(
-        self, chunks: List[DocumentChunk], topic: str
+        self, chunks: list[DocumentChunk], topic: str
     ) -> ExtractedArticle:
         """Create a minimal article without LLM (fallback mode)."""
         combined = " ".join(c.content for c in chunks[:3])

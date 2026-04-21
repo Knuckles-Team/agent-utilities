@@ -1,26 +1,25 @@
 #!/usr/bin/python
-# coding: utf-8
 """MCP Agent Manager Module.
 
 This module manages the lifecycle of agents derived from MCP servers. It
 handles the extraction of tool metadata from running servers, partitioning
 tools into logical domain specialists, deterministic tool relevance scoring,
-and synchronizing these specialists with the NODE_AGENTS.md registry.
+and synchronizing these specialists directly with the Knowledge Graph.
 """
 
 import asyncio
-import logging
 import json
+import logging
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import Any
 
-from .workspace import (
-    get_workspace_path,
-    CORE_FILES,
-)
-from .models import MCPToolInfo
 from .mcp_utilities import load_mcp_config
+from .models import MCPToolInfo
 from .tool_guard import is_sensitive_tool
+from .workspace import (
+    CORE_FILES,
+    get_workspace_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +66,10 @@ def should_sync(config_path: Path) -> bool:
 
 async def _extract_single_server_metadata(
     server: Any,
-    mcp_servers_config: Dict,
+    mcp_servers_config: dict,
     timeout: int = 300,
-    semaphore: Optional[asyncio.Semaphore] = None,
-) -> List[MCPToolInfo]:
+    semaphore: asyncio.Semaphore | None = None,
+) -> list[MCPToolInfo]:
     """Wrapper for metadata extraction with optional concurrency control.
 
     Args:
@@ -94,8 +93,8 @@ async def _extract_single_server_metadata(
 
 
 async def _extract_single_server_metadata_inner(
-    server, mcp_servers_config: Dict, timeout: int = 300
-) -> List[MCPToolInfo]:
+    server, mcp_servers_config: dict, timeout: int = 300
+) -> list[MCPToolInfo]:
     """Internal logic for connecting to an MCP server and listing tools.
 
     Uses a robust fallback mechanism:
@@ -241,7 +240,7 @@ async def _extract_single_server_metadata_inner(
 
 async def extract_tool_metadata(
     config_path: Path, timeout: int = 300
-) -> List[MCPToolInfo]:
+) -> list[MCPToolInfo]:
     """Load MCP servers and extract tool metadata in parallel.
 
     Args:
@@ -257,7 +256,7 @@ async def extract_tool_metadata(
         return []
 
     try:
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config_data = json.load(f)
             mcp_servers_config = config_data.get("mcpServers", {})
     except Exception as e:
@@ -266,19 +265,27 @@ async def extract_tool_metadata(
 
     servers = load_mcp_config(config_path)
 
-    # Sequential loading to avoid AnyIO cross-task cancel scope errors
-    # (FastMCP uses anyio.create_task_group internally which conflicts with asyncio.gather)
-    all_tools = []
-    for server in servers:
-        server_tools = await _extract_single_server_metadata_inner(
-            server, mcp_servers_config, timeout=timeout
-        )
-        all_tools.extend(server_tools)
+    # Parallel extraction using anyio to handle FastMCP/anyio internals correctly
+    import anyio
+
+    all_tools: list[MCPToolInfo] = []
+    semaphore = anyio.Semaphore(5)  # Limit to 5 concurrent connections
+
+    async def _safe_extract(server, results):
+        async with semaphore:
+            server_tools = await _extract_single_server_metadata_inner(
+                server, mcp_servers_config, timeout=timeout
+            )
+            results.extend(server_tools)
+
+    async with anyio.create_task_group() as tg:
+        for server in servers:
+            tg.start_soon(_safe_extract, server, all_tools)
 
     return all_tools
 
 
-def compute_agent_metadata_score(description: str, skills: List[str]) -> int:
+def compute_agent_metadata_score(description: str, skills: list[str]) -> int:
     """Compute a deterministic relevance score for an agent based on metadata.
 
     Args:
@@ -396,7 +403,7 @@ def compute_tool_relevance_score(tool: MCPToolInfo) -> int:
     return min(score, 100)
 
 
-def score_tools(tools: List[MCPToolInfo]) -> List[MCPToolInfo]:
+def score_tools(tools: list[MCPToolInfo]) -> list[MCPToolInfo]:
     """Apply deterministic relevance scoring to all tools in-place.
 
     Args:
@@ -411,7 +418,7 @@ def score_tools(tools: List[MCPToolInfo]) -> List[MCPToolInfo]:
     return tools
 
 
-async def partition_tools(tools: List[MCPToolInfo]) -> Dict[str, List[MCPToolInfo]]:
+async def partition_tools(tools: list[MCPToolInfo]) -> dict[str, list[MCPToolInfo]]:
     """Group tools into logical domain partitions using tags.
 
     Args:
@@ -421,7 +428,7 @@ async def partition_tools(tools: List[MCPToolInfo]) -> Dict[str, List[MCPToolInf
         A dictionary mapping tag names to their specific tool lists.
 
     """
-    partitions = {}
+    partitions: dict[str, list[MCPToolInfo]] = {}
 
     # Primary partitioning by TAG (Multi-tag support)
     untracked_tools = []
@@ -448,7 +455,7 @@ async def partition_tools(tools: List[MCPToolInfo]) -> Dict[str, List[MCPToolInf
 
 
 async def generate_system_prompt(
-    agent_name: str, tools: List[MCPToolInfo], tag: str, server_name: str
+    agent_name: str, tools: list[MCPToolInfo], tag: str, server_name: str
 ) -> str:
     """Generate a deterministic system prompt for a partitioned agent.
 
@@ -480,7 +487,7 @@ async def generate_system_prompt(
 
 
 async def sync_mcp_agents(
-    force_reprompt: bool = False, config_path: Optional[Path] = None
+    force_reprompt: bool = False, config_path: Path | None = None
 ):
     """Orchestrate the full synchronization of MCP servers with the Knowledge Graph.
 
@@ -509,8 +516,8 @@ async def sync_mcp_agents(
     )
 
     # 2. Ingest into Knowledge Graph
-    from .workspace import get_agent_workspace
     from .knowledge_graph.backends import create_backend
+    from .workspace import get_agent_workspace
 
     ws_path = get_agent_workspace()
     db_path = str(ws_path / "knowledge_graph.db")
@@ -521,9 +528,9 @@ async def sync_mcp_agents(
         return
 
     # 2a. Sync Prompts from registry builder
-    from .agent_registry_builder import rebuild_node_agents_md
+    from .agent_registry_builder import ingest_prompts_to_graph
 
-    await rebuild_node_agents_md()  # This will be modified to ingest prompts to graph
+    await ingest_prompts_to_graph()
 
     # 2b. Upsert Tool Nodes
     import time

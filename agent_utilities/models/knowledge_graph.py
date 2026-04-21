@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Registry Graph Models Module.
 
 This module defines the Pydantic models used for the hybrid graph representation
@@ -8,12 +7,14 @@ discovery of specialists and their tools.
 """
 
 from __future__ import annotations
-from enum import Enum
-from typing import Optional, List, Dict, Any
+
+from enum import StrEnum
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
-class RegistryNodeType(str, Enum):
+class RegistryNodeType(StrEnum):
     """Enumeration of node types in the registry graph."""
 
     AGENT = "agent"
@@ -65,9 +66,16 @@ class RegistryNodeType(str, Enum):
     CHECKPOINT = "checkpoint"
     TEAM = "team"
     TASK = "task"
+    POLICY = "policy"
+    PROCESS_FLOW = "process_flow"
+    PROCESS_STEP = "process_step"
+    KNOWLEDGE_BASE_TOPIC = "knowledge_base_topic"
+    SOURCE = "source"
+    EVIDENCE = "evidence"
+    PERSON = "person"
 
 
-class RegistryEdgeType(str, Enum):
+class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
 
     PROVIDES = "provides"
@@ -131,6 +139,13 @@ class RegistryEdgeType(str, Enum):
     FORKED_FROM = "forked_from"
     ASSIGNED_TO_AGENT = "assigned_to_agent"
     BLOCKED_BY_TASK = "blocked_by_task"
+    APPLIES_TO = "applies_to"
+    HAS_START = "has_start"
+    NEXT = "next"
+    GROUNDED_IN = "grounded_in"
+    REFERENCES = "references"
+    AUTHORED = "authored"
+    SUPPORTS = "supports"
 
 
 class RegistryNode(BaseModel):
@@ -140,9 +155,10 @@ class RegistryNode(BaseModel):
     type: RegistryNodeType
     name: str
     description: str = ""
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     importance_score: float = 0.0
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
+    is_permanent: bool = False
 
 
 class AgentNode(RegistryNode):
@@ -151,7 +167,7 @@ class AgentNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.AGENT
     agent_type: str  # prompt, mcp, a2a
     system_prompt: str = ""
-    endpoint_url: Optional[str] = None
+    endpoint_url: str | None = None
     tool_count: int = 0
 
 
@@ -162,7 +178,7 @@ class ToolNode(RegistryNode):
     mcp_server: str
     relevance_score: int = 0
     requires_approval: bool = False
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class SkillNode(RegistryNode):
@@ -170,7 +186,7 @@ class SkillNode(RegistryNode):
 
     type: RegistryNodeType = RegistryNodeType.SKILL
     package_name: str
-    capabilities: List[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
 
 
 class PromptNode(RegistryNode):
@@ -178,7 +194,7 @@ class PromptNode(RegistryNode):
 
     type: RegistryNodeType = RegistryNodeType.PROMPT
     system_prompt: str
-    capabilities: List[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
 
 
 class MemoryNode(RegistryNode):
@@ -186,17 +202,18 @@ class MemoryNode(RegistryNode):
 
     type: RegistryNodeType = RegistryNodeType.MEMORY
     category: str = "general"
-    tags: List[str] = Field(default_factory=list)
+    content: str = ""
+    tags: list[str] = Field(default_factory=list)
 
 
 class CodeNode(RegistryNode):
     """Represents a code entity (File, Class, Function)."""
 
-    repo_path: Optional[str] = None
-    file_path: Optional[str] = None
-    language: Optional[str] = None
-    line_start: Optional[int] = None
-    line_end: Optional[int] = None
+    repo_path: str | None = None
+    file_path: str | None = None
+    language: str | None = None
+    line_start: int | None = None
+    line_end: int | None = None
 
 
 class RegistryEdge(BaseModel):
@@ -206,7 +223,7 @@ class RegistryEdge(BaseModel):
     target: str
     type: RegistryEdgeType
     weight: float = 1.0
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RegistryGraphMetadata(BaseModel):
@@ -224,9 +241,9 @@ class SymbolMetadata(BaseModel):
     name: str
     type: str  # Class, Function, Method
     line: int
-    docstring: Optional[str] = None
-    args: List[str] = Field(default_factory=list)
-    return_type: Optional[str] = None
+    docstring: str | None = None
+    args: list[str] = Field(default_factory=list)
+    return_type: str | None = None
 
 
 class PhaseResult(BaseModel):
@@ -234,12 +251,12 @@ class PhaseResult(BaseModel):
     duration_ms: float
     output: Any
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class ResolutionContext(BaseModel):
-    file_map: Dict[str, str] = Field(default_factory=dict)  # Name to ID
-    symbol_map: Dict[str, str] = Field(default_factory=dict)  # Name to ID
+    file_map: dict[str, str] = Field(default_factory=dict)  # Name to ID
+    symbol_map: dict[str, str] = Field(default_factory=dict)  # Name to ID
 
 
 class PipelineConfig(BaseModel):
@@ -248,9 +265,9 @@ class PipelineConfig(BaseModel):
     workspace_path: str
     enable_embeddings: bool = True
     persist_to_ladybug: bool = True
-    ladybug_path: Optional[str] = None
-    embedding_provider: Optional[str] = "llama-index"
-    exclude_patterns: List[str] = Field(
+    ladybug_path: str | None = None
+    embedding_provider: str | None = "llama-index"
+    exclude_patterns: list[str] = Field(
         default_factory=lambda: [
             ".git",
             "node_modules",
@@ -266,7 +283,7 @@ class PipelineConfig(BaseModel):
     enable_knowledge_base: bool = True
     kb_auto_ingest_skill_graphs: bool = False  # On-demand by default
     kb_chunk_size: int = 1024
-    kb_extraction_model: Optional[str] = None  # None = use default provider model
+    kb_extraction_model: str | None = None  # None = use default provider model
     kb_archive_age_days: int = 180
     kb_archive_importance_threshold: float = 0.3
     enable_workspace_sync: bool = True
@@ -312,13 +329,13 @@ class MessageNode(RegistryNode):
     role: str
     content: str
     timestamp: str
-    embedding: Optional[List[float]] = None
+    embedding: list[float] | None = None
 
 
 class ChatSummaryNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.CHAT_SUMMARY
     summary_text: str
-    key_entities: List[str] = Field(default_factory=list)
+    key_entities: list[str] = Field(default_factory=list)
     importance_score: float = 0.5
     original_count: int = 0
 
@@ -328,7 +345,7 @@ class HeartbeatNode(RegistryNode):
     agent_name: str
     timestamp: str
     status: str
-    issues: List[str] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
     raw_data: str = ""
 
 
@@ -338,21 +355,21 @@ class HeartbeatNode(RegistryNode):
 class ReasoningTraceNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.REASONING_TRACE
     thought: str
-    reflection: Optional[str] = None
+    reflection: str | None = None
     confidence: float = 1.0
 
 
 class ToolCallNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.TOOL_CALL
     tool_name: str
-    args: Dict[str, Any] = Field(default_factory=dict)
-    result: Optional[str] = None
+    args: dict[str, Any] = Field(default_factory=dict)
+    result: str | None = None
 
 
 class EntityNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.ENTITY
     entity_type: str  # Person, Org, Location, etc.
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    properties: dict[str, Any] = Field(default_factory=dict)
 
 
 class EventNode(RegistryNode):
@@ -386,7 +403,42 @@ class FactNode(RegistryNode):
 
 
 class ConceptNode(RegistryNode):
+    """Atomic knowledge unit (e.g. 'p53 gene', 'SN2 reaction')."""
+
     type: RegistryNodeType = RegistryNodeType.CONCEPT
+    concept_id: str
+    definition: str = ""
+    embedding: list[float] | None = None
+    is_permanent: bool = False
+
+
+class SourceNode(RegistryNode):
+    """Reference material (e.g. papers, journals, datasets)."""
+
+    type: RegistryNodeType = RegistryNodeType.SOURCE
+    source_id: str
+    doi: str | None = None
+    url: str | None = None
+    publication_date: str | None = None
+    authors: list[str] = Field(default_factory=list)
+
+
+class EvidenceNode(RegistryNode):
+    """Claims or findings extracted from sources."""
+
+    type: RegistryNodeType = RegistryNodeType.EVIDENCE
+    evidence_id: str
+    claim: str
+    confidence_score: float = 1.0
+
+
+class PersonNode(RegistryNode):
+    """Researchers, authors, or agents."""
+
+    type: RegistryNodeType = RegistryNodeType.PERSON
+    person_id: str
+    expertise: list[str] = Field(default_factory=list)
+    affiliation: str | None = None
 
 
 class CapabilityNode(RegistryNode):
@@ -398,30 +450,30 @@ class CapabilityNode(RegistryNode):
 
 class ToolMetadataNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.TOOL_METADATA
-    tags: List[str] = Field(default_factory=list)
-    prompt_template: Optional[str] = None
-    resources: Dict[str, Any] = Field(default_factory=dict)
-    capabilities: List[str] = Field(default_factory=list)
-    auth_requirements: Optional[Dict[str, Any]] = None
-    version: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    prompt_template: str | None = None
+    resources: dict[str, Any] = Field(default_factory=dict)
+    capabilities: list[str] = Field(default_factory=list)
+    auth_requirements: dict[str, Any] | None = None
+    version: str | None = None
     source: str  # MCP, A2A, INTERNAL, AGENT_SKILL
 
 
 class CallableResourceNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.CALLABLE_RESOURCE
     resource_type: str  # MCP_TOOL, A2A_AGENT, INTERNAL_SKILL, AGENT_SKILL
-    endpoint: Optional[str] = None
-    agent_card: Optional[Dict[str, Any]] = None
-    skill_code_path: Optional[str] = None
+    endpoint: str | None = None
+    agent_card: dict[str, Any] | None = None
+    skill_code_path: str | None = None
     metadata_id: str
-    embedding: Optional[List[float]] = None
+    embedding: list[float] | None = None
 
 
 class SpawnedAgentNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.SPAWNED_AGENT
     system_prompt: str
-    tool_ids: List[str] = Field(default_factory=list)
-    parent_task_id: Optional[str] = None
+    tool_ids: list[str] = Field(default_factory=list)
+    parent_task_id: str | None = None
     created_at: str
 
 
@@ -429,9 +481,9 @@ class SystemPromptNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.SYSTEM_PROMPT
     content: str
     version: str
-    tags: List[str] = Field(default_factory=list)
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    embedding: Optional[List[float]] = None
+    tags: list[str] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    embedding: list[float] | None = None
     source: str  # MANUAL, GENERATED, etc.
 
 
@@ -441,7 +493,7 @@ class SystemPromptNode(RegistryNode):
 class OutcomeEvaluationNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.OUTCOME_EVALUATION
     reward: float
-    success_criteria_met: List[str] = Field(default_factory=list)
+    success_criteria_met: list[str] = Field(default_factory=list)
     feedback_text: str
 
 
@@ -454,6 +506,7 @@ class SelfEvaluationNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.SELF_EVALUATION
     confidence_calibration: float
     task_difficulty: float
+    evaluation: str = ""
 
 
 class ExperimentNode(RegistryNode):
@@ -464,7 +517,7 @@ class ExperimentNode(RegistryNode):
 class ProposedSkillNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.PROPOSED_SKILL
     code_content: str
-    frontmatter: Dict[str, Any] = Field(default_factory=dict)
+    frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
 # --- Knowledge Base Nodes ---
@@ -488,8 +541,8 @@ class ArticleNode(RegistryNode):
     summary: str
     content: str = ""  # May be empty when archived (summary-only)
     word_count: int = 0
-    tags: List[str] = Field(default_factory=list)
-    embedding: Optional[List[float]] = None
+    tags: list[str] = Field(default_factory=list)
+    embedding: list[float] | None = None
 
 
 class RawSourceNode(RegistryNode):
@@ -507,7 +560,7 @@ class KBConceptNode(RegistryNode):
     """A key concept extracted from KB articles."""
 
     type: RegistryNodeType = RegistryNodeType.KB_CONCEPT
-    embedding: Optional[List[float]] = None
+    embedding: list[float] | None = None
 
 
 class KBFactNode(RegistryNode):
@@ -516,8 +569,8 @@ class KBFactNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.KB_FACT
     content: str
     certainty: float = 1.0
-    source_ids: List[str] = Field(default_factory=list)
-    embedding: Optional[List[float]] = None
+    source_ids: list[str] = Field(default_factory=list)
+    embedding: list[float] | None = None
 
 
 class KBIndexNode(RegistryNode):
@@ -554,8 +607,45 @@ class TaskNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.TASK
     content: str
     status: str = "pending"  # pending | in_progress | completed
-    assigned_to: Optional[str] = None
-    created_by: Optional[str] = None
+    assigned_to: str | None = None
+    created_by: str | None = None
+
+
+class PolicyNode(RegistryNode):
+    type: RegistryNodeType = RegistryNodeType.POLICY
+    policy_id: str
+    condition: str
+    action: str
+    priority: int = 50
+    applies_to: list[str] = Field(default_factory=list)
+    version: str = "1.0"
+    created_at: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+
+
+class ProcessFlowNode(RegistryNode):
+    type: RegistryNodeType = RegistryNodeType.PROCESS_FLOW
+    flow_id: str
+    goal: str
+    start_step: str
+    version: str = "1.0"
+    created_at: str | None = None
+
+
+class ProcessStepNode(RegistryNode):
+    type: RegistryNodeType = RegistryNodeType.PROCESS_STEP
+    step_id: str
+    step_type: str
+    tool: str | None = None
+    condition: str | None = None
+
+
+class KnowledgeBaseTopicNode(RegistryNode):
+    type: RegistryNodeType = RegistryNodeType.KNOWLEDGE_BASE_TOPIC
+    topic_id: str
+    source: str | None = None
+    embedding: list[float] | None = None
 
 
 # --- Schema Definition for Backend Abstraction ---
@@ -563,14 +653,14 @@ class TaskNode(RegistryNode):
 
 class TableDefinition(BaseModel):
     name: str
-    columns: Dict[str, str]  # name: type (Ladybug types)
+    columns: dict[str, str]  # name: type (Ladybug types)
 
 
 class RelDefinition(BaseModel):
     type: str
-    connections: List[Dict[str, str]]  # List of {"from": "Type", "to": "Type"}
+    connections: list[dict[str, str]]  # List of {"from": "Type", "to": "Type"}
 
 
 class GraphSchemaDefinition(BaseModel):
-    nodes: List[TableDefinition]
-    edges: List[RelDefinition]
+    nodes: list[TableDefinition]
+    edges: list[RelDefinition]

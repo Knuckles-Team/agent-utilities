@@ -39,16 +39,16 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 - **Resilience & Accuracy**: Error recovery with local retries, re-planning loops, and result verification via the Verifier quality gate.
 - **Observability**: Real-time **Graph Streaming** (SSE) and lifecycle events. Early OTEL/logfire gate.
 - **Typed Foundation**: Zero-config dependency injection using `AgentDeps`.
-- **Specialist Discovery**: Automated discovery of domain specialists from `NODE_AGENTS.md` and `A2A_AGENTS.md` registries.
-- **Autonomous Memory Architecture**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Agent Lightning-style self-improvement loops. Unifies code awareness, chat memory, and agent orchestration into a singular, schema-enforced graph.
+- **Specialist Discovery**: Automated discovery of domain specialists directly from the **Knowledge Graph**.
+- **Autonomous Memory Architecture**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Agent Lightning-style self-improvement loops. Unifies code awareness, chat memory, and **Research Knowledge Bases** (Medical, Chemistry, etc.) into a singular, schema-enforced graph. Cross-domain relationships emerge automatically through shared concepts.
 - **Agent Server**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/acp` (Standardized Protocol), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation**: Runtime generation of OpenAPI specifications for all agent server APIs.
-- **Workspace Management**: Automated management of agent state through standardized structures. (Note: Flat files like `IDENTITY.md` and `USER.md` have been migrated to the Knowledge Graph and `main_agent.md` templates).
+- **Workspace Management**: Automated management of agent state through standardized structures. (Note: Legacy files like `IDENTITY.md` and `USER.md` have been migrated to the Knowledge Graph and `main_agent.md` templates).
 - **Spec-Driven Development (SDD)**: High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`Spec`), Implementation Plans, and dependency-aware Tasks. Ensures technical precision and parallel execution safety.
 - **Unified Intelligence Graph**: A powerful 12-phase topological pipeline that unifies **NetworkX** in-memory analysis with Cypher persistence. Enables deep structural codebase awareness, cross-repository symbol mapping, and long-term agent memory.
 - **Graph Database Abstraction**: Out-of-the-box support for multiple Cypher-compatible backends including **LadybugDB** (default embedded), **FalkorDB**, and **Neo4j**.
 - **Graph-Native Ecosystem State**: Flat-file management (`MEMORY.md`, `USER.md`, `HEARTBEAT.md`, `CRON.md`) has been fully deprecated. Agent memory, execution logs, client profiles, and background scheduled tasks are now stored natively as highly-relational nodes within the Knowledge Graph.
-- **Automated Graph Maintenance**: Built-in Cypher-driven maintenance routines (`maintenance.py`) that handle vector embedding enrichment via LM Studio, scheduled cron log pruning, and intelligent chat summarization to ensure sustainable long-term memory.
+- **Automated Graph Maintenance**: Built-in Cypher-driven maintenance routines (`maintenance.py`) that handle vector embedding enrichment, scheduled cron log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
 - **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies are lazy-loaded only when requested via optional extras.
 - **Autonomous Graph-Native Memory**: State-of-the-art architecture combining **MAGMA** orthogonal retrieval with **Agent Lightning** self-optimization loops. Supports unified ingestion of MCP, A2A, and Skill-based resources with automated importance scoring and temporal decay.
 
@@ -62,7 +62,7 @@ Agent Utilities implements a sophisticated 12-phase pipeline to map and analyze 
 | :--- | :--- | :--- |
 | **1** | **Memory** | Hydrates existing state (Nodes/Edges) from **LadybugDB** to maintain session continuity. |
 | **2** | **Scan** | Performs the initial directory walk, respecting `.gitignore`, to identify all source code files. |
-| **3** | **Registry** | Parses `NODE_AGENTS.md` and `prompts/*.md` to extract agent specialists and tool signatures. |
+| **3** | **Registry** | Ingests `prompts/*.md` and MCP server definitions into the **Knowledge Graph** as specialist nodes. |
 | **4** | **Parse** | AST parsing (**tree-sitter**) to extract symbols (Classes, Functions) and raw import statements. |
 | **5** | **Resolve** | Maps raw import strings into actual graph edges between `File` and `Symbol` nodes. |
 | **6** | **MRO** | Calculates Method Resolution Order and inheritance hierarchies for OOP structures. |
@@ -115,6 +115,7 @@ The graph engine supports policy-guided retrieval across four orthogonal views:
 - **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
 - **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
 - **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
+- **Research Knowledge Base**: Grounded evidence and sources for domain-specific topics (e.g., Medical Journals).
 
 ## Architecture & Orchestration
 
@@ -278,19 +279,16 @@ C4Container
     direction TB
     Researcher["<b>Researcher</b><br/>---<br/><i>u-skill:</i> web-search, web-crawler, web-fetch<br/><i>t-tool:</i> project_search, read_workspace_file"]
     Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, spec-generator, product-strategy, user-research, brainstorming<br/><i>t-tool:</i> developer_tools"]
-    A2ADiscovery["<b>A2A Discovery</b><br/>---<br/><i>source:</i> A2A_AGENTS.md<br/>"]
-    MCPDiscovery["<b>MCP Discovery</b><br/>---<br/><i>source:</i> NODE_AGENTS.md<br/>"]
+    KGDiscovery["<b>Unified Discovery</b><br/>---<br/><i>source:</i> Knowledge Graph<br/>"]
     res_joiner[Research Joiner: Barrier Sync]
   end
 
   dispatcher -- "Research First" --> Researcher
   dispatcher -- "Research First" --> Architect
-  dispatcher -- "Research First" --> A2ADiscovery
-  dispatcher -- "Research First" --> MCPDiscovery
+  dispatcher -- "Research First" --> KGDiscovery
   Researcher --> res_joiner
   Architect --> res_joiner
-  A2ADiscovery --> res_joiner
-  MCPDiscovery --> res_joiner
+  KGDiscovery --> res_joiner
   res_joiner -- "Coalesced Context" --> dispatcher
 
   subgraph "Execution Phase"
@@ -456,7 +454,7 @@ This diagram illustrates how MCP servers are discovered, specialized, and persis
 graph TD
     subgraph Registry_Phase ["1. Registry Synchronization (Deployment)"]
         Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp_agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
-        Registry["<b>NODE_AGENTS.md</b><br/><i>(Specialist Registry)</i>"] -.->|Read Hash| Manager
+        KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"] -.->|Read Hash| Manager
 
         Manager -->|Config Hash Match?| Branch{Decision}
         Branch -- "Yes (Cache Hit)" --> Skip["Skip Tool Extraction"]
@@ -464,12 +462,12 @@ graph TD
 
         Parallel -->|Deploy STDIO| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]
         Servers -->|JSON-RPC list_tools| Parallel
-        Parallel -->|Metadata| Registry
+        Parallel -->|Metadata| KG_Registry
     end
 
     subgraph Initialization_Phase ["2. Graph Initialization (Runtime)"]
         Config -->|Per-server resilient load| Loader["<b>builder.py</b><br/><i>MCPServerStdio per server</i><br/>⚠️ Skips missing env-vars<br/>❌ Logs failed servers clearly"]
-        Registry --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
+        KG_Registry --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
         Loader -->|mcp_toolsets| 'graph'
         Builder -->|Register Nodes| Specialists["<b>Specialist Superstates</b><br/>(Python, TS, GitLab, etc.)"]
         Specialists -->|Compile| 'graph'["<b>Pydantic Graph Agent</b>"]
@@ -483,7 +481,7 @@ graph TD
 
     %% Styling
     style Config fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
+    style KG_Registry fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
     style Manager fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
     style Parallel fill:#f8cecc,stroke:#b85450,stroke-width:2px
     style ConnPool fill:#d5e8d4,stroke:#82b366,stroke-width:2px
@@ -518,7 +516,7 @@ from agent_utilities import create_agent
 agent = create_agent(name="MyAgent")
 
 # Create a powerful Graph Agent with Universal Skills
-# This automatically discovers domain specialists from registries
+# This automatically discovers domain specialists from the Knowledge Graph
 agent = create_agent(
     name="ProAgent",
     skill_types=["universal", "graphs"]

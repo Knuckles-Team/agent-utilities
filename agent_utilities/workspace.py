@@ -1,29 +1,27 @@
 #!/usr/bin/python
-# coding: utf-8
 """Workspace Management Module.
 
 This module provides the core logic for discovering, initializing, and
 managing the agent's filesystem workspace. it includes templates for
-standard markdown files (IDENTITY, MEMORY, CRON, etc.), parsing and
+standard markdown files (IDENTITY, etc.), parsing and
 serialization logic for these files, and robust path discovery for
 skills and MCP configurations.
 """
 
-import os
 import logging
+import os
 import re
 import shutil
-from pathlib import Path
-from typing import Optional, Dict, List
 from datetime import datetime
-from importlib.resources import files, as_file
+from importlib.resources import as_file, files
+from pathlib import Path
 
-from .base_utilities import retrieve_package_name, load_env_vars
+from .base_utilities import load_env_vars, retrieve_package_name
 
 logger = logging.getLogger(__name__)
 
 
-WORKSPACE_DIR: Optional[str] = None
+WORKSPACE_DIR: str | None = None
 
 
 def md_table_escape(text: str) -> str:
@@ -49,7 +47,7 @@ def md_table_escape(text: str) -> str:
     return escaped.strip()
 
 
-def smart_truncate(text: str, limit: int) -> str:
+def smart_truncate(text: str | None, limit: int) -> str:
     """Truncate text to a limit while respecting word boundaries.
 
     Args:
@@ -106,7 +104,7 @@ Your personality:
 }
 
 
-def get_skills_path() -> List[str]:
+def get_skills_path() -> list[str]:
     """Discover the filesystem paths to agent skills.
 
     Scans the local package and parent directories for 'skills' folders
@@ -146,9 +144,9 @@ def get_skills_path() -> List[str]:
             if spec and spec.origin:
                 pkg_root = Path(spec.origin).parent
                 for sub in ["agent_data/skills", "agent/skills", "skills"]:
-                    skills_dir = pkg_root / sub
-                    if skills_dir.exists():
-                        return [str(skills_dir)]
+                    skills_path = pkg_root / sub
+                    if skills_path.exists():
+                        return [str(skills_path)]
         except Exception as e:
             logger.debug(f"Manual path fallback fail: {e}")
 
@@ -157,7 +155,7 @@ def get_skills_path() -> List[str]:
     return []
 
 
-def get_mcp_config_path() -> Optional[str]:
+def get_mcp_config_path() -> str | None:
     """Retrieve the absolute path to the local MCP configuration file.
 
     Returns:
@@ -295,7 +293,7 @@ def get_workspace_path(filename: str) -> Path:
     return path
 
 
-def resolve_mcp_config_path(mcp_config: str) -> Optional[Path]:
+def resolve_mcp_config_path(mcp_config: str | None) -> Path | None:
     """Resolve the absolute path for an MCP configuration identifier.
 
     Checks absolute paths, workspace-relative paths, local package data,
@@ -370,8 +368,7 @@ def resolve_mcp_config_path(mcp_config: str) -> Optional[Path]:
 
 def initialize_workspace(overwrite: bool = False):
     """Scaffold a fresh agent workspace with standard files and directories.
-
-    Creates IDENTITY.md, USER.md, MEMORY.md, etc., using predefined
+    Creates IDENTITY.md, USER.md, etc., using predefined
     templates if they do not already exist.
 
     Args:
@@ -424,7 +421,7 @@ def load_workspace_file(filename: str, default: str = "") -> str:
     return default
 
 
-def load_all_core_files() -> Dict[str, str]:
+def load_all_core_files() -> dict[str, str]:
     """Read all standard agent configuration and memory files into a map.
 
     Returns:
@@ -446,7 +443,7 @@ def write_workspace_file(filename: str, content: str):
     path.write_text(content, encoding="utf-8")
 
 
-def list_workspace_files() -> List[str]:
+def list_workspace_files() -> list[str]:
     """List all files present in the current agent workspace.
 
     Returns:
@@ -459,7 +456,7 @@ def list_workspace_files() -> List[str]:
     return [f.name for f in workspace.iterdir() if f.is_file()]
 
 
-def get_agent_icon_path() -> Optional[str]:
+def get_agent_icon_path() -> str | None:
     """Retrieve the absolute filesystem path to the agent's icon image.
 
     Returns:

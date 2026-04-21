@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Workspace Management Tools Module.
 
 This module provides tools for interacting with the agentic workspace,
@@ -7,31 +6,32 @@ including reading/writing core metadata files, managing dynamic skills,
 and auditing the filesystem.
 """
 
-import os
 import json
 import logging
-from typing import Any, Union
+import os
+from typing import Any
+
 from pydantic_ai import RunContext
+
+from ..models import (
+    MCPConfigModel,
+)
 from ..workspace import (
     CORE_FILES,
-    read_md_file,
     append_to_md_file,
     create_new_skill,
     delete_skill_from_disk,
-    write_skill_md,
+    read_md_file,
     read_skill_md,
-)
-from ..models import (
-    MCPConfigModel,
+    write_skill_md,
 )
 
 logger = logging.getLogger(__name__)
 
 
-async def read_workspace_file(ctx: RunContext[Any], filename: str) -> Union[
-    MCPConfigModel,
-    str,
-]:
+async def read_workspace_file(
+    ctx: RunContext[Any], filename: str
+) -> MCPConfigModel | str:
     """Read and parse the content of a file within the workspace.
 
     Core configuration files (e.g., mcp_config.json) are automatically
@@ -52,7 +52,7 @@ async def read_workspace_file(ctx: RunContext[Any], filename: str) -> Union[
         project_root = os.getcwd()
         full_path = os.path.join(project_root, filename)
         if os.path.exists(full_path):
-            with open(full_path, "r", encoding="utf-8") as f:
+            with open(full_path, encoding="utf-8") as f:
                 content = f.read()
 
     # Match against remaining core files

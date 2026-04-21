@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Agent Decorators Module.
 
 This module provides reusable decorators for agent logic. It includes
@@ -8,6 +7,7 @@ pre-conditions on agent actions or API calls.
 """
 
 import functools
+
 from agent_utilities.exceptions import LoginRequiredError
 
 

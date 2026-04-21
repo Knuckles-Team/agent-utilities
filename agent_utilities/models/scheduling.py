@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List
+
 from pydantic import BaseModel, Field
 
 
@@ -22,7 +22,7 @@ class CronTaskModel(BaseModel):
 
 
 class CronRegistryModel(BaseModel):
-    tasks: List[CronTaskModel] = Field(default_factory=list)
+    tasks: list[CronTaskModel] = Field(default_factory=list)
 
 
 class CronLogEntryModel(BaseModel):
@@ -31,8 +31,8 @@ class CronLogEntryModel(BaseModel):
     task_name: str = ""
     status: str = "success"
     message: str = ""
-    chat_id: Optional[str] = None
+    chat_id: str | None = None
 
 
 class CronLogModel(BaseModel):
-    entries: List[CronLogEntryModel] = Field(default_factory=list)
+    entries: list[CronLogEntryModel] = Field(default_factory=list)

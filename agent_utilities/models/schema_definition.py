@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Unified Graph Schema Definition.
 
 This module defines the structural schema for the knowledge graph,
@@ -7,7 +6,7 @@ which can be used by different backends (Ladybug, Neo4j, FalkorDB)
 to initialize tables or indices.
 """
 
-from .knowledge_graph import GraphSchemaDefinition, TableDefinition, RelDefinition
+from .knowledge_graph import GraphSchemaDefinition, RelDefinition, TableDefinition
 
 SCHEMA = GraphSchemaDefinition(
     nodes=[
@@ -25,6 +24,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -42,6 +42,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -55,6 +56,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -69,6 +71,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -82,6 +85,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -95,6 +99,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -109,6 +114,7 @@ SCHEMA = GraphSchemaDefinition(
                 "tags": "STRING[]",
                 "importance_score": "FLOAT",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         # User & Environment Nodes
@@ -122,6 +128,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -134,6 +141,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -146,6 +154,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -159,6 +168,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -171,6 +181,7 @@ SCHEMA = GraphSchemaDefinition(
                 "output": "STRING",
                 "importance_score": "FLOAT",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -183,6 +194,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -196,6 +208,7 @@ SCHEMA = GraphSchemaDefinition(
                 "embedding": "FLOAT[]",
                 "importance_score": "FLOAT",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -210,6 +223,7 @@ SCHEMA = GraphSchemaDefinition(
                 "raw_data": "STRING",
                 "importance_score": "FLOAT",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -222,6 +236,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         # Enhanced Memory & Reasoning Nodes (Neo4j/MAGMA style)
@@ -236,6 +251,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -249,6 +265,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -261,6 +278,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -272,6 +290,7 @@ SCHEMA = GraphSchemaDefinition(
                 "event_type": "STRING",
                 "importance_score": "FLOAT",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -284,6 +303,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -296,6 +316,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -308,6 +329,7 @@ SCHEMA = GraphSchemaDefinition(
                 "description": "STRING",
                 "importance_score": "FLOAT",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -320,6 +342,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -331,6 +354,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -342,6 +366,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         # Callable Resources & Dynamic Agents
@@ -360,6 +385,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -377,6 +403,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -392,6 +419,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -409,6 +437,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         # Self-Improvement & Learning (Agent Lightning style)
@@ -423,6 +452,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -434,6 +464,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -446,6 +477,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -456,6 +488,7 @@ SCHEMA = GraphSchemaDefinition(
                 "status": "STRING",
                 "importance_score": "FLOAT",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -468,6 +501,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         # Knowledge Base Nodes
@@ -486,6 +520,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -502,6 +537,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -518,6 +554,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -531,6 +568,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -545,6 +583,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -558,6 +597,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -572,6 +612,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -585,6 +626,7 @@ SCHEMA = GraphSchemaDefinition(
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
             },
         ),
         TableDefinition(
@@ -596,6 +638,124 @@ SCHEMA = GraphSchemaDefinition(
                 "status": "STRING",
                 "assigned_to": "STRING",
                 "created_by": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="Policy",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "policy_id": "STRING",
+                "name": "STRING",
+                "description": "STRING",
+                "condition": "STRING",
+                "action": "STRING",
+                "priority": "INT64",
+                "applies_to": "STRING[]",
+                "version": "STRING",
+                "created_at": "STRING",
+                "valid_from": "STRING",
+                "valid_to": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="ProcessFlow",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "flow_id": "STRING",
+                "name": "STRING",
+                "goal": "STRING",
+                "start_step": "STRING",
+                "version": "STRING",
+                "created_at": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="ProcessStep",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "step_id": "STRING",
+                "name": "STRING",
+                "step_type": "STRING",
+                "tool": "STRING",
+                "condition": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="KnowledgeBaseTopic",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "topic_id": "STRING",
+                "name": "STRING",
+                "description": "STRING",
+                "source": "STRING",
+                "embedding": "FLOAT[]",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="Source",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "source_id": "STRING",
+                "title": "STRING",
+                "doi": "STRING",
+                "url": "STRING",
+                "publication_date": "STRING",
+                "authors": "STRING[]",
+                "is_permanent": "BOOLEAN",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+            },
+        ),
+        TableDefinition(
+            name="Evidence",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "evidence_id": "STRING",
+                "claim": "STRING",
+                "confidence_score": "FLOAT",
+                "is_permanent": "BOOLEAN",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+            },
+        ),
+        TableDefinition(
+            name="Person",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "person_id": "STRING",
+                "name": "STRING",
+                "expertise": "STRING[]",
+                "affiliation": "STRING",
+                "is_permanent": "BOOLEAN",
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
@@ -636,7 +796,16 @@ SCHEMA = GraphSchemaDefinition(
         RelDefinition(
             type="PREFERS", connections=[{"from": "User", "to": "Preference"}]
         ),
-        RelDefinition(type="EXECUTED_BY", connections=[{"from": "Log", "to": "Job"}]),
+        RelDefinition(
+            type="EXECUTED_BY",
+            connections=[
+                {"from": "Log", "to": "Job"},
+                {"from": "Episode", "to": "SpawnedAgent"},
+                {"from": "Episode", "to": "Agent"},
+                {"from": "ReasoningTrace", "to": "SpawnedAgent"},
+                {"from": "ReasoningTrace", "to": "Agent"},
+            ],
+        ),
         RelDefinition(
             type="PART_OF",
             connections=[
@@ -657,6 +826,7 @@ SCHEMA = GraphSchemaDefinition(
                 {"from": "Agent", "to": "Skill"},
                 {"from": "SpawnedAgent", "to": "CallableResource"},
                 {"from": "SpawnedAgent", "to": "SystemPrompt"},
+                {"from": "Episode", "to": "SystemPrompt"},
             ],
         ),
         # Enhanced Memory & Reasoning Relationships
@@ -843,6 +1013,45 @@ SCHEMA = GraphSchemaDefinition(
                 {"from": "Task", "to": "Team"},
                 {"from": "Agent", "to": "Team"},
                 {"from": "SpawnedAgent", "to": "Team"},
+            ],
+        ),
+        RelDefinition(
+            type="APPLIES_TO",
+            connections=[
+                {"from": "Policy", "to": "Entity"},
+                {"from": "Policy", "to": "Agent"},
+                {"from": "Policy", "to": "ProcessFlow"},
+            ],
+        ),
+        RelDefinition(
+            type="HAS_START",
+            connections=[{"from": "ProcessFlow", "to": "ProcessStep"}],
+        ),
+        RelDefinition(
+            type="NEXT",
+            connections=[{"from": "ProcessStep", "to": "ProcessStep"}],
+        ),
+        RelDefinition(
+            type="GROUNDED_IN",
+            connections=[{"from": "KnowledgeBaseTopic", "to": "Policy"}],
+        ),
+        RelDefinition(
+            type="REFERENCES",
+            connections=[
+                {"from": "KnowledgeBaseTopic", "to": "ProcessFlow"},
+                {"from": "KnowledgeBaseTopic", "to": "ProcessStep"},
+            ],
+        ),
+        RelDefinition(
+            type="AUTHORED",
+            connections=[{"from": "Person", "to": "Source"}],
+        ),
+        RelDefinition(
+            type="SUPPORTS",
+            connections=[
+                {"from": "Source", "to": "Evidence"},
+                {"from": "Source", "to": "Concept"},
+                {"from": "Evidence", "to": "Concept"},
             ],
         ),
     ],

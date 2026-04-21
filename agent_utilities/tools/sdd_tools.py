@@ -1,19 +1,19 @@
 #!/usr/bin/python
-# coding: utf-8
 """SDD (Spec-Driven Development) Toolset.
 
 This module provides Pydantic AI tool wrappers for the SDDManager, enabling agents
 to natively interact with structured SDD artifacts (Constitutions, Specs, Tasks).
 """
 
-from typing import List, Optional
+from typing import Any
+
 from pydantic_ai import RunContext
 
 from ..models import (
     AgentDeps,
+    ImplementationPlan,
     ProjectConstitution,
     Spec,
-    ImplementationPlan,
     Tasks,
 )
 from ..sdd import SDDManager
@@ -50,7 +50,7 @@ async def save_spec(ctx: RunContext[AgentDeps], spec: Spec, feature_id: str) -> 
     return f"Spec '{feature_id}' saved to {path}"
 
 
-async def load_spec(ctx: RunContext[AgentDeps], feature_id: str) -> Optional[Spec]:
+async def load_spec(ctx: RunContext[AgentDeps], feature_id: str) -> Spec | None:
     """Load a feature specification by ID."""
     manager = SDDManager(ctx.deps.workspace_path)
     return manager.load(Spec, feature_id=feature_id)
@@ -66,7 +66,7 @@ async def save_tasks(ctx: RunContext[AgentDeps], tasks: Tasks, feature_id: str) 
     return f"Tasks for '{feature_id}' saved to {path}"
 
 
-async def load_tasks(ctx: RunContext[AgentDeps], feature_id: str) -> Optional[Tasks]:
+async def load_tasks(ctx: RunContext[AgentDeps], feature_id: str) -> Tasks | None:
     """Load the tasks for a feature."""
     manager = SDDManager(ctx.deps.workspace_path)
     return manager.load(Tasks, feature_id=feature_id)
@@ -86,7 +86,7 @@ async def save_implementation_plan(
 
 async def load_implementation_plan(
     ctx: RunContext[AgentDeps], feature_id: str
-) -> Optional[ImplementationPlan]:
+) -> ImplementationPlan | None:
     """Load an implementation plan by ID."""
     manager = SDDManager(ctx.deps.workspace_path)
     return manager.load(ImplementationPlan, feature_id=feature_id)
@@ -94,7 +94,7 @@ async def load_implementation_plan(
 
 async def get_sdd_parallel_batches(
     ctx: RunContext[AgentDeps], feature_id: str
-) -> List[List[str]]:
+) -> list[list[str]]:
     """Analyze the current task list and return batches of tasks that can run in parallel.
 
     Uses dependency analysis and file collision detection.
@@ -109,16 +109,16 @@ async def get_sdd_parallel_batches(
 async def setup_sdd(ctx: RunContext[AgentDeps]) -> str:
     """Initialize the SDD (Spec-Driven Development) structure in the workspace.
 
-    Creates agent_data/specs, agent_data/plans, and agent_data/tasks directories.
+    Creates the .specify/ directory and subdirectories for specs, plans, and tasks.
     Provides full spec-kit parity for project initialization.
     """
     manager = SDDManager(ctx.deps.workspace_path)
     # SDDManager.save handles directory creation lazily, but we can pre-create them
-    dirs = ["specs", "plans", "tasks"]
+    dirs = ["specs"]
     for d in dirs:
-        (manager.agent_data / d).mkdir(parents=True, exist_ok=True)
+        (manager.specify_dir / d).mkdir(parents=True, exist_ok=True)
 
-    return f"SDD project structure initialized at {manager.agent_data}"
+    return f"SDD project structure initialized at {manager.specify_dir}"
 
 
 async def export_sdd_to_markdown(
@@ -128,18 +128,12 @@ async def export_sdd_to_markdown(
 
     artifact_type: 'spec' or 'tasks'.
     Maintains spec-kit parity by mirroring state in the workspace root.
+    (Note: artifacts are now natively stored as Markdown in .specify/)
     """
     manager = SDDManager(ctx.deps.workspace_path)
-    if artifact_type == "spec":
-        model = manager.load(Spec, feature_id=feature_id)
-    else:
-        model = manager.load(Tasks, feature_id=feature_id)
-
-    if not model:
-        return f"Could not find {artifact_type} for feature '{feature_id}'"
-
-    path = manager.export_to_markdown(model, feature_id)
-    return f"Exported {artifact_type} to {path}"
+    model_type: Any = Spec if artifact_type == "spec" else Tasks
+    path = manager._get_path(model_type, feature_id)
+    return f"Artifact natively available as Markdown at {path}"
 
 
 async def import_sdd_from_markdown(

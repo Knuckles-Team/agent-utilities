@@ -1,19 +1,20 @@
 import logging
 import time
-from typing import Any, Dict
-from ..types import (
-    PipelinePhase,
-    PipelineContext,
-    PhaseResult,
-)
+from typing import Any
+
 from ...backends import create_backend
+from ..types import (
+    PhaseResult,
+    PipelineContext,
+    PipelinePhase,
+)
 
 logger = logging.getLogger(__name__)
 
 
 async def execute_memory(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Phase 1: Hydrate existing state from the persistent backend."""
     if not ctx.config.persist_to_ladybug:
         return {"status": "skipped", "reason": "persistence disabled"}

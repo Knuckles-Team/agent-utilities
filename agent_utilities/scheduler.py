@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Task Scheduler Module.
 
 This module provides a persistent task scheduling system for agents. It
@@ -10,25 +9,27 @@ using the agent's core capabilities.
 
 from __future__ import annotations
 
-import logging
 import asyncio
-
-
-from typing import Any, List, Optional, TYPE_CHECKING
+import logging
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     pass
 
 
-from .config import DEFAULT_MAX_CRON_LOG_ENTRIES
-from .prompt_builder import resolve_prompt
 from .chat_persistence import save_chat_to_disk
+from .config import DEFAULT_MAX_CRON_LOG_ENTRIES
+from .models import (
+    CronLogEntryModel,
+    CronLogModel,
+    CronRegistryModel,
+    CronTaskModel,
+    PeriodicTask,
+)
+from .prompt_builder import resolve_prompt
 
-
-from .models import PeriodicTask, CronRegistryModel, CronTaskModel, CronLogModel
-
-tasks: List[PeriodicTask] = []
+tasks: list[PeriodicTask] = []
 lock = asyncio.Lock()
 
 
@@ -224,7 +225,7 @@ def append_cron_log(
     task_name: str,
     output: str,
     status: str = "success",
-    chat_id: Optional[str] = None,
+    chat_id: str | None = None,
 ):
     """Log the outcome of a periodic task run to the Knowledge Graph.
 

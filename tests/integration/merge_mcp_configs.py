@@ -1,10 +1,11 @@
 import json
+from typing import Any
 import os
 import subprocess
 
 
 def merge_mcp_configs(target_path):
-    master_config = {"mcpServers": {}}
+    master_config: dict[str, Any] = {"mcpServers": {}}
 
     # Files to ignore (e.g. mock data or temp files if any)
     ignore_paths = ["mock_agent_data", "tests"]

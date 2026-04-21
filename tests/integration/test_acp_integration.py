@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+from typing import Any
 from unittest.mock import patch, MagicMock
 from agent_utilities.acp_adapter import build_acp_config, create_graph_acp_app, _ACP_INSTALLED
 from pydantic_ai import Agent
@@ -9,7 +10,7 @@ pytestmark = pytest.mark.skipif(not _ACP_INSTALLED, reason="pydantic-acp not ins
 @pytest.fixture
 def mock_graph():
     graph = MagicMock()
-    config = {"mcp_toolsets": []}
+    config: dict[str, Any] = {"mcp_toolsets": []}
     return graph, config
 
 @pytest.mark.asyncio
@@ -24,7 +25,7 @@ async def test_acp_graph_integration():
 
     with patch("agent_utilities.graph.unified.execute_graph", return_value=mock_result) as mock_execute:
         # Create the graph-backed ACP app
-        graph_bundle = (MagicMock(), {"mcp_toolsets": []})
+        graph_bundle: tuple[Any, ...] = (MagicMock(), {"mcp_toolsets": []})
         app = create_graph_acp_app(agent, config, graph_bundle=graph_bundle)
 
         # In a real scenario, we would use an ASGI client (like httpx.AsyncClient with app)

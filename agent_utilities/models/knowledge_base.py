@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Knowledge Base Pydantic Models.
 
 Defines type-safe Pydantic models used throughout the KB system:
@@ -11,7 +10,8 @@ Defines type-safe Pydantic models used throughout the KB system:
 
 from __future__ import annotations
 
-from typing import List, Literal, Dict, Any
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ class DocumentChunk(BaseModel):
     chunk_index: int
     content_hash: str
     word_count: int
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ParsedSource(BaseModel):
@@ -39,8 +39,8 @@ class ParsedSource(BaseModel):
     source_type: str
     content_hash: str
     file_size: int
-    chunks: List[DocumentChunk]
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    chunks: list[DocumentChunk]
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -74,18 +74,18 @@ class ExtractedArticle(BaseModel):
     content: str = Field(
         description="Full compiled markdown article with sections, examples, and links"
     )
-    concepts: List[str] = Field(
+    concepts: list[str] = Field(
         description="Key concept names this article covers (max 10)", max_length=10
     )
-    facts: List[ExtractedFact] = Field(
+    facts: list[ExtractedFact] = Field(
         description="Atomic facts extracted from the source material",
         default_factory=list,
     )
-    backlinks: List[str] = Field(
+    backlinks: list[str] = Field(
         description="Titles of other articles in this knowledge base that are closely related",
         default_factory=list,
     )
-    tags: List[str] = Field(
+    tags: list[str] = Field(
         description="Keyword tags for discovery (lowercase, hyphen-separated)",
         default_factory=list,
     )
@@ -95,13 +95,13 @@ class ExtractedKBIndex(BaseModel):
     """A generated index document summarizing all articles in a KB."""
 
     overview: str = Field(description="2-3 paragraph overview of the knowledge base")
-    article_summaries: List[Dict[str, str]] = Field(
+    article_summaries: list[dict[str, str]] = Field(
         description="List of {title, one_liner} for each article"
     )
-    key_concepts: List[str] = Field(
+    key_concepts: list[str] = Field(
         description="Top-level concepts across all articles"
     )
-    suggested_queries: List[str] = Field(
+    suggested_queries: list[str] = Field(
         description="Example questions this KB can answer (for agent discoverability)"
     )
 
@@ -124,7 +124,7 @@ class KnowledgeBaseMetadata(BaseModel):
     status: Literal["ingesting", "ready", "updating", "error", "archived"] = "ingesting"
     importance_score: float = 0.5
     timestamp: str = ""
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class KBSearchResult(BaseModel):
@@ -149,7 +149,7 @@ class KBSummary(BaseModel):
     article_count: int
     source_count: int
     status: str
-    suggested_queries: List[str] = Field(default_factory=list)
+    suggested_queries: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +177,8 @@ class KBHealthReport(BaseModel):
 
     kb_id: str
     kb_name: str
-    issues: List[KBIssue] = Field(default_factory=list)
-    suggested_articles: List[str] = Field(
+    issues: list[KBIssue] = Field(default_factory=list)
+    suggested_articles: list[str] = Field(
         description="New article titles the LLM suggests to fill gaps",
         default_factory=list,
     )

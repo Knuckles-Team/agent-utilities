@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Conversation checkpointing capability with graph persistence.
 
 Allows snapshotting conversation state, persisting it to the knowledge graph,
@@ -9,19 +8,21 @@ and rewinding or forking from specific points.
 from __future__ import annotations
 
 import abc
+import builtins
 import json
 import logging
 import os
 import time
-from pathlib import Path
+import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Literal
+from pathlib import Path
+from typing import Any, Literal
 
-from pydantic_ai import RunContext, Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelMessage
 
-from ..models.knowledge_graph import RegistryNodeType, CheckpointNode
+from ..models.knowledge_graph import CheckpointNode, RegistryNodeType
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +32,9 @@ class Checkpoint:
     id: str
     label: str
     turn: int
-    messages: List[ModelMessage]
+    messages: list[ModelMessage]
     timestamp: float = field(default_factory=time.time)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> str:
         # Simplistic serialization for messages
@@ -65,25 +66,25 @@ class CheckpointStore(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def get(self, checkpoint_id: str) -> Optional[Checkpoint]:
+    async def get(self, checkpoint_id: str) -> Checkpoint | None:
         pass
 
     @abc.abstractmethod
-    async def list(self, limit: int = 10) -> List[Checkpoint]:
+    async def list(self, limit: int = 10) -> builtins.list[Checkpoint]:
         pass
 
 
 class InMemoryCheckpointStore(CheckpointStore):
     def __init__(self):
-        self._checkpoints: Dict[str, Checkpoint] = {}
+        self._checkpoints: dict[str, Checkpoint] = {}
 
     async def save(self, checkpoint: Checkpoint) -> None:
         self._checkpoints[checkpoint.id] = checkpoint
 
-    async def get(self, checkpoint_id: str) -> Optional[Checkpoint]:
+    async def get(self, checkpoint_id: str) -> Checkpoint | None:
         return self._checkpoints.get(checkpoint_id)
 
-    async def list(self, limit: int = 10) -> List[Checkpoint]:
+    async def list(self, limit: int = 10) -> builtins.list[Checkpoint]:
         return sorted(
             self._checkpoints.values(), key=lambda x: x.timestamp, reverse=True
         )[:limit]
@@ -124,7 +125,7 @@ class GraphCheckpointStore(CheckpointStore):
         except Exception as e:
             logger.error(f"Failed to save checkpoint to graph: {e}")
 
-    async def get(self, checkpoint_id: str) -> Optional[Checkpoint]:
+    async def get(self, checkpoint_id: str) -> Checkpoint | None:
         try:
             if self.engine.backend:
                 data = await self.engine.backend.get_node(
@@ -140,7 +141,7 @@ class GraphCheckpointStore(CheckpointStore):
             logger.error(f"Failed to get checkpoint from graph: {e}")
         return None
 
-    async def list(self, limit: int = 10) -> List[Checkpoint]:
+    async def list(self, limit: int = 10) -> builtins.list[Checkpoint]:
         # Implementation would use Cypher or graph iteration
         return []
 
@@ -156,13 +157,13 @@ class FileCheckpointStore(CheckpointStore):
         path = self.directory / f"{checkpoint.id}.json"
         path.write_text(checkpoint.to_json(), encoding="utf-8")
 
-    async def get(self, checkpoint_id: str) -> Optional[Checkpoint]:
+    async def get(self, checkpoint_id: str) -> Checkpoint | None:
         path = self.directory / f"{checkpoint_id}.json"
         if path.exists():
             return Checkpoint.from_json(path.read_text(encoding="utf-8"))
         return None
 
-    async def list(self, limit: int = 10) -> List[Checkpoint]:
+    async def list(self, limit: int = 10) -> builtins.list[Checkpoint]:
         files = sorted(
             self.directory.glob("*.json"), key=os.path.getmtime, reverse=True
         )[:limit]
@@ -207,15 +208,15 @@ class CheckpointMiddleware(AbstractCapability[Any]):
     _current_turn: int = 0
 
     async def after_tool_execute(self, ctx: RunContext[Any], **kwargs) -> Any:
+        call = kwargs.get("call")
+        tool_name = call.tool_name if call else "unknown"
         if self.frequency == "every_tool":
-            await self._checkpoint(
-                ctx, label=f"After tool: {kwargs.get('call').tool_name}"
-            )
+            await self._checkpoint(ctx, label=f"After tool: {tool_name}")
         return kwargs.get("result")
 
     async def _checkpoint(self, ctx: RunContext[Any], label: str) -> str:
         checkpoint_id = f"ckpt_{int(time.time())}_{uuid.uuid4().hex[:6]}"
-        messages = ctx.all_messages()
+        messages = ctx.messages
 
         cp = Checkpoint(
             id=checkpoint_id,
@@ -233,6 +234,3 @@ async def fork_from_checkpoint(
 ) -> Any:
     """Start a new run from a specific checkpoint."""
     return await agent.run(user_input, message_history=checkpoint.messages)
-
-
-import uuid  # needed for IDs

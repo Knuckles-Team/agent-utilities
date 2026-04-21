@@ -1,20 +1,19 @@
 #!/usr/bin/python
-# coding: utf-8
 """Unified Intelligence Graph CLI.
 
 Command-line interface for running the Unified Intelligence Pipeline
 and querying the graph (Agents, Tools, Code, Memory).
 """
 
-import asyncio
 import argparse
+import asyncio
 import logging
 from pathlib import Path
 
 from ..models.knowledge_graph import PipelineConfig
-from .pipeline import IntelligencePipeline
-from .engine import IntelligenceGraphEngine
 from ..workspace import get_agent_workspace
+from .engine import IntelligenceGraphEngine
+from .pipeline import IntelligencePipeline
 
 
 async def main():

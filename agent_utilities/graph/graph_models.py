@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Graph Models Module.
 
 This module defines the structured Pydantic models used for input and output
@@ -8,7 +7,7 @@ metadata, and quality validation results.
 """
 
 from __future__ import annotations
-from typing import Optional
+
 from pydantic import BaseModel, Field
 
 from ..models import GraphPlan
@@ -58,7 +57,7 @@ class ValidationResult(BaseModel):
     is_valid: bool = Field(
         description="True if the result is high quality and accurate"
     )
-    feedback: Optional[str] = Field(
+    feedback: str | None = Field(
         None, description="Detailed feedback if invalid, explaining what to improve"
     )
     score: float = Field(ge=0, le=1, description="Quality score from 0 to 1")

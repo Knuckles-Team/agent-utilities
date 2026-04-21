@@ -285,10 +285,17 @@ class TestSelfImprovement:
             "CREATE (p:SystemPrompt {id: $id, content: $content, source: 'MANUAL', version: 'v1'})",
             {"id": base_id, "content": "Review code carefully."}
         )
-        engine.spawn_specialized_agent("review code", [])
+
+        # Spawn agent and link to episode and prompt
+        agent_id = engine.spawn_specialized_agent("review code", [])
+
         engine.backend.execute(
-            "MATCH (a:SpawnedAgent), (p:SystemPrompt {id: $pid}) MERGE (a)-[:USES]->(p)",
-            {"pid": base_id}
+            "MATCH (e:Episode), (a:SpawnedAgent) WHERE e.id = $eid AND a.id = $aid MERGE (e)-[:EXECUTED_BY]->(a)",
+            {"eid": ep_id, "aid": agent_id}
+        )
+        engine.backend.execute(
+            "MATCH (a:SpawnedAgent), (p:SystemPrompt) WHERE a.id = $aid AND p.id = $pid MERGE (a)-[:USES]->(p)",
+            {"aid": agent_id, "pid": base_id}
         )
 
         # Run cycle

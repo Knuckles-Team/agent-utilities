@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Embedding Utilities Module.
 
 This module provides factory functions for initializing LlamaIndex-compatible
@@ -8,8 +7,9 @@ HuggingFace, and local models, with robust environment-based configuration.
 """
 
 import os
+from typing import TYPE_CHECKING
+
 import httpx
-from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from llama_index.core.embeddings import BaseEmbedding
@@ -44,8 +44,8 @@ except ImportError:
     MistralProvider = None
 
 try:
-    from pydantic_ai.models.anthropic import AnthropicModel
     from anthropic import AsyncAnthropic
+    from pydantic_ai.models.anthropic import AnthropicModel
     from pydantic_ai.providers.anthropic import AnthropicProvider
 except ImportError:
     AnthropicModel = None
@@ -56,14 +56,12 @@ __version__ = "0.2.40"
 
 
 def create_embedding_model(
-    provider: Optional[str] = os.environ.get("EMBEDDING_PROVIDER", "openai").lower(),
-    model: Optional[str] = os.environ.get(
+    provider: str | None = os.environ.get("EMBEDDING_PROVIDER", "openai").lower(),
+    model: str | None = os.environ.get(
         "EMBEDDING_MODEL", "text-embedding-nomic-embed-text-v2-moe"
     ),
-    base_url: Optional[str] = os.environ.get(
-        "LLM_BASE_URL", "http://localhost:1234/v1"
-    ),
-    api_key: Optional[str] = os.environ.get("LLM_API_KEY", None),
+    base_url: str | None = os.environ.get("LLM_BASE_URL", "http://localhost:1234/v1"),
+    api_key: str | None = os.environ.get("LLM_API_KEY", None),
     ssl_verify: bool = to_boolean(string=os.environ.get("SSL_VERIFY", "true")),
     timeout: float = 300.0,
 ) -> "BaseEmbedding":

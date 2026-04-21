@@ -1,15 +1,15 @@
 #!/usr/bin/python
-# coding: utf-8
 """Onboarding Tools Module.
 
 This module provides utilities for bootstrapping new agentic workspaces,
-detecting project technology stacks, and initializing core metadata files
-like IDENTITY.md and MEMORY.md.
+detecting project technology stacks, and initializing core configuration files
+like main_agent.md.
 """
 
 import logging
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
 from pydantic_ai import RunContext
 
 from ..models import (
@@ -19,7 +19,7 @@ from ..models import (
 logger = logging.getLogger(__name__)
 
 
-def detect_tech_stack(root: Path) -> Dict[str, Any]:
+def detect_tech_stack(root: Path) -> dict[str, Any]:
     """Identify languages, frameworks, and build tools in the repository.
 
     Args:
@@ -29,7 +29,7 @@ def detect_tech_stack(root: Path) -> Dict[str, Any]:
         A dictionary containing lists of detected languages, frameworks, and tools.
 
     """
-    stack = {"languages": [], "frameworks": [], "tools": []}
+    stack: dict[str, list[str]] = {"languages": [], "frameworks": [], "tools": []}
 
     # Check for specific markers
     markers = {
@@ -62,7 +62,7 @@ def detect_tech_stack(root: Path) -> Dict[str, Any]:
     return stack
 
 
-def scan_for_entry_points(root: Path) -> List[str]:
+def scan_for_entry_points(root: Path) -> list[str]:
     """Identify potential main interaction points and entry scripts.
 
     Args:

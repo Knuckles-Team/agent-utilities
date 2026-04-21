@@ -1,35 +1,35 @@
-#!/usr/bin/python
-# coding: utf-8
-"""A2A Tools Module.
-
-This module provides tools for discovering, registering, and managing
-Model Context Protocol (MCP) and A2A peer agents.
-"""
-
 import logging
 from typing import Any
+
 from pydantic_ai import RunContext
-from ..models import A2ARegistryModel
+
+from ..a2a import (
+    delete_a2a_peer as delete_a2a_peer_util,
+)
+from ..a2a import (
+    list_a2a_peers as list_a2a_peers_util,
+)
 from ..a2a import (
     register_a2a_peer as register_a2a_peer_util,
-    delete_a2a_peer as delete_a2a_peer_util,
-    list_a2a_peers as list_a2a_peers_util,
 )
 
 logger = logging.getLogger(__name__)
 
 
-async def list_a2a_peers(ctx: RunContext[Any]) -> A2ARegistryModel:
-    """List all known A2A peer agents in the workspace registry.
+async def list_a2a_peers(ctx: RunContext[Any]) -> list[str]:
+    """List all known A2A peer agents in the Knowledge Graph.
 
     Args:
         ctx: The agent run context.
 
     Returns:
-        A model containing the list of known A2A peers.
+        A list of known A2A peers and their metadata.
 
     """
-    return list_a2a_peers_util()
+    model = list_a2a_peers_util()
+    return [
+        f"{name} ({peer.url}): {peer.description}" for name, peer in model.peers.items()
+    ]
 
 
 async def register_a2a_peer(
@@ -48,7 +48,7 @@ async def register_a2a_peer(
         url: The connection URL for the peer service.
         description: A brief summary of the peer's purpose.
         capabilities: A comma-separated list of peer specialties.
-        auth: Authentication type (e.g., 'none', 'bearer').
+        auth: Authentication type.
 
     Returns:
         A confirmation message indicating success.
@@ -58,7 +58,7 @@ async def register_a2a_peer(
 
 
 async def delete_a2a_peer(ctx: RunContext[Any], name: str) -> str:
-    """Remove an A2A peer agent from the local workspace registry.
+    """Remove an A2A peer agent from the Knowledge Graph.
 
     Args:
         ctx: The agent run context.

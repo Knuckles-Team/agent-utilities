@@ -1,14 +1,15 @@
-from typing import Any, Dict
+from typing import Any
+
 from ..types import (
-    PipelinePhase,
-    PipelineContext,
     PhaseResult,
+    PipelineContext,
+    PipelinePhase,
 )
 
 
 async def execute_reference(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Resolve call graph references."""
     graph = ctx.nx_graph
 

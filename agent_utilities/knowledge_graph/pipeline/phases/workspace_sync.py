@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Workspace Synchronization Phase (Phase 14).
 
 Uses the repository-manager (as a library or MCP) to ensure all projects
@@ -8,20 +7,21 @@ defined in workspace.yml are cloned and available, then triggers graph ingestion
 
 from __future__ import annotations
 
-import yaml
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
+
+import yaml
 
 from ....workspace import get_agent_workspace
-from ..types import PipelinePhase, PipelineContext, PhaseResult
+from ..types import PhaseResult, PipelineContext, PipelinePhase
 
 logger = logging.getLogger(__name__)
 
 
 async def execute_workspace_sync(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Phase 14: Synchronize workspace repositories defined in workspace.yml."""
     config = ctx.config
     if not getattr(config, "enable_workspace_sync", True):
@@ -38,7 +38,7 @@ async def execute_workspace_sync(
         return {"status": "skipped", "reason": "workspace.yml missing from root"}
 
     try:
-        with open(yml_path, "r", encoding="utf-8") as f:
+        with open(yml_path, encoding="utf-8") as f:
             ws_data = yaml.safe_load(f)
     except Exception as e:
         logger.error(f"Failed to parse workspace.yml: {e}")
@@ -48,7 +48,7 @@ async def execute_workspace_sync(
     if not projects:
         return {"status": "skipped", "reason": "no projects defined"}
 
-    results = {"projects_synced": 0, "auto_ingested": 0}
+    results: dict[str, Any] = {"projects_synced": 0, "auto_ingested": 0}
 
     # Attempt to use repository-manager
     try:

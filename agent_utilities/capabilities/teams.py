@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Multi-agent team coordination capability with ACP integration.
 
 Manages team membership, shared tasks, and message routing via the
@@ -12,12 +11,12 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field, replace
-from typing import Any, List, Optional
+from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
 
-from ..models.knowledge_graph import RegistryNodeType, TeamNode, TaskNode
+from ..models.knowledge_graph import RegistryNodeType, TaskNode, TeamNode
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +26,8 @@ class SharedTodoItem:
     id: str
     content: str
     status: str = "pending"
-    assigned_to: Optional[str] = None
-    created_by: Optional[str] = None
+    assigned_to: str | None = None
+    created_by: str | None = None
 
 
 @dataclass
@@ -38,14 +37,14 @@ class TeamCapability(AbstractCapability[Any]):
     Integrates with ACP for messaging and persists team state in the graph.
     """
 
-    team_id: Optional[str] = None
-    members: List[str] = field(default_factory=list)
+    team_id: str | None = None
+    members: list[str] = field(default_factory=list)
 
     async def for_run(self, ctx: RunContext[Any]) -> TeamCapability:
         return replace(self)
 
     async def create_team(
-        self, ctx: RunContext[Any], name: str, member_ids: List[str]
+        self, ctx: RunContext[Any], name: str, member_ids: list[str]
     ) -> str:
         """Create a new team and record it in the graph."""
         self.team_id = f"team_{uuid.uuid4().hex[:8]}"
@@ -73,7 +72,7 @@ class TeamCapability(AbstractCapability[Any]):
         return self.team_id
 
     async def add_task(
-        self, ctx: RunContext[Any], content: str, assigned_to: Optional[str] = None
+        self, ctx: RunContext[Any], content: str, assigned_to: str | None = None
     ) -> str:
         """Add a shared task to the team and graph."""
         task_id = f"task_{uuid.uuid4().hex[:8]}"

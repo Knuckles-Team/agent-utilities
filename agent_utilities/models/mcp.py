@@ -1,27 +1,30 @@
 import time
-from typing import Optional, List, Dict, Any
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
 class MCPConfigModel(BaseModel):
-    mcpServers: Dict[str, Any] = Field(default_factory=dict)
+    mcpServers: dict[str, Any] = Field(default_factory=dict)
 
 
 class MCPAgent(BaseModel):
     name: str = Field(description="Unique agent identifier / tag")
-    agent_type: str = Field("prompt", description="Type: prompt, mcp, a2a")
-    prompt_file: Optional[str] = Field(None, description="Markdown prompt file path")
-    endpoint_url: Optional[str] = Field(None, description="Connection URL / cmd")
-    description: str = Field("", description="Specialized agent description")
-    system_prompt: str = Field("", description="Synthesized system prompt")
-    tools: List[str] = Field(default_factory=list, description="Tool names")
-    mcp_server: Optional[str] = Field(None, description="Source MCP server name")
-    capabilities: List[str] = Field(
+    agent_type: str = Field(default="prompt", description="Type: prompt, mcp, a2a")
+    prompt_file: str | None = Field(
+        default=None, description="Markdown prompt file path"
+    )
+    endpoint_url: str | None = Field(default=None, description="Connection URL / cmd")
+    description: str = Field(default="", description="Specialized agent description")
+    system_prompt: str = Field(default="", description="Synthesized system prompt")
+    tools: list[str] = Field(default_factory=list, description="Tool names")
+    mcp_server: str | None = Field(default=None, description="Source MCP server name")
+    capabilities: list[str] = Field(
         default_factory=list, description="Skills/Capabilities"
     )
-    mcp_tools: Optional[str] = Field(None, description="MCP tool/tag patterns")
-    extra_config: Dict[str, Any] = Field(default_factory=dict, description="Metadata")
-    is_custom: bool = Field(False, description="True if manually edited")
+    mcp_tools: str | None = Field(default=None, description="MCP tool/tag patterns")
+    extra_config: dict[str, Any] = Field(default_factory=dict, description="Metadata")
+    is_custom: bool = Field(default=False, description="True if manually edited")
     tool_count: int = Field(default=0, description="Number of tools")
     avg_relevance_score: int = Field(default=0, description="Mean score (0-100)")
 
@@ -29,9 +32,11 @@ class MCPAgent(BaseModel):
 class MCPToolInfo(BaseModel):
     name: str = Field(description="Full tool name")
     description: str = Field(description="Tool description")
-    tag: Optional[str] = Field(None, description="Primary tool tag for partitioning")
+    tag: str | None = Field(
+        default=None, description="Primary tool tag for partitioning"
+    )
     mcp_server: str = Field(description="Source MCP server")
-    all_tags: List[str] = Field(
+    all_tags: list[str] = Field(
         default_factory=list, description="All tags associated with the tool"
     )
     relevance_score: int = Field(
@@ -44,8 +49,8 @@ class MCPToolInfo(BaseModel):
 
 
 class MCPAgentRegistryModel(BaseModel):
-    agents: List[MCPAgent] = Field(default_factory=list)
-    tools: List[MCPToolInfo] = Field(default_factory=list)
+    agents: list[MCPAgent] = Field(default_factory=list)
+    tools: list[MCPToolInfo] = Field(default_factory=list)
 
 
 class DiscoveredSpecialist(BaseModel):
@@ -54,12 +59,12 @@ class DiscoveredSpecialist(BaseModel):
     description: str = Field(default="", description="Specialist summary")
     source: str = Field(description="Origin: 'prompt', 'mcp', or 'a2a'")
     mcp_server: str = Field(default="", description="Source MCP server (MCP only)")
-    tools: List[str] = Field(default_factory=list, description="Known tool names")
+    tools: list[str] = Field(default_factory=list, description="Known tool names")
     url: str = Field(default="", description="Agent endpoint URL (A2A/MCP only)")
-    capabilities: List[str] = Field(
+    capabilities: list[str] = Field(
         default_factory=list, description="Rich capabilities"
     )
-    extra_config: Dict[str, Any] = Field(
+    extra_config: dict[str, Any] = Field(
         default_factory=dict, description="Additional metadata"
     )
 

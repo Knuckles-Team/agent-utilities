@@ -16,7 +16,7 @@ class DummyBackend:
     def __init__(self):
         self.queries = []
 
-    def execute(self, query: str, props: dict = None):
+    def execute(self, query: str, props: dict | None = None):
         self.queries.append({"query": query, "props": props})
         return []
 

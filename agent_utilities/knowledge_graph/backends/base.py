@@ -1,9 +1,8 @@
 #!/usr/bin/python
-# coding: utf-8
 """Graph Backend Base Interface."""
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 
 class GraphBackend(ABC):
@@ -11,8 +10,8 @@ class GraphBackend(ABC):
 
     @abstractmethod
     def execute(
-        self, query: str, params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute a graph query (e.g., Cypher) and return results."""
         pass
 
@@ -22,11 +21,11 @@ class GraphBackend(ABC):
         pass
 
     @abstractmethod
-    def add_embedding(self, node_id: str, embedding: List[float]) -> None:
+    def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Add an embedding vector to a specific node."""
         pass
 
     @abstractmethod
-    def prune(self, _criteria: Dict[str, Any]) -> None:
+    def prune(self, _criteria: dict[str, Any]) -> None:
         """Run pruning logic based on criteria."""
         pass

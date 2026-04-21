@@ -1,31 +1,27 @@
 #!/usr/bin/python
-# coding: utf-8
 """Prompt Builder Module.
 
 This module provides utilities for constructing and resolving agent system
 prompts. It handles dynamic extraction of content from markdown files,
 resolving workspace file references (using the '@' prefix), and aggregating
-identity, user, and memory files into a unified prompt context.
+the main_agent.md configuration and Knowledge Graph context into a unified
+prompt context for the agent.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import re
-import logging
-
-
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     pass
 from pathlib import Path
 
-
 from universal_skills.skill_utilities import (
     resolve_mcp_reference,
 )
-
 
 from .workspace import (
     load_workspace_file,
@@ -34,7 +30,7 @@ from .workspace import (
 logger = logging.getLogger(__name__)
 
 
-def extract_section_from_md(content: str, header: str) -> Optional[str]:
+def extract_section_from_md(content: str, header: str) -> str | None:
     """Extract content under a specific markdown header.
 
     Matches headers following the pattern '## Header Name' or '### Header Name'
@@ -57,7 +53,7 @@ def extract_section_from_md(content: str, header: str) -> Optional[str]:
     return None
 
 
-def get_system_prompt_from_reference(agent_name: str) -> Optional[str]:
+def get_system_prompt_from_reference(agent_name: str) -> str | None:
     """Retrieve the system prompt for an agent from its markdown reference file.
 
     Scans the filesystem for matching agent configuration files (e.g.
@@ -173,7 +169,7 @@ def resolve_prompt(prompt_str: str) -> str:
     return prompt_str
 
 
-def extract_agent_metadata(content: str) -> Dict[str, Any]:
+def extract_agent_metadata(content: str) -> dict[str, Any]:
     """Extract metadata (name, description, emoji, vibe, etc.) from prompt content.
 
     Supports both YAML frontmatter (modern) and the legacy star-based format.
@@ -232,7 +228,7 @@ def extract_agent_metadata(content: str) -> Dict[str, Any]:
     return meta
 
 
-def load_identity(tag: Optional[str] = None) -> Dict[str, str]:
+def load_identity(tag: str | None = None) -> dict[str, str]:
     """Load the primary main_agent.md file and return agent metadata.
 
     Args:

@@ -63,9 +63,10 @@ class TestBackendFactory:
     """Test the create_backend() factory function."""
 
     @pytest.mark.skipif(not LADYBUG_AVAILABLE, reason="LadybugDB not available")
-    def test_default_creates_ladybug(self):
+    def test_default_creates_ladybug(self, tmp_path):
         """Default backend type should be LadybugDB."""
-        backend = create_backend(db_path="test_factory.db")
+        db_file = tmp_path / "test_factory.db"
+        backend = create_backend(db_path=str(db_file))
         assert isinstance(backend, LadybugBackend)
 
     def test_explicit_falkordb(self):
@@ -110,14 +111,15 @@ class TestBackendFactory:
         backend = create_backend()
         assert isinstance(backend, FalkorDBBackend)
 
-    def test_env_var_db_path(self, monkeypatch):
+    def test_env_var_db_path(self, monkeypatch, tmp_path):
         """GRAPH_DB_PATH env var should be used for LadybugDB."""
         if not LADYBUG_AVAILABLE:
             pytest.skip("LadybugDB not available")
-        monkeypatch.setenv("GRAPH_DB_PATH", "custom_path.db")
+        db_file = tmp_path / "custom_path.db"
+        monkeypatch.setenv("GRAPH_DB_PATH", str(db_file))
         backend = create_backend(backend_type="ladybug")
         assert isinstance(backend, LadybugBackend)
-        assert backend.db_path == "custom_path.db"
+        assert backend.db_path == str(db_file)
 
     def test_case_insensitive(self):
         """Backend type should be case-insensitive."""

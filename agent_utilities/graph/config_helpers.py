@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Graph Configuration Helpers Module.
 
 This module provides utility functions for loading and saving graph-related
@@ -9,21 +8,21 @@ for the WebUI, and resolving specialized prompts from the package resources.
 
 from __future__ import annotations
 
-import os
+import asyncio
 import json
 import logging
-import time
-import asyncio
+import os
 import re
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
-from ..workspace import (
-    get_workspace_path,
-    CORE_FILES,
-)
 from ..base_utilities import to_integer
-from ..models import MCPConfigModel, MCPAgentRegistryModel
+from ..models import MCPAgentRegistryModel, MCPConfigModel
+from ..workspace import (
+    CORE_FILES,
+    get_workspace_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,16 +47,16 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
     # 1. Fetch Prompt Agents
     try:
         prompt_rows = engine.backend.execute(
-            "MATCH (p:Prompt) RETURN p.name, p.desc, p.capabilities, p.content"
+            "MATCH (p:Prompt) RETURN p.name, p.description, p.capabilities, p.system_prompt"
         )
         for row in prompt_rows:
             agents.append(
                 MCPAgent(
                     name=row.get("p.name", ""),
-                    description=row.get("p.desc", ""),
+                    description=row.get("p.description", ""),
                     agent_type="prompt",
                     capabilities=row.get("p.capabilities", []),
-                    system_prompt=row.get("p.content", ""),
+                    system_prompt=row.get("p.system_prompt", ""),
                 )
             )
     except Exception as e:
@@ -123,7 +122,7 @@ def save_mcp_config(config: MCPConfigModel):
     path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
 
 
-def emit_graph_event(eq: Optional[asyncio.Queue], event_type: str, **kwargs):
+def emit_graph_event(eq: asyncio.Queue[Any] | None, event_type: str, **kwargs):
     """Emit a standardized graph event for real-time UI visualization.
 
     Formats the event data as a sideband part compatible with the

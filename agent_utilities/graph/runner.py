@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Graph Execution Module.
 
 This module provides the execution logic for the pydantic-graph orchestrator.
@@ -9,34 +8,32 @@ handles state persistence, MCP server connectivity during runs, and graph valida
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import asyncio
-
-from typing import Any, List, Optional
-
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from ..config import (
-    DEFAULT_PROVIDER,
-    DEFAULT_SSL_VERIFY,
-    DEFAULT_GRAPH_PERSISTENCE_PATH,
     DEFAULT_ENABLE_LLM_VALIDATION,
-    DEFAULT_ROUTER_MODEL,
     DEFAULT_GRAPH_AGENT_MODEL,
+    DEFAULT_GRAPH_PERSISTENCE_PATH,
+    DEFAULT_GRAPH_ROUTER_TIMEOUT,
+    DEFAULT_GRAPH_VERIFIER_TIMEOUT,
+    DEFAULT_PROVIDER,
+    DEFAULT_ROUTER_MODEL,
+    DEFAULT_SSL_VERIFY,
 )
 from ..model_factory import create_model
-
 from ..models import GraphResponse
-
-from .state import GraphState, GraphDeps
-from .mermaid import get_graph_mermaid
 from .config_helpers import (
-    load_node_agents_registry,
     DEFAULT_GRAPH_TIMEOUT,
     emit_graph_event,
+    load_node_agents_registry,
 )
+from .mermaid import get_graph_mermaid
+from .state import GraphDeps, GraphState
 
 try:
     from opentelemetry import trace
@@ -56,10 +53,10 @@ async def run_graph(
     persist: bool = False,
     state_dir: str = DEFAULT_GRAPH_PERSISTENCE_PATH or "agent_data/graph_state",
     streamdown: bool = True,
-    eq: Optional[asyncio.Queue] = None,
+    eq: asyncio.Queue[Any] | None = None,
     mode: str = "ask",
     topology: str = "basic",
-    mcp_toolsets: List[Any] = None,
+    mcp_toolsets: list[Any] | None = None,
     query_parts: list[dict[str, Any]] | None = None,
     plan_sync=None,
 ) -> dict:
@@ -136,8 +133,8 @@ async def run_graph(
         api_key=config.get("api_key"),
         ssl_verify=_ssl_verify,
         event_queue=eq,
-        router_timeout=config.get("router_timeout"),
-        verifier_timeout=config.get("verifier_timeout"),
+        router_timeout=config.get("router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT),
+        verifier_timeout=config.get("verifier_timeout", DEFAULT_GRAPH_VERIFIER_TIMEOUT),
         request_id=config.get("request_id", run_id),
         routing_strategy=config.get("routing_strategy", "hybrid"),
         enable_llm_validation=config.get(
@@ -163,8 +160,9 @@ async def run_graph(
         path.parent.mkdir(parents=True, exist_ok=True)
         # persistence = FileStatePersistence(json_file=path)
 
-    import anyio
     from contextlib import AsyncExitStack
+
+    import anyio
 
     # Track which MCP servers fail to connect so we can report them clearly.
     failed_servers: list[tuple[str, str]] = []
@@ -214,8 +212,9 @@ async def run_graph(
         registry = load_node_agents_registry()
         for agent in registry.agents:
             # Domain tags (like 'git_operations') are the primary routing targets
-            if agent.tag and agent.tag not in deps.tag_prompts:
-                deps.tag_prompts[agent.tag] = agent.description or agent.name
+            # MCPAgent uses 'name' as the primary identifier
+            if agent.name and agent.name not in deps.tag_prompts:
+                deps.tag_prompts[agent.name] = agent.description or agent.name
 
             # Legacy node mapping (by name)
             node_id = agent.name.lower().replace(" ", "_")
@@ -274,7 +273,7 @@ async def run_graph(
     if isinstance(result, GraphResponse):
         result.mermaid = mermaid_prefix if mermaid_prefix else None
         result.metadata.update({"run_id": run_id, "domain": state.routed_domain})
-        return result
+        return result.model_dump()
 
     # Guard: graph.run() returned a plain string (node label) instead of GraphResponse.
     # This happens when the graph exits without hitting End[GraphResponse] — e.g. when
@@ -302,14 +301,14 @@ async def run_graph(
                 "domain": state.routed_domain,
                 "terminated_at": result,
             },
-        )
+        ).model_dump()
 
     return GraphResponse(
         status="completed",
         results={"output": str(result)},
         mermaid=mermaid_prefix if mermaid_prefix else None,
         metadata={"run_id": run_id, "domain": state.routed_domain},
-    )
+    ).model_dump()
 
 
 async def run_graph_stream(
@@ -321,7 +320,7 @@ async def run_graph_stream(
     state_dir: str = DEFAULT_GRAPH_PERSISTENCE_PATH or "agent_data/graph_state",
     mode: str = "ask",
     topology: str = "basic",
-    mcp_toolsets: List[Any] = None,
+    mcp_toolsets: list[Any] | None = None,
     query_parts: list[dict[str, Any]] | None = None,
     plan_sync=None,
 ):
@@ -348,13 +347,13 @@ async def run_graph_stream(
 
     """
     import asyncio
-    from uuid import uuid4
     from pathlib import Path
+    from uuid import uuid4
 
     if run_id is None:
         run_id = uuid4().hex
 
-    eq = asyncio.Queue()
+    eq: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
     # Emit graph-start event via the sideband queue
     emit_graph_event(
@@ -399,8 +398,8 @@ async def run_graph_stream(
         api_key=config.get("api_key"),
         ssl_verify=_ssl_verify,
         event_queue=eq,
-        router_timeout=config.get("router_timeout"),
-        verifier_timeout=config.get("verifier_timeout"),
+        router_timeout=config.get("router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT),
+        verifier_timeout=config.get("verifier_timeout", DEFAULT_GRAPH_VERIFIER_TIMEOUT),
         request_id=run_id,
         routing_strategy=config.get("routing_strategy", "hybrid"),
         enable_llm_validation=config.get(
@@ -425,7 +424,7 @@ async def run_graph_stream(
     # Shared container for background tasks to pass graph results to the main loop
     graph_result_holder = {"value": None}
 
-    async def run_in_background():
+    async def run_in_background() -> None:
         from contextlib import AsyncExitStack
 
         try:
@@ -460,7 +459,7 @@ async def run_graph_stream(
                     timeout=DEFAULT_GRAPH_TIMEOUT / 1000.0,
                 )
                 graph_result_holder["value"] = result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await eq.put({"type": "error", "error": "Graph execution timed out"})
         except Exception as e:
             await eq.put({"type": "error", "error": str(e)})
@@ -469,13 +468,13 @@ async def run_graph_stream(
             from .config_helpers import emit_graph_event
 
             emit_graph_event(eq, "graph_complete", run_id=run_id, status="success")
-            await eq.put(None)
+            await eq.put({"type": "complete"})
 
     task = asyncio.create_task(run_in_background())
 
     while True:
         event = await eq.get()
-        if event is None:
+        if event.get("type") == "complete":
             break
 
         yield f"data: {json.dumps(event)}\n\n"
@@ -529,8 +528,8 @@ def validate_graph(graph: Any, config: dict) -> dict:
         any critical warnings or errors.
 
     """
-    warnings = []
-    info = {}
+    warnings: list[str] = []
+    info: dict[str, Any] = {}
 
     # Extract tag_prompts (domain specialists)
     tag_prompts = config.get("tag_prompts", {})

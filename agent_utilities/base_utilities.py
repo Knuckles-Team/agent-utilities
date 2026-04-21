@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Base Utilities Module.
 
 This module provides a collection of low-level helper functions and classes used across
@@ -10,18 +9,16 @@ package management, and dynamic object patching.
 import inspect
 import json
 import logging
-from urllib.parse import urlparse
 import os
 import pickle
 import re
 import sys
-
-from importlib.resources import as_file, files
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from functools import wraps
+from importlib.resources import as_file, files
 from logging import getLogger
 from pathlib import Path
 from typing import (
@@ -30,12 +27,13 @@ from typing import (
     Generic,
     Optional,
     TypeVar,
-    Union,
+    cast,
 )
+from urllib.parse import urlparse
 
+from dotenv import load_dotenv
 from packaging import version
 from typing_extensions import ParamSpec
-from dotenv import load_dotenv
 
 if TYPE_CHECKING:
     pass
@@ -66,8 +64,8 @@ except ImportError:
     MistralProvider = None
 
 try:
-    from pydantic_ai.models.anthropic import AnthropicModel
     from anthropic import AsyncAnthropic
+    from pydantic_ai.models.anthropic import AnthropicModel
     from pydantic_ai.providers.anthropic import AnthropicProvider
 except ImportError:
     AnthropicModel = None
@@ -135,7 +133,7 @@ def to_integer(string=None) -> int:
         return 0
 
 
-def to_list(string: Union[str, list] = None) -> list:
+def to_list(string: str | list | None = None) -> list:
     """Convert a value to a list.
 
     Args:
@@ -156,7 +154,7 @@ def to_list(string: Union[str, list] = None) -> list:
         return string.split(",")
 
 
-def to_dict(string: Union[str, dict] = None) -> dict:
+def to_dict(string: str | dict | None = None) -> dict:
     """Convert a value to a dictionary.
 
     Args:
@@ -176,7 +174,7 @@ def to_dict(string: Union[str, dict] = None) -> dict:
     try:
         return json.loads(string)
     except Exception:
-        raise ValueError(f"Cannot convert '{string}' to dict")
+        raise ValueError(f"Cannot convert '{string}' to dict") from None
 
 
 def expand_env_vars(text: str) -> str:
@@ -226,7 +224,7 @@ def expand_env_vars(text: str) -> str:
 
 
 def is_loopback_url(
-    url: str, current_host: str = None, current_port: int = None
+    url: str, current_host: str | None = None, current_port: int | None = None
 ) -> bool:
     """Check if a URL is a loopback to the current agent's process.
 
@@ -549,14 +547,15 @@ class ModuleInfo:
 
         """
         import importlib.util
-        from importlib.metadata import version as get_version, PackageNotFoundError
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as get_version
 
         if not importlib.util.find_spec(self.name):
             return f"'{self.name}' is not installed."
 
         if self.min_version or self.max_version:
             try:
-                installed_version = get_version(self.name)
+                installed_version: str | None = get_version(self.name)
             except PackageNotFoundError:
                 try:
                     module = importlib.import_module(self.name)
@@ -782,7 +781,11 @@ class PatchObject(ABC, Generic[T]):
         """
         o = self.get_object_with_metadata()
         plural = len(self.missing_modules) > 1
-        fqn = f"{o.__module__}.{o.__name__}" if hasattr(o, "__module__") else o.__name__
+        fqn = (
+            f"{o.__module__}.{o.__name__}"
+            if hasattr(o, "__module__") and hasattr(o, "__name__")
+            else str(getattr(o, "__name__", o))
+        )
         msg = f"{'Modules' if plural else 'A module'} needed for {fqn} {'are' if plural else 'is'} missing:\n"
         for _, status in self.missing_modules.items():
             msg += f" - {status}\n"
@@ -799,7 +802,7 @@ class PatchObject(ABC, Generic[T]):
         o = self.o
         if hasattr(o, "__doc__"):
             retval.__doc__ = o.__doc__
-        if hasattr(o, "__name__"):
+        if hasattr(o, "__name__") and hasattr(retval, "__name__"):
             retval.__name__ = o.__name__
         if hasattr(o, "__module__"):
             retval.__module__ = o.__module__
@@ -860,8 +863,8 @@ class PatchCallable(PatchObject[F]):
         def _call(*args: Any, **kwargs: Any) -> Any:
             raise ImportError(self.msg)
 
-        self.copy_metadata(_call)
-        return _call
+        self.copy_metadata(cast(F, _call))
+        return cast(F, _call)
 
 
 @PatchObject.register()
@@ -925,7 +928,7 @@ def require_optional_import(
     modules: str | Iterable[str],
     dep_target: str,
     *,
-    except_for: Optional[Union[str, Iterable[str]]] = None,
+    except_for: str | Iterable[str] | None = None,
 ) -> Callable[[F], F]:
     """Decorator to mark an object as requiring optional dependencies.
 

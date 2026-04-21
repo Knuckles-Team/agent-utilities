@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Tool Guard Module.
 
 This module implements a security middleware layer for agent tools. It provides
@@ -22,8 +21,8 @@ Two mechanisms are provided:
 
 from __future__ import annotations
 
-import re
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -133,7 +132,7 @@ def flag_mcp_tool_definitions(
     return wrapped
 
 
-def apply_tool_guard_approvals(agent: "Agent") -> None:
+def apply_tool_guard_approvals(agent: Agent) -> None:
     """Apply requires_approval=True to all sensitive function tools on an agent.
 
     Iterates the agent's function toolset (the first entry in the public

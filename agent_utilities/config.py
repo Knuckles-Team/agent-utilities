@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Configuration Management Module.
 
 This module handles the loading and validation of agent settings from environment
@@ -9,14 +8,16 @@ the agent-utilities package.
 """
 
 import os
-from typing import Optional, Dict, List, Any
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Any
+
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from .base_utilities import (
     GET_DEFAULT_SSL_VERIFY,
     to_boolean,
-    to_list,
     to_dict,
+    to_list,
 )
 
 try:
@@ -35,7 +36,7 @@ if _enable_otel:
 meta = {"name": "Agent", "description": "AI Agent"}
 
 
-def get_env_file() -> Optional[str]:
+def get_env_file() -> str | None:
     """Identify the location of the .env file for the calling package.
 
     This function attempts to find a .env file by checking the current working
@@ -45,8 +46,9 @@ def get_env_file() -> Optional[str]:
         The path to the found .env file as a string, or '.env' as a default fallback.
 
     """
-    from .base_utilities import retrieve_package_name
     from pathlib import Path
+
+    from .base_utilities import retrieve_package_name
 
     pkg = retrieve_package_name()
     if pkg and pkg != "agent_utilities":
@@ -79,9 +81,7 @@ class AgentConfig(BaseSettings):
     agent_description: str = Field(
         default=meta["description"], alias="AGENT_DESCRIPTION"
     )
-    agent_system_prompt: Optional[str] = Field(
-        default=None, alias="AGENT_SYSTEM_PROMPT"
-    )
+    agent_system_prompt: str | None = Field(default=None, alias="AGENT_SYSTEM_PROMPT")
 
     host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=9000, alias="PORT")
@@ -92,13 +92,13 @@ class AgentConfig(BaseSettings):
     acp_port: int = Field(default=8001, alias="ACP_PORT")
     acp_session_root: str = Field(default=".acp-sessions", alias="ACP_SESSION_ROOT")
 
-    provider: Optional[str] = Field(default=None, alias="PROVIDER")
-    model_id: Optional[str] = Field(default=None, alias="MODEL_ID")
-    llm_base_url: Optional[str] = Field(default=None, alias="LLM_BASE_URL")
-    llm_api_key: Optional[str] = Field(default=None, alias="LLM_API_KEY")
+    provider: str | None = Field(default=None, alias="PROVIDER")
+    model_id: str | None = Field(default=None, alias="MODEL_ID")
+    llm_base_url: str | None = Field(default=None, alias="LLM_BASE_URL")
+    llm_api_key: str | None = Field(default=None, alias="LLM_API_KEY")
 
-    mcp_url: Optional[str] = Field(default=None, alias="MCP_URL")
-    mcp_config: Optional[str] = Field(default=None, alias="MCP_CONFIG")
+    mcp_url: str | None = Field(default=None, alias="MCP_URL")
+    mcp_config: str | None = Field(default=None, alias="MCP_CONFIG")
 
     routing_strategy: str = Field(default="hybrid", alias="ROUTING_STRATEGY")
     graph_persistence_type: str = Field(default="file", alias="GRAPH_PERSISTENCE_TYPE")
@@ -109,22 +109,22 @@ class AgentConfig(BaseSettings):
     graph_router_timeout: float = Field(default=300.0, alias="GRAPH_ROUTER_TIMEOUT")
     graph_verifier_timeout: float = Field(default=300.0, alias="GRAPH_VERIFIER_TIMEOUT")
 
-    custom_skills_directory: Optional[str] = Field(
+    custom_skills_directory: str | None = Field(
         default=None, alias="CUSTOM_SKILLS_DIRECTORY"
     )
-    skill_types: Optional[List[str]] = Field(default=None, alias="SKILL_TYPES")
+    skill_types: list[str] | None = Field(default=None, alias="SKILL_TYPES")
 
     enable_otel: bool = Field(default=False, alias="ENABLE_OTEL")
-    otel_exporter_otlp_endpoint: Optional[str] = Field(
+    otel_exporter_otlp_endpoint: str | None = Field(
         default=None, alias="OTEL_EXPORTER_OTLP_ENDPOINT"
     )
-    otel_exporter_otlp_headers: Optional[str] = Field(
+    otel_exporter_otlp_headers: str | None = Field(
         default=None, alias="OTEL_EXPORTER_OTLP_HEADERS"
     )
-    otel_exporter_otlp_public_key: Optional[str] = Field(
+    otel_exporter_otlp_public_key: str | None = Field(
         default=None, alias="OTEL_EXPORTER_OTLP_PUBLIC_KEY"
     )
-    otel_exporter_otlp_secret_key: Optional[str] = Field(
+    otel_exporter_otlp_secret_key: str | None = Field(
         default=None, alias="OTEL_EXPORTER_OTLP_SECRET_KEY"
     )
     otel_exporter_otlp_protocol: str = Field(
@@ -132,9 +132,9 @@ class AgentConfig(BaseSettings):
     )
 
     a2a_broker: str = Field(default="in-memory", alias="A2A_BROKER")
-    a2a_broker_url: Optional[str] = Field(default=None, alias="A2A_BROKER_URL")
+    a2a_broker_url: str | None = Field(default=None, alias="A2A_BROKER_URL")
     a2a_storage: str = Field(default="in-memory", alias="A2A_STORAGE")
-    a2a_storage_url: Optional[str] = Field(default=None, alias="A2A_STORAGE_URL")
+    a2a_storage_url: str | None = Field(default=None, alias="A2A_STORAGE_URL")
 
     max_tokens: int = Field(default=16384, alias="MAX_TOKENS")
     temperature: float = Field(default=0.7, alias="TEMPERATURE")
@@ -142,21 +142,21 @@ class AgentConfig(BaseSettings):
     timeout: float = Field(default=32400.0, alias="TIMEOUT")
     tool_timeout: float = Field(default=32400.0, alias="TOOL_TIMEOUT")
     parallel_tool_calls: bool = Field(default=True, alias="PARALLEL_TOOL_CALLS")
-    seed: Optional[int] = Field(default=None, alias="SEED")
+    seed: int | None = Field(default=None, alias="SEED")
     presence_penalty: float = Field(default=0.0, alias="PRESENCE_PENALTY")
     frequency_penalty: float = Field(default=0.0, alias="FREQUENCY_PENALTY")
 
-    logit_bias: Optional[Dict[str, float]] = Field(default=None, alias="LOGIT_BIAS")
-    stop_sequences: Optional[List[str]] = Field(default=None, alias="STOP_SEQUENCES")
-    extra_headers: Optional[Dict[str, str]] = Field(default=None, alias="EXTRA_HEADERS")
-    extra_body: Optional[Dict[str, Any]] = Field(default=None, alias="EXTRA_BODY")
+    logit_bias: dict[str, float] | None = Field(default=None, alias="LOGIT_BIAS")
+    stop_sequences: list[str] | None = Field(default=None, alias="STOP_SEQUENCES")
+    extra_headers: dict[str, str] | None = Field(default=None, alias="EXTRA_HEADERS")
+    extra_body: dict[str, Any] | None = Field(default=None, alias="EXTRA_BODY")
 
     min_confidence: float = Field(default=0.4, alias="MIN_CONFIDENCE")
     validation_mode: bool = Field(default=False, alias="VALIDATION_MODE")
     approval_timeout: float = Field(default=0.0, alias="APPROVAL_TIMEOUT")
 
     tool_guard_mode: str = Field(default="off", alias="TOOL_GUARD_MODE")
-    sensitive_tool_patterns: List[str] = Field(
+    sensitive_tool_patterns: list[str] = Field(
         default=[
             r".*delete.*",
             r".*remove.*",
@@ -203,6 +203,13 @@ class AgentConfig(BaseSettings):
             r".*run_script.*",
             r".*run_code.*",
             r".*git_.*",
+            r".*clone.*",
+            r".*pull.*",
+            r".*maintain.*",
+            r".*setup.*",
+            r".*build.*",
+            r".*validate.*",
+            r".*sync.*",
             r".*enable.*",
             r".*disable.*",
             r".*activate.*",
@@ -270,22 +277,22 @@ DEFAULT_FREQUENCY_PENALTY = config.frequency_penalty
 DEFAULT_LOGIT_BIAS = (
     config.logit_bias
     if config.logit_bias is not None
-    else to_dict(os.getenv("LOGIT_BIAS", None))
+    else to_dict(os.getenv("LOGIT_BIAS"))
 )
 DEFAULT_STOP_SEQUENCES = (
     config.stop_sequences
     if config.stop_sequences is not None
-    else to_list(os.getenv("STOP_SEQUENCES", None))
+    else to_list(os.getenv("STOP_SEQUENCES"))
 )
 DEFAULT_EXTRA_HEADERS = (
     config.extra_headers
     if config.extra_headers is not None
-    else to_dict(os.getenv("EXTRA_HEADERS", None))
+    else to_dict(os.getenv("EXTRA_HEADERS"))
 )
 DEFAULT_EXTRA_BODY = (
     config.extra_body
     if config.extra_body is not None
-    else to_dict(os.getenv("EXTRA_BODY", None))
+    else to_dict(os.getenv("EXTRA_BODY"))
 )
 
 DEFAULT_MIN_CONFIDENCE = config.min_confidence

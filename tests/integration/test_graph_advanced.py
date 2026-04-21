@@ -165,6 +165,7 @@ async def test_dispatcher_step_sequential(mock_deps):
 
     res = await dispatcher_step(ctx)
     assert res == "parallel_batch_processor"
+    assert state.pending_batch is not None
     assert state.pending_batch.tasks[0].node_id == "expert1"
     assert state.step_cursor == 1
 
@@ -190,6 +191,7 @@ async def test_dispatcher_step_parallel(mock_deps):
 
     res = await dispatcher_step(ctx)
     assert res == "parallel_batch_processor"
+    assert state.pending_batch is not None
     assert len(state.pending_batch.tasks) == 2
     assert state.pending_batch.tasks[0].node_id == "expert1"
     assert state.pending_batch.tasks[1].node_id == "expert2"

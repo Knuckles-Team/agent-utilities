@@ -265,6 +265,7 @@ class TestKBDocumentParser:
         parser = KBDocumentParser()
         s1 = parser.parse_file(sample_md_file)
         s2 = parser.parse_file(sample_md_file)
+        assert s1 is not None and s2 is not None
         assert s1.content_hash == s2.content_hash
 
     def test_parse_directory(self, sample_skill_graph):

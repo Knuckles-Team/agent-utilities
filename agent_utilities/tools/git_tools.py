@@ -1,16 +1,16 @@
 #!/usr/bin/python
-# coding: utf-8
 """Git Utilities Tools Module.
 
 This module provides tools for inspecting git status, managing isolated
 worktrees for parallel development, and auditing version control history.
 """
 
-import os
-import subprocess
 import logging
+import os
 import shutil
+import subprocess
 from typing import Any
+
 from pydantic_ai import RunContext
 
 logger = logging.getLogger(__name__)

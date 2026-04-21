@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Custom Observability Module.
 
 This module provides instrumentation for OpenTelemetry (OTel) using Logfire.
@@ -10,12 +9,10 @@ distributed tracing.
 
 from __future__ import annotations
 
-import os
-import logging
 import base64
-
-
-from typing import Optional, TYPE_CHECKING
+import logging
+import os
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
@@ -23,13 +20,12 @@ if TYPE_CHECKING:
 
 from pydantic_ai import Agent
 
-
 from .config import (
     DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
     DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
     DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
-    DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     HAS_LOGFIRE,
 )
 
@@ -49,12 +45,12 @@ _otel_initialized = False
 
 
 def setup_otel(
-    service_name: Optional[str] = None,
-    endpoint: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    headers: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
-    public_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    secret_key: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
-    protocol: Optional[str] = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
+    service_name: str | None = None,
+    endpoint: str | None = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
+    headers: str | None = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    public_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
+    secret_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    protocol: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
 ):
     """Setup OpenTelemetry tracing using Logfire and instrument pydantic_ai."""
     global _otel_initialized

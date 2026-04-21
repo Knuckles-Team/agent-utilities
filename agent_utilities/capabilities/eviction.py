@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Tool output eviction capability with knowledge base integration.
 
 Intercepts large tool outputs and moves them to the Knowledge Base
@@ -19,7 +18,7 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
-from ..models.knowledge_graph import RegistryNodeType, RawSourceNode
+from ..models.knowledge_graph import RawSourceNode, RegistryNodeType
 
 logger = logging.getLogger(__name__)
 

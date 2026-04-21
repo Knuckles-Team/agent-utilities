@@ -25,19 +25,20 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: no-commit-to-branch
-  - repo: https://github.com/psf/black
-    rev: 26.3.1
-    hooks:
-      - id: black
-        args: ["--fast"]
-        exclude: ^(tests/|test/|scripts/|script/)
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.11
     hooks:
-      - id: ruff
-        types_or: [ python, pyi, jupyter ]
+      - id: ruff-check
         args: ["--fix", "--ignore=E402"]
         exclude: ^(tests/|test/|scripts/|script/)
+      - id: ruff-format
+        exclude: ^(tests/|test/|scripts/|script/)
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [pydantic, types-PyYAML, types-requests]
+        args: ["--ignore-missing-imports"]
   - repo: https://github.com/jendrikseipp/vulture
     rev: v2.16
     hooks:
@@ -54,7 +55,8 @@ repos:
   - repo: https://github.com/nbQA-dev/nbQA
     rev: 1.9.1
     hooks:
-      - id: nbqa-black
+      - id: nbqa-ruff
+        args: ["--fix"]
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.11.7
     hooks:

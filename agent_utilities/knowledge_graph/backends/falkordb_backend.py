@@ -1,9 +1,9 @@
 #!/usr/bin/python
-# coding: utf-8
 """FalkorDB Backend Implementation (Stub)."""
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from .base import GraphBackend
 
 logger = logging.getLogger(__name__)
@@ -19,8 +19,8 @@ class FalkorDBBackend(GraphBackend):
         self.db_name = db_name
 
     def execute(
-        self, query: str, params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         logger.warning("FalkorDB execute not fully implemented yet.")
         return []
 
@@ -30,9 +30,9 @@ class FalkorDBBackend(GraphBackend):
         )
         pass
 
-    def add_embedding(self, node_id: str, embedding: List[float]) -> None:
+    def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         logger.warning("FalkorDB add_embedding not fully implemented yet.")
         pass
 
-    def prune(self, _criteria: Dict[str, Any]) -> None:
+    def prune(self, _criteria: dict[str, Any]) -> None:
         pass

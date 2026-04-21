@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Agent Factory Module.
 
 This module provides factory functions for creating and configuring Pydantic AI
@@ -9,82 +8,81 @@ registration, and system prompt construction.
 
 from __future__ import annotations
 
-import os
-import logging
 import argparse
-import httpx
-from typing import Any, List, Optional, Tuple, Union
+import logging
+import os
+from typing import Any, Literal
 
-from pydantic_ai import Agent, ModelSettings, DeferredToolRequests
+import httpx
+from pydantic_ai import Agent, DeferredToolRequests, ModelSettings
 from pydantic_ai.mcp import (
-    load_mcp_servers,
-    MCPServerStreamableHTTP,
     MCPServerSSE,
+    MCPServerStreamableHTTP,
+    load_mcp_servers,
 )
 from pydantic_ai.toolsets.fastmcp import FastMCPToolset
-
 from universal_skills.skill_utilities import (
     get_universal_skills_path,
 )
 
+from .base_utilities import (
+    is_loopback_url,
+    to_boolean,
+)
+from .capabilities import (
+    CheckpointMiddleware,
+    ContextLimitWarner,
+    HooksCapability,
+    InMemoryCheckpointStore,
+    StuckLoopDetection,
+    TeamCapability,
+    ToolOutputEviction,
+)
 from .config import (
-    DEFAULT_PROVIDER,
-    DEFAULT_MODEL_ID,
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_API_KEY,
-    DEFAULT_MCP_URL,
-    DEFAULT_MCP_CONFIG,
     DEFAULT_AGENT_NAME,
     DEFAULT_AGENT_SYSTEM_PROMPT,
     DEFAULT_CUSTOM_SKILLS_DIRECTORY,
     DEFAULT_DEBUG,
-    DEFAULT_HOST,
-    DEFAULT_PORT,
-    DEFAULT_SSL_VERIFY,
-    DEFAULT_VALIDATION_MODE,
-    DEFAULT_TIMEOUT,
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_TEMPERATURE,
-    DEFAULT_TOP_P,
-    DEFAULT_PARALLEL_TOOL_CALLS,
-    DEFAULT_SEED,
-    DEFAULT_PRESENCE_PENALTY,
-    DEFAULT_FREQUENCY_PENALTY,
-    DEFAULT_LOGIT_BIAS,
-    DEFAULT_STOP_SEQUENCES,
-    DEFAULT_EXTRA_HEADERS,
-    DEFAULT_EXTRA_BODY,
     DEFAULT_ENABLE_TERMINAL_UI,
-    DEFAULT_TOOL_TIMEOUT,
+    DEFAULT_EXTRA_BODY,
+    DEFAULT_EXTRA_HEADERS,
+    DEFAULT_FREQUENCY_PENALTY,
+    DEFAULT_HOST,
+    DEFAULT_LLM_API_KEY,
+    DEFAULT_LLM_BASE_URL,
+    DEFAULT_LOGIT_BIAS,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_MCP_CONFIG,
+    DEFAULT_MCP_URL,
+    DEFAULT_MODEL_ID,
     DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
     DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
+    DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
     DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
-    DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
-)
-from .workspace import (
-    get_skills_path,
-)
-from .base_utilities import (
-    to_boolean,
-    is_loopback_url,
+    DEFAULT_PARALLEL_TOOL_CALLS,
+    DEFAULT_PORT,
+    DEFAULT_PRESENCE_PENALTY,
+    DEFAULT_PROVIDER,
+    DEFAULT_SEED,
+    DEFAULT_SSL_VERIFY,
+    DEFAULT_STOP_SEQUENCES,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TIMEOUT,
+    DEFAULT_TOOL_TIMEOUT,
+    DEFAULT_TOP_P,
+    DEFAULT_VALIDATION_MODE,
 )
 from .model_factory import create_model
-from .tool_guard import apply_tool_guard_approvals
-from .tool_filtering import (
-    skill_matches_tags,
-    filter_tools_by_tag,
-)
-from .prompt_builder import build_system_prompt_from_workspace
 from .models import AgentDeps
-from .capabilities import (
-    StuckLoopDetection,
-    HooksCapability,
-    ContextLimitWarner,
-    CheckpointMiddleware,
-    ToolOutputEviction,
-    TeamCapability,
-    InMemoryCheckpointStore,
+from .prompt_builder import build_system_prompt_from_workspace
+from .tool_filtering import (
+    filter_tools_by_tag,
+    skill_matches_tags,
+)
+from .tool_guard import apply_tool_guard_approvals
+from .workspace import (
+    get_skills_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -147,7 +145,7 @@ def create_agent_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--workspace",
-        help="Explicit path to the agent workspace directory (contains IDENTITY.md, etc.)",
+        help="Explicit path to the agent workspace directory (contains main_agent.md, etc.)",
     )
     parser.add_argument(
         "--web",
@@ -208,46 +206,47 @@ def create_agent_parser() -> argparse.ArgumentParser:
 
 
 def create_agent(
-    provider: str = DEFAULT_PROVIDER,
-    model_id: str = DEFAULT_MODEL_ID,
-    base_url: str = DEFAULT_LLM_BASE_URL,
-    api_key: str = DEFAULT_LLM_API_KEY,
-    mcp_url: str = DEFAULT_MCP_URL,
-    mcp_config: str = DEFAULT_MCP_CONFIG,
-    mcp_toolsets: list[Any] = None,
-    custom_skills_directory: str = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
+    provider: str | None = DEFAULT_PROVIDER,
+    model_id: str | None = DEFAULT_MODEL_ID,
+    base_url: str | None = DEFAULT_LLM_BASE_URL,
+    api_key: str | None = DEFAULT_LLM_API_KEY,
+    mcp_url: str | None = DEFAULT_MCP_URL,
+    mcp_config: str | None = DEFAULT_MCP_CONFIG,
+    mcp_toolsets: list[Any] | None = None,
+    custom_skills_directory: str | None = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
     ssl_verify: bool = DEFAULT_SSL_VERIFY,
     enable_skills: bool = True,
     enable_universal_tools: bool = True,
     name: str = DEFAULT_AGENT_NAME,
-    system_prompt: str = DEFAULT_AGENT_SYSTEM_PROMPT,
-    debug: bool = False,
-    skill_types: Optional[
-        List[str]
-    ] = None,  # replaces load_universal_skills, load_skill_graphs
-    tool_tags: Optional[List[str]] = None,
-    graph_bundle: tuple = None,
-    output_type: Optional[Any] = None,
-    current_host: str = None,
-    current_port: int = None,
+    system_prompt: str | None = DEFAULT_AGENT_SYSTEM_PROMPT,
+    debug: bool | None = False,
+    skill_types: list[str]
+    | None = None,  # replaces load_universal_skills, load_skill_graphs
+    tool_tags: list[str] | None = None,
+    graph_bundle: tuple[Any, ...] | None = None,
+    output_type: Any | None = None,
+    current_host: str | None = None,
+    current_port: int | None = None,
     tool_guard_mode: str = "on",
     isolate_mcp: bool = False,
     # Reliability & Capabilities
     stuck_loop_detection: bool = True,
     stuck_loop_max_repeated: int = 3,
-    stuck_loop_action: str = "warn",
-    hooks: list = None,
+    stuck_loop_action: Literal["warn", "error"] = "warn",
+    hooks: list[Any] | None = None,
     auto_graph_trace: bool = True,
     context_warnings: bool = True,
-    max_context_tokens: Optional[int] = None,
+    max_context_tokens: int | None = None,
     include_checkpoints: bool = False,
-    checkpoint_store: Any = None,
-    checkpoint_frequency: str = "every_tool",
+    checkpoint_store: Any | None = None,
+    checkpoint_frequency: Literal[
+        "every_tool", "every_turn", "manual_only"
+    ] = "every_tool",
     include_teams: bool = False,
-    output_style: Optional[str] = None,
+    output_style: str | None = None,
     output_eviction: bool = True,
     eviction_threshold_chars: int = 80_000,
-) -> Tuple[Agent, List[Any]]:
+) -> tuple[Agent, list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
     Args:
@@ -499,7 +498,7 @@ def create_agent(
         model_settings=settings,
         name=name,
         output_type=(
-            Union[str, DeferredToolRequests] if output_type is None else output_type
+            str | DeferredToolRequests if output_type is None else output_type
         ),
         toolsets=agent_toolsets,
         tool_timeout=DEFAULT_TOOL_TIMEOUT,

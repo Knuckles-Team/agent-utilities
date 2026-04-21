@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Mermaid Visualization Module.
 
 This module provides utilities for generating Mermaid diagrams from

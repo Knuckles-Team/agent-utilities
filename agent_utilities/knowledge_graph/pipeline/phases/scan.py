@@ -1,17 +1,18 @@
 import logging
-from typing import Dict, List
 from pathlib import Path
+
 import pathspec
+
 from ..types import (
-    PipelinePhase,
-    PipelineContext,
     PhaseResult,
+    PipelineContext,
+    PipelinePhase,
 )
 
 logger = logging.getLogger(__name__)
 
 
-async def execute_scan(ctx: PipelineContext, deps: Dict[str, PhaseResult]) -> List[str]:
+async def execute_scan(ctx: PipelineContext, deps: dict[str, PhaseResult]) -> list[str]:
     """Scan the workspace directory and return a list of code files, respecting .gitignore."""
     root = Path(ctx.config.workspace_path).absolute()
 
@@ -19,7 +20,7 @@ async def execute_scan(ctx: PipelineContext, deps: Dict[str, PhaseResult]) -> Li
     spec = None
     gitignore_path = root / ".gitignore"
     if gitignore_path.exists():
-        with open(gitignore_path, "r") as f:
+        with open(gitignore_path) as f:
             spec = pathspec.PathSpec.from_lines("gitwildmatch", f)
 
     files = []

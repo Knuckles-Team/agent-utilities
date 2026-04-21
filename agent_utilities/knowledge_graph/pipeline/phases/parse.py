@@ -1,14 +1,15 @@
 import os
-from typing import Any, Dict, Optional
-import tree_sitter_python as tspython
+from typing import Any
+
 import tree_sitter_javascript as tsjavascript
+import tree_sitter_python as tspython
 import tree_sitter_typescript as tstypescript
 from tree_sitter import Language, Parser
 
 from ..types import (
-    PipelinePhase,
-    PipelineContext,
     PhaseResult,
+    PipelineContext,
+    PipelinePhase,
 )
 
 # Load languages
@@ -18,7 +19,7 @@ TS_LANGUAGE = Language(tstypescript.language_typescript())
 TSX_LANGUAGE = Language(tstypescript.language_tsx())
 
 
-def get_parser(file_path: str) -> Optional[Parser]:
+def get_parser(file_path: str) -> Parser | None:
     ext = os.path.splitext(file_path)[1]
     lang = None
     if ext == ".py":
@@ -40,13 +41,13 @@ def get_node_text(node, source: bytes) -> str:
 
 
 async def execute_parse(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Parse files using tree-sitter and extract symbols."""
     from ....models.knowledge_graph import (
-        SymbolMetadata,
-        RegistryNodeType,
         RegistryEdgeType,
+        RegistryNodeType,
+        SymbolMetadata,
     )
 
     files = deps["scan"].output
@@ -66,7 +67,7 @@ async def execute_parse(
             rel_path = os.path.relpath(file_path, ctx.config.workspace_path)
             file_node_id = f"file:{rel_path}"
 
-            def walk(node):
+            def walk(node, source, file_path, file_node_id):
                 nonlocal symbols_extracted
 
                 # Python
@@ -200,9 +201,9 @@ async def execute_parse(
                         )
 
                 for child in node.children:
-                    walk(child)
+                    walk(child, source, file_path, file_node_id)
 
-            walk(tree.root_node)
+            walk(tree.root_node, source, file_path, file_node_id)
 
         except Exception:
             pass

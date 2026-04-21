@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Agent Utilities Core Module.
 
 This module serves as the primary entry point for the agent-utilities package,
@@ -61,15 +60,15 @@ except ImportError:
 # ── End warning suppression ──────────────────────────────────────────
 
 from .base_utilities import (
-    to_boolean,
-    to_integer,
-    to_float,
-    to_list,
-    to_dict,
-    retrieve_package_name,
     get_logger,
     optional_import_block,
     require_optional_import,
+    retrieve_package_name,
+    to_boolean,
+    to_dict,
+    to_float,
+    to_integer,
+    to_list,
 )
 
 os.environ.setdefault("OTEL_ENABLE_OTEL", "false")
@@ -78,77 +77,77 @@ if to_boolean(os.environ.get("ENABLE_OTEL", "True")):
     os.environ.setdefault("OTEL_ENABLE_OTEL", "True")
 
 from .agent_factory import create_agent, create_agent_parser
-from .server import create_agent_server, create_graph_agent_server
-from .graph import (
-    GraphState,
-    create_graph_agent,
-    create_master_graph,
-    run_graph,
-    run_graph_stream,
-    build_tag_env_map,
-    get_graph_mermaid,
-    validate_graph,
-    initialize_graph_from_workspace,
-    register_on_enter_hook,
-    register_on_exit_hook,
-    run_orthogonal_regions,
+from .base_utilities import (
+    ensure_package_installed,
+    to_boolean,
 )
-
-from .prompt_builder import (
-    load_identity,
-    build_system_prompt_from_workspace,
-)
-
-from .model_factory import (
-    create_model,
-)
-
+from .config import DEFAULT_GRAPH_PERSISTENCE_PATH
 from .discovery import (
     discover_agents,
     discover_all_specialists,
 )
-
+from .embedding_utilities import create_embedding_model
+from .graph import (
+    GraphState,
+    build_tag_env_map,
+    create_graph_agent,
+    create_master_graph,
+    get_graph_mermaid,
+    initialize_graph_from_workspace,
+    register_on_enter_hook,
+    register_on_exit_hook,
+    run_graph,
+    run_graph_stream,
+    run_orthogonal_regions,
+    validate_graph,
+)
+from .model_factory import (
+    create_model,
+)
+from .prompt_builder import (
+    build_system_prompt_from_workspace,
+    load_identity,
+)
+from .server import create_agent_server, create_graph_agent_server
 from .workspace import (
     CORE_FILES,
-    get_workspace_path,
+    append_to_md_file,
     get_mcp_config_path,
+    get_workspace_path,
     initialize_workspace,
-    load_workspace_file,
-    write_workspace_file,
     list_workspace_files,
+    load_workspace_file,
     read_md_file,
     write_md_file,
-    append_to_md_file,
+    write_workspace_file,
 )
 
-from .config import DEFAULT_GRAPH_PERSISTENCE_PATH
+# ── Graph Integration ────────────────────────────────────────────────
+try:
+    from .graph.integration import initialize_integration
 
-from .base_utilities import (
-    to_boolean,
-    ensure_package_installed,
-)
+    initialize_integration()
+except Exception:
+    # Fail silently to avoid breaking simple utility imports
+    pass
 
-from .embedding_utilities import create_embedding_model
-
-
-from .models import (
-    PeriodicTask,
-    DiscoveredSpecialist,
-    ProjectConstitution,
-    Spec,
-    ImplementationPlan,
-    Tasks,
-    Task,
-)
-
-from .sdd import SDDManager
 
 from .chat_persistence import (
-    save_chat_to_disk,
-    list_chats_from_disk,
-    get_chat_from_disk,
     delete_chat_from_disk,
+    get_chat_from_disk,
+    list_chats_from_disk,
+    save_chat_to_disk,
 )
+from .models import (
+    DiscoveredSpecialist,
+    ImplementationPlan,
+    PeriodicTask,
+    ProjectConstitution,
+    Spec,
+    Task,
+    Tasks,
+)
+from .sdd import SDDManager
 
 __version__ = "0.2.40"
 

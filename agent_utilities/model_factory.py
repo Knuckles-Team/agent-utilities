@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Model Factory Module.
 
 This module provides a unified factory function to create and configure
@@ -10,12 +9,11 @@ clients, and SSL verification settings.
 
 from __future__ import annotations
 
-import os
 import logging
+import os
+from typing import TYPE_CHECKING
+
 import httpx
-
-
-from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     pass
@@ -96,11 +94,11 @@ logger = logging.getLogger(__name__)
 
 
 def create_model(
-    provider: Optional[str] = None,
-    model_id: Optional[str] = None,
-    base_url: Optional[str] = None,
-    api_key: Optional[str] = None,
-    custom_headers: Optional[dict] = None,
+    provider: str | None = None,
+    model_id: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    custom_headers: dict | None = None,
     ssl_verify: bool = True,
     timeout: float = 300.0,
 ):

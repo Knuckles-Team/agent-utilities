@@ -1,22 +1,23 @@
 import logging
-from typing import Any, Dict
-from ..types import (
-    PipelinePhase,
-    PipelineContext,
-    PhaseResult,
-)
+from typing import Any
+
 from ....models.knowledge_graph import (
     AgentNode,
-    ToolNode,
     RegistryEdgeType,
+    ToolNode,
+)
+from ..types import (
+    PhaseResult,
+    PipelineContext,
+    PipelinePhase,
 )
 
 logger = logging.getLogger(__name__)
 
 
 async def execute_registry(
-    ctx: PipelineContext, deps: Dict[str, PhaseResult]
-) -> Dict[str, Any]:
+    ctx: PipelineContext, deps: dict[str, PhaseResult]
+) -> dict[str, Any]:
     """Phase 4: Load agents and tools from the graph backend into memory."""
     from ....graph.config_helpers import get_discovery_registry
 
@@ -39,7 +40,7 @@ async def execute_registry(
 
     # Add Tool Nodes and Relationships
     for tool in registry.tools:
-        node = ToolNode(
+        tool_node = ToolNode(
             id=f"tool:{tool.name}",
             name=tool.name,
             description=tool.description,
@@ -47,7 +48,7 @@ async def execute_registry(
             relevance_score=tool.relevance_score,
             requires_approval=tool.requires_approval,
         )
-        graph.add_node(node.id, **node.model_dump())
+        graph.add_node(tool_node.id, **tool_node.model_dump())
 
         # Link Tool to its source Server/Agent
         if tool.mcp_server:

@@ -26,7 +26,7 @@ def test_sdd_manager_serialization(sdd_manager):
 
     path = sdd_manager.save(constitution)
     assert path.exists()
-    assert "constitution.json" in str(path)
+    assert "constitution.md" in str(path)
 
     loaded = sdd_manager.load(ProjectConstitution)
     assert loaded is not None
@@ -45,7 +45,7 @@ def test_spec_persistence(sdd_manager):
 
     # Save/Load with feature_id
     path = sdd_manager.save(spec, feature_id="F1")
-    assert "specs/F1.json" in str(path).replace("\\", "/")
+    assert "specs/F1/spec.md" in str(path).replace("\\", "/")
 
     loaded = sdd_manager.load(Spec, feature_id="F1")
     assert loaded.title == "Test Feature"
