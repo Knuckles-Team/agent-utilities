@@ -197,7 +197,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.131.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.2.0" },
     { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28.1" },
-    { name = "hypothesis", marker = "extra == 'test'" },
+    { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.152.1" },
     { name = "ladybug", specifier = ">=0.15.3" },
     { name = "ladybug", marker = "extra == 'graph'", specifier = ">=0.15.3" },
     { name = "llama-index-core", marker = "extra == 'embeddings'", specifier = ">=0.14.15" },
@@ -236,6 +236,9 @@ requires-dist = [
     { name = "urllib3", specifier = ">=2.3.0" },
 ]
 provides-extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "ag-ui", "browser", "acp", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "graph", "test", "all"]
+
+[package.metadata.requires-dev]
+dev = []
 
 [[package]]
 name = "agent-webui"

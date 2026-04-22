@@ -14,6 +14,9 @@ class MCPAgent(BaseModel):
     prompt_file: str | None = Field(
         default=None, description="Markdown prompt file path"
     )
+    json_blueprint: dict[str, Any] | None = Field(
+        default=None, description="JSON blueprint for structured prompting"
+    )
     endpoint_url: str | None = Field(default=None, description="Connection URL / cmd")
     description: str = Field(default="", description="Specialized agent description")
     system_prompt: str = Field(default="", description="Synthesized system prompt")

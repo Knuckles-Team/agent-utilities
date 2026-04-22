@@ -100,10 +100,14 @@ class AgentConfig(BaseSettings):
     mcp_url: str | None = Field(default=None, alias="MCP_URL")
     mcp_config: str | None = Field(default=None, alias="MCP_CONFIG")
 
+    agent_api_key: str | None = Field(default=None, alias="AGENT_API_KEY")
+    enable_api_auth: bool = Field(default=False, alias="ENABLE_API_AUTH")
+    max_upload_size: int = Field(default=10 * 1024 * 1024, alias="MAX_UPLOAD_SIZE")
+
     routing_strategy: str = Field(default="hybrid", alias="ROUTING_STRATEGY")
     graph_persistence_type: str = Field(default="file", alias="GRAPH_PERSISTENCE_TYPE")
     graph_persistence_path: str = Field(
-        default="agent_data/graph_state", alias="GRAPH_PERSISTENCE_PATH"
+        default="graph_state", alias="GRAPH_PERSISTENCE_PATH"
     )
     enable_llm_validation: bool = Field(default=False, alias="ENABLE_LLM_VALIDATION")
     graph_router_timeout: float = Field(default=300.0, alias="GRAPH_ROUTER_TIMEOUT")
@@ -155,7 +159,7 @@ class AgentConfig(BaseSettings):
     validation_mode: bool = Field(default=False, alias="VALIDATION_MODE")
     approval_timeout: float = Field(default=0.0, alias="APPROVAL_TIMEOUT")
 
-    tool_guard_mode: str = Field(default="off", alias="TOOL_GUARD_MODE")
+    tool_guard_mode: str = Field(default="strict", alias="TOOL_GUARD_MODE")
     sensitive_tool_patterns: list[str] = Field(
         default=[
             r".*delete.*",
@@ -216,6 +220,15 @@ class AgentConfig(BaseSettings):
             r".*approve.*",
             r".*graphql.*",
             r".*mutation.*",
+            r".*http.*",
+            r".*eval.*",
+            r".*exec.*",
+            r".*compile.*",
+            r".*socket.*",
+            r".*connect.*",
+            r".*os\..*",
+            r".*subprocess\..*",
+            r".*shutil\..*",
         ],
         alias="SENSITIVE_TOOL_PATTERNS",
     )
@@ -325,3 +338,7 @@ DEFAULT_ENABLE_LLM_VALIDATION = config.enable_llm_validation
 DEFAULT_ROUTING_STRATEGY = config.routing_strategy
 DEFAULT_GRAPH_ROUTER_TIMEOUT = config.graph_router_timeout
 DEFAULT_GRAPH_VERIFIER_TIMEOUT = config.graph_verifier_timeout
+
+AGENT_API_KEY = config.agent_api_key
+ENABLE_API_AUTH = config.enable_api_auth
+MAX_UPLOAD_SIZE = config.max_upload_size

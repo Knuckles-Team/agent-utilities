@@ -73,6 +73,7 @@ class RegistryNodeType(StrEnum):
     SOURCE = "source"
     EVIDENCE = "evidence"
     PERSON = "person"
+    PATTERN_TEMPLATE = "pattern_template"
 
 
 class RegistryEdgeType(StrEnum):
@@ -194,6 +195,7 @@ class PromptNode(RegistryNode):
 
     type: RegistryNodeType = RegistryNodeType.PROMPT
     system_prompt: str
+    json_blueprint: dict[str, Any] = Field(default_factory=dict)
     capabilities: list[str] = Field(default_factory=list)
 
 
@@ -518,6 +520,16 @@ class ProposedSkillNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.PROPOSED_SKILL
     code_content: str
     frontmatter: dict[str, Any] = Field(default_factory=dict)
+
+
+class PatternTemplateNode(RegistryNode):
+    """Reusable code pattern or TDD cycle (Hoarding)."""
+
+    type: RegistryNodeType = RegistryNodeType.PATTERN_TEMPLATE
+    pattern_type: str  # tdd_cycle, code_snippet, architectural_pattern
+    content: str
+    success_rate: float = 1.0
+    tags: list[str] = Field(default_factory=list)
 
 
 # --- Knowledge Base Nodes ---

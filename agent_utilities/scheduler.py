@@ -36,7 +36,7 @@ lock = asyncio.Lock()
 logger = logging.getLogger(__name__)
 
 
-def get_cron_tasks_from_md() -> CronRegistryModel:
+def get_cron_tasks() -> CronRegistryModel:
     """Retrieve the current scheduled tasks from the Knowledge Graph.
 
     Returns:
@@ -71,7 +71,7 @@ def get_cron_tasks_from_md() -> CronRegistryModel:
         return CronRegistryModel()
 
 
-def get_cron_logs_from_md() -> CronLogModel:
+def get_cron_logs() -> CronLogModel:
     """Retrieve the historical task execution logs from the Knowledge Graph.
 
     Returns:
@@ -217,7 +217,7 @@ def list_scheduled_tasks() -> CronRegistryModel:
         A model containing the list of configured tasks.
 
     """
-    return get_cron_tasks_from_md()
+    return get_cron_tasks()
 
 
 def append_cron_log(
@@ -302,7 +302,7 @@ async def reload_cron_tasks():
     Ensures the background processor is aware of any changes made to
     the workspace file during runtime.
     """
-    registry = get_cron_tasks_from_md()
+    registry = get_cron_tasks()
     parsed_tasks = [
         PeriodicTask(
             id=t.id,

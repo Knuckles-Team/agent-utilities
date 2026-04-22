@@ -1,8 +1,14 @@
-import pytest
-from agent_utilities.graph.models import Policy, ProcessFlow, ProcessStep, KnowledgeBaseTopic
-from agent_utilities.graph.client import create_or_merge_node
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 import networkx as nx
+import pytest
+
+from agent_utilities.graph.client import create_or_merge_node
+from agent_utilities.graph.models import (
+    Policy,
+    ProcessFlow,
+    ProcessStep,
+)
+from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+
 
 def test_policy_model_validation():
     """Test that Policy model validates correctly."""
@@ -12,10 +18,11 @@ def test_policy_model_validation():
         description="Always write tests before code.",
         policy_id="pol:tdd_01",
         condition="new_feature == True",
-        action="enforce_tdd"
+        action="enforce_tdd",
     )
     assert policy.name == "TDD Policy"
     assert policy.policy_id == "pol:tdd_01"
+
 
 def test_process_flow_model_validation():
     """Test that ProcessFlow model validates correctly."""
@@ -24,10 +31,11 @@ def test_process_flow_model_validation():
         name="Feature Implementation",
         goal="Implement a new feature with tests",
         flow_id="flow:feat_01",
-        start_step="step:01"
+        start_step="step:01",
     )
     assert flow.name == "Feature Implementation"
     assert flow.flow_id == "flow:feat_01"
+
 
 @pytest.mark.asyncio
 async def test_create_or_merge_node_idempotency():
@@ -42,7 +50,7 @@ async def test_create_or_merge_node_idempotency():
         description="Check safety before execution",
         policy_id="pol:safety_01",
         condition="always",
-        action="check_safety"
+        action="check_safety",
     )
 
     result = await create_or_merge_node(policy)
@@ -50,11 +58,16 @@ async def test_create_or_merge_node_idempotency():
     assert "pol:safety_01" in graph
     assert graph.nodes["pol:safety_01"]["name"] == "Safety First"
 
+
 @pytest.mark.asyncio
 async def test_process_step_sequence():
     """Test process step relationship logic."""
-    step1 = ProcessStep(id="step:plan", name="Plan", step_id="step:plan", step_type="tool_call")
-    step2 = ProcessStep(id="step:exec", name="Execute", step_id="step:exec", step_type="tool_call")
+    step1 = ProcessStep(
+        id="step:plan", name="Plan", step_id="step:plan", step_type="tool_call"
+    )
+    step2 = ProcessStep(
+        id="step:exec", name="Execute", step_id="step:exec", step_type="tool_call"
+    )
 
     graph = nx.MultiDiGraph()
     engine = IntelligenceGraphEngine(graph=graph)
@@ -65,9 +78,13 @@ async def test_process_step_sequence():
 
     graph.add_edge(step1.step_id, step2.step_id, type="NEXT")
 
-    assert "NEXT" in [d.get("type") for u, v, d in graph.out_edges(step1.step_id, data=True)]
+    assert "NEXT" in [
+        d.get("type") for u, v, d in graph.out_edges(step1.step_id, data=True)
+    ]
+
 
 from unittest.mock import MagicMock, patch
+
 
 def test_engine_policy_discovery():
     """Test that the engine can discover policies via Cypher."""
@@ -75,7 +92,13 @@ def test_engine_policy_discovery():
     mock_backend = MagicMock()
     # Mocking Cypher return for Policy
     mock_backend.execute.return_value = [
-        {"p": {"name": "TDD Policy", "description": "Always write tests", "id": "pol:01"}}
+        {
+            "p": {
+                "name": "TDD Policy",
+                "description": "Always write tests",
+                "id": "pol:01",
+            }
+        }
     ]
 
     engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
@@ -84,6 +107,7 @@ def test_engine_policy_discovery():
     assert len(policies) == 1
     assert policies[0]["name"] == "TDD Policy"
     mock_backend.execute.assert_called_once()
+
 
 def test_engine_process_discovery():
     """Test that the engine can discover process flows via Cypher."""
@@ -98,6 +122,7 @@ def test_engine_process_discovery():
 
     assert len(processes) == 1
     assert processes[0]["name"] == "Feature Flow"
+
 
 @pytest.mark.asyncio
 async def test_maintenance_model_validation(caplog):
@@ -118,11 +143,12 @@ async def test_maintenance_model_validation(caplog):
         # Should be 0 since the only policy was invalid
         assert count == 0
 
+
 @pytest.mark.asyncio
 async def test_process_executor_node_logic():
     """Test the LoadAndExecuteProcessFlow node execution."""
     from agent_utilities.graph.nodes import LoadAndExecuteProcessFlow
-    from agent_utilities.graph.state import GraphState, GraphDeps
+    from agent_utilities.graph.state import GraphDeps, GraphState
 
     with patch("agent_utilities.graph.nodes.get_graph_client") as mock_get_client:
         mock_client = MagicMock()
@@ -130,18 +156,37 @@ async def test_process_executor_node_logic():
 
         # Mock policy retrieval sequence
         mock_client.execute.side_effect = [
-            [{"f": {"name": "SOP 1", "goal": "Fix bug", "flow_id": "flow:bug", "id": "flow:bug", "start_step": "step:1"}, "steps": []}],
-            [{"p": {"name": "Guardrail", "description": "Check logs", "id": "pol:1", "policy_id": "pol:1", "condition": "any", "action": "log"}}]
+            [
+                {
+                    "f": {
+                        "name": "SOP 1",
+                        "goal": "Fix bug",
+                        "flow_id": "flow:bug",
+                        "id": "flow:bug",
+                        "start_step": "step:1",
+                    },
+                    "steps": [],
+                }
+            ],
+            [
+                {
+                    "p": {
+                        "name": "Guardrail",
+                        "description": "Check logs",
+                        "id": "pol:1",
+                        "policy_id": "pol:1",
+                        "condition": "any",
+                        "action": "log",
+                    }
+                }
+            ],
         ]
 
         node = LoadAndExecuteProcessFlow(flow_id="flow:bug")
         state = GraphState(query="Fix bug")
         state.current_flow_id = "flow:bug"
         deps = GraphDeps(
-            tag_prompts={},
-            tag_env_vars={},
-            mcp_toolsets=[],
-            event_queue=MagicMock()
+            tag_prompts={}, tag_env_vars={}, mcp_toolsets=[], event_queue=MagicMock()
         )
 
         ctx = MagicMock()

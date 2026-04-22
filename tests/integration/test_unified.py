@@ -1,9 +1,16 @@
-import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
-from agent_utilities.graph.steps import fetch_unified_context, _emit_node_lifecycle
-from agent_utilities.graph.config_helpers import emit_graph_event, load_mcp_config, load_node_agents_registry
-from agent_utilities.models import MCPConfigModel, MCPAgentRegistryModel
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from agent_utilities.graph.config_helpers import (
+    emit_graph_event,
+    load_mcp_config,
+    load_node_agents_registry,
+)
+from agent_utilities.graph.steps import _emit_node_lifecycle, fetch_unified_context
+from agent_utilities.models import MCPAgentRegistryModel, MCPConfigModel
+
 
 @pytest.mark.asyncio
 async def test_fetch_unified_context_mocked():
@@ -14,12 +21,15 @@ async def test_fetch_unified_context_mocked():
     mock_registry = MagicMock()
     mock_registry.agents = [mock_agent]
 
-    with patch("agent_utilities.graph.steps.get_discovery_registry", return_value=mock_registry):
+    with patch(
+        "agent_utilities.graph.steps.get_discovery_registry", return_value=mock_registry
+    ):
         with patch("subprocess.check_output", return_value=b"M somefile.py"):
             context = await fetch_unified_context()
             assert "PROJECT CONTEXT" in context
             assert "TestSpecialist" in context
             assert "M somefile.py" in context
+
 
 def test_emit_graph_event():
     """Test emit_graph_event logic."""
@@ -33,12 +43,16 @@ def test_emit_graph_event():
         assert event["data"]["foo"] == "bar"
         mock_log.assert_called_once()
 
+
 def test_emit_node_lifecycle():
     """Test _emit_node_lifecycle helper."""
     eq: asyncio.Queue = asyncio.Queue()
     with patch("agent_utilities.graph.steps.emit_graph_event") as mock_emit:
         _emit_node_lifecycle(eq, "node1", "node_start", extra="data")
-        mock_emit.assert_called_once_with(eq, "node_start", node_id="node1", extra="data")
+        mock_emit.assert_called_once_with(
+            eq, "node_start", node_id="node1", extra="data"
+        )
+
 
 @pytest.mark.asyncio
 async def test_load_config_fallbacks():

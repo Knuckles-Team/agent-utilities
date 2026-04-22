@@ -71,31 +71,25 @@ def smart_truncate(text: str | None, limit: int) -> str:
 
 
 CORE_FILES = {
-    "MAIN_AGENT": "main_agent.md",
+    "MAIN_AGENT": "main_agent.json",
     "MCP_CONFIG": "mcp_config.json",
 }
 
 TEMPLATES = {
-    "MAIN_AGENT": """---
-name: main-agent
-type: prompt
-description: The primary orchestrator agent for this workspace.
-capabilities:
-  - workspace-manager
-  - agent-workflows
----
-# Main Agent
-
-You are the primary orchestrator for this workspace. Your goal is to help the user manage their projects and coordinate specialized agents.
-
-### Core Principles
-* Be concise and efficient.
-* Use the knowledge graph to discover tools and experts.
-* Verify your work before concluding.
-
-Your personality:
-* **Emoji:** 🤖
-* **Vibe:** Professional, efficient, helpful
+    "MAIN_AGENT": """{
+  "task": "main-agent",
+  "input": "# main-agent\\n\\nYou are the primary orchestrator for this workspace. Your goal is to help the user manage their projects and coordinate specialized agents.\\n\\n### Core Principles\\n* Be concise and efficient.\\n* Use the knowledge graph to discover tools and experts.\\n* Verify your work before concluding.\\n\\nYour personality:\\n* **Emoji:** 🤖\\n* **Vibe:** Professional, efficient, helpful",
+  "type": "prompt",
+  "description": "The primary orchestrator agent for this workspace.",
+  "tools": [
+    "workspace-manager",
+    "agent-workflows"
+  ],
+  "topic": "General Expertise",
+  "tone": "technical and precise",
+  "style": "professional assistant",
+  "goal": "Coordinate specialized agents and manage the workspace."
+}
 """,
     "MCP_CONFIG": """{
     "mcpServers": {}
@@ -209,73 +203,60 @@ def get_agent_workspace() -> Path:
     pkg = retrieve_package_name()
     if pkg:
         try:
-            pkg_local_data = Path.cwd() / pkg / "agent_data"
-            pkg_local_agent = Path.cwd() / pkg / "agent"
-            for candidate in [pkg_local_data, pkg_local_agent]:
-                if candidate.is_dir():
-                    p = candidate.resolve()
-                    WORKSPACE_DIR = str(p)
-                    return p
+            # 1. Check local package directory in CWD
+            pkg_local = Path.cwd() / pkg
+            if pkg_local.is_dir():
+                p = pkg_local.resolve()
+                WORKSPACE_DIR = str(p)
+                return p
 
+            # 2. Check for legacy agent_data/agent folders (temporary compatibility)
             for sub in ["agent_data", "agent"]:
-                try:
-                    pkg_resource_dir = files(pkg).joinpath(sub)
-                    if pkg_resource_dir.is_dir():
-                        with as_file(pkg_resource_dir) as path:
-                            p = path.resolve()
-                            WORKSPACE_DIR = str(p)
-                            return p
-                except (OSError, ValueError):
-                    pass
+                candidate = Path.cwd() / pkg / sub
+                if candidate.is_dir():
+                    return candidate.resolve()
 
+            # 3. Use importlib to find package origin
             import importlib.util
-
             spec = importlib.util.find_spec(pkg)
             if spec and spec.origin:
                 origin_path = Path(spec.origin).resolve()
-                candidates = [
-                    origin_path.parent / "agent_data",
-                    origin_path.parent / "agent",
-                    origin_path.parent.parent / "agent_data",
-                    origin_path.parent.parent / "agent",
-                ]
-                for candidate in candidates:
-                    if candidate.is_dir():
-                        return candidate.resolve()
+                # Package root is parent of __init__.py
+                p = origin_path.parent
+                WORKSPACE_DIR = str(p)
+                return p
         except (OSError, ValueError):
             pass
 
-    for sub in ["agent_data", "agent"]:
-        local_dir = Path.cwd() / sub
-        if local_dir.is_dir():
-            p = local_dir.resolve()
-            WORKSPACE_DIR = str(p)
-            return p
+    # 4. Fallback to CWD or parent-based discovery
+    local_mcp = Path.cwd() / "mcp_config.json"
+    if local_mcp.exists():
+        return Path.cwd().resolve()
 
+    return Path.cwd().resolve()
+
+
+def validate_workspace_path(path: Path) -> Path:
+    """Ensure a path is within the agent workspace to prevent traversal.
+
+    Args:
+        path: The path to validate.
+
+    Returns:
+        The resolved absolute Path.
+
+    Raises:
+        ValueError: If the path resolves outside the workspace directory.
+
+    """
+    ws = get_agent_workspace()
+    resolved = path.resolve()
     try:
-        for entry in Path.cwd().iterdir():
-            if entry.is_dir() and not entry.name.startswith("."):
-                for sub in ["agent_data", "agent"]:
-                    candidate = entry / sub
-                    if candidate.is_dir():
-                        p = candidate.resolve()
-                        WORKSPACE_DIR = str(p)
-                        return p
-    except (OSError, ValueError):
-        pass
-
-    for sub in ["agent_data", "agent"]:
-        native_path = Path(__file__).parent / sub
-        if native_path.is_dir():
-            return native_path.resolve()
-
-    for sub in ["agent_data", "agent"]:
-        workspace_dir = files("agent_utilities") / sub
-        if workspace_dir.is_dir():
-            with as_file(workspace_dir) as path:
-                return path.resolve()
-
-    return Path(__file__).parent / "agent_data"
+        resolved.relative_to(ws.resolve())
+    except ValueError:
+        logger.warning(f"Path traversal blocked: {path} (resolves to {resolved})")
+        raise ValueError(f"Access denied: path is outside the workspace: {path}")
+    return resolved
 
 
 def get_workspace_path(filename: str) -> Path:
@@ -290,6 +271,15 @@ def get_workspace_path(filename: str) -> Path:
     """
     ws = get_agent_workspace()
     path = ws / filename
+    # We don't call validate_workspace_path here because the file might not exist yet
+    # but we can check if it WOULD resolve inside the workspace
+    if ".." in filename or filename.startswith("/") or filename.startswith("\\"):
+        # Resolve it and check
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(ws.resolve())
+        except ValueError:
+            raise ValueError(f"Invalid workspace filename: {filename}")
     return path
 
 
@@ -327,7 +317,7 @@ def resolve_mcp_config_path(mcp_config: str | None) -> Path | None:
         try:
             from importlib.resources import files
 
-            for sub in ["agent_data", "agent", ""]:
+            for sub in ["", "agent_data", "agent"]:
                 p_bin = Path(str(files(pkg).joinpath(sub).joinpath(mcp_config)))
                 if p_bin.exists():
                     return p_bin
@@ -341,7 +331,7 @@ def resolve_mcp_config_path(mcp_config: str | None) -> Path | None:
             spec = importlib.util.find_spec(pkg)
             if spec and spec.origin:
                 pkg_root = Path(spec.origin).parent
-                for sub in ["agent_data", "agent", ""]:
+                for sub in ["", "agent_data", "agent"]:
                     p_spec = pkg_root / sub / mcp_config
                     if p_spec.exists():
                         return p_spec
@@ -417,6 +407,7 @@ def load_workspace_file(filename: str, default: str = "") -> str:
     """
     path = get_workspace_path(filename)
     if path.exists():
+        validate_workspace_path(path)
         return path.read_text(encoding="utf-8").strip()
     return default
 
@@ -440,6 +431,13 @@ def write_workspace_file(filename: str, content: str):
 
     """
     path = get_workspace_path(filename)
+    # Ensure the target directory is within the workspace
+    if path.exists():
+        validate_workspace_path(path)
+    else:
+        # Check parent
+        validate_workspace_path(path.parent)
+
     path.write_text(content, encoding="utf-8")
 
 

@@ -36,11 +36,19 @@ async def ingest_prompts_to_graph():
     This replaces the legacy NODE_AGENTS.md registry with a dynamic KG-native
     discovery mechanism.
     """
-    workspace = get_agent_workspace()
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+    import networkx as nx
 
-    from .knowledge_graph.backends import create_backend
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine:
+        workspace = get_agent_workspace()
+        db_path = str(workspace / "knowledge_graph.db")
+        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), db_path=db_path)
+    
+    if engine.backend:
+        engine.backend.create_schema()
 
-    backend = create_backend(db_path=str(workspace / "knowledge_graph.db"))
+    backend = engine.backend
     if backend is None:
         logger.warning("Graph backend not available, skipping prompt ingestion.")
         return None
@@ -65,43 +73,58 @@ async def ingest_prompts_to_graph():
     }
     prompts_dir = Path(__file__).parent / "prompts"
     if prompts_dir.exists():
-        for pfile in prompts_dir.glob("*.md"):
+        json_files = list(prompts_dir.glob("*.json"))
+        print(f"DEBUG: Found {len(json_files)} prompt files in {prompts_dir}")
+        for pfile in json_files:
             name = pfile.stem
+            print(f"DEBUG: Processing file: {pfile.name}, stem={name}")
             if pfile.name.startswith("_") or name in RESERVED_CORE_NODES:
+                print(f"DEBUG: Skipping reserved/internal node: {name}")
                 continue
 
-            content = pfile.read_text(encoding="utf-8")
-            metadata = parse_frontmatter(content) or {}
+            try:
+                import json
 
-            agent_name = metadata.get("name", pfile.stem)
-            description = metadata.get("description", "")
-            if not description:
-                d_match = re.search(r"^#.*?\n+(.*?)\n", content, re.MULTILINE)
-                if d_match:
-                    description = d_match.group(1).strip()
+                from .structured_prompts import StructuredPrompt
 
-            capabilities = metadata.get("skills", metadata.get("capabilities", []))
+                raw_data = json.loads(pfile.read_text(encoding="utf-8"))
+                prompt_obj = StructuredPrompt.model_validate(raw_data)
 
-            # Store in Knowledge Graph as PromptNode
-            data = {
-                "id": f"prompt:{agent_name}",
-                "name": agent_name,
-                "description": description,
-                "system_prompt": content,
-                "capabilities": capabilities,
-                "type": "prompt",
-            }
-            # Ladybug compatibility: use MATCH/SET then CREATE
-            set_clause = ", ".join([f"p.{k} = ${k}" for k in data.keys() if k != "id"])
-            update_query = (
-                f"MATCH (p:Prompt) WHERE p.id = $id SET {set_clause} RETURN p.id"
-            )
-            res = backend.execute(update_query, data)
+                agent_name = prompt_obj.task or pfile.stem
+                description = getattr(prompt_obj, "description", "")
+                if not description:
+                    description = prompt_obj.goal or ""
 
-            if not res:
-                cols = ", ".join([f"{k}: ${k}" for k in data.keys()])
-                create_query = f"CREATE (p:Prompt {{{cols}}})"
-                backend.execute(create_query, data)
+                capabilities = (
+                    getattr(prompt_obj, "tools", None)
+                    or getattr(prompt_obj, "skills", None)
+                    or getattr(prompt_obj, "capabilities", [])
+                )
+
+                import json
+                # Store in Knowledge Graph as PromptNode
+                from .models.knowledge_graph import PromptNode
+                import time
+
+                ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                node = PromptNode(
+                    id=f"prompt:{agent_name}",
+                    name=agent_name,
+                    description=description,
+                    system_prompt=prompt_obj.render(),
+                    json_blueprint=raw_data,  # Pass as dict, engine will serialize
+                    capabilities=capabilities,
+                    type="prompt",
+                    timestamp=ts,
+                    is_permanent=True
+                )
+
+                print(f"DEBUG: Ingesting prompt {agent_name} via engine.upsert")
+                serialized_data = engine._serialize_node(node, label="Prompt")
+                engine._upsert_node("Prompt", node.id, serialized_data)
+            except Exception as e:
+                print(f"ERROR: Failed to ingest prompt {pfile.name}: {e}")
+                logger.warning(f"Failed to ingest prompt {pfile.name}: {e}")
 
     logger.info("Local prompt files ingested into the Knowledge Graph.")
     return None

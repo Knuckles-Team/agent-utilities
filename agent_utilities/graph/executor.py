@@ -14,7 +14,7 @@ import logging
 import os
 from typing import Any
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_graph import End
 from pydantic_graph.beta import StepContext
 
@@ -59,7 +59,9 @@ def agent_matches_node_id(agent: MCPAgent, node_id: str) -> bool:
     mcp_tools = (agent.mcp_tools or "").lower().replace("-", "_").replace(" ", "_")
     server = (agent.mcp_server or "").lower().replace("-", "_").replace(" ", "_")
     desc = (agent.description or "").lower()
-    capabilities = [c.lower() for c in agent.capabilities]
+    capabilities = [c.lower().replace("-", "_") for c in agent.capabilities]
+    # Also keep originals to be safe
+    capabilities.extend([c.lower() for c in agent.capabilities])
 
     if (
         name == node_id_norm
@@ -464,10 +466,17 @@ async def _execute_dynamic_mcp_agent(
             logger.info(
                 f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Starting (attempt {attempt + 1}). Prompt length: {len(agent_sys_prompt)}"
             )
-            run_input = (
+            # Wrap user query in XML tags to protect against prompt injection
+            # and provide clear boundaries for the model.
+            raw_input = (
                 ctx.state.query_parts
                 if ctx.state.query_parts and sub_query == ctx.state.query
                 else sub_query
+            )
+            run_input = (
+                f"<user_query>\n{raw_input}\n</user_query>"
+                if isinstance(raw_input, str)
+                else raw_input
             )
             res = await asyncio.wait_for(
                 agent.run(run_input, deps=ctx.deps, message_history=prev_messages),
@@ -483,12 +492,14 @@ async def _execute_dynamic_mcp_agent(
                 logger.debug(f"Failed to update cache for '{cache_key}': {e}")
                 pass
 
-                # Record success on circuit breaker
-                srv_name = server_name or "unknown"
+            # Record success on circuit breaker
+            srv_name = server_name or "unknown"
+            if srv_name not in ctx.deps.server_health:
                 ctx.deps.server_health[srv_name] = MCPServerHealth(
                     server_name=srv_name,
                 )
-            ctx.deps.server_health[server_name or "unknown"].record_success()
+            ctx.deps.server_health[srv_name].record_success()
+
 
             # Stream events to WebUI
             if ctx.deps.event_queue:
@@ -1173,7 +1184,6 @@ async def _execute_domain_logic(
                 output = getattr(result, "output", None) or getattr(
                     result, "data", result
                 )
-                from pydantic_ai import DeferredToolRequests
 
                 if isinstance(output, DeferredToolRequests):
                     ctx.state.human_approval_required = True

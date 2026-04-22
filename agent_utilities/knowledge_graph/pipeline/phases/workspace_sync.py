@@ -78,7 +78,7 @@ async def execute_workspace_sync(
     # After sync, the repositories are on disk.
     if getattr(config, "kb_auto_ingest_cloned_repos", True):
         # Trigger KB ingestion for each project path
-        from ..kb.ingestion import KBIngestionEngine
+        from ...kb.ingestion import KBIngestionEngine
 
         # We need an 'engine' here, but ctx usually contains what we need.
         # However, KBIngestionEngine expects a 'graph' and 'backend' in the new pattern

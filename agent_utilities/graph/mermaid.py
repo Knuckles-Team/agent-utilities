@@ -33,6 +33,10 @@ def get_graph_mermaid(
     else:
         mermaid = graph.render()
 
+    # If we already have mermaid code, we just tweak it.
+    # But if we want to use our FlowchartBuilder for consistency:
+    # We'll just append our custom logic to the end of the rendered string.
+
     if title:
         if "---" in mermaid:
             import re
@@ -49,8 +53,18 @@ def get_graph_mermaid(
     domain_label = f"Domain Node ({routed_domain})" if routed_domain else "Domain Node"
 
     if "router" in mermaid:
-        mermaid += f"\n  router : {router_label}"
+        # Check if it's already labeled
+        if f"router : {router_label}" not in mermaid:
+            mermaid += f"\n  router : {router_label}"
     if "domain_execution" in mermaid:
-        mermaid += f"\n  domain_execution : {domain_label}"
+        if f"domain_execution : {domain_label}" not in mermaid:
+            mermaid += f"\n  domain_execution : {domain_label}"
+
+    # Add styling for graph nodes
+    if "classDef" not in mermaid:
+        mermaid += "\n  classDef router fill:#3f51b5,stroke:#1a237e,color:#fff"
+        mermaid += "\n  classDef domain fill:#009688,stroke:#004d40,color:#fff"
+        mermaid += "\n  class router router"
+        mermaid += "\n  class domain_execution domain"
 
     return mermaid

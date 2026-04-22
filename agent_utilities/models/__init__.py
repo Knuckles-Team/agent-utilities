@@ -11,6 +11,10 @@ from .agent import (
     IdentityModel,
     UserModel,
 )
+from .codemap import (
+    CodemapArtifact,
+    CodemapNode,
+)
 from .graph import (
     ExecutionStep,
     GraphPlan,
@@ -29,6 +33,10 @@ from .project import (
     ProgressEntry,
     ProgressLog,
     SprintContract,
+)
+from .prompt import (
+    NestedStructure,
+    StructuredPrompt,
 )
 from .scheduling import (
     CronLogEntryModel,
@@ -84,4 +92,8 @@ __all__ = [
     "SprintContract",
     "UsageStatistics",
     "CostModel",
+    "StructuredPrompt",
+    "NestedStructure",
+    "CodemapArtifact",
+    "CodemapNode",
 ]

@@ -210,12 +210,22 @@ def register_agent_tools(agent: Agent, graph_bundle: tuple | None = None) -> Non
     _safe_tool(set_output_style)
     _safe_tool(list_output_styles)
 
+    from .tool_guard import apply_tool_guard_approvals
+
     # 14. Self-Improvement & Learning Tools
+
     _safe_tool(run_self_improvement_cycle)
     _safe_tool(propose_skills_from_history)
     _safe_tool(query_experiment_results)
 
-    # 15. Apply Security Guards
-    from .tool_guard import apply_tool_guard_approvals
+    # 15. SDD & Pattern Tools
+    from .tools.pattern_tools import pattern_tools
+    from .tools.sdd_tools import sdd_tools
 
+    for tool in sdd_tools:
+        _safe_tool(tool)
+    for tool in pattern_tools:
+        _safe_tool(tool)
+
+    # 16. Apply Security Guards
     apply_tool_guard_approvals(agent)

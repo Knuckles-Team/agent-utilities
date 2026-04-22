@@ -37,7 +37,29 @@ logger = logging.getLogger(__name__)
 
 def is_sensitive_tool(name: str) -> bool:
     """Check if a tool name matches any sensitive pattern."""
+    if TOOL_GUARD_MODE == "strict":
+        # In strict mode, everything is sensitive unless it's explicitly safe
+        return not is_safe_tool(name)
+
     for pattern in SENSITIVE_TOOL_PATTERNS:
+        if re.match(pattern, name.lower()):
+            return True
+    return False
+
+
+def is_safe_tool(name: str) -> bool:
+    """Check if a tool name is explicitly safe (read-only)."""
+    safe_patterns = [
+        r"^read_.*",
+        r"^list_.*",
+        r"^get_.*",
+        r"^describe_.*",
+        r"^search_.*",
+        r"^inspect_.*",
+        r"^view_.*",
+        r"^show_.*",
+    ]
+    for pattern in safe_patterns:
         if re.match(pattern, name.lower()):
             return True
     return False

@@ -1,7 +1,7 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from agent_utilities.knowledge_graph.maintenance import GraphMaintainer
+
 
 class DummyBackend:
     def __init__(self, execute_results=None):
@@ -20,6 +20,7 @@ class DummyBackend:
     def add_embedding(self, node_id, embedding):
         self.queries.append({"action": "add_embedding", "id": node_id})
 
+
 def test_prune_cron_logs():
     backend = DummyBackend()
     engine = MagicMock()
@@ -31,12 +32,15 @@ def test_prune_cron_logs():
     assert len(backend.queries) == 1
     assert "DELETE l" in backend.queries[0]["query"]
 
+
 def test_summarize_old_chats():
     # Return one thread, then two messages for that thread
-    backend = DummyBackend(execute_results=[
-        [{"id": "thread_1", "title": "Test Thread"}],
-        [{"content": "hello"}, {"content": "world"}]
-    ])
+    backend = DummyBackend(
+        execute_results=[
+            [{"id": "thread_1", "title": "Test Thread"}],
+            [{"content": "hello"}, {"content": "world"}],
+        ]
+    )
     engine = MagicMock()
     engine.backend = backend
 
@@ -47,15 +51,18 @@ def test_summarize_old_chats():
     assert len(backend.queries) == 5
     assert "ChatSummary" in backend.queries[2]["query"]
 
+
 @patch("agent_utilities.knowledge_graph.maintenance.requests.post")
 def test_enrich_embeddings(mock_post):
     # Mock LM Studio response
-    mock_post.return_value.json.return_value = {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
+    mock_post.return_value.json.return_value = {
+        "data": [{"embedding": [0.1, 0.2, 0.3]}]
+    }
     mock_post.return_value.raise_for_status = MagicMock()
 
-    backend = DummyBackend(execute_results=[
-        [{"id": "msg_1", "content": "hello", "embedding": None}]
-    ])
+    backend = DummyBackend(
+        execute_results=[[{"id": "msg_1", "content": "hello", "embedding": None}]]
+    )
     engine = MagicMock()
     engine.backend = backend
 

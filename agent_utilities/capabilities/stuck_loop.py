@@ -14,10 +14,23 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from pydantic_ai import RunContext
-from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
+
+# Guarded import for pydantic_ai.capabilities (not available in all versions)
+try:
+    from pydantic_ai.capabilities import AbstractCapability
+
+    _CAPABILITIES_AVAILABLE = True
+except ImportError:
+    _CAPABILITIES_AVAILABLE = False
+
+    # Type stub for when module is missing
+    class AbstractCapability:  # type: ignore
+        def __init__(self, **kwargs):
+            pass
+
 
 from ..models.knowledge_graph import RegistryNodeType, SelfEvaluationNode
 

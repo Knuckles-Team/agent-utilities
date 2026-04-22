@@ -1,17 +1,24 @@
-import pytest
-import asyncio
 from typing import Any
-from unittest.mock import patch, MagicMock
-from agent_utilities.acp_adapter import build_acp_config, create_graph_acp_app, _ACP_INSTALLED
+from unittest.mock import MagicMock, patch
+
+import pytest
 from pydantic_ai import Agent
 
+from agent_utilities.acp_adapter import (
+    _ACP_INSTALLED,
+    build_acp_config,
+    create_graph_acp_app,
+)
+
 pytestmark = pytest.mark.skipif(not _ACP_INSTALLED, reason="pydantic-acp not installed")
+
 
 @pytest.fixture
 def mock_graph():
     graph = MagicMock()
     config: dict[str, Any] = {"mcp_toolsets": []}
     return graph, config
+
 
 @pytest.mark.asyncio
 async def test_acp_graph_integration():
@@ -23,7 +30,9 @@ async def test_acp_graph_integration():
     mock_result = MagicMock()
     mock_result.results = {"output": "Graph processed this request"}
 
-    with patch("agent_utilities.graph.unified.execute_graph", return_value=mock_result) as mock_execute:
+    with patch(
+        "agent_utilities.graph.unified.execute_graph", return_value=mock_result
+    ) as mock_execute:
         # Create the graph-backed ACP app
         graph_bundle: tuple[Any, ...] = (MagicMock(), {"mcp_toolsets": []})
         app = create_graph_acp_app(agent, config, graph_bundle=graph_bundle)
@@ -49,6 +58,7 @@ async def test_acp_graph_integration():
 
         mock_execute.assert_not_called()
 
+
 @pytest.mark.asyncio
 async def test_acp_session_lifecycle():
     """Test the session lifecycle (creation and persistence)."""
@@ -61,6 +71,7 @@ async def test_acp_session_lifecycle():
         # Test session creation would normally happen via the ACP app endpoints
         # Here we just ensure the config is correct for the session store
         assert config.session_store.root.name == ".acp-sessions"
+
 
 @pytest.mark.asyncio
 async def test_acp_mode_mapping():

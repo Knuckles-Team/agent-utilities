@@ -135,6 +135,26 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
         except Exception as e:
             logger.warning(f"Could not load main_agent.md from package: {e}")
 
+    # Try to load AGENTS.md (Claude Code parity)
+    agents_content = load_workspace_file("AGENTS.md")
+    if agents_content:
+        parts.append(
+            f"---\n# AGENTS.md (Project Rules & Memory)\n{agents_content}\n---"
+        )
+        included_files.append("AGENTS.md")
+
+    # Try to load MEMORY.md (Auto Memory)
+    memory_content = load_workspace_file("MEMORY.md")
+    if memory_content:
+        parts.append(f"---\n# MEMORY.md (Learned Context)\n{memory_content}\n---")
+        included_files.append("MEMORY.md")
+    else:
+        # Check in .agents/memory/ if MEMORY.md is missing from root
+        memory_content = load_workspace_file(".agents/memory/MEMORY.md")
+        if memory_content:
+            parts.append(f"---\n# MEMORY.md\n{memory_content}\n---")
+            included_files.append(".agents/memory/MEMORY.md")
+
     if fallback_prompt:
         parts.append(fallback_prompt)
         included_files.append("fallback_prompt")

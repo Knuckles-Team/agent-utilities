@@ -1,7 +1,7 @@
 import json
-from typing import Any
 import os
 import subprocess
+from typing import Any
 
 
 def merge_mcp_configs(target_path):
@@ -36,7 +36,7 @@ def merge_mcp_configs(target_path):
             continue
 
         try:
-            with open(path, "r") as f:
+            with open(path) as f:
                 data = json.load(f)
                 servers = data.get("mcpServers", {})
                 for name, cfg in servers.items():
@@ -63,5 +63,12 @@ if __name__ == "__main__":
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
     REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
     WORKSPACE_ROOT = os.path.dirname(REPO_ROOT)
-    target = os.path.join(WORKSPACE_ROOT, "agents", "genius-agent", "genius_agent", "agent_data", "mcp_config.json")
+    target = os.path.join(
+        WORKSPACE_ROOT,
+        "agents",
+        "genius-agent",
+        "genius_agent",
+        "agent_data",
+        "mcp_config.json",
+    )
     merge_mcp_configs(target)

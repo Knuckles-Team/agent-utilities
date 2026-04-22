@@ -1,8 +1,10 @@
-from fastapi.testclient import TestClient
-from agent_utilities.server import create_agent_server
-import uvicorn
-from unittest.mock import MagicMock
 import os
+from unittest.mock import MagicMock
+
+import uvicorn
+from fastapi.testclient import TestClient
+
+from agent_utilities.server import create_agent_server
 
 
 def test_docs_exists():

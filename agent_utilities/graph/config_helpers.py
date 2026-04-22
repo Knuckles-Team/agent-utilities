@@ -12,7 +12,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import time
 from pathlib import Path
 from typing import Any
@@ -39,6 +38,13 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
     from ..models import MCPAgent, MCPToolInfo
 
     engine = IntelligenceGraphEngine.get_active()
+    if not engine:
+        import networkx as nx
+        from ..workspace import get_agent_workspace
+        ws = get_agent_workspace()
+        db_path = str(ws / "knowledge_graph.db")
+        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), db_path=db_path)
+
     if not engine or not engine.backend:
         # Fallback to local prompt discovery if graph not active
         return MCPAgentRegistryModel()
@@ -47,16 +53,33 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
     # 1. Fetch Prompt Agents
     try:
         prompt_rows = engine.backend.execute(
-            "MATCH (p:Prompt) RETURN p.name, p.description, p.capabilities, p.system_prompt"
+            "MATCH (p:Prompt) RETURN p.name AS name, p.description AS description, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
         )
         for row in prompt_rows:
+            blueprint = row.get("json_blueprint")
+            print(f"DEBUG: Registry Discovery: Found {row.get('name')}, blueprint type={type(blueprint)}, value_prefix={str(blueprint)[:50]}...")
+            if isinstance(blueprint, str):
+                try:
+                    import json
+                    blueprint = json.loads(blueprint)
+                except Exception:
+                    try:
+                        import ast
+                        blueprint = ast.literal_eval(blueprint)
+                    except Exception:
+                        logger.debug(f"Failed to parse json_blueprint as JSON or literal: {blueprint[:100]}...")
+            
+            if blueprint and not isinstance(blueprint, dict):
+                logger.debug(f"json_blueprint for {row.get('name')} is not a dict, type={type(blueprint)}")
+
             agents.append(
                 MCPAgent(
-                    name=row.get("p.name", ""),
-                    description=row.get("p.description", ""),
+                    name=row.get("name", ""),
+                    description=row.get("description", ""),
                     agent_type="prompt",
-                    capabilities=row.get("p.capabilities", []),
-                    system_prompt=row.get("p.system_prompt", ""),
+                    capabilities=row.get("capabilities", []),
+                    system_prompt=row.get("system_prompt", ""),
+                    json_blueprint=blueprint,
                 )
             )
     except Exception as e:
@@ -256,22 +279,37 @@ def load_specialized_prompts(prompt_name: str) -> str:
     registry = get_discovery_registry()
     agent = next((a for a in registry.agents if a.name == prompt_name), None)
 
-    if agent and agent.prompt_file:
-        prompt_path = (Path(__file__).parent.parent / agent.prompt_file).resolve()
-        if prompt_path.exists():
-            content = prompt_path.read_text(encoding="utf-8")
-            # Remove frontmatter if present
-            content = re.sub(r"^---\s*\n.*?\n---\s*\n", "", content, flags=re.DOTALL)
-            return content
+    if agent:
+        if agent.json_blueprint:
+            from ..structured_prompts import StructuredPrompt
 
-    # Fallback to local file check if registry is missing
-    prompt_path = (
-        Path(__file__).parent.parent / "prompts" / f"{prompt_name}.md"
+            return StructuredPrompt.model_validate(agent.json_blueprint).render()
+
+        if agent.prompt_file:
+            # Check if it's a JSON file
+            prompt_path = (Path(__file__).parent.parent / agent.prompt_file).resolve()
+            if prompt_path.suffix == ".json" and prompt_path.exists():
+                from ..structured_prompts import StructuredPrompt
+
+                data = json.loads(prompt_path.read_text(encoding="utf-8"))
+                return StructuredPrompt.model_validate(data).render()
+
+    # Unified JSON loading from prompts/
+    json_path = (
+        Path(__file__).parent.parent / "prompts" / f"{prompt_name}.json"
     ).resolve()
-    if prompt_path.exists():
-        content = prompt_path.read_text(encoding="utf-8")
-        content = re.sub(r"^---\s*\n.*?\n---\s*\n", "", content, flags=re.DOTALL)
-        return content
+    if json_path.exists():
+        try:
+            from ..structured_prompts import StructuredPrompt
 
-    logger.warning(f"Specialized prompt for '{prompt_name}' not found.")
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            return StructuredPrompt.model_validate(data).render()
+        except Exception as e:
+            logger.warning(
+                f"Failed to load structured prompt JSON for '{prompt_name}': {e}"
+            )
+
+    logger.warning(
+        f"Specialized prompt for '{prompt_name}' not found in registry or prompts/*.json."
+    )
     return f"You are a helpful assistant specialized in {prompt_name}."

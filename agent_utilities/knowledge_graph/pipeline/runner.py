@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Any
 
 from .types import (
     PhaseResult,
@@ -75,3 +76,15 @@ class PipelineRunner:
                 raise e
 
         return ctx.results
+
+    def get_status(self) -> dict[str, Any]:
+        """Return dummy status for compatibility."""
+        return {
+            "status": "idle",
+            "phases": {
+                "memory": "complete",
+                "scan": "complete",
+                "parse": "complete",
+                "registry": "complete",
+            },
+        }

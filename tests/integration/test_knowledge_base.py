@@ -1,5 +1,4 @@
 #!/usr/bin/python
-# coding: utf-8
 """Tests for the Knowledge Base (KB) graph extension.
 
 Covers:
@@ -13,49 +12,37 @@ Covers:
   - Export to markdown
 """
 
-import asyncio
-import hashlib
-import time
-import uuid
 from pathlib import Path
-from typing import List
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import networkx as nx
 import pytest
 
+from agent_utilities.knowledge_graph.kb.extractor import KBExtractor
+from agent_utilities.knowledge_graph.kb.ingestion import (
+    KBIngestionEngine,
+    _article_id,
+    _kb_id,
+    _source_id,
+)
+from agent_utilities.knowledge_graph.kb.parser import KBDocumentParser, _compute_hash
 from agent_utilities.models.knowledge_base import (
     DocumentChunk,
     ExtractedArticle,
     ExtractedFact,
     KBHealthReport,
     KnowledgeBaseMetadata,
-    ParsedSource,
 )
 from agent_utilities.models.knowledge_graph import (
-    ArticleNode,
-    KBConceptNode,
-    KBFactNode,
-    KBIndexNode,
-    KnowledgeBaseNode,
-    RawSourceNode,
     RegistryEdgeType,
     RegistryNodeType,
 )
 from agent_utilities.models.schema_definition import SCHEMA
-from agent_utilities.knowledge_graph.kb.parser import KBDocumentParser, _compute_hash
-from agent_utilities.knowledge_graph.kb.extractor import KBExtractor
-from agent_utilities.knowledge_graph.kb.ingestion import (
-    KBIngestionEngine,
-    _kb_id,
-    _article_id,
-    _source_id,
-)
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def sample_md_file(tmp_path) -> Path:
@@ -124,6 +111,7 @@ def kb_engine(nx_graph) -> KBIngestionEngine:
 # Schema Tests
 # ---------------------------------------------------------------------------
 
+
 class TestSchemaKBNodes:
     """Verify all new KB node/rel tables are registered in SCHEMA."""
 
@@ -176,6 +164,7 @@ class TestSchemaKBNodes:
 # Pydantic Model Tests
 # ---------------------------------------------------------------------------
 
+
 class TestKBPydanticModels:
     def test_extracted_article_valid(self):
         article = ExtractedArticle(
@@ -197,7 +186,9 @@ class TestKBPydanticModels:
         assert article.facts[0].certainty == 0.95
 
     def test_extracted_fact_certainty_bounds(self):
-        with pytest.raises(Exception):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
             ExtractedFact(content="test", certainty=1.5, source_snippet="x")
 
     def test_kb_health_report_valid(self):
@@ -241,6 +232,7 @@ class TestKBPydanticModels:
 # ---------------------------------------------------------------------------
 # KBDocumentParser Tests
 # ---------------------------------------------------------------------------
+
 
 class TestKBDocumentParser:
     def test_parse_markdown_file(self, sample_md_file):
@@ -332,6 +324,7 @@ class TestKBDocumentParser:
 # KBExtractor Tests (fallback mode — no LLM required)
 # ---------------------------------------------------------------------------
 
+
 class TestKBExtractor:
     @pytest.mark.asyncio
     async def test_fallback_article(self):
@@ -384,6 +377,7 @@ class TestKBExtractor:
 # KBIngestionEngine Tests
 # ---------------------------------------------------------------------------
 
+
 class TestKBIngestionEngine:
     @pytest.mark.asyncio
     async def test_ingest_skill_graph(self, kb_engine, sample_skill_graph):
@@ -411,7 +405,8 @@ class TestKBIngestionEngine:
         kb_id = _kb_id("pydantic-ai-docs")
 
         articles = [
-            n for n in kb_engine.graph.predecessors(kb_id)
+            n
+            for n in kb_engine.graph.predecessors(kb_id)
             if kb_engine.graph.nodes[n].get("type") == RegistryNodeType.ARTICLE
         ]
         assert len(articles) >= 1
@@ -421,12 +416,20 @@ class TestKBIngestionEngine:
         await kb_engine.ingest_skill_graph(sample_skill_graph)
         kb_id = _kb_id("pydantic-ai-docs")
 
-        raw_sources = [
-            n for n in kb_engine.predecessors_by_type(kb_id, RegistryNodeType.RAW_SOURCE)
-        ] if hasattr(kb_engine, "predecessors_by_type") else [
-            n for n in kb_engine.graph.predecessors(kb_id)
-            if kb_engine.graph.nodes[n].get("type") == RegistryNodeType.RAW_SOURCE
-        ]
+        raw_sources = (
+            [
+                n
+                for n in kb_engine.predecessors_by_type(
+                    kb_id, RegistryNodeType.RAW_SOURCE
+                )
+            ]
+            if hasattr(kb_engine, "predecessors_by_type")
+            else [
+                n
+                for n in kb_engine.graph.predecessors(kb_id)
+                if kb_engine.graph.nodes[n].get("type") == RegistryNodeType.RAW_SOURCE
+            ]
+        )
         assert len(raw_sources) >= 1
 
     @pytest.mark.asyncio
@@ -452,7 +455,7 @@ class TestKBIngestionEngine:
     @pytest.mark.asyncio
     async def test_force_reingest(self, kb_engine, sample_skill_graph):
         """Force=True should re-ingest even unchanged files."""
-        meta1 = await kb_engine.ingest_skill_graph(sample_skill_graph)
+        await kb_engine.ingest_skill_graph(sample_skill_graph)
         meta2 = await kb_engine.ingest_skill_graph(sample_skill_graph, force=True)
         assert meta2.status == "ready"
 
@@ -461,10 +464,16 @@ class TestKBIngestionEngine:
         # Create a simple doc directory
         docs = tmp_path / "my-docs"
         docs.mkdir()
-        (docs / "intro.md").write_text("# Introduction\n\nThis is an intro.", encoding="utf-8")
-        (docs / "guide.md").write_text("# Guide\n\nStep by step guide.", encoding="utf-8")
+        (docs / "intro.md").write_text(
+            "# Introduction\n\nThis is an intro.", encoding="utf-8"
+        )
+        (docs / "guide.md").write_text(
+            "# Guide\n\nStep by step guide.", encoding="utf-8"
+        )
 
-        meta = await kb_engine.ingest_directory(docs, kb_name="my-docs", topic="Documentation")
+        meta = await kb_engine.ingest_directory(
+            docs, kb_name="my-docs", topic="Documentation"
+        )
         assert meta.name == "my-docs"
         assert meta.article_count >= 1
 
@@ -525,11 +534,12 @@ class TestKBIngestionEngine:
         # Test export by calling the engine directly
         graph = kb_engine.graph
         kb_data = graph.nodes[kb_id]
-        kb_name = kb_data.get("name", kb_id)
+        kb_data.get("name", kb_id)
         export_dir.mkdir(parents=True, exist_ok=True)
 
         articles = [
-            n for n in graph.predecessors(kb_id)
+            n
+            for n in graph.predecessors(kb_id)
             if graph.nodes[n].get("type") == RegistryNodeType.ARTICLE
         ]
 
@@ -538,7 +548,9 @@ class TestKBIngestionEngine:
             article_data = graph.nodes[articles[0]]
             title = article_data.get("name", "test")
             content = article_data.get("content", "test content")
-            safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title)[:80]
+            safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title)[
+                :80
+            ]
             (export_dir / f"{safe_name}.md").write_text(content, encoding="utf-8")
 
         assert export_dir.exists()
@@ -548,10 +560,13 @@ class TestKBIngestionEngine:
 # Pipeline Phase 13 Tests
 # ---------------------------------------------------------------------------
 
+
 class TestKBPipelinePhase:
     @pytest.mark.asyncio
     async def test_phase_skipped_when_disabled(self):
-        from agent_utilities.knowledge_graph.pipeline.phases.knowledge_base import execute_knowledge_base
+        from agent_utilities.knowledge_graph.pipeline.phases.knowledge_base import (
+            execute_knowledge_base,
+        )
         from agent_utilities.knowledge_graph.pipeline.types import PipelineContext
         from agent_utilities.models.knowledge_graph import PipelineConfig
 
@@ -567,7 +582,9 @@ class TestKBPipelinePhase:
 
     @pytest.mark.asyncio
     async def test_phase_skips_when_auto_ingest_off(self):
-        from agent_utilities.knowledge_graph.pipeline.phases.knowledge_base import execute_knowledge_base
+        from agent_utilities.knowledge_graph.pipeline.phases.knowledge_base import (
+            execute_knowledge_base,
+        )
         from agent_utilities.knowledge_graph.pipeline.types import PipelineContext
         from agent_utilities.models.knowledge_graph import PipelineConfig
 
@@ -584,11 +601,13 @@ class TestKBPipelinePhase:
 
     def test_phase_registered_in_phases(self):
         from agent_utilities.knowledge_graph.pipeline.phases import PHASES
+
         phase_names = [p.name for p in PHASES]
         assert "knowledge_base" in phase_names
 
     def test_kb_phase_has_correct_deps(self):
         from agent_utilities.knowledge_graph.pipeline.phases import PHASES
+
         kb_phase = next(p for p in PHASES if p.name == "knowledge_base")
         assert "sync" in kb_phase.deps
 
@@ -596,6 +615,7 @@ class TestKBPipelinePhase:
 # ---------------------------------------------------------------------------
 # Helper ID Functions Tests
 # ---------------------------------------------------------------------------
+
 
 class TestHelperFunctions:
     def test_kb_id_formatting(self):

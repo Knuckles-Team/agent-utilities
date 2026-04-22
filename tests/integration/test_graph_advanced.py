@@ -1,17 +1,18 @@
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 from pydantic_ai.models.test import TestModel
 
-from agent_utilities.graph.state import GraphState, GraphDeps
+from agent_utilities.graph.graph_models import ValidationResult
+from agent_utilities.graph.state import GraphDeps, GraphState
 from agent_utilities.graph.steps import (
+    dispatcher_step,
     usage_guard_step,
     verifier_step,
-    dispatcher_step,
 )
-from agent_utilities.graph.graph_models import ValidationResult
 from agent_utilities.models import (
-    GraphPlan,
     ExecutionStep,
+    GraphPlan,
 )
 
 
@@ -84,9 +85,7 @@ async def test_verifier_step_success(mock_deps):
     from unittest.mock import AsyncMock, patch
 
     # Mock the validation result — stream.get_output() returns the typed output directly
-    validation_result = ValidationResult(
-        is_valid=True, score=0.9, feedback="Good"
-    )
+    validation_result = ValidationResult(is_valid=True, score=0.9, feedback="Good")
 
     # Helper to create a mock stream
     def create_mock_stream(output):
