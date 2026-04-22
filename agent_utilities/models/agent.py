@@ -23,6 +23,7 @@ class AgentDeps:
     base_url: str | None = None
     api_key: str | None = None
     mcp_toolsets: list[Any] = field(default_factory=list)
+    patterns: Any | None = None
 
 
 class IdentityModel(BaseModel):

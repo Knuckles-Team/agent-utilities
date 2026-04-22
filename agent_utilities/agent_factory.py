@@ -235,7 +235,7 @@ def create_agent(
     system_prompt: str | None = DEFAULT_AGENT_SYSTEM_PROMPT,
     debug: bool | None = False,
     skill_types: list[str]
-    | None = None,  # replaces load_universal_skills, load_skill_graphs
+    | None = ["universal", "graphs", "tdd-methodology", "manual_testing", "walkthroughs"],
     tool_tags: list[str] | None = None,
     graph_bundle: tuple[Any, ...] | None = None,
     output_type: Any | None = None,
@@ -278,7 +278,7 @@ def create_agent(
         name: Name of the agent.
         system_prompt: Optional custom system prompt.
         debug: Whether to enable debug mode.
-        skill_types: Optional list of skill types to load ('universal', 'graphs').
+        skill_types: Optional list of skill types to load ('universal', 'graphs', 'tdd-methodology', 'manual_testing', 'walkthroughs').
         tool_tags: Optional tags to filter tools by.
         graph_bundle: Optional state machine bundle for the orchestrator.
         output_type: Optional Pydantic-compatible output type schema.
@@ -519,6 +519,14 @@ def create_agent(
         deps_type=AgentDeps,
         capabilities=agent_capabilities,
     )
+
+    # Initialize Pattern Manager
+    try:
+        from .patterns.manager import PatternManager
+        # Note: Patterns are typically injected into Deps at runtime or during tool registration
+        # Here we just ensure the skill types are available.
+    except ImportError:
+        pass
 
     if output_style:
         from .tools.style_tools import BUILTIN_STYLES

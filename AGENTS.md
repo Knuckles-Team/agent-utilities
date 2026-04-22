@@ -686,19 +686,23 @@ The `agent-utilities` ecosystem implements a high-fidelity orchestration pipelin
 1.  **Project Start**: The **Planner** triggers `constitution-generator` to establish `constitution.md` (governance rules, tech stack).
 2.  **Feature Definition**: The **Planner** triggers `spec-generator` to produce `spec.md` (user stories, acceptance criteria, requirements).
 3.  **Technical Approach**: The **Planner** triggers `task-planner` to generate `plan.md` (technical approach) and `tasks.md` (inter-dependent graph of tasks).
+4.  **Baseline Testing**: Before implementation, the **Planner** triggers `first_run_tests` to establish a verified baseline of the current workspace state.
 
 ### Phase 2: Parallel Execution
 The **Dispatcher** reads the `tasks.md` and routes sub-tasks to specialized agents.
 - **Dependency Tracking**: Tasks are executed in parallel if they have no unmet dependencies.
 - **Context Isolation**: Each specialist receives only relevant context for its assigned task.
 - **`[P]` Markers**: The `Task.parallel: bool` field and `[P]` markdown markers enable explicit parallel-wave control.
+- **Agentic Manual Testing**: Specialists can trigger `run_manual_test` to verify behaviors that are difficult to automate (e.g. CLI output, UI state).
 
 ### Phase 3: Continuous Verification
 1.  **Quality Gate**: After execution, the **Verifier** node uses `spec-verifier` to evaluate the results against the original `spec.md`.
 2.  **Self-Correction**: If verification fails (score < 0.7), feedback is injected back into the **Planner** for targeted re-planning and execution.
+3.  **Linear Walkthroughs**: Upon success, the agent triggers `generate_walkthrough` to produce a step-by-step documentation of the implementation.
 
 ### Phase 4: Long-Term Memory Evolution
-1.  **Memory Capture**: The `sync_feature_to_memory` tool is invoked to summarize the `Spec`, `ImplementationPlan`, and execution results.
+1.  **Interactive Explanations**: For complex logic, the agent generates `interactive-explain` artifacts (HTML/JS) to aid human understanding.
+2.  **Memory Capture**: The `sync_feature_to_memory` tool is invoked to summarize the `Spec`, `ImplementationPlan`, and execution results.
 2.  **Historical Reference**: Future planning sessions can search the Knowledge Graph to retrieve technical context from previous related work.
 
 ### SDD Model Flow & Persistence
@@ -721,6 +725,9 @@ The **Dispatcher** reads the `tasks.md` and routes sub-tasks to specialized agen
 | `spec-verifier` | sdd | Evaluate results against specifications. | Verifier, QA Expert, Critique |
 | `sdd-implementer` | sdd | Execute tasks from the generated plan. | Specialist Programmers |
 | `workspace-manager` | sdd | Bootstrap and manage `.specify/` directory layout. | Planner |
+| `manual-testing-enhanced` | sdd | exploratory testing and manual verification. | QA Expert, Verifier |
+| `code-walkthrough` | docs | Generates linear codebase documentation. | Document Specialist |
+| `interactive-explain` | docs | Generates interactive HTML explanations. | Document Specialist |
 
 ### Spec-Kit Command Parity
 | Spec-Kit Command | Agent-Utilities Tool | Description |
