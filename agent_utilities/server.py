@@ -356,7 +356,13 @@ def build_agent_app(
     # For ACP, we want to ensure universal skills and graphs are loaded by default
     # to provide a rich set of slash commands and domain experts.
     if enable_acp and skill_types is None:
-        skill_types = ["universal", "graphs"]
+        skill_types = [
+            "universal",
+            "graphs",
+            "tdd-methodology",
+            "manual_testing",
+            "walkthroughs",
+        ]
         logger.info(f"ACP Enabled: defaulting skill_types to {skill_types}")
     if workspace:
         from . import workspace as _ws_mod
@@ -743,6 +749,8 @@ def build_agent_app(
             graph_event_queue: asyncio.Queue[Any] = asyncio.Queue()
             elicitation_queue: asyncio.Queue[Any] = asyncio.Queue()
 
+            from .patterns.manager import PatternManager
+
             deps = AgentDeps(
                 workspace_path=Path(WORKSPACE_DIR or "."),
                 graph_event_queue=graph_event_queue,
@@ -755,6 +763,7 @@ def build_agent_app(
                 api_key=DEFAULT_LLM_API_KEY,
                 mcp_toolsets=_initialized_mcp_toolsets,
             )
+            deps.patterns = PatternManager(deps)
             logger.info(f"AG-UI session context: {run_id}")
 
             async def merged_stream():

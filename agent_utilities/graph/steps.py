@@ -1164,8 +1164,11 @@ async def verifier_step(
                     f"Execution Results:\n{results_summary}\n\n"
                     f"CRITICAL: If the query asks for a list, status, or specific info, the results MUST contain "
                     f"the actual data records, not just a summary that the task was completed.\n"
-                    f"Score 0.0-1.0. If data is missing or results are non-responsive, score < 0.7 and "
-                    f"provide EXACT feedback on what is missing (e.g. 'Missing the list of container names')."
+                    f"## TESTING MINDSET CRITERIA\n"
+                    f"1. Did the agent run tests first to baseline or verify changes? (Check for 'pytest' or 'test' tool calls).\n"
+                    f"2. Did the agent produce relevant artifacts? (e.g. ExecutionNotes, walkthroughs, HTML explanations).\n"
+                    f"Score 0.0-1.0. If data is missing, testing protocol was ignored, or results are non-responsive, score < 0.7 and "
+                    f"provide EXACT feedback on what is missing (e.g. 'Missing the list of container names', 'Failed to run tests before implementing')."
                 ),
             )
             async with validation_agent.run_stream("Evaluate the results") as stream:
