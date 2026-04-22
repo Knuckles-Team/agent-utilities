@@ -1,4 +1,5 @@
 import os
+
 from agent_utilities.config import AgentConfig, get_env_file
 
 
@@ -7,7 +8,7 @@ def test_agent_config_defaults():
     assert config.host == "0.0.0.0"
     assert config.port == 9000
     assert config.routing_strategy == "hybrid"
-    assert config.tool_guard_mode == "off"
+    assert config.tool_guard_mode == "strict"
 
 
 def test_agent_config_overrides():

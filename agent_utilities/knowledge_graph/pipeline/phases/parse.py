@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Any
 
 import tree_sitter_javascript as tsjavascript
@@ -11,6 +12,8 @@ from ..types import (
     PipelineContext,
     PipelinePhase,
 )
+
+logger = logging.getLogger(__name__)
 
 # Load languages
 PY_LANGUAGE = Language(tspython.language())
@@ -105,9 +108,12 @@ async def execute_parse(
                             docstring=docstring,
                             args=bases,
                         )
+                        meta_data = meta.model_dump()
+                        s_type = meta_data.pop("type")
                         graph.add_node(
                             symbol_id,
-                            **meta.model_dump(),
+                            **meta_data,
+                            symbol_type=s_type,
                             type=RegistryNodeType.SYMBOL,
                             file_path=file_path,
                         )
@@ -124,9 +130,12 @@ async def execute_parse(
                         meta = SymbolMetadata(
                             name=name, type="Function", line=node.start_point[0] + 1
                         )
+                        meta_data = meta.model_dump()
+                        s_type = meta_data.pop("type")
                         graph.add_node(
                             symbol_id,
-                            **meta.model_dump(),
+                            **meta_data,
+                            symbol_type=s_type,
                             type=RegistryNodeType.SYMBOL,
                             file_path=file_path,
                         )
@@ -205,8 +214,8 @@ async def execute_parse(
 
             walk(tree.root_node, source, file_path, file_node_id)
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error parsing {file_path}: {e}")
 
     return {"symbols_extracted": symbols_extracted}
 

@@ -10,6 +10,7 @@ supporting structural Cypher queries, topological impact analysis, and hybrid se
 import logging
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import networkx as nx  # type: ignore
@@ -381,6 +382,51 @@ class IntelligenceGraphEngine:
                 {"id": memory_id, "props": kwargs},
             )
 
+    def link_nodes(
+        self,
+        source_id: str,
+        target_id: str,
+        rel_type: str,
+        properties: dict[str, Any] | None = None,
+    ):
+        """Create a relationship between two nodes in the graph."""
+        props = properties or {}
+        if source_id in self.graph and target_id in self.graph:
+            self.graph.add_edge(source_id, target_id, type=rel_type, **props)
+
+        if self.backend:
+            query = (
+                f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
+                f"MERGE (s)-[r:{rel_type}]->(t) SET r += $props"
+            )
+            self.backend.execute(
+                query, {"sid": source_id, "tid": target_id, "props": props}
+            )
+
+    def add_memory_node(self, memory: MemoryNode):
+        """Add a MemoryNode object to the graph."""
+        self.graph.add_node(memory.id, **memory.model_dump())
+        if self.backend:
+            data = self._serialize_node(memory, label="Memory")
+            self._upsert_node("Memory", memory.id, data)
+
+    def get_memory_node(self, memory_id: str) -> MemoryNode | None:
+        """Retrieve a MemoryNode object by ID."""
+        data = self.get_memory(memory_id)
+        if data:
+            return MemoryNode(
+                **{k: v for k, v in data.items() if not k.startswith("_")}
+            )
+        return None
+
+    def update_memory_node(self, memory_id: str, memory: MemoryNode):
+        """Update a memory using a MemoryNode object."""
+        self.update_memory(memory_id, **memory.model_dump(exclude={"id"}))
+
+    def delete_memory_node(self, memory_id: str):
+        """Delete a memory node."""
+        self.delete_memory(memory_id)
+
     # --- Enhanced Memory & Ingestion Tools ---
 
     def ingest_episode(
@@ -601,6 +647,14 @@ class IntelligenceGraphEngine:
                 else:
                     filtered.append(c)
         return filtered
+
+    def list_callable_resources(self) -> list[dict[str, Any]]:
+        """List all callable resources (MCP tools, A2A agents, skills)."""
+        resources = []
+        for n, data in self.graph.nodes(data=True):
+            if data.get("type") == RegistryNodeType.CALLABLE_RESOURCE:
+                resources.append({"id": n, **data})
+        return resources
 
     def retrieve_orthogonal_context(
         self,
@@ -964,12 +1018,233 @@ class IntelligenceGraphEngine:
 
         # Always add to in-memory graph
         self.graph.add_node(node.id, **node.model_dump())
+        return node.id
+
+    async def extract_focused_subgraph(
+        self,
+        query: str,
+        max_nodes: int = 150,
+        min_centrality: float = 0.01,
+    ) -> FocusedSubgraph:
+        """
+        Task-specific subgraph extraction — the core engine behind Codemaps.
+        Reuses existing search + topological analysis.
+        """
+        # 1. Hybrid search for initial candidates
+        search_results = self.search_hybrid(query, top_k=max_nodes * 2)
+
+        # 2. Build initial node set
+        seed_ids = [r["id"] for r in search_results]
+        subgraph = self.graph.subgraph(seed_ids).copy()
+
+        # 3. Expand to include neighbors with high centrality
+        # In MultiDiGraph, neighbors() returns successors. We might want both.
+        for node_id in list(subgraph.nodes):
+            if self.graph.nodes[node_id].get("centrality", 0) >= min_centrality:
+                # Add successors and predecessors
+                for successor in self.graph.successors(node_id):
+                    if successor not in subgraph:
+                        subgraph.add_node(successor, **self.graph.nodes[successor])
+                    subgraph.add_edge(
+                        node_id,
+                        successor,
+                        **self.graph.get_edge_data(node_id, successor)[0],
+                    )
+
+                for predecessor in self.graph.predecessors(node_id):
+                    if predecessor not in subgraph:
+                        subgraph.add_node(predecessor, **self.graph.nodes[predecessor])
+                    subgraph.add_edge(
+                        predecessor,
+                        node_id,
+                        **self.graph.get_edge_data(predecessor, node_id)[0],
+                    )
+
+        # 4. Prune if still too large using PageRank
+        if len(subgraph) > max_nodes:
+            centrality = nx.pagerank(nx.DiGraph(subgraph), alpha=0.85)
+            top_nodes = sorted(centrality, key=centrality.get, reverse=True)[:max_nodes]
+            subgraph = subgraph.subgraph(top_nodes).copy()
+
+        # 5. Convert to clean list of dicts
+        nodes = []
+        edges = []
+        for node_id, data in subgraph.nodes(data=True):
+            nodes.append(
+                {
+                    "id": node_id,
+                    "label": data.get("name") or str(node_id).split(":")[-1],
+                    "type": data.get("type", "symbol"),
+                    "file": data.get("file", data.get("skill_code_path", "")),
+                    "line": data.get("line"),
+                    "centrality": data.get("centrality", 0.0),
+                }
+            )
+
+        for u, v, key, edata in subgraph.edges(data=True, keys=True):
+            edges.append(
+                {
+                    "source": u,
+                    "target": v,
+                    "type": edata.get("type", "calls"),
+                    "weight": edata.get("weight", 1.0),
+                }
+            )
+
+        summary = f"Subgraph for '{query}' with {len(nodes)} nodes focused on relevant execution paths."
+
+        return FocusedSubgraph(
+            nodes=nodes,
+            edges=edges,
+            summary=summary,
+            query=query,
+        )
+
+    async def get_codemap_by_id(self, codemap_id: str) -> Any | None:
+        """Retrieve a codemap artifact by its ID."""
+        # Check in-memory first if we store them there
+        if f"codemap:{codemap_id}" in self.graph:
+            data = self.graph.nodes[f"codemap:{codemap_id}"]
+            from ..models.codemap import CodemapArtifact
+
+            return CodemapArtifact.model_validate(data)
 
         if self.backend:
-            data = self._serialize_node(node, label="ProposedSkill")
-            self._upsert_node("ProposedSkill", skill_id, data)
+            res = self.backend.execute(
+                "MATCH (c:Codemap {id: $id}) RETURN c", {"id": codemap_id}
+            )
+            if res:
+                import json
 
-        return skill_id
+                from ..models.codemap import CodemapArtifact
+
+                c_data = res[0]["c"]
+                # Handle JSON serialization of complex fields if stored as strings
+                for k in ["hierarchy", "nodes", "edges", "metadata"]:
+                    if k in c_data and isinstance(c_data[k], str):
+                        try:
+                            c_data[k] = json.loads(c_data[k])
+                        except Exception:
+                            pass
+                return CodemapArtifact.model_validate(c_data)
+        return None
+
+    async def get_codemap_by_slug(self, slug: str) -> Any | None:
+        """Retrieve a codemap artifact by a fuzzy match on prompt/slug."""
+        if self.backend:
+            res = self.backend.execute(
+                "MATCH (c:Codemap) WHERE c.prompt CONTAINS $slug OR c.id CONTAINS $slug RETURN c LIMIT 1",
+                {"slug": slug},
+            )
+            if res:
+                import json
+
+                from ..models.codemap import CodemapArtifact
+
+                c_data = res[0]["c"]
+                for k in ["hierarchy", "nodes", "edges", "metadata"]:
+                    if k in c_data and isinstance(c_data[k], str):
+                        try:
+                            c_data[k] = json.loads(c_data[k])
+                        except Exception:
+                            pass
+                return CodemapArtifact.model_validate(c_data)
+        return None
+
+    async def store_codemap(self, artifact: Any):
+        """Persist a codemap artifact to the graph."""
+        node_id = f"codemap:{artifact.id}"
+        data = artifact.model_dump()
+
+        # Add to in-memory graph
+        self.graph.add_node(node_id, **data)
+
+        # Persist to backend
+        if self.backend:
+            clean_data = self._serialize_node(artifact, label="Codemap")
+            self._upsert_node("Codemap", artifact.id, clean_data)
+
+    def generate_mermaid_graph(
+        self,
+        query: str | None = None,
+        max_nodes: int = 50,
+        title: str = "Knowledge Graph",
+    ) -> str:
+        """Generate a Mermaid visualization for a portion of the graph."""
+        from ..mermaid import FlowchartBuilder
+
+        if query:
+            # Simple heuristic for subgraph if query provided
+            results = self.search_hybrid(query, top_k=max_nodes)
+            node_ids = [r["id"] for r in results]
+            subgraph = self.graph.subgraph(node_ids).copy()
+        else:
+            # Just take the first N nodes
+            node_ids = list(self.graph.nodes)[:max_nodes]
+            subgraph = self.graph.subgraph(node_ids).copy()
+
+        builder = FlowchartBuilder(title=title)
+
+        for n, data in subgraph.nodes(data=True):
+            n_type = data.get("type", "unknown")
+            shape = "box"
+            if n_type == "episode":
+                shape = "round"
+            elif n_type == "memory":
+                shape = "cylinder"
+            elif n_type == "agent":
+                shape = "circle"
+
+            builder.add_node(
+                n,
+                label=f"{data.get('name', n)}\n({n_type})",
+                shape=shape,
+                css_class=n_type.lower(),
+            )
+
+        for u, v, data in subgraph.edges(data=True):
+            builder.add_edge(u, v, label=data.get("type", ""))
+
+        # Add some default styling for KG types
+        builder.lines.append("  classDef episode fill:#2e7d32,stroke:#1b5e20,color:#fff")
+        builder.lines.append("  classDef memory fill:#1565c0,stroke:#0d47a1,color:#fff")
+        builder.lines.append("  classDef agent fill:#f57c00,stroke:#e65100,color:#fff")
+
+        return builder.render()
+
+
+@dataclass
+class FocusedSubgraph:
+    nodes: list[dict[str, Any]]
+    edges: list[dict[str, Any]]
+    summary: str
+    query: str
+
+    def to_mermaid(self) -> str:
+        """Convert this subgraph to a Mermaid diagram."""
+        from ..mermaid import FlowchartBuilder
+
+        builder = FlowchartBuilder(title=f"Subgraph: {self.query}")
+
+        for node in self.nodes:
+            n_type = node.get("type", "symbol")
+            shape = "box"
+            if n_type == "file":
+                shape = "cylinder"
+            elif n_type == "class":
+                shape = "round"
+
+            builder.add_node(
+                node["id"],
+                label=f"{node['label']}\n({n_type})",
+                shape=shape,
+                css_class=n_type.lower(),
+            )
+
+        for edge in self.edges:
+            builder.add_edge(edge["source"], edge["target"], label=edge["type"])
+
+        return builder.render()
 
 
 # Alias for backward compatibility

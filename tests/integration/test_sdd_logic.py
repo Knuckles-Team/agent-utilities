@@ -1,19 +1,21 @@
 import pytest
-from agent_utilities.sdd import SDDManager
+
 from agent_utilities.models import (
     ProjectConstitution,
     Spec,
-    ImplementationPlan,
-    Tasks,
     Task,
+    Tasks,
     TaskStatus,
     UserStory,
 )
+from agent_utilities.sdd import SDDManager
+
 
 @pytest.fixture
 def sdd_manager(tmp_path):
     """Fixture to provide a clean SDDManager with a temporary workspace."""
     return SDDManager(workspace_path=tmp_path)
+
 
 def test_sdd_manager_serialization(sdd_manager):
     """Verify that ProjectConstitution can be saved and loaded correctly."""
@@ -32,6 +34,7 @@ def test_sdd_manager_serialization(sdd_manager):
     assert loaded is not None
     assert loaded.vision == "Test Vision"
     assert "Clean Architecture" in loaded.core_principles
+
 
 def test_spec_persistence(sdd_manager):
     """Verify that Spec requires feature_id and persists correctly."""
@@ -54,17 +57,40 @@ def test_spec_persistence(sdd_manager):
     with pytest.raises(ValueError, match="feature_id is required"):
         sdd_manager.save(spec)
 
+
 def test_parallel_opportunities_logic(sdd_manager):
     """Verify the dependency and collision detection in SDDManager."""
-    t1 = Task(id="T1", title="Task 1", description="D1", status=TaskStatus.PENDING, file_paths=["f1.py"])
-    t2 = Task(id="T2", title="Task 2", description="D2", status=TaskStatus.PENDING, file_paths=["f2.py"])
-    t3 = Task(id="T3", title="Task 3", description="D3", status=TaskStatus.PENDING, depends_on=["T1"], file_paths=["f3.py"])
-    t4 = Task(id="T4", title="Task 4", description="D4", status=TaskStatus.PENDING, file_paths=["f1.py"])
-
-    task_list = Tasks(
-        feature_id="F1",
-        tasks=[t1, t2, t3, t4]
+    t1 = Task(
+        id="T1",
+        title="Task 1",
+        description="D1",
+        status=TaskStatus.PENDING,
+        file_paths=["f1.py"],
     )
+    t2 = Task(
+        id="T2",
+        title="Task 2",
+        description="D2",
+        status=TaskStatus.PENDING,
+        file_paths=["f2.py"],
+    )
+    t3 = Task(
+        id="T3",
+        title="Task 3",
+        description="D3",
+        status=TaskStatus.PENDING,
+        depends_on=["T1"],
+        file_paths=["f3.py"],
+    )
+    t4 = Task(
+        id="T4",
+        title="Task 4",
+        description="D4",
+        status=TaskStatus.PENDING,
+        file_paths=["f1.py"],
+    )
+
+    task_list = Tasks(feature_id="F1", tasks=[t1, t2, t3, t4])
 
     # Batch calculation logic in SDDManager:
     # 1. T1, T2 -> Added to Batch 0
@@ -78,6 +104,7 @@ def test_parallel_opportunities_logic(sdd_manager):
     assert "T4" not in groups[0]
 
     assert "T4" in groups[1]
+
 
 def test_tasks_loading_nonexistent(sdd_manager):
     """Verify that loading a missing artifact returns None."""

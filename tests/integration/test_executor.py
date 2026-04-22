@@ -1,16 +1,23 @@
-import pytest
 import asyncio
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from agent_utilities.graph import (
     agent_matches_node_id,
-    get_discovery_registry,
 )
 from agent_utilities.graph.executor import (
-    _get_domain_tools,
     _execute_specialized_step,
+    _get_domain_tools,
 )
-from agent_utilities.models import MCPAgent, ExecutionStep, GraphPlan, MCPAgentRegistryModel
-from agent_utilities.graph.state import GraphState, GraphDeps
+from agent_utilities.graph.state import GraphDeps, GraphState
+from agent_utilities.models import (
+    ExecutionStep,
+    GraphPlan,
+    MCPAgent,
+    MCPAgentRegistryModel,
+)
+
 
 @pytest.fixture
 def mock_deps():
@@ -28,35 +35,54 @@ def mock_deps():
     deps.discovery_metadata = {}
     return deps
 
-@pytest.mark.parametrize("agent_data, node_id, expected", [
-    ({"name": "Researcher", "tag": "researcher"}, "researcher", True),
-    ({"name": "Researcher", "tag": "researcher"}, "RESEARCHER", True),
-    ({"name": "Researcher", "tag": "researcher"}, "research_agent", True),
-    ({"name": "GitHub", "mcp_server": "github-mcp"}, "github", True),
-    ({"name": "GitHub", "mcp_server": "github-mcp", "description": "Git hosting and version control"}, "git_expert", True),
-    ({"name": "Random", "tag": "other"}, "researcher", False),
-])
+
+@pytest.mark.parametrize(
+    "agent_data, node_id, expected",
+    [
+        ({"name": "Researcher", "tag": "researcher"}, "researcher", True),
+        ({"name": "Researcher", "tag": "researcher"}, "RESEARCHER", True),
+        ({"name": "Researcher", "tag": "researcher"}, "research_agent", True),
+        ({"name": "GitHub", "mcp_server": "github-mcp"}, "github", True),
+        (
+            {
+                "name": "GitHub",
+                "mcp_server": "github-mcp",
+                "description": "Git hosting and version control",
+            },
+            "git_expert",
+            True,
+        ),
+        ({"name": "Random", "tag": "other"}, "researcher", False),
+    ],
+)
 def test_agent_matches_node_id(agent_data, node_id, expected):
     agent = MCPAgent(
         name=agent_data.get("name", "Agent"),
         capabilities=[agent_data.get("tag", "")] if agent_data.get("tag") else [],
         mcp_server=agent_data.get("mcp_server", "test-server"),
         description=agent_data.get("description", "A specialist agent"),
-        system_prompt=agent_data.get("system_prompt", "You are a specialist.")
+        system_prompt=agent_data.get("system_prompt", "You are a specialist."),
     )
     result = agent_matches_node_id(agent, node_id)
-    assert result == expected, f"Failed for agent {agent_data} and node_id {node_id}. Got {result}, expected {expected}"
+    assert result == expected, (
+        f"Failed for agent {agent_data} and node_id {node_id}. Got {result}, expected {expected}"
+    )
+
 
 @pytest.mark.asyncio
 async def test_get_domain_tools_basic(mock_deps):
     mock_agent = MCPAgent(name="researcher", capabilities=["web-search"])
     mock_registry = MCPAgentRegistryModel(agents=[mock_agent])
 
-    with patch("agent_utilities.graph.executor.get_discovery_registry", return_value=mock_registry):
+    with patch(
+        "agent_utilities.graph.executor.get_discovery_registry",
+        return_value=mock_registry,
+    ):
         with patch("agent_utilities.tools.developer_tools.developer_tools", []):
             tools, skill_toolsets = await _get_domain_tools("researcher", mock_deps)
             assert isinstance(tools, list)
             assert isinstance(skill_toolsets, list)
+
 
 @pytest.mark.asyncio
 async def test_execute_specialized_step_subagent_target(mock_deps):
@@ -73,6 +99,7 @@ async def test_execute_specialized_step_subagent_target(mock_deps):
 
     async def mock_stream_text(*args, **kwargs):
         yield "chunk"
+
     stream.stream_text = mock_stream_text
 
     stream.get_output.return_value = "Expert Result"
@@ -82,13 +109,19 @@ async def test_execute_specialized_step_subagent_target(mock_deps):
 
     # We must patch Agent in the executor module
     with patch("agent_utilities.graph.executor.Agent", return_value=mock_agent):
-        with patch("agent_utilities.graph.executor.load_specialized_prompts", return_value="Prompt"):
-            with patch("agent_utilities.graph.executor.on_enter_specialist", return_value={}):
+        with patch(
+            "agent_utilities.graph.executor.load_specialized_prompts",
+            return_value="Prompt",
+        ):
+            with patch(
+                "agent_utilities.graph.executor.on_enter_specialist", return_value={}
+            ):
                 with patch("agent_utilities.graph.executor.on_exit_specialist"):
                     res = await _execute_specialized_step(ctx, "specialist")
                     assert res == "execution_joiner"
                     assert state.results["specialist"] == "Expert Result"
                     assert "specialist_0" in state.results_registry
+
 
 @pytest.mark.asyncio
 async def test_execute_specialized_step_error_recovery(mock_deps):
@@ -98,9 +131,17 @@ async def test_execute_specialized_step_error_recovery(mock_deps):
     ctx.deps = mock_deps
 
     # Ensuring Agent failure triggers recovery
-    with patch("agent_utilities.graph.executor.Agent.run_stream", side_effect=Exception("Simulation Error")):
-        with patch("agent_utilities.graph.executor.load_specialized_prompts", return_value="Prompt"):
-             with patch("agent_utilities.graph.executor.on_enter_specialist", return_value={}):
+    with patch(
+        "agent_utilities.graph.executor.Agent.run_stream",
+        side_effect=Exception("Simulation Error"),
+    ):
+        with patch(
+            "agent_utilities.graph.executor.load_specialized_prompts",
+            return_value="Prompt",
+        ):
+            with patch(
+                "agent_utilities.graph.executor.on_enter_specialist", return_value={}
+            ):
                 with patch("agent_utilities.graph.executor.on_exit_specialist"):
                     res = await _execute_specialized_step(ctx, "unknown")
                     assert res == "error_recovery"

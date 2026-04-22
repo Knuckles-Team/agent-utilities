@@ -1,11 +1,10 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from agent_utilities.a2a import (
-    register_a2a_peer,
-    delete_a2a_peer,
     A2AClient,
 )
-from agent_utilities.discovery import discover_agents
 
 
 @pytest.mark.asyncio

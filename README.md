@@ -51,6 +51,8 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 - **Automated Graph Maintenance**: Built-in Cypher-driven maintenance routines (`maintenance.py`) that handle vector embedding enrichment, scheduled cron log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
 - **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies are lazy-loaded only when requested via optional extras.
 - **Autonomous Graph-Native Memory**: State-of-the-art architecture combining **MAGMA** orthogonal retrieval with **Agent Lightning** self-optimization loops. Supports unified ingestion of MCP, A2A, and Skill-based resources with automated importance scoring and temporal decay.
+- **JSON-as-Code Prompting**: Standardized Pydantic models for structured prompting. Moves away from free-form Markdown to robust, versioned JSON blueprints for high-precision task specification (Content, Code, Strategy, etc.).
+- **Project-Aware Memory (AGENTS.md)**: Native support for Claude-style project rules and memory. Backend automatically loads and injects `AGENTS.md` (Project Rules) and `MEMORY.md` (Learned Context) into the system prompt for high-fidelity codebase awareness.
 
 ## 🧠 Intelligence Graph
 
@@ -122,7 +124,7 @@ The graph engine supports policy-guided retrieval across four orthogonal views:
 | `adguard-home-agent` | Graph |
 | `agent-utilities` | Library | Production-grade Orchestration. Supports Parallel execution, Real-time sub-agent streaming, High-fidelity observability, and Session Resumability |
 | `agent-webui` | Library | Cinematic Graph Activity Visualization. |
-| `agent-terminal-ui` | Library | High-performance Terminal User Interface (TUI) for local CLI interaction. |
+| `agent-terminal-ui` | Library | High-performance Terminal User Interface (TUI) achieving feature parity with **Claude Code** (Slash commands, Keyboard shortcuts, File mentions). |
 
 `agent-utilities` implements a multi-stage execution pipeline using `pydantic-graph` for maximum precision and resilience.
 
@@ -534,3 +536,33 @@ Every agent server automatically hosts an interactive Swagger UI for its APIs.
 - **Spec**: `http://localhost:8000/openapi.json`
 
 This interface allows you to test the `/health`, `/acp`, and `/mcp` endpoints directly from your browser.
+
+## Roadmap
+
+### Phase 1 – Foundations (Current)
+- ✅ Canonical agent lifecycle interfaces (AgentSpec, AgentInstance, AgentSession, AgentResult)
+- ✅ Reference AGENTS.md for AI contributors
+- ✅ Graph orchestration with Router → Planner → Dispatcher pipeline
+- ✅ Unified Intelligence Graph (12-phase pipeline)
+- ✅ MCP tool distribution and specialist discovery
+- ✅ ACP, A2A, and AG-UI protocol adapters
+- ✅ Knowledge Base layer with LLM-maintained wiki
+- ✅ Spec-Driven Development (SDD) lifecycle
+- ✅ JSON-as-Code Structured Prompting (Pydantic-native)
+- 🔄 Single end-to-end example agent (in progress)
+
+### Phase 2 – Protocol & Tooling (Next)
+- Enhanced MCP capability registry with machine-readable tool descriptions
+- Shared memory abstraction layer (ShortTermMemory, LongTermMemory, SharedTeamMemory)
+- Pluggable backends for memory (Chroma, Qdrant, PGVector)
+- Multi-agent coordination helpers
+- Evaluation & tracing hooks
+- Policy / guardrail integration
+
+### Phase 3 – Advanced Orchestration (Future)
+- Agent teams with P2P messaging
+- Autonomous self-improvement loops (Agent Lightning)
+- Advanced MAGMA orthogonal reasoning views
+- Cross-repository symbol mapping
+- Long-term agent memory consolidation
+- Automated graph maintenance and pruning

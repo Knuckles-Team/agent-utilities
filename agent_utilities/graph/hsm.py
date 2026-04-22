@@ -247,7 +247,7 @@ def assert_state_valid(state: Any, transition: str) -> None:
         raise StateInvariantError(
             f"Verification loop ({state.verification_attempts}) at {transition}"
         )
-    if state.plan and state.plan.steps:
+    if state.plan and hasattr(state.plan, "steps"):
         if state.step_cursor > len(state.plan.steps) + 1:
             raise StateInvariantError(
                 f"Step cursor overflow ({state.step_cursor}/{len(state.plan.steps)}) at {transition}"

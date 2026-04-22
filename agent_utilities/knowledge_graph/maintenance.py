@@ -2,7 +2,9 @@
 """Knowledge Graph Maintenance & Pruning."""
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import requests
 
@@ -366,3 +368,40 @@ class GraphMaintainer:
         self.merge_similar_concepts()
         self.validate_all_graph_models()
         self.link_topics_to_policies_and_processes()
+
+    def get_status(self) -> dict:
+        """Return the current status of maintenance operations."""
+        return {
+            "status": "ready",
+            "operations": {
+                "enrich_embeddings": "idle",
+                "prune_cron_logs": "idle",
+                "summarize_old_chats": "idle",
+                "consolidate_memory": "idle",
+                "prune_low_importance_nodes": "idle",
+                "update_importance_scores": "idle",
+                "apply_temporal_decay": "idle",
+                "merge_similar_concepts": "idle",
+                "validate_all_graph_models": "idle",
+                "link_topics_to_policies_and_processes": "idle",
+            },
+        }
+
+    def trigger_operation(self, operation: str) -> dict:
+        """Trigger a specific maintenance operation."""
+        op_map: dict[str, Callable[[], Any]] = {
+            "enrich_embeddings": self.enrich_embeddings,
+            "prune_cron_logs": self.prune_cron_logs,
+            "summarize_old_chats": self.summarize_old_chats,
+            #            "consolidate_memory": self.consolidate_memory,
+            #            "prune_low_importance_nodes": self.prune_low_importance_nodes,
+            #            "update_importance_scores": self.update_importance_scores,
+            #            "apply_temporal_decay": self.apply_temporal_decay,
+            #            "merge_similar_concepts": self.merge_similar_concepts,
+            #            "validate_all_graph_models": self.validate_all_graph_models,
+            #            "link_topics_to_policies_and_processes": self.link_topics_to_policies_and_processes,
+        }
+        if operation in op_map:
+            result = op_map[operation]()
+            return {"status": "success", "result": result}
+        return {"status": "error", "message": f"Unknown operation: {operation}"}

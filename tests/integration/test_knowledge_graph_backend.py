@@ -1,13 +1,17 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from agent_utilities.knowledge_graph.backends import create_backend
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
 from agent_utilities.knowledge_graph.backends.falkordb_backend import FalkorDBBackend
 from agent_utilities.knowledge_graph.backends.neo4j_backend import Neo4jBackend
-from agent_utilities.knowledge_graph.backends import create_backend
 
 try:
-    from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend, LADYBUG_AVAILABLE
+    from agent_utilities.knowledge_graph.backends.ladybug_backend import (
+        LADYBUG_AVAILABLE,
+        LadybugBackend,
+    )
 except ImportError:
     LADYBUG_AVAILABLE = False
 
@@ -22,6 +26,7 @@ class TestFalkorDBBackend:
         res = backend.execute("MATCH (n) RETURN n")
         assert res == []
 
+
 class TestNeo4jBackend:
     def test_initialization(self):
         backend = Neo4jBackend(uri="bolt://localhost:7687")
@@ -32,17 +37,22 @@ class TestNeo4jBackend:
         res = backend.execute("MATCH (n) RETURN n")
         assert res == []
 
+
 @pytest.mark.skipif(not LADYBUG_AVAILABLE, reason="LadybugDB not available")
 class TestLadybugBackend:
     @patch("agent_utilities.knowledge_graph.backends.ladybug_backend.ladybug.Database")
-    @patch("agent_utilities.knowledge_graph.backends.ladybug_backend.ladybug.Connection")
+    @patch(
+        "agent_utilities.knowledge_graph.backends.ladybug_backend.ladybug.Connection"
+    )
     def test_initialization(self, mock_conn, mock_db):
-        backend = LadybugBackend("test.db")
+        LadybugBackend("test.db")
         mock_db.assert_called_with("test.db")
         mock_conn.assert_called_once()
 
     @patch("agent_utilities.knowledge_graph.backends.ladybug_backend.ladybug.Database")
-    @patch("agent_utilities.knowledge_graph.backends.ladybug_backend.ladybug.Connection")
+    @patch(
+        "agent_utilities.knowledge_graph.backends.ladybug_backend.ladybug.Connection"
+    )
     def test_execute(self, mock_conn, mock_db):
         mock_conn_instance = mock_conn.return_value
 
@@ -85,7 +95,7 @@ class TestBackendFactory:
             backend_type="neo4j",
             uri="bolt://custom-host:7688",
             user="admin",
-            password="secret"
+            password="secret",
         )
         assert isinstance(backend, Neo4jBackend)
 
@@ -95,7 +105,7 @@ class TestBackendFactory:
             backend_type="falkordb",
             host="redis-host",
             port=6380,
-            db_name="custom_graph"
+            db_name="custom_graph",
         )
         assert isinstance(backend, FalkorDBBackend)
         assert backend.db_name == "custom_graph"

@@ -1,5 +1,6 @@
-from pydantic_ai import Agent
 import asyncio
+
+from pydantic_ai import Agent
 
 
 async def test():

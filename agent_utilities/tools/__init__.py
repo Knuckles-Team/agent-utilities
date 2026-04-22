@@ -33,6 +33,11 @@ from .git_tools import (
     list_worktrees,
     remove_worktree,
 )
+from .memory_tools import (
+    init_agents_md,
+    read_agents_md,
+    update_agents_md,
+)
 from .scheduler_tools import (
     delete_task,
     list_tasks,
@@ -140,4 +145,8 @@ __all__ = [
     # Style tools
     "set_output_style",
     "list_output_styles",
+    # Memory tools
+    "init_agents_md",
+    "read_agents_md",
+    "update_agents_md",
 ]

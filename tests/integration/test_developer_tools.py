@@ -1,16 +1,19 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from agent_utilities.tools.developer_tools import (
-    project_search,
-    replace_in_file,
     create_file,
     delete_file,
-    run_shell_with_diagnostics
+    project_search,
+    replace_in_file,
 )
+
 
 @pytest.fixture
 def mock_ctx():
     return MagicMock()
+
 
 @pytest.mark.asyncio
 async def test_project_search(mock_ctx):
@@ -22,12 +25,14 @@ async def test_project_search(mock_ctx):
         res = await project_search(mock_ctx, "foo", ".")
         assert "file.txt" in res
 
+
 @pytest.mark.asyncio
 async def test_create_file(mock_ctx, tmp_path):
     f = tmp_path / "test.txt"
     res = await create_file(mock_ctx, str(f), "hello world")
     assert f.read_text() == "hello world"
     assert "Created file" in res
+
 
 @pytest.mark.asyncio
 async def test_delete_file(mock_ctx, tmp_path):
@@ -36,6 +41,7 @@ async def test_delete_file(mock_ctx, tmp_path):
     res = await delete_file(mock_ctx, str(f))
     assert not f.exists()
     assert "Deleted" in res
+
 
 @pytest.mark.asyncio
 async def test_replace_in_file(mock_ctx, tmp_path):

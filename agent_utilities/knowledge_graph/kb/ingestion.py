@@ -349,16 +349,7 @@ class KBIngestionEngine:
     def search_knowledge_base(
         self, query: str, kb_id: str | None = None, top_k: int = 5
     ) -> list[dict]:
-        """Simple keyword-based search across KB articles (offline fallback).
-
-        For semantic search, use the backend's vector capabilities directly.
-        This provides a quick in-memory keyword search that always works.
-
-        Args:
-            query: Search query string.
-            kb_id: Optional KB to limit search to. If None, searches all KBs.
-            top_k: Maximum results to return.
-        """
+        """Simple keyword-based search across KB articles (offline fallback)."""
         query_lower = query.lower()
         results = []
 
@@ -366,13 +357,11 @@ class KBIngestionEngine:
             if data.get("type") != RegistryNodeType.ARTICLE:
                 continue
 
-            # Filter by KB if specified
             if kb_id:
                 kb_neighbors = [t for t in self.graph.successors(n) if t == kb_id]
                 if not kb_neighbors:
                     continue
 
-            # Score by keyword hits
             title = data.get("name", "")
             summary = data.get("description", "")
             content = data.get("content", "")
@@ -405,6 +394,41 @@ class KBIngestionEngine:
 
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_k]
+
+    def search(
+        self, query: str, kb_id: str | None = None, top_k: int = 5
+    ) -> list[dict]:
+        """Alias for search_knowledge_base."""
+        return self.search_knowledge_base(query, kb_id=kb_id, top_k=top_k)
+
+    async def health_check(self, kb_id: str) -> dict:
+        """Alias for run_health_check."""
+        report = await self.run_health_check(kb_id)
+        return report.model_dump() if report else {}
+
+    async def ingest(
+        self, kb_id: str, source: str, name: str | None = None, **kwargs
+    ) -> dict:
+        """Legacy ingest alias for compatibility."""
+        # result is not awaited in some places, so we return a sync-like dict if possible
+        # but ingest_directory is async.
+        await self.ingest_directory(source, kb_name=kb_id, topic=name, **kwargs)
+        return {"status": "success", "job_id": "sync"}
+
+    def list_bases(self) -> list[dict]:
+        """Alias for list_knowledge_bases."""
+        return self.list_knowledge_bases()
+
+    def get_article(self, article_id: str) -> dict | None:
+        """Retrieve a specific article by ID."""
+        for n, data in self.graph.nodes(data=True):
+            if n == article_id and data.get("type") == RegistryNodeType.ARTICLE:
+                return {"id": n, **data}
+        return None
+
+    async def update(self, kb_id: str, **kwargs):
+        """Alias for update_kb."""
+        await self.update_kb(kb_id)
 
     # ------------------------------------------------------------------
     # Internal ingestion pipeline

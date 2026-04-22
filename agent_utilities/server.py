@@ -15,7 +15,7 @@ import logging
 import os
 import sys
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import anyio
 import httpx
@@ -26,10 +26,13 @@ import base64
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
 from pydantic_ai import Agent, BinaryContent
 from starlette.responses import Response
+from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .agent_factory import create_agent
 from .approval_manager import ApprovalManager
@@ -78,6 +81,7 @@ from .config import (
     DEFAULT_PROVIDER,
     DEFAULT_ROUTER_MODEL,
     DEFAULT_SSL_VERIFY,
+    config,
 )
 from .custom_observability import setup_otel
 from .graph_orchestration import (
@@ -88,8 +92,8 @@ from .models import AgentDeps
 from .prompt_builder import load_identity
 from .scheduler import (
     background_processor,
-    get_cron_logs_from_md,
-    get_cron_tasks_from_md,
+    get_cron_logs,
+    get_cron_tasks,
 )
 from .tool_filtering import (
     load_skills_from_directory,
@@ -111,6 +115,19 @@ logger = logging.getLogger(__name__)
 # Singleton approval manager shared between the graph executor and
 # the /api/approve endpoint.  Created once at module import.
 _approval_manager = ApprovalManager()
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(api_key: str = Depends(api_key_header)):
+    """Security dependency to verify the agent API key."""
+    if not config.enable_api_auth or not config.agent_api_key:
+        return
+    if api_key != config.agent_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Could not validate credentials",
+        )
 
 
 async def process_parts(parts: list[dict[str, Any]]) -> list[Any]:
@@ -148,6 +165,12 @@ async def process_parts(parts: list[dict[str, Any]]) -> list[Any]:
             else:
                 raw_bytes = img_data
 
+            if len(raw_bytes) > config.max_upload_size:
+                logger.warning(
+                    f"Upload rejected: size {len(raw_bytes)} exceeds limit {config.max_upload_size}"
+                )
+                continue
+
             # Save to workspace for persistence
             try:
                 from .workspace import WORKSPACE_DIR
@@ -184,6 +207,16 @@ def get_http_client(
     if not ssl_verify:
         return httpx.AsyncClient(verify=False, timeout=timeout)
     return None
+
+
+from pydantic import BaseModel
+
+
+class CodemapRequest(BaseModel):
+    """Request schema for codebase codemap generation."""
+
+    prompt: str
+    mode: Literal["fast", "smart"] = "smart"
 
 
 class ReloadableApp:
@@ -590,6 +623,20 @@ def build_agent_app(
                     "description": "A2A and external bridge endpoints",
                 },
             ],
+            dependencies=[Depends(verify_api_key)] if config.enable_api_auth else [],
+        )
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],  # Should be restricted in production
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=["*"],  # Should be restricted in production
         )
 
         app.state.reload_app = None
@@ -1000,6 +1047,36 @@ def build_agent_app(
                             pass
             return tools
 
+        @app.post("/api/codemap", tags=["Core"], summary="Generate a codebase codemap")
+        async def generate_codemap_endpoint(payload: CodemapRequest):
+            """Generate a task-specific hierarchical codemap artifact."""
+            from .knowledge_graph.codemaps import CodemapGenerator
+            from .knowledge_graph.engine import IntelligenceGraphEngine
+            
+            kg = IntelligenceGraphEngine.get_active()
+            if not kg:
+                return JSONResponse(
+                    {"status": "error", "message": "Knowledge Graph not initialized"},
+                    status_code=503,
+                )
+                
+            generator = CodemapGenerator(kg)
+            try:
+                artifact = await generator.create(
+                    prompt=payload.prompt, mode=payload.mode
+                )
+                return {
+                    "status": "success",
+                    "codemap_id": artifact.id,
+                    "artifact": artifact.model_dump(),
+                }
+            except Exception as e:
+                logger.exception("Failed to generate codemap")
+                return JSONResponse(
+                    {"status": "error", "message": str(e)},
+                    status_code=500,
+                )
+
         @app.post(
             "/mcp/reload",
             tags=["Interoperability"],
@@ -1099,8 +1176,8 @@ def build_agent_app(
                     "list_workspace_files": list_workspace_files,
                     "initialize_workspace": initialize_workspace,
                     "list_skills": _graph_native_list_skills,
-                    "get_cron_calendar": get_cron_tasks_from_md,
-                    "get_cron_logs": get_cron_logs_from_md,
+                    "get_cron_calendar": get_cron_tasks,
+                    "get_cron_logs": get_cron_logs,
                     "get_agent_icon_path": get_agent_icon_path,
                     "save_chat": save_chat_to_disk,
                     "list_chats": list_chats_from_disk,

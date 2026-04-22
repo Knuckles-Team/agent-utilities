@@ -1,9 +1,10 @@
 import asyncio
 import json
+import logging
 import os
 from pathlib import Path
+
 import httpx
-import logging
 from dotenv import load_dotenv
 
 # Setup logging
@@ -119,7 +120,12 @@ async def validate_acp_stack():
         try:
             # We check if the file exists and has content after a plan was triggered
             # This assumes the server is running on this local machine
-            mem_path = Path(__file__).resolve().parent.parent / "agent_utilities" / "agent_data" / "MEMORY.md"
+            mem_path = (
+                Path(__file__).resolve().parent.parent
+                / "agent_utilities"
+                / "agent_data"
+                / "MEMORY.md"
+            )
             if mem_path.exists():
                 content = mem_path.read_text()
                 if "Agent Plan (Auto-generated from ACP State)" in content:

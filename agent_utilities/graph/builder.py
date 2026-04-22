@@ -152,6 +152,7 @@ def initialize_graph_from_workspace(
 
         from ..agent_registry_builder import ingest_prompts_to_graph
 
+        loop = None
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
@@ -174,15 +175,17 @@ def initialize_graph_from_workspace(
                 from ..mcp_agent_manager import sync_mcp_agents
 
                 try:
-                    if not loop.is_running():
+                    if loop and not loop.is_running():
                         loop.run_until_complete(
                             sync_mcp_agents(config_path=_mcp_cfg_path)
                         )
                         logger.info(
                             "Initializing Graph: MCP agents synced successfully."
                         )
-                    else:
+                    elif loop and loop.is_running():
                         asyncio.create_task(sync_mcp_agents(config_path=_mcp_cfg_path))
+                    else:
+                        asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
                 except Exception as e:
                     logger.debug(f"Sync skip/fail: {e}")
             else:
@@ -281,8 +284,8 @@ def create_master_graph(
     )
 
     tag_prompts = {
-        name: f"Specialized agent for {package_name}"
-        for name, package_name in agents.items()
+        name: f"Specialized agent for {meta.get('package', name)}"
+        for name, meta in agents.items()
     }
 
     _skill_agents = skill_agents or {}
@@ -600,12 +603,12 @@ def create_graph_agent(
         g.edge_from(_research_joiner).to(_dispatcher),
         g.edge_from(_execution_joiner).to(_dispatcher),
         # Error handling and Finalization
-        g.edge_from(_error).label("Terminal Error").to(g.end_node),
-        g.edge_from(_error).label("Replan").to(_planner),
-        g.edge_from(_verifier).label("Accepted").to(_synthesizer),
-        g.edge_from(_verifier).label("Self-Correction").to(_dispatcher),
-        g.edge_from(_verifier).label("Re-plan").to(_planner),
-        g.edge_from(_synthesizer).label("Final Response").to(g.end_node),
+        g.edge_from(_error).label("error_recovery").to(g.end_node),
+        g.edge_from(_error).label("planner").to(_planner),
+        g.edge_from(_verifier).label("synthesizer").to(_synthesizer),
+        g.edge_from(_verifier).label("dispatcher").to(_dispatcher),
+        g.edge_from(_verifier).label("planner").to(_planner),
+        g.edge_from(_synthesizer).to(g.end_node),
         g.edge_from(_onboarding).to(g.end_node),
     )
 

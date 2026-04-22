@@ -344,7 +344,7 @@ async def planner_step(
 async def fetch_unified_context() -> str:
     """Aggregate essential workspace metadata for agent situational awareness.
 
-    Collects agent registries, historical memory, and VCS state (git status)
+    Collects agent registries from Knowledge Graph, historical memory, and VCS state (git status)
     to provide agents with a holistic view of the current repository state
     without overwhelming the context window.
 
@@ -725,7 +725,11 @@ async def dispatcher_step(
     # The LLM router may interleave them; we enforce discovery-first so that
     # research results are available to all execution specialists.
     _RESEARCH_NODES = {"researcher", "architect"}
-    if ctx.state.step_cursor == 0 and len(ctx.state.plan.steps) > 1:
+    if (
+        ctx.state.step_cursor == 0
+        and hasattr(ctx.state.plan, "steps")
+        and len(ctx.state.plan.steps) > 1
+    ):
         research = [s for s in ctx.state.plan.steps if s.node_id in _RESEARCH_NODES]
         execution = [
             s for s in ctx.state.plan.steps if s.node_id not in _RESEARCH_NODES
@@ -752,14 +756,18 @@ async def dispatcher_step(
             step_count=len(ctx.state.plan.steps),
         )
 
+    plan_len = len(ctx.state.plan.steps) if hasattr(ctx.state.plan, "steps") else 0
     logger.info(
-        f"Dispatcher: Handling graph execution (Step {ctx.state.step_cursor}/{len(ctx.state.plan.steps)})"
+        f"Dispatcher: Handling graph execution (Step {ctx.state.step_cursor}/{plan_len})"
     )
-    if ctx.state.step_cursor >= len(ctx.state.plan.steps):
+    if not hasattr(ctx.state.plan, "steps") or ctx.state.step_cursor >= len(
+        ctx.state.plan.steps
+    ):
         # All plan steps have been executed.  Mark every step completed
         # and sync to ACP before handing off to the verifier.
-        for step in ctx.state.plan.steps:
-            step.status = "completed"
+        if hasattr(ctx.state.plan, "steps"):
+            for step in ctx.state.plan.steps:
+                step.status = "completed"
         if ctx.deps.plan_sync:
             try:
                 await ctx.deps.plan_sync(
@@ -782,6 +790,10 @@ async def dispatcher_step(
         return None
 
     # Sequential execution case (default for first step or non-parallel)
+    if not hasattr(ctx.state.plan, "steps"):
+        logger.error("Dispatcher: Plan is not a valid GraphPlan object.")
+        return "error_recovery"
+
     current_step = ctx.state.plan.steps[ctx.state.step_cursor]
 
     # Internal/Meta nodes should remain as strings for direct routing
@@ -1401,6 +1413,9 @@ async def memory_selection_step(
 
     """
     logger.info("Memory Selection: Identifying relevant context...")
+    if not ctx.state.exploration_notes:
+        ctx.state.exploration_notes = "### KNOWLEDGE EXPLORATION\nInitialized memory discovery phase.\n"
+    
     _emit_node_lifecycle(ctx.deps.event_queue, "memory_selection", "node_start")
     prompt_content = load_specialized_prompts("memory_selection")
     root = ctx.state.project_root or os.getcwd()

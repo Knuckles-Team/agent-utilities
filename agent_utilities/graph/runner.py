@@ -51,7 +51,7 @@ async def run_graph(
     query: str,
     run_id: str | None = None,
     persist: bool = False,
-    state_dir: str = DEFAULT_GRAPH_PERSISTENCE_PATH or "agent_data/graph_state",
+    state_dir: str = DEFAULT_GRAPH_PERSISTENCE_PATH or "graph_state",
     streamdown: bool = True,
     eq: asyncio.Queue[Any] | None = None,
     mode: str = "ask",
@@ -232,29 +232,42 @@ async def run_graph(
             f"run_graph: Starting graph execution for run_id {run_id}. Registered {len(deps.tag_prompts)} specialists."
         )
         result = None
-        if tracer:
-            with tracer.start_as_current_span(f"graph_run:{run_id}") as span:
-                span.set_attribute("query", query)
-                span.set_attribute("request_id", deps.request_id)
+        try:
+            if tracer:
+                with tracer.start_as_current_span(f"graph_run:{run_id}") as span:
+                    span.set_attribute("query", query)
+                    span.set_attribute("request_id", deps.request_id)
+                    with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
+                        result = await graph.run(state=state, deps=deps)
+                    if scope.cancel_called:
+                        logger.error(
+                            f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms"
+                        )
+                        result = "timeout"
+                    span.set_status(
+                        trace.Status(
+                            trace.StatusCode.OK if result else trace.StatusCode.ERROR
+                        )
+                    )
+            else:
+                logger.info("run_graph: Running beta graph.run (no tracer)...")
                 with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
                     result = await graph.run(state=state, deps=deps)
                 if scope.cancel_called:
                     logger.error(
                         f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms"
                     )
-                span.set_status(
-                    trace.Status(
-                        trace.StatusCode.OK if result else trace.StatusCode.ERROR
-                    )
-                )
-        else:
-            logger.info("run_graph: Running beta graph.run (no tracer)...")
-            with anyio.move_on_after(DEFAULT_GRAPH_TIMEOUT / 1000.0) as scope:
-                result = await graph.run(state=state, deps=deps)
-            if scope.cancel_called:
-                logger.error(
-                    f"run_graph: Graph execution TIMEOUT after {DEFAULT_GRAPH_TIMEOUT}ms"
-                )
+                    result = "timeout"
+        except Exception as e:
+            logger.error(f"run_graph: CRITICAL ERROR during graph execution: {e}")
+            emit_graph_event(
+                deps.event_queue, "graph_complete", run_id=run_id, status="error"
+            )
+            return GraphResponse(
+                status="error",
+                error=str(e),
+                metadata={"run_id": run_id, "is_error": True},
+            ).model_dump()
 
             logger.info(
                 f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"

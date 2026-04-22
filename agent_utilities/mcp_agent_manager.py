@@ -516,13 +516,17 @@ async def sync_mcp_agents(
     )
 
     # 2. Ingest into Knowledge Graph
-    from .knowledge_graph.backends import create_backend
+    from .knowledge_graph.engine import IntelligenceGraphEngine
+    import networkx as nx
     from .workspace import get_agent_workspace
-
-    ws_path = get_agent_workspace()
-    db_path = str(ws_path / "knowledge_graph.db")
-
-    backend = create_backend(db_path=db_path)
+    
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine:
+        ws_path = get_agent_workspace()
+        db_path = str(ws_path / "knowledge_graph.db")
+        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), db_path=db_path)
+    
+    backend = engine.backend
     if backend is None:
         logger.error("Graph backend is not available. Cannot sync tools to graph.")
         return

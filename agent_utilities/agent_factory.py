@@ -20,7 +20,21 @@ from pydantic_ai.mcp import (
     MCPServerStreamableHTTP,
     load_mcp_servers,
 )
-from pydantic_ai.toolsets.fastmcp import FastMCPToolset
+
+# Guarded import for fastmcp (may have broken installation)
+try:
+    from pydantic_ai.toolsets.fastmcp import FastMCPToolset
+
+    _FASTMCP_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    _FASTMCP_AVAILABLE = False
+
+    # Type stub for when module is missing
+    class FastMCPToolset:  # type: ignore
+        def __init__(self, **kwargs):
+            pass
+
+
 from universal_skills.skill_utilities import (
     get_universal_skills_path,
 )
@@ -227,7 +241,7 @@ def create_agent(
     output_type: Any | None = None,
     current_host: str | None = None,
     current_port: int | None = None,
-    tool_guard_mode: str = "on",
+    tool_guard_mode: str = "strict",
     isolate_mcp: bool = False,
     # Reliability & Capabilities
     stuck_loop_detection: bool = True,

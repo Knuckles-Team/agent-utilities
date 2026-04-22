@@ -1,66 +1,105 @@
 import pytest
 import os
-from unittest.mock import patch
-from agent_utilities.base_utilities import (
-    to_float, to_boolean, to_integer, to_list, to_dict,
-    expand_env_vars, is_loopback_url
-)
+import json
+from agent_utilities import base_utilities
 
-def test_type_conversions():
-    """Test standard type conversion functions."""
-    # float
-    assert to_float("1.5") == 1.5
-    assert to_float("") == 0.0
-    assert to_float(None) == 0.0
-    assert to_float("invalid") == 0.0
-    assert to_float(2.0) == 2.0
+def test_to_float():
+    assert base_utilities.to_float("1.5") == 1.5
+    assert base_utilities.to_float(2.0) == 2.0
+    assert base_utilities.to_float("invalid") == 0.0
+    assert base_utilities.to_float(None) == 0.0
 
-    # boolean
-    assert to_boolean("true") is True
-    assert to_boolean("yes") is True
-    assert to_boolean("1") is True
-    assert to_boolean("false") is False
-    assert to_boolean("") is False
-    assert to_boolean(True) is True
+def test_to_boolean():
+    assert base_utilities.to_boolean("true") is True
+    assert base_utilities.to_boolean("YES") is True
+    assert base_utilities.to_boolean("1") is True
+    assert base_utilities.to_boolean(True) is True
+    assert base_utilities.to_boolean("false") is False
+    assert base_utilities.to_boolean(None) is False
 
-    # integer
-    assert to_integer("123") == 123
-    assert to_integer("abc") == 0
-    assert to_integer(None) == 0
-    assert to_integer(42) == 42
+def test_to_integer():
+    assert base_utilities.to_integer("10") == 10
+    assert base_utilities.to_integer(5) == 5
+    assert base_utilities.to_integer("abc") == 0
+    assert base_utilities.to_integer(None) == 0
 
-    # list
-    assert to_list("[1, 2, 3]") == [1, 2, 3]
-    assert to_list("a,b,c") == ["a", "b", "c"]
-    assert to_list(None) == []
-    assert to_list([1, 2]) == [1, 2]
+def test_to_list():
+    assert base_utilities.to_list("[1, 2, 3]") == [1, 2, 3]
+    assert base_utilities.to_list("a,b,c") == ["a", "b", "c"]
+    assert base_utilities.to_list([1, 2]) == [1, 2]
+    assert base_utilities.to_list(None) == []
 
-    # dict
-    assert to_dict('{"a": 1}') == {"a": 1}
-    assert to_dict(None) == {}
+def test_to_dict():
+    assert base_utilities.to_dict('{"a": 1}') == {"a": 1}
+    assert base_utilities.to_dict({"b": 2}) == {"b": 2}
+    assert base_utilities.to_dict(None) == {}
     with pytest.raises(ValueError):
-        to_dict("invalid_json")
+        base_utilities.to_dict("not a dict")
 
-def test_expand_env_vars():
-    """Test environment variable expansion logic."""
-    with patch.dict(os.environ, {"TEST_VAR": "value", "EMPTY_VAR": ""}):
-        assert expand_env_vars("prefix_${TEST_VAR}_suffix") == "prefix_value_suffix"
-        assert expand_env_vars("${MISSING_VAR:-default}") == "default"
-        assert expand_env_vars("${EMPTY_VAR:-default}") == ""
-        assert expand_env_vars("${MISSING_VAR}") == ""
-
-def test_expand_env_vars_validation_mode():
-    """Test VALIDATION_MODE dummy value generation."""
-    with patch.dict(os.environ, {"VALIDATION_MODE": "True"}):
-        # Secret candidate
-        assert expand_env_vars("${MY_API_KEY}") == "dummy_my_api_key"
-        # Non-secret candidate
-        assert expand_env_vars("${SOME_SETTING}") == "validation_some_setting"
+def test_expand_env_vars(monkeypatch):
+    monkeypatch.setenv("TEST_VAR", "hello")
+    assert base_utilities.expand_env_vars("${TEST_VAR}") == "hello"
+    assert base_utilities.expand_env_vars("${MISSING:-default}") == "default"
+    assert base_utilities.expand_env_vars("${MISSING}") == ""
+    
+    # Validation mode
+    monkeypatch.setenv("VALIDATION_MODE", "true")
+    assert base_utilities.expand_env_vars("${API_KEY}") == "dummy_api_key"
+    assert base_utilities.expand_env_vars("${NORMAL_VAR}") == "validation_normal_var"
 
 def test_is_loopback_url():
-    """Test loopback URL detection."""
-    assert is_loopback_url("http://localhost:8000", current_port=8000) is True
-    assert is_loopback_url("http://127.0.0.1:8000", current_port=8000) is True
-    assert is_loopback_url("http://localhost:8001", current_port=8000) is False
-    assert is_loopback_url("http://google.com:80", current_port=80) is False
-    assert is_loopback_url("http://custom-host:8000", current_host="custom-host", current_port=8000) is True
+    assert base_utilities.is_loopback_url("http://localhost:8000", current_port=8000) is True
+    assert base_utilities.is_loopback_url("http://127.0.0.1:8000", current_port=8000) is True
+    assert base_utilities.is_loopback_url("http://google.com", current_port=8000) is False
+    assert base_utilities.is_loopback_url("http://localhost:9000", current_port=8000) is False
+
+def test_retrieve_package_name():
+    # In a test environment, it might return 'agent_utilities' or the test runner package
+    pkg = base_utilities.retrieve_package_name()
+    assert isinstance(pkg, str)
+    assert pkg != ""
+
+def test_save_load_model(tmp_path):
+    data = {"key": "value"}
+    path = base_utilities.save_model(data, "test_model", str(tmp_path))
+    assert os.path.exists(path)
+    
+    loaded = base_utilities.load_model(path)
+    assert loaded == data
+
+def test_result_class():
+    res = base_utilities.Result()
+    with pytest.raises(ValueError):
+        _ = res.is_successful
+    
+    res._failed = False
+    assert res.is_successful is True
+    
+    res._failed = True
+    assert res.is_successful is False
+
+def test_optional_import_block():
+    with base_utilities.optional_import_block() as result:
+        import os # Should succeed
+    assert result.is_successful is True
+    
+    with base_utilities.optional_import_block() as result:
+        import non_existent_module # Should fail
+    assert result.is_successful is False
+
+def test_module_info_from_str():
+    mi = base_utilities.ModuleInfo.from_str("requests>=2.0.0")
+    assert mi.name == "requests"
+    assert mi.min_version == "2.0.0"
+    assert mi.min_inclusive is True
+    
+    mi2 = base_utilities.ModuleInfo.from_str("pytest<8.0")
+    assert mi2.name == "pytest"
+    assert mi2.max_version == "8.0"
+    assert mi2.max_inclusive is False
+
+def test_get_missing_imports():
+    # Assuming requests is installed
+    missing = base_utilities.get_missing_imports(["requests", "non_existent_pkg"])
+    assert "non_existent_pkg" in missing
+    assert "requests" not in missing

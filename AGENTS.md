@@ -1,5 +1,49 @@
 # AGENTS.md
 
+## Protocol-First Design Philosophy
+
+**agent-utilities is a protocol-first, framework-light agent core library.**
+
+### Core Design Principles (Do Not Violate)
+
+- **Agents are protocol-native**: Agents communicate via open standards (ACP, A2A, MCP) not proprietary APIs
+- **Protocol logic is isolated**: Protocol adapters are separate from agent business logic
+- **Transport-agnostic**: Agents work over any transport (SSE, HTTP, stdio, WebRTC)
+- **No framework lock-in**: Avoid opinionated orchestration frameworks like LangChain chains
+- **Explicit state over implicit context**: State is explicit and managed, not hidden in global variables
+- **Tools and transports are pluggable**: Any tool or transport can be swapped without changing agent code
+- **UI-agnostic**: No assumptions about user interface (terminal, web, mobile, voice)
+- **JSON Prompting (Prompts-as-Code)**: Favor structured JSON blueprints over free-form Markdown for high-fidelity task specification.
+
+### Protocol Layer Architecture
+
+The framework provides three canonical protocol adapters:
+
+1. **ACP (Agent Communication Protocol)**: Primary protocol for standardized sessions, planning, and streaming
+2. **A2A (Agent-to-Agent)**: Peer-to-peer agent communication and coordination
+3. **AG-UI**: Legacy streaming interface for backward compatibility with native Pydantic AI clients
+
+All protocol adapters are centralized in `agent_utilities/`:
+- `acp_adapter.py`: ACP envelope formatting, session management, streaming
+- `a2a.py`: A2A peer discovery, JSON-RPC client, registry management
+- Server endpoints: `/acp` (MOUNT), `/a2a` (MOUNT), `/ag-ui` (POST)
+
+### When to Use agent-utilities
+
+**Use agent-utilities when you need:**
+- Production-grade agent orchestration with resilience and observability
+- Protocol-native agents that can communicate across the ecosystem
+- Graph-based orchestration with parallel execution
+- Knowledge graph integration for long-term memory
+- MCP tool integration for external capabilities
+- Multi-agent coordination via ACP/A2A
+
+**Do NOT use agent-utilities for:**
+- Simple single-shot LLM calls (use pydantic-ai directly)
+- UI development (use agent-webui or agent-terminal-ui)
+- SaaS-specific integrations (build MCP servers instead)
+- Opinionated agent personalities (build on top of agent-utilities)
+
 ## Tech Stack & Architecture
 - **Language**: Python 3.10+
 - **Core Framework**: [Pydantic AI](https://ai.pydantic.dev) & [Pydantic Graph](https://ai.pydantic.dev/pydantic-graph/)
@@ -15,9 +59,15 @@
 `agent-utilities` is the core Python engine. It provides the backend server that serves both the `agent-webui` assets and the `agent-terminal-ui` client.
 - **Backend (`agent-utilities`)**: Handles LLM orchestration, tool execution, and a multi-protocol interface layer.
 - **Web Frontend (`agent-webui`)**: A React application using Vercel AI SDK that provides a cinematic chat interface.
-- **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction. Aiming for feature parity with **Claude Code** (slash commands, diffs, cost tracking).
+- **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction. Achieves feature parity with **Claude Code** through:
+  - **Keyboard Shortcuts**: `Ctrl+L` (Clear Log), `Ctrl+O` (Toggle Sidebar), `Alt+P` (Model Picker), `Alt+T` (Extended Thinking), `Ctrl+R` (History Search).
+  - **Input Prefixes**: `!` for direct Bash execution, `@` for fuzzy file mentions.
+  - **Slash Commands**: Comprehensive registry including `/compact`, `/memory`, `/diff`, `/recap`, `/fast`, and `/add-dir`.
 - **Communication**: Frontends primarily connect via the Agent Communication Protocol (ACP) for standardized sessions, planning, and streaming across the ecosystem.
-- **Legacy Compatibility**: A secondary **AG-UI protocol layer** is exposed at `/ag-ui`, providing a standard streaming interface compatible with native Pydantic AI and Agent UI clients.
+- **Memory System**: Local project memory is managed via `AGENTS.md` and `MEMORY.md`.
+  - `AGENTS.md`: Manual project rules, build commands, and style guidelines (Claude Code parity for `CLAUDE.md`).
+  - `MEMORY.md`: Automatically maintained agent memory and state.
+  - Both are auto-loaded into the system prompt by the `agent-utilities` backend.
 
 ## Ecosystem Dependency Graph
 
@@ -1108,3 +1158,64 @@ When running multiple agents on the same host, LadybugDB (DuckDB) may encounter 
 - `mcp_utilities.py` → MCP tool registration
 - `graph/builder.py` → Graph initialization and workspace discovery
 - `knowledge_graph/engine.py` → Intelligence Graph API
+
+## JSON Prompting (Structured Prompts)
+
+Agent Utilities uses a **JSON-native** prompting architecture. All system prompts have been migrated from Markdown to `.json` blueprints powered by the `StructuredPrompt` Pydantic model. This ensures that every agent task is explicitly specified and type-safe.
+
+### Key Benefits
+- **Zero Guesswork**: Explicitly specify task, tone, audience, and structure.
+- **Type Safety**: Pydantic models validate prompt structure before execution.
+- **Graph Integration**: Prompts can be hydrated dynamically from the Knowledge Graph.
+- **Nested Blueprints**: Define reusable components like hooks, body structures, and CTAs.
+
+### Usage Example
+Structured prompts can be loaded from `agent_utilities/prompts/structured/*.json` or directly from the Knowledge Graph.
+
+```json
+{
+  "task": "write a tweet",
+  "topic": "dopamine detox",
+  "style": "viral",
+  "structure": {
+    "hook": "curiosity-driven",
+    "body": "3 insights",
+    "cta": "question"
+  }
+}
+```
+
+The `StructuredPrompt` model renders this into a clean JSON string that serves as the system prompt, forcing the LLM to adhere to the blueprint.
+
+## Agentic Engineering Patterns
+
+The ecosystem incorporates foundational patterns for **Agentic Engineering**, enabling closed-loop development cycles and high-fidelity knowledge hoarding.
+
+### 1. Spec-Driven TDD (Red/Green/Refactor)
+Agents natively support a Spec-Driven TDD workflow. Requirements from the `SDDManager` are used to drive a formalized Red-Green-Refactor cycle:
+- **Red Phase**: Subagent writes a failing test case based on requirements.
+- **Green Phase**: Subagent implements code to satisfy the test.
+- **Refactor Phase**: Subagent optimizes code quality while maintaining test pass status.
+- **Tools**: `run_tdd_cycle`, `setup_sdd`, `save_spec`.
+
+### 2. Isolated Subagent Dispatch
+Complex tasks are broken down and dispatched to specialized subagents with isolated contexts:
+- **Isolation**: Each subagent receives a fresh, curated context to prevent "context pollution."
+- **Specialization**: Subagents are spawned with specific toolsets (e.g., TDD experts, shell experts).
+- **Orchestration**: Parallel execution via the Dispatcher's task-graph awareness.
+
+### 3. Agentic Manual Testing
+Verification of behaviors that are difficult to unit-test (e.g., CLI output, network state) is performed via autonomous manual testing:
+- **Goal-Oriented**: The agent is given a verification goal and autonomous access to shell/curl tools.
+- **Runtime Verification**: Steps are executed in real-time to confirm system state.
+- **Tools**: `run_manual_test`.
+
+### 4. Knowledge Hoarding (Pattern Templates)
+Successful engineering cycles (e.g., a specific TDD solution for a recurring problem) are persisted as reusable **Pattern Templates** in the Knowledge Graph:
+- **Recombination**: Agents search for existing templates to "hoard" and recombine successful solutions.
+- **Self-Improvement**: Successful outcomes increase the `success_rate` and `importance_score` of patterns.
+- **Graph Nodes**: `PatternTemplate` nodes linked via `IMPLEMENTS` and `DERIVED_FROM`.
+
+---
+
+*Last Updated: 2026-04-21*

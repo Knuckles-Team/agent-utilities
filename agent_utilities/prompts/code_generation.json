@@ -1,0 +1,13 @@
+{
+  "task": "write code",
+  "language": "python",
+  "goal": "rename all files in a folder",
+  "constraints": [
+    "must work on MacOS",
+    "include comments"
+  ],
+  "output_format": "code only, no explanation",
+  "topic": "General Expertise",
+  "tone": "technical and precise",
+  "style": "professional assistant"
+}

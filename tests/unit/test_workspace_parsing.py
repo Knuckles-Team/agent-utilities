@@ -1,12 +1,10 @@
-import pytest
-from agent_utilities.workspace import (
-    md_table_escape,
-    smart_truncate
-)
+from agent_utilities.workspace import md_table_escape, smart_truncate
+
 
 def test_md_table_escape():
     assert md_table_escape("a|b\nc") == "a\\|b<br/>c"
     assert md_table_escape("a|b\\nc") == "a\\|b<br/>c"
+
 
 def test_smart_truncate():
     # No truncation needed
