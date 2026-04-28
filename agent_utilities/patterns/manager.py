@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Unified Agentic Pattern Manager.
 
-This module provides a centralized manager for all agentic patterns (TDD, 
+This module provides a centralized manager for all agentic patterns (TDD,
 Manual Testing, Walkthroughs, Explanations), allowing easy access from AgentDeps.
 """
 
@@ -32,7 +32,9 @@ class PatternManager:
 
     async def first_run_tests(self, test_command: str = "uv run pytest"):
         """Run initial tests in the workspace."""
-        emit_graph_event(self.deps.graph_event_queue, "FIRST_TESTS_RUN", command=test_command)
+        emit_graph_event(
+            self.deps.graph_event_queue, "FIRST_TESTS_RUN", command=test_command
+        )
         return await run_first_tests(self.deps.workspace_path, test_command)
 
     async def tdd_cycle(self, feature_id: str, goal: str | None = None):
@@ -53,15 +55,21 @@ class PatternManager:
 
     async def manual_test(self, goal: str):
         """Run a manual testing/verification cycle."""
-        emit_graph_event(self.deps.graph_event_queue, "SHOWBOAT_ARTIFACT_CREATED", goal=goal)
+        emit_graph_event(
+            self.deps.graph_event_queue, "SHOWBOAT_ARTIFACT_CREATED", goal=goal
+        )
         return await run_manual_test_cycle(goal, self.deps)
 
     async def generate_walkthrough(self, path_or_query: str):
         """Generate a linear codebase walkthrough."""
-        emit_graph_event(self.deps.graph_event_queue, "WALKTHROUGH_STARTED", path=path_or_query)
+        emit_graph_event(
+            self.deps.graph_event_queue, "WALKTHROUGH_STARTED", path=path_or_query
+        )
         return await generate_linear_walkthrough(path_or_query, self.deps)
 
     async def interactive_explain(self, goal: str, content: str):
         """Generate an interactive HTML explanation."""
-        emit_graph_event(self.deps.graph_event_queue, "INTERACTIVE_HTML_READY", goal=goal)
+        emit_graph_event(
+            self.deps.graph_event_queue, "INTERACTIVE_HTML_READY", goal=goal
+        )
         return await generate_interactive_explanation(goal, content, self.deps)

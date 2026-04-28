@@ -10,6 +10,7 @@ execution results, and usage statistics across the agent lifecycle.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import os
 from collections.abc import Callable, Coroutine
@@ -20,6 +21,7 @@ from pydantic_ai import Agent
 
 if TYPE_CHECKING:
     from ..knowledge_graph.engine import RegistryGraphEngine
+    from ..models import ModelRegistry
     from .models import Policy, ProcessFlow
 
 from ..config import (
@@ -50,6 +52,18 @@ PlanSyncCallback = Callable[
     [str, list[dict[str, Any]]],
     Coroutine[Any, Any, None],
 ]
+
+
+# Per-request model override id, populated by the FastAPI middleware in
+# :mod:`agent_utilities.server` from the ``x-agent-model-id`` header.
+# Using a ContextVar lets downstream code (including the ACP adapter's
+# ``run_graph_flow`` closure, which has no direct request access) read the
+# value without a thread-through kwarg. ``run_graph`` / ``run_graph_stream``
+# also fall back to this when ``requested_model_id`` is not passed
+# explicitly.
+REQUESTED_MODEL_ID_CTX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "agent_utilities.requested_model_id", default=None
+)
 
 
 @dataclass
@@ -109,6 +123,24 @@ class GraphDeps:
 
     knowledge_engine: RegistryGraphEngine | None = None
     """Engine for topological and semantic discovery of specialists and memories."""
+
+    model_registry: ModelRegistry | None = None
+    """Optional :class:`~agent_utilities.models.ModelRegistry` used by the
+    specialist-spawning path. When populated (typically from the host
+    FastAPI ``app.state.model_registry``), the executor calls
+    ``registry.pick_for_task(complexity=tier, required_tags=...)`` to
+    choose a model per node based on a tier hint; otherwise it falls back
+    to ``agent_model``."""
+
+    requested_model_id: str | None = None
+    """Optional per-turn model override id.
+
+    Populated by the ``_model_override_middleware`` in :mod:`server`
+    from the ``x-agent-model-id`` request header and propagated through
+    the protocol wrappers (AG-UI, SSE, ACP). When set and the id resolves
+    inside :attr:`model_registry`, :func:`pick_specialist_model` uses it
+    verbatim for every specialist node, bypassing the tier/tag heuristic.
+    Invalid or unknown ids fall back to the default selection logic."""
 
 
 @dataclass

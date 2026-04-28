@@ -1,4 +1,3 @@
-import pytest
 from agent_utilities.mermaid import (
     MermaidBuilder,
     FlowchartBuilder,
@@ -19,7 +18,7 @@ def test_flowchart_builder():
     builder.add_node("node2", label="Node 2", shape="box")
     builder.add_edge("node1", "node2", label="links to", edge_type="==>")
     builder.add_subgraph("Group A", ["node1", "node2"])
-    
+
     result = builder.render()
     assert "---" in result
     assert "title: Test Flow" in result
@@ -35,7 +34,7 @@ def test_class_diagram_builder():
     builder = ClassDiagramBuilder(title="Test Classes")
     builder.add_class("MyClass", attributes=["int x", "string y"], methods=["void run()"], annotation="Interface")
     builder.add_relationship("MyClass", "OtherClass", rel_type="<|--", label="inherits")
-    
+
     result = builder.render()
     assert "classDiagram" in result
     assert "class MyClass {" in result
@@ -49,7 +48,7 @@ def test_er_diagram_builder():
     builder = EntityRelationshipBuilder(title="Test ER")
     builder.add_entity("User", attributes=[("string", "name"), ("int", "age")])
     builder.add_relationship("User", "Post", rel_type="||--|{", label="writes")
-    
+
     result = builder.render()
     assert "erDiagram" in result
     assert "User {" in result
@@ -107,8 +106,8 @@ def test_codemap_artifact_to_mermaid():
         prompt="Visualize code",
         mode="smart",
         nodes=[
-            CodemapNode(id="f1", label="main.py", type="file", file="main.py"),
-            CodemapNode(id="c1", label="MyClass", type="class", file="main.py"),
+            CodemapNode(id="f1", label="main.py", type="file", file="main.py", line=1, end_line=10, description="test", importance=0.5),
+            CodemapNode(id="c1", label="MyClass", type="class", file="main.py", line=1, end_line=10, description="test", importance=0.5),
         ],
         edges=[
             CodemapEdge(source="f1", target="c1", type="contains")
@@ -126,10 +125,10 @@ def test_kg_mermaid_generation():
     graph.add_node("agent1", type="agent", name="Agent 1")
     graph.add_node("mem1", type="memory", description="Some memory")
     graph.add_edge("agent1", "mem1", type="CREATED")
-    
+
     engine = IntelligenceGraphEngine(graph=graph)
     mermaid = engine.generate_mermaid_graph()
-    
+
     # Account for sanitization
     assert "agent1((\"Agent 1\n&#40;agent&#41;\"))" in mermaid
     assert "mem1[(\"mem1\n&#40;memory&#41;\")]" in mermaid
@@ -168,7 +167,7 @@ def test_flowchart_builder_extended():
     builder.add_edge("n1", "n2", edge_type="---")
     builder.add_edge("n2", "n3", edge_type="-.->")
     builder.add_edge("n3", "n4", edge_type="==>")
-    
+
     result = builder.render()
     assert "n1{\"n1\"}" in result
     assert "n2((\"n2\"))" in result
@@ -189,22 +188,22 @@ def test_get_graph_mermaid():
     class MockGraph:
         def render(self):
             return "flowchart TD\n  router --> domain_execution"
-            
+
     graph = MockGraph()
     config = {"router_model": "gpt-4"}
-    
+
     # Test with title and routed_domain
     result = get_graph_mermaid(graph, config, title="Custom Title", routed_domain="test_domain")
     assert "title: Custom Title" in result
     assert "Router (gpt-4)" in result
     assert "Domain Node (test_domain)" in result
     assert "classDef router" in result
-    
+
     # Test with existing title and no routed_domain
     class MockGraphWithCode:
         def mermaid_code(self):
             return "---\ntitle: Old Title\n---\nflowchart TD\n  router"
-            
+
     result = get_graph_mermaid(MockGraphWithCode(), config)
     assert "title: Graph" in result
     assert "Router (gpt-4)" in result
@@ -226,9 +225,9 @@ def test_codemap_artifact_to_mermaid_extended():
         prompt="Visualize code",
         mode="smart",
         nodes=[
-            CodemapNode(id="c1", label="MyClass", type="class", file="main.py"),
-            CodemapNode(id="f1", label="main.py", type="file", file="main.py"),
-            CodemapNode(id="m1", label="mod", type="module", file="mod.py"),
+            CodemapNode(id="c1", label="MyClass", type="class", file="main.py", line=1, end_line=10, description="test", importance=0.5),
+            CodemapNode(id="f1", label="main.py", type="file", file="main.py", line=1, end_line=10, description="test", importance=0.5),
+            CodemapNode(id="m1", label="mod", type="module", file="mod.py", line=1, end_line=10, description="test", importance=0.5),
         ],
         edges=[
             CodemapEdge(source="c1", target="c2", type="inherits"),
@@ -282,6 +281,6 @@ def test_codemap_json_methods():
     )
     json_str = artifact.to_json()
     assert "test-json" in json_str
-    
+
     restored = CodemapArtifact.from_json(json_str)
     assert restored.id == "test-json"

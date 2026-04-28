@@ -431,22 +431,28 @@ async def partition_tools(tools: list[MCPToolInfo]) -> dict[str, list[MCPToolInf
     partitions: dict[str, list[MCPToolInfo]] = {}
 
     # Primary partitioning by TAG (Multi-tag support)
-    untracked_tools = []
     for tool in tools:
-        tags = tool.all_tags if tool.all_tags else ([tool.tag] if tool.tag else [])
-        if tags:
-            for tag in tags:
-                if tag not in partitions:
-                    partitions[tag] = []
-                partitions[tag].append(tool)
-        else:
-            untracked_tools.append(tool)
+        # Sanitize server name for better agent identity (e.g. repository-manager -> repository)
+        server_tag = (
+            tool.mcp_server.lower()
+            .replace("-mcp", "")
+            .replace("_mcp", "")
+            .replace("-manager", "")
+            .replace("-agent", "")
+            .replace("-server", "")
+        )
 
-    # Secondary partitioning via LLM for untracked tools
-    if untracked_tools:
-        # For untracked tools, we group by MCP server name as a safe fallback
-        for tool in untracked_tools:
-            tag = f"{tool.mcp_server}_general"
+        tags = tool.all_tags if tool.all_tags else ([tool.tag] if tool.tag else [])
+
+        # If no descriptive tags, fall back to server-specific general bucket
+        if not tags or tags == ["general"]:
+            all_partition_tags = {f"{tool.mcp_server}_general"}
+        else:
+            all_partition_tags = set(tags)
+            # Also include the specialized server tag for cross-domain discovery
+            all_partition_tags.add(server_tag)
+
+        for tag in all_partition_tags:
             if tag not in partitions:
                 partitions[tag] = []
             partitions[tag].append(tool)
@@ -497,85 +503,168 @@ async def sync_mcp_agents(
     if not config_path:
         config_path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
 
-    # 1. Extract Tool Metadata
-    tools_inventory = await extract_tool_metadata(config_path)
-    if not tools_inventory:
-        logger.info("No tools found to sync.")
-        return
+    from filelock import FileLock, Timeout
 
-    # 1b. Score all tools deterministically
-    score_tools(tools_inventory)
-    avg_score = (
-        sum(t.relevance_score for t in tools_inventory) // len(tools_inventory)
-        if tools_inventory
-        else 0
-    )
-    logger.info(
-        f"Tool scoring complete: {len(tools_inventory)} tools, "
-        f"avg relevance {avg_score}/100"
-    )
+    lock_path = config_path.with_suffix(".sync.lock")
+    lock = FileLock(str(lock_path), timeout=0)
 
-    # 2. Ingest into Knowledge Graph
-    from .knowledge_graph.engine import IntelligenceGraphEngine
-    import networkx as nx
-    from .workspace import get_agent_workspace
-    
-    engine = IntelligenceGraphEngine.get_active()
-    if not engine:
-        ws_path = get_agent_workspace()
-        db_path = str(ws_path / "knowledge_graph.db")
-        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), db_path=db_path)
-    
-    backend = engine.backend
-    if backend is None:
-        logger.error("Graph backend is not available. Cannot sync tools to graph.")
-        return
-
-    # 2a. Sync Prompts from registry builder
-    from .agent_registry_builder import ingest_prompts_to_graph
-
-    await ingest_prompts_to_graph()
-
-    # 2b. Upsert Tool Nodes
-    import time
-
-    sync_ts = int(time.time())
-
-    for tool in tools_inventory:
-        query = "MERGE (t:Tool {id: $id}) SET t.name = $name, t.description = $description, t.mcp_server = $mcp_server, t.relevance_score = $score, t.tags = $tags, t.requires_approval = $requires_approval, t.last_sync = $sync_ts"
-        props = {
-            "id": f"tool:{tool.name}",
-            "name": tool.name,
-            "description": tool.description,
-            "mcp_server": tool.mcp_server,
-            "score": tool.relevance_score,
-            "tags": tool.all_tags or [tool.tag] if tool.tag else [],
-            "requires_approval": tool.requires_approval,
-            "sync_ts": sync_ts,
-        }
-        backend.execute(query, props)
-
-        # Link Tool to Server node
-        query_link = "MERGE (s:Server {id: $server_id}) SET s.name = $server_name WITH s MATCH (t:Tool {id: $tool_id}) MERGE (s)-[:PROVIDES]->(t)"
-        backend.execute(
-            query_link,
-            {
-                "server_id": f"server:{tool.mcp_server}",
-                "server_name": tool.mcp_server,
-                "tool_id": f"tool:{tool.name}",
-            },
-        )
-
-    # Cleanup old tools that were not in this sync
     try:
-        query_clean = "MATCH (t:Tool) WHERE t.last_sync < $sync_ts OR t.last_sync IS NULL DETACH DELETE t"
-        backend.execute(query_clean, {"sync_ts": sync_ts})
-    except Exception as e:
-        logger.debug(f"Tool cleanup skipped (likely empty DB): {e}")
+        with lock.acquire(timeout=0):
+            # 1. Extract Tool Metadata
+            tools_inventory = await extract_tool_metadata(config_path)
+            if not tools_inventory:
+                logger.info("No tools found to sync.")
+                return
 
-    logger.info(
-        f"✅ Synced {len(tools_inventory)} MCP tools directly to the Knowledge Graph."
-    )
+            # 1b. Score all tools deterministically
+            score_tools(tools_inventory)
+            avg_score = (
+                sum(t.relevance_score for t in tools_inventory) // len(tools_inventory)
+                if tools_inventory
+                else 0
+            )
+            logger.info(
+                f"Tool scoring complete: {len(tools_inventory)} tools, "
+                f"avg relevance {avg_score}/100"
+            )
+
+            # 2. Ingest into Knowledge Graph
+            import networkx as nx
+
+            from .knowledge_graph.engine import IntelligenceGraphEngine
+            from .workspace import get_agent_workspace
+
+            logger.info(
+                f"Starting Knowledge Graph ingestion for {len(tools_inventory)} tools"
+            )
+            try:
+                engine = IntelligenceGraphEngine.get_active()
+                if not engine:
+                    ws_path = get_agent_workspace()
+                    db_path = str(ws_path / "knowledge_graph.db")
+                    logger.info(
+                        f"No active engine, creating new IntelligenceGraphEngine with db_path: {db_path}"
+                    )
+                    engine = IntelligenceGraphEngine(
+                        graph=nx.MultiDiGraph(), db_path=db_path
+                    )
+
+                backend = engine.backend
+                if backend is None:
+                    logger.error(
+                        "Graph backend is not available. Cannot sync tools to graph."
+                    )
+                    return
+
+                # 2a. Sync Prompts from registry builder
+                from .agent_registry_builder import ingest_prompts_to_graph
+
+                await ingest_prompts_to_graph()
+
+                # 2b. Upsert Tool Nodes
+                import time
+
+                sync_ts = int(time.time())
+
+                for tool in tools_inventory:
+                    query = "MERGE (t:Tool {id: $id}) SET t.name = $name, t.description = $description, t.mcp_server = $mcp_server, t.relevance_score = $score, t.tags = $tags, t.requires_approval = $requires_approval, t.last_sync = $sync_ts"
+                    props = {
+                        "id": f"tool:{tool.name}",
+                        "name": tool.name,
+                        "description": tool.description,
+                        "mcp_server": tool.mcp_server,
+                        "score": tool.relevance_score,
+                        "tags": tool.all_tags or [tool.tag] if tool.tag else [],
+                        "requires_approval": tool.requires_approval,
+                        "sync_ts": sync_ts,
+                    }
+                    backend.execute(query, props)
+
+                    # Link Tool to Server node
+                    query_link = "MERGE (s:Server {id: $server_id}) SET s.name = $server_name WITH s MATCH (t:Tool {id: $tool_id}) MERGE (s)-[:PROVIDES]->(t)"
+                    backend.execute(
+                        query_link,
+                        {
+                            "server_id": f"server:{tool.mcp_server}",
+                            "server_name": tool.mcp_server,
+                            "tool_id": f"tool:{tool.name}",
+                        },
+                    )
+
+                # 2c. Partition tools and create specialist agents
+                partitions = await partition_tools(tools_inventory)
+                logger.info(
+                    f"Partitioned {len(tools_inventory)} tools into {len(partitions)} specialist domains: {list(partitions.keys())}"
+                )
+
+                for tag, partition_tools_list in partitions.items():
+                    # Heuristic: use the server of the first tool as the source
+                    source_server = (
+                        partition_tools_list[0].mcp_server
+                        if partition_tools_list
+                        else "unknown"
+                    )
+
+                    system_prompt = await generate_system_prompt(
+                        tag, partition_tools_list, tag, source_server
+                    )
+
+                    agent_id = f"agent:{tag}"
+                    agent_name = tag
+                    agent_desc = f"Specialist for {tag} (from {source_server})"
+
+                    logger.info(
+                        f"Upserting agent {agent_id} with {len(partition_tools_list)} tools"
+                    )
+
+                    query_agent = """
+                    MERGE (a:Agent {id: $id})
+                    SET a.name = $name,
+                        a.description = $description,
+                        a.agent_type = 'mcp',
+                        a.system_prompt = $system_prompt,
+                        a.tool_count = $tool_count,
+                        a.mcp_server = $mcp_server,
+                        a.last_sync = $sync_ts
+                    """
+                    backend.execute(
+                        query_agent,
+                        {
+                            "id": agent_id,
+                            "name": agent_name,
+                            "description": agent_desc,
+                            "system_prompt": system_prompt,
+                            "tool_count": len(partition_tools_list),
+                            "mcp_server": source_server,
+                            "sync_ts": sync_ts,
+                        },
+                    )
+
+                    # Link Agent to its Tools
+                    for t in partition_tools_list:
+                        query_link_tool = "MATCH (a:Agent {id: $agent_id}), (t:Tool {id: $tool_id}) MERGE (a)-[:PROVIDES]->(t)"
+                        backend.execute(
+                            query_link_tool,
+                            {"agent_id": agent_id, "tool_id": f"tool:{t.name}"},
+                        )
+
+                # Cleanup old tools and agents that were not in this sync
+                try:
+                    query_clean_tools = "MATCH (t:Tool) WHERE t.last_sync < $sync_ts OR t.last_sync IS NULL DETACH DELETE t"
+                    backend.execute(query_clean_tools, {"sync_ts": sync_ts})
+
+                    query_clean_agents = "MATCH (a:Agent) WHERE a.last_sync < $sync_ts OR a.last_sync IS NULL DETACH DELETE a"
+                    backend.execute(query_clean_agents, {"sync_ts": sync_ts})
+                except Exception as e:
+                    logger.debug(f"Cleanup skipped (likely empty DB): {e}")
+
+                logger.info(
+                    f"✅ Synced {len(tools_inventory)} MCP tools and {len(partitions)} specialist agents directly to the Knowledge Graph."
+                )
+            except Exception as e:
+                logger.exception(f"Failed to sync MCP agents to Knowledge Graph: {e}")
+    except Timeout:
+        logger.info("Another process is currently syncing MCP agents. Skipping...")
 
 
 if __name__ == "__main__":

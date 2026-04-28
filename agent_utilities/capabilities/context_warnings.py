@@ -7,6 +7,7 @@ the limit is approached. Records context pressure events in the graph.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from dataclasses import dataclass, replace
@@ -71,10 +72,8 @@ class ContextLimitWarner(AbstractCapability[Any]):
                         "type": "context_pressure",
                     },
                 )
-                try:
+                with contextlib.suppress(Exception):
                     engine.graph.add_node(node.id, **node.model_dump())
-                except Exception:
-                    pass
 
             request.parts.insert(0, SystemPromptPart(content=msg))
 

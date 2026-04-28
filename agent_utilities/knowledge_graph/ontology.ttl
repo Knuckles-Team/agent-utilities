@@ -1,0 +1,153 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg> a owl:Ontology ;
+    rdfs:label "Agent Intelligence Graph Ontology" ;
+    rdfs:comment "Formal OWL ontology for the Unified Intelligence Graph. Provides transitive, subclass, and inverse-property reasoning over stable LPG data." .
+
+# =====================================================================
+# Core Classes
+# =====================================================================
+:Agent         a owl:Class ; rdfs:label "Agent Specialist" .
+:Tool          a owl:Class ; rdfs:label "Tool" .
+:Skill         a owl:Class ; rdfs:label "Skill" .
+:File          a owl:Class ; rdfs:label "Source File" .
+:Symbol        a owl:Class ; rdfs:label "Code Symbol" .
+:Module        a owl:Class ; rdfs:label "Module" .
+:Memory        a owl:Class ; rdfs:label "Memory" .
+:Server        a owl:Class ; rdfs:label "Server" .
+:Code          a owl:Class ; rdfs:label "Code" .
+
+# =====================================================================
+# Temporal / Event Classes
+# =====================================================================
+:Event         a owl:Class ; rdfs:label "Event" .
+:Episode       a owl:Class ; rdfs:label "Episode" .
+:Phase         a owl:Class ; rdfs:label "Temporal Phase" .
+:Incident      a owl:Class ; rdfs:subClassOf :Event ; rdfs:label "Incident" .
+:Decision      a owl:Class ; rdfs:subClassOf :Event ; rdfs:label "Decision" .
+:Observation   a owl:Class ; rdfs:subClassOf :Event ; rdfs:label "Observation" .
+:Action        a owl:Class ; rdfs:label "Action" .
+
+# =====================================================================
+# Epistemic Classes
+# =====================================================================
+:Belief        a owl:Class ; rdfs:label "Belief" .
+:Hypothesis    a owl:Class ; rdfs:subClassOf :Belief ; rdfs:label "Hypothesis" .
+:Fact          a owl:Class ; rdfs:label "Fact" .
+:Principle     a owl:Class ; rdfs:label "Principle" .
+:Concept       a owl:Class ; rdfs:label "Concept" .
+:Evidence      a owl:Class ; rdfs:label "Evidence" .
+:Reflection    a owl:Class ; rdfs:label "Reflection" .
+
+# =====================================================================
+# Organizational Classes
+# =====================================================================
+:Organization  a owl:Class ; rdfs:label "Organization" .
+:Person        a owl:Class ; rdfs:label "Person" .
+:Role          a owl:Class ; rdfs:label "Role" .
+:Place         a owl:Class ; rdfs:label "Place" .
+:System        a owl:Class ; rdfs:label "System" .
+:Team          a owl:Class ; rdfs:label "Team" .
+
+# =====================================================================
+# Self-Improvement Classes
+# =====================================================================
+:ReasoningTrace    a owl:Class ; rdfs:label "Reasoning Trace" .
+:OutcomeEvaluation a owl:Class ; rdfs:label "Outcome Evaluation" .
+:Critique          a owl:Class ; rdfs:label "Critique" .
+:Goal              a owl:Class ; rdfs:label "Goal" .
+:Policy            a owl:Class ; rdfs:label "Policy" .
+
+# =====================================================================
+# Disjointness Axioms
+# =====================================================================
+:Belief owl:disjointWith :Fact .
+:Agent owl:disjointWith :Tool .
+
+# =====================================================================
+# Object Properties
+# =====================================================================
+:definedIn     a owl:ObjectProperty ;
+    rdfs:domain :Symbol ; rdfs:range :File ;
+    rdfs:label "defined in" .
+
+:imports       a owl:ObjectProperty ;
+    rdfs:domain :Symbol ; rdfs:range :Symbol ;
+    rdfs:label "imports" .
+
+:inheritsFrom  a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain :Symbol ; rdfs:range :Symbol ;
+    rdfs:label "inherits from" .
+
+:dependsOn     a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:label "depends on" .
+
+:provides      a owl:ObjectProperty ;
+    rdfs:domain :Agent ; rdfs:range :Tool ;
+    rdfs:label "provides" .
+
+:providedBy    a owl:ObjectProperty ;
+    owl:inverseOf :provides ;
+    rdfs:label "provided by" .
+
+:partOf        a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:label "part of" .
+
+:contains      a owl:ObjectProperty ;
+    owl:inverseOf :partOf ;
+    rdfs:label "contains" .
+
+:triggeredBy   a owl:ObjectProperty ;
+    rdfs:domain :Event ; rdfs:range :Event ;
+    rdfs:label "triggered by" .
+
+:affected      a owl:ObjectProperty ;
+    rdfs:domain :Event ;
+    rdfs:label "affected" .
+
+:occurredDuring a owl:ObjectProperty ;
+    rdfs:domain :Event ; rdfs:range :Phase ;
+    rdfs:label "occurred during" .
+
+:supportsBeliefProp a owl:ObjectProperty ;
+    rdfs:domain :Evidence ; rdfs:range :Belief ;
+    rdfs:label "supports belief" .
+
+:contradictsBeliefProp a owl:ObjectProperty ;
+    rdfs:domain :Evidence ; rdfs:range :Belief ;
+    rdfs:label "contradicts belief" .
+
+:ownedBy       a owl:ObjectProperty ;
+    rdfs:domain :System ; rdfs:range :Organization ;
+    rdfs:label "owned by" .
+
+:hasRole       a owl:ObjectProperty ;
+    rdfs:domain :Person ; rdfs:range :Role ;
+    rdfs:label "has role" .
+
+:motivatedBy   a owl:ObjectProperty ;
+    rdfs:domain :Decision ; rdfs:range :Goal ;
+    rdfs:label "motivated by" .
+
+:producedOutcome a owl:ObjectProperty ;
+    rdfs:domain :Episode ; rdfs:range :OutcomeEvaluation ;
+    rdfs:label "produced outcome" .
+
+:triggeredAction a owl:ObjectProperty ;
+    rdfs:domain :Event ; rdfs:range :Action ;
+    rdfs:label "triggered action" .
+
+:observedBy    a owl:ObjectProperty ;
+    rdfs:domain :Observation ; rdfs:range :Agent ;
+    rdfs:label "observed by" .
+
+# =====================================================================
+# Datatype Properties
+# =====================================================================
+:confidence    a owl:DatatypeProperty ; rdfs:range xsd:float .
+:importance    a owl:DatatypeProperty ; rdfs:range xsd:float .
+:severity      a owl:DatatypeProperty ; rdfs:range xsd:string .
+:timestamp     a owl:DatatypeProperty ; rdfs:range xsd:dateTime .

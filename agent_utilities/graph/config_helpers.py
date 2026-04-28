@@ -40,7 +40,9 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
         import networkx as nx
+
         from ..workspace import get_agent_workspace
+
         ws = get_agent_workspace()
         db_path = str(ws / "knowledge_graph.db")
         engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), db_path=db_path)
@@ -57,21 +59,29 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
         )
         for row in prompt_rows:
             blueprint = row.get("json_blueprint")
-            print(f"DEBUG: Registry Discovery: Found {row.get('name')}, blueprint type={type(blueprint)}, value_prefix={str(blueprint)[:50]}...")
             if isinstance(blueprint, str):
                 try:
                     import json
+
                     blueprint = json.loads(blueprint)
                 except Exception:
                     try:
                         import ast
+
                         blueprint = ast.literal_eval(blueprint)
                     except Exception:
-                        logger.debug(f"Failed to parse json_blueprint as JSON or literal: {blueprint[:100]}...")
-            
-            if blueprint and not isinstance(blueprint, dict):
-                logger.debug(f"json_blueprint for {row.get('name')} is not a dict, type={type(blueprint)}")
+                        logger.debug(
+                            f"Failed to parse json_blueprint as JSON or literal: {blueprint[:100]}..."
+                        )
 
+            if blueprint and not isinstance(blueprint, dict):
+                logger.debug(
+                    f"json_blueprint for {row.get('name')} is not a dict, type={type(blueprint)}"
+                )
+
+            parsed_blueprint: dict[str, Any] | None = (
+                blueprint if isinstance(blueprint, dict) else None
+            )
             agents.append(
                 MCPAgent(
                     name=row.get("name", ""),
@@ -79,11 +89,30 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
                     agent_type="prompt",
                     capabilities=row.get("capabilities", []),
                     system_prompt=row.get("system_prompt", ""),
-                    json_blueprint=blueprint,
+                    json_blueprint=parsed_blueprint,
                 )
             )
     except Exception as e:
         logger.debug(f"Failed to fetch Prompt nodes: {e}")
+
+    # 1b. Fetch Specialist Agents
+    try:
+        agent_rows = engine.backend.execute(
+            "MATCH (a:Agent) RETURN a.name AS name, a.description AS description, a.agent_type AS agent_type, a.system_prompt AS system_prompt, a.tool_count AS tool_count, a.mcp_server AS mcp_server"
+        )
+        for row in agent_rows:
+            agents.append(
+                MCPAgent(
+                    name=row.get("name", "unknown"),
+                    description=row.get("description", ""),
+                    agent_type=row.get("agent_type", "mcp"),
+                    system_prompt=row.get("system_prompt", ""),
+                    tool_count=row.get("tool_count", 0),
+                    mcp_server=row.get("mcp_server"),
+                )
+            )
+    except Exception as e:
+        logger.debug(f"Failed to fetch specialist agents from KG: {e}")
 
     # 2. Fetch Tools
     tools = []
@@ -266,14 +295,42 @@ def _log_graph_trace(event_type: str, timestamp: float, **kwargs):
     _graph_trace_logger.info(f"[{phase}] {event_type} {detail}".rstrip())
 
 
+def _render_prompt_payload(data: dict[str, Any]) -> str:
+    """Render a prompt blueprint dict to the string the LLM should see.
+
+    Prefers the modern JSON blueprint schema (with a ``content`` key) and
+    falls back to :class:`StructuredPrompt` for legacy ``task``/``input``
+    payloads. The returned string is always valid JSON so callers can
+    forward it directly to ``system_prompt=`` kwargs.
+    """
+    content = data.get("content")
+    if isinstance(content, str) and content.strip():
+        return json.dumps(data, indent=2)
+
+    try:
+        from ..structured_prompts import StructuredPrompt
+
+        return StructuredPrompt.model_validate(data).render()
+    except Exception as e:
+        logger.debug(f"StructuredPrompt validation failed: {e}")
+        return json.dumps(data, indent=2)
+
+
 def load_specialized_prompts(prompt_name: str) -> str:
     """Load a specialized agent persona prompt from the registry defined path.
 
+    The loader checks, in order:
+
+    1. A matching agent in the Knowledge Graph registry with a
+       ``json_blueprint`` payload.
+    2. An agent whose ``prompt_file`` points at a local ``*.json`` file.
+    3. A fallback ``agent_utilities/prompts/<prompt_name>.json`` file.
+
     Args:
-        prompt_name: The slugified name/tag of the expert (e.g., 'researcher').
+        prompt_name: The slugified name/tag of the expert (e.g. ``router``).
 
     Returns:
-        The raw markdown content of the specialized system prompt.
+        The specialized system prompt serialized as a JSON string.
 
     """
     registry = get_discovery_registry()
@@ -281,18 +338,14 @@ def load_specialized_prompts(prompt_name: str) -> str:
 
     if agent:
         if agent.json_blueprint:
-            from ..structured_prompts import StructuredPrompt
-
-            return StructuredPrompt.model_validate(agent.json_blueprint).render()
+            return _render_prompt_payload(dict(agent.json_blueprint))
 
         if agent.prompt_file:
             # Check if it's a JSON file
             prompt_path = (Path(__file__).parent.parent / agent.prompt_file).resolve()
             if prompt_path.suffix == ".json" and prompt_path.exists():
-                from ..structured_prompts import StructuredPrompt
-
                 data = json.loads(prompt_path.read_text(encoding="utf-8"))
-                return StructuredPrompt.model_validate(data).render()
+                return _render_prompt_payload(data)
 
     # Unified JSON loading from prompts/
     json_path = (
@@ -300,16 +353,15 @@ def load_specialized_prompts(prompt_name: str) -> str:
     ).resolve()
     if json_path.exists():
         try:
-            from ..structured_prompts import StructuredPrompt
-
             data = json.loads(json_path.read_text(encoding="utf-8"))
-            return StructuredPrompt.model_validate(data).render()
+            return _render_prompt_payload(data)
         except Exception as e:
             logger.warning(
                 f"Failed to load structured prompt JSON for '{prompt_name}': {e}"
             )
 
     logger.warning(
-        f"Specialized prompt for '{prompt_name}' not found in registry or prompts/*.json."
+        f"Specialized prompt for '{prompt_name}' not found in registry "
+        "or prompts/*.json."
     )
     return f"You are a helpful assistant specialized in {prompt_name}."

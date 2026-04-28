@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """KB Structured Extraction Engine.
 
-Uses Pydantic AI with typed result_type= to extract structured articles,
+Uses Pydantic AI with typed output_type= to extract structured articles,
 facts, and concepts from raw document chunks. This ensures all LLM output
 is validated by Pydantic before entering the knowledge graph.
 """
@@ -98,7 +98,7 @@ class KBExtractor:
 
                 self._article_agent = Agent(
                     model=self._get_model(),
-                    result_type=ExtractedArticle,
+                    output_type=ExtractedArticle,
                     system_prompt=_ARTICLE_SYSTEM_PROMPT,
                 )
             except Exception as e:
@@ -114,7 +114,7 @@ class KBExtractor:
 
                 self._health_agent = Agent(
                     model=self._get_model(),
-                    result_type=KBHealthReport,
+                    output_type=KBHealthReport,
                     system_prompt=_HEALTH_SYSTEM_PROMPT,
                 )
             except Exception as e:
@@ -130,7 +130,7 @@ class KBExtractor:
 
                 self._index_agent = Agent(
                     model=self._get_model(),
-                    result_type=ExtractedKBIndex,
+                    output_type=ExtractedKBIndex,
                     system_prompt=_INDEX_SYSTEM_PROMPT,
                 )
             except Exception as e:

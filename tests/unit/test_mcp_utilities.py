@@ -2,7 +2,6 @@ import pytest
 import os
 import json
 import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch, patch
 from agent_utilities import mcp_utilities
 
@@ -24,9 +23,9 @@ def test_create_mcp_server_basic(mock_fastmcp):
         mock_args.auth_type = "none"
         mock_args.help = False
         mock_parse.return_value = (mock_args, [])
-        
+
         args, mcp, middlewares = mcp_utilities.create_mcp_server(name="TestServer")
-        
+
         assert args == mock_args
         mock_fastmcp.assert_called_once_with("TestServer", auth=None, instructions="")
         assert len(middlewares) >= 4 # Default middlewares
@@ -46,17 +45,17 @@ def test_load_mcp_servers_from_config_success(mock_load):
             }
         }
     }
-    
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
         json.dump(config_data, tmp)
         tmp_path = tmp.name
-        
+
     try:
         mock_server = MagicMock()
         mock_load.return_value = [mock_server]
-        
+
         servers = mcp_utilities.load_mcp_servers_from_config(tmp_path)
-        
+
         assert len(servers) == 1
         assert servers[0].id == "test-server"
         mock_load.assert_called_once()
@@ -84,7 +83,7 @@ def test_create_mcp_server_delegation_error(mock_get):
         mock_args.oidc_client_id = None
         mock_args.oidc_client_secret = None
         mock_parse.return_value = (mock_args, [])
-        
+
         with pytest.raises(SystemExit) as excinfo:
             mcp_utilities.create_mcp_server()
         assert excinfo.value.code == 1
@@ -95,7 +94,7 @@ def test_create_mcp_server_invalid_port():
         mock_args.help = False
         mock_args.port = 70000 # Invalid
         mock_parse.return_value = (mock_args, [])
-        
+
         with pytest.raises(SystemExit) as excinfo:
             mcp_utilities.create_mcp_server()
         assert excinfo.value.code == 1

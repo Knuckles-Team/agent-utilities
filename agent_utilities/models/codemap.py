@@ -81,7 +81,7 @@ class CodemapArtifact(BaseModel):
         from ..mermaid import FlowchartBuilder
 
         builder = FlowchartBuilder(title=f"Codemap: {self.prompt}")
-        
+
         # Add nodes
         for node in self.nodes:
             shape = "box"
@@ -91,13 +91,9 @@ class CodemapArtifact(BaseModel):
                 shape = "round"
             elif node.type == "function":
                 shape = "box"
-                
-            builder.add_node(
-                node.id, 
-                label=f"{node.label}\n({node.type})", 
-                shape=shape
-            )
-            
+
+            builder.add_node(node.id, label=f"{node.label}\n({node.type})", shape=shape)
+
         # Add edges
         for edge in self.edges:
             edge_type = "-->"
@@ -105,9 +101,11 @@ class CodemapArtifact(BaseModel):
                 edge_type = "==>"
             elif edge.type == "imports":
                 edge_type = "-.->"
-                
-            builder.add_edge(edge.source, edge.target, label=edge.type, edge_type=edge_type)
-            
+
+            builder.add_edge(
+                edge.source, edge.target, label=edge.type, edge_type=edge_type
+            )
+
         return builder.render()
 
     @classmethod

@@ -23,16 +23,16 @@ import httpx
 if TYPE_CHECKING:
     from fastapi import FastAPI
 import base64
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Depends, HTTPException, status
-from fastapi.security import APIKeyHeader
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
 from pydantic_ai import Agent, BinaryContent
-from starlette.responses import Response
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.responses import Response
 
 from .agent_factory import create_agent
 from .approval_manager import ApprovalManager
@@ -61,6 +61,7 @@ from .config import (
     DEFAULT_ENABLE_ACP,
     DEFAULT_ENABLE_OTEL,
     DEFAULT_ENABLE_TERMINAL_UI,
+    DEFAULT_ENABLE_WEB_LOGS,
     DEFAULT_ENABLE_WEB_UI,
     DEFAULT_GRAPH_AGENT_MODEL,
     DEFAULT_GRAPH_PERSISTENCE_PATH,
@@ -88,7 +89,7 @@ from .graph_orchestration import (
     create_graph_agent,
     get_graph_mermaid,
 )
-from .models import AgentDeps
+from .models import AgentDeps, ModelDefinition, ModelRegistry
 from .prompt_builder import load_identity
 from .scheduler import (
     background_processor,
@@ -128,6 +129,39 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Could not validate credentials",
         )
+
+
+def setup_server_file_logging(workspace: str | None = None) -> str | None:
+    """Configure a file handler for the root logger to capture all server logs.
+
+    Args:
+        workspace: Optional workspace directory path.
+
+    Returns:
+        The path to the log file if successfully configured, else None.
+    """
+    from .workspace import WORKSPACE_DIR
+
+    ws = workspace or WORKSPACE_DIR or "."
+    log_dir = Path(ws) / "agent_data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "server.log"
+
+    # Setup file handler on root logger to capture everything
+    root_logger = logging.getLogger()
+
+    # Remove existing file handlers if any (to avoid duplicates on reload)
+    for handler in root_logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            root_logger.removeHandler(handler)
+
+    file_handler = logging.FileHandler(str(log_file))
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    root_logger.addHandler(file_handler)
+    logger.info(f"Server logs redirected to: {log_file}")
+    return str(log_file)
 
 
 async def process_parts(parts: list[dict[str, Any]]) -> list[Any]:
@@ -205,7 +239,7 @@ def get_http_client(
 
     """
     if not ssl_verify:
-        return httpx.AsyncClient(verify=False, timeout=timeout)
+        return httpx.AsyncClient(verify=False, timeout=timeout)  # nosec B501
     return None
 
 
@@ -261,6 +295,108 @@ def inject_reload_app(app: FastAPI, reload_app: ReloadableApp):
                 inject_reload_app(route.app, reload_app)
 
 
+def _build_model_from_registry(
+    registry: ModelRegistry | None, model_id: str | None
+) -> Any | None:
+    """Resolve ``model_id`` against ``registry`` and build a pydantic-ai Model.
+
+    Used by the protocol-level endpoints (``/ag-ui``, ``/stream``) to build
+    a per-turn model override that can be applied via
+    ``agent.override(model=...)``. Returns ``None`` when the id is absent
+    or missing from the registry, or when the model factory fails — the
+    caller is expected to fall through to the agent's default in that
+    case, so the header is always soft-honoured.
+    """
+    if not model_id or registry is None or not getattr(registry, "models", None):
+        return None
+    definition = registry.get_by_id(model_id)
+    if definition is None:
+        logger.debug(
+            "Requested model id '%s' not found in registry; using default.",
+            model_id,
+        )
+        return None
+    try:
+        from .model_factory import create_model
+
+        api_key = os.getenv(definition.api_key_env) if definition.api_key_env else None
+        return create_model(
+            provider=definition.provider,
+            model_id=definition.model_id,
+            base_url=definition.base_url,
+            api_key=api_key,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to build override model for '%s'; falling back: %s",
+            model_id,
+            e,
+        )
+        return None
+
+
+def resolve_model_registry(
+    *,
+    registry: ModelRegistry | None = None,
+    provider: str | None = None,
+    model_id: str | None = None,
+    base_url: str | None = None,
+    api_key_env: str | None = None,
+) -> ModelRegistry:
+    """Resolve the active model registry.
+
+    Priority order:
+
+    1. Explicit ``registry`` argument (caller-supplied).
+    2. ``MODELS_CONFIG`` env var pointing at a JSON/YAML file.
+    3. Fallback bootstrap from classic single-model kwargs (``provider``,
+       ``model_id``, ``base_url``, ``api_key_env``). The single entry is
+       marked ``is_default=True`` and placed in tier ``medium``.
+    4. An empty registry if nothing above resolves.
+
+    Args:
+        registry: Pre-built registry to use verbatim.
+        provider: Fallback provider string for single-model bootstrap.
+        model_id: Fallback model identifier for single-model bootstrap.
+        base_url: Optional base URL for single-model bootstrap.
+        api_key_env: Env var name for the single-model API key. The raw
+            key value is not stored in the registry.
+
+    Returns:
+        A ``ModelRegistry`` (possibly empty).
+    """
+    if registry is not None:
+        return registry
+
+    cfg_path = os.getenv("MODELS_CONFIG")
+    if cfg_path:
+        p = Path(cfg_path)
+        if p.is_file():
+            try:
+                return ModelRegistry.load_from_file(p)
+            except Exception as e:
+                logger.error("Failed to load MODELS_CONFIG from %s: %s", cfg_path, e)
+
+    if model_id:
+        _id = f"{provider}:{model_id}" if provider else model_id
+        return ModelRegistry(
+            models=[
+                ModelDefinition(
+                    id=_id,
+                    name=model_id,
+                    provider=provider or "openai",
+                    model_id=model_id,
+                    base_url=base_url,
+                    api_key_env=api_key_env,
+                    tier="medium",
+                    is_default=True,
+                )
+            ]
+        )
+
+    return ModelRegistry()
+
+
 def build_agent_app(
     provider: str | None = DEFAULT_PROVIDER,
     model_id: str | None = DEFAULT_MODEL_ID,
@@ -303,6 +439,7 @@ def build_agent_app(
     acp_session_root: str | None = DEFAULT_ACP_SESSION_ROOT,
     isolate_mcp: bool = False,
     mcp_toolsets: list[Any] | None = None,
+    model_registry: ModelRegistry | None = None,
 ) -> FastAPI:
     """Construct and configure a complete Agent FastAPI application.
 
@@ -543,7 +680,7 @@ def build_agent_app(
                     logger.info(
                         f"Startup Sync: Ingesting MCP tools from {_mcp_path} to Knowledge Graph..."
                     )
-                    await sync_mcp_agents(config_path=_mcp_path)
+                    asyncio.create_task(sync_mcp_agents(config_path=_mcp_path))
             except Exception as e:
                 logger.error(
                     f"Automatic Knowledge Graph ingestion failed on startup: {e}"
@@ -645,7 +782,67 @@ def build_agent_app(
             allowed_hosts=["*"],  # Should be restricted in production
         )
 
+        @app.middleware("http")
+        async def _model_override_middleware(request: Request, call_next):
+            """Capture the ``x-agent-model-id`` per-turn model override.
+
+            Stores the raw header value on ``request.state.requested_model_id``
+            for endpoint handlers (AG-UI, ``/stream``) and in the
+            ``REQUESTED_MODEL_ID_CTX`` ContextVar for code paths that have no
+            direct request access (ACP's ``run_graph_flow`` closure). Both
+            channels are populated unconditionally — validation against
+            ``app.state.model_registry`` happens downstream in
+            :func:`pick_specialist_model` so an unknown id falls back to
+            the default without raising.
+            """
+            from .graph.state import REQUESTED_MODEL_ID_CTX
+
+            header_value = request.headers.get("x-agent-model-id") or None
+            request.state.requested_model_id = header_value
+            token = REQUESTED_MODEL_ID_CTX.set(header_value)
+            try:
+                return await call_next(request)
+            finally:
+                REQUESTED_MODEL_ID_CTX.reset(token)
+
         app.state.reload_app = None
+
+        _resolved_registry = resolve_model_registry(
+            registry=model_registry,
+            provider=provider,
+            model_id=model_id,
+            base_url=base_url,
+        )
+        app.state.model_registry = _resolved_registry
+        _default_model = _resolved_registry.get_default()
+        logger.info(
+            "Model registry bootstrapped with %d model(s); default=%s",
+            len(_resolved_registry.models),
+            _default_model.id if _default_model else None,
+        )
+        # Propagate the registry into the graph config so that the
+        # orchestrator's specialist-spawning path sees the same registry as
+        # the /models endpoint.
+        if graph_bundle is not None and len(_resolved_registry.models) > 0:
+            _graph_obj, _graph_cfg = graph_bundle
+            if isinstance(_graph_cfg, dict):
+                _graph_cfg.setdefault("model_registry", _resolved_registry)
+
+        @app.get(
+            "/models",
+            tags=["Core"],
+            summary="List Configured Models",
+        )
+        async def list_configured_models() -> dict[str, Any]:
+            """Return the configured model registry.
+
+            Consumers: web-UI model picker + cost table, terminal-UI
+            ``/model list``, graph orchestrator's specialist spawner.
+            """
+            reg = getattr(app.state, "model_registry", None)
+            if reg is None:
+                return {"models": [], "default_id": None}
+            return reg.to_api_payload()
 
         @app.get("/health", tags=["Core"], summary="Health Check")
         async def health_check():
@@ -657,7 +854,7 @@ def build_agent_app(
             }
             # Add graph info if available
             if graph_bundle:
-                try:
+                with suppress(Exception):
                     from .graph.config_helpers import get_discovery_registry
 
                     registry = get_discovery_registry()
@@ -673,8 +870,6 @@ def build_agent_app(
                         "a2a_agents": len(a2a_agents),
                         "mcp_tools": sum(len(a.tools) for a in registry.agents),
                     }
-                except Exception:
-                    pass
             return health_info
 
         if enable_acp:
@@ -736,15 +931,13 @@ def build_agent_app(
             logger.info(
                 f"[LAYER:ACP] AG-UI Request Received. Assigned internal run_id: {run_id}"
             )
-            try:
+            with suppress(Exception):
                 body = await request.json()
                 if body:
                     session_id = body.get("session_id") or body.get("run_id")
                     if session_id:
                         run_id = session_id
                         logger.info(f"[LAYER:ACP] AG-UI: Resuming session: {run_id}")
-            except Exception:
-                pass
 
             graph_event_queue: asyncio.Queue[Any] = asyncio.Queue()
             elicitation_queue: asyncio.Queue[Any] = asyncio.Queue()
@@ -766,26 +959,47 @@ def build_agent_app(
             deps.patterns = PatternManager(deps)
             logger.info(f"AG-UI session context: {run_id}")
 
+            requested_model_id = getattr(request.state, "requested_model_id", None)
+            override_model = _build_model_from_registry(
+                getattr(app.state, "model_registry", None),
+                requested_model_id,
+            )
+
             async def merged_stream():
+                from contextlib import nullcontext
+
                 query = ""
                 query_parts = []
-                try:
+                with suppress(Exception):
                     body = await request.json()
                     query = body.get("query", body.get("prompt", ""))
                     raw_parts = body.get("parts", [])
                     if raw_parts:
                         query_parts = await process_parts(raw_parts)
-                except Exception:
-                    pass
                 run_input = query_parts if query_parts else query
+                override_ctx = (
+                    _agent_instance.override(model=override_model)
+                    if override_model is not None
+                    else nullcontext()
+                )
                 try:
-                    adapter = AGUIAdapter(agent=_agent_instance, run_input=run_input)
-                    logger.info(
-                        f"[LAYER:ACP] AG-UI: Dispatching request for query: '{query[:50]}...'"
-                    )
-                    agent_response = await adapter.dispatch_request(
-                        request, agent=_agent_instance, deps=deps
-                    )
+                    with override_ctx:
+                        adapter = AGUIAdapter(
+                            agent=_agent_instance, run_input=run_input
+                        )
+                        _q_preview = query[:50]
+                        logger.info(
+                            "[LAYER:ACP] AG-UI: Dispatching request for "
+                            f"query: '{_q_preview}...'"
+                        )
+                        if override_model is not None:
+                            logger.info(
+                                "AG-UI: Applying per-turn model override '%s'",
+                                requested_model_id,
+                            )
+                        agent_response = await adapter.dispatch_request(
+                            request, agent=_agent_instance, deps=deps
+                        )
                     logger.info(
                         "[LAYER:ACP] AG-UI: Dispatch successful. Stream established."
                     )
@@ -929,6 +1143,7 @@ def build_agent_app(
             query_parts = await process_parts(raw_parts) if raw_parts else []
             mode = data.get("mode", "ask")
             topology = data.get("topology", "basic")
+            requested_model_id = getattr(request.state, "requested_model_id", None)
 
             if graph_bundle:
                 from .graph_orchestration import run_graph_stream
@@ -943,6 +1158,7 @@ def build_agent_app(
                         topology=topology,
                         mcp_toolsets=_initialized_mcp_toolsets,
                         query_parts=query_parts,
+                        requested_model_id=requested_model_id,
                     ),
                     media_type="text/event-stream",
                 )
@@ -1039,7 +1255,7 @@ def build_agent_app(
 
                     # For MCPServer toolsets, we can extract tool info
                     if hasattr(ts, "get_tools"):
-                        try:
+                        with suppress(Exception):
                             # Some toolsets might be async or require a context
                             ts_tools = ts.get_tools()
                             for t in ts_tools:
@@ -1052,8 +1268,6 @@ def build_agent_app(
                                         ),  # Use toolset name as tag
                                     }
                                 )
-                        except Exception:
-                            pass
             return tools
 
         @app.post("/api/codemap", tags=["Core"], summary="Generate a codebase codemap")
@@ -1061,14 +1275,14 @@ def build_agent_app(
             """Generate a task-specific hierarchical codemap artifact."""
             from .knowledge_graph.codemaps import CodemapGenerator
             from .knowledge_graph.engine import IntelligenceGraphEngine
-            
+
             kg = IntelligenceGraphEngine.get_active()
             if not kg:
                 return JSONResponse(
                     {"status": "error", "message": "Knowledge Graph not initialized"},
                     status_code=503,
                 )
-                
+
             generator = CodemapGenerator(kg)
             try:
                 artifact = await generator.create(
@@ -1136,39 +1350,42 @@ def build_agent_app(
                         return []
 
                     skills = []
-                    try:
+                    with suppress(Exception):
                         prompts = backend.execute(
-                            "MATCH (p:Prompt) RETURN p.id AS id, p.name AS name, p.description AS desc"
+                            "MATCH (p:Prompt) RETURN p.id AS id, "
+                            "p.name AS name, "
+                            "p.description AS description_text"
                         )
                         for p in prompts:
                             skills.append(
                                 {
                                     "id": p.get("id"),
                                     "name": p.get("name"),
-                                    "description": p.get("desc", ""),
+                                    "description": p.get("description_text", ""),
                                     "enabled": True,
                                     "type": "prompt",
                                 }
                             )
-                    except Exception:
-                        pass
 
-                    try:
+                    with suppress(Exception):
                         tools = backend.execute(
-                            "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS desc, t.mcp_server AS server"
+                            "MATCH (t:Tool) RETURN t.id AS id, "
+                            "t.name AS name, "
+                            "t.description AS description_text, "
+                            "t.mcp_server AS server"
                         )
                         for t in tools:
+                            server_label = t.get("server", "mcp")
+                            desc_text = t.get("description_text", "")
                             skills.append(
                                 {
                                     "id": t.get("id"),
                                     "name": t.get("name"),
-                                    "description": f"[{t.get('server', 'mcp')}] {t.get('desc', '')}",
+                                    "description": f"[{server_label}] {desc_text}",
                                     "enabled": True,
                                     "type": "tool",
                                 }
                             )
-                    except Exception:
-                        pass
 
                     return sorted(skills, key=lambda x: x.get("name", "").lower())
 
@@ -1205,6 +1422,7 @@ def build_agent_app(
                 )
 
                 web_app.state.reload_app = None
+                web_app.state.model_registry = _resolved_registry
                 app.mount("/", web_app)
                 logger.debug("Mounted new standalone agent-web UI dashboard at /")
             except ImportError:
@@ -1261,6 +1479,8 @@ def create_agent_server(
     acp_session_root: str | None = DEFAULT_ACP_SESSION_ROOT,
     isolate_mcp: bool = False,
     mcp_toolsets: list[Any] | None = None,
+    model_registry: ModelRegistry | None = None,
+    enable_web_logs: bool = DEFAULT_ENABLE_WEB_LOGS,
 ):
     """Create and run an agent server with FastAPI and FastMCP."""
     import uvicorn
@@ -1312,16 +1532,18 @@ def create_agent_server(
         persistence_url=persistence_url,
         isolate_mcp=isolate_mcp,
         mcp_toolsets=mcp_toolsets,
+        model_registry=model_registry,
     )
 
     reloadable = app.state.reload_app
 
     logger.info(
-        "Starting server on %s:%s (A2A at /a2a, AG-UI at /ag-ui, Web UI: %s)",
-        host,
-        port,
         "Enabled (Dashboard)" if enable_web_ui else "Disabled",
     )
+
+    log_file_path = None
+    if enable_terminal_ui and enable_web_logs:
+        log_file_path = setup_server_file_logging(workspace)
 
     if enable_terminal_ui:
         import subprocess
@@ -1345,21 +1567,21 @@ def create_agent_server(
         url = f"http://{host}:{port}/health"
         max_retries = 10
         for i in range(max_retries):
-            try:
+            with suppress(Exception):
                 import requests
 
                 resp = requests.get(url, timeout=1)
                 if resp.status_code == 200:
                     break
-            except Exception:
-                pass
             time.sleep(0.5)
 
         logger.info(f"Launching Agent Terminal UI connecting to {url}...")
         env = os.environ.copy()
         env["AGENT_URL"] = f"http://{host}:{port}"
+        if log_file_path:
+            env["AGENT_LOG_FILE"] = log_file_path
         try:
-            subprocess.call(["agent-terminal-ui"], env=env)
+            subprocess.call(["agent-terminal-ui"], env=env)  # nosec B607
         except FileNotFoundError:
             print(
                 "\nError: 'agent-terminal-ui' command not found. Please install the agent-terminal-ui package."
@@ -1371,7 +1593,7 @@ def create_agent_server(
 
     uvicorn.run(
         reloadable,
-        host=host or "0.0.0.0",
+        host=host or "0.0.0.0",  # nosec B104
         port=port or 9000,
         timeout_keep_alive=1800,
         timeout_graceful_shutdown=60,
@@ -1424,6 +1646,8 @@ def create_graph_agent_server(
     enable_terminal_ui: bool = DEFAULT_ENABLE_TERMINAL_UI,
     skill_types: list[str] | None = None,
     custom_headers: dict[str, Any] | None = None,
+    model_registry: ModelRegistry | None = None,
+    enable_web_logs: bool = DEFAULT_ENABLE_WEB_LOGS,
 ):
     """Create and start a graph-based agent server.
 
@@ -1466,6 +1690,10 @@ def create_graph_agent_server(
         # Inject the singleton approval manager so the graph executor can
         # pause for human-in-the-loop tool approvals.
         graph_config.setdefault("approval_manager", _approval_manager)
+        # Attach the resolved model registry so the dispatcher can route
+        # per-specialist via pick_for_task().
+        if model_registry is not None:
+            graph_config["model_registry"] = model_registry
         tag_prompts = graph_config.get("tag_prompts", {})
         tag_env_vars = graph_config.get("tag_env_vars", {})
         sub_agents = graph_config.get("sub_agents", {})
@@ -1486,7 +1714,12 @@ def create_graph_agent_server(
                 logger.info(
                     f"Ingesting MCP tools from {_mcp_cfg_path} to Knowledge Graph..."
                 )
-                asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
+                try:
+                    asyncio.get_running_loop().create_task(
+                        sync_mcp_agents(config_path=_mcp_cfg_path)
+                    )
+                except RuntimeError:
+                    asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
 
             graph, graph_config = initialize_graph_from_workspace(
                 mcp_config=mcp_config,
@@ -1512,6 +1745,9 @@ def create_graph_agent_server(
                 min_confidence=min_confidence,
                 sub_agents=sub_agents,
             )
+
+        if model_registry is not None:
+            graph_config["model_registry"] = model_registry
 
     if tag_prompts:
         logger.info(
@@ -1545,6 +1781,7 @@ def create_graph_agent_server(
         port=port,
         enable_web_ui=enable_web_ui,
         enable_terminal_ui=enable_terminal_ui,
+        enable_web_logs=enable_web_logs,
         custom_web_app=custom_web_app,
         custom_web_mount_path=custom_web_mount_path,
         web_ui_instructions=web_ui_instructions,
@@ -1570,4 +1807,5 @@ def create_graph_agent_server(
         persistence_url=persistence_url,
         isolate_mcp=True,
         mcp_toolsets=graph_config.get("mcp_toolsets", []),
+        model_registry=model_registry,
     )

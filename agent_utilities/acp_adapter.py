@@ -200,6 +200,7 @@ def create_graph_acp_app(
             The synthesized result from the graph verifier.
 
         """
+        from .graph.state import REQUESTED_MODEL_ID_CTX
         from .graph.unified import execute_graph
 
         # Plan sync is handled via sideband events (emitted by the graph
@@ -207,12 +208,19 @@ def create_graph_acp_app(
         # mirrors ACP plan state to PLAN.md).  No direct session
         # manipulation is needed here.
 
+        # ACP runs inside the request task spawned by the FastAPI
+        # middleware, so the per-turn ``x-agent-model-id`` header is
+        # available through the ContextVar set by
+        # ``_model_override_middleware``. Pass it explicitly so
+        # specialist spawning uses the user-picked model.
+        requested_model_id = REQUESTED_MODEL_ID_CTX.get()
         result = await execute_graph(
             graph=graph,
             config=graph_config,
             query=query,
             mode=mode,
             mcp_toolsets=mcp_toolsets or graph_config.get("mcp_toolsets", []),
+            requested_model_id=requested_model_id,
         )
         return result.get("results", {}).get("output", str(result.get("results", {})))
 

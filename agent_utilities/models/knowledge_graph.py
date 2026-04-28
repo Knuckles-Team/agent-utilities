@@ -9,9 +9,9 @@ discovery of specialists and their tools.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class RegistryNodeType(StrEnum):
@@ -74,6 +74,18 @@ class RegistryNodeType(StrEnum):
     EVIDENCE = "evidence"
     PERSON = "person"
     PATTERN_TEMPLATE = "pattern_template"
+    ORGANIZATION = "organization"
+    ROLE = "role"
+    PLACE = "place"
+    PHASE = "phase"
+    DECISION = "decision"
+    INCIDENT = "incident"
+    SYSTEM = "system"
+    BELIEF = "belief"
+    HYPOTHESIS = "hypothesis"
+    PRINCIPLE = "principle"
+    OBSERVATION = "observation"
+    ACTION = "action"
 
 
 class RegistryEdgeType(StrEnum):
@@ -147,6 +159,30 @@ class RegistryEdgeType(StrEnum):
     REFERENCES = "references"
     AUTHORED = "authored"
     SUPPORTS = "supports"
+    # --- KG V2 edges (see docs/KG_V2_DESIGN.md §3) ---
+    HAS_ROLE = "has_role"
+    PLAYED_ROLE_DURING = "played_role_during"
+    OCCURRED_AT_PLACE = "occurred_at_place"
+    OCCURRED_DURING_PHASE = "occurred_during_phase"
+    DECIDED_BY = "decided_by"
+    MOTIVATED_BY = "motivated_by"
+    RESULTED_IN = "resulted_in"
+    SUPPORTS_BELIEF = "supports_belief"
+    CONTRADICTS_BELIEF = "contradicts_belief"
+    GENERALIZES_TO = "generalizes_to"
+    INSTANCE_OF_PATTERN = "instance_of_pattern"
+    CAUSED_INCIDENT = "caused_incident"
+    RESOLVED_INCIDENT = "resolved_incident"
+    OWNS_SYSTEM = "owns_system"
+    DEPENDS_ON_SYSTEM = "depends_on_system"
+    PREDICTS = "predicts"
+    OBSERVES = "observes"
+    SUPERSEDES_BY = "supersedes_by"
+    BELONGS_TO_ORGANIZATION = "belongs_to_organization"
+    EMPLOYS = "employs"
+    # OWL-related edges
+    OBSERVED_BY = "observed_by"
+    TRIGGERED_ACTION = "triggered_action"
 
 
 class RegistryNode(BaseModel):
@@ -159,6 +195,7 @@ class RegistryNode(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     importance_score: float = 0.0
     timestamp: str | None = None
+    embedding: list[float] | None = None
     is_permanent: bool = False
 
 
@@ -261,11 +298,16 @@ class ResolutionContext(BaseModel):
     symbol_map: dict[str, str] = Field(default_factory=dict)  # Name to ID
 
 
+from ..config import (
+    DEFAULT_ENABLE_KG_EMBEDDINGS,
+)
+
+
 class PipelineConfig(BaseModel):
     """Configuration for the Unified Intelligence Pipeline."""
 
     workspace_path: str
-    enable_embeddings: bool = True
+    enable_embeddings: bool = DEFAULT_ENABLE_KG_EMBEDDINGS
     persist_to_ladybug: bool = True
     ladybug_path: str | None = None
     embedding_provider: str | None = "llama-index"
@@ -290,6 +332,12 @@ class PipelineConfig(BaseModel):
     kb_archive_importance_threshold: float = 0.3
     enable_workspace_sync: bool = True
     kb_auto_ingest_cloned_repos: bool = True
+    # OWL Reasoning settings
+    enable_owl_reasoning: bool = True
+    owl_backend: str = "owlready2"
+    owl_ontology_path: str | None = None
+    owl_promotion_importance_threshold: float = 0.1
+    owl_promotion_recency_days: int = 7
 
 
 class ClientNode(RegistryNode):
@@ -331,7 +379,6 @@ class MessageNode(RegistryNode):
     role: str
     content: str
     timestamp: str
-    embedding: list[float] | None = None
 
 
 class ChatSummaryNode(RegistryNode):
@@ -378,6 +425,10 @@ class EventNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.EVENT
     timestamp: str
     event_type: str
+    severity: str = "info"  # info, warning, error, critical
+    payload: dict[str, Any] = Field(default_factory=dict)
+    source: str = ""
+    episode_id: str | None = None
 
 
 class ReflectionNode(RegistryNode):
@@ -396,6 +447,10 @@ class EpisodeNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.EPISODE
     timestamp: str
     source: str  # chat, tool, reflection
+    end_time: str | None = None
+    event_count: int = 0
+    summary: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class FactNode(RegistryNode):
@@ -410,7 +465,6 @@ class ConceptNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.CONCEPT
     concept_id: str
     definition: str = ""
-    embedding: list[float] | None = None
     is_permanent: bool = False
 
 
@@ -468,7 +522,6 @@ class CallableResourceNode(RegistryNode):
     agent_card: dict[str, Any] | None = None
     skill_code_path: str | None = None
     metadata_id: str
-    embedding: list[float] | None = None
 
 
 class SpawnedAgentNode(RegistryNode):
@@ -485,7 +538,6 @@ class SystemPromptNode(RegistryNode):
     version: str
     tags: list[str] = Field(default_factory=list)
     parameters: dict[str, Any] = Field(default_factory=dict)
-    embedding: list[float] | None = None
     source: str  # MANUAL, GENERATED, etc.
 
 
@@ -554,7 +606,6 @@ class ArticleNode(RegistryNode):
     content: str = ""  # May be empty when archived (summary-only)
     word_count: int = 0
     tags: list[str] = Field(default_factory=list)
-    embedding: list[float] | None = None
 
 
 class RawSourceNode(RegistryNode):
@@ -572,7 +623,6 @@ class KBConceptNode(RegistryNode):
     """A key concept extracted from KB articles."""
 
     type: RegistryNodeType = RegistryNodeType.KB_CONCEPT
-    embedding: list[float] | None = None
 
 
 class KBFactNode(RegistryNode):
@@ -582,7 +632,6 @@ class KBFactNode(RegistryNode):
     content: str
     certainty: float = 1.0
     source_ids: list[str] = Field(default_factory=list)
-    embedding: list[float] | None = None
 
 
 class KBIndexNode(RegistryNode):
@@ -657,7 +706,314 @@ class KnowledgeBaseTopicNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.KNOWLEDGE_BASE_TOPIC
     topic_id: str
     source: str | None = None
-    embedding: list[float] | None = None
+
+
+# --- KG V2: Human-memory-inspired Nodes (see docs/KG_V2_DESIGN.md §2) ---
+
+
+class OrganizationNode(RegistryNode):
+    """First-class organization (company, team, vendor, etc.).
+
+    ACT-R chunk analogue. Promoted from the generic
+    ``EntityNode(entity_type="Organization")`` form because orgs are recurring
+    causal hubs: they own systems, employ people, publish policies. See
+    docs/KG_V2_DESIGN.md §2.2.1.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ORGANIZATION
+    org_id: str = Field(description="Stable slug, e.g. 'acme-corp'")
+    legal_name: str | None = None
+    domain: str | None = Field(default=None, description="Primary DNS domain")
+    org_type: Literal["company", "team", "vendor", "opensource", "regulator"] = (
+        "company"
+    )
+    parent_org_id: str | None = Field(
+        default=None, description="Points to another OrganizationNode"
+    )
+    website: str | None = None
+
+
+class RoleNode(RegistryNode):
+    """A time-bounded role or title a Person plays inside an Organization.
+
+    ACT-R chunk / Tulving (1972) semantic-episodic split: the role itself is
+    semantic; the (person, role, phase) binding is episodic and lives on the
+    ``PLAYED_ROLE_DURING`` edge. See docs/KG_V2_DESIGN.md §2.2.2.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ROLE
+    role_id: str = Field(description="Stable slug, e.g. 'sre-oncall'")
+    title: str
+    responsibilities: list[str] = Field(default_factory=list)
+    organization_id: str | None = Field(
+        default=None, description="OrganizationNode.id this role belongs to"
+    )
+    seniority: (
+        Literal[
+            "intern",
+            "ic",
+            "senior",
+            "staff",
+            "principal",
+            "lead",
+            "manager",
+            "exec",
+        ]
+        | None
+    ) = None
+
+
+class PlaceNode(RegistryNode):
+    """A place — physical, virtual, or contextual.
+
+    Peer, Brunec, Newcombe & Epstein (2021) cognitive-graph analogue.
+    Supersedes ``EntityNode(entity_type IN {"Location", "PhysicalLocation",
+    "VirtualLocation"})``; the ``kind`` discriminator lets EcphoryRAG
+    (Balsam et al. 2025) co-location retrieval treat a Teams channel and a
+    conference room uniformly as retrieval cues.
+    See docs/KG_V2_DESIGN.md §2.2.3.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.PLACE
+    place_id: str = Field(description="Stable slug")
+    kind: Literal["physical", "virtual", "contextual"]
+    address: str | None = Field(
+        default=None,
+        description=(
+            "Street address for physical, URI for virtual, tag for contextual"
+        ),
+    )
+    parent_place_id: str | None = None
+    geo_lat: float | None = None
+    geo_lon: float | None = None
+
+
+class PhaseNode(RegistryNode):
+    """A named temporal interval — event-segmentation theory (Zacks 2007).
+
+    Anchors events ("what happened during Q2 2026?"). Phases may nest (e.g.
+    Phase "Incident-2026-04-02" nests inside Phase "Q2 2026").
+    See docs/KG_V2_DESIGN.md §2.2.4.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.PHASE
+    phase_id: str = Field(description="Stable slug, e.g. 'q2-2026'")
+    started_at: str = Field(description="ISO-8601 start timestamp")
+    ended_at: str | None = Field(
+        default=None,
+        description="None while phase is ongoing",
+    )
+    phase_kind: Literal[
+        "calendar",
+        "project",
+        "incident",
+        "lifecycle",
+        "custom",
+    ] = "custom"
+    parent_phase_id: str | None = None
+
+
+class DecisionNode(RegistryNode):
+    """A decision — subtype of Event linking Goal → Action → Outcome.
+
+    Glimcher & Fehr (2013) neuroeconomic / ACT-R goal-state model. Explicit
+    motivation + alternatives make counterfactual reasoning possible.
+    See docs/KG_V2_DESIGN.md §2.2.5.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.DECISION
+    decision_id: str
+    statement: str = Field(description="The decision in plain language")
+    motivation: list[str] = Field(
+        default_factory=list,
+        description="NodeRefs to Goal/Belief/Fact nodes that motivated the decision",
+    )
+    alternatives_considered: list[str] = Field(
+        default_factory=list,
+        description="Plain-text alternatives that were rejected",
+    )
+    chosen_alternative: str | None = None
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    decided_by: list[str] = Field(
+        default_factory=list, description="PersonNode/AgentNode IDs"
+    )
+    decided_at: str = Field(description="ISO-8601 timestamp")
+    reversible: bool = True
+
+
+class IncidentNode(RegistryNode):
+    """A production incident or operational disruption — subtype of Event.
+
+    Brown & Kulik (1977) flashbulb-memory analogue; Josselyn & Tonegawa
+    (2020) engram salience weighting. Elevated ``importance_score`` floor
+    and slower decay (see maintenance.apply_temporal_decay multipliers).
+    See docs/KG_V2_DESIGN.md §2.2.6.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.INCIDENT
+    incident_id: str
+    severity: Literal["low", "medium", "high", "critical"]
+    detected_at: str
+    resolved_at: str | None = None
+    status: Literal["detected", "mitigating", "resolved", "postmortem"] = "detected"
+    postmortem_article_id: str | None = Field(
+        default=None,
+        description="ArticleNode.id with the postmortem",
+    )
+    affected_system_ids: list[str] = Field(default_factory=list)
+    root_cause_summary: str | None = None
+
+
+class SystemNode(RegistryNode):
+    """A software system or service — a causal hub distinct from CodeNode.
+
+    Bartlett (1932) / Rumelhart (1980) schema-theory analogue. CodeNode is
+    file/class level; SystemNode is the whole logical system
+    ("auth-service", "ingestion-pipeline") with explicit ownership and
+    dependency edges. See docs/KG_V2_DESIGN.md §2.2.7.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SYSTEM
+    system_id: str = Field(description="Stable slug, e.g. 'auth-service'")
+    tech_stack: list[str] = Field(default_factory=list)
+    owner_role_ids: list[str] = Field(
+        default_factory=list, description="RoleNode.id list"
+    )
+    owner_org_id: str | None = None
+    depends_on_system_ids: list[str] = Field(default_factory=list)
+    repo_urls: list[str] = Field(default_factory=list)
+    criticality: Literal["tier1", "tier2", "tier3", "experimental"] = "tier2"
+
+
+class BeliefNode(RegistryNode):
+    """A claim-with-confidence grounded in evidence.
+
+    Collins & Quillian (1969) / ACT-R declarative-activation analogue.
+    Distinct from FactNode (timeless) because beliefs are *held*, can be
+    *revised*, and have ``last_reviewed`` per ACT-R activation theory.
+    See docs/KG_V2_DESIGN.md §2.2.8.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.BELIEF
+    statement: str = Field(description="The proposition being believed")
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence_node_ids: list[str] = Field(
+        default_factory=list,
+        description="NodeRefs to Fact/Article/Episode",
+    )
+    contradicted_by_node_ids: list[str] = Field(default_factory=list)
+    supported_by_node_ids: list[str] = Field(default_factory=list)
+    last_reviewed: str = Field(description="ISO-8601; bumps on evidence update")
+    source_agent_id: str | None = None
+    scope_node_ids: list[str] = Field(
+        default_factory=list,
+        description="Concepts/Systems this belief is scoped to",
+    )
+
+    @model_validator(mode="after")
+    def _validate_support_contradict_mutex(self) -> BeliefNode:
+        """Invariant: an id cannot both support and contradict a belief.
+
+        Enforced per docs/KG_V2_DESIGN.md §2.2.8 and §8.1 test plan.
+        """
+        overlap = set(self.supported_by_node_ids) & set(self.contradicted_by_node_ids)
+        if overlap:
+            raise ValueError(
+                "BeliefNode: the same node(s) cannot both support and "
+                f"contradict a belief: {sorted(overlap)}"
+            )
+        return self
+
+
+class HypothesisNode(RegistryNode):
+    """A predictive belief — a falsifiable expectation about the future.
+
+    Clark (2013) / Friston (2010) predictive-processing analogue.
+    ``observation_outcome_ids`` populates as reality arrives; closure into a
+    BeliefNode happens in the maintenance loop (Rule 5, §4.3).
+    See docs/KG_V2_DESIGN.md §2.2.9.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.HYPOTHESIS
+    prediction: str = Field(description="The predicted outcome in plain language")
+    preconditions_node_ids: list[str] = Field(
+        default_factory=list,
+        description="Belief/Fact/Phase IDs that must hold for the prediction",
+    )
+    observation_outcome_ids: list[str] = Field(
+        default_factory=list,
+        description="Episode/Incident/Fact IDs that confirmed/refuted",
+    )
+    falsifiable: bool = True
+    verdict: Literal["open", "confirmed", "refuted", "inconclusive"] = "open"
+    confidence_prior: float = Field(default=0.5, ge=0.0, le=1.0)
+    confidence_posterior: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Bayesian update after observations",
+    )
+    expires_at: str | None = None
+
+
+class PrincipleNode(RegistryNode):
+    """A distilled, reusable rule — 'always use TDD', 'never push on Friday'.
+
+    ACT-R production-rule analogue. An IF-THEN rule compiled from repeated
+    decisions or reflections; links back to the evidence (decisions,
+    episodes) so the rule can be revisited when conditions change.
+    See docs/KG_V2_DESIGN.md §2.2.10.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.PRINCIPLE
+    principle_id: str = Field(description="Stable slug")
+    statement: str = Field(description="The rule, imperative form")
+    scope_node_ids: list[str] = Field(
+        default_factory=list,
+        description="Concept/System/Organization this principle applies to",
+    )
+    exceptions: list[str] = Field(
+        default_factory=list, description="Plain-text exceptions"
+    )
+    derived_from_decision_ids: list[str] = Field(default_factory=list)
+    derived_from_episode_ids: list[str] = Field(default_factory=list)
+    strength: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="How enforced (0=guideline, 1=mandatory)",
+    )
+    review_cadence_days: int = Field(default=180)
+    last_reviewed: str | None = None
+
+
+class ObservationNode(RegistryNode):
+    """An agent observation — a structured record of something perceived.
+
+    First-class node for tracking what the agent observes during operation,
+    enabling the OWL layer to reason about observation patterns and
+    correlations.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.OBSERVATION
+    content: str
+    confidence: float = Field(default=1.0, ge=0, le=1)
+    source: str
+    related_event_id: str | None = None
+
+
+class ActionNode(RegistryNode):
+    """An agent action — a structured record of something the agent did.
+
+    First-class node for tracking agent actions, enabling the OWL layer
+    to reason about action patterns, success rates, and causal chains.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ACTION
+    action_type: str
+    status: str = "completed"  # pending, completed, failed
+    triggered_by_event_id: str | None = None
+    result: str | None = None
 
 
 # --- Schema Definition for Backend Abstraction ---

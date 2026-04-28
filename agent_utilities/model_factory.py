@@ -123,8 +123,13 @@ def create_model(
         A configured pydantic_ai.models.Model instance.
 
     """
+    if os.environ.get("AGENT_UTILITIES_TESTING") == "true":
+        from pydantic_ai.models.test import TestModel
+
+        return TestModel()
+
     _provider = provider or os.environ.get("PROVIDER") or "openai"
-    _model_id = model_id or os.environ.get("MODEL_ID") or "nvidia/nemotron-3-super"
+    _model_id = model_id or os.environ.get("MODEL_ID") or "qwen/qwen3.5-9b"
 
     http_client = None
     if http_client is None:

@@ -23,7 +23,9 @@ class MermaidTheme(Enum):
 class MermaidBuilder:
     """Base class for building Mermaid diagrams."""
 
-    def __init__(self, title: str | None = None, theme: MermaidTheme = MermaidTheme.DARK):
+    def __init__(
+        self, title: str | None = None, theme: MermaidTheme = MermaidTheme.DARK
+    ):
         self.title = title
         self.theme = theme
         self.lines: list[str] = []
@@ -35,7 +37,7 @@ class MermaidBuilder:
         # Remove markdown-style links or other complex structures that break Mermaid
         text = re.sub(r"\[(.*?)\]\(.*?\)", r"\1", text)
         # Escape quotes
-        text = text.replace('"', '&quot;')
+        text = text.replace('"', "&quot;")
         # Replace characters that break labels
         text = text.replace("(", "&#40;").replace(")", "&#41;")
         text = text.replace("[", "&#91;").replace("]", "&#93;")
@@ -51,7 +53,7 @@ class MermaidBuilder:
             header.append("config:")
             header.append(f"  theme: {self.theme.value}")
             header.append("---")
-        
+
         return "\n".join(header + self.lines)
 
 
@@ -75,7 +77,7 @@ class FlowchartBuilder(MermaidBuilder):
         css_class: str | None = None,
     ):
         """Add a node to the flowchart.
-        
+
         Shapes:
         - round: (label)
         - box: [label]
@@ -88,17 +90,17 @@ class FlowchartBuilder(MermaidBuilder):
         safe_id = node_id.replace("-", "_").replace(":", "_").replace(".", "_")
 
         if shape == "round":
-            line = f"  {safe_id}(\"{safe_label}\")"
+            line = f'  {safe_id}("{safe_label}")'
         elif shape == "box":
-            line = f"  {safe_id}[\"{safe_label}\"]"
+            line = f'  {safe_id}["{safe_label}"]'
         elif shape == "diamond":
-            line = f"  {safe_id}{{\"{safe_label}\"}}"
+            line = f'  {safe_id}{{"{safe_label}"}}'
         elif shape == "circle":
-            line = f"  {safe_id}((\"{safe_label}\"))"
+            line = f'  {safe_id}(("{safe_label}"))'
         elif shape == "cylinder":
-            line = f"  {safe_id}[(\"{safe_label}\")]"
+            line = f'  {safe_id}[("{safe_label}")]'
         else:
-            line = f"  {safe_id}(\"{safe_label}\")"
+            line = f'  {safe_id}("{safe_label}")'
 
         self.lines.append(line)
         if css_class:
@@ -112,7 +114,7 @@ class FlowchartBuilder(MermaidBuilder):
         edge_type: str = "-->",
     ):
         """Add an edge between two nodes.
-        
+
         Edge Types:
         - --> (arrow)
         - --- (line)
@@ -121,10 +123,10 @@ class FlowchartBuilder(MermaidBuilder):
         """
         src_id = source.replace("-", "_").replace(":", "_").replace(".", "_")
         tgt_id = target.replace("-", "_").replace(":", "_").replace(".", "_")
-        
+
         if label:
             safe_label = self._sanitize(label)
-            self.lines.append(f"  {src_id} {edge_type} |\"{safe_label}\"| {tgt_id}")
+            self.lines.append(f'  {src_id} {edge_type} |"{safe_label}"| {tgt_id}')
         else:
             self.lines.append(f"  {src_id} {edge_type} {tgt_id}")
 
@@ -141,7 +143,9 @@ class FlowchartBuilder(MermaidBuilder):
 class ClassDiagramBuilder(MermaidBuilder):
     """Builder for Mermaid Class Diagrams (useful for SDD/TDD)."""
 
-    def __init__(self, title: str | None = None, theme: MermaidTheme = MermaidTheme.DARK):
+    def __init__(
+        self, title: str | None = None, theme: MermaidTheme = MermaidTheme.DARK
+    ):
         super().__init__(title, theme)
         self.lines.append("classDiagram")
 
@@ -168,7 +172,7 @@ class ClassDiagramBuilder(MermaidBuilder):
         self, source: str, target: str, rel_type: str, label: str | None = None
     ):
         """Add a relationship between classes.
-        
+
         Rel Types:
         - <|-- (Inheritance)
         - *-- (Composition)
@@ -179,7 +183,7 @@ class ClassDiagramBuilder(MermaidBuilder):
         """
         src_id = source.replace("-", "_").replace(":", "_").replace(".", "_")
         tgt_id = target.replace("-", "_").replace(":", "_").replace(".", "_")
-        
+
         rel = f"{src_id} {rel_type} {tgt_id}"
         if label:
             rel += f" : {self._sanitize(label)}"
@@ -189,7 +193,9 @@ class ClassDiagramBuilder(MermaidBuilder):
 class EntityRelationshipBuilder(MermaidBuilder):
     """Builder for Mermaid Entity Relationship diagrams."""
 
-    def __init__(self, title: str | None = None, theme: MermaidTheme = MermaidTheme.DARK):
+    def __init__(
+        self, title: str | None = None, theme: MermaidTheme = MermaidTheme.DARK
+    ):
         super().__init__(title, theme)
         self.lines.append("erDiagram")
 
@@ -207,7 +213,7 @@ class EntityRelationshipBuilder(MermaidBuilder):
         self, source: str, target: str, rel_type: str, label: str | None = None
     ):
         """Add a relationship.
-        
+
         Rel Types:
         - }|..|| (one to many)
         - ||--|| (one to one)
@@ -215,6 +221,6 @@ class EntityRelationshipBuilder(MermaidBuilder):
         """
         src_id = source.replace("-", "_").replace(":", "_").replace(".", "_")
         tgt_id = target.replace("-", "_").replace(":", "_").replace(".", "_")
-        
-        label_str = f" : \"{self._sanitize(label)}\"" if label else ""
+
+        label_str = f' : "{self._sanitize(label)}"' if label else ""
         self.lines.append(f"  {src_id} {rel_type} {tgt_id}{label_str}")

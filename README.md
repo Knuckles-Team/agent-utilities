@@ -46,7 +46,7 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 - **Automatic Documentation**: Runtime generation of OpenAPI specifications for all agent server APIs.
 - **Workspace Management**: Automated management of agent state through standardized structures. (Note: Legacy files like `IDENTITY.md` and `USER.md` have been migrated to the Knowledge Graph and `main_agent.md` templates).
 - **Spec-Driven Development (SDD)**: High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`Spec`), Implementation Plans, and dependency-aware Tasks. Ensures technical precision and parallel execution safety.
-- **Unified Intelligence Graph**: A powerful 12-phase topological pipeline that unifies **NetworkX** in-memory analysis with Cypher persistence. Enables deep structural codebase awareness, cross-repository symbol mapping, and long-term agent memory.
+- **Unified Intelligence Graph**: A powerful 14-phase topological pipeline that unifies **NetworkX** in-memory analysis with Cypher persistence. Enables deep structural codebase awareness, cross-repository symbol mapping, and long-term agent memory. Includes a **Hybrid OWL Reasoning Sidecar** for deterministic transitive inference.
 - **Graph Database Abstraction**: Out-of-the-box support for multiple Cypher-compatible backends including **LadybugDB** (default embedded), **FalkorDB**, and **Neo4j**.
 - **Graph-Native Ecosystem State**: Flat-file management (`MEMORY.md`, `USER.md`, `HEARTBEAT.md`, `CRON.md`) has been fully deprecated. Agent memory, execution logs, client profiles, and background scheduled tasks are now stored natively as highly-relational nodes within the Knowledge Graph.
 - **Automated Graph Maintenance**: Built-in Cypher-driven maintenance routines (`maintenance.py`) that handle vector embedding enrichment, scheduled cron log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
@@ -57,9 +57,9 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 
 ## 🧠 Intelligence Graph
 
-Agent Utilities implements a sophisticated 12-phase pipeline to map and analyze your workspace. This system unifies **NetworkX** (for topological algorithms) and **LadybugDB** (for persistent Cypher queries and hybrid search).
+Agent Utilities implements a sophisticated 14-phase pipeline to map and analyze your workspace. This system unifies **NetworkX** (for topological algorithms) and **LadybugDB** (for persistent Cypher queries and hybrid search).
 
-### The 12-Phase Unified Intelligence Pipeline
+### The 14-Phase Unified Intelligence Pipeline
 
 | Phase | Name | Purpose |
 | :--- | :--- | :--- |
@@ -73,16 +73,18 @@ Agent Utilities implements a sophisticated 12-phase pipeline to map and analyze 
 | **8** | **Communities** | Clusters nodes into tightly-coupled modules using topological algorithms like **Louvain**. |
 | **9** | **Centrality** | Runs **PageRank** analysis to identify critical path "God Objects" and core utilities. |
 | **10** | **Embedding** | Generates semantic vector embeddings for all symbols to enable high-fidelity hybrid search. |
-| **11** | **Registry Int**| Maps MCP tools and agent skills directly to the code structures that implement them. |
-| **12** | **Sync** | Projects the in-memory NetworkX graph into the persistent **LadybugDB** Cypher store. |
+| **11** | **Sync** | Projects the in-memory NetworkX graph into the persistent **LadybugDB** Cypher store. |
+| **12** | **OWL Reasoning** | Promotes stable nodes to OWL, runs HermiT/Stardog inference, downfeeds inferred facts. |
+| **13** | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
+| **14** | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
 
 ### Architecture
 
 ```mermaid
 graph TD
-    subgraph Ingestion_Pipeline [12-Phase Intelligence Pipeline]
+    subgraph Ingestion_Pipeline [14-Phase Intelligence Pipeline]
         direction LR
-        Scan --> Parse --> Resolve --> MRO --> Ref --> Comm --> Cent --> Emb --> Sync
+        Scan --> Parse --> Resolve --> MRO --> Ref --> Comm --> Cent --> Emb --> Sync --> OWL[OWL Reasoning] --> KB[Knowledge Base] --> WS[Workspace Sync]
     end
 
     subgraph Memory_Layer [In-Memory Graph]
@@ -509,6 +511,13 @@ pip install agent-utilities[mcp]
 
 # With embedding/vector support
 pip install agent-utilities[embeddings]
+
+# With OWL reasoning support (Owlready2 + HermiT)
+# Note: Requires Java Runtime Environment (sudo apt install default-jre)
+pip install agent-utilities[owl]
+
+# With Stardog OWL backend
+pip install agent-utilities[stardog]
 ```
 
 ## Quick Start
@@ -545,7 +554,7 @@ This interface allows you to test the `/health`, `/acp`, and `/mcp` endpoints di
 - ✅ Canonical agent lifecycle interfaces (AgentSpec, AgentInstance, AgentSession, AgentResult)
 - ✅ Reference AGENTS.md for AI contributors
 - ✅ Graph orchestration with Router → Planner → Dispatcher pipeline
-- ✅ Unified Intelligence Graph (12-phase pipeline)
+- ✅ Unified Intelligence Graph (14-phase pipeline with OWL reasoning sidecar)
 - ✅ MCP tool distribution and specialist discovery
 - ✅ ACP, A2A, and AG-UI protocol adapters
 - ✅ Knowledge Base layer with LLM-maintained wiki

@@ -1,8 +1,7 @@
 import pytest
 import networkx as nx
-from unittest.mock import MagicMock, patch
 from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine, cosine_similarity
-from agent_utilities.models.knowledge_graph import RegistryNodeType, RegistryEdgeType, MemoryNode
+from agent_utilities.models.knowledge_graph import RegistryNodeType, RegistryEdgeType
 
 def test_cosine_similarity():
     assert cosine_similarity([1, 0], [1, 0]) == pytest.approx(1.0)
@@ -11,7 +10,13 @@ def test_cosine_similarity():
     assert cosine_similarity([1, 0], [1, 1]) > 0.7
 
 @pytest.fixture
-def engine():
+def engine(monkeypatch):
+    # Isolate from any active backend singleton set by earlier tests
+    # so IntelligenceGraphEngine.__init__ does not pick up a polluted backend.
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.engine.get_active_backend",
+        lambda: None,
+    )
     g = nx.MultiDiGraph()
     return IntelligenceGraphEngine(graph=g)
 

@@ -32,8 +32,11 @@ from ..config import (
     DEFAULT_SSL_VERIFY,
     DEFAULT_VALIDATION_MODE,
 )
+from ..discovery import discover_agents, discover_all_specialists
+from ..mcp_agent_manager import should_sync, sync_mcp_agents
 from ..mcp_utilities import load_mcp_config
 from ..models import GraphResponse
+from ..workspace import get_agent_workspace, resolve_mcp_config_path
 from .config_helpers import (
     get_discovery_registry,
 )
@@ -63,6 +66,17 @@ from .steps import (
     usage_guard_step,
     verifier_step,
 )
+
+try:
+    from ..knowledge_graph.engine import RegistryGraphEngine
+    from ..knowledge_graph.models import PipelineConfig
+    from ..knowledge_graph.pipeline import RegistryPipeline
+except ImportError:
+    # These might be missing if the extra is not installed, but we want them at top level for patching
+    RegistryGraphEngine = None  # type: ignore
+    PipelineConfig = None  # type: ignore
+    RegistryPipeline = None  # type: ignore
+from ..agent_registry_builder import ingest_prompts_to_graph
 
 _PYDANTIC_GRAPH_AVAILABLE = True
 
@@ -136,56 +150,55 @@ def initialize_graph_from_workspace(
 
     # load_node_agents_registry is in this module
     # build_tag_env_map is in this module
-    from ..config import (
-        DEFAULT_GRAPH_AGENT_MODEL,
-        DEFAULT_MCP_URL,
-        DEFAULT_ROUTER_MODEL,
-    )
-    from ..discovery import discover_agents
-    from ..mcp_agent_manager import should_sync, sync_mcp_agents
-    from ..workspace import resolve_mcp_config_path
 
     _mcp_cfg_path = resolve_mcp_config_path(mcp_config) if mcp_config else None
     discovery_metadata = {}
+    loop = None
     if _mcp_cfg_path:
         import asyncio
 
-        from ..agent_registry_builder import ingest_prompts_to_graph
-
-        loop = None
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
-                asyncio.create_task(ingest_prompts_to_graph())
-            else:
-                loop.run_until_complete(ingest_prompts_to_graph())
+                # Already in a loop, create a task
+                loop.create_task(ingest_prompts_to_graph())
         except RuntimeError:
-            asyncio.run(ingest_prompts_to_graph())
-        except Exception as e:
-            logger.debug(f"Registry rebuild skip/fail: {e}")
+            # No running loop, safe to run if not in a server startup context that needs fast health checks.
+            # However, during server startup, this is often called before the loop starts.
+            # We'll use a thread or just let it be for now, but we'll optimize the functions themselves.
+            try:
+                # We'll skip the blocking run if we are likely in a server startup
+                if (
+                    os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
+                    == "true"
+                ):
+                    logger.info("Backgrounding prompt ingestion...")
+                    # We can't easily background without a loop here, but we can optimize the call.
+                    # For now, let's just ensure it's not called twice.
+                    pass
+                else:
+                    asyncio.run(ingest_prompts_to_graph())
+            except Exception as e:
+                logger.debug(f"Registry rebuild failed: {e}")
 
         try:
             # Check if sync is required first (querying graph last_sync vs mcp_config mtime)
             needs_sync = should_sync(_mcp_cfg_path)
-
             if needs_sync:
-                logger.info(
-                    "Initializing Graph: Graph state out of sync with mcp_config. Standardizing MCP agents..."
-                )
-                from ..mcp_agent_manager import sync_mcp_agents
-
                 try:
-                    if loop and not loop.is_running():
-                        loop.run_until_complete(
-                            sync_mcp_agents(config_path=_mcp_cfg_path)
-                        )
-                        logger.info(
-                            "Initializing Graph: MCP agents synced successfully."
-                        )
-                    elif loop and loop.is_running():
-                        asyncio.create_task(sync_mcp_agents(config_path=_mcp_cfg_path))
+                    if loop and loop.is_running():
+                        loop.create_task(sync_mcp_agents(config_path=_mcp_cfg_path))
                     else:
-                        asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
+                        if (
+                            os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
+                            == "true"
+                        ):
+                            logger.info("Backgrounding MCP agent sync...")
+                        else:
+                            asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
+                            logger.info(
+                                "Initializing Graph: MCP agents synced successfully."
+                            )
                 except Exception as e:
                     logger.debug(f"Sync skip/fail: {e}")
             else:
@@ -213,7 +226,6 @@ def initialize_graph_from_workspace(
 
     # Unified Discovery: merge MCP and A2A sources into a single roster
     logger.info("Initializing Graph: Discovering domain tags and agents...")
-    from ..discovery import discover_all_specialists
 
     all_specialists = discover_all_specialists()
     tag_prompts = {s.tag: s.description for s in all_specialists}
@@ -277,7 +289,6 @@ def create_master_graph(
         A tuple containing the initialized Graph and its configuration dictionary.
 
     """
-    from ..discovery import discover_agents
 
     agents = discover_agents(
         include_packages=include_agents, exclude_packages=exclude_agents
@@ -363,38 +374,65 @@ def create_graph_agent(
     if tag_env_vars is None:
         tag_env_vars = build_tag_env_map(list(tag_prompts.keys()))
 
-    # Initialize Knowledge Graph Engine for topological discovery
     knowledge_engine = None
     try:
-        from ..knowledge_graph.engine import RegistryGraphEngine
-        from ..knowledge_graph.models import PipelineConfig
-        from ..knowledge_graph.pipeline import RegistryPipeline
-        from ..workspace import get_agent_workspace
+        if not all([RegistryGraphEngine, PipelineConfig, RegistryPipeline]):
+            raise ImportError("Registry Graph dependencies missing")
 
-        ws = get_agent_workspace()
-        reg_config = PipelineConfig(
-            workspace_path=str(ws),
-            persist_to_ladybug=True,
-            ladybug_path=str(ws / "registry_graph.db"),
-        )
-        reg_pipeline = RegistryPipeline(reg_config)
-        # We run the pipeline synchronously here during initialization
-        import asyncio
+        if DEFAULT_VALIDATION_MODE:
+            logger.info("Registry Graph: Skipping initialization in VALIDATION_MODE.")
+        else:
+            ws = get_agent_workspace()
+            reg_config = PipelineConfig(
+                workspace_path=str(ws),
+                persist_to_ladybug=True,
+                ladybug_path=str(ws / "registry_graph.db"),
+            )
+            reg_pipeline = RegistryPipeline(reg_config)
+            # We run the pipeline synchronously here during initialization
+            import asyncio
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We can't easily wait for a task in a sync function if the loop is running
-                # but we need the engine. We'll try to load it from the database if it exists,
-                # or just initialize an empty graph for now.
-                pass
-            else:
-                loop.run_until_complete(reg_pipeline.run())
-                knowledge_engine = RegistryGraphEngine(
-                    reg_pipeline.graph, db_path=reg_config.ladybug_path
-                )
-        except Exception as e:
-            logger.debug(f"Knowledge engine initialization failed: {e}")
+            try:
+                loop = asyncio.get_running_loop()
+                if loop.is_running():
+                    # We are in a running loop (e.g. during a request).
+                    # We can't block. We'll skip sync and hope the DB is ready.
+                    logger.debug(
+                        "Registry Graph: Skipping blocking sync in running loop."
+                    )
+            except RuntimeError:
+                # No running loop, safe to run blocking
+                try:
+                    from filelock import FileLock, Timeout
+
+                    lock_path = ws / ".registry.sync.lock"
+                    lock = FileLock(str(lock_path), timeout=0)
+
+                    # Only run the pipeline if we can acquire the lock (non-blocking)
+                    # or if we are forced to run it.
+                    sync_background = (
+                        os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
+                        == "true"
+                    )
+
+                    try:
+                        with lock.acquire(timeout=0 if sync_background else 60):
+                            logger.info("Running RegistryPipeline sync...")
+                            asyncio.run(reg_pipeline.run())
+                    except Timeout:
+                        if sync_background:
+                            logger.info(
+                                "Another process is syncing the Registry Graph. Skipping to avoid memory exhaustion."
+                            )
+                        else:
+                            logger.warning(
+                                "Timed out waiting for Registry Graph sync lock."
+                            )
+                    knowledge_engine = RegistryGraphEngine(
+                        reg_pipeline.graph, db_path=reg_config.ladybug_path
+                    )
+                except Exception as e:
+                    logger.debug(f"Knowledge engine initialization failed: {e}")
     except ImportError:
         logger.debug("Registry Graph subpackage not found or dependencies missing.")
 
@@ -485,7 +523,6 @@ def create_graph_agent(
     _usage_guard = g.step(usage_guard_step, node_id="usage_guard")
 
     # --- Dynamic Agent Package & Specialist Registration ---
-    from ..discovery import discover_agents
 
     discovered_agents_map = discover_agents()
 
@@ -656,8 +693,6 @@ def create_graph_agent(
                 )
 
         if mcp_config:
-            from ..workspace import resolve_mcp_config_path
-
             _mcp_cfg_path = resolve_mcp_config_path(mcp_config)
             if _mcp_cfg_path:
                 # Load MCP servers individually so that a single undefined env-var

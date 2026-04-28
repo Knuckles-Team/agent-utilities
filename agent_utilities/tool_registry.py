@@ -191,11 +191,17 @@ def register_agent_tools(agent: Agent, graph_bundle: tuple | None = None) -> Non
     _safe_tool(trigger_mcp_sync)
 
     # 11. Knowledge Graph & KB Tools
+    from .tools.kg_evolution_tools import kg_evolution_tools
+    from .tools.kg_share_tools import kg_share_tools
     from .tools.knowledge_tools import KB_TOOLS, knowledge_tools
 
     for tool in knowledge_tools:
         _safe_tool(tool)
     for tool in KB_TOOLS:
+        _safe_tool(tool)
+    for tool in kg_evolution_tools:
+        _safe_tool(tool)
+    for tool in kg_share_tools:
         _safe_tool(tool)
 
     # 12. Team Coordination Tools

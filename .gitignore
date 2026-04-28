@@ -207,3 +207,14 @@ marimo/_lsp/
 __marimo__/
 *.db
 agent_utilities/agent_data/
+
+# Runtime-generated knowledge-graph databases (LadybugDB)
+knowledge_graph.db
+knowledge_graph.db.wal
+knowledge_graph.db-shm
+*.lbug/
+.lbug/
+
+# Database files
+*.db
+*.bak

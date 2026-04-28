@@ -1,0 +1,85 @@
+{
+  "feature_id": "document_pipeline",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Implement UnifiedIDManager",
+      "description": "Implement UnifiedIDManager and UnifiedIDRegistry for tracking syncing status.",
+      "file_paths": ["agent_utilities/knowledge_graph/id_management/unified_id.py"],
+      "depends_on": [],
+      "parallel": false,
+      "status": "completed",
+      "assigned_to": "agent",
+      "result": "Success",
+      "git_commit": null,
+      "metadata": {}
+    },
+    {
+      "id": "T-002",
+      "title": "Implement DocumentIngestionPipeline",
+      "description": "Implement DocumentIngestionPipeline for DB, Vector DB, and Knowledge Graph insertion.",
+      "file_paths": ["agent_utilities/knowledge_graph/pipeline/document_ingestion.py"],
+      "depends_on": ["T-001"],
+      "parallel": false,
+      "status": "completed",
+      "assigned_to": "agent",
+      "result": "Success",
+      "git_commit": null,
+      "metadata": {}
+    },
+    {
+      "id": "T-003",
+      "title": "Implement DocumentUpdatePipeline",
+      "description": "Implement DocumentUpdatePipeline with embedding regeneration.",
+      "file_paths": ["agent_utilities/knowledge_graph/pipeline/document_update.py"],
+      "depends_on": ["T-002"],
+      "parallel": true,
+      "status": "completed",
+      "assigned_to": "agent",
+      "result": "Success",
+      "git_commit": null,
+      "metadata": {}
+    },
+    {
+      "id": "T-004",
+      "title": "Implement DocumentDeletionPipeline",
+      "description": "Implement DocumentDeletionPipeline with cascading soft/hard deletes.",
+      "file_paths": ["agent_utilities/knowledge_graph/pipeline/document_deletion.py"],
+      "depends_on": ["T-002"],
+      "parallel": true,
+      "status": "completed",
+      "assigned_to": "agent",
+      "result": "Success",
+      "git_commit": null,
+      "metadata": {}
+    },
+    {
+      "id": "T-005",
+      "title": "Implement DocumentCleanupManager",
+      "description": "Implement DocumentCleanupManager for scheduled retention sweeps.",
+      "file_paths": ["agent_utilities/knowledge_graph/maintenance/document_cleanup.py"],
+      "depends_on": ["T-004"],
+      "parallel": false,
+      "status": "completed",
+      "assigned_to": "agent",
+      "result": "Success",
+      "git_commit": null,
+      "metadata": {}
+    },
+    {
+      "id": "T-006",
+      "title": "Add integration tests",
+      "description": "Add integration tests for SQLite, PostgreSQL, and MongoDB document backends.",
+      "file_paths": ["tests/integration/test_document_pipeline.py"],
+      "depends_on": ["T-003", "T-004", "T-005"],
+      "parallel": false,
+      "status": "completed",
+      "assigned_to": "agent",
+      "result": "Success",
+      "git_commit": null,
+      "metadata": {}
+    }
+  ],
+  "parallel_waves": [],
+  "metadata": {}
+}

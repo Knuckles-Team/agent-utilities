@@ -7,6 +7,7 @@ disk persistence in the agent's 'agent_data' directory and provides logic for
 dependency analysis.
 """
 
+import contextlib
 import re
 from pathlib import Path
 from typing import Any, TypeVar
@@ -183,7 +184,7 @@ class SDDManager:
             "type": artifact_type,
             "name": name,
         }
-        try:
+        with contextlib.suppress(Exception):
             engine.backend.execute(query, props)
             # Link to workspace/project node if it exists
             engine.backend.execute(
@@ -192,8 +193,6 @@ class SDDManager:
                 "MERGE (p)-[:HAS_ARTIFACT]->(a)",
                 {"id": props["id"]},
             )
-        except Exception:
-            pass
 
     def get_parallel_opportunities(self, task_list: Tasks) -> list[list[str]]:
         """Identify groups of tasks that can be safely run in parallel.

@@ -7,6 +7,7 @@ the discovery of installed agent data directories and the merging of their
 diagnostic requirements into a unified workspace.
 """
 
+import contextlib
 import importlib.util
 import logging
 from importlib.resources import as_file, files
@@ -49,13 +50,11 @@ def find_package_data_dir(package_name: str) -> Path | None:
 
         # Try importlib.resources as fallback
         for sub in ["agent_data", "agent"]:
-            try:
+            with contextlib.suppress(Exception):
                 pkg_resource_dir = files(package_name) / sub
                 if pkg_resource_dir.is_dir():
                     with as_file(pkg_resource_dir) as path:
                         return path.resolve()
-            except Exception:
-                pass
 
     except Exception as e:
         logger.debug(f"Failed to find data dir for {package_name}: {e}")

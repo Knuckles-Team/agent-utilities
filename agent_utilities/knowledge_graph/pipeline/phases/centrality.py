@@ -28,7 +28,8 @@ async def execute_centrality(
             "centrality_calculated": True,
             "top_node": max(pagerank, key=pagerank.get) if pagerank else None,
         }
-    except Exception:
+    except Exception as e:
+        print(f"DEBUG: pagerank failed: {e}")
         return {"centrality_calculated": False}
 
 

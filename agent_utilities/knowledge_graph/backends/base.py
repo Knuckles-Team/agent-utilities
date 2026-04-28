@@ -26,6 +26,11 @@ class GraphBackend(ABC):
         pass
 
     @abstractmethod
-    def prune(self, _criteria: dict[str, Any]) -> None:
+    def prune(self, criteria: dict[str, Any]) -> None:
         """Run pruning logic based on criteria."""
+        pass
+
+    @abstractmethod
+    def close(self) -> None:
+        """Close the database connection."""
         pass

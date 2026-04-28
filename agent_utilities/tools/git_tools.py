@@ -30,13 +30,13 @@ async def get_git_status(ctx: RunContext[Any]) -> str:
 
     """
     try:
-        branch = subprocess.check_output(
+        branch = subprocess.check_output(  # nosec B607
             ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
         ).strip()
-        status = subprocess.check_output(
+        status = subprocess.check_output(  # nosec B607
             ["git", "status", "--short"], text=True
         ).strip()
-        log = subprocess.check_output(
+        log = subprocess.check_output(  # nosec B607
             ["git", "log", "--oneline", "-n", "5"], text=True
         ).strip()
 
@@ -67,7 +67,7 @@ async def create_worktree(ctx: RunContext[Any], branch_name: str, path: str) -> 
     """
     try:
         # 1. Create the branch if it doesn't exist
-        subprocess.run(["git", "branch", branch_name], check=False)
+        subprocess.run(["git", "branch", branch_name], check=False)  # nosec B607
 
         # 2. Add the worktree
         cmd = ["git", "worktree", "add", path, branch_name]
@@ -116,7 +116,7 @@ async def list_worktrees(ctx: RunContext[Any]) -> str:
 
     """
     try:
-        return subprocess.check_output(["git", "worktree", "list"], text=True).strip()
+        return subprocess.check_output(["git", "worktree", "list"], text=True).strip()  # nosec B607
     except Exception as e:
         return f"Error listing worktrees: {e}"
 

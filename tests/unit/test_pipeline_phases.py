@@ -1,8 +1,6 @@
 import pytest
-import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 import networkx as nx
-from pathlib import Path
 from agent_utilities.knowledge_graph.pipeline.phases.centrality import execute_centrality
 from agent_utilities.knowledge_graph.pipeline.phases.workspace_sync import execute_workspace_sync
 from agent_utilities.knowledge_graph.pipeline.types import PipelineContext
@@ -47,7 +45,7 @@ async def test_execute_workspace_sync_success(mock_pipeline_ctx, tmp_path):
          patch("repository_manager.repository_manager.Git") as MockGit, \
          patch("agent_utilities.knowledge_graph.kb.ingestion.KBIngestionEngine") as MockIngest:
 
-        MockIngest.return_value.ingest_source = AsyncMock()
+        MockIngest.return_value.ingest_directory = AsyncMock()
 
         result = await execute_workspace_sync(mock_pipeline_ctx, {})
 

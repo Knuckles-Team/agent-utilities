@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 from pydantic_ai import RunContext
 from agent_utilities.tools.knowledge_tools import (
     search_knowledge_graph,

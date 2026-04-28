@@ -1,0 +1,41 @@
+{
+  "vision": "agent-utilities is a protocol-first, framework-light agent core library.",
+  "mission": "Provide production-grade agent orchestration with resilience and observability, bridging memory and deep structural codebase awareness.",
+  "core_principles": [
+    "Agents are protocol-native",
+    "Protocol logic is isolated",
+    "Transport-agnostic",
+    "No framework lock-in",
+    "Explicit state over implicit context",
+    "Tools and transports are pluggable",
+    "UI-agnostic",
+    "JSON Prompting (Prompts-as-Code)"
+  ],
+  "tech_stack": {
+    "language": "Python 3.11+",
+    "core_framework": [
+      "pydantic-ai-slim>=1.83.0,<1.84.0",
+      "pydantic-graph>=1.83.0,<1.84.0"
+    ],
+    "tooling": [
+      "requests",
+      "pydantic>=2.13",
+      "pyyaml",
+      "python-dotenv",
+      "fastapi",
+      "httpx"
+    ]
+  },
+  "quality_gates": [
+    "All features MUST be implemented with Pytests",
+    "Run `pre-commit run --all-files` after changes",
+    "Update plan and re-run if issues are found",
+    "Do not use for simple single-shot LLM calls",
+    "Do not use for UI development",
+    "Do not use for SaaS-specific integrations",
+    "Do not use for opinionated agent personalities"
+  ],
+  "metadata": {
+    "project_name": "agent-utilities"
+  }
+}

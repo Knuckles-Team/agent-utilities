@@ -6,7 +6,6 @@ Spec-Driven Development (SDD) artifacts.
 """
 
 import logging
-from typing import Any
 
 from ..models import AgentDeps, Spec
 from .subagents import dispatch_subagent
@@ -40,7 +39,9 @@ async def tdd_green_phase(spec: Spec, red_result: str, deps: AgentDeps) -> str:
     )
 
 
-async def tdd_refactor_phase(spec: Spec, green_result: str, red_result: str, deps: AgentDeps) -> str:
+async def tdd_refactor_phase(
+    spec: Spec, green_result: str, red_result: str, deps: AgentDeps
+) -> str:
     """REFACTOR Phase: Clean up."""
     logger.info(f"TDD [REFACTOR]: Cleaning up implementation for {spec.feature_id}")
     return await dispatch_subagent(
@@ -60,6 +61,7 @@ async def run_tdd_cycle(
 ) -> str:
     """Orchestrate a full Red/Green/Refactor cycle for a feature."""
     from ..sdd import SDDManager
+
     manager = SDDManager(deps.workspace_path)
     spec = manager.load(Spec, feature_id=feature_id)
     if not spec:

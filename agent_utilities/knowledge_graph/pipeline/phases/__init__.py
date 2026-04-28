@@ -4,6 +4,7 @@ from .embedding import embedding_phase
 from .knowledge_base import knowledge_base_phase
 from .memory import memory_phase
 from .mro import mro_phase
+from .owl_reasoning import owl_reasoning_phase
 from .parse import parse_phase
 from .reference import reference_phase
 from .registry import registry_phase
@@ -23,5 +24,6 @@ PHASES = [
     centrality_phase,
     embedding_phase,
     sync_phase,
+    owl_reasoning_phase,
     knowledge_base_phase,
 ]

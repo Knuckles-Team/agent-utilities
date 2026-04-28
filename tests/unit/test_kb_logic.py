@@ -1,7 +1,5 @@
 import pytest
-import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
-from pathlib import Path
 from agent_utilities.knowledge_graph.kb.extractor import KBExtractor
 from agent_utilities.knowledge_graph.kb.parser import KBDocumentParser
 from agent_utilities.models.knowledge_base import DocumentChunk, ExtractedArticle
@@ -46,6 +44,7 @@ async def test_kb_extractor_agent_success(mock_chunk):
 
     with patch.object(KBExtractor, "_get_article_agent", return_value=mock_agent):
         article = await extractor.extract_article([mock_chunk], "test topic")
+        assert article is not None
         assert article.title == "Success"
         mock_agent.run.assert_called_once()
 
@@ -55,6 +54,7 @@ def test_kb_parser_markdown(tmp_path):
     md_file.write_text("Word1 Word2 Word3 Word4 Word5 Word6 Word7 Word8 Word9 Word10 Word11 Word12")
 
     source = parser.parse_file(md_file)
+    assert source is not None
     assert source.name == "test"
     assert len(source.chunks) > 1 # Chunked because chunk_size is 10
     assert source.chunks[0].word_count >= 9 # Roughly

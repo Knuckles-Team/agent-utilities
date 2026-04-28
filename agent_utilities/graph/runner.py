@@ -9,6 +9,7 @@ handles state persistence, MCP server connectivity during runs, and graph valida
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -33,7 +34,7 @@ from .config_helpers import (
     load_node_agents_registry,
 )
 from .mermaid import get_graph_mermaid
-from .state import GraphDeps, GraphState
+from .state import REQUESTED_MODEL_ID_CTX, GraphDeps, GraphState
 
 try:
     from opentelemetry import trace
@@ -59,6 +60,7 @@ async def run_graph(
     mcp_toolsets: list[Any] | None = None,
     query_parts: list[dict[str, Any]] | None = None,
     plan_sync=None,
+    requested_model_id: str | None = None,
 ) -> dict:
     """Execute a query through the graph orchestrator (synchronous/batch).
 
@@ -78,6 +80,10 @@ async def run_graph(
         topology: The selected graph topology (e.g., 'basic', 'dynamic').
         mcp_toolsets: Optional override list of MCP toolsets to use.
         query_parts: Optional structural message parts for complex queries.
+        requested_model_id: Optional per-turn model id sourced from the
+            ``x-agent-model-id`` request header. When valid within the
+            attached ``model_registry``, specialist spawning uses it
+            verbatim (see :func:`pick_specialist_model`).
 
     Returns:
         A GraphResponse instance containing the final synthesized output
@@ -87,12 +93,13 @@ async def run_graph(
     if run_id is None:
         run_id = uuid4().hex
 
+    if requested_model_id is None:
+        requested_model_id = REQUESTED_MODEL_ID_CTX.get()
+
     mermaid_prefix = ""
     if streamdown:
-        try:
+        with contextlib.suppress(Exception):
             mermaid_prefix = f"```mermaid\n{get_graph_mermaid(graph, config)}\n```\n\n"
-        except Exception:
-            pass
 
     state = GraphState(
         query=query, query_parts=query_parts or [], mode=mode, topology=topology
@@ -143,6 +150,8 @@ async def run_graph(
         discovery_metadata=config.get("discovery_metadata", {}),
         plan_sync=plan_sync,
         approval_manager=config.get("approval_manager"),
+        model_registry=config.get("model_registry"),
+        requested_model_id=requested_model_id,
     )
 
     state = GraphState(
@@ -269,19 +278,19 @@ async def run_graph(
                 metadata={"run_id": run_id, "is_error": True},
             ).model_dump()
 
-            logger.info(
-                f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"
-            )
-            emit_graph_event(
-                deps.event_queue,
-                "graph_complete",
-                run_id=run_id,
-                status="success" if result else "timeout",
-            )
-            logger.info(
-                f"run_graph: Final state: routed_domain={state.routed_domain}, "
-                f"registry_keys={list(state.results_registry.keys())}"
-            )
+        logger.info(
+            f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"
+        )
+        emit_graph_event(
+            deps.event_queue,
+            "graph_complete",
+            run_id=run_id,
+            status="success" if result else "timeout",
+        )
+        logger.info(
+            f"run_graph: Final state: routed_domain={state.routed_domain}, "
+            f"registry_keys={list(state.results_registry.keys())}"
+        )
 
     if isinstance(result, GraphResponse):
         result.mermaid = mermaid_prefix if mermaid_prefix else None
@@ -336,6 +345,7 @@ async def run_graph_stream(
     mcp_toolsets: list[Any] | None = None,
     query_parts: list[dict[str, Any]] | None = None,
     plan_sync=None,
+    requested_model_id: str | None = None,
 ):
     r"""Generator that yields graph events and text output as a stream of SSE events.
 
@@ -354,6 +364,8 @@ async def run_graph_stream(
         topology: The graph topology to use.
         mcp_toolsets: Toolsets to inject during execution.
         query_parts: Structured message parts for the initial prompt.
+        requested_model_id: Optional per-turn model id sourced from the
+            ``x-agent-model-id`` request header. See :func:`run_graph`.
 
     Yields:
         SSE-formatted strings ('data: {JSON}\n\n') containing lifecycle events.
@@ -365,6 +377,9 @@ async def run_graph_stream(
 
     if run_id is None:
         run_id = uuid4().hex
+
+    if requested_model_id is None:
+        requested_model_id = REQUESTED_MODEL_ID_CTX.get()
 
     eq: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
@@ -421,6 +436,8 @@ async def run_graph_stream(
         discovery_metadata=config.get("discovery_metadata", {}),
         plan_sync=plan_sync,
         approval_manager=config.get("approval_manager"),
+        model_registry=config.get("model_registry"),
+        requested_model_id=requested_model_id,
     )
 
     state = GraphState(

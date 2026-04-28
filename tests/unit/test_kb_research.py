@@ -9,7 +9,7 @@ from agent_utilities.graph.models import (
     Source,
 )
 from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.maintenance import GraphMaintainer
+from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
 
 
 @pytest.mark.asyncio

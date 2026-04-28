@@ -10,7 +10,7 @@ import inspect
 import json
 import logging
 import os
-import pickle
+import pickle  # nosec B403
 import re
 import sys
 from abc import ABC, abstractmethod
@@ -246,7 +246,7 @@ def is_loopback_url(
             return False
 
         hostname = parsed.hostname.lower() if parsed.hostname else ""
-        loopback_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
+        loopback_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]  # nosec B104
         if hostname in loopback_hosts:
             return True
 
@@ -390,7 +390,7 @@ def load_model(file: str) -> Any:
 
     """
     with open(file, "rb") as model_file:
-        model = pickle.load(model_file)
+        model = pickle.load(model_file)  # nosec B301
     return model
 
 
@@ -416,6 +416,17 @@ def retrieve_package_name() -> str:
         "__main__",
         "env",
         "venv",
+        ".venv",
+        "python",
+        "python3",
+        "python3.10",
+        "python3.11",
+        "python3.12",
+        "python3.13",
+        "site-packages",
+        "dist-packages",
+        "lib",
+        "bin",
         "fastapi",
         "starlette",
         "uvicorn",
@@ -426,8 +437,11 @@ def retrieve_package_name() -> str:
         "contextlib",
         "logging",
         "asyncio",
+        "pytest",
+        "pluggy",
+        "_pytest",
     )
-    try:
+    with suppress(Exception):
         stack = inspect.stack()
         for i, frame_info in enumerate(stack):
             frame_file = frame_info.filename
@@ -465,9 +479,6 @@ def retrieve_package_name() -> str:
                 pkg_name = path.parent.name.replace("-", "_")
                 if pkg_name not in skip_packages:
                     first_external_frame_package = pkg_name
-
-    except Exception:
-        pass
 
     if first_external_frame_package:
         return first_external_frame_package

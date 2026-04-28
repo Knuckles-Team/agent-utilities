@@ -103,8 +103,8 @@ async def execute_workspace_sync(
 
             if p_path and p_path.exists():
                 logger.info(f"Auto-ingesting cloned project: {p_name}")
-                await kb_engine.ingest_source(
-                    source_path=str(p_path), kb_name="workspace-repos", topic=p_name
+                await kb_engine.ingest_directory(
+                    path=str(p_path), kb_name="workspace-repos", topic=p_name
                 )
                 results["auto_ingested"] += 1
 
