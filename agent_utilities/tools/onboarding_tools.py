@@ -3,7 +3,7 @@
 
 This module provides utilities for bootstrapping new agentic workspaces,
 detecting project technology stacks, and initializing core configuration files
-like main_agent.md.
+like ``main_agent.json``.
 """
 
 import logging

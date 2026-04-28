@@ -6,7 +6,7 @@ from agent_utilities.models import AgentDeps, Spec
 from agent_utilities.patterns.manager import PatternManager
 from agent_utilities.patterns.first_run_tests import run_first_tests, TestResult
 from agent_utilities.patterns.manual_testing import run_manual_test_cycle
-from agent_utilities.patterns.tdd import run_tdd_cycle, tdd_red_phase, tdd_green_phase, tdd_refactor_phase
+from agent_utilities.patterns.tdd import tdd_red_phase, tdd_green_phase, tdd_refactor_phase
 from agent_utilities.patterns.walkthroughs import generate_linear_walkthrough
 from agent_utilities.patterns.interactive_explanations import generate_interactive_explanation
 
@@ -35,7 +35,7 @@ async def test_run_first_tests(mock_shell, mock_deps):
         mock_process.communicate.return_value = (b"All tests passed", b"")
         mock_process.returncode = 0
         mock_shell.return_value = mock_process
-        
+
         result = await run_first_tests(mock_deps.workspace_path)
         assert isinstance(result, TestResult)
         assert result.success is True
@@ -75,7 +75,9 @@ async def test_tdd_refactor_phase(mock_dispatch, mock_deps):
 async def test_run_manual_test_cycle(mock_dispatch, mock_deps):
     mock_dispatch.return_value = "Verification successful"
     result = await run_manual_test_cycle("Test goal", mock_deps)
-    assert result == "Verification successful"
+    # run_manual_test_cycle wraps the dispatch result in an ExecutionNotes markdown log
+    assert "Verification successful" in result
+    assert "Execution Log: Test goal" in result
 
 
 @pytest.mark.asyncio

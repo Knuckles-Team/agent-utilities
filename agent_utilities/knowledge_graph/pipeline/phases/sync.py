@@ -50,6 +50,8 @@ _TYPE_TO_TABLE = {
     "experiment": "Experiment",
     "proposed_skill": "ProposedSkill",
     "server": "Server",
+    "observation": "Observation",
+    "action": "Action",
 }
 
 

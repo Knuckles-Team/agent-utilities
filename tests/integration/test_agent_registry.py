@@ -1,28 +1,7 @@
 from unittest.mock import patch
 
-from agent_utilities.agent_registry_builder import parse_frontmatter
 from agent_utilities.graph.config_helpers import load_specialized_prompts
 from agent_utilities.models import MCPAgent, MCPAgentRegistryModel
-
-
-def test_parse_frontmatter():
-    content = """---
-name: test_agent
-description: "A test agent"
-skills: [test-skill]
----
-# Actual Content
-"""
-    metadata = parse_frontmatter(content)
-    assert metadata is not None
-    assert metadata["name"] == "test_agent"
-    assert metadata["description"] == "A test agent"
-    assert metadata["skills"] == ["test-skill"]
-
-
-def test_parse_frontmatter_no_metadata():
-    content = "# No Frontmatter"
-    assert parse_frontmatter(content) is None
 
 
 def test_load_specialized_prompts(tmp_path):

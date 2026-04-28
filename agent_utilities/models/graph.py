@@ -62,7 +62,7 @@ class GraphPlan(BaseModel):
         from ..mermaid import FlowchartBuilder
 
         builder = FlowchartBuilder(title=title)
-        
+
         # Add nodes
         for step in self.steps:
             shape = "box" if not step.is_parallel else "round"
@@ -74,21 +74,25 @@ class GraphPlan(BaseModel):
                 css_class = "error"
             elif step.status == "in_progress":
                 css_class = "active"
-                
+
             builder.add_node(
-                step.node_id, 
-                label=f"{step.node_id}\n{step.input_data or ''}", 
+                step.node_id,
+                label=f"{step.node_id}\n{step.input_data or ''}",
                 shape=shape,
-                css_class=css_class
+                css_class=css_class,
             )
-            
+
             # Add dependencies
             for dep in step.depends_on:
                 builder.add_edge(dep, step.node_id)
-        
+
         # Add styling
-        builder.lines.append("  classDef success fill:#2e7d32,stroke:#1b5e20,color:#fff")
+        builder.lines.append(
+            "  classDef success fill:#2e7d32,stroke:#1b5e20,color:#fff"
+        )
         builder.lines.append("  classDef error fill:#c62828,stroke:#b71c1c,color:#fff")
-        builder.lines.append("  classDef active fill:#1565c0,stroke:#0d47a1,color:#fff,stroke-width:2px")
-        
+        builder.lines.append(
+            "  classDef active fill:#1565c0,stroke:#0d47a1,color:#fff,stroke-width:2px"
+        )
+
         return builder.render()

@@ -58,6 +58,7 @@ from .config import (
     DEFAULT_CUSTOM_SKILLS_DIRECTORY,
     DEFAULT_DEBUG,
     DEFAULT_ENABLE_TERMINAL_UI,
+    DEFAULT_ENABLE_WEB_LOGS,
     DEFAULT_EXTRA_BODY,
     DEFAULT_EXTRA_HEADERS,
     DEFAULT_FREQUENCY_PENALTY,
@@ -159,7 +160,10 @@ def create_agent_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--workspace",
-        help="Explicit path to the agent workspace directory (contains main_agent.md, etc.)",
+        help=(
+            "Explicit path to the agent workspace directory "
+            "(contains main_agent.json, mcp_config.json, etc.)"
+        ),
     )
     parser.add_argument(
         "--web",
@@ -175,6 +179,12 @@ def create_agent_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=DEFAULT_ENABLE_TERMINAL_UI,
         help="Enable/Disable Agent Terminal UI (TUI)",
+    )
+    parser.add_argument(
+        "--web-logs",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_ENABLE_WEB_LOGS,
+        help="Enable/Disable log streaming to TUI",
     )
 
     parser.add_argument(
@@ -234,8 +244,7 @@ def create_agent(
     name: str = DEFAULT_AGENT_NAME,
     system_prompt: str | None = DEFAULT_AGENT_SYSTEM_PROMPT,
     debug: bool | None = False,
-    skill_types: list[str]
-    | None = ["universal", "graphs", "tdd-methodology", "manual_testing", "walkthroughs"],
+    skill_types: list[str] | None = None,
     tool_tags: list[str] | None = None,
     graph_bundle: tuple[Any, ...] | None = None,
     output_type: Any | None = None,
@@ -251,6 +260,8 @@ def create_agent(
     auto_graph_trace: bool = True,
     context_warnings: bool = True,
     max_context_tokens: int | None = None,
+    use_rlm: bool = False,
+    rlm_config: Any | None = None,
     include_checkpoints: bool = False,
     checkpoint_store: Any | None = None,
     checkpoint_frequency: Literal[
@@ -414,7 +425,17 @@ def create_agent(
 
     if enable_skills:
         skill_dirs = []
-        _skill_types = skill_types or []
+        _skill_types = (
+            skill_types
+            if skill_types is not None
+            else [
+                "universal",
+                "graphs",
+                "tdd-methodology",
+                "manual_testing",
+                "walkthroughs",
+            ]
+        )
 
         if skills_path := get_skills_path():
             skill_dirs.extend(skills_path)
@@ -507,6 +528,14 @@ def create_agent(
         )
     )
 
+    if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
+        try:
+            from .rlm.hook import rlm_large_output_hook
+
+            all_hooks.append(rlm_large_output_hook)
+        except ImportError:
+            pass
+
     agent = Agent(
         model=model,
         model_settings=settings,
@@ -520,14 +549,6 @@ def create_agent(
         capabilities=agent_capabilities,
     )
 
-    # Initialize Pattern Manager
-    try:
-        from .patterns.manager import PatternManager
-        # Note: Patterns are typically injected into Deps at runtime or during tool registration
-        # Here we just ensure the skill types are available.
-    except ImportError:
-        pass
-
     if output_style:
         from .tools.style_tools import BUILTIN_STYLES
 
@@ -537,6 +558,19 @@ def create_agent(
             @agent.instructions
             def inject_style_prompt() -> str:
                 return f"\n\nOUTPUT STYLE: {style_instr}"
+
+    if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
+        from pydantic_ai import Tool
+
+        from .rlm.specialist import recursive_reasoner_tool
+
+        agent._tools["recursive_reasoner_tool"] = Tool(
+            recursive_reasoner_tool,
+            takes_ctx=True,
+            description="Recursive reasoning specialist for massive contexts",
+            name="recursive_reasoner_tool",
+        )
+        logger.info("Enabled RLM Recursive Reasoner Tool")
 
     @agent.instructions
     def inject_system_prompt() -> str:

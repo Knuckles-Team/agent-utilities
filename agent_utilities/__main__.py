@@ -74,6 +74,7 @@ def agent_server():
         otel_secret_key=args.otel_secret_key,
         otel_protocol=args.otel_protocol,
         workspace=args.workspace,
+        enable_web_logs=args.web_logs,
     )
 
 

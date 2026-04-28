@@ -7,7 +7,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend
 from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.maintenance import GraphMaintainer
+from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
 
 
 @pytest.fixture

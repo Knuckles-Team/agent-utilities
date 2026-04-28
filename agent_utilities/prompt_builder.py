@@ -2,14 +2,21 @@
 """Prompt Builder Module.
 
 This module provides utilities for constructing and resolving agent system
-prompts. It handles dynamic extraction of content from markdown files,
-resolving workspace file references (using the '@' prefix), and aggregating
-the main_agent.md configuration and Knowledge Graph context into a unified
-prompt context for the agent.
+prompts. It handles loading structured JSON prompt blueprints (with a
+``content`` key) from both the workspace and the package ``prompts/``
+directory, resolving workspace file references (using the ``@`` prefix),
+and aggregating the ``main_agent.json`` configuration and Knowledge Graph
+context into a unified prompt context for the agent.
+
+Prompts are JSON-only; markdown fallbacks (YAML-frontmatter and the legacy
+star-based format) have been removed. Companion files such as ``AGENTS.md``
+and ``MEMORY.md`` are still read as plain markdown — they are not prompt
+blueprints, they are contextual memory surfaces.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -28,6 +35,40 @@ from .workspace import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_prompt_content(raw: str) -> str:
+    """Return the body of a JSON prompt blueprint.
+
+    Args:
+        raw: The raw file contents. Must be a JSON object containing a
+            ``content`` (preferred) or ``input`` key.
+
+    Returns:
+        The value of the ``content`` key, falling back to ``input``.
+
+    Raises:
+        ValueError: If ``raw`` is empty, not valid JSON, not a JSON object,
+            or the object lacks both ``content`` and ``input`` keys.
+    """
+    if not raw or not raw.strip():
+        raise ValueError("Prompt payload is empty")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            "Prompt payload is not valid JSON; expected a blueprint object "
+            "with a 'content' key"
+        ) from e
+    if not isinstance(data, dict):
+        raise ValueError("Prompt JSON must decode to an object")
+    for key in ("content", "input"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    raise ValueError(
+        "Prompt JSON object is missing a 'content' or 'input' string value"
+    )
 
 
 def extract_section_from_md(content: str, header: str) -> str | None:
@@ -94,48 +135,72 @@ def get_system_prompt_from_reference(agent_name: str) -> str | None:
     return None
 
 
+def _load_main_agent_content() -> str:
+    """Return the ``content`` body of ``main_agent.json``.
+
+    Checks the workspace first, then the packaged default. Returns an empty
+    string when neither source yields a usable blueprint; malformed JSON is
+    logged as a warning rather than raised so agent startup is resilient.
+    """
+    raw = load_workspace_file("main_agent.json")
+    if raw:
+        try:
+            return _extract_prompt_content(raw)
+        except ValueError as e:
+            logger.warning(
+                "Invalid main_agent.json in workspace (%s); trying package default",
+                e,
+            )
+
+    try:
+        from importlib.resources import files
+
+        prompts_dir = files("agent_utilities") / "prompts"
+        main_agent_path = prompts_dir / "main_agent.json"
+        if main_agent_path.is_file():
+            raw = main_agent_path.read_text(encoding="utf-8")
+            try:
+                return _extract_prompt_content(raw)
+            except ValueError as e:
+                logger.warning(
+                    "Invalid packaged main_agent.json (%s); using empty prompt",
+                    e,
+                )
+    except Exception as e:
+        logger.warning(f"Could not load main_agent.json from package: {e}")
+
+    return ""
+
+
 def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     """Aggregate core workspace files into a unified system prompt.
 
-    Combines main_agent.md content with an optional
-    fallback string. The order of aggregation is fixed to ensure proper LLM
-    instruction hierarchy.
+    Combines the ``content`` body of ``main_agent.json`` with
+    ``AGENTS.md`` / ``MEMORY.md`` (if present) and an optional
+    ``fallback_prompt`` string. ``main_agent.json`` is strictly JSON; only
+    its ``content`` key is used as the prompt body.
 
     Args:
-        fallback_prompt: An optional string to append if core files are insufficient.
+        fallback_prompt: An optional string to append if core files are
+            insufficient.
 
     Returns:
         The final combined system prompt string.
-
     """
-    parts = []
-    included_files = []
+    parts: list[str] = []
+    included_files: list[str] = []
 
     logger.debug(
-        f"Building system prompt from workspace. Fallback provided: {bool(fallback_prompt)}"
+        "Building system prompt from workspace. "
+        f"Fallback provided: {bool(fallback_prompt)}"
     )
 
-    # Try to load main_agent.md from workspace first
-    content = load_workspace_file("main_agent.md")
-    if content:
-        parts.append(f"---\n# main_agent.md\n{content}\n---")
-        included_files.append("main_agent.md")
-    else:
-        # Fallback to package resources
-        try:
-            from importlib.resources import files
+    main_content = _load_main_agent_content()
+    if main_content.strip():
+        parts.append(f"---\n# main_agent.json\n{main_content}\n---")
+        included_files.append("main_agent.json")
 
-            prompts_dir = files("agent_utilities") / "prompts"
-            main_agent_path = prompts_dir / "main_agent.md"
-            if main_agent_path.is_file():
-                content = main_agent_path.read_text(encoding="utf-8")
-                if content.strip():
-                    parts.append(f"---\n# main_agent.md\n{content}\n---")
-                    included_files.append("main_agent.md (pkg)")
-        except Exception as e:
-            logger.warning(f"Could not load main_agent.md from package: {e}")
-
-    # Try to load AGENTS.md (Claude Code parity)
+    # AGENTS.md (Claude Code parity) — markdown is the source-of-truth here
     agents_content = load_workspace_file("AGENTS.md")
     if agents_content:
         parts.append(
@@ -143,13 +208,12 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
         )
         included_files.append("AGENTS.md")
 
-    # Try to load MEMORY.md (Auto Memory)
+    # MEMORY.md (Auto Memory) — markdown surface, not a prompt blueprint
     memory_content = load_workspace_file("MEMORY.md")
     if memory_content:
         parts.append(f"---\n# MEMORY.md (Learned Context)\n{memory_content}\n---")
         included_files.append("MEMORY.md")
     else:
-        # Check in .agents/memory/ if MEMORY.md is missing from root
         memory_content = load_workspace_file(".agents/memory/MEMORY.md")
         if memory_content:
             parts.append(f"---\n# MEMORY.md\n{memory_content}\n---")
@@ -190,11 +254,16 @@ def resolve_prompt(prompt_str: str) -> str:
 
 
 def extract_agent_metadata(content: str) -> dict[str, Any]:
-    """Extract metadata (name, description, emoji, vibe, etc.) from prompt content.
+    """Extract metadata (name, description, emoji, vibe, etc.) from a JSON blueprint.
 
-    Supports both YAML frontmatter (modern) and the legacy star-based format.
+    Only the modern JSON blueprint schema (a dict with ``name``,
+    ``description``, ``content`` keys) is supported. Legacy YAML-frontmatter
+    and star-based markdown formats have been removed.
+
+    If ``content`` cannot be parsed as a JSON object, a generic default is
+    returned and a warning is logged so agent startup remains resilient.
     """
-    meta = {
+    meta: dict[str, Any] = {
         "name": "Agent",
         "description": "AI Agent",
         "emoji": "🤖",
@@ -202,72 +271,59 @@ def extract_agent_metadata(content: str) -> dict[str, Any]:
         "vibe": "Neutral",
     }
 
-    # 1. Try YAML frontmatter
-    import yaml
+    stripped = content.lstrip() if content else ""
+    if not stripped.startswith("{"):
+        logger.warning(
+            "extract_agent_metadata: content is not a JSON blueprint; "
+            "returning generic default metadata"
+        )
+        return meta
 
-    fm_match = re.search(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
-    if fm_match:
-        try:
-            fm_data = yaml.safe_load(fm_match.group(1))
-            if isinstance(fm_data, dict):
-                # Standardize keys
-                if "role" in fm_data and "description" not in fm_data:
-                    fm_data["description"] = fm_data.pop("role")
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError as e:
+        logger.warning(
+            f"extract_agent_metadata: failed to parse JSON blueprint ({e}); "
+            "returning generic default metadata"
+        )
+        return meta
 
-                meta.update(fm_data)
-                meta["content"] = content[fm_match.end() :].strip()
-                return meta
-        except Exception:
-            pass
+    if not isinstance(data, dict):
+        logger.warning(
+            "extract_agent_metadata: JSON blueprint is not an object; "
+            "returning generic default metadata"
+        )
+        return meta
 
-    # 2. Try legacy star-based format
-    # Example: * **Name:** TestBot
-    name_match = re.search(r"\* \*\*Name:\*\* (.*)", content)
-    if name_match:
-        meta["name"] = name_match.group(1).strip()
-
-    role_match = re.search(r"\* \*\*(Role|Description):\*\* (.*)", content)
-    if role_match:
-        meta["description"] = role_match.group(2).strip()
-
-    emoji_match = re.search(r"\* \*\*Emoji:\*\* (.*)", content)
-    if emoji_match:
-        meta["emoji"] = emoji_match.group(1).strip()
-
-    vibe_match = re.search(r"\* \*\*Vibe:\*\* (.*)", content)
-    if vibe_match:
-        meta["vibe"] = vibe_match.group(1).strip()
-
-    # System Prompt section
-    sp_match = re.search(
-        r"### System Prompt\s*\n(.*?)(?=\n#|\Z)", content, re.DOTALL | re.MULTILINE
-    )
-    if sp_match:
-        meta["content"] = sp_match.group(1).strip()
-
+    if "role" in data and "description" not in data:
+        data["description"] = data.pop("role")
+    meta.update(data)
+    body = data.get("content") or data.get("input") or ""
+    if isinstance(body, str):
+        meta["content"] = body
     return meta
 
 
 def load_identity(tag: str | None = None) -> dict[str, str]:
-    """Load the primary main_agent.md file and return agent metadata.
+    """Load the primary ``main_agent.json`` file and return agent metadata.
 
     Args:
         tag: Optional tag filter (not currently used in base implementation).
 
     Returns:
         A dictionary of agent metadata. Defaults to generic values if
-        main_agent.md is missing.
+        ``main_agent.json`` is missing.
 
     """
     try:
         from importlib.resources import files
 
         prompts_dir = files("agent_utilities") / "prompts"
-        main_agent_path = prompts_dir / "main_agent.md"
+        main_agent_path = prompts_dir / "main_agent.json"
         if main_agent_path.is_file():
             content = main_agent_path.read_text(encoding="utf-8")
             return extract_agent_metadata(content)
     except Exception as e:
-        logger.warning(f"Could not load main_agent.md identity: {e}")
+        logger.warning(f"Could not load main_agent.json identity: {e}")
 
     return {"name": "Agent", "description": "AI Agent", "content": ""}

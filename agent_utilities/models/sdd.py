@@ -55,28 +55,36 @@ class Tasks(BaseModel):
         from ..mermaid import FlowchartBuilder
 
         builder = FlowchartBuilder(title=title)
-        
+
         for task in self.tasks:
             shape = "box" if not task.parallel else "round"
             # Highlight by status
-            css_class = task.status.value if hasattr(task.status, "value") else str(task.status)
-            
-            builder.add_node(
-                task.id, 
-                label=f"{task.title}\n({task.id})", 
-                shape=shape,
-                css_class=css_class
+            css_class = (
+                task.status.value if hasattr(task.status, "value") else str(task.status)
             )
-            
+
+            builder.add_node(
+                task.id,
+                label=f"{task.title}\n({task.id})",
+                shape=shape,
+                css_class=css_class,
+            )
+
             for dep in task.depends_on:
                 builder.add_edge(dep, task.id)
-        
+
         # Add styling
-        builder.lines.append("  classDef completed fill:#2e7d32,stroke:#1b5e20,color:#fff")
+        builder.lines.append(
+            "  classDef completed fill:#2e7d32,stroke:#1b5e20,color:#fff"
+        )
         builder.lines.append("  classDef failed fill:#c62828,stroke:#b71c1c,color:#fff")
-        builder.lines.append("  classDef in_progress fill:#1565c0,stroke:#0d47a1,color:#fff,stroke-width:2px")
-        builder.lines.append("  classDef pending fill:#455a64,stroke:#263238,color:#fff")
-        
+        builder.lines.append(
+            "  classDef in_progress fill:#1565c0,stroke:#0d47a1,color:#fff,stroke-width:2px"
+        )
+        builder.lines.append(
+            "  classDef pending fill:#455a64,stroke:#263238,color:#fff"
+        )
+
         return builder.render()
 
 
@@ -96,14 +104,14 @@ class ImplementationPlan(BaseModel):
         from ..mermaid import ClassDiagramBuilder
 
         builder = ClassDiagramBuilder(title=f"Implementation: {self.title}")
-        
+
         # Add main plan entity
         builder.add_class(
             "ImplementationPlan",
             attributes=[f"feature_id: {self.feature_id}", f"title: {self.title}"],
             methods=["get_approach()", "get_risks()"],
         )
-        
+
         # Add proposed changes as related components
         for change in self.proposed_changes:
             # Simple heuristic to extract component name
@@ -111,7 +119,7 @@ class ImplementationPlan(BaseModel):
             safe_comp = comp_name.replace(" ", "_").replace("/", "_").replace(".", "_")
             builder.add_class(safe_comp, annotation="Modified")
             builder.add_relationship("ImplementationPlan", safe_comp, "-->", "modifies")
-            
+
         return builder.render()
 
 

@@ -1,9 +1,7 @@
 import pytest
-import os
 from pathlib import Path
 from agent_utilities.tool_guard import is_sensitive_tool, is_safe_tool
-from agent_utilities.workspace import validate_workspace_path, get_agent_workspace
-from agent_utilities.config import TOOL_GUARD_MODE
+from agent_utilities.workspace import validate_workspace_path
 
 def test_is_safe_tool():
     assert is_safe_tool("read_file") is True
@@ -28,18 +26,18 @@ def test_path_traversal_protection(tmp_path):
     import agent_utilities.workspace as ws
     original_ws = ws.WORKSPACE_DIR
     ws.WORKSPACE_DIR = str(tmp_path)
-    
+
     try:
         # Safe path
         safe_path = tmp_path / "test.txt"
         safe_path.touch()
         assert validate_workspace_path(safe_path) == safe_path.resolve()
-        
+
         # Unsafe path (outside workspace)
         unsafe_path = Path("/etc/passwd")
         with pytest.raises(ValueError, match="Access denied"):
             validate_workspace_path(unsafe_path)
-            
+
         # Unsafe path (traversal)
         traversal_path = tmp_path / ".." / "outside.txt"
         with pytest.raises(ValueError, match="Access denied"):

@@ -1,6 +1,4 @@
 import pytest
-import os
-from pathlib import Path
 from agent_utilities import workspace
 
 @pytest.fixture
@@ -16,7 +14,7 @@ def test_md_table_escape():
     assert workspace.md_table_escape("hello|world") == "hello\\|world"
     assert workspace.md_table_escape("hello\nworld") == "hello<br/>world"
     assert workspace.md_table_escape("hello\\nworld") == "hello<br/>world"
-    assert workspace.md_table_escape(None) == ""
+    assert workspace.md_table_escape(None) == ""  # type: ignore[arg-type]
 
 def test_smart_truncate():
     assert workspace.smart_truncate("hello world", 100) == "hello world"
@@ -36,9 +34,23 @@ def test_get_workspace_path(temp_workspace):
     assert path == temp_workspace / "test.txt"
 
 def test_initialize_workspace(temp_workspace):
+    import json
+
     workspace.initialize_workspace()
-    assert (temp_workspace / "main_agent.md").exists()
-    assert (temp_workspace / "mcp_config.json").exists()
+    main_agent = temp_workspace / "main_agent.json"
+    mcp_config = temp_workspace / "mcp_config.json"
+    assert main_agent.exists()
+    assert mcp_config.exists()
+
+    # The main_agent.json template must be valid JSON with the new schema.
+    data = json.loads(main_agent.read_text(encoding="utf-8"))
+    assert data["name"] == "main-agent"
+    assert data["type"] == "prompt"
+    assert "content" in data and data["content"].startswith("# Main Agent")
+    assert "workspace-manager" in data["capabilities"]
+
+    # mcp_config.json must also be valid JSON.
+    assert json.loads(mcp_config.read_text(encoding="utf-8")) == {"mcpServers": {}}
 
 def test_load_workspace_file(temp_workspace):
     test_file = temp_workspace / "test.txt"
@@ -60,12 +72,12 @@ def test_list_workspace_files(temp_workspace):
 def test_md_file_operations(temp_workspace):
     workspace.write_md_file("test.md", "hello md")
     assert workspace.read_md_file("test.md") == "hello md"
-    
+
     workspace.append_to_md_file("test.md", "appended")
     content = workspace.read_md_file("test.md")
     assert "hello md" in content
     assert "appended" in content
-    
+
     with pytest.raises(ValueError):
         workspace.write_md_file("not_md.txt", "content")
 
@@ -76,16 +88,16 @@ def test_skill_lifecycle(temp_workspace):
     skill_dir = temp_workspace / "skills" / "test-skill"
     assert skill_dir.exists()
     assert (skill_dir / "SKILL.md").exists()
-    
+
     # Read
     content = workspace.read_skill_md("Test Skill")
     assert "test-skill" in content
-    
+
     # Update
     msg = workspace.write_skill_md("Test Skill", "updated content")
     assert "✅ Updated" in msg
     assert workspace.read_skill_md("Test Skill").strip() == "updated content"
-    
+
     # Delete
     msg = workspace.delete_skill_from_disk("Test Skill")
     assert "✅ Deleted" in msg

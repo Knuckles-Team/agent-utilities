@@ -18,7 +18,7 @@ def secure_client(mock_agent):
     original_enable = config.config.enable_api_auth
     config.config.agent_api_key = "secret-key"
     config.config.enable_api_auth = True
-    
+
     try:
         with patch("agent_utilities.server.create_agent", return_value=(mock_agent, [])):
             app = build_agent_app(
@@ -50,19 +50,19 @@ def test_max_upload_size_enforced():
     from agent_utilities.server import process_parts
     from agent_utilities.config import config as agent_config
     import asyncio
-    
+
     original_size = agent_config.max_upload_size
     agent_config.max_upload_size = 100 # 100 bytes
-    
+
     try:
         import base64
         # Large image
         large_data = base64.b64encode(b"a" * 200).decode()
         parts = [{"image": large_data, "media_type": "image/png"}]
-        
+
         processed = asyncio.run(process_parts(parts))
         assert len(processed) == 0 # Should be rejected
-        
+
         # Small image
         small_data = base64.b64encode(b"a" * 50).decode()
         parts = [{"image": small_data, "media_type": "image/png"}]

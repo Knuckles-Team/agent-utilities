@@ -127,7 +127,7 @@ def test_engine_process_discovery():
 @pytest.mark.asyncio
 async def test_maintenance_model_validation(caplog):
     """Test the automated model validation routine in maintenance."""
-    from agent_utilities.knowledge_graph.maintenance import GraphMaintainer
+    from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
 
     graph = nx.MultiDiGraph()
     mock_backend = MagicMock()

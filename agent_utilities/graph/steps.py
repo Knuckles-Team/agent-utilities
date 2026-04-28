@@ -18,6 +18,7 @@ next node to execute, enabling flexible and resilient graph flows.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -315,13 +316,47 @@ async def planner_step(
         ),
     )
 
+    from ..rlm.config import RLMConfig
+    from ..rlm.repl import RLMEnvironment
+
+    rlm_config = RLMConfig()
+
     try:
-        res = await planner.run(
-            f"Create a CORRECTED execution plan for: {ctx.state.query}\n\n"
-            f"The previous approach failed. You MUST use a different strategy.",
-            deps=ctx.deps,
-        )
-        ctx.state.plan = res.output
+        if rlm_config.enabled or getattr(ctx.state, "requires_long_horizon", False):
+            logger.info("Planner: Running in RLM (Recursive Language Model) mode.")
+            env = RLMEnvironment(
+                context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{unified_context}",
+                config=rlm_config,
+                graph_deps=ctx.deps,
+            )
+            rlm_result = await env.run_full_rlm(
+                f"Create a CORRECTED execution plan for: {ctx.state.query}\n\n"
+                f"The previous approach failed. You MUST use a different strategy. "
+                f"Use the REPL to deeply analyze the context. "
+                f"You MUST output a JSON representation of a GraphPlan using FINAL_VAR('plan', <json_string>)."
+            )
+
+            import json
+
+            try:
+                plan_data = json.loads(rlm_result)
+                ctx.state.plan = GraphPlan.model_validate(plan_data)
+            except Exception as parse_e:
+                logger.warning(
+                    f"RLM output was not valid GraphPlan JSON: {parse_e}. Running fallback parser."
+                )
+                res = await planner.run(
+                    f"Parse this into a GraphPlan:\n{rlm_result}", deps=ctx.deps
+                )
+                ctx.state.plan = res.output
+        else:
+            res = await planner.run(
+                f"Create a CORRECTED execution plan for: {ctx.state.query}\n\n"
+                f"The previous approach failed. You MUST use a different strategy.",
+                deps=ctx.deps,
+            )
+            ctx.state.plan = res.output
+
         ctx.state.step_cursor = 0
         ctx.state.needs_replan = False
         ctx.state.error = None
@@ -371,7 +406,7 @@ async def fetch_unified_context() -> str:
 
     # 2. Run git status
     try:
-        git_status = subprocess.check_output(
+        git_status = subprocess.check_output(  # nosec B607
             ["git", "status", "--short"], text=True
         ).strip()
     except Exception:
@@ -586,37 +621,84 @@ async def router_step(
             f"### AVAILABLE SPECIALIST NODES\n{step_info}\n\n"
             f"### PROJECT CONTEXT\n{unified_context}"
         )
-        router_agent = Agent(
-            model=deps.router_model,
-            output_type=GraphPlan,
-            system_prompt=system_prompt_str,
+        from ..rlm.config import RLMConfig
+        from ..rlm.repl import RLMEnvironment
+
+        rlm_config = RLMConfig()
+        use_rlm = (
+            rlm_config.enabled
+            or len(unified_context) > rlm_config.max_context_threshold
         )
 
-        logger.info(
-            f"[LAYER:GRAPH:ROUTER] Planning for query: '{ctx.state.query}' using model {deps.router_model}"
-        )
-        try:
-            logger.debug(
-                f"[LAYER:GRAPH:ROUTER] LLM Call Starting: system_prompt length={len(system_prompt_str)}"
+        if use_rlm:
+            logger.info(
+                "[LAYER:GRAPH:ROUTER] Running in RLM (Recursive Language Model) mode."
             )
-            async with router_agent.run_stream(ctx.state.query) as stream:
-                plan_output = await asyncio.wait_for(
-                    stream.get_output(), timeout=ctx.deps.router_timeout
+            env = RLMEnvironment(
+                context=f"SYSTEM_PROMPT:\n{system_prompt_str}\n\nPROJECT_CONTEXT:\n{unified_context}",
+                config=rlm_config,
+                graph_deps=ctx.deps,
+            )
+            # Instruct the RLM to generate a GraphPlan
+            rlm_result = await env.run_full_rlm(
+                f"Create a high-level execution plan for the query: {ctx.state.query}\n\n"
+                "Use the REPL to analyze available specialists and the project context. "
+                "Decompose the goal into steps that can be handled by the specialists. "
+                "You MUST output a valid JSON representation of a GraphPlan. "
+                "The GraphPlan should have 'steps' (list of {node_id, input_data}) and 'metadata' ({reasoning}). "
+                "Use FINAL_VAR('plan', <json_string>)."
+            )
+
+            import json
+
+            try:
+                plan_data = json.loads(rlm_result)
+                plan_output = GraphPlan.model_validate(plan_data)
+            except Exception as parse_e:
+                logger.warning(
+                    f"RLM output was not valid GraphPlan JSON: {parse_e}. Running fallback parser."
                 )
-            logger.info(
-                f"[LAYER:GRAPH:ROUTER] LLM Call Completed. Plan Reasoning: {plan_output.metadata.get('reasoning', 'N/A')}"
+                router_agent = Agent(
+                    model=deps.router_model,
+                    output_type=GraphPlan,
+                    system_prompt="Parse the following text into a valid GraphPlan JSON structure.",
+                )
+                res = await router_agent.run(f"Text to parse:\n{rlm_result}")
+                plan_output = res.output
+        else:
+            router_agent = Agent(
+                model=deps.router_model,
+                output_type=GraphPlan,
+                system_prompt=system_prompt_str,
             )
-            logger.info(
-                f"[LAYER:GRAPH:ROUTER] Plan Step Count: {len(plan_output.steps)}"
-            )
-        except TimeoutError:
-            logger.warning("Router: LLM planning timed out. Escalating to fallbacks.")
-            raise ValueError("LLM planning timed out") from None
 
-        usage = stream.usage()
-        if asyncio.iscoroutine(usage):
-            usage = await usage
-        ctx.state._update_usage(usage)
+            logger.info(
+                f"[LAYER:GRAPH:ROUTER] Planning for query: '{ctx.state.query}' using model {deps.router_model}"
+            )
+            try:
+                logger.debug(
+                    f"[LAYER:GRAPH:ROUTER] LLM Call Starting: system_prompt length={len(system_prompt_str)}"
+                )
+                async with router_agent.run_stream(ctx.state.query) as stream:
+                    plan_output = await asyncio.wait_for(
+                        stream.get_output(), timeout=ctx.deps.router_timeout
+                    )
+                logger.info(
+                    f"[LAYER:GRAPH:ROUTER] LLM Call Completed. Plan Reasoning: {plan_output.metadata.get('reasoning', 'N/A')}"
+                )
+                logger.info(
+                    f"[LAYER:GRAPH:ROUTER] Plan Step Count: {len(plan_output.steps)}"
+                )
+            except TimeoutError:
+                logger.warning(
+                    "Router: LLM planning timed out. Escalating to fallbacks."
+                )
+                raise ValueError("LLM planning timed out") from None
+
+            usage = stream.usage()
+            if asyncio.iscoroutine(usage):
+                usage = await usage
+            ctx.state._update_usage(usage)
         ctx.state.plan = plan_output
         ctx.state.step_cursor = 0
 
@@ -769,12 +851,10 @@ async def dispatcher_step(
             for step in ctx.state.plan.steps:
                 step.status = "completed"
         if ctx.deps.plan_sync:
-            try:
+            with contextlib.suppress(Exception):
                 await ctx.deps.plan_sync(
                     "step_completed", ctx.state.plan.to_acp_plan_entries()
                 )
-            except Exception:
-                pass
 
         logger.info(
             f"Dispatcher: Plan completed. Results registry keys: {list(ctx.state.results_registry.keys())}"
@@ -829,13 +909,11 @@ async def dispatcher_step(
 
         # Bridge: mark the step as in_progress in ACP plan state.
         if ctx.deps.plan_sync:
-            try:
+            with contextlib.suppress(Exception):
                 current_step.status = "in_progress"
                 await ctx.deps.plan_sync(
                     "step_started", ctx.state.plan.to_acp_plan_entries()
                 )
-            except Exception:
-                pass
 
         ctx.state.pending_batch = ParallelBatch(tasks=[current_step])
         return "parallel_batch_processor"
@@ -1417,8 +1495,10 @@ async def memory_selection_step(
     """
     logger.info("Memory Selection: Identifying relevant context...")
     if not ctx.state.exploration_notes:
-        ctx.state.exploration_notes = "### KNOWLEDGE EXPLORATION\nInitialized memory discovery phase.\n"
-    
+        ctx.state.exploration_notes = (
+            "### KNOWLEDGE EXPLORATION\nInitialized memory discovery phase.\n"
+        )
+
     _emit_node_lifecycle(ctx.deps.event_queue, "memory_selection", "node_start")
     prompt_content = load_specialized_prompts("memory_selection")
     root = ctx.state.project_root or os.getcwd()

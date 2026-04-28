@@ -41,7 +41,7 @@ Patterns are accessed via `ctx.deps.patterns` in any agent tool:
 async def my_tool(ctx: RunContext[AgentDeps]):
     # Run a walkthrough
     await ctx.deps.patterns.generate_walkthrough("./src")
-    
+
     # Run manual testing
     await ctx.deps.patterns.manual_test("Verify the login flow")
 ```

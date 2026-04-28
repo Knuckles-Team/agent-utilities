@@ -14,9 +14,16 @@ def test_get_workspace_path():
 
 
 def test_initialize_workspace(tmp_path):
+    import json
+
     with patch("agent_utilities.workspace.get_agent_workspace", return_value=tmp_path):
         initialize_workspace()
-        assert (tmp_path / "main_agent.md").exists()
+        main_agent = tmp_path / "main_agent.json"
+        assert main_agent.exists()
+        data = json.loads(main_agent.read_text(encoding="utf-8"))
+        assert data["name"] == "main-agent"
+        assert data["type"] == "prompt"
+        assert data["content"].startswith("# Main Agent")
 
 
 def test_write_and_load_file(tmp_path):

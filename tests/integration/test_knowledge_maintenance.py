@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.maintenance import GraphMaintainer
+from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
 
 
 class DummyBackend:
@@ -52,7 +52,7 @@ def test_summarize_old_chats():
     assert "ChatSummary" in backend.queries[2]["query"]
 
 
-@patch("agent_utilities.knowledge_graph.maintenance.requests.post")
+@patch("agent_utilities.knowledge_graph.maintainer.requests.post")
 def test_enrich_embeddings(mock_post):
     # Mock LM Studio response
     mock_post.return_value.json.return_value = {

@@ -7,6 +7,7 @@ as a SelfEvaluation node in the knowledge graph.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import time
@@ -100,7 +101,7 @@ class StuckLoopDetection(AbstractCapability[Any]):
         engine = getattr(ctx.deps, "graph_engine", None)
         if engine:
             eval_node = SelfEvaluationNode(
-                id=f"stuck:{int(time.time())}:{hashlib.md5(message.encode()).hexdigest()[:8]}",
+                id=f"stuck:{int(time.time())}:{hashlib.md5(message.encode(), usedforsecurity=False).hexdigest()[:8]}",
                 type=RegistryNodeType.SELF_EVALUATION,
                 name="Stuck Loop Detection",
                 evaluation=message,
@@ -114,7 +115,8 @@ class StuckLoopDetection(AbstractCapability[Any]):
                     "event_type": "stuck_loop",
                 },
             )
-            try:
+            with contextlib.suppress(Exception):
+                # Silent fail for graph write in capability
                 engine.graph.add_node(eval_node.id, **eval_node.model_dump())
                 if engine.backend:
                     await engine.backend.upsert_node(
@@ -122,8 +124,6 @@ class StuckLoopDetection(AbstractCapability[Any]):
                         eval_node.id,
                         eval_node.model_dump(),
                     )
-            except Exception:
-                pass  # Silent fail for graph write in capability
 
         if self.action == "error":
             raise StuckLoopError(pattern, message)

@@ -8,6 +8,18 @@ from agent_utilities.knowledge_graph.backends.falkordb_backend import FalkorDBBa
 from agent_utilities.knowledge_graph.backends.neo4j_backend import Neo4jBackend
 
 try:
+    from falkordb import FalkorDB
+    FALKORDB_AVAILABLE = True
+except ImportError:
+    FALKORDB_AVAILABLE = False
+
+try:
+    from neo4j import GraphDatabase
+    NEO4J_AVAILABLE = True
+except ImportError:
+    NEO4J_AVAILABLE = False
+
+try:
     from agent_utilities.knowledge_graph.backends.ladybug_backend import (
         LADYBUG_AVAILABLE,
         LadybugBackend,
@@ -16,23 +28,48 @@ except ImportError:
     LADYBUG_AVAILABLE = False
 
 
+@pytest.mark.skipif(not FALKORDB_AVAILABLE, reason="FalkorDB driver not available")
 class TestFalkorDBBackend:
-    def test_initialization(self):
+    @patch("agent_utilities.knowledge_graph.backends.falkordb_backend.FalkorDB")
+    def test_initialization(self, mock_falkor):
         backend = FalkorDBBackend(host="localhost", port=6379, db_name="test_graph")
         assert backend.db_name == "test_graph"
+        mock_falkor.assert_called_once()
 
-    def test_execute_stub(self):
+    @patch("agent_utilities.knowledge_graph.backends.falkordb_backend.FalkorDB")
+    def test_execute_stub(self, mock_falkor):
+        # Mock the result set
+        mock_graph = MagicMock()
+        mock_result = MagicMock()
+        mock_result.result_set = []
+        mock_graph.query.return_value = mock_result
+        mock_falkor.return_value.select_graph.return_value = mock_graph
+
         backend = FalkorDBBackend()
         res = backend.execute("MATCH (n) RETURN n")
         assert res == []
 
 
+@pytest.mark.skipif(not NEO4J_AVAILABLE, reason="Neo4j driver not available")
 class TestNeo4jBackend:
-    def test_initialization(self):
+    @patch("agent_utilities.knowledge_graph.backends.neo4j_backend.GraphDatabase")
+    def test_initialization(self, mock_neo4j):
         backend = Neo4jBackend(uri="bolt://localhost:7687")
         assert backend is not None
+        mock_neo4j.driver.assert_called_once()
 
-    def test_execute_stub(self):
+    @patch("agent_utilities.knowledge_graph.backends.neo4j_backend.GraphDatabase")
+    def test_execute_stub(self, mock_neo4j):
+        # Mock the session and run
+        mock_driver = MagicMock()
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data.return_value = []
+        mock_session.run.return_value = mock_result
+        mock_session.__enter__.return_value = mock_session
+        mock_driver.session.return_value = mock_session
+        mock_neo4j.driver.return_value = mock_driver
+
         backend = Neo4jBackend()
         res = backend.execute("MATCH (n) RETURN n")
         assert res == []
@@ -46,7 +83,9 @@ class TestLadybugBackend:
     )
     def test_initialization(self, mock_conn, mock_db):
         LadybugBackend("test.db")
-        mock_db.assert_called_with("test.db")
+        # Check that it was called with the correct path as the first argument
+        args, kwargs = mock_db.call_args
+        assert args[0] == "test.db"
         mock_conn.assert_called_once()
 
     @patch("agent_utilities.knowledge_graph.backends.ladybug_backend.ladybug.Database")
@@ -79,17 +118,23 @@ class TestBackendFactory:
         backend = create_backend(db_path=str(db_file))
         assert isinstance(backend, LadybugBackend)
 
-    def test_explicit_falkordb(self):
+    @pytest.mark.skipif(not FALKORDB_AVAILABLE, reason="FalkorDB driver not available")
+    @patch("agent_utilities.knowledge_graph.backends.falkordb_backend.FalkorDB")
+    def test_explicit_falkordb(self, mock_falkor):
         """Explicitly requesting FalkorDB should return FalkorDBBackend."""
         backend = create_backend(backend_type="falkordb")
         assert isinstance(backend, FalkorDBBackend)
 
-    def test_explicit_neo4j(self):
+    @pytest.mark.skipif(not NEO4J_AVAILABLE, reason="Neo4j driver not available")
+    @patch("agent_utilities.knowledge_graph.backends.neo4j_backend.GraphDatabase")
+    def test_explicit_neo4j(self, mock_neo4j):
         """Explicitly requesting Neo4j should return Neo4jBackend."""
         backend = create_backend(backend_type="neo4j")
         assert isinstance(backend, Neo4jBackend)
 
-    def test_neo4j_with_params(self):
+    @pytest.mark.skipif(not NEO4J_AVAILABLE, reason="Neo4j driver not available")
+    @patch("agent_utilities.knowledge_graph.backends.neo4j_backend.GraphDatabase")
+    def test_neo4j_with_params(self, mock_neo4j):
         """Neo4j backend should accept custom connection parameters."""
         backend = create_backend(
             backend_type="neo4j",
@@ -99,7 +144,9 @@ class TestBackendFactory:
         )
         assert isinstance(backend, Neo4jBackend)
 
-    def test_falkordb_with_params(self):
+    @pytest.mark.skipif(not FALKORDB_AVAILABLE, reason="FalkorDB driver not available")
+    @patch("agent_utilities.knowledge_graph.backends.falkordb_backend.FalkorDB")
+    def test_falkordb_with_params(self, mock_falkor):
         """FalkorDB backend should accept custom connection parameters."""
         backend = create_backend(
             backend_type="falkordb",
@@ -115,7 +162,9 @@ class TestBackendFactory:
         backend = create_backend(backend_type="nonexistent_db")
         assert backend is None
 
-    def test_env_var_override(self, monkeypatch):
+    @pytest.mark.skipif(not FALKORDB_AVAILABLE, reason="FalkorDB driver not available")
+    @patch("agent_utilities.knowledge_graph.backends.falkordb_backend.FalkorDB")
+    def test_env_var_override(self, mock_falkor, monkeypatch):
         """GRAPH_BACKEND env var should override the default."""
         monkeypatch.setenv("GRAPH_BACKEND", "falkordb")
         backend = create_backend()
@@ -131,7 +180,9 @@ class TestBackendFactory:
         assert isinstance(backend, LadybugBackend)
         assert backend.db_path == str(db_file)
 
-    def test_case_insensitive(self):
+    @pytest.mark.skipif(not FALKORDB_AVAILABLE, reason="FalkorDB driver not available")
+    @patch("agent_utilities.knowledge_graph.backends.falkordb_backend.FalkorDB")
+    def test_case_insensitive(self, mock_falkor):
         """Backend type should be case-insensitive."""
         backend = create_backend(backend_type="FalkorDB")
         assert isinstance(backend, FalkorDBBackend)

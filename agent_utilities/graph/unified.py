@@ -45,6 +45,7 @@ async def execute_graph(
     mode: str = "ask",
     mcp_toolsets: list[Any] | None = None,
     plan_sync=None,
+    requested_model_id: str | None = None,
     **kwargs,
 ) -> dict:
     """Unified entry point for synchronous graph execution.
@@ -57,6 +58,8 @@ async def execute_graph(
         mode: Operational mode ('ask', 'plan', 'research').
         mcp_toolsets: Optional list of pre-initialized MCP toolsets.
         plan_sync: Optional async callback for bridging plan state to ACP.
+        requested_model_id: Optional per-turn model id override from the
+            ``x-agent-model-id`` request header. See :func:`run_graph`.
         **kwargs: Additional parameters passed to the runner.
 
     Returns:
@@ -71,6 +74,7 @@ async def execute_graph(
         mode=mode,
         mcp_toolsets=mcp_toolsets,
         plan_sync=plan_sync,
+        requested_model_id=requested_model_id,
         **kwargs,
     )
 
@@ -83,6 +87,7 @@ async def execute_graph_stream(
     mode: str = "ask",
     mcp_toolsets: list[Any] | None = None,
     handler: GraphEventHandler | None = None,
+    requested_model_id: str | None = None,
     **kwargs,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Unified entry point for asynchronous streaming graph execution.
@@ -95,6 +100,8 @@ async def execute_graph_stream(
         mode: Operational mode ('ask', 'plan', 'research').
         mcp_toolsets: Optional list of pre-initialized MCP toolsets.
         handler: Optional event handler for sideband processing.
+        requested_model_id: Optional per-turn model id override from the
+            ``x-agent-model-id`` request header. See :func:`run_graph`.
         **kwargs: Additional parameters passed to the runner.
 
     Yields:
@@ -108,6 +115,7 @@ async def execute_graph_stream(
         run_id=run_id,
         mode=mode,
         mcp_toolsets=mcp_toolsets,
+        requested_model_id=requested_model_id,
         **kwargs,
     ):
         if handler:

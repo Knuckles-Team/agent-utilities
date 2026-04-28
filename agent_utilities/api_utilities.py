@@ -8,8 +8,18 @@ agent ecosystem.
 
 __version__ = "0.2.40"
 
-from .decorators import require_auth  # noqa: F401
-from .exceptions import (  # noqa: F401
+__all__ = [
+    "require_auth",
+    "ApiError",
+    "AuthError",
+    "LoginRequiredError",
+    "MissingParameterError",
+    "ParameterError",
+    "UnauthorizedError",
+]
+
+from .decorators import require_auth
+from .exceptions import (
     ApiError,
     AuthError,
     LoginRequiredError,

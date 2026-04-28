@@ -7,13 +7,14 @@ This module provides the high-level interface for querying the unified knowledge
 supporting structural Cypher queries, topological impact analysis, and hybrid search.
 """
 
+import contextlib
 import logging
 import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
 
-import networkx as nx  # type: ignore
+import networkx as nx
 
 from ..models.knowledge_graph import (
     CallableResourceNode,
@@ -80,13 +81,19 @@ class IntelligenceGraphEngine:
         if IntelligenceGraphEngine._ACTIVE_ENGINE is None:
             IntelligenceGraphEngine._ACTIVE_ENGINE = self
 
+        from .hybrid_retriever import HybridRetriever  # type: ignore
+        from .inference_engine import InferenceEngine  # type: ignore
+
+        self.hybrid_retriever = HybridRetriever(self)
+        self.inference_engine = InferenceEngine(self)
+
     @classmethod
     def get_active(cls) -> IntelligenceGraphEngine | None:
         """Retrieve the currently active engine instance."""
         return cls._ACTIVE_ENGINE
 
     @classmethod
-    def set_active(cls, engine: IntelligenceGraphEngine):
+    def set_active(cls, engine: IntelligenceGraphEngine | None):
         """Explicitly set the active engine instance."""
         cls._ACTIVE_ENGINE = engine
 
@@ -238,8 +245,8 @@ class IntelligenceGraphEngine:
 
         return []
 
-    def search_hybrid(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
-        """Perform a multi-faceted search across code, agents, and memory."""
+    def _search_keyword(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
+        """Perform a multi-faceted search across code, agents, and memory using keywords."""
         results = []
         query_lower = query.lower()
 
@@ -267,6 +274,10 @@ class IntelligenceGraphEngine:
         )
 
         return results[:top_k]
+
+    def search_hybrid(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
+        """Perform a multi-faceted search using Hybrid GraphRAG."""
+        return self.hybrid_retriever.retrieve_hybrid(query, context_window=top_k)
 
     def search_memories(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         """Search specifically for memory nodes."""
@@ -321,6 +332,10 @@ class IntelligenceGraphEngine:
                 agents.append(u)
         return agents
 
+    def run_inference(self) -> int:
+        """Run standard inference rules over the graph to derive new facts."""
+        return self.inference_engine.run_inference()
+
     def add_memory(
         self,
         content: str,
@@ -340,6 +355,17 @@ class IntelligenceGraphEngine:
             category=category,
             tags=tags or [],
         )
+
+        # Generate embedding if model available
+        if self.hybrid_retriever.embed_model:
+            try:
+                node.embedding = self.hybrid_retriever.embed_model.get_text_embedding(
+                    node.description or node.name
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate embedding for memory {node.id}: {e}"
+                )
 
         self.graph.add_node(node.id, **node.model_dump())
 
@@ -443,6 +469,17 @@ class IntelligenceGraphEngine:
             description=content,
             importance_score=0.5,
         )
+
+        # Generate embedding if model available
+        if self.hybrid_retriever.embed_model:
+            try:
+                node.embedding = self.hybrid_retriever.embed_model.get_text_embedding(
+                    node.description or node.name
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate embedding for episode {node.id}: {e}"
+                )
         self.graph.add_node(node.id, **node.model_dump())
         if self.backend:
             data = self._serialize_node(node, label="Episode")
@@ -497,6 +534,19 @@ class IntelligenceGraphEngine:
                     timestamp=ts,
                     importance_score=0.8,
                 )
+                # Generate embedding if model available
+                if self.hybrid_retriever.embed_model:
+                    try:
+                        resource.embedding = (
+                            self.hybrid_retriever.embed_model.get_text_embedding(
+                                resource.description or resource.name
+                            )
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to generate embedding for tool {resource.name}: {e}"
+                        )
+
                 self.graph.add_node(resource.id, **resource.model_dump())
                 if self.backend:
                     r_data = self._serialize_node(resource, label="CallableResource")
@@ -542,6 +592,18 @@ class IntelligenceGraphEngine:
             timestamp=ts,
             importance_score=0.9,
         )
+        # Generate embedding if model available
+        if self.hybrid_retriever.embed_model:
+            try:
+                resource.embedding = (
+                    self.hybrid_retriever.embed_model.get_text_embedding(
+                        resource.description or resource.name
+                    )
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate embedding for A2A agent {resource.id}: {e}"
+                )
         self.graph.add_node(resource.id, **resource.model_dump())
 
         if self.backend:
@@ -587,6 +649,18 @@ class IntelligenceGraphEngine:
             timestamp=ts,
             importance_score=0.7,
         )
+        # Generate embedding if model available
+        if self.hybrid_retriever.embed_model:
+            try:
+                resource.embedding = (
+                    self.hybrid_retriever.embed_model.get_text_embedding(
+                        resource.description or resource.name
+                    )
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate embedding for skill {resource.id}: {e}"
+                )
         self.graph.add_node(resource.id, **resource.model_dump())
 
         if self.backend:
@@ -661,9 +735,17 @@ class IntelligenceGraphEngine:
         query: str,
         views: list[str] | None = None,
     ) -> dict[str, Any]:
+        """Perform policy-guided retrieval across orthogonal MAGMA views.
+
+        V1 views: ``semantic``, ``temporal``, ``causal``, ``entity``.
+        V2 views (stubs): ``place``, ``epistemic`` — see
+        ``docs/KG_V2_DESIGN.md`` §5. These currently return empty lists;
+        the full Cypher-backed implementations land in a follow-up.
+        """
         if views is None:
+            # V1 default preserved for backward compatibility. V2 callers
+            # should pass views=["place","epistemic",...] explicitly.
             views = ["semantic", "temporal", "causal", "entity"]
-        """Perform policy-guided retrieval across orthogonal MAGMA views."""
         context: dict[str, Any] = {"query": query, "views": {}}
         if "semantic" in views:
             context["views"]["semantic"] = self.search_hybrid(query, top_k=5)
@@ -680,7 +762,51 @@ class IntelligenceGraphEngine:
                 "MATCH (e:Entity) WHERE e.id CONTAINS $q OR e.entity_type CONTAINS $q RETURN e",
                 {"q": query},
             )
+        if "place" in views:
+            context["views"]["place"] = self.retrieve_place_view(query, top_k=5)
+        if "epistemic" in views:
+            context["views"]["epistemic"] = self.retrieve_epistemic_view(query, top_k=5)
         return context
+
+    def retrieve_place_view(
+        self,
+        query: str,
+        place_ids: list[str] | None = None,
+        phase_ids: list[str] | None = None,
+        top_k: int = 10,
+    ) -> list[dict[str, Any]]:
+        """MAGMA Place view — retrieve co-located entities (EcphoryRAG).
+
+        Stub implementation: returns an empty list. Full Cypher query per
+        ``docs/KG_V2_DESIGN.md`` §5.1 lands in a follow-up PR.
+        """
+        _ = (query, place_ids, phase_ids, top_k)  # unused in stub
+        logger.debug(
+            "retrieve_place_view stub called (query=%r); see "
+            "docs/KG_V2_DESIGN.md §5.1 for full impl.",
+            query,
+        )
+        return []
+
+    def retrieve_epistemic_view(
+        self,
+        query: str,
+        include_contradictions: bool = True,
+        top_k: int = 10,
+    ) -> dict[str, Any]:
+        """MAGMA Epistemic view — beliefs + supporting / contradicting evidence.
+
+        Stub implementation: returns an empty result envelope with the
+        expected schema so callers can rely on the shape. Full Cypher
+        query per ``docs/KG_V2_DESIGN.md`` §5.2 lands in a follow-up PR.
+        """
+        _ = (query, include_contradictions, top_k)  # unused in stub
+        logger.debug(
+            "retrieve_epistemic_view stub called (query=%r); see "
+            "docs/KG_V2_DESIGN.md §5.2 for full impl.",
+            query,
+        )
+        return {"beliefs": [], "supporting": [], "contradicting": []}
 
     def find_relevant_policies(self, query: str) -> list[dict[str, Any]]:
         """Search for policies that apply to the current query context."""
@@ -1031,15 +1157,19 @@ class IntelligenceGraphEngine:
         Reuses existing search + topological analysis.
         """
         # 1. Hybrid search for initial candidates
+        logger.info(f"Extracting subgraph for query: {query}")
         search_results = self.search_hybrid(query, top_k=max_nodes * 2)
+        logger.info(f"Hybrid search found {len(search_results)} candidates")
 
         # 2. Build initial node set
         seed_ids = [r["id"] for r in search_results]
         subgraph = self.graph.subgraph(seed_ids).copy()
+        logger.info(f"Initial subgraph has {len(subgraph)} nodes")
 
         # 3. Expand to include neighbors with high centrality
         # In MultiDiGraph, neighbors() returns successors. We might want both.
         for node_id in list(subgraph.nodes):
+            logger.info(f"Expanding node: {node_id}")
             if self.graph.nodes[node_id].get("centrality", 0) >= min_centrality:
                 # Add successors and predecessors
                 for successor in self.graph.successors(node_id):
@@ -1122,10 +1252,8 @@ class IntelligenceGraphEngine:
                 # Handle JSON serialization of complex fields if stored as strings
                 for k in ["hierarchy", "nodes", "edges", "metadata"]:
                     if k in c_data and isinstance(c_data[k], str):
-                        try:
+                        with contextlib.suppress(Exception):
                             c_data[k] = json.loads(c_data[k])
-                        except Exception:
-                            pass
                 return CodemapArtifact.model_validate(c_data)
         return None
 
@@ -1144,10 +1272,8 @@ class IntelligenceGraphEngine:
                 c_data = res[0]["c"]
                 for k in ["hierarchy", "nodes", "edges", "metadata"]:
                     if k in c_data and isinstance(c_data[k], str):
-                        try:
+                        with contextlib.suppress(Exception):
                             c_data[k] = json.loads(c_data[k])
-                        except Exception:
-                            pass
                 return CodemapArtifact.model_validate(c_data)
         return None
 
@@ -1206,7 +1332,9 @@ class IntelligenceGraphEngine:
             builder.add_edge(u, v, label=data.get("type", ""))
 
         # Add some default styling for KG types
-        builder.lines.append("  classDef episode fill:#2e7d32,stroke:#1b5e20,color:#fff")
+        builder.lines.append(
+            "  classDef episode fill:#2e7d32,stroke:#1b5e20,color:#fff"
+        )
         builder.lines.append("  classDef memory fill:#1565c0,stroke:#0d47a1,color:#fff")
         builder.lines.append("  classDef agent fill:#f57c00,stroke:#e65100,color:#fff")
 

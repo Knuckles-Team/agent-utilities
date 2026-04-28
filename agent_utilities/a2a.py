@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 from .config import *  # noqa: F403
-from .models import A2APeerModel, A2ARegistryModel, DiscoveredSpecialist  # noqa: F401
+from .models import A2APeerModel, A2ARegistryModel  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

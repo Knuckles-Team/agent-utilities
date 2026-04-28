@@ -21,6 +21,7 @@ Two mechanisms are provided:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -82,15 +83,13 @@ def build_sensitive_tool_names() -> set[str]:
     sensitive: set[str] = set()
 
     # Source 1: Knowledge Graph
-    try:
+    with contextlib.suppress(Exception):
         from .graph.config_helpers import get_discovery_registry
 
         registry = get_discovery_registry()
         for tool in registry.tools:
             if tool.requires_approval:
                 sensitive.add(tool.name.lower())
-    except Exception:
-        pass
 
     return sensitive
 

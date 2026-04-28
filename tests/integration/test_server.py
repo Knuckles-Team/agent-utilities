@@ -3,7 +3,6 @@ import json
 from unittest.mock import MagicMock, patch, AsyncMock
 from fastapi.testclient import TestClient
 from agent_utilities.server import build_agent_app
-from agent_utilities.models import GraphResponse
 
 @pytest.fixture
 def mock_agent():
@@ -55,7 +54,7 @@ def test_mcp_config(client):
     with patch("agent_utilities.server.get_workspace_path") as mock_path:
         mock_path.return_value.exists.return_value = True
         mock_path.return_value.read_text.return_value = json.dumps({"mcpServers": {"test": {}}})
-        
+
         response = client.get("/mcp/config")
         assert response.status_code == 200
         assert "mcpServers" in response.json()
@@ -83,11 +82,12 @@ async def test_reload_mcp_config(client):
     # We must patch where it's used if it's a local import, or use the full path
     with patch("agent_utilities.mcp_agent_manager.sync_mcp_agents", new_callable=AsyncMock) as mock_sync, \
          patch("agent_utilities.graph_orchestration.load_node_agents_registry") as mock_reg:
-        
+
         mock_reg.return_value.agents = [1, 2]
         mock_reg.return_value.tools = [1, 2, 3]
-        
+
         response = client.post("/mcp/reload")
+        print(f"DEBUG: response={response.json()}")
         assert response.status_code == 200
         assert response.json()["status"] == "reloaded"
         assert response.json()["agents"] == 2
@@ -104,13 +104,13 @@ async def test_generate_codemap_success(client):
     mock_artifact = MagicMock()
     mock_artifact.id = "map1"
     mock_artifact.model_dump.return_value = {"id": "map1", "nodes": []}
-    
+
     with patch("agent_utilities.knowledge_graph.engine.IntelligenceGraphEngine.get_active", return_value=mock_kg), \
          patch("agent_utilities.knowledge_graph.codemaps.CodemapGenerator") as mock_gen_class:
-        
+
         mock_gen = mock_gen_class.return_value
         mock_gen.create = AsyncMock(return_value=mock_artifact)
-        
+
         response = client.post("/api/codemap", json={"prompt": "analyze this", "mode": "smart"})
         assert response.status_code == 200
         data = response.json()
@@ -123,14 +123,14 @@ async def test_ag_ui_stream(client):
     with patch("pydantic_ai.ui.ag_ui.AGUIAdapter") as mock_adapter_class:
         mock_adapter = mock_adapter_class.return_value
         mock_adapter.dispatch_request = AsyncMock()
-        
+
         # Mocking StreamingResponse
         from fastapi.responses import StreamingResponse
         async def mock_iterator():
             yield b"data: test\n\n"
-        
+
         mock_adapter.dispatch_request.return_value = StreamingResponse(mock_iterator())
-        
+
         response = client.post("/ag-ui", json={"query": "hello"})
         assert response.status_code == 200
         # Check if we can read the stream
@@ -142,9 +142,9 @@ def test_stream_endpoint(client, mock_agent):
     with patch("agent_utilities.graph_orchestration.run_graph_stream") as mock_run:
         async def mock_stream_gen(*args, **kwargs):
             yield "event: message\ndata: hello\n\n"
-        
+
         mock_run.return_value = mock_stream_gen()
-        
+
         response = client.post("/stream", json={"query": "test"})
         assert response.status_code == 200
         assert "text/event-stream" in response.headers["content-type"]
@@ -155,13 +155,13 @@ def test_list_mcp_tools(client, mock_agent):
     mock_tool = MagicMock()
     mock_tool.name = "test_tool"
     mock_tool.description = "test desc"
-    
+
     mock_ts = MagicMock()
     mock_ts.get_tools.return_value = [mock_tool]
     mock_ts.name = "test_server"
-    
+
     mock_agent.toolsets = [mock_ts]
-    
+
     response = client.get("/mcp/tools")
     assert response.status_code == 200
     data = response.json()

@@ -13,7 +13,7 @@ classifiers = [
     "Environment :: Console",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3"]
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "tree-sitter>=0.23.2",
     "requests>=2.32.5",
@@ -23,7 +23,10 @@ dependencies = [
     "PyYAML>=6.0.0",
     "python-dotenv>=1.2.1",
     "networkx>=3.0",
-    "ladybug>=0.15.3"]
+    "ladybug>=0.15.3",
+    "numpy",
+    "scipy",
+    "pathspec"]
 
 [[project.authors]]
 name = "Audel Rouhi"
@@ -40,7 +43,7 @@ mcp = [
     "httpx>=0.28.1"
 ]
 agent = [
-    "agent-utilities[mcp,ag-ui]>=0.2.40",
+    "agent-utilities[mcp,ag-ui,terminal]>=0.2.40",
     "universal-skills>=0.1.56",
     "skill-graphs>=0.1.38",
     "pydantic-ai-skills>=0.4.1",
@@ -64,6 +67,8 @@ agent-huggingface = [
 ]
 ag-ui = [
     "agent-webui>=0.1.32"]
+terminal = [
+    "agent-terminal-ui>=0.1.35"]
 browser = [
     "playwright>=1.49.1"]
 acp = [
@@ -92,16 +97,36 @@ graph = [
     "tree-sitter-javascript>=0.23.0",
     "tree-sitter-typescript>=0.23.0"
 ]
+neo4j = [
+    "neo4j>=5.14.1"
+]
+falkordb = [
+    "falkordb>=1.0.1"
+]
+owl = [
+    "owlready2>=0.46",
+    "rdflib>=7.0.0"
+]
+stardog = [
+    "agent-utilities[owl]",
+    "pystardog>=0.20.0"
+]
 test = [
     "hypothesis>=6.152.1",
     "pytest-cov",
     "mypy",
     "ruff",
     "mutmut",
-    "pytest-asyncio"
+    "pytest-asyncio",
+    "pytest-env",
+    "opentelemetry-instrumentation-starlette",
+    "opentelemetry-instrumentation-fastapi",
+    "opentelemetry-instrumentation-asgi",
+    "repository-manager",
+    "agent-utilities[agent,graph,acp,owl]"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,graph,browser,test]>=0.2.40"]
+    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,graph,browser,test,owl,stardog]>=0.2.40"]
 
 [tool.setuptools]
 include-package-data = true
@@ -127,4 +152,42 @@ check_untyped_defs = true
 disallow_untyped_defs = false
 
 [dependency-groups]
-dev = []
+
+[tool.uv.sources]
+agent-terminal-ui = { path = "../agent-terminal-ui" }
+agent-webui = { path = "../agent-webui" }
+repository-manager = { path = "../agents/repository-manager", editable = true }
+universal-skills = { path = "../skills/universal-skills" }
+skill-graphs = { path = "../skills/skill-graphs" }
+acpkit = { path = "../../open-source-libraries/acpkit" }
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = "."
+testpaths = ["tests/unit", "tests/integration"]
+markers = [
+    "integration: Integration tests using subprocess/TestClient (no external services)",
+    "live: Tests requiring live external services (LLM endpoints, real networks)"
+]
+env = [
+    "AGENT_UTILITIES_TESTING=true",
+    "VALIDATION_MODE=true"
+]
+
+[tool.coverage.run]
+source = ["agent_utilities"]
+omit = ["tests/*", "setup.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 70
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "pass",
+    "except ImportError:"
+]

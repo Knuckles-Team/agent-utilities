@@ -7,6 +7,7 @@ Uses SimpleDirectoryReader (LlamaIndex) exactly as vector-mcp does.
 Hash-based deduplication avoids re-processing unchanged files.
 """
 
+import contextlib
 import hashlib
 import logging
 from pathlib import Path
@@ -210,10 +211,8 @@ class KBDocumentParser:
 
         match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
         if match:
-            try:
+            with contextlib.suppress(Exception):
                 return yaml.safe_load(match.group(1)) or {}
-            except Exception:
-                pass
         return {"name": graph_path.name, "description": content[:200]}
 
     # ------------------------------------------------------------------

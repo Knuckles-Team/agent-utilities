@@ -2,12 +2,14 @@
 """Workspace Management Module.
 
 This module provides the core logic for discovering, initializing, and
-managing the agent's filesystem workspace. it includes templates for
-standard markdown files (IDENTITY, etc.), parsing and
-serialization logic for these files, and robust path discovery for
-skills and MCP configurations.
+managing the agent's filesystem workspace. It includes JSON templates for
+standard agent prompt files (``main_agent.json``), parsing and serialization
+logic for these files, and robust path discovery for skills and MCP
+configurations.
 """
 
+import contextlib
+import json
 import logging
 import os
 import re
@@ -76,25 +78,31 @@ CORE_FILES = {
 }
 
 TEMPLATES = {
-    "MAIN_AGENT": """{
-  "task": "main-agent",
-  "input": "# main-agent\\n\\nYou are the primary orchestrator for this workspace. Your goal is to help the user manage their projects and coordinate specialized agents.\\n\\n### Core Principles\\n* Be concise and efficient.\\n* Use the knowledge graph to discover tools and experts.\\n* Verify your work before concluding.\\n\\nYour personality:\\n* **Emoji:** 🤖\\n* **Vibe:** Professional, efficient, helpful",
-  "type": "prompt",
-  "description": "The primary orchestrator agent for this workspace.",
-  "tools": [
-    "workspace-manager",
-    "agent-workflows"
-  ],
-  "topic": "General Expertise",
-  "tone": "technical and precise",
-  "style": "professional assistant",
-  "goal": "Coordinate specialized agents and manage the workspace."
-}
-""",
-    "MCP_CONFIG": """{
-    "mcpServers": {}
-}
-""",
+    "MAIN_AGENT": json.dumps(
+        {
+            "name": "main-agent",
+            "type": "prompt",
+            "description": ("The primary orchestrator agent for this workspace."),
+            "capabilities": [
+                "workspace-manager",
+                "agent-workflows",
+            ],
+            "content": (
+                "# Main Agent\n\n"
+                "You are the primary orchestrator for this workspace. "
+                "Your goal is to help the user manage their projects and "
+                "coordinate specialized agents.\n\n"
+                "### Core Principles\n"
+                "* Be concise and efficient.\n"
+                "* Use the knowledge graph to discover tools and experts.\n"
+                "* Verify your work before concluding.\n\n"
+                "Your personality:\n"
+                "* Vibe: Professional, efficient, helpful\n"
+            ),
+        },
+        indent=2,
+    ),
+    "MCP_CONFIG": json.dumps({"mcpServers": {}}, indent=2),
 }
 
 
@@ -218,6 +226,7 @@ def get_agent_workspace() -> Path:
 
             # 3. Use importlib to find package origin
             import importlib.util
+
             spec = importlib.util.find_spec(pkg)
             if spec and spec.origin:
                 origin_path = Path(spec.origin).resolve()
@@ -255,7 +264,9 @@ def validate_workspace_path(path: Path) -> Path:
         resolved.relative_to(ws.resolve())
     except ValueError:
         logger.warning(f"Path traversal blocked: {path} (resolves to {resolved})")
-        raise ValueError(f"Access denied: path is outside the workspace: {path}")
+        raise ValueError(
+            f"Access denied: path is outside the workspace: {path}"
+        ) from None
     return resolved
 
 
@@ -279,7 +290,7 @@ def get_workspace_path(filename: str) -> Path:
         try:
             resolved.relative_to(ws.resolve())
         except ValueError:
-            raise ValueError(f"Invalid workspace filename: {filename}")
+            raise ValueError(f"Invalid workspace filename: {filename}") from None
     return path
 
 
@@ -325,7 +336,7 @@ def resolve_mcp_config_path(mcp_config: str | None) -> Path | None:
             pass
 
         # Strategy B: importlib.util.find_spec (robust fallback for development installs)
-        try:
+        with contextlib.suppress(Exception):
             import importlib.util
 
             spec = importlib.util.find_spec(pkg)
@@ -335,8 +346,6 @@ def resolve_mcp_config_path(mcp_config: str | None) -> Path | None:
                     p_spec = pkg_root / sub / mcp_config
                     if p_spec.exists():
                         return p_spec
-        except Exception:
-            pass
 
         # Strategy C: CWD fallback (legacy)
         candidates = [

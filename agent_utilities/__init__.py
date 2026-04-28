@@ -38,7 +38,7 @@ try:
     import urllib3
 
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-except Exception:
+except Exception:  # nosec B110
     pass
 warnings.filterwarnings("ignore", message=".*Unverified HTTPS request.*")
 

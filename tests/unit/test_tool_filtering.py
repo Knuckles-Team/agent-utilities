@@ -1,6 +1,4 @@
-import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from agent_utilities.tool_filtering import (
     _parse_skill_from_md,
     load_skills_from_directory,
@@ -21,6 +19,7 @@ tags: [tag1, tag2]
 # Content
 """)
     skill = _parse_skill_from_md(skill_file, "test_id")
+    assert skill is not None
     assert skill["name"] == "Test Skill"
     assert "tag1" in skill["tags"]
     assert skill["version"] == "1.0.0"

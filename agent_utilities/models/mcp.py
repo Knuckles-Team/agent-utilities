@@ -1,7 +1,9 @@
 import time
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+SpecialistTier = Literal["light", "medium", "heavy", "reasoning"]
 
 
 class MCPConfigModel(BaseModel):
@@ -30,6 +32,26 @@ class MCPAgent(BaseModel):
     is_custom: bool = Field(default=False, description="True if manually edited")
     tool_count: int = Field(default=0, description="Number of tools")
     avg_relevance_score: int = Field(default=0, description="Mean score (0-100)")
+    default_tier: SpecialistTier = Field(
+        default="medium",
+        description=(
+            "Routing tier hint passed to the model-registry specialist "
+            "spawner. Use 'light' for cheap/fast researchers, 'heavy' for "
+            "planners/synthesizers, 'reasoning' for deep-thinking nodes."
+        ),
+    )
+    required_tags: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Capability tags every candidate model must carry (AND "
+            "semantics) before the spawner considers it."
+        ),
+    )
+
+    @property
+    def tag(self) -> str:
+        """Alias for name, used in routing and legacy test cases."""
+        return self.name
 
 
 class MCPToolInfo(BaseModel):

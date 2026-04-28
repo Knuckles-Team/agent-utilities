@@ -29,7 +29,7 @@ async def generate_interactive_explanation(
         The HTML content of the interactive explanation.
     """
     logger.info(f"Generating interactive explanation for: {explanation_goal}")
-    
+
     # We use a subagent to generate the HTML/JS.
     # Simon's preference: Vanilla JS, no React.
     goal = (
@@ -41,13 +41,13 @@ async def generate_interactive_explanation(
         f"3. Make it interactive (e.g. clickable steps, hover effects, simple animations).\n"
         f"4. The output must be valid HTML that can be saved and opened in a browser."
     )
-    
+
     html_artifact = await dispatch_subagent(
         goal=goal,
         deps=deps,
         name="Explanation-Agent",
         skill_types=["universal", "interactive-explain"],
-        system_prompt_suffix="You are an expert at creating interactive web-based educational content."
+        system_prompt_suffix="You are an expert at creating interactive web-based educational content.",
     )
-    
+
     return html_artifact

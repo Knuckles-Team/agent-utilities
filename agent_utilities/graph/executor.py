@@ -39,6 +39,121 @@ from .state import GraphDeps, GraphState
 logger = logging.getLogger(__name__)
 
 
+# Simple per-node-id tier heuristic used when the Knowledge Graph registry
+# does not carry an explicit ``default_tier``. Keeps parity with the
+# description in AGENTS.md: cheap/fast models for discovery specialists,
+# heavy/reasoning models for the planner and synthesizer.
+_SPECIALIST_TIER_HINTS: dict[str, str] = {
+    "researcher": "light",
+    "web_researcher": "light",
+    "code_researcher": "light",
+    "workspace_researcher": "light",
+    "simple_tool": "light",
+    "planner": "heavy",
+    "architect": "heavy",
+    "synthesizer": "heavy",
+    "verifier": "reasoning",
+}
+
+
+def _default_tier_for(node_id: str) -> str:
+    """Infer the default routing tier for a specialist by name.
+
+    The heuristic is intentionally small; richer tiers come from
+    ``MCPAgent.default_tier`` when the registry is populated.
+    """
+    return _SPECIALIST_TIER_HINTS.get(node_id, "medium")
+
+
+def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
+    """Pick the model to use when spawning the specialist ``node_id``.
+
+    Resolution order:
+
+    1. If ``ctx_deps.requested_model_id`` is set AND the id resolves
+       inside ``ctx_deps.model_registry``, use that model verbatim — this
+       is the per-turn override sourced from the ``x-agent-model-id``
+       header and wins over tier-based routing.
+    2. If ``ctx_deps.model_registry`` is populated, consult the discovery
+       registry for a ``default_tier`` / ``required_tags`` hint on the
+       specialist; fall back to the heuristic ``_default_tier_for`` map.
+       Call :meth:`ModelRegistry.pick_for_task` and build a concrete
+       pydantic-ai model via :func:`create_model`.
+    3. Otherwise return ``ctx_deps.agent_model`` (the single graph-wide
+       default) so behaviour is unchanged when no registry is configured.
+
+    The function never raises on lookup problems: if anything goes wrong,
+    it logs a warning and returns the default ``agent_model``.
+    """
+    registry = getattr(ctx_deps, "model_registry", None)
+    if registry is None or not getattr(registry, "models", None):
+        return ctx_deps.agent_model
+
+    requested_id = getattr(ctx_deps, "requested_model_id", None)
+    if requested_id:
+        chosen = registry.get_by_id(requested_id)
+        if chosen is not None:
+            try:
+                from ..model_factory import create_model
+
+                api_key = os.getenv(chosen.api_key_env) if chosen.api_key_env else None
+                logger.info(
+                    "Spawning specialist '%s' with user-requested model '%s'",
+                    node_id,
+                    chosen.id,
+                )
+                return create_model(
+                    provider=chosen.provider,
+                    model_id=chosen.model_id,
+                    base_url=chosen.base_url,
+                    api_key=api_key,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Requested model '%s' failed to build; falling back: %s",
+                    requested_id,
+                    e,
+                )
+        else:
+            logger.debug(
+                "Requested model id '%s' not found in registry; using tier routing",
+                requested_id,
+            )
+
+    tier = _default_tier_for(node_id)
+    required_tags: list[str] = []
+    try:
+        reg = get_discovery_registry()
+        agent_info = next((a for a in reg.agents if a.name == node_id), None)
+        if agent_info is not None:
+            tier = getattr(agent_info, "default_tier", tier) or tier
+            required_tags = list(getattr(agent_info, "required_tags", []) or [])
+    except Exception as e:
+        logger.debug(f"Registry tier lookup failed for '{node_id}': {e}")
+
+    try:
+        from ..model_factory import create_model
+
+        chosen = registry.pick_for_task(complexity=tier, required_tags=required_tags)
+        api_key = os.getenv(chosen.api_key_env) if chosen.api_key_env else None
+        logger.debug(
+            "Spawning specialist '%s' with model '%s' (tier=%s, tags=%s)",
+            node_id,
+            chosen.id,
+            tier,
+            required_tags,
+        )
+        return create_model(
+            provider=chosen.provider,
+            model_id=chosen.model_id,
+            base_url=chosen.base_url,
+            api_key=api_key,
+        )
+    except Exception as e:
+        logger.warning(f"Model selection for '{node_id}' fell back to default: {e}")
+        return ctx_deps.agent_model
+
+
 def agent_matches_node_id(agent: MCPAgent, node_id: str) -> bool:
     """Multi-strategy agent name matching for approximate node IDs from the router.
 
@@ -500,7 +615,6 @@ async def _execute_dynamic_mcp_agent(
                 )
             ctx.deps.server_health[srv_name].record_success()
 
-
             # Stream events to WebUI
             if ctx.deps.event_queue:
                 from pydantic_ai.messages import (
@@ -541,6 +655,31 @@ async def _execute_dynamic_mcp_agent(
             # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
             # and mirror to results (keyed by domain tag, for backwards compatibility).
             result_str = str(res.output)
+
+            # RLM Large Result Summarization
+            from ..rlm.config import RLMConfig
+
+            rlm_config = RLMConfig()
+            if len(result_str) > rlm_config.max_context_threshold:
+                logger.warning(
+                    f"Expert '{agent_info.name}' result ({len(result_str)} chars) exceeds threshold. "
+                    "Routing to RLM for summarization."
+                )
+                from ..rlm.specialist import recursive_reasoner_tool
+
+                try:
+                    summary = await recursive_reasoner_tool(
+                        ctx,
+                        prompt=f"The specialist '{agent_info.name}' returned a massive output. Summarize the key findings relevant to the user's query: {ctx.state.query}",
+                        context_data=result_str,
+                    )
+                    result_str = f"[RLM Synthesized Summary of Massive Data]\n{summary}"
+                except Exception as rlm_err:
+                    logger.error(f"RLM summarization failed: {rlm_err}")
+                    result_str = (
+                        result_str[: rlm_config.max_context_threshold]
+                        + "... [TRUNCATED DUE TO SIZE & RLM FAILURE]"
+                    )
 
             # Data Enhancement Synthesizer: Synthesize response from real output tool data captured
             if "no data" in result_str.lower() or "returned no" in result_str.lower():
@@ -917,8 +1056,10 @@ async def _execute_specialized_step(
 
     from pydantic_ai import DeferredToolRequests
 
+    specialist_model = pick_specialist_model(ctx.deps, prompt_name)
+
     agent = Agent(
-        model=ctx.deps.agent_model,
+        model=specialist_model,
         system_prompt=(
             f"{memory_instruction}\n\n"
             f"{prompt}\n\n"
@@ -979,6 +1120,31 @@ async def _execute_specialized_step(
             usage = await usage
         ctx.state._update_usage(usage)
         result_str = str(res)
+
+        # RLM Large Result Summarization
+        from ..rlm.config import RLMConfig
+
+        rlm_config = RLMConfig()
+        if len(result_str) > rlm_config.max_context_threshold:
+            logger.warning(
+                f"Specialist '{prompt_name}' result ({len(result_str)} chars) exceeds threshold. "
+                "Routing to RLM for summarization."
+            )
+            from ..rlm.specialist import recursive_reasoner_tool
+
+            try:
+                summary = await recursive_reasoner_tool(
+                    ctx,
+                    prompt=f"The specialist '{prompt_name}' returned a massive output. Summarize the key findings relevant to the user's query: {ctx.state.query}",
+                    context_data=result_str,
+                )
+                result_str = f"[RLM Synthesized Summary of Massive Data]\n{summary}"
+            except Exception as rlm_err:
+                logger.error(f"RLM summarization failed: {rlm_err}")
+                result_str = (
+                    result_str[: rlm_config.max_context_threshold]
+                    + "... [TRUNCATED DUE TO SIZE & RLM FAILURE]"
+                )
 
         # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
         # and mirror to results (keyed by domain, for backwards compatibility).

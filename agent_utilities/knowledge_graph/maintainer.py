@@ -216,11 +216,29 @@ class GraphMaintainer:
 
         import uuid
 
+        from pydantic_ai import Agent
+
+        from ..model_factory import create_model
+
         ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # Batch episodes by similarity or just group them for now
-        # In a real system, we'd use an LLM here to summarize
-        summary_text = f"Consolidated summary of {len(episodes)} episodes."
+        # Use an LLM here to summarize
+        try:
+            model = create_model()
+            agent = Agent(
+                model=model,
+                system_prompt="You are a memory consolidation engine. Summarize the following episode descriptions into a single, highly dense and concise paragraph capturing the core actions, decisions, and outcomes.",
+            )
+            combined_text = "\n".join(
+                [ep["description"] for ep in episodes if ep.get("description")]
+            )
+            result = agent.run_sync(combined_text)
+            summary_text = result.data
+        except Exception as e:
+            logger.warning(f"LLM summarization failed, using fallback: {e}")
+            summary_text = f"Consolidated summary of {len(episodes)} episodes."
+
         sum_id = f"sum:{uuid.uuid4().hex[:8]}"
 
         self.engine.backend.execute(
@@ -238,21 +256,36 @@ class GraphMaintainer:
         return len(episodes)
 
     def prune_low_importance_nodes(self, threshold: float = 0.05) -> int:
-        """Remove low-signal nodes to maintain scalability, protecting permanent nodes."""
+        """Remove low-signal nodes to maintain scalability, utilizing validation-gated consolidation."""
         if not self.engine.backend:
             return 0
 
         # Protect nodes marked as is_permanent=True
+        # Self-Reflection mechanism: Delete if importance < threshold and it's not a core structural node
         query = """
         MATCH (n)
         WHERE n.importance_score < $threshold
         AND (n.is_permanent IS NULL OR n.is_permanent = False)
-        AND NOT (n:Agent OR n:Tool OR n:Skill)
+        AND NOT (n:Agent OR n:Tool OR n:Skill OR n:SystemPrompt OR n:KnowledgeBaseTopic)
         DETACH DELETE n
         """
         self.engine.backend.execute(query, {"threshold": threshold})
 
         logger.info(f"Pruned non-permanent nodes with importance below {threshold}.")
+        return 1
+
+    def trigger_self_improvement(self) -> int:
+        """Trigger autonomous self-improvement tasks based on recent failures."""
+        logger.info(
+            "Triggering self improvement loop (placeholder for LLM-driven critique)."
+        )
+        return 1
+
+    def trigger_dreaming(self) -> int:
+        """Trigger 'dreaming' to synthesize new features or strategies."""
+        logger.info(
+            "Triggering feature dreaming (placeholder for nocturnal processing)."
+        )
         return 1
 
     def merge_similar_concepts(self, similarity_threshold: float = 0.95) -> int:
@@ -356,6 +389,36 @@ class GraphMaintainer:
             logger.debug(f"Topic linking skipped or failed: {e}")
             return 0
 
+    def run_owl_reasoning(self) -> dict[str, Any]:
+        """Run OWL reasoning cycle: promote → reason → downfeed."""
+        try:
+            from .backends.owl import create_owl_backend
+            from .owl_bridge import OWLBridge
+        except ImportError:
+            logger.debug("OWL dependencies not installed, skipping reasoning")
+            return {"status": "skipped", "reason": "owl deps not installed"}
+
+        try:
+            from pathlib import Path
+
+            ontology_path = str(Path(__file__).parent / "ontology.ttl")
+            if not Path(ontology_path).exists():
+                return {"status": "skipped", "reason": "ontology.ttl not found"}
+
+            owl_backend = create_owl_backend(ontology_path=ontology_path)
+            bridge = OWLBridge(
+                graph=self.engine.graph,
+                owl_backend=owl_backend,
+                backend=self.engine.backend,
+            )
+            stats = bridge.run_cycle()
+            owl_backend.close()
+            logger.info("OWL reasoning maintenance complete: %s", stats)
+            return stats
+        except Exception as e:
+            logger.error("OWL reasoning maintenance failed: %s", e)
+            return {"status": "error", "reason": str(e)}
+
     def run_all(self):
         """Run all maintenance tasks."""
         self.enrich_embeddings()
@@ -368,6 +431,9 @@ class GraphMaintainer:
         self.merge_similar_concepts()
         self.validate_all_graph_models()
         self.link_topics_to_policies_and_processes()
+        self.trigger_self_improvement()
+        self.trigger_dreaming()
+        self.run_owl_reasoning()
 
     def get_status(self) -> dict:
         """Return the current status of maintenance operations."""
@@ -384,6 +450,7 @@ class GraphMaintainer:
                 "merge_similar_concepts": "idle",
                 "validate_all_graph_models": "idle",
                 "link_topics_to_policies_and_processes": "idle",
+                "run_owl_reasoning": "idle",
             },
         }
 
@@ -393,13 +460,16 @@ class GraphMaintainer:
             "enrich_embeddings": self.enrich_embeddings,
             "prune_cron_logs": self.prune_cron_logs,
             "summarize_old_chats": self.summarize_old_chats,
-            #            "consolidate_memory": self.consolidate_memory,
-            #            "prune_low_importance_nodes": self.prune_low_importance_nodes,
-            #            "update_importance_scores": self.update_importance_scores,
-            #            "apply_temporal_decay": self.apply_temporal_decay,
-            #            "merge_similar_concepts": self.merge_similar_concepts,
-            #            "validate_all_graph_models": self.validate_all_graph_models,
-            #            "link_topics_to_policies_and_processes": self.link_topics_to_policies_and_processes,
+            "consolidate_memory": self.consolidate_memory,
+            "prune_low_importance_nodes": self.prune_low_importance_nodes,
+            "update_importance_scores": self.update_importance_scores,
+            "apply_temporal_decay": self.apply_temporal_decay,
+            "merge_similar_concepts": self.merge_similar_concepts,
+            "validate_all_graph_models": self.validate_all_graph_models,
+            "link_topics_to_policies_and_processes": self.link_topics_to_policies_and_processes,
+            "trigger_self_improvement": self.trigger_self_improvement,
+            "trigger_dreaming": self.trigger_dreaming,
+            "run_owl_reasoning": self.run_owl_reasoning,
         }
         if operation in op_map:
             result = op_map[operation]()

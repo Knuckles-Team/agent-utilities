@@ -7,6 +7,7 @@ for auditing, safety, and automatic graph tracing.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import logging
 import time
@@ -74,10 +75,15 @@ class HooksCapability(AbstractCapability[Any]):
         return replace(self)
 
     async def _run_hooks(self, input: HookInput) -> HookResult:
+        import inspect
+
         final_result = HookResult()
         for hook in self.hooks:
             try:
-                res = hook(input)
+                if inspect.iscoroutinefunction(hook):
+                    res = await hook(input)
+                else:
+                    res = hook(input)
                 if res:
                     if res.modify_args:
                         final_result.modify_args = res.modify_args
@@ -124,14 +130,12 @@ class HooksCapability(AbstractCapability[Any]):
                     importance_score=0.3,
                     timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 )
-                try:
+                with contextlib.suppress(Exception):
                     engine.graph.add_node(node.id, **node.model_dump())
                     # Edge to episode if available
                     episode_id = getattr(ctx.deps, "episode_id", None)
                     if episode_id:
                         engine.graph.add_edge(episode_id, node.id, type="USED_TOOL")
-                except Exception:
-                    pass
 
         res = await self._run_hooks(
             HookInput(
@@ -167,15 +171,13 @@ class HooksCapability(AbstractCapability[Any]):
         if self.auto_graph_trace:
             engine = getattr(ctx.deps, "graph_engine", None)
             if engine:
-                try:
+                with contextlib.suppress(Exception):
                     if call.tool_call_id in engine.graph:
                         engine.graph.nodes[call.tool_call_id]["result"] = str(result)[
                             :1000
                         ]
                         engine.graph.nodes[call.tool_call_id]["duration"] = duration
                         # Persistence would happen in the background or at the end of the run
-                except Exception:
-                    pass
 
         res = await self._run_hooks(
             HookInput(

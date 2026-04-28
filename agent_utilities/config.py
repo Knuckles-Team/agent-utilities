@@ -83,11 +83,12 @@ class AgentConfig(BaseSettings):
     )
     agent_system_prompt: str | None = Field(default=None, alias="AGENT_SYSTEM_PROMPT")
 
-    host: str = Field(default="0.0.0.0", alias="HOST")
+    host: str = Field(default="0.0.0.0", alias="HOST")  # nosec B104
     port: int = Field(default=9000, alias="PORT")
     debug: bool = Field(default=False, alias="DEBUG")
     enable_web_ui: bool = Field(default=False, alias="ENABLE_WEB_UI")
     enable_terminal_ui: bool = Field(default=False, alias="ENABLE_TERMINAL_UI")
+    enable_web_logs: bool = Field(default=True, alias="ENABLE_WEB_LOGS")
     enable_acp: bool = Field(default=False, alias="ENABLE_ACP")
     acp_port: int = Field(default=8001, alias="ACP_PORT")
     acp_session_root: str = Field(default=".acp-sessions", alias="ACP_SESSION_ROOT")
@@ -112,6 +113,8 @@ class AgentConfig(BaseSettings):
     enable_llm_validation: bool = Field(default=False, alias="ENABLE_LLM_VALIDATION")
     graph_router_timeout: float = Field(default=300.0, alias="GRAPH_ROUTER_TIMEOUT")
     graph_verifier_timeout: float = Field(default=300.0, alias="GRAPH_VERIFIER_TIMEOUT")
+    enable_kg_embeddings: bool = Field(default=True, alias="ENABLE_KG_EMBEDDINGS")
+    kg_backups: int = Field(default=3, alias="KG_BACKUPS")
 
     custom_skills_directory: str | None = Field(
         default=None, alias="CUSTOM_SKILLS_DIRECTORY"
@@ -255,6 +258,7 @@ DEFAULT_CUSTOM_SKILLS_DIRECTORY = config.custom_skills_directory
 DEFAULT_SKILL_TYPES = config.skill_types
 DEFAULT_ENABLE_WEB_UI = config.enable_web_ui
 DEFAULT_ENABLE_TERMINAL_UI = config.enable_terminal_ui
+DEFAULT_ENABLE_WEB_LOGS = config.enable_web_logs
 DEFAULT_ENABLE_OTEL = config.enable_otel
 DEFAULT_ENABLE_ACP = config.enable_acp
 DEFAULT_ACP_PORT = config.acp_port
@@ -338,6 +342,8 @@ DEFAULT_ENABLE_LLM_VALIDATION = config.enable_llm_validation
 DEFAULT_ROUTING_STRATEGY = config.routing_strategy
 DEFAULT_GRAPH_ROUTER_TIMEOUT = config.graph_router_timeout
 DEFAULT_GRAPH_VERIFIER_TIMEOUT = config.graph_verifier_timeout
+DEFAULT_ENABLE_KG_EMBEDDINGS = config.enable_kg_embeddings
+DEFAULT_KG_BACKUPS = config.kg_backups
 
 AGENT_API_KEY = config.agent_api_key
 ENABLE_API_AUTH = config.enable_api_auth

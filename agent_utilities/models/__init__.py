@@ -29,6 +29,12 @@ from .mcp import (
     MCPServerHealth,
     MCPToolInfo,
 )
+from .model_registry import (
+    ModelCostRate,
+    ModelDefinition,
+    ModelRegistry,
+    ModelTier,
+)
 from .project import (
     ProgressEntry,
     ProgressLog,
@@ -96,4 +102,8 @@ __all__ = [
     "NestedStructure",
     "CodemapArtifact",
     "CodemapNode",
+    "ModelCostRate",
+    "ModelDefinition",
+    "ModelRegistry",
+    "ModelTier",
 ]

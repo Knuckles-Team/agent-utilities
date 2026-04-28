@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from pathlib import Path
 from agent_utilities.mcp_agent_manager import (

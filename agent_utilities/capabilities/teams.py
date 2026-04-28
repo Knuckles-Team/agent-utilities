@@ -7,6 +7,7 @@ Agent Communication Protocol (ACP). Persists state to the Knowledge Graph.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import uuid
@@ -62,13 +63,11 @@ class TeamCapability(AbstractCapability[Any]):
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 metadata={"members": member_ids},
             )
-            try:
+            with contextlib.suppress(Exception):
                 engine.graph.add_node(node.id, **node.model_dump())
                 for member in member_ids:
                     # Link members to team
                     engine.graph.add_edge(member, self.team_id, type="BELONGS_TO_TEAM")
-            except Exception:
-                pass
         return self.team_id
 
     async def add_task(
@@ -90,7 +89,7 @@ class TeamCapability(AbstractCapability[Any]):
                 importance_score=0.6,
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
-            try:
+            with contextlib.suppress(Exception):
                 engine.graph.add_node(node.id, **node.model_dump())
                 if self.team_id:
                     engine.graph.add_edge(task_id, self.team_id, type="BELONGS_TO_TEAM")
@@ -98,8 +97,6 @@ class TeamCapability(AbstractCapability[Any]):
                     engine.graph.add_edge(
                         task_id, assigned_to, type="ASSIGNED_TO_AGENT"
                     )
-            except Exception:
-                pass
         return task_id
 
     async def message_member(
