@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import networkx as nx
 import pytest
+from typing import cast
 
 from agent_utilities.knowledge_graph.consolidation import (
     ConsolidationEngine,
     DecisionToPrincipleRule,
     EpisodeToPreferenceRule,
 )
+from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +70,7 @@ def test_persist_proposals_creates_nodes() -> None:
     engine = FakeEngine()
     _populate_episodes(engine, count=6)
 
-    consolidation = ConsolidationEngine(engine=engine)
+    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
     consolidation.register(EpisodeToPreferenceRule(min_evidence_count=5))
 
     proposals = consolidation.run(dry_run=False)
@@ -90,7 +92,7 @@ def test_decision_to_principle_rule_detects() -> None:
     _populate_decisions(engine, approach="use structured output", count=5)
 
     rule = DecisionToPrincipleRule(min_evidence_count=3)
-    proposals = rule.detect(engine)
+    proposals = rule.detect(cast(IntelligenceGraphEngine, engine))
 
     assert len(proposals) >= 1
     assert proposals[0].rule_name == "decision_to_principle"
@@ -104,7 +106,7 @@ def test_approve_proposal_creates_real_node() -> None:
     engine = FakeEngine()
     _populate_decisions(engine, count=4)
 
-    consolidation = ConsolidationEngine(engine=engine)
+    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
     consolidation.register(DecisionToPrincipleRule(min_evidence_count=3))
     proposals = consolidation.run(dry_run=False)
 
@@ -130,7 +132,7 @@ def test_reject_proposal_updates_status() -> None:
     engine = FakeEngine()
     _populate_decisions(engine, count=5)
 
-    consolidation = ConsolidationEngine(engine=engine)
+    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
     consolidation.register(DecisionToPrincipleRule(min_evidence_count=3))
     proposals = consolidation.run(dry_run=False)
 
@@ -149,7 +151,7 @@ def test_get_pending_proposals() -> None:
     engine = FakeEngine()
     _populate_decisions(engine, count=5)
 
-    consolidation = ConsolidationEngine(engine=engine)
+    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
     consolidation.register(DecisionToPrincipleRule(min_evidence_count=3))
     proposals = consolidation.run(dry_run=False)
 
@@ -169,10 +171,10 @@ def test_dedup_prevents_re_proposal() -> None:
     _populate_decisions(engine, count=5)
 
     rule = DecisionToPrincipleRule(min_evidence_count=3)
-    proposals_1 = rule.detect(engine)
-    proposals_2 = rule.detect(engine)
+    proposals_1 = rule.detect(cast(IntelligenceGraphEngine, engine))
+    proposals_2 = rule.detect(cast(IntelligenceGraphEngine, engine))
 
-    consolidation = ConsolidationEngine(engine=engine)
+    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
     all_proposals = proposals_1 + proposals_2
     deduped = consolidation.dedup_by_signature(all_proposals)
 

@@ -10,6 +10,7 @@ CONCEPT:AU-002 Graph Orchestration
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -161,7 +162,7 @@ class TestTranslate:
         assert decoded == "nested result"
 
     def test_none_output_produces_no_text(self, emitter):
-        event = {
+        event: dict[str, Any] = {
             "type": "graph_complete",
             "run_id": "x",
             "output": None,
