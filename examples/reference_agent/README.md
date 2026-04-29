@@ -119,5 +119,5 @@ pytest tests/test_reference_agent.py -v
 ## Next Steps
 
 - Explore the agent-utilities [README.md](../../README.md) for full documentation
-- Review [AGENTS.md](../../AGENTS.md) for architecture details
+- Review [AGENTS.md](../../AGENTS.md) for core principles and the [docs/](../../docs/) directory for detailed architecture
 - Check the [examples](../) directory for more specialized examples

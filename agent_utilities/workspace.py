@@ -6,6 +6,8 @@ managing the agent's filesystem workspace. It includes JSON templates for
 standard agent prompt files (``main_agent.json``), parsing and serialization
 logic for these files, and robust path discovery for skills and MCP
 configurations.
+
+CONCEPT:AU-003 Workspace Management
 """
 
 import contextlib

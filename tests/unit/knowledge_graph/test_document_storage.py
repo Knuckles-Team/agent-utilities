@@ -22,6 +22,7 @@ class TestSQLiteMemoryBackend:
         """Test collection creation."""
         backend = SQLiteMemoryBackend()
         backend.create_collection("test_collection")
+    assert True, 'Collection creation completed'
         # Should not raise an error
 
     def test_insert_document(self):

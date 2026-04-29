@@ -86,6 +86,17 @@ class RegistryNodeType(StrEnum):
     PRINCIPLE = "principle"
     OBSERVATION = "observation"
     ACTION = "action"
+    # Standard Ontology Node Types (BFO, Schema.org, FIBO)
+    DOCUMENT = "document"
+    CREATIVE_WORK = "creative_work"
+    DATASET = "dataset"
+    SOFTWARE_PROJECT = "software_project"
+    MEDICAL_ENTITY = "medical_entity"
+    PROCEDURE = "procedure"
+    REGULATION = "regulation"
+    FINANCIAL_INSTRUMENT = "financial_instrument"
+    FINANCIAL_TRANSACTION = "financial_transaction"
+    ACCOUNT = "account"
 
 
 class RegistryEdgeType(StrEnum):
@@ -183,6 +194,21 @@ class RegistryEdgeType(StrEnum):
     # OWL-related edges
     OBSERVED_BY = "observed_by"
     TRIGGERED_ACTION = "triggered_action"
+    # Standard Ontology Edges (PROV-O, SKOS, Dublin Core, FIBO)
+    WAS_GENERATED_BY = "was_generated_by"
+    WAS_DERIVED_FROM = "was_derived_from"
+    WAS_ATTRIBUTED_TO = "was_attributed_to"
+    HAS_TEMPORAL_EXTENT = "has_temporal_extent"
+    BROADER = "broader"
+    NARROWER = "narrower"
+    RELATED_CONCEPT = "related_concept"
+    EXACT_MATCH = "exact_match"
+    CLOSE_MATCH = "close_match"
+    BROAD_MATCH = "broad_match"
+    CREATOR = "creator"
+    CITES_SOURCE = "cites_source"
+    HAS_FINANCIAL_INSTRUMENT = "has_financial_instrument"
+    EXECUTED_TRANSACTION = "executed_transaction"
 
 
 class RegistryNode(BaseModel):
@@ -1014,6 +1040,176 @@ class ActionNode(RegistryNode):
     status: str = "completed"  # pending, completed, failed
     triggered_by_event_id: str | None = None
     result: str | None = None
+
+
+# --- Standard Ontology Nodes (BFO, Schema.org, PROV-O, DC, FIBO) ---
+
+
+class DocumentNode(RegistryNode):
+    """A digital or physical document — Dublin Core aligned.
+
+    BFO:GenericallyDependentContinuant, mapped to schema:DigitalDocument
+    and bibo:Document. Properties align with Dublin Core Terms.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.DOCUMENT
+    title: str = Field(description="dc:title — document title")
+    creator: str | None = Field(
+        default=None, description="dc:creator — author or creator"
+    )
+    date: str | None = Field(
+        default=None, description="dc:date — creation or publication date"
+    )
+    subject: str | None = Field(
+        default=None, description="dc:subject — topic or subject"
+    )
+    identifier: str | None = Field(
+        default=None, description="dc:identifier — DOI, ISBN, URN, etc."
+    )
+    format: str | None = Field(default=None, description="dc:format — MIME type")
+    language: str | None = Field(
+        default=None, description="dc:language — language code"
+    )
+    content: str = ""
+    word_count: int = 0
+    tags: list[str] = Field(default_factory=list)
+
+
+class CreativeWorkNode(RegistryNode):
+    """A book, manual, SOP, or creative output — Schema.org aligned.
+
+    BFO:GenericallyDependentContinuant, mapped to schema:CreativeWork.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.CREATIVE_WORK
+    title: str
+    creator: str | None = None
+    date_published: str | None = None
+    genre: str | None = None
+    content: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+class DatasetNode(RegistryNode):
+    """A data collection — Schema.org aligned.
+
+    BFO:GenericallyDependentContinuant, mapped to schema:Dataset.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.DATASET
+    distribution_url: str | None = None
+    temporal_coverage: str | None = Field(
+        default=None, description="Time period the dataset covers"
+    )
+    spatial_coverage: str | None = None
+    format: str | None = None
+    record_count: int | None = None
+    license: str | None = None
+
+
+class SoftwareProjectNode(RegistryNode):
+    """A software project or repository.
+
+    BFO:IndependentContinuant, aligned to schema:SoftwareSourceCode.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SOFTWARE_PROJECT
+    repo_url: str | None = None
+    language: str | None = None
+    license: str | None = None
+    version: str | None = None
+    stars: int | None = None
+    tech_stack: list[str] = Field(default_factory=list)
+
+
+class MedicalEntityNode(RegistryNode):
+    """A medical concept, condition, or entity — stub for medical domain.
+
+    BFO:IndependentContinuant, aligned to schema:MedicalEntity.
+    Future extension point for SNOMED-CT, FHIR, etc.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.MEDICAL_ENTITY
+    entity_type: str = "generic"  # condition, procedure, drug, anatomy
+    icd_code: str | None = None
+    snomed_id: str | None = None
+
+
+class ProcedureNode(RegistryNode):
+    """An operational procedure or SOP — blue-collar/ops domain.
+
+    BFO:Process (occurrent), aligned to schema:HowTo.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.PROCEDURE
+    steps: list[str] = Field(default_factory=list)
+    required_tools: list[str] = Field(default_factory=list)
+    safety_notes: list[str] = Field(default_factory=list)
+    estimated_duration: str | None = None
+    category: str = "general"
+
+
+class RegulationNode(RegistryNode):
+    """A compliance or regulatory rule.
+
+    BFO:GenericallyDependentContinuant. Supports compliance tracking
+    across healthcare, finance, and technology domains.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.REGULATION
+    jurisdiction: str | None = None
+    effective_date: str | None = None
+    expiry_date: str | None = None
+    authority: str | None = None
+    regulation_type: str = "general"  # general, financial, healthcare, data_privacy
+    compliance_status: str = (
+        "unknown"  # compliant, non_compliant, under_review, unknown
+    )
+
+
+class FinancialInstrumentNode(RegistryNode):
+    """A financial instrument — FIBO aligned.
+
+    BFO:GenericallyDependentContinuant. Aligned to FIBO
+    FinancialInstrument for finance domain support.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.FINANCIAL_INSTRUMENT
+    instrument_type: str = "generic"  # stock, bond, derivative, fund, crypto
+    ticker: str | None = None
+    issuer: str | None = None
+    currency: str | None = None
+    isin: str | None = Field(
+        default=None, description="International Securities Identification Number"
+    )
+
+
+class FinancialTransactionNode(RegistryNode):
+    """A financial transaction event — FIBO aligned.
+
+    BFO:Process (occurrent). Represents a buy, sell, transfer, or settlement.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.FINANCIAL_TRANSACTION
+    transaction_type: str = "generic"  # buy, sell, transfer, settlement, dividend
+    amount: float | None = None
+    currency: str | None = None
+    counterparty: str | None = None
+    executed_at: str | None = None
+    status: str = "completed"  # pending, completed, failed, reversed
+
+
+class AccountNode(RegistryNode):
+    """A financial account — FIBO aligned.
+
+    BFO:GenericallyDependentContinuant.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ACCOUNT
+    account_type: str = "generic"  # checking, savings, brokerage, custodial
+    institution: str | None = None
+    currency: str | None = None
+    status: str = "active"  # active, closed, frozen
 
 
 # --- Schema Definition for Backend Abstraction ---

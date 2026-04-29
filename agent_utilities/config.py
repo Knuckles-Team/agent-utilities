@@ -105,6 +105,21 @@ class AgentConfig(BaseSettings):
     enable_api_auth: bool = Field(default=False, alias="ENABLE_API_AUTH")
     max_upload_size: int = Field(default=10 * 1024 * 1024, alias="MAX_UPLOAD_SIZE")
 
+    auth_jwt_jwks_uri: str | None = Field(default=None, alias="AUTH_JWT_JWKS_URI")
+    """JWKS URI for JWT Bearer token verification (e.g. Azure AD, Okta)."""
+
+    auth_jwt_issuer: str | None = Field(default=None, alias="AUTH_JWT_ISSUER")
+    """Expected JWT issuer claim for validation."""
+
+    auth_jwt_audience: str | None = Field(default=None, alias="AUTH_JWT_AUDIENCE")
+    """Expected JWT audience claim for validation."""
+
+    allowed_origins: str | None = Field(default=None, alias="ALLOWED_ORIGINS")
+    """Comma-separated list of allowed CORS origins. Defaults to ``*`` if not set."""
+
+    allowed_hosts: str | None = Field(default=None, alias="ALLOWED_HOSTS")
+    """Comma-separated list of allowed hosts for TrustedHostMiddleware."""
+
     routing_strategy: str = Field(default="hybrid", alias="ROUTING_STRATEGY")
     graph_persistence_type: str = Field(default="file", alias="GRAPH_PERSISTENCE_TYPE")
     graph_persistence_path: str = Field(
@@ -115,6 +130,22 @@ class AgentConfig(BaseSettings):
     graph_verifier_timeout: float = Field(default=300.0, alias="GRAPH_VERIFIER_TIMEOUT")
     enable_kg_embeddings: bool = Field(default=True, alias="ENABLE_KG_EMBEDDINGS")
     kg_backups: int = Field(default=3, alias="KG_BACKUPS")
+    graph_direct_execution: bool = Field(default=True, alias="GRAPH_DIRECT_EXECUTION")
+    """When True, AG-UI and ACP adapters bypass the LLM tool-call hop
+    and invoke graph execution directly.  Set to False to restore the
+    legacy agent -> run_graph_flow -> graph pipeline."""
+
+    secrets_backend: str = Field(default="inmemory", alias="SECRETS_BACKEND")
+    """Secrets storage backend: 'inmemory' (default), 'sqlite', or 'vault'."""
+
+    secrets_sqlite_path: str | None = Field(default=None, alias="SECRETS_SQLITE_PATH")
+    """Path to SQLite secrets database (e.g. ~/.agent-utilities/secrets.db)."""
+
+    secrets_vault_url: str | None = Field(default=None, alias="SECRETS_VAULT_URL")
+    """HashiCorp Vault URL for the vault backend."""
+
+    secrets_vault_mount: str = Field(default="secret", alias="SECRETS_VAULT_MOUNT")
+    """Vault KV v2 mount point."""
 
     custom_skills_directory: str | None = Field(
         default=None, alias="CUSTOM_SKILLS_DIRECTORY"
@@ -344,7 +375,19 @@ DEFAULT_GRAPH_ROUTER_TIMEOUT = config.graph_router_timeout
 DEFAULT_GRAPH_VERIFIER_TIMEOUT = config.graph_verifier_timeout
 DEFAULT_ENABLE_KG_EMBEDDINGS = config.enable_kg_embeddings
 DEFAULT_KG_BACKUPS = config.kg_backups
+DEFAULT_GRAPH_DIRECT_EXECUTION = config.graph_direct_execution
 
 AGENT_API_KEY = config.agent_api_key
 ENABLE_API_AUTH = config.enable_api_auth
 MAX_UPLOAD_SIZE = config.max_upload_size
+
+SECRETS_BACKEND = config.secrets_backend
+SECRETS_SQLITE_PATH = config.secrets_sqlite_path
+SECRETS_VAULT_URL = config.secrets_vault_url
+SECRETS_VAULT_MOUNT = config.secrets_vault_mount
+
+AUTH_JWT_JWKS_URI = config.auth_jwt_jwks_uri
+AUTH_JWT_ISSUER = config.auth_jwt_issuer
+AUTH_JWT_AUDIENCE = config.auth_jwt_audience
+ALLOWED_ORIGINS = config.allowed_origins
+ALLOWED_HOSTS = config.allowed_hosts

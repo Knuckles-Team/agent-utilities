@@ -26,6 +26,7 @@ dependencies = [
     "ladybug>=0.15.3",
     "numpy",
     "scipy",
+    "cryptography>=44.0.0",
     "pathspec"]
 
 [[project.authors]]
@@ -48,7 +49,7 @@ agent = [
     "skill-graphs>=0.1.38",
     "pydantic-ai-skills>=0.4.1",
     "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.73.0,<2.0.0",
-    "pydantic-graph>=0.1.8"
+    "pydantic-graph>=1.0.0"
 ]
 agent-google = [
     "pydantic-ai-slim[google]>=1.73.0,<2.0.0"
@@ -111,6 +112,12 @@ stardog = [
     "agent-utilities[owl]",
     "pystardog>=0.20.0"
 ]
+vault = [
+    "hvac>=2.3.0"
+]
+auth = [
+    "authlib>=1.4.0"
+]
 test = [
     "hypothesis>=6.152.1",
     "pytest-cov",
@@ -126,13 +133,13 @@ test = [
     "agent-utilities[agent,graph,acp,owl]"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,graph,browser,test,owl,stardog]>=0.2.40"]
+    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,graph,browser,test,owl,stardog,vault,auth]>=0.2.40"]
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.package-data]
-agent_utilities = ["agent_data/**", "prompts/*.md"]
+agent_utilities = ["agent_data/**", "prompts/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -191,3 +198,7 @@ exclude_lines = [
     "pass",
     "except ImportError:"
 ]
+
+[tool.bandit]
+exclude_dirs = ["build", "dist", ".venv", "tests"]
+skips = ["B101"]

@@ -177,6 +177,77 @@ class EpisodeToPreferenceRule:
 
 
 # ---------------------------------------------------------------------------
+# Rule 2 — Decision-to-Principle
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DecisionToPrincipleRule:
+    """Rule 2 — Decision → Principle abstraction.
+
+    **Heuristic:** N ≥ ``min_evidence_count`` ``DecisionNode`` instances that
+    share the same outcome pattern (success + same approach) → propose
+    a ``PrincipleNode`` capturing the recurring strategy.
+
+    Concept: memory-consolidation
+    """
+
+    name: str = "decision_to_principle"
+    min_evidence_count: int = 3
+    min_confidence: float = 0.7
+
+    def detect(self, engine: IntelligenceGraphEngine) -> list[ConsolidationProposal]:
+        proposals: list[ConsolidationProposal] = []
+        graph = engine.graph
+
+        # Group decisions by their outcome pattern (approach + result)
+        pattern_to_decisions: dict[str, list[str]] = {}
+
+        for node_id, attrs in graph.nodes(data=True):
+            if attrs.get("type") != "decision":
+                continue
+
+            approach = attrs.get("approach", "")
+            if not approach:
+                continue
+
+            # Build a pattern key from approach keywords
+            pattern_key = approach.lower().strip()
+            pattern_to_decisions.setdefault(pattern_key, []).append(node_id)
+
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for pattern, decision_ids in pattern_to_decisions.items():
+            if len(decision_ids) < self.min_evidence_count:
+                continue
+
+            confidence = min(1.0, self.min_confidence + 0.05 * len(decision_ids))
+            payload = {
+                "category": "strategy",
+                "pattern": pattern,
+                "statement": (
+                    f"Agent consistently uses approach '{pattern[:60]}' "
+                    f"across {len(decision_ids)} decisions."
+                ),
+            }
+            proposal = ConsolidationProposal(
+                proposal_id=hashlib.sha256(
+                    f"{self.name}:{pattern}".encode()
+                ).hexdigest()[:8],
+                rule_name=self.name,
+                proposed_node_type="PrincipleNode",
+                proposed_payload=payload,
+                evidence_node_ids=sorted(decision_ids),
+                confidence=confidence,
+                created_at=now,
+                status="pending",
+            )
+            proposal.signature = proposal.compute_signature()
+            proposals.append(proposal)
+
+        return proposals
+
+
+# ---------------------------------------------------------------------------
 # Consolidation engine
 # ---------------------------------------------------------------------------
 
@@ -217,15 +288,33 @@ class ConsolidationEngine:
         return all_proposals
 
     def _persist_proposals(self, proposals: list[ConsolidationProposal]) -> None:
-        """Persist proposals as ProposedSkillNode review items.
+        """Persist proposals as ProposalNode instances in the graph.
 
-        The actual engine integration (``engine.add_consolidation_proposal``)
-        is the follow-up deliverable; for now we log each proposal so
-        test-time observability is preserved.
+        Each proposal becomes a graph node with ``type="proposal"`` and
+        edges linking it to its evidence nodes.
         """
         for p in proposals:
+            # Create proposal node
+            self.engine.graph.add_node(
+                p.proposal_id,
+                type="proposal",
+                rule_name=p.rule_name,
+                proposed_node_type=p.proposed_node_type,
+                proposed_payload=p.proposed_payload,
+                confidence=p.confidence,
+                status=p.status,
+                signature=p.signature or p.compute_signature(),
+                created_at=p.created_at,
+                importance_score=p.confidence * 0.5,
+            )
+            # Create evidence edges
+            for evidence_id in p.evidence_node_ids:
+                if evidence_id in self.engine.graph:
+                    self.engine.graph.add_edge(
+                        evidence_id, p.proposal_id, type="EVIDENCE_FOR"
+                    )
             logger.info(
-                "Consolidation proposal %s (rule=%s, type=%s, "
+                "Persisted proposal %s (rule=%s, type=%s, "
                 "confidence=%.2f, evidence=%d)",
                 p.proposal_id,
                 p.rule_name,
@@ -249,3 +338,63 @@ class ConsolidationEngine:
             seen.add(sig)
             out.append(p)
         return out
+
+    def get_pending_proposals(self) -> list[dict[str, Any]]:
+        """Query the graph for all proposals with status='pending'."""
+        pending: list[dict[str, Any]] = []
+        for node_id, data in self.engine.graph.nodes(data=True):
+            if data.get("type") == "proposal" and data.get("status") == "pending":
+                pending.append({"proposal_id": node_id, **data})
+        return pending
+
+    def approve_proposal(self, proposal_id: str) -> bool:
+        """Approve a proposal: update status and create the real target node.
+
+        On approval, a new node of the proposed type is created with the
+        proposal's payload, and the proposal status is set to 'approved'.
+        """
+        if proposal_id not in self.engine.graph:
+            logger.warning("Proposal %s not found in graph", proposal_id)
+            return False
+
+        data = self.engine.graph.nodes[proposal_id]
+        if data.get("status") != "pending":
+            logger.warning(
+                "Proposal %s is not pending (status=%s)",
+                proposal_id,
+                data.get("status"),
+            )
+            return False
+
+        # Update proposal status
+        self.engine.graph.nodes[proposal_id]["status"] = "approved"
+
+        # Create the real target node
+        payload = data.get("proposed_payload", {})
+        node_type = data.get("proposed_node_type", "unknown")
+        real_node_id = f"{node_type.lower()}_{proposal_id}"
+
+        self.engine.graph.add_node(
+            real_node_id,
+            type=node_type.lower(),
+            name=payload.get("statement", payload.get("value", "")),
+            importance_score=data.get("confidence", 0.5),
+            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            **{k: v for k, v in payload.items() if k not in ("statement",)},
+        )
+        # Link proposal to real node
+        self.engine.graph.add_edge(proposal_id, real_node_id, type="PROMOTED_TO")
+        logger.info("Approved proposal %s → created %s", proposal_id, real_node_id)
+        return True
+
+    def reject_proposal(self, proposal_id: str, reason: str = "") -> bool:
+        """Reject a proposal: update status to 'rejected'."""
+        if proposal_id not in self.engine.graph:
+            logger.warning("Proposal %s not found in graph", proposal_id)
+            return False
+
+        self.engine.graph.nodes[proposal_id]["status"] = "rejected"
+        if reason:
+            self.engine.graph.nodes[proposal_id]["rejection_reason"] = reason
+        logger.info("Rejected proposal %s: %s", proposal_id, reason)
+        return True

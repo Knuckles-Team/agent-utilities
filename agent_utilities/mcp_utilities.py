@@ -625,6 +625,23 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
                             cfg["env"]["PYTHONWARNINGS"] += (
                                 ",ignore:urllib3 (2.3.0) or chardet"
                             )
+
+                    # Token forwarding: propagate user session token to
+                    # MCP subprocesses for delegated authentication.
+                    # CONCEPT:AU-011 — Secrets & Authentication
+                    if "AGENT_USER_TOKEN" not in cfg["env"]:
+                        _user_token = os.environ.get("AGENT_USER_TOKEN")
+                        if not _user_token:
+                            try:
+                                from .secrets_client import create_secrets_client
+
+                                _sc = create_secrets_client()
+                                _user_token = _sc.get("session_token")
+                            except Exception:
+                                pass
+                        if _user_token:
+                            cfg["env"]["AGENT_USER_TOKEN"] = _user_token
+
                     modified = True
 
             if modified:

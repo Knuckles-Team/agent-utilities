@@ -150,6 +150,7 @@ name = "agent-utilities"
 version = "0.2.40"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "ladybug" },
     { name = "networkx" },
     { name = "numpy" },
@@ -204,10 +205,12 @@ all = [
     { name = "acpkit", extra = ["pydantic"] },
     { name = "agent-terminal-ui" },
     { name = "agent-webui" },
+    { name = "authlib" },
     { name = "eunomia-mcp" },
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "httpx" },
+    { name = "hvac" },
     { name = "hypothesis" },
     { name = "ladybug" },
     { name = "llama-index-core" },
@@ -238,6 +241,9 @@ all = [
     { name = "tree-sitter-python" },
     { name = "tree-sitter-typescript" },
     { name = "universal-skills" },
+]
+auth = [
+    { name = "authlib" },
 ]
 browser = [
     { name = "playwright" },
@@ -334,6 +340,9 @@ test = [
     { name = "tree-sitter-typescript" },
     { name = "universal-skills" },
 ]
+vault = [
+    { name = "hvac" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -345,14 +354,17 @@ requires-dist = [
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.2.40" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.2.40" },
     { name = "agent-utilities", extras = ["mcp", "ag-ui", "terminal"], marker = "extra == 'agent'", specifier = ">=0.2.40" },
-    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "graph", "browser", "test", "owl", "stardog"], marker = "extra == 'all'", specifier = ">=0.2.40" },
+    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "graph", "browser", "test", "owl", "stardog", "vault", "auth"], marker = "extra == 'all'", specifier = ">=0.2.40" },
     { name = "agent-utilities", extras = ["owl"], marker = "extra == 'stardog'" },
     { name = "agent-webui", marker = "extra == 'ag-ui'", directory = "../agent-webui" },
+    { name = "authlib", marker = "extra == 'auth'", specifier = ">=1.4.0" },
+    { name = "cryptography", specifier = ">=44.0.0" },
     { name = "eunomia-mcp", marker = "extra == 'mcp'", specifier = ">=0.3.10" },
     { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.0.1" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.131.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.2.0" },
     { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28.1" },
+    { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.3.0" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.152.1" },
     { name = "ladybug", specifier = ">=0.15.3" },
     { name = "ladybug", marker = "extra == 'graph'", specifier = ">=0.15.3" },
@@ -382,7 +394,7 @@ requires-dist = [
     { name = "pydantic-ai-slim", extras = ["huggingface"], marker = "extra == 'agent-huggingface'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["logfire"], marker = "extra == 'logfire'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["mistral"], marker = "extra == 'agent-mistral'", specifier = ">=1.73.0,<2.0.0" },
-    { name = "pydantic-graph", marker = "extra == 'agent'", specifier = ">=0.1.8" },
+    { name = "pydantic-graph", marker = "extra == 'agent'", specifier = ">=1.0.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pystardog", marker = "extra == 'stardog'", specifier = ">=0.20.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'" },
@@ -403,7 +415,7 @@ requires-dist = [
     { name = "universal-skills", marker = "extra == 'agent'", directory = "../skills/universal-skills" },
     { name = "urllib3", specifier = ">=2.3.0" },
 ]
-provides-extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "ag-ui", "terminal", "browser", "acp", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "graph", "neo4j", "falkordb", "owl", "stardog", "test", "all"]
+provides-extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "ag-ui", "terminal", "browser", "acp", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "graph", "neo4j", "falkordb", "owl", "stardog", "vault", "auth", "test", "all"]
 
 [[package]]
 name = "agent-webui"
@@ -1956,6 +1968,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/0c/4d/00734890c7fcfe2c7ff04f1c1a167186c42b19e370a2dd8cfd8c34fc92c4/huggingface_hub-1.10.2.tar.gz", hash = "sha256:4b276f820483b709dc86a53bcb8183ea496b8d8447c9f7f88a115a12b498a95f", size = 758428, upload-time = "2026-04-14T10:42:28.498Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5e/c9/4c1e1216b24bcab140c83acdf8bc89a846ea17cd8a06cd18e3fd308a297f/huggingface_hub-1.10.2-py3-none-any.whl", hash = "sha256:c26c908767cc711493978dc0b4f5747ba7841602997cc98bfd628450a28cf9bc", size = 642581, upload-time = "2026-04-14T10:42:26.563Z" },
+]
+
+[[package]]
+name = "hvac"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e2/57/b46c397fb3842cfb02a44609aa834c887f38dd75f290c2fc5a34da4b2fee/hvac-2.4.0.tar.gz", hash = "sha256:e0056ad9064e7923e874e6769015b032580b639e29246f5ab1044f7959c1c7e0", size = 332543, upload-time = "2025-10-30T12:57:47.512Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/55/33/71e45a6bd6875f44a26f99da31c63b6840123e88bedf2c0b1ce429b8be12/hvac-2.4.0-py3-none-any.whl", hash = "sha256:008db5efd8c2f77bd37d2368ea5f713edceae1c65f11fd608393179478649e0f", size = 155921, upload-time = "2025-10-30T12:57:46.253Z" },
 ]
 
 [[package]]
@@ -4339,7 +4363,7 @@ wheels = [
 
 [[package]]
 name = "repository-manager"
-version = "1.3.53"
+version = "1.3.55"
 source = { editable = "../agents/repository-manager" }
 dependencies = [
     { name = "agent-utilities", extra = ["mcp"] },
@@ -4347,11 +4371,11 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-utilities", extras = ["agent", "logfire"], marker = "extra == 'agent'", specifier = ">=0.2.31" },
-    { name = "agent-utilities", extras = ["agent", "logfire"], marker = "extra == 'all'", specifier = ">=0.2.31" },
-    { name = "agent-utilities", extras = ["mcp"], specifier = ">=0.2.31" },
-    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'all'", specifier = ">=0.2.31" },
-    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'mcp'", specifier = ">=0.2.31" },
+    { name = "agent-utilities", extras = ["agent", "logfire"], marker = "extra == 'agent'", editable = "." },
+    { name = "agent-utilities", extras = ["agent", "logfire"], marker = "extra == 'all'", editable = "." },
+    { name = "agent-utilities", extras = ["mcp"], editable = "." },
+    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'all'", editable = "." },
+    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'mcp'", editable = "." },
     { name = "bump2version", marker = "extra == 'agent'", specifier = ">=1.0.1" },
     { name = "bump2version", marker = "extra == 'all'", specifier = ">=1.0.1" },
     { name = "pre-commit", marker = "extra == 'agent'", specifier = ">=4.5.1" },
@@ -5444,6 +5468,7 @@ requires-dist = [
     { name = "nbformat", marker = "extra == 'jupyter-notebook'" },
     { name = "networkx", marker = "extra == 'security-tools'" },
     { name = "openpyxl", marker = "extra == 'document-tools'" },
+    { name = "packaging", marker = "extra == 'code-enhancer'" },
     { name = "pdf2image", marker = "extra == 'document-tools'" },
     { name = "pdfplumber", marker = "extra == 'document-tools'" },
     { name = "pillow", marker = "extra == 'browser-tools'" },
@@ -5480,6 +5505,7 @@ requires-dist = [
     { name = "pyyaml", marker = "extra == 'test'" },
     { name = "requests", marker = "extra == 'api-wrapper-builder'" },
     { name = "requests", marker = "extra == 'cloudflare-deploy'" },
+    { name = "requests", marker = "extra == 'code-enhancer'" },
     { name = "requests", marker = "extra == 'github-tools'" },
     { name = "requests", marker = "extra == 'google-workspace'" },
     { name = "requests", marker = "extra == 'security-tools'" },
@@ -5503,6 +5529,7 @@ requires-dist = [
     { name = "universal-skills", extras = ["c4-architecture"], marker = "extra == 'all'", specifier = ">=0.1.57" },
     { name = "universal-skills", extras = ["canvas-design"], marker = "extra == 'all'", specifier = ">=0.1.57" },
     { name = "universal-skills", extras = ["cloudflare-deploy"], marker = "extra == 'all'", specifier = ">=0.1.57" },
+    { name = "universal-skills", extras = ["code-enhancer"], marker = "extra == 'all'", specifier = ">=0.1.58" },
     { name = "universal-skills", extras = ["creative-media"], marker = "extra == 'all'", specifier = ">=0.1.57" },
     { name = "universal-skills", extras = ["database-tools"], marker = "extra == 'all'", specifier = ">=0.1.57" },
     { name = "universal-skills", extras = ["developer-utilities"], marker = "extra == 'all'", specifier = ">=0.1.57" },
@@ -5534,7 +5561,7 @@ requires-dist = [
     { name = "user-agents", marker = "extra == 'developer-utilities'" },
     { name = "validators", marker = "extra == 'document-tools'" },
 ]
-provides-extras = ["test", "agent-browser", "agent-builder", "agent-package-builder", "agent-spawner", "mcp-client", "agent-workflows", "algorithmic-art", "api-wrapper-builder", "brainstorming", "brand-guidelines", "browser-tools", "c4-architecture", "canvas-design", "cloudflare-deploy", "creative-media", "database-tools", "document-converter", "developer-utilities", "document-tools", "github-tools", "google-workspace", "internal-comms", "jupyter-notebook", "marp-presentations", "mcp-builder", "mermaid-diagrams", "product-strategy", "react-development", "react-native-skills", "security-tools", "session-handoff", "skill-builder", "skill-installer", "skill-graph-builder", "system-tools", "tdd-methodology", "theme-factory", "user-research", "web-artifacts", "web-crawler", "web-design-guidelines", "web-search", "web-fetch", "website-builder", "website-cloner", "all"]
+provides-extras = ["test", "agent-browser", "agent-builder", "agent-package-builder", "agent-spawner", "mcp-client", "agent-workflows", "algorithmic-art", "api-wrapper-builder", "brainstorming", "brand-guidelines", "browser-tools", "c4-architecture", "canvas-design", "cloudflare-deploy", "creative-media", "database-tools", "document-converter", "developer-utilities", "document-tools", "github-tools", "google-workspace", "internal-comms", "jupyter-notebook", "marp-presentations", "mcp-builder", "mermaid-diagrams", "product-strategy", "react-development", "react-native-skills", "security-tools", "session-handoff", "skill-builder", "skill-installer", "skill-graph-builder", "system-tools", "tdd-methodology", "theme-factory", "user-research", "web-artifacts", "web-crawler", "web-design-guidelines", "web-search", "web-fetch", "website-builder", "website-cloner", "code-enhancer", "all"]
 
 [[package]]
 name = "urllib3"

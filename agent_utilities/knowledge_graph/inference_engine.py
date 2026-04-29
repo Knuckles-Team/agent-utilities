@@ -78,6 +78,63 @@ class InferenceEngine:
             except Exception as e:
                 logger.error(f"Inference execution failed: {e}")
 
+            # --- Standard Ontology Rules (PROV-O, SKOS, DC, Temporal) ---
+
+            # 4. PROV-O Derivation Chain Transitivity
+            derivation_query = """
+            MATCH (a)-[:WAS_DERIVED_FROM]->(b)-[:WAS_DERIVED_FROM]->(c)
+            WHERE NOT (a)-[:WAS_DERIVED_FROM]->(c) AND a.id <> c.id
+            MERGE (a)-[r:WAS_DERIVED_FROM]->(c)
+            SET r.inferred = true, r.inferred_from = 'rule_prov_derivation_chain', r.timestamp = $ts
+            RETURN count(r) as new_rels
+            """
+
+            # 5. SKOS Broader Transitivity
+            broader_query = """
+            MATCH (a)-[:BROADER]->(b)-[:BROADER]->(c)
+            WHERE NOT (a)-[:BROADER]->(c) AND a.id <> c.id
+            MERGE (a)-[r:BROADER]->(c)
+            SET r.inferred = true, r.inferred_from = 'rule_skos_broader_transitive', r.timestamp = $ts
+            RETURN count(r) as new_rels
+            """
+
+            # 6. Dublin Core Author-Org Linking
+            author_org_query = """
+            MATCH (d:Document)-[:CREATOR]->(p:Person)-[:HAS_ROLE]->(r:Role)-[:BELONGS_TO_ORGANIZATION]->(o:Organization)
+            WHERE NOT (d)-[:WAS_ATTRIBUTED_TO]->(o)
+            MERGE (d)-[rel:WAS_ATTRIBUTED_TO]->(o)
+            SET rel.inferred = true, rel.inferred_from = 'rule_dc_author_org', rel.timestamp = $ts
+            RETURN count(rel) as new_rels
+            """
+
+            # 7. Temporal Phase Containment
+            phase_containment_query = """
+            MATCH (e)-[:OCCURRED_DURING]->(p:Phase)-[:PART_OF]->(pp:Phase)
+            WHERE NOT (e)-[:OCCURRED_DURING]->(pp) AND e.id <> pp.id
+            MERGE (e)-[r:OCCURRED_DURING]->(pp)
+            SET r.inferred = true, r.inferred_from = 'rule_temporal_phase_containment', r.timestamp = $ts
+            RETURN count(r) as new_rels
+            """
+
+            try:
+                for label, query in [
+                    ("prov_derivation", derivation_query),
+                    ("skos_broader", broader_query),
+                    ("dc_author_org", author_org_query),
+                    ("phase_containment", phase_containment_query),
+                ]:
+                    res = self.engine.backend.execute(query, {"ts": ts})
+                    if res and res[0].get("new_rels"):
+                        count = res[0]["new_rels"]
+                        new_inferences += count
+                        logger.info(
+                            "InferenceEngine (Cypher): %s rule derived %d facts.",
+                            label,
+                            count,
+                        )
+            except Exception as e:
+                logger.error(f"Standard ontology inference failed: {e}")
+
         else:
             # NetworkX fallback
             logger.info(
@@ -85,37 +142,81 @@ class InferenceEngine:
             )
             import networkx as nx
 
-            # Simple transitive closure for DEPENDS_ON
-            depends_edges = [
-                (u, v)
-                for u, v, d in self.engine.graph.edges(data=True)
-                if d.get("type") == "DEPENDS_ON"
-            ]
-            logger.info(f"NX Fallback: Found {len(depends_edges)} DEPENDS_ON edges.")
-            temp_graph = nx.DiGraph()
-            temp_graph.add_edges_from(depends_edges)
-            logger.info(
-                f"NX Fallback: temp_graph has {temp_graph.number_of_nodes()} nodes and {temp_graph.number_of_edges()} edges."
-            )
-
             ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-            # Use NetworkX to find paths of length 2
-            for n in temp_graph.nodes():
-                for succ in temp_graph.successors(n):
-                    for succ2 in temp_graph.successors(succ):
-                        if n != succ2 and not self.engine.graph.has_edge(n, succ2):
-                            self.engine.link_nodes(
-                                n,
-                                succ2,
-                                "DEPENDS_ON_INDIRECT",
-                                {
-                                    "inferred": True,
-                                    "inferred_from": "rule_transitive_deps",
-                                    "timestamp": ts,
-                                },
-                            )
-                            new_inferences += 1
+            # Helper for transitive closure on a given edge type
+            def _transitive_closure(
+                edge_type: str, inferred_type: str, rule_name: str
+            ) -> int:
+                edges = [
+                    (u, v)
+                    for u, v, d in self.engine.graph.edges(data=True)
+                    if d.get("type") == edge_type
+                ]
+                if not edges:
+                    return 0
+                temp = nx.DiGraph()
+                temp.add_edges_from(edges)
+                count = 0
+                for n in temp.nodes():
+                    for succ in temp.successors(n):
+                        for succ2 in temp.successors(succ):
+                            if n != succ2 and not self.engine.graph.has_edge(n, succ2):
+                                self.engine.link_nodes(
+                                    n,
+                                    succ2,
+                                    inferred_type,
+                                    {
+                                        "inferred": True,
+                                        "inferred_from": rule_name,
+                                        "timestamp": ts,
+                                    },
+                                )
+                                count += 1
+                return count
+
+            # 1. DEPENDS_ON transitive closure
+            new_inferences += _transitive_closure(
+                "DEPENDS_ON", "DEPENDS_ON_INDIRECT", "rule_transitive_deps"
+            )
+
+            # 2. PROV-O WAS_DERIVED_FROM transitive closure
+            new_inferences += _transitive_closure(
+                "was_derived_from", "was_derived_from", "rule_prov_derivation_chain"
+            )
+
+            # 3. SKOS BROADER transitive closure
+            new_inferences += _transitive_closure(
+                "broader", "broader", "rule_skos_broader_transitive"
+            )
+
+            # 4. Temporal phase containment
+            occurred_edges = [
+                (u, v)
+                for u, v, d in self.engine.graph.edges(data=True)
+                if d.get("type") == "occurred_during"
+            ]
+            part_of_edges = [
+                (u, v)
+                for u, v, d in self.engine.graph.edges(data=True)
+                if d.get("type") == "part_of"
+            ]
+            if occurred_edges and part_of_edges:
+                for event, phase in occurred_edges:
+                    for p, parent in part_of_edges:
+                        if p == phase and event != parent:
+                            if not self.engine.graph.has_edge(event, parent):
+                                self.engine.link_nodes(
+                                    event,
+                                    parent,
+                                    "occurred_during",
+                                    {
+                                        "inferred": True,
+                                        "inferred_from": "rule_temporal_phase_containment",
+                                        "timestamp": ts,
+                                    },
+                                )
+                                new_inferences += 1
 
             logger.info(
                 f"InferenceEngine (NetworkX): Derived {new_inferences} new facts."

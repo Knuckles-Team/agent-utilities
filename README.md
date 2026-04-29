@@ -23,6 +23,21 @@
 
 *Version: 0.2.40*
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Intelligence Graph](#-intelligence-graph)
+- [Architecture & Orchestration](#architecture--orchestration)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Creating an Agent](#creating-an-agent)
+- [Building MCP Servers](#building-mcp-servers--api-wrappers)
+- [API Documentation](#api-documentation)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Overview
 
 Agent Utilities provides a robust foundation for building production-ready Pydantic AI Agents. Recently refactored into a high-performance **modular architecture**, it simplifies agent creation, adds advanced **Graph Orchestration**, and provides essential "operating system" tools including state persistence, resilience, and high-fidelity streaming.
@@ -38,7 +53,8 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 - **Self-Improving**: Execution memory persisted natively to the Knowledge Graph after each run. Past failure patterns automatically inform future routing decisions.
 - **Agentic Engineering Patterns**: Out-of-the-box support for **TDD Cycles** (Red-Green-Refactor), **First Run Tests** (baseline establishment), **Agentic Manual Testing** (exploratory verification), **Code Walkthroughs** (linear documentation), and **Interactive Explanations** (HTML/JS artifacts).
 - **Resilience & Accuracy**: Error recovery with local retries, re-planning loops, and result verification via the Verifier quality gate.
-- **Observability**: Real-time **Graph Streaming** (SSE) and lifecycle events. Early OTEL/logfire gate.
+- **Observability**: Real-time **Graph Streaming** (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Early OTEL/logfire gate.
+- **Direct Graph Execution**: Protocol adapters (AG-UI, ACP) can bypass the outer LLM agent and invoke `graph.iter()` directly, eliminating one full inference round-trip per request. Controlled via `GRAPH_DIRECT_EXECUTION` env var.
 - **Typed Foundation**: Zero-config dependency injection using `AgentDeps`.
 - **Specialist Discovery**: Automated discovery of domain specialists directly from the **Knowledge Graph**.
 - **Autonomous Memory Architecture**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Agent Lightning-style self-improvement loops. Unifies code awareness, chat memory, and **Research Knowledge Bases** (Medical, Chemistry, etc.) into a singular, schema-enforced graph. Cross-domain relationships emerge automatically through shared concepts.
@@ -129,7 +145,7 @@ The graph engine supports policy-guided retrieval across four orthogonal views:
 | `agent-webui` | Library | Cinematic Graph Activity Visualization. |
 | `agent-terminal-ui` | Library | High-performance Terminal User Interface (TUI) achieving feature parity with **Claude Code** (Slash commands, Keyboard shortcuts, File mentions). |
 
-`agent-utilities` implements a multi-stage execution pipeline using `pydantic-graph` for maximum precision and resilience.
+`agent-utilities` implements a multi-stage execution pipeline using `pydantic-graph` for maximum precision and resilience. Protocol adapters (AG-UI, ACP) leverage `graph.iter()` for direct, step-by-step graph execution — bypassing the outer LLM agent entirely when a graph is present.
 
 ### Ecosystem Dependency Graph
 
@@ -497,6 +513,31 @@ graph TD
 
 
 
+## Quick Start
+
+```bash
+# Start a Graph Agent server with Universal Skills
+agent-utilities --provider openai --model-id gpt-4o --skill-types universal,graphs
+
+# Start with a custom MCP configuration
+agent-utilities --mcp-config mcp_config.json --web --port 8000
+
+# Run in validation mode (no API keys required)
+VALIDATION_MODE=true agent-utilities --debug
+```
+
+```python
+from agent_utilities import create_agent, create_graph_agent_server
+
+# Quick agent creation
+agent = create_agent(name="MyAgent", skill_types=["universal", "graphs"])
+
+# Full server with protocols (ACP, A2A, MCP, AG-UI)
+create_graph_agent_server(provider="openai", model_id="gpt-4o", port=8000)
+```
+
+> See [docs/creating-an-agent.md](docs/creating-an-agent.md) for the complete walkthrough.
+
 ## Installation
 
 ```bash
@@ -520,24 +561,6 @@ pip install agent-utilities[owl]
 pip install agent-utilities[stardog]
 ```
 
-## Quick Start
-
-```python
-from agent_utilities import create_agent
-
-# Create a simple agent with workspace tools
-agent = create_agent(name="MyAgent")
-
-# Create a powerful Graph Agent with Universal Skills
-# This automatically discovers domain specialists from the Knowledge Graph
-agent = create_agent(
-    name="ProAgent",
-    skill_types=["universal", "graphs"]
-)
-
-# Environment variable support (standard in .env)
-# SKILL_TYPES=universal,graphs
-```
 
 ## API Documentation
 
@@ -548,32 +571,109 @@ Every agent server automatically hosts an interactive Swagger UI for its APIs.
 
 This interface allows you to test the `/health`, `/acp`, and `/mcp` endpoints directly from your browser.
 
-## Roadmap
+## Creating an Agent
 
-### Phase 1 – Foundations (Current)
-- ✅ Canonical agent lifecycle interfaces (AgentSpec, AgentInstance, AgentSession, AgentResult)
-- ✅ Reference AGENTS.md for AI contributors
-- ✅ Graph orchestration with Router → Planner → Dispatcher pipeline
-- ✅ Unified Intelligence Graph (14-phase pipeline with OWL reasoning sidecar)
-- ✅ MCP tool distribution and specialist discovery
-- ✅ ACP, A2A, and AG-UI protocol adapters
-- ✅ Knowledge Base layer with LLM-maintained wiki
-- ✅ Spec-Driven Development (SDD) lifecycle
-- ✅ JSON-as-Code Structured Prompting (Pydantic-native)
-- 🔄 Single end-to-end example agent (in progress)
+All agents in the ecosystem follow the same pattern powered by `agent-utilities`. Here's the reference template used by `genius-agent`:
 
-### Phase 2 – Protocol & Tooling (Next)
-- Enhanced MCP capability registry with machine-readable tool descriptions
-- Shared memory abstraction layer (ShortTermMemory, LongTermMemory, SharedTeamMemory)
-- Pluggable backends for memory (Chroma, Qdrant, PGVector)
-- Multi-agent coordination helpers
-- Evaluation & tracing hooks
-- Policy / guardrail integration
+```python
+#!/usr/bin/python
+import logging, os, sys
+from agent_utilities import (
+    build_system_prompt_from_workspace,
+    create_agent_parser,
+    create_graph_agent_server,
+    initialize_workspace,
+    load_identity,
+)
 
-### Phase 3 – Advanced Orchestration (Future)
-- Agent teams with P2P messaging
-- Autonomous self-improvement loops (Agent Lightning)
-- Advanced MAGMA orthogonal reasoning views
-- Cross-repository symbol mapping
-- Long-term agent memory consolidation
-- Automated graph maintenance and pruning
+__version__ = "1.0.0"
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+initialize_workspace()
+meta = load_identity()
+
+DEFAULT_AGENT_NAME = os.getenv("DEFAULT_AGENT_NAME", meta.get("name", "My Agent"))
+DEFAULT_AGENT_SYSTEM_PROMPT = os.getenv(
+    "AGENT_SYSTEM_PROMPT", meta.get("content") or build_system_prompt_from_workspace()
+)
+
+def agent_server():
+    print(f"{DEFAULT_AGENT_NAME} v{__version__}", file=sys.stderr)
+    parser = create_agent_parser()
+    args = parser.parse_args()
+    create_graph_agent_server(
+        mcp_url=args.mcp_url, mcp_config=args.mcp_config or "mcp_config.json",
+        host=args.host, port=args.port, provider=args.provider,
+        model_id=args.model_id, base_url=args.base_url, api_key=args.api_key,
+        enable_web_ui=args.web, debug=args.debug,
+    )
+
+if __name__ == "__main__":
+    agent_server()
+```
+
+> **Full guide**: See [docs/creating-an-agent.md](docs/creating-an-agent.md) for the complete walkthrough including project structure, `main_agent.json`, `mcp_config.json`, `pyproject.toml`, and all CLI flags.
+
+## Building MCP Servers & API Wrappers
+
+Use `create_mcp_server()` to bootstrap a fully configured FastMCP server with authentication, middleware, and CLI parsing:
+
+```python
+from agent_utilities.mcp_utilities import create_mcp_server, ctx_progress, ctx_log, ctx_confirm_destructive
+from fastmcp import Context
+from pydantic import Field
+
+args, mcp, middlewares = create_mcp_server(name="My Service MCP", version="1.0.0")
+
+@mcp.tool(annotations={"title": "Delete Resource", "destructiveHint": True}, tags={"resources"})
+async def delete_resource(
+    resource_id: str = Field(description="Resource ID to delete."),
+    ctx: Context = Field(description="MCP context.", default=None),
+) -> dict:
+    """Delete a resource. Expected return object type: dict"""
+    if not await ctx_confirm_destructive(ctx, f"delete resource {resource_id}"):
+        return {"status": "cancelled"}
+    await ctx_progress(ctx, 0, 100)
+    # ... perform deletion ...
+    await ctx_progress(ctx, 100, 100)
+    return {"status": "success", "deleted": resource_id}
+```
+
+**Context helpers** (`ctx_*`) are the standard way to interact with MCP context across the ecosystem:
+- `ctx_progress(ctx, progress, total)` — Report progress
+- `ctx_confirm_destructive(ctx, action)` — Elicitation guard for destructive operations
+- `ctx_log(ctx, logger, level, msg)` — Dual-log to server and MCP client
+- `ctx_set_state/ctx_get_state` — Namespaced session state
+- `ctx_sample(ctx, prompt)` — Ask the client LLM to generate a response
+
+> **Full guide**: See [docs/building-mcp-servers.md](docs/building-mcp-servers.md) for complete coverage including API wrappers, authentication options, OpenAPI import, and running instructions.
+
+
+
+## Documentation
+
+Comprehensive system documentation is available in the [`docs/`](docs/) directory:
+
+| Guide | Description |
+| :--- | :--- |
+| [Structured Prompts](docs/structured-prompts.md) | JSON prompt schema, Pydantic models, and prompt catalog |
+| [RLM / REPL](docs/rlm.md) | Recursive Language Model patterns and REPL architecture |
+| [Capabilities](docs/capabilities.md) | Self-healing modules: checkpointing, circuit breakers, retry |
+| [SDD Orchestrator](docs/sdd.md) | Spec-Driven Development pipeline and task decomposition |
+| [Tools Registry](docs/tools.md) | 18 tool modules across 5 categories |
+
+## Contributing
+
+Contributions are welcome. Please follow these guidelines:
+
+1. **Fork** the repository and create a feature branch.
+2. **Write tests** for new functionality — all tests must include assertions.
+3. **Follow existing patterns** — use the established Pydantic models, structured prompts, and concept markers.
+4. **Run the test suite** before submitting: `uv run pytest tests/ -q`
+5. **Update documentation** in `docs/` if your changes affect public APIs.
+
+See [AGENTS.md](AGENTS.md) for project-specific conventions and architecture rules.
+
+## License
+
+This project is licensed under the terms specified in the [LICENSE](LICENSE) file.

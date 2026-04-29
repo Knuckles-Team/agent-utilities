@@ -164,6 +164,11 @@ def create_graph_acp_app(
     ACP clients benefit from specialist routing, parallel execution,
     circuit breakers, and the verification loop.
 
+    This implementation uses ``pydantic-acp``'s ``agent_factory`` callback
+    to create per-session agents.  Each session gets its own ``run_graph_flow``
+    tool closure with access to the session context, eliminating the need
+    for the ``REQUESTED_MODEL_ID_CTX`` context-variable workaround.
+
     Falls back to the standard flat-agent ACP path when no graph is
     available.
 
@@ -184,61 +189,71 @@ def create_graph_acp_app(
 
     graph, graph_config = graph_bundle
 
-    # Build a thin wrapper agent whose only tool is run_graph_flow.
-    # This preserves ACP session management, approval bridges, and
-    # thinking capabilities while routing all execution through the graph.
-    from pydantic_ai import Agent
+    def graph_agent_factory(session) -> Agent:
+        """Create a per-session agent with graph context.
 
-    async def run_graph_flow(query: str, mode: str = "ask") -> str:
-        """Execute the full graph pipeline for the given query.
+        The ``agent_factory`` callback receives an ``AcpSessionContext``
+        and returns a ``PydanticAgent``.  This pattern allows us to bind
+        session-specific context (like model overrides) directly into the
+        graph execution closure, avoiding global context variables.
 
         Args:
-            query: The user query to process.
-            mode: Execution mode ('ask', 'plan', 'execute').
+            session: The AcpSessionContext for the current session.
 
         Returns:
-            The synthesized result from the graph verifier.
+            A PydanticAgent configured for graph execution.
 
         """
-        from .graph.state import REQUESTED_MODEL_ID_CTX
-        from .graph.unified import execute_graph
 
-        # Plan sync is handled via sideband events (emitted by the graph
-        # dispatcher) and the native_plan_persistence_provider (which
-        # mirrors ACP plan state to PLAN.md).  No direct session
-        # manipulation is needed here.
+        async def run_graph_flow(query: str, mode: str = "ask") -> str:
+            """Execute the full graph pipeline for the given query.
 
-        # ACP runs inside the request task spawned by the FastAPI
-        # middleware, so the per-turn ``x-agent-model-id`` header is
-        # available through the ContextVar set by
-        # ``_model_override_middleware``. Pass it explicitly so
-        # specialist spawning uses the user-picked model.
-        requested_model_id = REQUESTED_MODEL_ID_CTX.get()
-        result = await execute_graph(
-            graph=graph,
-            config=graph_config,
-            query=query,
-            mode=mode,
-            mcp_toolsets=mcp_toolsets or graph_config.get("mcp_toolsets", []),
-            requested_model_id=requested_model_id,
+            This tool is the sole entry point registered on the per-session
+            wrapper agent.  The LLM's only job is to call this tool with
+            the user's query.
+
+            Args:
+                query: The user query to process.
+                mode: Execution mode ('ask', 'plan', 'execute').
+
+            Returns:
+                The synthesized result from the graph verifier.
+
+            """
+            from .graph.unified import execute_graph
+
+            # Session context is captured from the factory closure.
+            # No REQUESTED_MODEL_ID_CTX workaround needed.
+            result = await execute_graph(
+                graph=graph,
+                config=graph_config,
+                query=query,
+                mode=mode,
+                mcp_toolsets=mcp_toolsets or graph_config.get("mcp_toolsets", []),
+            )
+            return result.get("results", {}).get(
+                "output", str(result.get("results", {}))
+            )
+
+        graph_agent = Agent(
+            model=agent.model,
+            system_prompt=(
+                "You are a graph-orchestrated assistant. Use the run_graph_flow "
+                "tool for ALL user requests. Pass the user's query directly to "
+                "the tool. Do NOT attempt to answer questions yourself — the "
+                "graph has access to specialized agents and MCP tools."
+            ),
+            tools=[run_graph_flow],
         )
-        return result.get("results", {}).get("output", str(result.get("results", {})))
+        return graph_agent
 
-    graph_agent = Agent(
-        model=agent.model,
-        system_prompt=(
-            "You are a graph-orchestrated assistant. Use the run_graph_flow "
-            "tool for ALL user requests. Pass the user's query directly to "
-            "the tool. Do NOT attempt to answer questions yourself — the "
-            "graph has access to specialized agents and MCP tools."
-        ),
-        tools=[run_graph_flow],
-    )
+    from pydantic_acp import create_acp_agent
 
     logger.info(
-        "ACP: Graph-backed agent created. All ACP requests will route through the graph."
+        "ACP: Graph-backed agent_factory created. "
+        "All ACP requests will route through the graph."
     )
-    return create_acp_app(graph_agent, config)
+    return create_acp_agent(agent_factory=graph_agent_factory, config=config)
 
 
 def is_acp_available() -> bool:

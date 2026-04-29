@@ -1,13 +1,12 @@
 {
-  "task": "write content",
-  "platform": "twitter",
-  "structure": {
-    "hook": "curiosity-driven",
-    "body": "3 insights with smooth flow",
-    "cta": "one strong question"
-  },
-  "topic": "your topic",
-  "tone": "smart and relatable",
-  "style": "professional assistant",
-  "goal": "Provide expert assistance in General"
+    "task": "write content",
+    "type": "prompt",
+    "metadata": {
+        "topic": "your topic",
+        "tone": "smart and relatable",
+        "style": "professional assistant"
+    },
+    "identity": {
+        "goal": "Provide expert assistance in General"
+    }
 }

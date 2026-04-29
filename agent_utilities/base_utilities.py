@@ -4,6 +4,8 @@
 This module provides a collection of low-level helper functions and classes used across
 the agent-utilities package for type conversion, environment variable expansion,
 package management, and dynamic object patching.
+
+CONCEPT:AU-005 Serialization Safety
 """
 
 import inspect
@@ -364,6 +366,13 @@ def load_env_vars(override: bool = False) -> None:
 def save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:
     """Serialize a model object to a pickle file.
 
+    CONCEPT:AU-005 Serialization Safety
+
+    .. deprecated:: 0.2.40
+        Use ``safe_save_model`` / ``safe_load_model`` (JSON-based) for new code.
+        Pickle serialization is retained only for backward compatibility with
+        existing model files.
+
     Args:
         model: The model object to serialize.
         file_name: Name of the output file without extension. Defaults to "model".
@@ -373,6 +382,14 @@ def save_model(model: Any, file_name: str = "model", file_path: str = ".") -> st
         The absolute or relative path to the saved pickle file.
 
     """
+    import warnings
+
+    warnings.warn(
+        "save_model uses pickle which has known security risks (CWE-502). "
+        "Consider using safe_save_model() for JSON-based serialization.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     pickle_file = os.path.join(file_path, f"{file_name}.pkl")
     with open(pickle_file, "wb") as file:
         pickle.dump(model, file)
@@ -382,6 +399,11 @@ def save_model(model: Any, file_name: str = "model", file_path: str = ".") -> st
 def load_model(file: str) -> Any:
     """Deserialize a model object from a pickle file.
 
+    CONCEPT:AU-005 Serialization Safety
+
+    .. deprecated:: 0.2.40
+        Use ``safe_load_model`` (JSON-based) for new code.
+
     Args:
         file: Path to the pickle file.
 
@@ -389,9 +411,61 @@ def load_model(file: str) -> Any:
         The deserialized model object.
 
     """
+    import warnings
+
+    warnings.warn(
+        "load_model uses pickle.load which has known security risks (CWE-502). "
+        "Consider using safe_load_model() for JSON-based deserialization.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     with open(file, "rb") as model_file:
         model = pickle.load(model_file)  # nosec B301
     return model
+
+
+def safe_save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:
+    """Serialize a model object to a JSON file (safe alternative to pickle).
+
+    CONCEPT:AU-005 Serialization Safety
+
+    Supports Pydantic BaseModel instances (via .model_dump()), dicts, lists,
+    and any JSON-serializable object.
+
+    Args:
+        model: The model object to serialize.
+        file_name: Name of the output file without extension.
+        file_path: Directory path where the file should be saved.
+
+    Returns:
+        The path to the saved JSON file.
+
+    """
+    json_file = os.path.join(file_path, f"{file_name}.json")
+    data = model
+    if hasattr(model, "model_dump"):
+        data = model.model_dump(mode="json")
+    elif hasattr(model, "dict"):
+        data = model.dict()
+    with open(json_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=str)
+    return json_file
+
+
+def safe_load_model(file: str) -> Any:
+    """Deserialize a model object from a JSON file (safe alternative to pickle).
+
+    CONCEPT:AU-005 Serialization Safety
+
+    Args:
+        file: Path to the JSON file.
+
+    Returns:
+        The deserialized data (dict, list, or primitive).
+
+    """
+    with open(file, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def retrieve_package_name() -> str:

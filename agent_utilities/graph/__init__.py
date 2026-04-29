@@ -47,6 +47,7 @@ from .mermaid import (
 from .runner import (
     # Runner
     run_graph,
+    run_graph_iter,
     run_graph_stream,
     validate_graph,
 )
@@ -61,6 +62,7 @@ from .unified import (
     SSEEventHandler,
     # Unified execution (Protocol-agnositic entry points)
     execute_graph,
+    execute_graph_iter,
     execute_graph_stream,
 )
 
@@ -100,10 +102,12 @@ __all__ = [
     "build_tag_env_map",
     # Runner
     "run_graph",
+    "run_graph_iter",
     "run_graph_stream",
     "validate_graph",
     # Unified execution
     "execute_graph",
+    "execute_graph_iter",
     "execute_graph_stream",
     "GraphEventHandler",
     "SSEEventHandler",

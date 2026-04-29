@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """SDD (Spec-Driven Development) Utility Module.
 
+CONCEPT:AU-009 — Spec-Driven Development
+
 This module provides high-level utilities for managing structured SDD artifacts
 (Specifications, Plans, Constitutions) and their relationship to tasks. It handles
 disk persistence in the agent's 'agent_data' directory and provides logic for

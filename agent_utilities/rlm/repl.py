@@ -192,7 +192,19 @@ class RLMEnvironment:
             return await self._execute_local(code)
 
     async def _execute_local(self, code: str) -> tuple[dict[str, Any], str]:
-        # Simple local exec() sandbox
+        """Execute LLM-generated code in a restricted local namespace.
+
+        Security Advisory (CWE-94):
+            This method intentionally uses ``exec()`` to implement a persistent
+            Python REPL for Recursive Language Models (RLM).  The execution
+            environment is restricted to an explicit ``globals_dict`` that
+            exposes only approved helpers (``rlm_query``, ``magma_view``,
+            ``graph_query``, ``FINAL_VAR``, ``json``, ``asyncio``, ``nx``).
+
+            For full isolation, set ``RLMConfig.use_container = True`` to
+            delegate execution to a sandboxed Docker/Podman container via
+            ``_execute_container()``.
+        """
         old_stdout = sys.stdout
         redirected_output = io.StringIO()
         sys.stdout = redirected_output
@@ -203,7 +215,7 @@ class RLMEnvironment:
             for line in code.splitlines():
                 wrapped_code += f"    {line}\n"
 
-            exec(wrapped_code, self.globals_dict)  # nosec B102
+            exec(wrapped_code, self.globals_dict)  # nosec B102  # RLM REPL - intentional
             await self.globals_dict["__async_exec__"]()
 
             # Sync back globals to vars (except builtins)
@@ -228,10 +240,15 @@ class RLMEnvironment:
         return self.vars, redirected_output.getvalue()
 
     async def _execute_container(self, code: str) -> tuple[dict[str, Any], str]:
-        """Executes the code in a dedicated Docker/Podman container using container-manager-mcp."""
-        from container_manager_mcp.container_manager import DockerManager
+        """Executes the code in a sandboxed container using container-manager-mcp.
 
-        manager = DockerManager()
+        The backend (Docker or Podman) is auto-detected via the ``create_manager``
+        factory.  Override with the ``CONTAINER_MANAGER_TYPE`` env-var
+        (``docker`` | ``podman``) if explicit selection is needed.
+        """
+        from container_manager_mcp.container_manager import create_manager
+
+        manager = create_manager()
 
         # We need to serialize the context/vars, run a python script, and get output
         # For full isolation, we'll write the context to a temp json, mount it, run it

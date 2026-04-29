@@ -1,4 +1,7 @@
-"""Recursive Language Models (RLM) Module."""
+"""Recursive Language Models (RLM) Module.
+
+CONCEPT:AU-007 — RLM Execution
+"""
 
 from .config import RLMConfig
 
