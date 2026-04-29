@@ -1016,6 +1016,7 @@ def build_agent_app(
                         "[LAYER:AG-UI] Direct graph execution fast-path "
                         f"for query: '{query[:50]}...'"
                     )
+                    assert graph_bundle is not None
                     graph, graph_cfg = graph_bundle
                     emitter = AGUIGraphEmitter()
                     try:

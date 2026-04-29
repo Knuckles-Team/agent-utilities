@@ -90,26 +90,26 @@ class PromptInstructions(BaseModel):
             parts.append(self.core_directive)
 
         if self.responsibilities and not self.core_directive:
-            items = "\n".join(f"- {r}" for r in self.responsibilities)
-            parts.append(f"### KEY RESPONSIBILITIES\n{items}")
+            resp_items = "\n".join(f"- {r}" for r in self.responsibilities)
+            parts.append(f"### KEY RESPONSIBILITIES\n{resp_items}")
 
         if self.capabilities and not self.core_directive:
             cap_parts: list[str] = []
-            for category, items in self.capabilities.items():
+            for category, cap_items in self.capabilities.items():
                 title = category.replace("_", " ").title()
-                bullet_list = "\n".join(f"- {item}" for item in items)
+                bullet_list = "\n".join(f"- {item}" for item in cap_items)
                 cap_parts.append(f"#### {title}\n{bullet_list}")
             parts.append("### CAPABILITIES\n" + "\n\n".join(cap_parts))
 
         if self.workflow and not self.core_directive:
-            items = "\n".join(
+            flow_items = "\n".join(
                 f"{i + 1}. {step}" for i, step in enumerate(self.workflow)
             )
-            parts.append(f"### WORKFLOW\n{items}")
+            parts.append(f"### WORKFLOW\n{flow_items}")
 
         if self.quality_checklist and not self.core_directive:
-            items = "\n".join(f"- [ ] {item}" for item in self.quality_checklist)
-            parts.append(f"### QUALITY CHECKLIST\n{items}")
+            chk_items = "\n".join(f"- [ ] {item}" for item in self.quality_checklist)
+            parts.append(f"### QUALITY CHECKLIST\n{chk_items}")
 
         if self.methodology and not self.core_directive:
             parts.append(f"### METHODOLOGY\n{self.methodology}")
@@ -123,8 +123,8 @@ class PromptInstructions(BaseModel):
             for key, value in extra.items():
                 title = key.replace("_", " ").title()
                 if isinstance(value, list):
-                    items = "\n".join(f"- {v}" for v in value)
-                    parts.append(f"### {title}\n{items}")
+                    ext_items = "\n".join(f"- {v}" for v in value)
+                    parts.append(f"### {title}\n{ext_items}")
                 elif isinstance(value, str):
                     parts.append(f"### {title}\n{value}")
 
