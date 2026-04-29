@@ -82,4 +82,50 @@ async def list_team_tasks(ctx: RunContext[Any]) -> str:
     return "Team Tasks:\n" + "\n".join(tasks)
 
 
-TEAM_TOOLS = [spawn_team, assign_team_task, message_teammate, list_team_tasks]
+async def discover_teams(ctx: RunContext[Any]) -> str:
+    """Discover all active teams from the knowledge graph.
+
+    Returns a formatted list of teams with their IDs, names, and member counts.
+    """
+    capability = getattr(ctx, "team_capability", None)
+    if not capability:
+        capability = TeamCapability()
+
+    teams = await capability.discover_teams(ctx)
+    if not teams:
+        return "No active teams found."
+
+    lines = ["Active Teams:"]
+    for t in teams:
+        lines.append(
+            f"- {t['name']} (ID: {t['team_id']}, Members: {t['member_count']})"
+        )
+    return "\n".join(lines)
+
+
+async def update_task_status(ctx: RunContext[Any], task_id: str, status: str) -> str:
+    """Update the status of a team task.
+
+    Args:
+        ctx: Run context.
+        task_id: The ID of the task to update.
+        status: New status ('pending', 'in_progress', 'done').
+    """
+    capability = getattr(ctx, "team_capability", None)
+    if not capability:
+        return "No active team found. Use spawn_team first."
+
+    success = await capability.update_task_status(ctx, task_id, status)
+    if success:
+        return f"Task {task_id} updated to '{status}'."
+    return f"Failed to update task {task_id}. Task may not exist."
+
+
+TEAM_TOOLS = [
+    spawn_team,
+    assign_team_task,
+    message_teammate,
+    list_team_tasks,
+    discover_teams,
+    update_task_status,
+]

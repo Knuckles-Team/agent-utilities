@@ -67,6 +67,8 @@ def __getattr__(name):
         "optional_import_block",
         "require_optional_import",
         "retrieve_package_name",
+        "safe_load_model",
+        "safe_save_model",
         "to_boolean",
         "to_dict",
         "to_float",
@@ -80,6 +82,8 @@ def __getattr__(name):
             optional_import_block,
             require_optional_import,
             retrieve_package_name,
+            safe_load_model,
+            safe_save_model,
             to_boolean,
             to_dict,
             to_float,
@@ -232,6 +236,14 @@ def __getattr__(name):
         )
 
         return locals()[name]
+    elif name in ["SecretsClient", "create_secrets_client"]:
+        from .secrets_client import SecretsClient, create_secrets_client
+
+        return SecretsClient if name == "SecretsClient" else create_secrets_client
+    elif name == "verify_credentials":
+        from .auth import verify_credentials
+
+        return verify_credentials
     elif name == "SDDManager":
         from .sdd import SDDManager
 
@@ -305,6 +317,8 @@ __all__ = [
     "ensure_package_installed",
     "optional_import_block",
     "require_optional_import",
+    "safe_save_model",
+    "safe_load_model",
     # Embedding
     "create_embedding_model",
     # HSM hooks
@@ -328,4 +342,8 @@ __all__ = [
     "CodemapArtifact",
     "CodemapGenerator",
     "parse_codemap_mentions",
+    # Secrets & Auth (CONCEPT:AU-011)
+    "SecretsClient",
+    "create_secrets_client",
+    "verify_credentials",
 ]

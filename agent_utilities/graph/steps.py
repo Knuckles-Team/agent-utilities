@@ -2328,3 +2328,96 @@ async def critique_step(
 
     """
     return await _execute_specialized_step(ctx, "critique")
+
+
+async def council_step(
+    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | str],
+) -> str:
+    """Run a multi-perspective council deliberation on the user's query.
+
+    Dispatches 5 advisors (Contrarian, First Principles, Expansionist,
+    Outsider, Executor) in parallel, anonymizes their responses for bias
+    prevention, runs peer reviewers, and produces a chairman-synthesized
+    :class:`CouncilVerdict`.
+
+    The council is invoked by the dispatcher when the router selects
+    ``council`` as a plan step, or when a specialist calls the council
+    as a tool for high-stakes decisions.
+
+    Args:
+        ctx: The pydantic-graph step context, potentially containing
+            a specific structured question via ``ExecutionStep``.
+
+    Returns:
+        The ID of the next node to execute (``'execution_joiner'``).
+
+    """
+    from .council import run_council_deliberation
+
+    _emit_node_lifecycle(ctx.deps.event_queue, "council", "node_start")
+
+    # If the dispatcher sent a specific question, use it
+    step_input = ctx.inputs
+    council_query = ctx.state.query
+    if isinstance(step_input, ExecutionStep) and step_input.input_data:
+        if isinstance(step_input.input_data, dict):
+            council_query = step_input.input_data.get("question", council_query)
+        elif isinstance(step_input.input_data, str):
+            council_query = step_input.input_data
+
+    try:
+        verdict, transcript = await run_council_deliberation(
+            query=council_query,
+            ctx_deps=ctx.deps,
+            ctx_state=ctx.state,
+        )
+
+        # Store structured verdict in results registry
+        node_uid = f"council_{ctx.state.step_cursor}"
+        ctx.state.results_registry[node_uid] = verdict.model_dump_json()
+        ctx.state.results["council"] = verdict.model_dump_json()
+
+        # Store markdown transcript for human inspection
+        ctx.state.results_registry[f"{node_uid}_transcript"] = transcript.to_markdown()
+
+        # Persist to Knowledge Graph as a DecisionNode (if available)
+        if ctx.deps.knowledge_engine:
+            try:
+                ctx.deps.knowledge_engine.add_node(
+                    node_id=f"council_verdict_{ctx.state.step_cursor}",
+                    node_type="Decision",
+                    properties={
+                        "name": f"Council Verdict: {council_query[:80]}",
+                        "description": verdict.final_recommendation,
+                        "rationale": "; ".join(verdict.key_insights),
+                        "confidence": verdict.confidence / 10.0,
+                    },
+                )
+            except Exception as e:
+                logger.debug(f"Failed to persist council verdict to KG: {e}")
+
+        logger.info(
+            f"[COUNCIL] Verdict stored. Confidence: {verdict.confidence}/10. "
+            f"Key insights: {len(verdict.key_insights)}"
+        )
+
+        _emit_node_lifecycle(
+            ctx.deps.event_queue,
+            "council",
+            "node_complete",
+            next_node="execution_joiner",
+        )
+        return "execution_joiner"
+
+    except Exception as e:
+        logger.error(f"Council deliberation failed: {e}")
+        ctx.state.results_registry[f"council_{ctx.state.step_cursor}"] = (
+            f"Council failed: {e}"
+        )
+        _emit_node_lifecycle(
+            ctx.deps.event_queue,
+            "council",
+            "node_complete",
+            next_node="execution_joiner",
+        )
+        return "execution_joiner"

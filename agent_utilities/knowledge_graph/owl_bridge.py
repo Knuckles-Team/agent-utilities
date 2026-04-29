@@ -55,9 +55,20 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "policy",
     "server",
     "code",
+    # Standard Ontology Types (BFO, Schema.org, DC, FIBO)
+    "document",
+    "creative_work",
+    "dataset",
+    "software_project",
+    "medical_entity",
+    "procedure",
+    "regulation",
+    "financial_instrument",
+    "financial_transaction",
+    "account",
 }
 
-# Edge types eligible for OWL promotion (transitive / inferrable relationships)
+# Edge types eligible for OWL promotion (transitive / inferable relationships)
 PROMOTABLE_EDGE_TYPES: set[str] = {
     "inherits_from",
     "depends_on",
@@ -77,6 +88,21 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "observed_by",
     "occurred_during",
     "defined_in",
+    # Standard Ontology Edges (PROV-O, SKOS, Dublin Core, FIBO)
+    "was_generated_by",
+    "was_derived_from",
+    "was_attributed_to",
+    "has_temporal_extent",
+    "broader",
+    "narrower",
+    "related_concept",
+    "exact_match",
+    "close_match",
+    "broad_match",
+    "creator",
+    "cites_source",
+    "has_financial_instrument",
+    "executed_transaction",
 }
 
 

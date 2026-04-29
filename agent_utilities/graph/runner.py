@@ -4,6 +4,8 @@
 This module provides the execution logic for the pydantic-graph orchestrator.
 It defines functions to run graphs synchronously or as asynchronous streams (SSE),
 handles state persistence, MCP server connectivity during runs, and graph validation.
+
+CONCEPT:AU-002 Graph Orchestration
 """
 
 from __future__ import annotations
@@ -539,6 +541,272 @@ async def run_graph_stream(
     if not final_output:
         final_output = "No output generated."
     yield f"data: {json.dumps({'type': 'final_output', 'content': final_output})}\n\n"
+
+
+async def run_graph_iter(
+    graph,
+    config: dict,
+    query: str,
+    run_id: str | None = None,
+    mode: str = "ask",
+    topology: str = "basic",
+    mcp_toolsets: list[Any] | None = None,
+    query_parts: list[dict[str, Any]] | None = None,
+    plan_sync=None,
+    requested_model_id: str | None = None,
+    elicitation_callback=None,
+):
+    r"""Execute graph step-by-step using ``graph.iter()`` for maximum control.
+
+    Unlike :func:`run_graph` which delegates to ``graph.run()`` (blocking
+    until completion), this function uses the beta ``graph.iter()`` API to
+    yield per-step execution events.  This enables:
+
+    * **Progress streaming** — each step yields metadata about the active
+      node, enabling real-time AG-UI sideband updates.
+    * **Pause/resume** — callers can stop iterating and serialize
+      ``GraphState`` to disk, resuming later.
+    * **Elicitation** — between steps the function checks
+      ``state.human_approval_required`` and, if an ``elicitation_callback``
+      is provided, pauses for human input before continuing.
+    * **State snapshots** — every yielded event includes a lightweight
+      snapshot of ``GraphState`` for audit/debugging.
+
+    Args:
+        graph: The Graph object created by the builder.
+        config: Execution configuration dictionary.
+        query: User input query string.
+        run_id: Optional unique identifier for the execution session.
+        mode: The orchestrator's execution mode.
+        topology: The selected graph topology.
+        mcp_toolsets: Toolsets to inject during execution.
+        query_parts: Structured message parts for the initial prompt.
+        plan_sync: Optional async callback for bridging plan state to ACP.
+        requested_model_id: Optional per-turn model id override.
+        elicitation_callback: Optional async callable invoked when the graph
+            requires human approval.  Signature:
+            ``async def cb(state: GraphState) -> str | None``.  Return a
+            redirect string to override the next node, or ``None`` to
+            continue normally.
+
+    Yields:
+        Dictionaries with the following ``type`` keys:
+
+        * ``"node_start"`` — a graph node is about to execute
+        * ``"node_complete"`` — a graph node has finished
+        * ``"elicitation"`` — the graph is pausing for human input
+        * ``"state_snapshot"`` — periodic serialization of ``GraphState``
+        * ``"graph_complete"`` — the graph has finished executing
+        * ``"error"`` — an error occurred during execution
+
+    CONCEPT:AU-002 Graph Orchestration
+
+    """
+    from contextlib import AsyncExitStack
+
+    from pydantic_graph.beta.graph import EndMarker
+
+    if run_id is None:
+        run_id = uuid4().hex
+
+    if requested_model_id is None:
+        requested_model_id = REQUESTED_MODEL_ID_CTX.get()
+
+    eq: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    emit_graph_event(eq, "graph_start", run_id=run_id, query=query, topology=topology)
+
+    _custom_headers = config.get("custom_headers")
+    _ssl_verify = config.get("ssl_verify", DEFAULT_SSL_VERIFY)
+
+    deps = GraphDeps(
+        tag_prompts=config.get("tag_prompts", {}),
+        tag_env_vars=config.get("tag_env_vars", {}),
+        mcp_toolsets=(
+            mcp_toolsets if mcp_toolsets is not None else config.get("mcp_toolsets", [])
+        ),
+        mcp_url=config.get("mcp_url", ""),
+        mcp_config=config.get("mcp_config", ""),
+        router_model=create_model(
+            model_id=config.get("router_model", DEFAULT_ROUTER_MODEL),
+            api_key=config.get("api_key"),
+            base_url=config.get("base_url"),
+            custom_headers=_custom_headers,
+            provider=config.get("provider", DEFAULT_PROVIDER),
+            ssl_verify=_ssl_verify,
+        ),
+        agent_model=create_model(
+            model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
+            api_key=config.get("api_key"),
+            base_url=config.get("base_url"),
+            custom_headers=_custom_headers,
+            provider=config.get("provider", DEFAULT_PROVIDER),
+            ssl_verify=_ssl_verify,
+        ),
+        nodes=config.get("nodes", {}),
+        min_confidence=config.get("min_confidence", 0.6),
+        sub_agents=config.get("sub_agents", {}),
+        provider=config.get("provider", DEFAULT_PROVIDER),
+        base_url=config.get("base_url"),
+        api_key=config.get("api_key"),
+        ssl_verify=_ssl_verify,
+        event_queue=eq,
+        router_timeout=config.get("router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT),
+        verifier_timeout=config.get("verifier_timeout", DEFAULT_GRAPH_VERIFIER_TIMEOUT),
+        request_id=run_id,
+        routing_strategy=config.get("routing_strategy", "hybrid"),
+        enable_llm_validation=config.get(
+            "enable_llm_validation", DEFAULT_ENABLE_LLM_VALIDATION
+        ),
+        discovery_metadata=config.get("discovery_metadata", {}),
+        plan_sync=plan_sync,
+        approval_manager=config.get("approval_manager"),
+        model_registry=config.get("model_registry"),
+        requested_model_id=requested_model_id,
+    )
+
+    state = GraphState(
+        query=query, query_parts=query_parts or [], mode=mode, topology=topology
+    )
+
+    # Merge registry tags into deps (same as run_graph)
+    registry = load_node_agents_registry()
+    for agent in registry.agents:
+        if agent.name and agent.name not in deps.tag_prompts:
+            deps.tag_prompts[agent.name] = agent.description or agent.name
+        node_id = agent.name.lower().replace(" ", "_")
+        if node_id not in deps.tag_prompts:
+            deps.tag_prompts[node_id] = agent.description or agent.name
+
+    # Connect MCP servers
+    failed_servers: list[tuple[str, str]] = []
+    connected_toolsets: list = []
+    _already_connected: set[int] = set()
+
+    async with AsyncExitStack() as stack:
+        for ts in deps.mcp_toolsets:
+            if not hasattr(ts, "__aenter__"):
+                connected_toolsets.append(ts)
+                continue
+            if id(ts) in _already_connected:
+                connected_toolsets.append(ts)
+                continue
+            srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
+            try:
+                connected = await asyncio.wait_for(
+                    stack.enter_async_context(ts), timeout=60.0
+                )
+                _already_connected.add(id(ts))
+                connected_toolsets.append(connected)
+                logger.info(f"run_graph_iter: ✅ MCP server '{srv_id}' connected")
+            except Exception as e:
+                err_msg = str(e)
+                logger.error(
+                    f"run_graph_iter: ❌ MCP server '{srv_id}' FAILED: {err_msg}"
+                )
+                failed_servers.append((srv_id, err_msg))
+
+        deps.mcp_toolsets = [ts for ts in connected_toolsets if ts is not None]
+
+        if failed_servers:
+            logger.warning(
+                f"run_graph_iter: {len(failed_servers)} MCP server(s) failed:\n"
+                + "\n".join(f"  ❌ {sid}: {err}" for sid, err in failed_servers)
+            )
+
+        step_count = 0
+        try:
+            async with graph.iter(state=state, deps=deps) as graph_run:
+                async for event in graph_run:
+                    if isinstance(event, EndMarker):
+                        # Graph completed — yield final result
+                        yield {
+                            "type": "graph_complete",
+                            "run_id": run_id,
+                            "output": event.value,
+                            "state_snapshot": _build_state_snapshot(state),
+                        }
+                        break
+
+                    # event is Sequence[GraphTask] — list of active tasks
+                    step_count += 1
+                    active_nodes = [
+                        {"node_id": str(t.node_id), "task_id": str(t.task_id)}
+                        for t in event
+                    ]
+
+                    yield {
+                        "type": "node_transition",
+                        "step": step_count,
+                        "run_id": run_id,
+                        "active_nodes": active_nodes,
+                        "state_snapshot": _build_state_snapshot(state),
+                    }
+
+                    # Drain sideband events emitted by the step
+                    while not eq.empty():
+                        sideband_event = eq.get_nowait()
+                        yield {"type": "sideband", "event": sideband_event}
+
+                    # Elicitation check: pause for human approval if needed
+                    if (
+                        state.human_approval_required
+                        and elicitation_callback is not None
+                    ):
+                        yield {
+                            "type": "elicitation",
+                            "reason": "human_approval_required",
+                            "state_snapshot": _build_state_snapshot(state),
+                        }
+                        redirect = await elicitation_callback(state)
+                        state.human_approval_required = False
+                        if redirect:
+                            logger.info(
+                                f"run_graph_iter: Elicitation redirect to '{redirect}'"
+                            )
+                            # The redirect will be picked up by the next
+                            # dispatcher iteration via state.user_redirect_feedback
+                            state.user_redirect_feedback = redirect
+
+        except TimeoutError:
+            yield {
+                "type": "error",
+                "run_id": run_id,
+                "error": "Graph execution timed out",
+            }
+        except Exception as e:
+            logger.error(f"run_graph_iter: CRITICAL ERROR: {e}")
+            yield {"type": "error", "run_id": run_id, "error": str(e)}
+
+        # Drain any remaining sideband events
+        while not eq.empty():
+            sideband_event = eq.get_nowait()
+            yield {"type": "sideband", "event": sideband_event}
+
+
+def _build_state_snapshot(state: GraphState) -> dict[str, Any]:
+    """Build a lightweight serializable snapshot of the current graph state.
+
+    This snapshot is included in every yielded event for observability,
+    audit trails, and potential pause/resume support.
+
+    Args:
+        state: The current GraphState instance.
+
+    Returns:
+        A dictionary with key state fields.
+
+    """
+    return {
+        "routed_domain": state.routed_domain,
+        "step_cursor": state.step_cursor,
+        "mode": state.mode,
+        "topology": state.topology,
+        "node_history": list(state.node_history),
+        "node_transitions": state.node_transitions,
+        "error": state.error,
+        "results_registry_keys": list(state.results_registry.keys()),
+        "session_id": state.session_id,
+    }
 
 
 def validate_graph(graph: Any, config: dict) -> dict:

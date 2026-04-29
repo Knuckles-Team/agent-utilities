@@ -4,6 +4,8 @@
 This module provides factory functions for creating and configuring Pydantic AI
 agents. It handles CLI argument parsing, MCP server initialization, toolset
 registration, and system prompt construction.
+
+CONCEPT:AU-001 Agent Creation
 """
 
 from __future__ import annotations
@@ -273,6 +275,8 @@ def create_agent(
     eviction_threshold_chars: int = 80_000,
 ) -> tuple[Agent, list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
+
+    CONCEPT:AU-001 Agent Creation
 
     Args:
         provider: LLM provider name.

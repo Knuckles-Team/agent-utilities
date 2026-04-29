@@ -1,13 +1,17 @@
 {
-  "task": "act as brand consultant",
-  "client": "early-stage AI tool",
-  "goal": "define positioning",
-  "deliverables": [
-    "1-liner",
-    "target audience",
-    "3 differentiators"
-  ],
-  "tone": "simple and strategic",
-  "topic": "General Expertise",
-  "style": "professional assistant"
+    "task": "act as brand consultant",
+    "type": "prompt",
+    "metadata": {
+        "topic": "General Expertise",
+        "tone": "simple and strategic",
+        "style": "professional assistant"
+    },
+    "identity": {
+        "goal": "define positioning"
+    },
+    "deliverables": [
+        "1-liner",
+        "target audience",
+        "3 differentiators"
+    ]
 }

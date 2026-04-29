@@ -270,6 +270,12 @@ _PHASE_MAP: dict[str, str] = {
     "error_recovery_replan": "RECOVERY",
     "error_recovery_terminal": "RECOVERY",
     "graph_force_terminated": "TERMINATION",
+    # ── Council Deliberation ──────────────────────────────────────────
+    "council_started": "COUNCIL",
+    "council_stage": "COUNCIL",
+    "council_advisor_complete": "COUNCIL",
+    "council_reviewer_complete": "COUNCIL",
+    "council_completed": "COUNCIL",
 }
 
 

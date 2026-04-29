@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Custom Exceptions Module.
 
+CONCEPT:AU-011 — Secrets & Authentication
+
 This module defines specialized exception classes used across the agent
 ecosystem to handle errors related to authentication, API communication,
 and parameter validation.

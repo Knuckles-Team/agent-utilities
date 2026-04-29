@@ -5,6 +5,8 @@ This module provides the core web server functionality for the agent ecosystem.
 It uses FastAPI to expose endpoints for AG-UI streaming, A2A communication,
 ACP protocol adapters, and management interfaces. It dynamically handles
 agent lifecycle, workspace initialization, and observability setup.
+
+CONCEPT:AU-004 Protocol Layer
 """
 
 from __future__ import annotations
@@ -121,14 +123,23 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 async def verify_api_key(api_key: str = Depends(api_key_header)):
-    """Security dependency to verify the agent API key."""
-    if not config.enable_api_auth or not config.agent_api_key:
+    """Legacy security dependency — delegates to the unified auth module.
+
+    Kept for backward compatibility.  New code should use
+    ``auth.verify_credentials`` instead.
+
+    CONCEPT:AU-011 — Secrets & Authentication
+    """
+
+    # Construct a minimal request-like object for the unified verifier
+    if not config.enable_api_auth and not config.auth_jwt_jwks_uri:
         return
-    if api_key != config.agent_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Could not validate credentials",
-        )
+    if config.enable_api_auth and config.agent_api_key:
+        if api_key != config.agent_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Could not validate credentials",
+            )
 
 
 def setup_server_file_logging(workspace: str | None = None) -> str | None:
@@ -769,17 +780,27 @@ def build_agent_app(
             dependencies=[Depends(verify_api_key)] if config.enable_api_auth else [],
         )
 
+        _origins = (
+            [o.strip() for o in config.allowed_origins.split(",")]
+            if config.allowed_origins
+            else ["*"]
+        )
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],  # Should be restricted in production
+            allow_origins=_origins,
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
         )
 
+        _hosts = (
+            [h.strip() for h in config.allowed_hosts.split(",")]
+            if config.allowed_hosts
+            else ["*"]
+        )
         app.add_middleware(
             TrustedHostMiddleware,
-            allowed_hosts=["*"],  # Should be restricted in production
+            allowed_hosts=_hosts,
         )
 
         @app.middleware("http")
@@ -976,6 +997,54 @@ def build_agent_app(
                     raw_parts = body.get("parts", [])
                     if raw_parts:
                         query_parts = await process_parts(raw_parts)
+
+                # ── FAST PATH: Direct graph execution (no LLM tool-call hop) ──
+                # Controlled by the GRAPH_DIRECT_EXECUTION env var (default: true)
+                # Only activates when graph_bundle contains a real Graph with iter()
+                from .config import DEFAULT_GRAPH_DIRECT_EXECUTION
+
+                _use_fast_path = False
+                if graph_bundle and DEFAULT_GRAPH_DIRECT_EXECUTION:
+                    _graph_obj, _ = graph_bundle
+                    _use_fast_path = hasattr(_graph_obj, "iter")
+
+                if _use_fast_path:
+                    from .agui_emitter import AGUIGraphEmitter
+                    from .graph.unified import execute_graph_iter
+
+                    logger.info(
+                        "[LAYER:AG-UI] Direct graph execution fast-path "
+                        f"for query: '{query[:50]}...'"
+                    )
+                    graph, graph_cfg = graph_bundle
+                    emitter = AGUIGraphEmitter()
+                    try:
+                        async for event in execute_graph_iter(
+                            graph=graph,
+                            config=graph_cfg,
+                            query=query,
+                            run_id=run_id,
+                            mode="ask",
+                            mcp_toolsets=_initialized_mcp_toolsets,
+                            requested_model_id=requested_model_id,
+                        ):
+                            # Translate graph events to AG-UI wire format
+                            for chunk in emitter.translate(event):
+                                yield chunk
+                            # Forward sideband events from the graph
+                            # event queue to the AG-UI stream
+                            while not graph_event_queue.empty():
+                                ev = graph_event_queue.get_nowait()
+                                if ev:
+                                    for chunk in emitter._format_sideband(ev):
+                                        yield chunk
+                    except Exception as e:
+                        logger.exception(f"AG-UI direct graph error: {e}")
+                        error_data = json.dumps({"type": "error", "error": str(e)})
+                        yield f"data: {error_data}\n\n".encode()
+                    return
+
+                # ── FALLBACK: Standard AGUIAdapter path (non-graph agents) ──
                 run_input = query_parts if query_parts else query
                 override_ctx = (
                     _agent_instance.override(model=override_model)

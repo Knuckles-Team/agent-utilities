@@ -52,6 +52,17 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "policy": "Policy",
     "server": "Server",
     "code": "Code",
+    # Standard Ontology Types (BFO, Schema.org, DC, FIBO)
+    "document": "Document",
+    "creative_work": "CreativeWork",
+    "dataset": "Dataset",
+    "software_project": "SoftwareProject",
+    "medical_entity": "MedicalEntity",
+    "procedure": "Procedure",
+    "regulation": "Regulation",
+    "financial_instrument": "FinancialInstrument",
+    "financial_transaction": "FinancialTransaction",
+    "account": "Account",
 }
 
 # Mapping from LPG edge type values to OWL object property local names
@@ -74,6 +85,21 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "observed_by": "observedBy",
     "occurred_during": "occurredDuring",
     "defined_in": "definedIn",
+    # Standard Ontology Edges (PROV-O, SKOS, Dublin Core, FIBO)
+    "was_generated_by": "wasGeneratedBy",
+    "was_derived_from": "wasDerivedFrom",
+    "was_attributed_to": "wasAttributedTo",
+    "has_temporal_extent": "hasTemporalExtent",
+    "broader": "broader",
+    "narrower": "narrower",
+    "related_concept": "related",
+    "exact_match": "exactMatch",
+    "close_match": "closeMatch",
+    "broad_match": "broadMatch",
+    "creator": "creator",
+    "cites_source": "citesSource",
+    "has_financial_instrument": "hasFinancialInstrument",
+    "executed_transaction": "executedTransaction",
 }
 
 
@@ -214,6 +240,28 @@ class Owlready2Backend(OWLBackend):
         logger.info("Promoted %d nodes as OWL individuals", count)
         return count
 
+    def _promote_dc_properties(self, individual: Any, node: dict[str, Any]) -> None:
+        """Map Dublin Core datatype properties to OWL individual."""
+        dc_mappings = {
+            "title": "title",
+            "creator": "creator",
+            "date": "dateCreated",
+            "subject": "subject",
+            "identifier": "identifier",
+            "language": "language",
+            "format": "format",
+        }
+        for node_key, owl_prop_name in dc_mappings.items():
+            if (
+                node_key in node
+                and node[node_key]
+                and hasattr(self._onto, owl_prop_name)
+            ):
+                try:
+                    getattr(individual, owl_prop_name).append(str(node[node_key]))
+                except (ValueError, TypeError, AttributeError):
+                    pass
+
     def promote_edges(self, edges: list[dict[str, Any]]) -> int:
         """Create OWL property assertions from stable LPG edges."""
         if not self._onto:
@@ -349,8 +397,8 @@ class Owlready2Backend(OWLBackend):
         if self._world:
             try:
                 self._world.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to close owlready2 world: %s", e)
         self._onto = None
         self._world = None
 

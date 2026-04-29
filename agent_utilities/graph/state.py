@@ -107,6 +107,9 @@ class GraphDeps:
     server_health: dict[str, Any] = field(default_factory=dict)
     discovery_metadata: dict[str, list[str]] = field(default_factory=dict)
     """Map of server_id to list of tool names found during discovery phase."""
+    secrets_client: Any | None = None
+    """Optional SecretsClient for encrypted credential resolution.
+    CONCEPT:AU-011 — Secrets & Authentication"""
 
     plan_sync: PlanSyncCallback | None = None
     """Optional async callback for syncing graph plan state to ACP.

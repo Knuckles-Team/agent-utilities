@@ -317,6 +317,7 @@ def get_step_descriptions() -> str:
         "debugger_expert": "Interpreting error logs and fixing complex bugs.",
         "verifier": "Final quality gate. Validates that the implementation meets the original query requirements.",
         "mcp_server": "General-purpose tool hub for any task not covered by specialized nodes.",
+        "council": "Multi-perspective advisory council for high-stakes decisions. Spawns 5 advisors with different thinking styles (Contrarian, First Principles, Expansionist, Outsider, Executor), runs anonymous peer review, and produces a chairman verdict with confidence score. Use for strategy questions, architectural decisions, or when the user explicitly requests 'council this' or asks for diverse perspectives.",
     }
 
     for specialist in discover_all_specialists():
