@@ -119,7 +119,7 @@ wheels = [
 
 [[package]]
 name = "agent-terminal-ui"
-version = "0.1.36"
+version = "0.1.37"
 source = { directory = "../agent-terminal-ui" }
 dependencies = [
     { name = "agent-client-protocol" },
@@ -133,7 +133,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "agent-client-protocol", specifier = ">=0.9.0,<1.0.0" },
-    { name = "agent-utilities", specifier = ">=0.2.40,<0.3.0" },
+    { name = "agent-utilities", specifier = ">=0.2.41,<0.3.0" },
     { name = "httpx", specifier = ">=0.28.1,<1.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.0,<10.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.3.0,<2.0.0" },
@@ -147,7 +147,7 @@ provides-extras = ["test"]
 
 [[package]]
 name = "agent-utilities"
-version = "0.2.40"
+version = "0.2.41"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -348,13 +348,13 @@ vault = [
 requires-dist = [
     { name = "acpkit", extras = ["pydantic"], marker = "extra == 'acp'", directory = "../../open-source-libraries/acpkit" },
     { name = "agent-terminal-ui", marker = "extra == 'terminal'", directory = "../agent-terminal-ui" },
-    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.2.40" },
+    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.2.41" },
     { name = "agent-utilities", extras = ["agent", "graph", "acp", "owl"], marker = "extra == 'test'" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.2.40" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.2.40" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.2.40" },
-    { name = "agent-utilities", extras = ["mcp", "ag-ui", "terminal"], marker = "extra == 'agent'", specifier = ">=0.2.40" },
-    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "graph", "browser", "test", "owl", "stardog", "vault", "auth"], marker = "extra == 'all'", specifier = ">=0.2.40" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.2.41" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.2.41" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.2.41" },
+    { name = "agent-utilities", extras = ["mcp", "ag-ui", "terminal"], marker = "extra == 'agent'", specifier = ">=0.2.41" },
+    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "graph", "browser", "test", "owl", "stardog", "vault", "auth"], marker = "extra == 'all'", specifier = ">=0.2.41" },
     { name = "agent-utilities", extras = ["owl"], marker = "extra == 'stardog'" },
     { name = "agent-webui", marker = "extra == 'ag-ui'", directory = "../agent-webui" },
     { name = "authlib", marker = "extra == 'auth'", specifier = ">=1.4.0" },
@@ -419,7 +419,7 @@ provides-extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral"
 
 [[package]]
 name = "agent-webui"
-version = "0.1.36"
+version = "0.1.37"
 source = { directory = "../agent-webui" }
 dependencies = [
     { name = "fastapi" },
@@ -4363,7 +4363,7 @@ wheels = [
 
 [[package]]
 name = "repository-manager"
-version = "1.3.55"
+version = "1.3.56"
 source = { editable = "../agents/repository-manager" }
 dependencies = [
     { name = "agent-utilities", extra = ["mcp"] },
@@ -4879,7 +4879,7 @@ wheels = [
 
 [[package]]
 name = "skill-graphs"
-version = "0.1.39"
+version = "0.1.40"
 source = { directory = "../skills/skill-graphs" }
 
 [package.metadata]
@@ -5440,7 +5440,7 @@ wheels = [
 
 [[package]]
 name = "universal-skills"
-version = "0.1.58"
+version = "0.1.59"
 source = { directory = "../skills/universal-skills" }
 
 [package.metadata]
@@ -5517,48 +5517,48 @@ requires-dist = [
     { name = "requests", marker = "extra == 'web-search'" },
     { name = "sqlparse", marker = "extra == 'developer-utilities'" },
     { name = "toml", marker = "extra == 'developer-utilities'" },
-    { name = "universal-skills", extras = ["agent-browser"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["agent-builder"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["agent-package-builder"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["agent-spawner"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["agent-workflows"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["algorithmic-art"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["api-wrapper-builder"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["brainstorming"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["brand-guidelines"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["browser-tools"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["c4-architecture"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["canvas-design"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["cloudflare-deploy"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["code-enhancer"], marker = "extra == 'all'", specifier = ">=0.1.58" },
-    { name = "universal-skills", extras = ["creative-media"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["database-tools"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["developer-utilities"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["document-converter"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["document-tools"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["github-tools"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["google-workspace"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["internal-comms"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["mcp-client"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["product-strategy"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["react-development"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["react-native-skills"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["security-tools"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["session-handoff"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["skill-builder"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["skill-graph-builder"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["skill-installer"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["system-tools"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["tdd-methodology"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["theme-factory"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["user-research"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["web-artifacts"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["web-crawler"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["web-design-guidelines"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["web-fetch"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["web-search"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["website-builder"], marker = "extra == 'all'", specifier = ">=0.1.57" },
-    { name = "universal-skills", extras = ["website-cloner"], marker = "extra == 'all'", specifier = ">=0.1.57" },
+    { name = "universal-skills", extras = ["agent-browser"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["agent-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["agent-package-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["agent-spawner"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["agent-workflows"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["algorithmic-art"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["api-wrapper-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["brainstorming"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["brand-guidelines"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["browser-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["c4-architecture"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["canvas-design"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["cloudflare-deploy"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["code-enhancer"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["creative-media"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["database-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["developer-utilities"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["document-converter"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["document-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["github-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["google-workspace"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["internal-comms"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["mcp-client"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["product-strategy"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["react-development"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["react-native-skills"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["security-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["session-handoff"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["skill-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["skill-graph-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["skill-installer"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["system-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["tdd-methodology"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["theme-factory"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["user-research"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["web-artifacts"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["web-crawler"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["web-design-guidelines"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["web-fetch"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["web-search"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["website-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
+    { name = "universal-skills", extras = ["website-cloner"], marker = "extra == 'all'", specifier = ">=0.1.59" },
     { name = "user-agents", marker = "extra == 'developer-utilities'" },
     { name = "validators", marker = "extra == 'document-tools'" },
 ]
