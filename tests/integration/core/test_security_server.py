@@ -1,8 +1,11 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
+
+import agent_utilities.core.config as config
 from agent_utilities.server import build_agent_app
-import agent_utilities.config as config
+
 
 @pytest.fixture
 def mock_agent():
@@ -20,7 +23,7 @@ def secure_client(mock_agent):
     config.config.enable_api_auth = True
 
     try:
-        with patch("agent_utilities.server.create_agent", return_value=(mock_agent, [])):
+        with patch("agent_utilities.server.app.create_agent", return_value=(mock_agent, [])):
             app = build_agent_app(
                 provider="test-provider",
                 model_id="test-model",
@@ -47,9 +50,10 @@ def test_secure_endpoint_correct_key(secure_client):
     assert response.status_code == 200
 
 def test_max_upload_size_enforced():
-    from agent_utilities.server import process_parts
-    from agent_utilities.config import config as agent_config
     import asyncio
+
+    from agent_utilities.core.config import config as agent_config
+    from agent_utilities.server.dependencies import process_parts
 
     original_size = agent_config.max_upload_size
     agent_config.max_upload_size = 100 # 100 bytes

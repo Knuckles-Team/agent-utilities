@@ -1,7 +1,9 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-import logging
-from unittest.mock import MagicMock, AsyncMock, patch
+
 from agent_utilities import mcp_utilities
+
 
 @pytest.mark.asyncio
 async def test_destructive_guard_scenario():
@@ -62,12 +64,12 @@ async def test_auth_state_scenario():
     mock_ctx.session = AsyncMock()
 
     async def login_tool(ctx):
-        token = "secret_jwt"
+        token = "dummy_jwt_token"  # nosec B105
         await mcp_utilities.ctx_set_state(ctx, "myproj", "token", token)
         return "logged_in"
 
     await login_tool(mock_ctx)
-    mock_ctx.session.set_state.assert_called_with("myproj_token", "secret_jwt")
+    mock_ctx.session.set_state.assert_called_with("myproj_token", "dummy_jwt_token")
 
 @pytest.mark.asyncio
 async def test_sampling_scenario():

@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 0.2.40*
+*Version: 0.2.41*
 
 ## Table of Contents
 
@@ -619,7 +619,7 @@ if __name__ == "__main__":
 Use `create_mcp_server()` to bootstrap a fully configured FastMCP server with authentication, middleware, and CLI parsing:
 
 ```python
-from agent_utilities.mcp_utilities import create_mcp_server, ctx_progress, ctx_log, ctx_confirm_destructive
+from agent_utilities.mcp.utilities import create_mcp_server, ctx_progress, ctx_log, ctx_confirm_destructive
 from fastmcp import Context
 from pydantic import Field
 
@@ -654,10 +654,14 @@ async def delete_resource(
 
 Comprehensive system documentation is available in the [`docs/`](docs/) directory:
 
+> **New to the project?** Start with the [**Concept Overview Map**](docs/overview.md) to get oriented.
+
 | Guide | Description |
 | :--- | :--- |
+| [Overview Map](docs/overview.md) | The Conceptual Map connecting the 12 core concepts |
+| [Configuration](docs/configuration.md) | Unified reference for all environment variables and CLI flags |
 | [Structured Prompts](docs/structured-prompts.md) | JSON prompt schema, Pydantic models, and prompt catalog |
-| [RLM / REPL](docs/rlm.md) | Recursive Language Model patterns and REPL architecture |
+| [RLM / REPL](docs/rlm.md) | Recursive Language Model patterns, smart auto-triggers, AHE integration, KG/OWL helpers |
 | [Capabilities](docs/capabilities.md) | Self-healing modules: checkpointing, circuit breakers, retry |
 | [SDD Orchestrator](docs/sdd.md) | Spec-Driven Development pipeline and task decomposition |
 | [Tools Registry](docs/tools.md) | 18 tool modules across 5 categories |

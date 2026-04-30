@@ -27,7 +27,8 @@ from agent_utilities.models import (
     ModelDefinition,
     ModelRegistry,
 )
-from agent_utilities.server import build_agent_app, resolve_model_registry
+from agent_utilities.server import build_agent_app
+from agent_utilities.server.dependencies import resolve_model_registry
 
 
 @pytest.fixture
@@ -41,7 +42,7 @@ def mock_agent():
 def _build_client(**kwargs):
     """Construct a TestClient without mounting the web UI or ACP."""
     with patch(
-        "agent_utilities.server.create_agent",
+        "agent_utilities.server.app.create_agent",
         return_value=(kwargs.pop("_agent"), []),
     ):
         app = build_agent_app(
@@ -246,7 +247,7 @@ def test_models_endpoint_app_state_attached(mock_agent, monkeypatch):
     """The registry must be reachable via ``app.state.model_registry``."""
     monkeypatch.delenv("MODELS_CONFIG", raising=False)
     with patch(
-        "agent_utilities.server.create_agent", return_value=(mock_agent, [])
+        "agent_utilities.server.app.create_agent", return_value=(mock_agent, [])
     ):
         app = build_agent_app(
             provider="openai",

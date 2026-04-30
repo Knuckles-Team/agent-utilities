@@ -3,10 +3,11 @@ Tests for Document Storage Backends.
 """
 
 import pytest
+
 from agent_utilities.knowledge_graph.backends.document_storage import (
-    SQLiteMemoryBackend,
+    DocumentStorageFactory,
     SQLiteBackend,
-    DocumentStorageFactory
+    SQLiteMemoryBackend,
 )
 
 
@@ -22,7 +23,7 @@ class TestSQLiteMemoryBackend:
         """Test collection creation."""
         backend = SQLiteMemoryBackend()
         backend.create_collection("test_collection")
-    assert True, 'Collection creation completed'
+        assert True, 'Collection creation completed'
         # Should not raise an error
 
     def test_insert_document(self):

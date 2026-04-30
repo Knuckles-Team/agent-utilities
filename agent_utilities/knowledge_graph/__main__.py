@@ -10,8 +10,9 @@ import asyncio
 import logging
 from pathlib import Path
 
+from agent_utilities.core.workspace import get_agent_workspace
+
 from ..models.knowledge_graph import PipelineConfig
-from ..workspace import get_agent_workspace
 from .engine import IntelligenceGraphEngine
 from .pipeline import IntelligencePipeline
 

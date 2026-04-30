@@ -1,12 +1,17 @@
 #!/usr/bin/python
 """Unit tests for OWLBridge."""
 
-import pytest
-import networkx as nx
-from unittest.mock import MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import networkx as nx
+import pytest
+
+from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import (
+    Owlready2Backend,
+)
 from agent_utilities.knowledge_graph.owl_bridge import OWLBridge
-from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import Owlready2Backend
+
 
 @pytest.fixture
 def ontology_path():

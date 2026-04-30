@@ -4,8 +4,6 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
-from ..agent_factory import create_agent
-from ..discovery import discover_all_specialists
 from ..models import AgentDeps
 
 logger = logging.getLogger(__name__)
@@ -40,7 +38,8 @@ async def invoke_specialized_agent(
         The result string from the sub-agent execution.
 
     """
-    from ..a2a import A2AClient
+    from agent_utilities.agent.discovery import discover_all_specialists
+    from agent_utilities.protocols.a2a import A2AClient
 
     specialists = discover_all_specialists()
     agent_info = next((a for a in specialists if a.name == agent_name), None)
@@ -83,6 +82,8 @@ async def invoke_specialized_agent(
                 if getattr(ts, "id", getattr(ts, "name", "")) == agent_info.mcp_server
             ]
 
+        from agent_utilities.agent.factory import create_agent
+
         sub_agent, _ = create_agent(
             name=agent_info.name,
             model_id=model or ctx.deps.model_id,
@@ -111,6 +112,8 @@ async def list_available_agents(ctx: RunContext[Any]) -> list[str]:
         A list of available specialist names and descriptions.
 
     """
+    from agent_utilities.agent.discovery import discover_all_specialists
+
     specialists = discover_all_specialists()
     return [f"{s.name}: {s.description} (Source: {s.source})" for s in specialists]
 

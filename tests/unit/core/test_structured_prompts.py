@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from agent_utilities.structured_prompts import NestedStructure, StructuredPrompt
+from agent_utilities.prompting.structured import NestedStructure, StructuredPrompt
 
 
 def test_structured_prompt_validation():
@@ -49,7 +49,7 @@ def test_extra_fields():
     """Test that extra fields are allowed and included in rendering."""
     data: dict[str, Any] = {"task": "custom task", "custom_field": "custom value", "another_field": 123}
     prompt = StructuredPrompt(**data)
-    assert getattr(prompt, "custom_field") == "custom value"
+    assert prompt.custom_field == "custom value"  # type: ignore[attr-defined]
 
     rendered = prompt.render()
     parsed = json.loads(rendered)
@@ -69,7 +69,7 @@ def test_from_kg():
     assert prompt.task == "tweet_expert"
     assert prompt.topic == "AI"
     assert prompt.tone == "professional"
-    assert getattr(prompt, "extra_info") == "important"
+    assert prompt.extra_info == "important"  # type: ignore[attr-defined]
 
 
 def test_from_kg_with_blueprint():

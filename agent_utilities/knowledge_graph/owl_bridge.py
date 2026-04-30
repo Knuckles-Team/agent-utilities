@@ -66,6 +66,23 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "financial_instrument",
     "financial_transaction",
     "account",
+    # AHE Types (CONCEPT:AU-012)
+    "change_manifest",
+    "component_edit_record",
+    "evidence_record",
+    "constraint_state",
+    # Backfill Gap Types
+    "task",
+    "codemap",
+    "pattern_template",
+    "proposed_skill",
+    "system_prompt",
+    "prompt",
+    "process_flow",
+    "process_step",
+    "knowledge_base",
+    "knowledge_base_topic",
+    "experiment",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -103,6 +120,15 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "cites_source",
     "has_financial_instrument",
     "executed_transaction",
+    # AHE Edges (CONCEPT:AU-012)
+    "edited_in_round",
+    "predicted_fix",
+    "caused_regression",
+    "confirmed_fix",
+    "verified_by",
+    "escalated_to",
+    "applied_edit",
+    "has_edit_for",
 }
 
 
@@ -304,3 +330,70 @@ class OWLBridge:
                     )
         except Exception as e:
             logger.debug("Backend sync for inferred facts failed: %s", e)
+
+    def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
+        """Execute a SPARQL query against the OWL backend.
+
+        CONCEPT:AU-007 — RLM × OWL Integration
+
+        Exposes the OWL reasoner's SPARQL interface for programmatic
+        queries from the RLM REPL. Supports transitive property traversal,
+        SKOS hierarchy navigation, and provenance chain analysis.
+
+        Args:
+            sparql: A SPARQL SELECT query string.
+
+        Returns:
+            List of result bindings as dicts. Each dict maps variable
+            names to their bound values.
+
+        Raises:
+            RuntimeError: If the OWL backend does not support SPARQL.
+
+        Example::
+
+            results = bridge.query_sparql('''
+                PREFIX au: <http://agent-utilities.dev/ontology#>
+                SELECT ?manifest ?edit WHERE {
+                    ?manifest a au:ChangeManifest .
+                    ?manifest au:hasEditFor ?edit .
+                }
+            ''')
+        """
+        if hasattr(self.owl, "query_sparql"):
+            return self.owl.query_sparql(sparql)
+
+        # Fallback: convert to in-memory graph traversal
+        logger.warning(
+            "OWL backend does not support SPARQL directly. "
+            "Running a filtered graph scan instead."
+        )
+        return self._sparql_fallback(sparql)
+
+    def _sparql_fallback(self, sparql: str) -> list[dict[str, Any]]:
+        """Best-effort SPARQL fallback using the in-memory LPG.
+
+        Handles basic ``SELECT ?s ?p ?o WHERE { ?s ?p ?o }`` patterns
+        by scanning the NetworkX graph. More complex queries return an
+        informative error.
+        """
+        # Very basic pattern matching for simple triple patterns
+        import re
+
+        match = re.search(
+            r"WHERE\s*\{[^}]*\?\w+\s+a\s+\w+:(\w+)", sparql, re.IGNORECASE
+        )
+        if match:
+            target_type = match.group(1).lower()
+            results = []
+            for node_id, data in self.graph.nodes(data=True):
+                node_type = data.get("type", "")
+                if node_type == target_type or target_type in node_type:
+                    results.append({"id": node_id, "type": node_type, **data})
+            return results[:100]
+
+        return [
+            {
+                "error": "Complex SPARQL queries require a backend with native SPARQL support."
+            }
+        ]

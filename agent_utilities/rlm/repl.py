@@ -21,10 +21,31 @@ class RecursionLimitError(Exception):
 
 
 class RLMEnvironment:
-    """
-    A persistent Python REPL environment for Recursive Language Models.
-    Holds variables (context) between executions and provides safe access
-    to graph traversal and recursive dispatch.
+    """A persistent Python REPL environment for Recursive Language Models.
+
+    CONCEPT:AU-007 — RLM Execution
+
+    Implements Algorithm 1 from Zhang et al. (2025): the user prompt is
+    loaded as a variable inside the REPL — the root LLM receives only
+    constant-size metadata (length, prefix, type) and writes code to
+    programmatically examine, decompose, and recursively call itself
+    over slices of the prompt.
+
+    Available helpers in the REPL namespace:
+        - ``rlm_query(prompt, context)`` — Spawn a recursive sub-RLM
+        - ``run_parallel_sub_calls(calls)`` — Parallel sub-call dispatch
+        - ``magma_view(query, views)`` — MAGMA orthogonal memory views
+        - ``graph_query(cypher, params)`` — Cypher against LPG
+        - ``owl_query(sparql)`` — SPARQL against OWL reasoner
+        - ``kg_bulk_export(node_type, limit)`` — Bulk KG node export
+        - ``sub_agent_call(prompt, agent_id, data)`` — Specialist dispatch
+        - ``FINAL_VAR(name, value)`` — Output the final result
+
+    Args:
+        context: The (potentially massive) data to analyze.
+        depth: Current recursion depth (0 = root).
+        config: RLM configuration.
+        graph_deps: Graph dependencies for KG/OWL access.
     """
 
     def __init__(
@@ -38,6 +59,7 @@ class RLMEnvironment:
         self.depth = depth
         self.max_depth = self.config.max_depth
         self.graph_deps = graph_deps
+        self._stdout_counter = 0
 
         self.vars: dict[str, Any] = {"context": context, "depth": depth}
 
@@ -55,6 +77,8 @@ class RLMEnvironment:
             "run_parallel_sub_calls": self.run_parallel_sub_calls,
             "magma_view": self.magma_view,
             "graph_query": self.graph_query,
+            "owl_query": self.owl_query,
+            "kg_bulk_export": self.kg_bulk_export,
             "sub_agent_call": self.sub_agent_call_helper,
             "FINAL_VAR": self.FINAL_VAR,
             "json": json,
@@ -95,6 +119,72 @@ class RLMEnvironment:
             return [{"error": "Knowledge engine not initialized"}]
 
         return engine.query_cypher(cypher, params)
+
+    async def owl_query(self, sparql: str) -> list[dict[str, Any]]:
+        """Execute a SPARQL query against the OWL reasoner backend.
+
+        Enables the RLM to leverage transitive reasoning chains
+        (e.g., ``wasDerivedFrom``, ``escalatedTo``, SKOS hierarchies)
+        over KG subgraphs without loading raw triples into the context window.
+
+        Args:
+            sparql: A SPARQL SELECT query string.
+
+        Returns:
+            List of result bindings as dicts.
+        """
+        if not self.graph_deps or not hasattr(self.graph_deps, "knowledge_engine"):
+            return [{"error": "Knowledge engine not available"}]
+
+        engine = self.graph_deps.knowledge_engine
+        if not engine:
+            return [{"error": "Knowledge engine not initialized"}]
+
+        # Delegate to OWL bridge if available
+        if hasattr(engine, "owl_bridge") and engine.owl_bridge:
+            try:
+                return engine.owl_bridge.query_sparql(sparql)
+            except Exception as e:
+                return [{"error": f"SPARQL query failed: {e}"}]
+
+        return [{"error": "OWL bridge not configured"}]
+
+    async def kg_bulk_export(
+        self, node_type: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """Export a batch of KG nodes as JSON dicts for programmatic analysis.
+
+        The LLM can write Python code to aggregate, filter, and
+        cross-reference these nodes without ever loading them into
+        the context window — a key RLM advantage over vanilla agents.
+
+        Args:
+            node_type: The node type to export (e.g., 'memory', 'task', 'evidence').
+            limit: Maximum number of nodes to return.
+
+        Returns:
+            List of node dicts with id, name, type, and metadata.
+        """
+        if not self.graph_deps or not hasattr(self.graph_deps, "knowledge_engine"):
+            return [{"error": "Knowledge engine not available"}]
+
+        engine = self.graph_deps.knowledge_engine
+        if not engine:
+            return [{"error": "Knowledge engine not initialized"}]
+
+        try:
+            nodes = []
+            graph = engine.graph
+            count = 0
+            for node_id, data in graph.nodes(data=True):
+                if data.get("type") == node_type or node_type == "*":
+                    nodes.append({"id": node_id, **data})
+                    count += 1
+                    if count >= limit:
+                        break
+            return nodes
+        except Exception as e:
+            return [{"error": f"KG bulk export failed: {e}"}]
 
     async def sub_agent_call_helper(
         self, prompt: str, agent_id: str | None = None, input_data: Any = None
@@ -218,13 +308,18 @@ class RLMEnvironment:
             exec(wrapped_code, self.globals_dict)  # nosec B102  # RLM REPL - intentional
             await self.globals_dict["__async_exec__"]()
 
-            # Sync back globals to vars (except builtins)
+            # Sync back globals to vars (except builtins and helper functions)
             for k, v in self.globals_dict.items():
                 if k not in [
                     "__builtins__",
                     "nx",
                     "rlm_query",
                     "run_parallel_sub_calls",
+                    "magma_view",
+                    "graph_query",
+                    "owl_query",
+                    "kg_bulk_export",
+                    "sub_agent_call",
                     "FINAL_VAR",
                     "json",
                     "asyncio",
@@ -283,9 +378,94 @@ class RLMEnvironment:
             output = res.get("output", "")
             return self.vars, output
 
-    async def run_full_rlm(self, prompt: str) -> str:
+    # ── Whitepaper Alignment: Metadata Helpers ──
+
+    @staticmethod
+    def _infer_context_type(context: Any) -> str:
+        """Infer the type of the context variable for metadata."""
+        ctx_str = str(context)
+        if ctx_str.lstrip().startswith("{") or ctx_str.lstrip().startswith("["):
+            return "json"
+        if "," in ctx_str[:500] and "\n" in ctx_str[:500]:
+            return "csv"
+        if "<" in ctx_str[:200] and ">" in ctx_str[:200]:
+            return "xml/html"
+        return "text"
+
+    def _build_context_metadata(self) -> str:
+        """Build a metadata-only description of the context variable.
+
+        Implements Algorithm 1 from Zhang et al. — the root LLM receives
+        only constant-size metadata about the prompt, not the prompt itself.
+
+        Returns:
+            A metadata string with length, prefix, type, and access
+            instructions for the ``context`` variable.
         """
-        The main agent loop for the RLM.
+        ctx = self.vars.get("context", "")
+        ctx_str = str(ctx)
+        ctx_type = self._infer_context_type(ctx)
+        prefix = ctx_str[:200].replace("\n", " ")
+        return (
+            f"CONTEXT METADATA:\n"
+            f"  type: {ctx_type}\n"
+            f"  length: {len(ctx_str):,} characters\n"
+            f'  prefix: "{prefix}..."\n'
+            f"ACCESS INSTRUCTIONS:\n"
+            f"  - The full context is in the `context` variable.\n"
+            f"  - Peek at slices: `context[start:end]`\n"
+            f"  - Get length: `len(context)`\n"
+            f"  - Parse JSON: `json.loads(context)`\n"
+            f"  - Split lines: `context.splitlines()`\n"
+            f"  - Use `await rlm_query(prompt, sub_context)` to recursively analyze sub-slices.\n"
+            f"  - Use `await run_parallel_sub_calls(calls)` for parallel decomposition."
+        )
+
+    def _build_stdout_metadata(self, stdout: str, turn: int) -> str:
+        """Build metadata-only feedback for stdout from a REPL turn.
+
+        Stores full stdout in a numbered variable and returns only
+        a constant-size metadata summary to the root LLM.
+
+        Args:
+            stdout: The full stdout string from the REPL execution.
+            turn: The current turn number.
+
+        Returns:
+            A metadata string referencing the stored variable.
+        """
+        self._stdout_counter += 1
+        var_name = f"_stdout_{self._stdout_counter}"
+        self.vars[var_name] = stdout
+        self.globals_dict[var_name] = stdout
+
+        prefix = stdout[:200].replace("\n", " ")
+        return (
+            f"EXECUTION RESULT (turn {turn + 1}):\n"
+            f"  stdout_length: {len(stdout):,} characters\n"
+            f'  stdout_prefix: "{prefix}..."\n'
+            f"  Full output stored in `{var_name}`. Access with `{var_name}[start:end]`.\n"
+            f"  Continue analyzing or output FINAL_VAR('result', value)."
+        )
+
+    async def run_full_rlm(self, prompt: str) -> str:
+        """The main RLM agent loop (Algorithm 1, Zhang et al. 2025).
+
+        The root LLM receives only metadata about the context and generates
+        Python code to programmatically examine, decompose, and recursively
+        process the data. Each iteration:
+
+            1. LLM generates a response (potentially containing ```python blocks)
+            2. Code blocks are extracted and executed via ``execute()``
+            3. Stdout metadata is fed back (not raw stdout)
+            4. If ``FINAL_VAR`` was called, the result is returned
+            5. Otherwise, the loop continues (up to ``max_turns=5``)
+
+        Args:
+            prompt: The analytical task to perform on the context.
+
+        Returns:
+            The final result string from ``FINAL_VAR``.
         """
         from pydantic_ai import Agent
 
@@ -304,21 +484,39 @@ class RLMEnvironment:
                 "which contains massive amounts of data.\n\n"
                 "AVAILABLE HELPERS:\n"
                 "- `await rlm_query(prompt, context)`: Spawn a full recursive RLM at the next depth.\n"
-                "- `await run_parallel_sub_calls(calls)`: Run multiple sub-calls in parallel. `calls` is a list of `{'prompt': '...', 'context': ...}`.\n"
-                "- `await magma_view(query, views=None)`: Retrieve MAGMA orthogonal context (semantic, temporal, causal, entity).\n"
+                "- `await run_parallel_sub_calls(calls)`: Run multiple sub-calls in parallel. "
+                "`calls` is a list of `{'prompt': '...', 'context': ...}`.\n"
+                "- `await magma_view(query, views=None)`: Retrieve MAGMA orthogonal context "
+                "(semantic, temporal, causal, entity).\n"
                 "- `await graph_query(cypher, params=None)`: Run a Cypher query against the knowledge graph.\n"
+                "- `await owl_query(sparql)`: Run a SPARQL query against the OWL reasoner "
+                "for transitive reasoning (wasDerivedFrom chains, SKOS hierarchies, escalation paths).\n"
+                "- `await kg_bulk_export(node_type, limit=500)`: Export KG nodes as JSON for bulk analysis.\n"
                 "- `await sub_agent_call(prompt, agent_id, input_data)`: Dispatch a task to another specialist.\n"
                 "- `FINAL_VAR('result_name', value)`: Explicitly output the final result.\n\n"
-                "You can write python code inside ```python blocks. "
-                "Only tiny metadata feeds back to the root LLM (stdout, lengths)."
+                "IMPORTANT: You do NOT have the full context in your window. "
+                "Access it programmatically via the `context` variable. "
+                "Write Python code inside ```python blocks."
             ),
         )
 
         history: list[Any] = []
         max_turns = 5
 
+        # Build the initial prompt — metadata-only or full depending on config
+        if self.config.metadata_only_root and self.depth == 0:
+            context_info = self._build_context_metadata()
+            initial_prompt = f"{prompt}\n\n{context_info}"
+        else:
+            initial_prompt = prompt
+
         for turn in range(max_turns):
-            res = await agent.run(prompt, message_history=history)
+            run_prompt = initial_prompt if turn == 0 else None
+            if run_prompt:
+                res = await agent.run(run_prompt, message_history=history)
+            else:
+                # Subsequent turns use the history with stdout metadata appended
+                res = await agent.run("Continue.", message_history=history)
             history = res.all_messages()
 
             output_text = str(res.output)
@@ -369,11 +567,18 @@ class RLMEnvironment:
                     final_var_name = self.vars["__FINAL__"]
                     return str(self.vars.get(final_var_name, stdout))
 
-                # Feed stdout back
+                # Feed stdout back as metadata (Algorithm 1 alignment)
+                if self.config.metadata_only_root and self.depth == 0:
+                    stdout_feedback = self._build_stdout_metadata(stdout, turn)
+                else:
+                    stdout_feedback = (
+                        f"Execution STDOUT:\n{stdout[:2000]}\n\n"
+                        f"Continue analyzing or output FINAL_VAR."
+                    )
                 history.append(
                     {
                         "role": "user",
-                        "content": f"Execution STDOUT:\n{stdout[:2000]}\n\nContinue analyzing or output FINAL_VAR.",
+                        "content": stdout_feedback,
                     }
                 )
             else:

@@ -9,7 +9,8 @@ Combines semantic vector similarity with topological graph traversal.
 import logging
 from typing import Any
 
-from ..embedding_utilities import create_embedding_model
+from agent_utilities.core.embedding_utilities import create_embedding_model
+
 from .engine import IntelligenceGraphEngine, cosine_similarity
 
 logger = logging.getLogger(__name__)

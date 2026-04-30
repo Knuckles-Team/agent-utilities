@@ -1,9 +1,16 @@
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import networkx as nx
-from agent_utilities.knowledge_graph.pipeline.phases.centrality import execute_centrality
-from agent_utilities.knowledge_graph.pipeline.phases.workspace_sync import execute_workspace_sync
+import pytest
+
+from agent_utilities.knowledge_graph.pipeline.phases.centrality import (
+    execute_centrality,
+)
+from agent_utilities.knowledge_graph.pipeline.phases.workspace_sync import (
+    execute_workspace_sync,
+)
 from agent_utilities.knowledge_graph.pipeline.types import PipelineContext
+
 
 @pytest.fixture
 def mock_pipeline_ctx():

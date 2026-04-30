@@ -14,17 +14,13 @@ Targets pure-logic / mocked-engine paths for:
 
 from __future__ import annotations
 
-import asyncio
 import json
-import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import networkx as nx
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Checkpoint & CheckpointStore implementations
@@ -314,7 +310,7 @@ async def test_fork_from_checkpoint() -> None:
     fake_agent = MagicMock()
     fake_agent.run = AsyncMock(return_value=MagicMock(output="ok"))
     cp = Checkpoint(id="c1", label="l", turn=1, messages=[])
-    result = await fork_from_checkpoint(fake_agent, cp, "next turn")
+    await fork_from_checkpoint(fake_agent, cp, "next turn")
     fake_agent.run.assert_called_once_with("next turn", message_history=cp.messages)
 
 
@@ -440,8 +436,9 @@ async def test_stuck_loop_for_run_returns_replica() -> None:
 @pytest.mark.asyncio
 async def test_stuck_loop_repeated_detection() -> None:
     """Identical tool calls N times -> ModelRetry."""
-    from agent_utilities.capabilities.stuck_loop import StuckLoopDetection
     from pydantic_ai.exceptions import ModelRetry
+
+    from agent_utilities.capabilities.stuck_loop import StuckLoopDetection
 
     s = StuckLoopDetection(max_repeated=3, action="warn")
     ctx = MagicMock()
@@ -488,8 +485,9 @@ async def test_stuck_loop_repeated_error_mode() -> None:
 @pytest.mark.asyncio
 async def test_stuck_loop_alternating_detection() -> None:
     """A, B, A, B pattern triggers alternating detection."""
-    from agent_utilities.capabilities.stuck_loop import StuckLoopDetection
     from pydantic_ai.exceptions import ModelRetry
+
+    from agent_utilities.capabilities.stuck_loop import StuckLoopDetection
 
     s = StuckLoopDetection(max_repeated=2)
     ctx = MagicMock()
@@ -520,8 +518,9 @@ async def test_stuck_loop_alternating_detection() -> None:
 @pytest.mark.asyncio
 async def test_stuck_loop_noop_detection() -> None:
     """Same result N times triggers noop detection."""
-    from agent_utilities.capabilities.stuck_loop import StuckLoopDetection
     from pydantic_ai.exceptions import ModelRetry
+
+    from agent_utilities.capabilities.stuck_loop import StuckLoopDetection
 
     s = StuckLoopDetection(
         max_repeated=3,
@@ -553,8 +552,9 @@ async def test_stuck_loop_noop_detection() -> None:
 @pytest.mark.asyncio
 async def test_stuck_loop_with_graph_engine() -> None:
     """Graph engine records SelfEvaluation node."""
-    from agent_utilities.capabilities.stuck_loop import StuckLoopDetection
     from pydantic_ai.exceptions import ModelRetry
+
+    from agent_utilities.capabilities.stuck_loop import StuckLoopDetection
 
     s = StuckLoopDetection(max_repeated=2, action="warn")
     ctx = MagicMock()
@@ -1099,7 +1099,7 @@ async def test_checkpoint_middleware_no_call() -> None:
     ctx = MagicMock()
     ctx.messages = []
     ctx.deps = MagicMock()
-    result = await mw.after_tool_execute(ctx, result="R")
+    await mw.after_tool_execute(ctx, result="R")
     assert len(store._checkpoints) == 1
     cp = next(iter(store._checkpoints.values()))
     assert "unknown" in cp.label

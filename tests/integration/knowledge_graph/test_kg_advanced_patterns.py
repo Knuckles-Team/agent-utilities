@@ -1,13 +1,13 @@
-import pytest
 from unittest.mock import MagicMock, patch
-import networkx as nx
 
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
-from agent_utilities.knowledge_graph.inference_engine import InferenceEngine
-from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
+import networkx as nx
+import pytest
 
 from agent_utilities.knowledge_graph.backends import set_active_backend
+from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
+
 
 @pytest.fixture(autouse=True)
 def clear_global_state():
@@ -74,7 +74,7 @@ def test_hybrid_retriever_fallback(mock_create_model, memory_engine):
     assert "entity:tool_x" in result_ids
     assert "entity:agent_b" not in result_ids # Too far (2 hops)
 
-@patch("agent_utilities.model_factory.create_model")
+@patch("agent_utilities.core.model_factory.create_model")
 @patch("pydantic_ai.Agent.run_sync")
 def test_consolidate_memory_llm(mock_run_sync, mock_create_model, memory_engine):
     """Test memory consolidation using the LLM judge."""

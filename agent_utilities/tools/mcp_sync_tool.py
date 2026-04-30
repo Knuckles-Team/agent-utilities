@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
-from ..mcp_agent_manager import sync_mcp_agents
+from agent_utilities.mcp.agent_manager import sync_mcp_agents
 
 logger = logging.getLogger(__name__)
 

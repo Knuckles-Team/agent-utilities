@@ -50,7 +50,7 @@ The `tools/` module provides 18 tool modules that are exposed to agents during g
 Tools are registered with the agent during creation:
 
 ```python
-from agent_utilities.agent_factory import create_agent
+from agent_utilities.agent.factory import create_agent
 
 # Tools are automatically loaded based on skill_types
 agent = create_agent(

@@ -78,7 +78,7 @@ class KBExtractor:
     def _get_model(self):
         """Lazily build the Pydantic AI model instance."""
         try:
-            from agent_utilities.model_factory import create_model
+            from agent_utilities.core.model_factory import create_model
 
             return create_model(
                 provider=self._provider,

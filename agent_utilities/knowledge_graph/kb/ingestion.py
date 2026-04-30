@@ -721,7 +721,7 @@ class KBIngestionEngine:
             fields = {
                 k: v
                 for k, v in data.items()
-                if isinstance(v, (str, int, float, bool)) and k != "id"
+                if isinstance(v, str | int | float | bool) and k != "id"
             }
             set_clause = ", ".join(f"n.{k} = ${k}" for k in fields)
             query = f"MERGE (n:{table} {{id: $id}}) SET {set_clause}"

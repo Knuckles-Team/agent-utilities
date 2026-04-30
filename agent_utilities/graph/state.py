@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from ..models import ModelRegistry
     from .models import Policy, ProcessFlow
 
-from ..config import (
+from agent_utilities.core.config import (
     DEFAULT_GRAPH_AGENT_MODEL,
     DEFAULT_GRAPH_ROUTER_TIMEOUT,
     DEFAULT_GRAPH_VERIFIER_TIMEOUT,
@@ -35,6 +35,7 @@ from ..config import (
     DEFAULT_SSL_VERIFY,
     TOOL_GUARD_MODE,
 )
+
 from ..models import (
     GraphPlan,
     ParallelBatch,
@@ -283,7 +284,7 @@ class GraphState:
             return
 
         def _to_int(val: Any) -> int:
-            if isinstance(val, (int, float)):
+            if isinstance(val, int | float):
                 return int(val)
             try:
                 return int(val)
@@ -307,7 +308,7 @@ class GraphState:
         total = self.session_usage.total_tokens
 
         # Safe logging to avoid formatting errors on Mocks (though _to_int should handle it)
-        cost_str = f"{cost:.4f}" if isinstance(cost, (int, float)) else str(cost)
+        cost_str = f"{cost:.4f}" if isinstance(cost, int | float) else str(cost)
         logger.debug(f"Usage Updated: ${cost_str} ({total} tokens)")
 
     def sync_to_disk(self, artifact_prefix: str = ""):

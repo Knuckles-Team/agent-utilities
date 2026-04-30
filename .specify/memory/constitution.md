@@ -43,3 +43,7 @@
 - **Key Tooling**: `requests`, `pydantic` (`>=2.13`), `pyyaml`, `python-dotenv`, `fastapi`, `httpx`
 - **Graph Backends**: LadybugDB (default), FalkorDB, Neo4j
 - **Document Backends**: SQLiteMemory (default), SQLite, PostgreSQL, MongoDB
+
+If you append to the Knowledge Graph schema, you should always consider adding an OWL layer if it would be beneficial to do so.
+
+We should always look at the existing ontology and try to notice some existing types that are in the schema definition but NOT yet in the OWL ontology. We want to highly consider adding those to OWL ontology.

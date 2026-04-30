@@ -52,7 +52,7 @@ class Tasks(BaseModel):
 
     def to_mermaid(self, title: str = "Task Dependencies") -> str:
         """Generate a Mermaid flowchart for the tasks."""
-        from ..mermaid import FlowchartBuilder
+        from agent_utilities.observability.mermaid import FlowchartBuilder
 
         builder = FlowchartBuilder(title=title)
 
@@ -101,7 +101,7 @@ class ImplementationPlan(BaseModel):
 
     def to_mermaid(self) -> str:
         """Generate a Mermaid class diagram for the implementation plan."""
-        from ..mermaid import ClassDiagramBuilder
+        from agent_utilities.observability.mermaid import ClassDiagramBuilder
 
         builder = ClassDiagramBuilder(title=f"Implementation: {self.title}")
 

@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from agent_utilities import build_system_prompt_from_workspace
-from agent_utilities.workspace import (
+from agent_utilities.core.workspace import (
     get_agent_workspace,
     load_workspace_file,
 )

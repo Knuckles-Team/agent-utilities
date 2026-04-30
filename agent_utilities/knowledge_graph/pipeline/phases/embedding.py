@@ -51,7 +51,7 @@ def _generate_embedding_llamaindex(texts: list[str]) -> list[list[float]] | None
     the same embedding model factory as vector-mcp.
     """
     try:
-        from agent_utilities.embedding_utilities import create_embedding_model
+        from agent_utilities.core.embedding_utilities import create_embedding_model
 
         embed_model = create_embedding_model()
         embeddings = []

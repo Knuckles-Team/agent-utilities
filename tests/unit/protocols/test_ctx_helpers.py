@@ -1,7 +1,9 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-import logging
-from unittest.mock import MagicMock, AsyncMock, patch
+
 from agent_utilities import mcp_utilities
+
 
 @pytest.mark.asyncio
 async def test_ctx_progress():

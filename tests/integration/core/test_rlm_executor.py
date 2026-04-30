@@ -1,7 +1,12 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
-from agent_utilities.graph.executor import _execute_dynamic_mcp_agent, GraphState, GraphDeps
+
+from agent_utilities.graph.executor import (
+    GraphState,
+    _execute_dynamic_mcp_agent,
+)
+
 
 @pytest.mark.asyncio
 async def test_executor_rlm_summary():
@@ -69,7 +74,7 @@ async def test_executor_rlm_summary():
                                         res = await _execute_dynamic_mcp_agent(ctx, agent_info)
                                         assert res == "execution_joiner"
                                         # Check if the result was summarized
-                                        result_key = f"test-specialist_0"
+                                        result_key = "test-specialist_0"
                                         assert "[RLM Synthesized Summary of Massive Data]" in state.results_registry[result_key]
                                         assert "This is a summary of 60k chars." in state.results_registry[result_key]
                                         mock_rlm_tool.assert_called_once()

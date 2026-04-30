@@ -1,13 +1,16 @@
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 from pydantic_ai import RunContext
-from agent_utilities.tools.knowledge_tools import (
-    search_knowledge_graph,
-    add_knowledge_memory,
-    get_knowledge_memory,
-    get_code_impact
-)
+
 from agent_utilities.models import AgentDeps
+from agent_utilities.tools.knowledge_tools import (
+    add_knowledge_memory,
+    get_code_impact,
+    get_knowledge_memory,
+    search_knowledge_graph,
+)
+
 
 @pytest.fixture
 def mock_ctx():

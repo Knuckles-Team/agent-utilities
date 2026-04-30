@@ -266,6 +266,25 @@ graph LR
 - **KG persistence**: Verdicts are stored as `DecisionNode` entries for future reference
 - **Trigger modes**: Auto-routed by the Router, keyword-triggered ("council this"), or invocable as a tool
 
+## Package Structure
+
+With the recent modularization, `agent-utilities` has been restructured to cleanly separate routing, protocols, execution, and discovery mechanisms into isolated domains.
+
+| Directory | Purpose | Key Modules |
+|---|---|---|
+| `core/` | Foundational primitives, exceptions, and decorators. | `workspace.py`, `exceptions.py`, `decorators.py` |
+| `agent/` | Bootstrapping and configuring agent ecosystems from `workspace.yml` and CLI. | `factory.py`, `registry_builder.py` |
+| `protocols/` | Interface adapters connecting outer HTTP/RPC boundaries to inner graphs. | `acp_adapter.py`, `a2a.py`, `agui_emitter.py` |
+| `graph/` | The core Pydantic-Graph routing and orchestration machinery. | `runner.py`, `unified.py`, `steps.py`, `executor.py` |
+| `mcp/` | Specific wrappers for `fastmcp` to normalize tool discovery and error handling. | `utilities.py`, `manager.py` |
+| `security/` | Centralized identity verification, JWT validation, and API authentication. | `auth.py`, `cors.py` |
+| `prompts/` | Version-controlled JSON schema blueprints that replace unstructured text prompts. | `*.json` |
+| `knowledge_graph/`| The unified semantic and structural memory backbone linking NetworkX and Cypher. | `engine.py`, `maintainer.py`, `hybrid_retriever.py` |
+| `harness/` | Agentic Harness Engineering (AHE) tools for execution observability and prompt evaluation. | `verifier.py`, `trace_distiller.py`, `evolve_agent.py` |
+| `rlm/` | Recursive Language Model handlers for autonomous sub-shells and self-prompting loops. | `repl.py` |
+| `sdd/` | Spec-Driven Development pipelines decomposing `.specify` files into actionable graphs. | `orchestrator.py` |
+| `server/` | FastAPI applications hosting all HTTP, ACP, and SSE routes. | `app.py`, `routers/` |
+
 ## Hierarchical State Machine (HSM) Architecture
 
 The graph orchestration system is a **Hierarchical State Machine**. It follows the same formal model used in robotics, game engines, UML statecharts, and SCXML workflow engines.

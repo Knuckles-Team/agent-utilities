@@ -13,10 +13,7 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
-from ..models import (
-    MCPConfigModel,
-)
-from ..workspace import (
+from agent_utilities.core.workspace import (
     CORE_FILES,
     append_to_md_file,
     create_new_skill,
@@ -24,6 +21,10 @@ from ..workspace import (
     read_md_file,
     read_skill_md,
     write_skill_md,
+)
+
+from ..models import (
+    MCPConfigModel,
 )
 
 logger = logging.getLogger(__name__)

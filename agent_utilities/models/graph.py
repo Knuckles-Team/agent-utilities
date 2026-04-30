@@ -59,7 +59,7 @@ class GraphPlan(BaseModel):
 
     def to_mermaid(self, title: str = "Execution Plan") -> str:
         """Generate a Mermaid flowchart for the graph plan."""
-        from ..mermaid import FlowchartBuilder
+        from agent_utilities.observability.mermaid import FlowchartBuilder
 
         builder = FlowchartBuilder(title=title)
 

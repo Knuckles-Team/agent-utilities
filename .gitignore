@@ -218,3 +218,7 @@ knowledge_graph.db-shm
 # Database files
 *.db
 *.bak
+
+# Runtime knowledge graph database
+agent_utilities/knowledge_graph.db
+agent_utilities/knowledge_graph.db.*.bak

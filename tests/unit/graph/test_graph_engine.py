@@ -1,7 +1,12 @@
-import pytest
 import networkx as nx
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine, cosine_similarity
-from agent_utilities.models.knowledge_graph import RegistryNodeType, RegistryEdgeType
+import pytest
+
+from agent_utilities.knowledge_graph.engine import (
+    IntelligenceGraphEngine,
+    cosine_similarity,
+)
+from agent_utilities.models.knowledge_graph import RegistryEdgeType, RegistryNodeType
+
 
 def test_cosine_similarity():
     assert cosine_similarity([1, 0], [1, 0]) == pytest.approx(1.0)

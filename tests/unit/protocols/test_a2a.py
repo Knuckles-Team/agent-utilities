@@ -16,11 +16,9 @@ from __future__ import annotations
 import importlib
 import os
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # a2a.py
@@ -28,7 +26,7 @@ import pytest
 
 
 def test_a2a_client_fetch_card_sync_success():
-    from agent_utilities.a2a import A2AClient
+    from agent_utilities.protocols.a2a import A2AClient
 
     client = A2AClient()
     fake_resp = MagicMock()
@@ -48,13 +46,13 @@ def test_a2a_client_fetch_card_sync_success():
         def get(self, url):
             return fake_resp
 
-    with patch("agent_utilities.a2a.httpx.Client", _HttpxSync):
+    with patch("agent_utilities.protocols.a2a.httpx.Client", _HttpxSync):
         card = client.fetch_card_sync("http://agent")
     assert card == {"name": "alpha"}
 
 
 def test_a2a_client_fetch_card_sync_failure():
-    from agent_utilities.a2a import A2AClient
+    from agent_utilities.protocols.a2a import A2AClient
 
     client = A2AClient()
 
@@ -71,12 +69,12 @@ def test_a2a_client_fetch_card_sync_failure():
         def get(self, url):
             raise RuntimeError("conn error")
 
-    with patch("agent_utilities.a2a.httpx.Client", _HttpxSync):
+    with patch("agent_utilities.protocols.a2a.httpx.Client", _HttpxSync):
         assert client.fetch_card_sync("http://x") is None
 
 
 def test_a2a_client_fetch_card_sync_non_200():
-    from agent_utilities.a2a import A2AClient
+    from agent_utilities.protocols.a2a import A2AClient
 
     client = A2AClient()
     fake_resp = MagicMock()
@@ -96,13 +94,13 @@ def test_a2a_client_fetch_card_sync_non_200():
         def get(self, url):
             return fake_resp
 
-    with patch("agent_utilities.a2a.httpx.Client", _HttpxSync):
+    with patch("agent_utilities.protocols.a2a.httpx.Client", _HttpxSync):
         assert client.fetch_card_sync("http://x") is None
 
 
 @pytest.mark.asyncio
 async def test_a2a_client_fetch_card_async_success():
-    from agent_utilities.a2a import A2AClient
+    from agent_utilities.protocols.a2a import A2AClient
 
     client = A2AClient()
 
@@ -123,14 +121,14 @@ async def test_a2a_client_fetch_card_async_success():
         async def get(self, url):
             return fake_resp
 
-    with patch("agent_utilities.a2a.httpx.AsyncClient", _HttpxAsync):
+    with patch("agent_utilities.protocols.a2a.httpx.AsyncClient", _HttpxAsync):
         card = await client.fetch_card("http://x")
     assert card == {"name": "a"}
 
 
 @pytest.mark.asyncio
 async def test_a2a_client_fetch_card_async_exception():
-    from agent_utilities.a2a import A2AClient
+    from agent_utilities.protocols.a2a import A2AClient
 
     client = A2AClient()
 
@@ -147,13 +145,13 @@ async def test_a2a_client_fetch_card_async_exception():
         async def get(self, url):
             raise RuntimeError("bad")
 
-    with patch("agent_utilities.a2a.httpx.AsyncClient", _HttpxAsync):
+    with patch("agent_utilities.protocols.a2a.httpx.AsyncClient", _HttpxAsync):
         assert await client.fetch_card("http://x") is None
 
 
 def test_register_a2a_peer_no_engine(monkeypatch):
-    from agent_utilities import a2a
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.protocols import a2a
 
     monkeypatch.setattr(
         IntelligenceGraphEngine, "get_active", staticmethod(lambda: None)
@@ -162,8 +160,8 @@ def test_register_a2a_peer_no_engine(monkeypatch):
 
 
 def test_register_a2a_peer_success(monkeypatch):
-    from agent_utilities import a2a
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
     fake_engine.graph = MagicMock()
@@ -177,8 +175,8 @@ def test_register_a2a_peer_success(monkeypatch):
 
 
 def test_register_a2a_peer_exception(monkeypatch):
-    from agent_utilities import a2a
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
     fake_engine.graph = MagicMock()
@@ -191,8 +189,8 @@ def test_register_a2a_peer_exception(monkeypatch):
 
 
 def test_delete_a2a_peer_not_found(monkeypatch):
-    from agent_utilities import a2a
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
     fake_engine.graph = MagicMock()
@@ -205,8 +203,8 @@ def test_delete_a2a_peer_not_found(monkeypatch):
 
 
 def test_delete_a2a_peer_success(monkeypatch):
-    from agent_utilities import a2a
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
     fake_engine.graph = MagicMock()
@@ -218,8 +216,8 @@ def test_delete_a2a_peer_success(monkeypatch):
 
 
 def test_delete_a2a_peer_no_engine(monkeypatch):
-    from agent_utilities import a2a
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.protocols import a2a
 
     monkeypatch.setattr(
         IntelligenceGraphEngine, "get_active", staticmethod(lambda: None)
@@ -228,8 +226,8 @@ def test_delete_a2a_peer_no_engine(monkeypatch):
 
 
 def test_list_a2a_peers_no_engine(monkeypatch):
-    from agent_utilities import a2a
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.protocols import a2a
 
     monkeypatch.setattr(
         IntelligenceGraphEngine, "get_active", staticmethod(lambda: None)
@@ -239,8 +237,8 @@ def test_list_a2a_peers_no_engine(monkeypatch):
 
 
 def test_list_a2a_peers_success(monkeypatch):
-    from agent_utilities import a2a
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
     fake_engine.query_cypher.return_value = [
@@ -264,7 +262,7 @@ def test_list_a2a_peers_success(monkeypatch):
 
 
 def test_setup_otel_no_logfire(monkeypatch):
-    import agent_utilities.custom_observability as obs
+    import agent_utilities.observability.custom_observability as obs
 
     monkeypatch.setattr(obs, "HAS_LOGFIRE", False)
     obs.setup_otel()  # early return
@@ -272,7 +270,7 @@ def test_setup_otel_no_logfire(monkeypatch):
 
 
 def test_setup_otel_with_public_secret_keys(monkeypatch):
-    import agent_utilities.custom_observability as obs
+    import agent_utilities.observability.custom_observability as obs
 
     monkeypatch.setattr(obs, "HAS_LOGFIRE", True)
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY", "pk")
@@ -290,7 +288,7 @@ def test_setup_otel_with_public_secret_keys(monkeypatch):
 
 
 def test_setup_otel_already_initialized(monkeypatch):
-    import agent_utilities.custom_observability as obs
+    import agent_utilities.observability.custom_observability as obs
 
     monkeypatch.setattr(obs, "HAS_LOGFIRE", True)
     monkeypatch.setattr(obs, "_otel_initialized", True)
@@ -306,7 +304,7 @@ def test_setup_otel_already_initialized(monkeypatch):
 
 
 def test_md_table_escape_newlines_and_pipes():
-    from agent_utilities.workspace import md_table_escape
+    from agent_utilities.core.workspace import md_table_escape
 
     assert md_table_escape("a|b\nc") == "a\\|b<br/>c"
     assert md_table_escape("") == ""
@@ -314,7 +312,7 @@ def test_md_table_escape_newlines_and_pipes():
 
 
 def test_smart_truncate_under_limit():
-    from agent_utilities.workspace import smart_truncate
+    from agent_utilities.core.workspace import smart_truncate
 
     assert smart_truncate("hello", 20) == "hello"
     assert smart_truncate(None, 20) == "-"
@@ -322,7 +320,7 @@ def test_smart_truncate_under_limit():
 
 
 def test_smart_truncate_word_boundary():
-    from agent_utilities.workspace import smart_truncate
+    from agent_utilities.core.workspace import smart_truncate
 
     result = smart_truncate("This is a long sentence", 10)
     assert result.endswith("...")
@@ -330,14 +328,14 @@ def test_smart_truncate_word_boundary():
 
 
 def test_smart_truncate_no_space():
-    from agent_utilities.workspace import smart_truncate
+    from agent_utilities.core.workspace import smart_truncate
 
     out = smart_truncate("abcdefghij", 5)
     assert out.endswith("...")
 
 
 def test_get_agent_workspace_with_env(monkeypatch, tmp_path):
-    from agent_utilities import workspace as ws
+    from agent_utilities.core import workspace as ws
 
     ws.WORKSPACE_DIR = None
     monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
@@ -346,7 +344,7 @@ def test_get_agent_workspace_with_env(monkeypatch, tmp_path):
 
 
 def test_get_agent_workspace_override():
-    from agent_utilities import workspace as ws
+    from agent_utilities.core import workspace as ws
 
     ws.WORKSPACE_DIR = str(Path.cwd())
     result = ws.get_agent_workspace()
@@ -355,7 +353,7 @@ def test_get_agent_workspace_override():
 
 
 def test_validate_workspace_path_outside_blocks(tmp_path, monkeypatch):
-    from agent_utilities import workspace as ws
+    from agent_utilities.core import workspace as ws
 
     monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
     ws.WORKSPACE_DIR = None
@@ -364,7 +362,7 @@ def test_validate_workspace_path_outside_blocks(tmp_path, monkeypatch):
 
 
 def test_validate_workspace_path_ok(tmp_path, monkeypatch):
-    from agent_utilities import workspace as ws
+    from agent_utilities.core import workspace as ws
 
     monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
     ws.WORKSPACE_DIR = None
@@ -374,7 +372,7 @@ def test_validate_workspace_path_ok(tmp_path, monkeypatch):
 
 
 def test_get_workspace_path_traversal(tmp_path, monkeypatch):
-    from agent_utilities import workspace as ws
+    from agent_utilities.core import workspace as ws
 
     monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
     ws.WORKSPACE_DIR = None
@@ -383,7 +381,7 @@ def test_get_workspace_path_traversal(tmp_path, monkeypatch):
 
 
 def test_get_workspace_path_relative(tmp_path, monkeypatch):
-    from agent_utilities import workspace as ws
+    from agent_utilities.core import workspace as ws
 
     monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
     ws.WORKSPACE_DIR = None
@@ -498,7 +496,7 @@ def test_mermaid_render_fallback():
 
 def test_acp_providers_registry_basic():
     try:
-        from agent_utilities import acp_providers
+        from agent_utilities.protocols import acp_providers
     except ImportError:
         pytest.skip("acp_providers not importable")
 
@@ -512,7 +510,7 @@ def test_acp_providers_registry_basic():
 
 
 def test_config_defaults():
-    from agent_utilities import config
+    from agent_utilities.core import config
 
     assert hasattr(config, "DEFAULT_GRAPH_PERSISTENCE_PATH")
 
@@ -524,7 +522,7 @@ def test_config_defaults():
 
 def test_scheduler_cron_parser_import():
     try:
-        from agent_utilities import scheduler
+        from agent_utilities.core import scheduler
     except Exception:
         pytest.skip("scheduler not importable")
     assert scheduler is not None

@@ -1,5 +1,7 @@
 import pytest
-from agent_utilities import workspace
+
+from agent_utilities.core import workspace
+
 
 @pytest.fixture
 def temp_workspace(tmp_path):

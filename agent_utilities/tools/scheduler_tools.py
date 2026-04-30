@@ -11,16 +11,17 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
-from ..models import CronRegistryModel
-from ..scheduler import (
+from agent_utilities.core.scheduler import (
     delete_scheduled_task as delete_scheduled_task_util,
 )
-from ..scheduler import (
+from agent_utilities.core.scheduler import (
     list_scheduled_tasks as list_scheduled_tasks_util,
 )
-from ..scheduler import (
+from agent_utilities.core.scheduler import (
     schedule_task as schedule_task_util,
 )
+
+from ..models import CronRegistryModel
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ async def view_cron_log(ctx: RunContext[Any], lines: int = 50) -> str:
         A formatted string containing the recent execution log entries.
 
     """
-    from ..workspace import CORE_FILES, read_md_file
+    from agent_utilities.core.workspace import CORE_FILES, read_md_file
 
     content = read_md_file(CORE_FILES["CRON_LOG"])
     log_lines = content.splitlines()

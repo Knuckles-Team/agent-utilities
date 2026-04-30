@@ -12,17 +12,15 @@ import json
 import string
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from agent_utilities.graph.council import (
+    DEFAULT_ADVISOR_ROLES,
     AgentTranscript,
     CouncilTranscript,
     CouncilVerdict,
-    DEFAULT_ADVISOR_ROLES,
     _anonymize_responses,
     render_agent_transcript_markdown,
 )
-
 
 # ── Schema Validation ──────────────────────────────────────────────────
 
@@ -54,9 +52,9 @@ class TestCouncilVerdict:
 
     def test_confidence_bounds(self):
         """Confidence must be 1-10."""
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             CouncilVerdict(final_recommendation="X", confidence=0)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             CouncilVerdict(final_recommendation="X", confidence=11)
 
     def test_json_round_trip(self):
@@ -249,7 +247,7 @@ class TestCouncilPromptLoading:
         """Each council prompt must contain role-specific content."""
         from pathlib import Path
 
-        from agent_utilities.structured_prompts import StructuredPrompt
+        from agent_utilities.prompting.structured import StructuredPrompt
 
         prompt_path = (
             Path(__file__).resolve().parents[3]

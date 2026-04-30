@@ -9,23 +9,27 @@ Benchmarks document operations across different backends:
 - Backend comparison
 """
 
-import pytest
-import asyncio
 import time
 import tracemalloc
-from typing import Dict, Any
-from unittest.mock import MagicMock, AsyncMock
-import networkx as nx
+from unittest.mock import MagicMock
 
-from agent_utilities.knowledge_graph.pipeline.document_ingestion import DocumentIngestionPipeline
-from agent_utilities.knowledge_graph.pipeline.document_update import DocumentUpdatePipeline
-from agent_utilities.knowledge_graph.pipeline.document_deletion import DocumentDeletionPipeline
+import networkx as nx
+import pytest
+
 from agent_utilities.knowledge_graph.backends.document_storage import (
-    SQLiteMemoryBackend,
     SQLiteBackend,
-    DocumentStorageFactory
+    SQLiteMemoryBackend,
 )
 from agent_utilities.knowledge_graph.id_management.unified_id import UnifiedIDRegistry
+from agent_utilities.knowledge_graph.pipeline.document_deletion import (
+    DocumentDeletionPipeline,
+)
+from agent_utilities.knowledge_graph.pipeline.document_ingestion import (
+    DocumentIngestionPipeline,
+)
+from agent_utilities.knowledge_graph.pipeline.document_update import (
+    DocumentUpdatePipeline,
+)
 
 
 class TestDocumentIngestionPerformance:

@@ -1,7 +1,10 @@
-import pytest
 from pathlib import Path
-from agent_utilities.tool_guard import is_sensitive_tool, is_safe_tool
-from agent_utilities.workspace import validate_workspace_path
+
+import pytest
+
+from agent_utilities.core.workspace import validate_workspace_path
+from agent_utilities.security.tool_guard import is_safe_tool, is_sensitive_tool
+
 
 def test_is_safe_tool():
     assert is_safe_tool("read_file") is True
@@ -11,7 +14,7 @@ def test_is_safe_tool():
 
 def test_is_sensitive_tool_strict():
     # Force strict mode for this test
-    import agent_utilities.tool_guard as tg
+    import agent_utilities.security.tool_guard as tg
     original_mode = tg.TOOL_GUARD_MODE
     tg.TOOL_GUARD_MODE = "strict"
     try:
@@ -23,7 +26,7 @@ def test_is_sensitive_tool_strict():
 
 def test_path_traversal_protection(tmp_path):
     # Mock workspace directory
-    import agent_utilities.workspace as ws
+    import agent_utilities.core.workspace as ws
     original_ws = ws.WORKSPACE_DIR
     ws.WORKSPACE_DIR = str(tmp_path)
 

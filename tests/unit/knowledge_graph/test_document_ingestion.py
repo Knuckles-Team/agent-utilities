@@ -2,10 +2,17 @@
 Tests for Document Ingestion Pipeline.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from agent_utilities.knowledge_graph.pipeline.document_ingestion import DocumentIngestionPipeline
-from agent_utilities.knowledge_graph.id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
+
+import pytest
+
+from agent_utilities.knowledge_graph.id_management.unified_id import (
+    UnifiedIDManager,
+    UnifiedIDRegistry,
+)
+from agent_utilities.knowledge_graph.pipeline.document_ingestion import (
+    DocumentIngestionPipeline,
+)
 
 
 class TestDocumentIngestionPipeline:

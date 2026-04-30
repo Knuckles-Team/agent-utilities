@@ -1,6 +1,6 @@
 import os
 
-from agent_utilities.config import AgentConfig, get_env_file
+from agent_utilities.core.config import AgentConfig, get_env_file
 
 
 def test_agent_config_defaults():

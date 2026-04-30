@@ -1,16 +1,19 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
+
 from agent_utilities.graph.hsm import (
-    register_on_enter_hook,
-    register_on_exit_hook,
+    StateInvariantError,
+    assert_state_valid,
     on_enter_specialist,
     on_exit_specialist,
+    register_on_enter_hook,
+    register_on_exit_hook,
     run_orthogonal_regions,
-    assert_state_valid,
     static_route_query,
-    StateInvariantError
 )
 from agent_utilities.graph.state import GraphState
+
 
 @pytest.mark.asyncio
 async def test_hsm_hooks():

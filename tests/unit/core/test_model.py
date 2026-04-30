@@ -1,7 +1,7 @@
 import asyncio
 import os
 
-from agent_utilities.model_factory import create_model
+from agent_utilities.core.model_factory import create_model
 
 
 async def test():

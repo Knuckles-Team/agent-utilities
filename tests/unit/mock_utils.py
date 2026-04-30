@@ -1,5 +1,6 @@
 import asyncio
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+
 
 class MockModel:
     def __init__(self):

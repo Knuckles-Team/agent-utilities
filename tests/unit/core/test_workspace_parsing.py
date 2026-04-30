@@ -1,4 +1,4 @@
-from agent_utilities.workspace import md_table_escape, smart_truncate
+from agent_utilities.core.workspace import md_table_escape, smart_truncate
 
 
 def test_md_table_escape():

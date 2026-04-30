@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_utilities.prompt_builder import (
+from agent_utilities.prompting.builder import (
     _extract_prompt_content,
     build_system_prompt_from_workspace,
     extract_agent_metadata,
@@ -56,7 +56,7 @@ def test_build_system_prompt_from_workspace():
     }
 
     with patch(
-        "agent_utilities.prompt_builder.load_workspace_file",
+        "agent_utilities.prompting.builder.load_workspace_file",
         side_effect=lambda x: mock_files.get(x, ""),
     ):
         prompt = build_system_prompt_from_workspace(fallback_prompt="Special info.")
@@ -73,7 +73,7 @@ def test_build_system_prompt_from_workspace_invalid_main_agent_json():
     """
     mock_files = {"main_agent.json": "I am an agent."}
     with patch(
-        "agent_utilities.prompt_builder.load_workspace_file",
+        "agent_utilities.prompting.builder.load_workspace_file",
         side_effect=lambda x: mock_files.get(x, ""),
     ):
         prompt = build_system_prompt_from_workspace(fallback_prompt="fallback body")
@@ -105,13 +105,13 @@ def test_extract_prompt_content_happy_path():
 def test_resolve_prompt():
     """Test resolving @ references in prompts."""
     with patch(
-        "agent_utilities.prompt_builder.load_workspace_file",
+        "agent_utilities.prompting.builder.load_workspace_file",
         return_value="file content",
     ):
         assert resolve_prompt("@test.md") == "file content"
         assert resolve_prompt("raw prompt") == "raw prompt"
 
-    with patch("agent_utilities.prompt_builder.load_workspace_file", return_value=""):
+    with patch("agent_utilities.prompting.builder.load_workspace_file", return_value=""):
         assert resolve_prompt("@missing.md") == "@missing.md"
 
 

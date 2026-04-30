@@ -83,8 +83,8 @@ class TestWorkspaceTraversalGuard:
 
     def test_validate_rejects_traversal(self, tmp_path, monkeypatch):
         """validate_workspace_path blocks paths outside workspace."""
-        from agent_utilities.workspace import validate_workspace_path
-        import agent_utilities.workspace as ws_mod
+        import agent_utilities.core.workspace as ws_mod
+        from agent_utilities.core.workspace import validate_workspace_path
 
         monkeypatch.setattr(ws_mod, "WORKSPACE_DIR", str(tmp_path))
         with pytest.raises(ValueError, match="outside the workspace"):
@@ -92,8 +92,8 @@ class TestWorkspaceTraversalGuard:
 
     def test_validate_allows_internal_path(self, tmp_path, monkeypatch):
         """validate_workspace_path allows paths inside workspace."""
-        from agent_utilities.workspace import validate_workspace_path
-        import agent_utilities.workspace as ws_mod
+        import agent_utilities.core.workspace as ws_mod
+        from agent_utilities.core.workspace import validate_workspace_path
 
         internal = tmp_path / "subdir" / "file.txt"
         internal.parent.mkdir(parents=True, exist_ok=True)

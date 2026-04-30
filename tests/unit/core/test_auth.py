@@ -12,19 +12,16 @@ Covers:
 
 import time
 from unittest import mock
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import Request
-from fastapi.security import HTTPAuthorizationCredentials
 
-from agent_utilities.auth import (
+from agent_utilities.security.auth import (
     _decode_jwt,
     verify_api_key_only,
-    verify_jwt_only,
     verify_credentials,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helper: Build a config mock
@@ -56,7 +53,7 @@ class TestVerifyApiKey:
     async def test_api_key_disabled_returns_none(self):
         """When ENABLE_API_AUTH=False, returns None (allow through)."""
         cfg = _make_config(enable_api_auth=False)
-        with mock.patch("agent_utilities.config.config", cfg):
+        with mock.patch("agent_utilities.core.config.config", cfg):
             result = await verify_api_key_only(api_key="anything")
             assert result is None
 
@@ -65,7 +62,7 @@ class TestVerifyApiKey:
     async def test_api_key_valid(self):
         """Valid API key returns auth info dict."""
         cfg = _make_config(enable_api_auth=True, agent_api_key="test-key-123")
-        with mock.patch("agent_utilities.config.config", cfg):
+        with mock.patch("agent_utilities.core.config.config", cfg):
             result = await verify_api_key_only(api_key="test-key-123")
             assert result is not None
             assert result["auth_type"] == "api_key"
@@ -75,7 +72,7 @@ class TestVerifyApiKey:
     async def test_api_key_invalid_returns_none(self):
         """Invalid API key returns None (not authenticated, but doesn't reject yet)."""
         cfg = _make_config(enable_api_auth=True, agent_api_key="correct-key")
-        with mock.patch("agent_utilities.config.config", cfg):
+        with mock.patch("agent_utilities.core.config.config", cfg):
             result = await verify_api_key_only(api_key="wrong-key")
             assert result is None
 
@@ -84,7 +81,7 @@ class TestVerifyApiKey:
     async def test_api_key_none_returns_none(self):
         """No API key provided returns None."""
         cfg = _make_config(enable_api_auth=True, agent_api_key="correct-key")
-        with mock.patch("agent_utilities.config.config", cfg):
+        with mock.patch("agent_utilities.core.config.config", cfg):
             result = await verify_api_key_only(api_key=None)
             assert result is None
 
@@ -100,7 +97,8 @@ class TestDecodeJWT:
     @pytest.mark.concept("AU-011")
     def test_decode_valid_token(self):
         """Decoding a valid JWT with matching claims succeeds."""
-        from authlib.jose import jwt as authlib_jwt, JsonWebKey
+        from authlib.jose import JsonWebKey
+        from authlib.jose import jwt as authlib_jwt
 
         key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
         jwks = {"keys": [key.as_dict(is_private=False)]}
@@ -124,7 +122,8 @@ class TestDecodeJWT:
     @pytest.mark.concept("AU-011")
     def test_decode_expired_token_raises(self):
         """Expired tokens raise HTTPException with 401."""
-        from authlib.jose import jwt as authlib_jwt, JsonWebKey
+        from authlib.jose import JsonWebKey
+        from authlib.jose import jwt as authlib_jwt
         from fastapi import HTTPException
 
         key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
@@ -147,7 +146,8 @@ class TestDecodeJWT:
     @pytest.mark.concept("AU-011")
     def test_decode_wrong_issuer_raises(self):
         """Token with wrong issuer raises HTTPException."""
-        from authlib.jose import jwt as authlib_jwt, JsonWebKey
+        from authlib.jose import JsonWebKey
+        from authlib.jose import jwt as authlib_jwt
         from fastapi import HTTPException
 
         key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
@@ -174,7 +174,8 @@ class TestDecodeJWT:
     @pytest.mark.concept("AU-011")
     def test_decode_wrong_audience_raises(self):
         """Token with wrong audience raises HTTPException."""
-        from authlib.jose import jwt as authlib_jwt, JsonWebKey
+        from authlib.jose import JsonWebKey
+        from authlib.jose import jwt as authlib_jwt
         from fastapi import HTTPException
 
         key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
@@ -201,7 +202,8 @@ class TestDecodeJWT:
     @pytest.mark.concept("AU-011")
     def test_decode_bad_signature_raises(self):
         """Token signed with a different key raises HTTPException."""
-        from authlib.jose import jwt as authlib_jwt, JsonWebKey
+        from authlib.jose import JsonWebKey
+        from authlib.jose import jwt as authlib_jwt
         from fastapi import HTTPException
 
         key1 = JsonWebKey.generate_key("RSA", 2048, is_private=True)
@@ -225,7 +227,8 @@ class TestDecodeJWT:
     @pytest.mark.concept("AU-011")
     def test_decode_no_issuer_audience_check(self):
         """Decoding without issuer/audience validation succeeds."""
-        from authlib.jose import jwt as authlib_jwt, JsonWebKey
+        from authlib.jose import JsonWebKey
+        from authlib.jose import jwt as authlib_jwt
 
         key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
         jwks = {"keys": [key.as_dict(is_private=False)]}
@@ -244,7 +247,8 @@ class TestDecodeJWT:
     @pytest.mark.concept("AU-011")
     def test_decode_audience_list_valid(self):
         """Token with audience as list containing expected value succeeds."""
-        from authlib.jose import jwt as authlib_jwt, JsonWebKey
+        from authlib.jose import JsonWebKey
+        from authlib.jose import jwt as authlib_jwt
 
         key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
         jwks = {"keys": [key.as_dict(is_private=False)]}
@@ -278,7 +282,7 @@ class TestVerifyCredentials:
     async def test_no_auth_configured_allows_through(self):
         """When no auth is configured, all requests are allowed."""
         cfg = _make_config()
-        with mock.patch("agent_utilities.config.config", cfg):
+        with mock.patch("agent_utilities.core.config.config", cfg):
             request = MagicMock(spec=Request)
             result = await verify_credentials(
                 request=request, api_key=None, bearer=None
@@ -290,7 +294,7 @@ class TestVerifyCredentials:
     async def test_valid_api_key_accepted(self):
         """Valid API key is accepted when JWT is not configured."""
         cfg = _make_config(enable_api_auth=True, agent_api_key="valid-key")
-        with mock.patch("agent_utilities.config.config", cfg):
+        with mock.patch("agent_utilities.core.config.config", cfg):
             request = MagicMock(spec=Request)
             request.state = MagicMock()
             result = await verify_credentials(
@@ -306,7 +310,7 @@ class TestVerifyCredentials:
         from fastapi import HTTPException
 
         cfg = _make_config(enable_api_auth=True, agent_api_key="correct-key")
-        with mock.patch("agent_utilities.config.config", cfg):
+        with mock.patch("agent_utilities.core.config.config", cfg):
             request = MagicMock(spec=Request)
             with pytest.raises(HTTPException) as exc_info:
                 await verify_credentials(
@@ -321,7 +325,7 @@ class TestVerifyCredentials:
         from fastapi import HTTPException
 
         cfg = _make_config(enable_api_auth=True, agent_api_key="some-key")
-        with mock.patch("agent_utilities.config.config", cfg):
+        with mock.patch("agent_utilities.core.config.config", cfg):
             request = MagicMock(spec=Request)
             with pytest.raises(HTTPException) as exc_info:
                 await verify_credentials(

@@ -1,8 +1,10 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
+
+from agent_utilities.graph.executor import GraphDeps, GraphState
 from agent_utilities.graph.steps import router_step
-from agent_utilities.graph.executor import GraphState, GraphDeps
+
 
 @pytest.mark.asyncio
 async def test_router_rlm_trigger():

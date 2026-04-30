@@ -10,13 +10,12 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent_utilities import scheduler
+from agent_utilities.core import scheduler
 from agent_utilities.models.scheduling import (
-    CronLogEntryModel,
     CronLogModel,
     CronRegistryModel,
     CronTaskModel,
@@ -318,7 +317,7 @@ def test_schedule_task_existing_task_updates(monkeypatch: pytest.MonkeyPatch) ->
             last_run=datetime.now() - timedelta(minutes=30),
         )
     )
-    msg = scheduler.schedule_task("t1", "New", 15, "new prompt")
+    scheduler.schedule_task("t1", "New", 15, "new prompt")
     assert len(scheduler.tasks) == 1
     assert scheduler.tasks[0].name == "New"
     assert scheduler.tasks[0].interval_minutes == 15
@@ -528,7 +527,7 @@ def test_cleanup_cron_log_default_max_entries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Default max_entries uses config value."""
-    from agent_utilities.config import DEFAULT_MAX_CRON_LOG_ENTRIES
+    from agent_utilities.core.config import DEFAULT_MAX_CRON_LOG_ENTRIES
 
     engine = _fake_engine_with_rows()
     fake_kg = MagicMock()

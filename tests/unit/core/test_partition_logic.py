@@ -1,6 +1,6 @@
 import pytest
 
-from agent_utilities.mcp_agent_manager import partition_tools
+from agent_utilities.mcp.agent_manager import partition_tools
 from agent_utilities.models import MCPToolInfo
 
 

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic_ai import Agent
 
-from agent_utilities.acp_adapter import (
+from agent_utilities.protocols.acp_adapter import (
     _ACP_INSTALLED,
     build_acp_config,
     create_graph_acp_app,

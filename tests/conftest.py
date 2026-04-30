@@ -12,3 +12,17 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "concept(id): mark test as validating a specific documentation concept"
     )
+
+import pytest
+
+from agent_utilities.knowledge_graph.backends import set_active_backend
+from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+
+
+@pytest.fixture(autouse=True)
+def clean_graph_globals():
+    set_active_backend(None)
+    IntelligenceGraphEngine.set_active(None)
+    yield
+    set_active_backend(None)
+    IntelligenceGraphEngine.set_active(None)

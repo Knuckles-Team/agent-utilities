@@ -8,7 +8,8 @@ scheduling, A2A communication, developer utilities, and browser automation.
 
 from typing import Any
 
-from ..tool_registry import register_agent_tools
+from agent_utilities.tools.tool_registry import register_agent_tools
+
 from .a2a_tools import (
     delete_a2a_peer,
     list_a2a_peers,

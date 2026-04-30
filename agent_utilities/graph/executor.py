@@ -18,13 +18,14 @@ from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_graph import End
 from pydantic_graph.beta import StepContext
 
-from ..agent_factory import create_agent
+from agent_utilities.agent.factory import create_agent
+from agent_utilities.tools.tool_filtering import filter_tools_by_tag
+
 from ..models import (
     ExecutionStep,
     MCPAgent,
     MCPServerHealth,
 )
-from ..tool_filtering import filter_tools_by_tag
 from .config_helpers import (
     DEFAULT_GRAPH_TIMEOUT,
     emit_graph_event,
@@ -94,7 +95,7 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
         chosen = registry.get_by_id(requested_id)
         if chosen is not None:
             try:
-                from ..model_factory import create_model
+                from agent_utilities.core.model_factory import create_model
 
                 api_key = os.getenv(chosen.api_key_env) if chosen.api_key_env else None
                 logger.info(
@@ -132,7 +133,7 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
         logger.debug(f"Registry tier lookup failed for '{node_id}': {e}")
 
     try:
-        from ..model_factory import create_model
+        from agent_utilities.core.model_factory import create_model
 
         chosen = registry.pick_for_task(complexity=tier, required_tags=required_tags)
         api_key = os.getenv(chosen.api_key_env) if chosen.api_key_env else None
@@ -243,7 +244,7 @@ async def _get_domain_tools(
     try:
         from pydantic_ai_skills import SkillsToolset
 
-        from ..workspace import get_skills_path
+        from agent_utilities.core.workspace import get_skills_path
 
         skill_dirs: list[str] = []
         if skills_path := get_skills_path():
@@ -264,7 +265,7 @@ async def _get_domain_tools(
             pass
 
         if skill_dirs:
-            from ..tool_filtering import skill_matches_tags
+            from agent_utilities.tools.tool_filtering import skill_matches_tags
 
             filtered_dirs = [d for d in skill_dirs if skill_matches_tags(d, skill_tags)]
             if filtered_dirs:
@@ -291,7 +292,7 @@ def get_step_descriptions() -> str:
         A multi-line markdown string describing all available graph nodes.
 
     """
-    from ..discovery import discover_all_specialists
+    from agent_utilities.agent.discovery import discover_all_specialists
 
     steps = {
         "researcher": "Multi-vector discovery expert. Trigger this when information is missing or assumptions need validation. Can be spawned in parallel for simultaneous Web, Code, and Workspace research.",
@@ -498,7 +499,10 @@ async def _execute_dynamic_mcp_agent(
 
     # Wrap MCP toolsets with the tool guard so sensitive tools are flagged
     # as 'unapproved' and trigger the DeferredToolRequests flow.
-    from ..tool_guard import build_sensitive_tool_names, flag_mcp_tool_definitions
+    from agent_utilities.security.tool_guard import (
+        build_sensitive_tool_names,
+        flag_mcp_tool_definitions,
+    )
 
     guarded_toolsets = flag_mcp_tool_definitions(
         matched_toolsets, build_sensitive_tool_names()
@@ -882,7 +886,7 @@ async def _execute_agent_package_logic(
 
     if meta.get("type") == "remote_a2a":
         # Remote A2A Execution
-        from ..a2a import A2AClient
+        from agent_utilities.protocols.a2a import A2AClient
 
         peer_url = meta["url"]
         logger.info(
@@ -946,7 +950,7 @@ async def agent_package_step(
         The next node identifier (usually 'execution_joiner' or 'Error').
 
     """
-    from ..discovery import discover_agents
+    from agent_utilities.agent.discovery import discover_agents
 
     discovered = discover_agents()
     if node_id not in discovered:
@@ -1006,7 +1010,10 @@ async def _execute_specialized_step(
 
     # Filter MCP toolsets by domain tag AND node_id (prompt_name) with deduplication.
     # Wrap each with the tool guard so sensitive tools trigger approval.
-    from ..tool_guard import build_sensitive_tool_names, flag_mcp_tool_definitions
+    from agent_utilities.security.tool_guard import (
+        build_sensitive_tool_names,
+        flag_mcp_tool_definitions,
+    )
 
     _sensitive_names = build_sensitive_tool_names()
 
@@ -1330,7 +1337,9 @@ async def _execute_domain_logic(
             # decisions.  Otherwise, fall back to the legacy behaviour
             # that terminates the graph on DeferredToolRequests.
             if deps.approval_manager is not None:
-                from ..approval_manager import run_with_approvals
+                from agent_utilities.observability.approval_manager import (
+                    run_with_approvals,
+                )
 
                 result = await run_with_approvals(
                     sub_agent,

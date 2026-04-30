@@ -10,7 +10,7 @@ The `capabilities/` module provides self-healing and resilience patterns that th
 
 ### Checkpointing (`capabilities/checkpointing.py`)
 
-Provides state persistence during multi-step graph execution. If a step fails, execution can resume from the last checkpoint rather than restarting.
+Provides state persistence during multi-step graph execution. If a step fails, execution can resume from the last checkpoint rather than restarting. **(HSM Concept: State Snapshot)**
 
 ```python
 from agent_utilities.capabilities.checkpointing import CheckpointManager
@@ -56,7 +56,7 @@ Detects when an agent is repeating the same actions without progress:
 
 - **Repetition detection**: Identifies duplicate tool calls or responses
 - **Escalation**: After N repeated patterns, forces a strategy change
-- **Circuit breaker**: Terminates the loop after configurable max retries
+- **Circuit breaker**: Terminates the loop after configurable max retries **(HSM Concept: Guard Condition)**
 
 ### Teams (`capabilities/teams.py`)
 

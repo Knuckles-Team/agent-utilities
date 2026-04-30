@@ -2,11 +2,18 @@
 Tests for Document Deletion and Cleanup.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from agent_utilities.knowledge_graph.pipeline.document_deletion import DocumentDeletionPipeline
+
+import pytest
+
+from agent_utilities.knowledge_graph.id_management.unified_id import (
+    UnifiedIDManager,
+    UnifiedIDRegistry,
+)
 from agent_utilities.knowledge_graph.maintenance.document_cleanup import DocumentCleanup
-from agent_utilities.knowledge_graph.id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
+from agent_utilities.knowledge_graph.pipeline.document_deletion import (
+    DocumentDeletionPipeline,
+)
 
 
 class TestDocumentDeletionPipeline:

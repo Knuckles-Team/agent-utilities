@@ -1,7 +1,10 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+
 from agent_utilities.graph import steps
 from agent_utilities.graph.state import GraphState
+
 
 @pytest.mark.asyncio
 async def test_usage_guard_step():

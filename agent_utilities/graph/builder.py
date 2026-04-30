@@ -16,10 +16,8 @@ from pydantic_ai import Agent
 from pydantic_graph import End, Graph
 from pydantic_graph.beta import GraphBuilder, StepContext
 
-from ..base_utilities import (
-    is_loopback_url,
-)
-from ..config import (
+from agent_utilities.agent.discovery import discover_agents, discover_all_specialists
+from agent_utilities.core.config import (
     DEFAULT_GRAPH_AGENT_MODEL,
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
@@ -32,11 +30,14 @@ from ..config import (
     DEFAULT_SSL_VERIFY,
     DEFAULT_VALIDATION_MODE,
 )
-from ..discovery import discover_agents, discover_all_specialists
-from ..mcp_agent_manager import should_sync, sync_mcp_agents
-from ..mcp_utilities import load_mcp_config
+from agent_utilities.core.workspace import get_agent_workspace, resolve_mcp_config_path
+from agent_utilities.mcp.agent_manager import should_sync, sync_mcp_agents
+from agent_utilities.mcp_utilities import load_mcp_config
+
+from ..base_utilities import (
+    is_loopback_url,
+)
 from ..models import GraphResponse
-from ..workspace import get_agent_workspace, resolve_mcp_config_path
 from .config_helpers import (
     get_discovery_registry,
 )
@@ -77,7 +78,7 @@ except ImportError:
     RegistryGraphEngine = None  # type: ignore
     PipelineConfig = None  # type: ignore
     RegistryPipeline = None  # type: ignore
-from ..agent_registry_builder import ingest_prompts_to_graph
+from agent_utilities.agent.registry_builder import ingest_prompts_to_graph
 
 _PYDANTIC_GRAPH_AVAILABLE = True
 
@@ -144,7 +145,7 @@ def initialize_graph_from_workspace(
     logger.info(f"Initializing graph from workspace: {os.getcwd()}")
 
     if workspace:
-        from .. import workspace as _ws_mod
+        from ..core import workspace as _ws_mod
 
         _ws_mod.WORKSPACE_DIR = workspace
         logger.info(f"Initializing Graph: workspace pinned to {workspace}")
@@ -232,7 +233,7 @@ def initialize_graph_from_workspace(
     tag_prompts = {s.tag: s.description for s in all_specialists}
 
     if not tag_prompts:
-        from ..discovery import discover_agents
+        from agent_utilities.agent.discovery import discover_agents
 
         discovered = discover_agents()
         tag_prompts = {
@@ -713,7 +714,7 @@ def create_graph_agent(
     _api_key = kwargs.get("api_key")
     _base_url = kwargs.get("base_url")
 
-    from ..config import (
+    from agent_utilities.core.config import (
         DEFAULT_GRAPH_ROUTER_TIMEOUT,
         DEFAULT_GRAPH_VERIFIER_TIMEOUT,
     )

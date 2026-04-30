@@ -1,14 +1,21 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from agent_utilities.models import AgentDeps, Spec
+from agent_utilities.patterns.first_run_tests import TestResult, run_first_tests
+from agent_utilities.patterns.interactive_explanations import (
+    generate_interactive_explanation,
+)
 from agent_utilities.patterns.manager import PatternManager
-from agent_utilities.patterns.first_run_tests import run_first_tests, TestResult
 from agent_utilities.patterns.manual_testing import run_manual_test_cycle
-from agent_utilities.patterns.tdd import tdd_red_phase, tdd_green_phase, tdd_refactor_phase
+from agent_utilities.patterns.tdd import (
+    tdd_green_phase,
+    tdd_red_phase,
+    tdd_refactor_phase,
+)
 from agent_utilities.patterns.walkthroughs import generate_linear_walkthrough
-from agent_utilities.patterns.interactive_explanations import generate_interactive_explanation
 
 
 @pytest.fixture

@@ -12,10 +12,8 @@ from agent_utilities.knowledge_graph.pipeline.phases.resolve import (
     _build_package_map,
     _is_stdlib,
     execute_resolve,
-    resolve_relative_import,
 )
 from agent_utilities.knowledge_graph.pipeline.types import PipelineContext
-
 
 # ---------------------------------------------------------------------------
 # Helpers

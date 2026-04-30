@@ -92,70 +92,76 @@ If tests fail unexpectedly:
 ```
 agent_utilities/
 ├── __init__.py              # Public API re-exports
-├── agent_utilities.py       # create_agent(), create_agent_server(), create_graph_agent_server()
-├── agent_factory.py         # CLI agent creation helpers
-├── server.py                # FastAPI app factory, endpoints, model override middleware
-├── acp_adapter.py           # ACP protocol adapter
-├── a2a.py                   # A2A protocol adapter
-├── approval_manager.py      # Tool approval + elicitation pause/resume
-├── tool_guard.py            # Universal tool guard (auto-approval patterns)
-├── workspace.py             # Workspace discovery and initialization
-├── prompt_builder.py        # System prompt construction from workspace files
+├── agent_utilities.py       # Legacy exports and helper wrappers
 ├── base_utilities.py        # Shared utility functions (env expansion, type coercion)
-├── embedding_utilities.py   # Embedding generation and vector operations
-├── mcp_utilities.py         # MCP server creation, context helpers
-├── agui_emitter.py          # AG-UI wire format translator for direct graph events
-├── agent_registry_builder.py # Prompt → KG registry synchronization
-├── config.py                # Centralized configuration constants
+├── mcp_utilities.py         # MCP server creation and context helpers
 │
-├── graph/
-│   ├── builder.py           # Graph initialization and workspace discovery
-│   ├── unified.py           # Unified execution layer (execute_graph, execute_graph_iter)
-│   ├── runner.py            # Graph execution engine (run_graph, run_graph_stream, run_graph_iter)
-│   ├── steps.py             # Orchestration nodes (router, dispatcher, verifier, etc.)
-│   ├── executor.py          # Specialist execution (sub-agent runtime)
-│   ├── state.py             # GraphState and GraphPlan Pydantic models
-│   ├── hsm.py               # Hierarchical state machine utilities
-│   └── config_helpers.py    # Event emission, phase map, discovery registry
+├── core/                    # Foundational Primitives
+│   ├── workspace.py         # Workspace discovery and initialization
+│   ├── config.py            # Centralized configuration constants
+│   ├── exceptions.py        # Core domain exceptions
+│   └── decorators.py        # Cross-cutting decorators
 │
-├── knowledge_graph/
-│   ├── engine.py            # IntelligenceGraphEngine (main API)
-│   ├── maintainer.py        # GraphMaintainer (pruning, consolidation, decay)
-│   ├── consolidation.py     # Memory consolidation skeleton
-│   ├── hybrid_retriever.py  # Hybrid vector + topological retrieval
-│   ├── inference_engine.py  # Rule-augmented inference
-│   ├── codemaps.py          # Code map generation utilities
-│   ├── owl_bridge.py        # LPG ↔ OWL bridge (promote/downfeed)
-│   ├── migrations.py        # Schema migration utilities
-│   ├── ontology.ttl         # OWL ontology (30+ types, RDFS/OWL axioms)
-│   ├── id_management/
-│   │   └── unified_id.py    # Unified ID system for document pipeline
-│   ├── backends/
-│   │   ├── base.py          # GraphBackend ABC
-│   │   ├── factory.py       # create_backend() factory
-│   │   ├── sqlite_backend.py # LadybugDB (DuckDB) backend
-│   │   ├── mongo_backend.py # MongoDB backend
-│   │   └── postgres_backend.py # PostgreSQL backend
-│   │   └── document_storage/ # Document pipeline backends
-│   ├── pipeline/
-│   │   ├── runner.py        # PipelineRunner (14-phase orchestration)
-│   │   └── phases/          # Individual pipeline phase modules
-│   ├── maintenance/         # Maintenance task modules
-│   └── kb/                  # Knowledge Base layer modules
+├── agent/                   # Agent Lifecycle & Setup
+│   ├── factory.py           # CLI agent creation helpers
+│   ├── discovery.py         # Specialist discovery
+│   └── registry_builder.py  # Prompt → KG registry synchronization
 │
-├── models/
-│   ├── knowledge_graph.py   # RegistryNode schema (40+ types, 20+ edge types)
-│   ├── schema_definition.py # Schema definition models
-│   ├── sdd.py               # SDD models (Spec, Plan, Tasks)
-│   └── model_registry.py    # ModelRegistry, ModelDefinition, ModelTier
+├── protocols/               # External Interfaces
+│   ├── acp_adapter.py       # ACP protocol adapter
+│   ├── a2a.py               # A2A protocol adapter
+│   └── agui_emitter.py      # AG-UI wire format translator
 │
-├── prompts/                 # JSON prompt blueprints (specialist system prompts)
+├── server/                  # FastAPI Application
+│   ├── app.py               # App factory and middleware
+│   ├── dependencies.py      # Route dependencies
+│   └── routers/             # Endpoint definitions
+│
+├── security/                # Auth & Permissions
+│   ├── auth.py              # JWT validation
+│   └── cors.py              # Cross-origin policies
+│
+├── graph/                   # Orchestration Engine
+│   ├── builder.py           # Graph initialization
+│   ├── unified.py           # Execution layer
+│   ├── runner.py            # Lifecycle management
+│   ├── steps.py             # Orchestration nodes (router, verifier, etc.)
+│   └── state.py             # GraphState definitions
+│
+├── knowledge_graph/         # MAGMA Memory System
+│   ├── engine.py            # IntelligenceGraphEngine
+│   ├── maintainer.py        # Pruning, decay, maintenance
+│   ├── hybrid_retriever.py  # Vector + topological search
+│   └── owl_bridge.py        # LPG ↔ OWL transitive reasoning
+│
+├── harness/                 # Agentic Harness Engineering (AHE)
+│   ├── verifier.py          # Decision observability
+│   ├── trace_distiller.py   # Execution trace distillation
+│   └── evolve_agent.py      # Prompt evolution loop
+│
+├── mcp/                     # MCP Orchestration
+│   ├── manager.py           # Subprocess management
+│   └── utilities.py         # MCP tool extraction
+│
+├── tools/                   # Agent Tools
+│   ├── agent_tools.py       # Core agent tools
+│   ├── developer_tools.py   # File system tools
+│   └── ...                  # 16 other tool categories
+│
+├── models/                  # Pydantic Schemas
+│   ├── knowledge_graph.py   # RegistryNode, Edge schemas
+│   └── sdd.py               # Spec, Plan, Tasks
+│
+├── prompts/                 # JSON Prompt Blueprints
 │   └── *.json
 │
-├── sdd/                     # SDD lifecycle orchestration
-│   └── orchestrator.py      # SDDOrchestrator
+├── rlm/                     # Recursive Language Models
+│   └── repl.py              # Sub-shell execution
 │
-└── agent_data/              # Runtime data directory
+├── sdd/                     # Spec-Driven Development
+│   └── orchestrator.py      # Pipeline engine
+│
+└── agent_data/              # Runtime data directory (git-ignored)
 ```
 
 ## Code Style & Conventions

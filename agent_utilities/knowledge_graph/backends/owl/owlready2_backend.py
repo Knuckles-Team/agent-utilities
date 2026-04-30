@@ -63,6 +63,23 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "financial_instrument": "FinancialInstrument",
     "financial_transaction": "FinancialTransaction",
     "account": "Account",
+    # AHE Types (CONCEPT:AU-012)
+    "change_manifest": "ChangeManifest",
+    "component_edit_record": "ComponentEditRecord",
+    "evidence_record": "EvidenceRecord",
+    "constraint_state": "ConstraintState",
+    # Backfill Gap Types
+    "task": "Task",
+    "codemap": "Codemap",
+    "pattern_template": "PatternTemplate",
+    "proposed_skill": "ProposedSkill",
+    "system_prompt": "SystemPromptTemplate",
+    "prompt": "Prompt",
+    "process_flow": "ProcessFlow",
+    "process_step": "ProcessStep",
+    "knowledge_base": "KnowledgeBase",
+    "knowledge_base_topic": "KnowledgeBaseTopic",
+    "experiment": "Experiment",
 }
 
 # Mapping from LPG edge type values to OWL object property local names
@@ -100,6 +117,15 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "cites_source": "citesSource",
     "has_financial_instrument": "hasFinancialInstrument",
     "executed_transaction": "executedTransaction",
+    # AHE Edges (CONCEPT:AU-012)
+    "edited_in_round": "editedInRound",
+    "predicted_fix": "predictedFix",
+    "caused_regression": "causedRegression",
+    "confirmed_fix": "confirmedFix",
+    "verified_by": "verifiedBy",
+    "escalated_to": "escalatedTo",
+    "applied_edit": "appliedEdit",
+    "has_edit_for": "hasEditFor",
 }
 
 

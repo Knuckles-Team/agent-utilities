@@ -3,12 +3,15 @@ Concept: building-mcp-servers
 
 Tests for MCP utilities.
 """
-import pytest
-import os
 import json
+import os
 import tempfile
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from agent_utilities import mcp_utilities
+
 
 def test_create_mcp_parser():
     parser = mcp_utilities.create_mcp_parser()
