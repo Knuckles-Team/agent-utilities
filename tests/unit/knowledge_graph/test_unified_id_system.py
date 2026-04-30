@@ -2,10 +2,9 @@
 Tests for Unified ID System.
 """
 
-import pytest
 from agent_utilities.knowledge_graph.id_management.unified_id import (
     UnifiedIDManager,
-    UnifiedIDRegistry
+    UnifiedIDRegistry,
 )
 
 

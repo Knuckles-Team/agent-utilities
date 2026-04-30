@@ -1,3 +1,4 @@
+import importlib.util
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -7,17 +8,8 @@ from agent_utilities.knowledge_graph.backends.base import GraphBackend
 from agent_utilities.knowledge_graph.backends.falkordb_backend import FalkorDBBackend
 from agent_utilities.knowledge_graph.backends.neo4j_backend import Neo4jBackend
 
-try:
-    from falkordb import FalkorDB
-    FALKORDB_AVAILABLE = True
-except ImportError:
-    FALKORDB_AVAILABLE = False
-
-try:
-    from neo4j import GraphDatabase
-    NEO4J_AVAILABLE = True
-except ImportError:
-    NEO4J_AVAILABLE = False
+FALKORDB_AVAILABLE = importlib.util.find_spec("falkordb") is not None
+NEO4J_AVAILABLE = importlib.util.find_spec("neo4j") is not None
 
 try:
     from agent_utilities.knowledge_graph.backends.ladybug_backend import (

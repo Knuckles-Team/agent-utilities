@@ -33,7 +33,7 @@ def agent_server():
     setup_logging(args.debug)
 
     if args.workspace:
-        from . import workspace as _ws_mod
+        from agent_utilities.core import workspace as _ws_mod
 
         _ws_mod.WORKSPACE_DIR = args.workspace
         logging.info(f"Workspace override set to: {args.workspace}")

@@ -1,10 +1,14 @@
 #!/usr/bin/python
 """Unit tests for Owlready2Backend."""
 
-import os
-import pytest
 from pathlib import Path
-from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import Owlready2Backend
+
+import pytest
+
+from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import (
+    Owlready2Backend,
+)
+
 
 @pytest.fixture
 def ontology_path():

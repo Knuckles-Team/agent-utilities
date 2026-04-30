@@ -6,14 +6,16 @@ Tests the agent creation bootstrap pattern defined in docs/creating-an-agent.md
 
 import json
 import os
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from agent_utilities import (
     create_graph_agent_server,
     initialize_workspace,
     load_identity,
 )
+from agent_utilities.core import workspace as core_workspace
 
 
 @pytest.fixture
@@ -42,7 +44,7 @@ def temp_workspace(tmp_path, monkeypatch):
     (workspace_dir / "mcp_config.json").write_text(json.dumps(mcp_config))
 
     # Use monkeypatch to ensure isolation
-    monkeypatch.setattr("agent_utilities.workspace.WORKSPACE_DIR", None)
+    monkeypatch.setattr(core_workspace, "WORKSPACE_DIR", None)
     monkeypatch.setenv("AGENT_WORKSPACE", str(workspace_dir))
 
     yield workspace_dir
@@ -56,7 +58,7 @@ def test_create_agent_bootstrap_pattern(mock_run, temp_workspace):
     initialize_workspace()
 
     # 2. Load identity and build prompt
-    with patch("agent_utilities.prompt_builder.load_identity") as mock_load:
+    with patch("agent_utilities.prompting.builder.load_identity") as mock_load:
         mock_load.return_value = {"name": "Test Creation Agent", "content": ""}
         meta = load_identity()
 

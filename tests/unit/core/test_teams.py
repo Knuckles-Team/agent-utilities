@@ -7,11 +7,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import networkx as nx
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers

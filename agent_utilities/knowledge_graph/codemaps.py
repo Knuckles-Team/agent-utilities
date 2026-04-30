@@ -5,7 +5,8 @@ from typing import Literal
 
 from pydantic_ai import Agent
 
-from ..model_factory import create_model
+from agent_utilities.core.model_factory import create_model
+
 from ..models.codemap import (
     CodemapArtifact,
     CodemapEdge,

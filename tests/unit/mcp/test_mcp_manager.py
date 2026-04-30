@@ -1,14 +1,17 @@
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 from pathlib import Path
-from agent_utilities.mcp_agent_manager import (
-    should_sync,
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from agent_utilities.mcp.agent_manager import (
+    compute_agent_metadata_score,
     compute_tool_relevance_score,
-    partition_tools,
     extract_tool_metadata,
-    compute_agent_metadata_score
+    partition_tools,
+    should_sync,
 )
 from agent_utilities.models import MCPToolInfo
+
 
 def test_compute_tool_relevance_score():
     tool = MCPToolInfo(
@@ -71,7 +74,7 @@ async def test_extract_tool_metadata():
     with patch("pathlib.Path.exists", return_value=True), \
          patch("builtins.open", MagicMock()), \
          patch("json.load", return_value={"mcpServers": {}}), \
-         patch("agent_utilities.mcp_agent_manager.load_mcp_config", return_value=[mock_server]):
+         patch("agent_utilities.mcp.agent_manager.load_mcp_config", return_value=[mock_server]):
 
         tools = await extract_tool_metadata(config_path)
         assert len(tools) == 1

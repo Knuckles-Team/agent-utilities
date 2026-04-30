@@ -19,14 +19,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # exceptions.py
 # ---------------------------------------------------------------------------
 
 
 def test_custom_exception_hierarchy():
-    from agent_utilities.exceptions import (
+    from agent_utilities.core.exceptions import (
         ApiError,
         AuthError,
         LoginRequiredError,
@@ -58,7 +57,7 @@ def test_custom_exception_hierarchy():
 
 
 def test_require_auth_success():
-    from agent_utilities.decorators import require_auth
+    from agent_utilities.core.decorators import require_auth
 
     class Client:
         def __init__(self):
@@ -72,8 +71,8 @@ def test_require_auth_success():
 
 
 def test_require_auth_missing_headers():
-    from agent_utilities.decorators import require_auth
-    from agent_utilities.exceptions import LoginRequiredError
+    from agent_utilities.core.decorators import require_auth
+    from agent_utilities.core.exceptions import LoginRequiredError
 
     class Client:
         def __init__(self):
@@ -106,7 +105,7 @@ def test_api_utilities_exports():
 
 
 def test_protocol_isinstance_graph_backend():
-    from agent_utilities.interfaces import GraphBackend
+    from agent_utilities.core.interfaces import GraphBackend
 
     class FakeBackend:
         def execute(self, query, params=None):
@@ -125,7 +124,7 @@ def test_protocol_isinstance_graph_backend():
 
 
 def test_protocol_isinstance_agent_and_tool():
-    from agent_utilities.interfaces import AgentInterface, ToolInterface
+    from agent_utilities.core.interfaces import AgentInterface, ToolInterface
 
     class FakeAgent:
         def __init__(self):
@@ -153,7 +152,7 @@ def test_protocol_isinstance_agent_and_tool():
 
 
 def test_find_package_data_dir_none_for_missing():
-    from agent_utilities.event_aggregator import find_package_data_dir
+    from agent_utilities.observability.event_aggregator import find_package_data_dir
 
     assert find_package_data_dir("this_package_does_not_exist_xyz") is None
 
@@ -161,7 +160,7 @@ def test_find_package_data_dir_none_for_missing():
 def test_find_package_data_dir_for_agent_utilities():
     """agent_utilities ships no ``agent_data/`` so we expect None here too,
     but the function should traverse candidates without raising."""
-    from agent_utilities.event_aggregator import find_package_data_dir
+    from agent_utilities.observability.event_aggregator import find_package_data_dir
 
     result = find_package_data_dir("agent_utilities")
     # Either None or a valid Path
@@ -173,7 +172,7 @@ def test_find_package_data_dir_finds_agent_data(tmp_path, monkeypatch):
     directory contains an ``agent_data/`` subdir."""
     import importlib.util as _iu
 
-    from agent_utilities import event_aggregator
+    from agent_utilities.observability import event_aggregator
 
     # Create ``tmp_path/mypkg/__init__.py`` plus an ``agent_data/`` sibling.
     pkg = tmp_path / "mypkg"
@@ -206,7 +205,7 @@ async def test_record_specialist_outcome_no_engine():
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 
     original = IntelligenceGraphEngine.get_active
-    setattr(IntelligenceGraphEngine, "get_active", staticmethod(lambda: None))
+    IntelligenceGraphEngine.get_active = staticmethod(lambda: None)  # type: ignore[method-assign]
     try:
         await record_specialist_outcome_hook(
             deps=SimpleNamespace(),
@@ -217,7 +216,7 @@ async def test_record_specialist_outcome_no_engine():
             duration=1.5,
         )
     finally:
-        setattr(IntelligenceGraphEngine, "get_active", original)
+        IntelligenceGraphEngine.get_active = original  # type: ignore[method-assign]
     assert True, 'No-engine specialist outcome should not raise'
 
 
@@ -419,14 +418,14 @@ def test_custom_observability_disabled(monkeypatch):
     monkeypatch.setenv("OTEL_ENABLE_OTEL", "false")
     import importlib
 
-    import agent_utilities.custom_observability as obs
+    import agent_utilities.observability.custom_observability as obs
 
     importlib.reload(obs)
     assert True, 'Disabled observability handled gracefully'
 
 
 def test_custom_observability_initialize_function(monkeypatch):
-    import agent_utilities.custom_observability as obs
+    import agent_utilities.observability.custom_observability as obs
 
     # Check available public functions
     exports = dir(obs)
@@ -439,7 +438,7 @@ def test_custom_observability_initialize_function(monkeypatch):
 
 
 def test_discover_agents_no_registry(monkeypatch):
-    from agent_utilities import discovery
+    from agent_utilities.agent import discovery
 
     class _EmptyRegistry:
         agents: list = []
@@ -461,7 +460,7 @@ def test_discover_agents_no_registry(monkeypatch):
 
 
 def test_discover_agents_filters(monkeypatch):
-    from agent_utilities import discovery
+    from agent_utilities.agent import discovery
 
     agent_a = SimpleNamespace(
         name="alpha",
@@ -511,7 +510,7 @@ def test_discover_agents_filters(monkeypatch):
 
 
 def test_discover_all_specialists(monkeypatch):
-    from agent_utilities import discovery
+    from agent_utilities.agent import discovery
     from agent_utilities.graph import config_helpers
 
     class Reg:
@@ -539,22 +538,22 @@ def test_discover_all_specialists(monkeypatch):
 
 
 def test_chat_persistence_no_engine():
-    import agent_utilities.chat_persistence as cp
+    import agent_utilities.core.chat_persistence as cp
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 
     original = IntelligenceGraphEngine.get_active
-    setattr(IntelligenceGraphEngine, "get_active", staticmethod(lambda: None))
+    IntelligenceGraphEngine.get_active = staticmethod(lambda: None)  # type: ignore[method-assign]
     try:
         cp.save_chat_to_disk("chat-1", [{"role": "user", "content": "hi"}])
         assert cp.list_chats_from_disk() == []
         assert cp.get_chat_from_disk("missing") is None
         assert cp.delete_chat_from_disk("missing") is False
     finally:
-        setattr(IntelligenceGraphEngine, "get_active", original)
+        IntelligenceGraphEngine.get_active = original  # type: ignore[method-assign]
 
 
 def test_chat_persistence_save_and_list_with_engine(monkeypatch):
-    import agent_utilities.chat_persistence as cp
+    import agent_utilities.core.chat_persistence as cp
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
@@ -574,7 +573,7 @@ def test_chat_persistence_save_and_list_with_engine(monkeypatch):
 
 
 def test_chat_persistence_list_error(monkeypatch):
-    import agent_utilities.chat_persistence as cp
+    import agent_utilities.core.chat_persistence as cp
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
@@ -587,7 +586,7 @@ def test_chat_persistence_list_error(monkeypatch):
 
 
 def test_chat_persistence_get_chat_with_engine(monkeypatch):
-    import agent_utilities.chat_persistence as cp
+    import agent_utilities.core.chat_persistence as cp
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
@@ -605,7 +604,7 @@ def test_chat_persistence_get_chat_with_engine(monkeypatch):
 
 
 def test_chat_persistence_get_chat_missing(monkeypatch):
-    import agent_utilities.chat_persistence as cp
+    import agent_utilities.core.chat_persistence as cp
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
@@ -618,7 +617,7 @@ def test_chat_persistence_get_chat_missing(monkeypatch):
 
 
 def test_chat_persistence_delete_chat_with_engine(monkeypatch):
-    import agent_utilities.chat_persistence as cp
+    import agent_utilities.core.chat_persistence as cp
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
@@ -630,7 +629,7 @@ def test_chat_persistence_delete_chat_with_engine(monkeypatch):
 
 
 def test_chat_persistence_delete_chat_error(monkeypatch):
-    import agent_utilities.chat_persistence as cp
+    import agent_utilities.core.chat_persistence as cp
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
@@ -643,14 +642,14 @@ def test_chat_persistence_delete_chat_error(monkeypatch):
 
 
 def test_prune_large_messages_short_keeps_original():
-    from agent_utilities.chat_persistence import prune_large_messages
+    from agent_utilities.core.chat_persistence import prune_large_messages
 
     messages = [{"role": "user", "content": "hi"}]
     assert prune_large_messages(messages) == messages
 
 
 def test_prune_large_messages_truncates():
-    from agent_utilities.chat_persistence import prune_large_messages
+    from agent_utilities.core.chat_persistence import prune_large_messages
 
     long = "x" * 6000
     messages = [{"role": "user", "content": long}]

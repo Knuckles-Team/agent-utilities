@@ -97,6 +97,11 @@ class RegistryNodeType(StrEnum):
     FINANCIAL_INSTRUMENT = "financial_instrument"
     FINANCIAL_TRANSACTION = "financial_transaction"
     ACCOUNT = "account"
+    # AHE (Agentic Harness Engineering) Node Types (CONCEPT:AU-012)
+    CHANGE_MANIFEST = "change_manifest"
+    COMPONENT_EDIT_RECORD = "component_edit_record"
+    EVIDENCE_RECORD = "evidence_record"
+    CONSTRAINT_STATE = "constraint_state"
 
 
 class RegistryEdgeType(StrEnum):
@@ -209,6 +214,13 @@ class RegistryEdgeType(StrEnum):
     CITES_SOURCE = "cites_source"
     HAS_FINANCIAL_INSTRUMENT = "has_financial_instrument"
     EXECUTED_TRANSACTION = "executed_transaction"
+    # AHE (Agentic Harness Engineering) Edges (CONCEPT:AU-012)
+    EDITED_IN_ROUND = "edited_in_round"
+    PREDICTED_FIX = "predicted_fix"
+    CAUSED_REGRESSION = "caused_regression"
+    CONFIRMED_FIX = "confirmed_fix"
+    VERIFIED_BY = "verified_by"
+    ESCALATED_TO = "escalated_to"
 
 
 class RegistryNode(BaseModel):
@@ -324,7 +336,7 @@ class ResolutionContext(BaseModel):
     symbol_map: dict[str, str] = Field(default_factory=dict)  # Name to ID
 
 
-from ..config import (
+from agent_utilities.core.config import (
     DEFAULT_ENABLE_KG_EMBEDDINGS,
 )
 

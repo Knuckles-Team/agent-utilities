@@ -42,7 +42,7 @@ async def extract_and_ingest_triples(
         # We use an LLM to extract triples
         from pydantic_ai import Agent
 
-        from ..model_factory import create_model
+        from agent_utilities.core.model_factory import create_model
 
         model = create_model()
         agent = Agent(

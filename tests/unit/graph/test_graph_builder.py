@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
-import ladybug
 
 from agent_utilities.graph import builder
+
 
 def test_build_tag_env_map():
     tags = ["incidents", "git-ops"]

@@ -1,4 +1,3 @@
-import pytest
 import os
 from pathlib import Path
 
@@ -29,7 +28,7 @@ def test_instrumentation_presence():
                 break
 
         assert server_file is not None, f"Could not find mcp_server.py for {agent}"
-        with open(server_file, "r") as f:
+        with open(server_file) as f:
             content = f.read()
 
         # Check if the tool function contains the helper
@@ -39,7 +38,7 @@ def test_instrumentation_presence():
         # Check for 'async def' if it uses an async helper
         if helper in ["ctx_confirm_destructive", "ctx_progress", "ctx_sample", "ctx_set_state"]:
             lines = content.splitlines()
-            tool_def_line = next((l for l in lines if f"def {tool}" in l), None)
+            tool_def_line = next((line for line in lines if f"def {tool}" in line), None)
             assert tool_def_line is not None, f"Could not find def for {tool} in {agent}"
             assert "async def" in tool_def_line, f"Tool {tool} in {agent} is not async despite using {helper}"
 

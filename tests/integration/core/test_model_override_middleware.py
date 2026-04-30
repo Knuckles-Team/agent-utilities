@@ -74,7 +74,7 @@ def registry() -> ModelRegistry:
 def _build_client(agent, **kwargs) -> TestClient:
     """Construct a TestClient without mounting the web UI or ACP."""
     with patch(
-        "agent_utilities.server.create_agent", return_value=(agent, [])
+        "agent_utilities.server.app.create_agent", return_value=(agent, [])
     ):
         app = build_agent_app(
             enable_web_ui=False,
@@ -99,7 +99,7 @@ def _probe_app(
     captures: list[dict[str, Any]] = []
 
     with patch(
-        "agent_utilities.server.create_agent", return_value=(agent, [])
+        "agent_utilities.server.app.create_agent", return_value=(agent, [])
     ):
         app = build_agent_app(
             enable_web_ui=False,
@@ -328,7 +328,7 @@ def test_executor_prefers_requested_model_over_tier(registry):
         return f"MODEL<{kwargs.get('model_id')}>"
 
     with patch(
-        "agent_utilities.model_factory.create_model", side_effect=fake_create_model
+        "agent_utilities.core.model_factory.create_model", side_effect=fake_create_model
     ):
         model = pick_specialist_model(deps, "researcher")
 
@@ -360,7 +360,7 @@ def test_executor_falls_back_to_tier_when_requested_id_unknown(registry):
     empty_registry = MagicMock()
     empty_registry.agents = []
     with patch(
-        "agent_utilities.model_factory.create_model", side_effect=fake_create_model
+        "agent_utilities.core.model_factory.create_model", side_effect=fake_create_model
     ), patch(
         "agent_utilities.graph.executor.get_discovery_registry",
         return_value=empty_registry,
@@ -409,7 +409,7 @@ def test_invalid_model_id_falls_back_to_default(registry):
     empty_registry = MagicMock()
     empty_registry.agents = []
     with patch(
-        "agent_utilities.model_factory.create_model", side_effect=fake_create_model
+        "agent_utilities.core.model_factory.create_model", side_effect=fake_create_model
     ), patch(
         "agent_utilities.graph.executor.get_discovery_registry",
         return_value=empty_registry,

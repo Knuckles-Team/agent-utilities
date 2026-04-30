@@ -477,7 +477,7 @@ async def test_resolve_empty_graph() -> None:
 
     ctx = _make_ctx()
     result = await execute_resolve(ctx, {})
-    assert result == {"resolved_dependencies": 0}
+    assert result == {"cross_repo_dependencies": 0, "resolved_dependencies": 0}
 
 
 @pytest.mark.asyncio

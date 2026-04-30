@@ -93,21 +93,21 @@ def __getattr__(name):
 
         return locals()[name]
     elif name in ["create_agent", "create_agent_parser"]:
-        from .agent_factory import create_agent, create_agent_parser
+        from .agent.factory import create_agent, create_agent_parser
 
         return create_agent if name == "create_agent" else create_agent_parser
     elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
-        from .config import DEFAULT_GRAPH_PERSISTENCE_PATH
+        from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
 
         return DEFAULT_GRAPH_PERSISTENCE_PATH
     elif name in ["discover_agents", "discover_all_specialists"]:
-        from .discovery import discover_agents, discover_all_specialists
+        from .agent.discovery import discover_agents, discover_all_specialists
 
         return (
             discover_agents if name == "discover_agents" else discover_all_specialists
         )
     elif name == "create_embedding_model":
-        from .embedding_utilities import create_embedding_model
+        from .core.embedding_utilities import create_embedding_model
 
         return create_embedding_model
     elif name in [
@@ -141,11 +141,11 @@ def __getattr__(name):
 
         return locals()[name]
     elif name == "create_model":
-        from .model_factory import create_model
+        from .core.model_factory import create_model
 
         return create_model
     elif name in ["build_system_prompt_from_workspace", "load_identity"]:
-        from .prompt_builder import build_system_prompt_from_workspace, load_identity
+        from .prompting.builder import build_system_prompt_from_workspace, load_identity
 
         return (
             build_system_prompt_from_workspace
@@ -180,7 +180,7 @@ def __getattr__(name):
         "write_md_file",
         "write_workspace_file",
     ]:
-        from .workspace import (
+        from .core.workspace import (
             CORE_FILES,
             append_to_md_file,
             get_mcp_config_path,
@@ -200,7 +200,7 @@ def __getattr__(name):
         "list_chats_from_disk",
         "save_chat_to_disk",
     ]:
-        from .chat_persistence import (
+        from .core.chat_persistence import (
             delete_chat_from_disk,
             get_chat_from_disk,
             list_chats_from_disk,
@@ -237,11 +237,11 @@ def __getattr__(name):
 
         return locals()[name]
     elif name in ["SecretsClient", "create_secrets_client"]:
-        from .secrets_client import SecretsClient, create_secrets_client
+        from .security.secrets_client import SecretsClient, create_secrets_client
 
         return SecretsClient if name == "SecretsClient" else create_secrets_client
     elif name == "verify_credentials":
-        from .auth import verify_credentials
+        from .security.auth import verify_credentials
 
         return verify_credentials
     elif name == "SDDManager":
@@ -262,7 +262,7 @@ if os.environ.get("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
 # Disabled by default to avoid import overhead during testing
 # Can be enabled by setting ENABLE_GRAPH_INTEGRATION=true and calling initialize_graph_integration() explicitly
 
-__version__ = "0.2.40"
+__version__ = "0.2.41"
 
 __all__ = [
     # Agent creation

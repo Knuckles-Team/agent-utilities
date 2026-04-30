@@ -16,12 +16,10 @@ Covers:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import networkx as nx
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # tool_guard
@@ -30,7 +28,7 @@ import pytest
 
 def test_is_safe_tool_read() -> None:
     """Tools matching safe patterns are identified."""
-    from agent_utilities.tool_guard import is_safe_tool
+    from agent_utilities.security.tool_guard import is_safe_tool
 
     assert is_safe_tool("read_file") is True
     assert is_safe_tool("list_directory") is True
@@ -44,7 +42,7 @@ def test_is_safe_tool_read() -> None:
 
 def test_is_safe_tool_non_safe() -> None:
     """Non-safe names return False."""
-    from agent_utilities.tool_guard import is_safe_tool
+    from agent_utilities.security.tool_guard import is_safe_tool
 
     assert is_safe_tool("write_file") is False
     assert is_safe_tool("delete_item") is False
@@ -52,7 +50,7 @@ def test_is_safe_tool_non_safe() -> None:
 
 def test_is_sensitive_tool_strict_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """In strict mode, everything non-safe is sensitive."""
-    import agent_utilities.tool_guard as tg
+    import agent_utilities.security.tool_guard as tg
 
     monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "strict")
     assert tg.is_sensitive_tool("write_file") is True
@@ -61,7 +59,7 @@ def test_is_sensitive_tool_strict_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_is_sensitive_tool_normal_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Normal mode uses pattern matching."""
-    import agent_utilities.tool_guard as tg
+    import agent_utilities.security.tool_guard as tg
 
     monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "on")
     # Set up custom patterns
@@ -72,7 +70,7 @@ def test_is_sensitive_tool_normal_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_build_sensitive_tool_names(monkeypatch: pytest.MonkeyPatch) -> None:
     """build_sensitive_tool_names pulls from discovery registry."""
-    import agent_utilities.tool_guard as tg
+    import agent_utilities.security.tool_guard as tg
     from agent_utilities.models import MCPAgentRegistryModel, MCPToolInfo
 
     registry = MCPAgentRegistryModel(
@@ -104,7 +102,7 @@ def test_build_sensitive_tool_names_handles_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Exception in registry fetch returns empty set."""
-    import agent_utilities.tool_guard as tg
+    import agent_utilities.security.tool_guard as tg
 
     with patch(
         "agent_utilities.graph.config_helpers.get_discovery_registry",
@@ -116,7 +114,7 @@ def test_build_sensitive_tool_names_handles_exception(
 
 def test_flag_mcp_tool_definitions_guard_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """TOOL_GUARD_MODE=off returns toolsets unchanged."""
-    import agent_utilities.tool_guard as tg
+    import agent_utilities.security.tool_guard as tg
 
     monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "off")
     toolsets = [MagicMock()]
@@ -128,7 +126,7 @@ def test_flag_mcp_tool_definitions_wraps_mcp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """MCP-like toolsets are wrapped in ApprovalRequiredToolset."""
-    import agent_utilities.tool_guard as tg
+    import agent_utilities.security.tool_guard as tg
 
     monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "on")
     mcp_ts = MagicMock(spec=["list_tools"])
@@ -145,7 +143,7 @@ def test_flag_mcp_tool_definitions_with_sensitive_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Sensitive names are used in the wrapper."""
-    import agent_utilities.tool_guard as tg
+    import agent_utilities.security.tool_guard as tg
 
     monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "on")
     mcp_ts = MagicMock(spec=["list_tools"])
@@ -159,7 +157,7 @@ def test_apply_tool_guard_approvals_guard_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """TOOL_GUARD_MODE=off returns immediately."""
-    import agent_utilities.tool_guard as tg
+    import agent_utilities.security.tool_guard as tg
 
     monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "off")
     agent = MagicMock()
@@ -178,7 +176,7 @@ def test_apply_tool_guard_approvals_guard_off(
 @pytest.mark.asyncio
 async def test_user_token_middleware_delegation_disabled() -> None:
     """Delegation disabled -> passes through."""
-    from agent_utilities.middlewares import UserTokenMiddleware
+    from agent_utilities.mcp.middlewares import UserTokenMiddleware
 
     mw = UserTokenMiddleware(config={"enable_delegation": False})
     ctx = MagicMock()
@@ -191,7 +189,7 @@ async def test_user_token_middleware_delegation_disabled() -> None:
 @pytest.mark.asyncio
 async def test_user_token_middleware_delegation_enabled() -> None:
     """Delegation enabled with valid Bearer token stores it."""
-    from agent_utilities.middlewares import UserTokenMiddleware, local
+    from agent_utilities.mcp.middlewares import UserTokenMiddleware, local
 
     mw = UserTokenMiddleware(config={"enable_delegation": True})
     ctx = MagicMock()
@@ -207,7 +205,7 @@ async def test_user_token_middleware_delegation_enabled() -> None:
 @pytest.mark.asyncio
 async def test_user_token_middleware_missing_header() -> None:
     """Delegation enabled with no header raises ValueError."""
-    from agent_utilities.middlewares import UserTokenMiddleware
+    from agent_utilities.mcp.middlewares import UserTokenMiddleware
 
     mw = UserTokenMiddleware(config={"enable_delegation": True})
     ctx = MagicMock()
@@ -220,7 +218,7 @@ async def test_user_token_middleware_missing_header() -> None:
 @pytest.mark.asyncio
 async def test_jwt_claims_logging_middleware() -> None:
     """JWT claims are logged on response (no return value)."""
-    from agent_utilities.middlewares import JWTClaimsLoggingMiddleware
+    from agent_utilities.mcp.middlewares import JWTClaimsLoggingMiddleware
 
     mw = JWTClaimsLoggingMiddleware()
     ctx = MagicMock()
@@ -591,8 +589,8 @@ async def test_scheduler_tools_view_cron_log_missing_core_file(
     This just verifies the function path doesn't crash on a missing key by
     monkeypatching CORE_FILES.
     """
+    import agent_utilities.core.workspace as ws
     from agent_utilities.tools import scheduler_tools
-    import agent_utilities.workspace as ws
 
     # Temporarily patch CORE_FILES to provide a CRON_LOG key
     orig_core = dict(ws.CORE_FILES)

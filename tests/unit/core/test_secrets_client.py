@@ -10,17 +10,15 @@ Covers:
 """
 
 import os
-import tempfile
-from pathlib import Path
 from unittest import mock
 
 import pytest
 
-from agent_utilities.secrets_client import (
+from agent_utilities.security.secrets_client import (
     InMemoryBackend,
-    SQLiteBackend,
     SecretsClient,
     SecretsConfig,
+    SQLiteBackend,
     create_secrets_client,
 )
 
@@ -273,7 +271,7 @@ class TestSecretsFactory:
         try:
             client = create_secrets_client(config)
             # If hvac is installed, the client is created successfully
-            from agent_utilities.secrets_client import VaultBackend
+            from agent_utilities.security.secrets_client import VaultBackend
 
             assert isinstance(client.backend, VaultBackend)
         except ImportError:

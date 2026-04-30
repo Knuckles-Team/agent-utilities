@@ -1,4 +1,4 @@
-from ..structured_prompts import (
+from agent_utilities.prompting.structured import (
     NestedStructure,
     PromptIdentity,
     PromptInstructions,

@@ -1,0 +1,57 @@
+# Tasks: Code Enhancement: agent-utilities
+
+Generated: 2026-04-30T05:28:06.246633+00:00
+Skipped informational: 0
+
+- [ ] [P] **T001** [Dependency Audit] Minor update: pydantic-settings 2.13.0 (installed) -> 2.14.0
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T002** [Dependency Audit] Minor update: urllib3 2.3.0 (installed) -> 2.6.3
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T003** [Dependency Audit] Minor update: ladybug 0.15.3 (installed) -> 0.16.0
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T004** [Dependency Audit] Minor update: pydantic-ai-slim 1.83.0 (installed) -> 1.88.0
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T005** [Dependency Audit] Minor update: pydantic-graph 1.83.0 (installed) -> 1.88.0
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T006** [Dependency Audit] Minor update: llama-index-embeddings-openai 0.5.1 (constraint — not installed) -
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T007** [Dependency Audit] Minor update: playwright 1.58.0 (installed) -> 1.59.0
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T008** [Dependency Audit] Minor update: llama-index-embeddings-ollama 0.8.6 (constraint — not installed) -
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T009** [Dependency Audit] Minor update: llama-index-embeddings-huggingface 0.6.1 (constraint — not install
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T010** [Dependency Audit] Minor update: falkordb 1.0.1 (constraint — not installed) -> 1.6.1
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T011** [Dependency Audit] Minor update: hvac 2.3.0 (constraint — not installed) -> 2.4.0
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T012** [Dependency Audit] Minor update: authlib 1.6.5 (installed) -> 1.7.0
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T013** [Dependency Audit] Minor update: opentelemetry-instrumentation-starlette 0.60b1 (installed) -> 0.62
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T014** [Dependency Audit] Minor update: opentelemetry-instrumentation-fastapi 0.60b1 (installed) -> 0.62b1
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T015** [Dependency Audit] Minor update: opentelemetry-instrumentation-asgi 0.60b1 (installed) -> 0.62b1
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T016** [Codebase Optimization] 16 functions exceed 200 lines (actionable refactoring targets): build_agent_app
+  - Priority: P2-Medium | Effort: Large
+- [ ] [P] **T017** [Codebase Optimization] Monolithic: base_utilities.py (1045L) — 3 functions with high complexity (worst:
+  - Priority: P1-High | Effort: Large
+- [ ] [P] **T018** [Codebase Optimization] Monolithic: workspace.py (657L) — 1 functions with high complexity (worst: resol
+  - Priority: P1-High | Effort: Large
+- [ ] [P] **T019** [Codebase Optimization] Monolithic: steps.py (2423L) — 5 functions with high complexity (worst: router_s
+  - Priority: P1-High | Effort: Large
+- [ ] [P] **T020** [Codebase Optimization] Needs attention: factory.py (592L) — 1 functions with high complexity (worst: cr
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T021** [Codebase Optimization] Needs attention: app.py (567L) — 1 functions with high complexity (worst: build_
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T022** [Codebase Optimization] Needs attention: repl.py (590L) — 1 functions with high complexity (worst: RLMEn
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T023** [Codebase Optimization] 65 functions with nesting depth >4
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T024** [Codebase Optimization] 1 flat directories with >15 Python files: agent_utilities/tools
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T025** [Test Coverage] 6 tests without assertions
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T026** [Test Coverage] 8 potential doc-test drift items
+  - Priority: P2-Medium | Effort: Medium

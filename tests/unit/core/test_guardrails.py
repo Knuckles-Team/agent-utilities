@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from agent_utilities.guardrails import (
+from agent_utilities.security.guardrails import (
     ContentFilterPolicy,
     CostBudgetPolicy,
     MaxTokensPolicy,
@@ -18,7 +18,6 @@ from agent_utilities.guardrails import (
     PolicyViolation,
     guardrail,
 )
-
 
 # ---------------------------------------------------------------------------
 # MaxTokensPolicy

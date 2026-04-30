@@ -138,7 +138,7 @@ class IntelligenceGraphEngine:
 
             if isinstance(v, Enum):
                 clean_data[k] = v.value
-            elif isinstance(v, (dict, list)) and k not in ARRAY_FIELDS:
+            elif isinstance(v, dict | list) and k not in ARRAY_FIELDS:
                 clean_data[k] = json.dumps(v)
             else:
                 clean_data[k] = v
@@ -1297,7 +1297,7 @@ class IntelligenceGraphEngine:
         title: str = "Knowledge Graph",
     ) -> str:
         """Generate a Mermaid visualization for a portion of the graph."""
-        from ..mermaid import FlowchartBuilder
+        from agent_utilities.observability.mermaid import FlowchartBuilder
 
         if query:
             # Simple heuristic for subgraph if query provided
@@ -1350,7 +1350,7 @@ class FocusedSubgraph:
 
     def to_mermaid(self) -> str:
         """Convert this subgraph to a Mermaid diagram."""
-        from ..mermaid import FlowchartBuilder
+        from agent_utilities.observability.mermaid import FlowchartBuilder
 
         builder = FlowchartBuilder(title=f"Subgraph: {self.query}")
 

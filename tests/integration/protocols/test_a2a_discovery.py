@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities.a2a import (
+from agent_utilities.protocols.a2a import (
     A2AClient,
 )
 

@@ -10,12 +10,11 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from agent_utilities.graph import config_helpers as ch
-
 
 # ---------------------------------------------------------------------------
 # load_mcp_config / save_mcp_config
@@ -80,6 +79,7 @@ def test_save_mcp_config_writes_json(
 def test_emit_graph_event_no_queue() -> None:
     """emit_graph_event with eq=None only logs, does not raise."""
     ch.emit_graph_event(None, "node_start", agent="router")
+    assert True, "emit_graph_event with eq=None should not raise"
 
 
 def test_emit_graph_event_with_queue() -> None:

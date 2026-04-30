@@ -3,16 +3,19 @@
 CONCEPT:AU-009 — Spec-Driven Development
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 from pydantic_ai import RunContext
+
+from agent_utilities.models import AgentDeps
 from agent_utilities.tools.sdd_tools import (
     get_project_context,
-    setup_sdd,
+    get_sdd_status,
     save_spec,
-    get_sdd_status
+    setup_sdd,
 )
-from agent_utilities.models import AgentDeps
+
 
 @pytest.fixture
 def mock_ctx():

@@ -10,7 +10,7 @@ import json
 import networkx as nx
 import pytest
 
-from agent_utilities.eval_harness import (
+from agent_utilities.tools.eval_harness import (
     EvalHarness,
     JsonSchemaScorer,
     LengthScorer,

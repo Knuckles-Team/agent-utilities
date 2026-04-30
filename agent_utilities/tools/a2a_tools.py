@@ -3,13 +3,13 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
-from ..a2a import (
+from agent_utilities.protocols.a2a import (
     delete_a2a_peer as delete_a2a_peer_util,
 )
-from ..a2a import (
+from agent_utilities.protocols.a2a import (
     list_a2a_peers as list_a2a_peers_util,
 )
-from ..a2a import (
+from agent_utilities.protocols.a2a import (
     register_a2a_peer as register_a2a_peer_util,
 )
 

@@ -1,11 +1,16 @@
 #!/usr/bin/python
 """Unit tests for OWL Reasoning Pipeline Phase."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
 import networkx as nx
-from agent_utilities.knowledge_graph.pipeline.phases.owl_reasoning import execute_owl_reasoning
+import pytest
+
+from agent_utilities.knowledge_graph.pipeline.phases.owl_reasoning import (
+    execute_owl_reasoning,
+)
 from agent_utilities.models.knowledge_graph import PipelineConfig
+
 
 @pytest.mark.asyncio
 async def test_owl_reasoning_phase_execution():

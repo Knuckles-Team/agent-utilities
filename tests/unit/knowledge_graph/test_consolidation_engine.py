@@ -5,9 +5,10 @@ Concept: memory-consolidation
 
 from __future__ import annotations
 
+from typing import cast
+
 import networkx as nx
 import pytest
-from typing import cast
 
 from agent_utilities.knowledge_graph.consolidation import (
     ConsolidationEngine,
@@ -15,7 +16,6 @@ from agent_utilities.knowledge_graph.consolidation import (
     EpisodeToPreferenceRule,
 )
 from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-
 
 # ---------------------------------------------------------------------------
 # Helpers

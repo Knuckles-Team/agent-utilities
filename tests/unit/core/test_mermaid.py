@@ -1,15 +1,19 @@
-from agent_utilities.mermaid import (
-    MermaidBuilder,
-    FlowchartBuilder,
+import networkx as nx
+
+from agent_utilities.knowledge_graph.engine import (
+    FocusedSubgraph,
+    IntelligenceGraphEngine,
+)
+from agent_utilities.models.codemap import CodemapArtifact, CodemapEdge, CodemapNode
+from agent_utilities.models.graph import ExecutionStep, GraphPlan
+from agent_utilities.models.sdd import ImplementationPlan, Task, Tasks, TaskStatus
+from agent_utilities.observability.mermaid import (
     ClassDiagramBuilder,
     EntityRelationshipBuilder,
+    FlowchartBuilder,
+    MermaidBuilder,
     MermaidTheme,
 )
-from agent_utilities.models.graph import GraphPlan, ExecutionStep
-from agent_utilities.models.sdd import Tasks, Task, TaskStatus, ImplementationPlan
-from agent_utilities.models.codemap import CodemapArtifact, CodemapNode, CodemapEdge
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine, FocusedSubgraph
-import networkx as nx
 
 
 def test_flowchart_builder():
@@ -136,7 +140,7 @@ def test_kg_mermaid_generation():
 
 
 def test_focused_subgraph_to_mermaid():
-    subgraph = FocusedSubgraph(
+    FocusedSubgraph(
         nodes=[
             {"id": "n1", "label": "Node 1", "type": "class"},
             {"id": "n2", "label": "Node 2", "type": "file"},
@@ -149,6 +153,7 @@ def test_focused_subgraph_to_mermaid():
     )
     assert True, 'Focused subgraph rendering completed'
 from agent_utilities.graph.mermaid import get_graph_mermaid
+
 
 def test_mermaid_builder_sanitization():
     builder = MermaidBuilder()

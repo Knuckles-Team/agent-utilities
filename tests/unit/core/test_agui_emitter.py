@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from agent_utilities.agui_emitter import AGUIGraphEmitter
+from agent_utilities.protocols.agui_emitter import AGUIGraphEmitter
 
 
 @pytest.fixture

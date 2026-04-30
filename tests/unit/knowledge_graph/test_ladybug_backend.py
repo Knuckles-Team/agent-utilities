@@ -1,11 +1,10 @@
 #!/usr/bin/python
-import os
-import shutil
+from unittest.mock import MagicMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend
+
 
 @pytest.fixture
 def temp_db_dir(tmp_path):
@@ -37,7 +36,7 @@ def test_ladybug_backend_backup_rotation(temp_db_dir):
         f.write("dummy data")
 
     with patch("ladybug.Database"), patch("ladybug.Connection"), \
-         patch("agent_utilities.config.DEFAULT_KG_BACKUPS", 2):
+         patch("agent_utilities.core.config.DEFAULT_KG_BACKUPS", 2):
 
         backend = LadybugBackend(db_path)
 
@@ -66,7 +65,7 @@ def test_ladybug_backend_cleanup_corrupted(temp_db_dir):
         # Force corruption error on first call, then success
         mock_db.side_effect = [Exception("invalid wal record"), MagicMock()]
 
-        backend = LadybugBackend(str(db_path))
+        LadybugBackend(str(db_path))
 
         # Files should be gone after cleanup
         assert not db_path.exists()
@@ -79,7 +78,7 @@ def test_ladybug_backend_disabled_backup(temp_db_dir):
         f.write("dummy data")
 
     with patch("ladybug.Database"), patch("ladybug.Connection"), \
-         patch("agent_utilities.config.DEFAULT_KG_BACKUPS", 0):
+         patch("agent_utilities.core.config.DEFAULT_KG_BACKUPS", 0):
 
         backend = LadybugBackend(db_path)
         backend._backup_db()

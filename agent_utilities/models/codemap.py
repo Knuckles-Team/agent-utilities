@@ -78,7 +78,7 @@ class CodemapArtifact(BaseModel):
 
     def to_mermaid(self) -> str:
         """Generate a Mermaid flowchart for the codemap graph."""
-        from ..mermaid import FlowchartBuilder
+        from agent_utilities.observability.mermaid import FlowchartBuilder
 
         builder = FlowchartBuilder(title=f"Codemap: {self.prompt}")
 

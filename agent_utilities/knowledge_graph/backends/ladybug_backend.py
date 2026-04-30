@@ -115,7 +115,7 @@ class LadybugBackend(GraphBackend):
         import shutil
         from pathlib import Path
 
-        from ...config import DEFAULT_KG_BACKUPS
+        from agent_utilities.core.config import DEFAULT_KG_BACKUPS
 
         if DEFAULT_KG_BACKUPS <= 0 or self.db_path == ":memory:":
             return

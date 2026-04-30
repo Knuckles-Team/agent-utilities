@@ -218,7 +218,7 @@ class GraphMaintainer:
 
         from pydantic_ai import Agent
 
-        from ..model_factory import create_model
+        from agent_utilities.core.model_factory import create_model
 
         ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 

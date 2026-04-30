@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Coverage push for agent_utilities.mcp_agent_manager.
 
 Targets the pure / deterministic paths:
@@ -20,9 +21,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_utilities import mcp_agent_manager as mgr
+from agent_utilities.mcp import agent_manager as mgr
 from agent_utilities.models import MCPToolInfo
-
 
 # ---------------------------------------------------------------------------
 # compute_tool_relevance_score (exhaustive scoring branches)
@@ -639,7 +639,7 @@ async def test_sync_mcp_agents_success_path(
     fake_arb.ingest_prompts_to_graph = AsyncMock(return_value=None)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.agent_registry_builder",
+        "agent_utilities.agent.registry_builder",
         fake_arb,
     )
 
@@ -695,7 +695,7 @@ async def test_sync_mcp_agents_cleanup_exception(
     fake_arb.ingest_prompts_to_graph = AsyncMock(return_value=None)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.agent_registry_builder",
+        "agent_utilities.agent.registry_builder",
         fake_arb,
     )
 
@@ -1027,8 +1027,6 @@ exercises the no-engine path, the happy path, and any error branches.
 """
 
 
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import networkx as nx
 import pytest
@@ -1365,7 +1363,7 @@ async def test_sync_feature_to_memory_creates_new(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Creates new memory when existing_mem_id is None."""
-    from agent_utilities.models import Spec, Tasks, ImplementationPlan
+    from agent_utilities.models import ImplementationPlan, Spec, Tasks
 
     spec = MagicMock(spec=Spec)
     spec.title = "Title"

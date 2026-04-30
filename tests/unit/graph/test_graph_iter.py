@@ -9,10 +9,8 @@ CONCEPT:AU-002 Graph Orchestration
 
 from __future__ import annotations
 
-import asyncio
 from contextlib import asynccontextmanager
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -208,8 +206,8 @@ async def test_run_graph_iter_handles_error():
 @pytest.mark.asyncio
 async def test_run_graph_iter_drains_sideband():
     """Verify sideband events from event_queue are yielded."""
-    end_marker = _FakeEndMarker("done")
-    tasks = [_FakeGraphTask("router")]
+    _FakeEndMarker("done")
+    [_FakeGraphTask("router")]
 
     # Custom graph that puts events on the queue during execution
     class _SidebandGraph:

@@ -13,8 +13,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .base_utilities import GET_DEFAULT_SSL_VERIFY, to_boolean
-from .config import (
+from agent_utilities.base_utilities import GET_DEFAULT_SSL_VERIFY, to_boolean
+from agent_utilities.core.config import (
     DEFAULT_HOST,
     DEFAULT_PORT,
 )
@@ -46,7 +46,7 @@ DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "text-embedding-nomic-embed-text-v2-moe
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "llama")
 
-__version__ = "0.2.40"
+__version__ = "0.2.41"
 
 
 def create_mcp_parser():
@@ -281,7 +281,7 @@ def create_mcp_server(
     from fastmcp.server.middleware.timing import TimingMiddleware
 
     try:
-        from agent_utilities.middlewares import (
+        from agent_utilities.mcp.middlewares import (
             JWTClaimsLoggingMiddleware,
             UserTokenMiddleware,
         )
@@ -571,7 +571,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
     from pydantic_ai.mcp import load_mcp_servers
 
-    from .base_utilities import expand_env_vars
+    from agent_utilities.base_utilities import expand_env_vars
 
     try:
         path = Path(config_path)
@@ -633,11 +633,13 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
                         _user_token = os.environ.get("AGENT_USER_TOKEN")
                         if not _user_token:
                             try:
-                                from .secrets_client import create_secrets_client
+                                from agent_utilities.security.secrets_client import (
+                                    create_secrets_client,
+                                )
 
                                 _sc = create_secrets_client()
                                 _user_token = _sc.get("session_token")
-                            except Exception:
+                            except Exception:  # nosec B110
                                 pass
                         if _user_token:
                             cfg["env"]["AGENT_USER_TOKEN"] = _user_token

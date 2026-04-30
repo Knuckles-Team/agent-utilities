@@ -1,11 +1,13 @@
-import pytest
 import asyncio
 from unittest.mock import MagicMock, patch
-from agent_utilities.graph.builder import initialize_graph_from_workspace
-from agent_utilities.graph.runner import run_graph
-from agent_utilities.models import GraphPlan, ExecutionStep
-from agent_utilities.graph.graph_models import ValidationResult
+
+import pytest
 from pydantic_ai import Agent
+
+from agent_utilities.graph.builder import initialize_graph_from_workspace
+from agent_utilities.graph.graph_models import ValidationResult
+from agent_utilities.graph.runner import run_graph
+from agent_utilities.models import ExecutionStep, GraphPlan
 
 # Cap every test in this module at 30 s so a graph-orchestration infinite loop
 # surfaces as a clean failure instead of hanging the entire suite.
@@ -55,10 +57,10 @@ class MockStream:
 async def test_full_graph_lifecycle():
     # 1. Initialize graph
     with patch("agent_utilities.graph.builder.get_discovery_registry") as mock_reg, \
-         patch("agent_utilities.discovery.discover_all_specialists", return_value=[]), \
-         patch("agent_utilities.mcp_agent_manager.should_sync", return_value=False), \
-         patch("agent_utilities.workspace.resolve_mcp_config_path", return_value=None), \
-         patch("agent_utilities.discovery.discover_agents", return_value={"researcher": {"description": "Research agent", "type": "prompt"}}):
+         patch("agent_utilities.agent.discovery.discover_all_specialists", return_value=[]), \
+         patch("agent_utilities.mcp.agent_manager.should_sync", return_value=False), \
+         patch("agent_utilities.core.workspace.resolve_mcp_config_path", return_value=None), \
+         patch("agent_utilities.agent.discovery.discover_agents", return_value={"researcher": {"description": "Research agent", "type": "prompt"}}):
 
         mock_reg.return_value.agents = []
         graph, config = initialize_graph_from_workspace()
@@ -73,13 +75,10 @@ async def test_full_graph_lifecycle():
         out: GraphPlan | ValidationResult | str
         if agent_self.output_type == GraphPlan:
             out = plan
-            role = "ROUTER"
         elif agent_self.output_type == ValidationResult:
             out = validation_ok
-            role = "VERIFIER"
         else:
             out = "Final answer."
-            role = "SYNTHESIZER"
 
         return MockStream(out)
 
@@ -109,10 +108,10 @@ async def test_full_graph_lifecycle():
 async def test_graph_parallel_and_fallback():
     # 1. Initialize graph
     with patch("agent_utilities.graph.builder.get_discovery_registry") as mock_reg, \
-         patch("agent_utilities.discovery.discover_all_specialists", return_value=[]), \
-         patch("agent_utilities.mcp_agent_manager.should_sync", return_value=False), \
-         patch("agent_utilities.workspace.resolve_mcp_config_path", return_value=None), \
-         patch("agent_utilities.discovery.discover_agents", return_value={"researcher": {"description": "Research agent", "type": "prompt"}}):
+         patch("agent_utilities.agent.discovery.discover_all_specialists", return_value=[]), \
+         patch("agent_utilities.mcp.agent_manager.should_sync", return_value=False), \
+         patch("agent_utilities.core.workspace.resolve_mcp_config_path", return_value=None), \
+         patch("agent_utilities.agent.discovery.discover_agents", return_value={"researcher": {"description": "Research agent", "type": "prompt"}}):
 
         mock_reg.return_value.agents = []
         graph, config = initialize_graph_from_workspace()

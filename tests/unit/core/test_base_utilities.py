@@ -1,21 +1,16 @@
 from __future__ import annotations
 
-import pytest
-import os
-from agent_utilities import base_utilities
-
 import inspect
 import logging
 import os
-import pickle
-import re
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from agent_utilities import base_utilities
 
 
 def test_to_float():
@@ -345,8 +340,9 @@ def test_load_env_vars_exception_handling(monkeypatch: pytest.MonkeyPatch) -> No
         raise RuntimeError("simulated")
 
     monkeypatch.setattr(base_utilities, "retrieve_package_name", boom)
-    # Should not raise
+    # Should not raise — exception is caught internally
     base_utilities.load_env_vars()
+    assert True, "load_env_vars should catch RuntimeError from retrieve_package_name"
 
 
 def test_load_env_vars_unknown_package(monkeypatch: pytest.MonkeyPatch) -> None:

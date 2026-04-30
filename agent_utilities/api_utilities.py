@@ -6,7 +6,7 @@ exceptions and authentication decorators used throughout the
 agent ecosystem.
 """
 
-__version__ = "0.2.40"
+__version__ = "0.2.41"
 
 __all__ = [
     "require_auth",
@@ -18,8 +18,8 @@ __all__ = [
     "UnauthorizedError",
 ]
 
-from .decorators import require_auth
-from .exceptions import (
+from agent_utilities.core.decorators import require_auth
+from agent_utilities.core.exceptions import (
     ApiError,
     AuthError,
     LoginRequiredError,

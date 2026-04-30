@@ -1,8 +1,11 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+
 from agent_utilities.knowledge_graph.kb.extractor import KBExtractor
 from agent_utilities.knowledge_graph.kb.parser import KBDocumentParser
 from agent_utilities.models.knowledge_base import DocumentChunk, ExtractedArticle
+
 
 @pytest.fixture
 def mock_chunk():

@@ -4,7 +4,13 @@
 
 ## Overview
 
-The RLM subsystem provides a **persistent Python REPL** that enables agents to perform multi-step reasoning through recursive code execution. An LLM generates Python code, executes it, observes the output, and iterates — spawning sub-RLMs at deeper recursion levels when needed.
+The RLM subsystem provides a **persistent Python REPL** that enables agents to process arbitrarily long inputs through recursive, programmatic decomposition. Based on [Zhang et al. (2025)](https://github.com/alexzhang13/rlm), the key insight is that **long prompts should NOT be fed into the neural network directly** — they should be treated as part of the environment the LLM symbolically and recursively interacts with.
+
+RLM enables agents to:
+- Process inputs **two orders of magnitude** beyond model context windows
+- Perform **unbounded semantic work** through recursive sub-calls
+- Leverage **OWL reasoning** and **KG bulk analysis** within execution
+- Power **AHE trace distillation** for large-scale evolution analysis (CONCEPT:AU-012)
 
 ## Architecture
 
@@ -18,6 +24,8 @@ The RLM subsystem provides a **persistent Python REPL** that enables agents to p
 │  │  - rlm_query()              │        │
 │  │  - magma_view()             │        │
 │  │  - graph_query()            │        │
+│  │  - owl_query()      [NEW]   │        │
+│  │  - kg_bulk_export() [NEW]   │        │
 │  │  - sub_agent_call()         │        │
 │  │  - FINAL_VAR()              │        │
 │  │  - run_parallel_sub_calls() │        │
@@ -30,6 +38,46 @@ The RLM subsystem provides a **persistent Python REPL** that enables agents to p
 │  └──────────────┘  └──────────────────┘ │
 └─────────────────────────────────────────┘
 ```
+
+## Invocation Triggers
+
+RLM is automatically invoked when any of the following conditions are met. No global `ENABLE_RLM=True` is required — the system uses **smart thresholds** to route intelligently.
+
+| # | Trigger | Condition | Default Threshold |
+|---|---|---|---|
+| 1 | **Global Override** | `ENABLE_RLM=True` | Always |
+| 2 | **Long Horizon** | `state.requires_long_horizon=True` | Always |
+| 3 | **Large Output** | Tool/specialist output exceeds threshold | 50,000 chars |
+| 4 | **AHE Distillation** | Trace count exceeds threshold | 500 traces |
+| 5 | **KG Bulk Analysis** | KG query returns too many nodes | 1,000 nodes |
+
+Use the unified `RLMConfig.should_trigger()` method for consistent routing:
+
+```python
+from agent_utilities.rlm.config import RLMConfig
+
+config = RLMConfig()
+if config.should_trigger(output_size=len(data)):
+    # Route to RLM
+    ...
+```
+
+## Whitepaper Alignment (Algorithm 1)
+
+Our implementation aligns with the core algorithm from Zhang et al.:
+
+1. **Metadata-Only Root Prompting** (`config.metadata_only_root=True`):
+   The root LLM receives only constant-size metadata about the context:
+   - `context_length` — character count
+   - `context_prefix` — first 200 chars
+   - `context_type` — inferred type (json, text, csv, xml)
+   - Access instructions (slice, parse, split)
+
+   This prevents context window pollution and forces the model to rely on symbolic variable access.
+
+2. **Trimmed Stdout Feedback**: Each turn's stdout is stored in a numbered variable (`_stdout_N`) and only metadata is fed back to the root LLM.
+
+3. **Recursive Sub-Calls**: `rlm_query()` spawns a full sub-RLM at `depth+1` with independent context.
 
 ## Key Components
 
@@ -59,6 +107,12 @@ Configuration for RLM behavior:
 | `sub_llm_model_large` | Provider default | Model for depth-0 reasoning |
 | `sub_llm_model_small` | Provider default | Model for deeper recursion levels |
 | `trajectory_storage` | `"process_flow"` | Where to store reasoning traces |
+| `metadata_only_root` | `True` | Send only metadata to root LLM |
+| `trigger_on_large_output` | `True` | Auto-trigger on large tool outputs |
+| `trigger_on_ahe_distillation` | `True` | Auto-trigger for AHE trace analysis |
+| `trigger_on_kg_bulk_analysis` | `True` | Auto-trigger for KG bulk queries |
+| `ahe_trace_threshold` | `500` | Trace count for AHE auto-trigger |
+| `kg_bulk_threshold` | `1000` | Node count for KG auto-trigger |
 
 ### Available Helpers
 
@@ -69,6 +123,8 @@ Functions available inside the RLM execution environment:
 | `rlm_query` | `await rlm_query(prompt, context)` | Spawn a recursive sub-RLM at depth+1 |
 | `magma_view` | `await magma_view(query, views)` | MAGMA orthogonal memory views |
 | `graph_query` | `await graph_query(cypher, params)` | Run Cypher against the knowledge graph |
+| `owl_query` | `await owl_query(sparql)` | Run SPARQL against the OWL reasoner |
+| `kg_bulk_export` | `await kg_bulk_export(node_type, limit)` | Export KG nodes as JSON for bulk analysis |
 | `sub_agent_call` | `await sub_agent_call(prompt, agent_id, data)` | Dispatch to specialist agent |
 | `FINAL_VAR` | `FINAL_VAR("name", value)` | Output the final result |
 | `run_parallel_sub_calls` | `await run_parallel_sub_calls(calls)` | Run multiple sub-calls in parallel |
@@ -82,6 +138,59 @@ The main agent loop:
 3. stdout is captured and fed back to the LLM
 4. If `FINAL_VAR` was called, the result is returned
 5. Otherwise, the loop continues (up to `max_turns=5`)
+
+## AHE Integration (CONCEPT:AU-012)
+
+RLM is deeply integrated with the [Agentic Harness Engineering](AHE_ARCHITECTURE.md) evolution loop:
+
+### TraceDistiller × RLM
+
+When the AHE `TraceDistiller` encounters more than `ahe_trace_threshold` (default: 500) failure traces in an evolution round, it automatically delegates clustering to an RLM sub-agent. The RLM can programmatically:
+
+- Loop over all failure entries
+- Apply semantic similarity grouping
+- Cross-reference with KG data via `graph_query()` and `owl_query()`
+- Produce structured `FailureCluster` objects
+
+Falls back to keyword-based clustering when RLM is disabled or trace count is below threshold.
+
+### EvolveAgent × RLM
+
+When the serialized `EvidenceCorpus` exceeds the context threshold, the `EvolveAgent._deep_analyze_evidence()` method uses RLM to:
+
+- Programmatically analyze all evidence entries
+- Cross-reference failure patterns with KG provenance chains
+- Produce a prioritized list of `ComponentEdit` proposals
+
+## KG/OWL Integration
+
+### `owl_query(sparql)`
+
+Executes SPARQL queries against the OWL reasoner backend from within the RLM REPL. Enables transitive reasoning without loading raw triples into the context window:
+
+```python
+# Inside RLM code block
+results = await owl_query("""
+    PREFIX au: <http://agent-utilities.dev/ontology#>
+    SELECT ?manifest ?edit WHERE {
+        ?manifest a au:ChangeManifest .
+        ?manifest au:hasEditFor ?edit .
+    }
+""")
+for r in results:
+    print(f"Manifest {r['manifest']} -> Edit {r['edit']}")
+```
+
+### `kg_bulk_export(node_type, limit)`
+
+Exports KG nodes as JSON dicts for programmatic analysis. The LLM can aggregate, filter, and cross-reference nodes without context pollution:
+
+```python
+# Inside RLM code block
+memories = await kg_bulk_export("memory", limit=200)
+failures = [m for m in memories if "error" in m.get("name", "").lower()]
+FINAL_VAR("failure_memories", json.dumps(failures))
+```
 
 ## Security Considerations
 

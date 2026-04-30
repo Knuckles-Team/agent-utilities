@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock
+
 import pytest
 from pydantic_ai import RunContext
 
@@ -6,13 +7,13 @@ from agent_utilities.models import (
     AgentDeps,
 )
 from agent_utilities.tools.sdd_tools import (
+    export_sdd_to_markdown,
     get_project_context,
-    setup_sdd,
+    get_sdd_parallel_batches,
+    get_sdd_status,
     save_spec,
     save_tasks,
-    get_sdd_status,
-    export_sdd_to_markdown,
-    get_sdd_parallel_batches,
+    setup_sdd,
 )
 
 

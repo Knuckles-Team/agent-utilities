@@ -4,14 +4,16 @@ CONCEPT:AU-010 — Agent Tool System
 """
 
 from unittest.mock import MagicMock
-from agent_utilities.tool_filtering import (
+
+from agent_utilities.tools.tool_filtering import (
     _parse_skill_from_md,
-    load_skills_from_directory,
     extract_skill_tags,
     extract_tool_tags,
     filter_tools_by_tag,
-    skill_matches_tags
+    load_skills_from_directory,
+    skill_matches_tags,
 )
+
 
 def test_parse_skill_from_md(tmp_path):
     skill_file = tmp_path / "SKILL.md"

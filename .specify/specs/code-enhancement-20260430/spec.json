@@ -1,0 +1,172 @@
+{
+  "feature_id": "code-enhancement-20260430",
+  "title": "Code Enhancement: agent-utilities",
+  "created": "2026-04-30T05:28:06.246633+00:00",
+  "overview": "Automated code enhancement review for agent-utilities. Covers 4 analysis domains.",
+  "user_stories": [
+    {
+      "role": "developer",
+      "action": "address Dependency Audit findings (grade: F, score: 46)",
+      "value": "improve project dependency audit from F to at least B (80+)"
+    },
+    {
+      "role": "developer",
+      "action": "address Codebase Optimization findings (grade: F, score: 42)",
+      "value": "improve project codebase optimization from F to at least B (80+)"
+    },
+    {
+      "role": "developer",
+      "action": "address Test Coverage findings (grade: C, score: 75)",
+      "value": "improve project test coverage from C to at least B (80+)"
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-001",
+      "description": "Minor update: pydantic-settings 2.13.0 (installed) -> 2.14.0",
+      "testable": true
+    },
+    {
+      "id": "FR-002",
+      "description": "Minor update: urllib3 2.3.0 (installed) -> 2.6.3",
+      "testable": true
+    },
+    {
+      "id": "FR-003",
+      "description": "Minor update: ladybug 0.15.3 (installed) -> 0.16.0",
+      "testable": true
+    },
+    {
+      "id": "FR-004",
+      "description": "Minor update: pydantic-ai-slim 1.83.0 (installed) -> 1.88.0",
+      "testable": true
+    },
+    {
+      "id": "FR-005",
+      "description": "Minor update: pydantic-graph 1.83.0 (installed) -> 1.88.0",
+      "testable": true
+    },
+    {
+      "id": "FR-006",
+      "description": "Minor update: llama-index-embeddings-openai 0.5.1 (constraint \u2014 not installed) -> 0.6.0",
+      "testable": true
+    },
+    {
+      "id": "FR-007",
+      "description": "Minor update: playwright 1.58.0 (installed) -> 1.59.0",
+      "testable": true
+    },
+    {
+      "id": "FR-008",
+      "description": "Minor update: llama-index-embeddings-ollama 0.8.6 (constraint \u2014 not installed) -> 0.9.0",
+      "testable": true
+    },
+    {
+      "id": "FR-009",
+      "description": "Minor update: llama-index-embeddings-huggingface 0.6.1 (constraint \u2014 not installed) -> 0.7.0",
+      "testable": true
+    },
+    {
+      "id": "FR-010",
+      "description": "Minor update: falkordb 1.0.1 (constraint \u2014 not installed) -> 1.6.1",
+      "testable": true
+    },
+    {
+      "id": "FR-011",
+      "description": "Minor update: hvac 2.3.0 (constraint \u2014 not installed) -> 2.4.0",
+      "testable": true
+    },
+    {
+      "id": "FR-012",
+      "description": "Minor update: authlib 1.6.5 (installed) -> 1.7.0",
+      "testable": true
+    },
+    {
+      "id": "FR-013",
+      "description": "Minor update: opentelemetry-instrumentation-starlette 0.60b1 (installed) -> 0.62b1",
+      "testable": true
+    },
+    {
+      "id": "FR-014",
+      "description": "Minor update: opentelemetry-instrumentation-fastapi 0.60b1 (installed) -> 0.62b1",
+      "testable": true
+    },
+    {
+      "id": "FR-015",
+      "description": "Minor update: opentelemetry-instrumentation-asgi 0.60b1 (installed) -> 0.62b1",
+      "testable": true
+    },
+    {
+      "id": "FR-016",
+      "description": "16 functions exceed 200 lines (actionable refactoring targets): build_agent_app (510L), _execute_dynamic_mcp_agent (457L), app_factory (440L), create_graph_agent (432L), create_agent (359L)",
+      "testable": true
+    },
+    {
+      "id": "FR-017",
+      "description": "Monolithic: base_utilities.py (1045L) \u2014 3 functions with high complexity (worst: retrieve_package_name at 95L, CC=22); Low cohesion: 36 distinct concepts in one file",
+      "testable": true
+    },
+    {
+      "id": "FR-018",
+      "description": "Monolithic: workspace.py (657L) \u2014 1 functions with high complexity (worst: resolve_mcp_config_path at 69L, CC=17); Low cohesion: 26 distinct concepts in one file",
+      "testable": true
+    },
+    {
+      "id": "FR-019",
+      "description": "Monolithic: steps.py (2423L) \u2014 5 functions with high complexity (worst: router_step at 316L, CC=35); Low cohesion: 61 distinct concepts in one file",
+      "testable": true
+    },
+    {
+      "id": "FR-020",
+      "description": "Needs attention: factory.py (592L) \u2014 1 functions with high complexity (worst: create_agent at 359L, CC=59)",
+      "testable": true
+    },
+    {
+      "id": "FR-021",
+      "description": "Needs attention: app.py (567L) \u2014 1 functions with high complexity (worst: build_agent_app at 510L, CC=66)",
+      "testable": true
+    },
+    {
+      "id": "FR-022",
+      "description": "Needs attention: repl.py (590L) \u2014 1 functions with high complexity (worst: RLMEnvironment.run_full_rlm at 140L, CC=16)",
+      "testable": true
+    },
+    {
+      "id": "FR-023",
+      "description": "65 functions with nesting depth >4",
+      "testable": true
+    },
+    {
+      "id": "FR-024",
+      "description": "1 flat directories with >15 Python files: agent_utilities/tools",
+      "testable": true
+    },
+    {
+      "id": "FR-025",
+      "description": "6 tests without assertions",
+      "testable": true
+    },
+    {
+      "id": "FR-026",
+      "description": "8 potential doc-test drift items",
+      "testable": true
+    }
+  ],
+  "success_criteria": [
+    {
+      "metric": "Overall GPA",
+      "current": 1.5,
+      "target": 3.0
+    },
+    {
+      "metric": "Domains at B or above",
+      "current": 1,
+      "target": 4
+    },
+    {
+      "metric": "Actionable findings",
+      "current": 26,
+      "target": 0
+    }
+  ]
+}

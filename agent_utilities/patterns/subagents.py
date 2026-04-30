@@ -8,7 +8,8 @@ enabling context isolation and parallelism.
 import logging
 from typing import Any
 
-from ..agent_factory import create_agent
+from agent_utilities.agent.factory import create_agent
+
 from ..models import AgentDeps
 
 logger = logging.getLogger(__name__)

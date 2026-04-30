@@ -13,7 +13,8 @@ from typing import Any
 
 import yaml
 
-from ....workspace import get_agent_workspace
+from agent_utilities.core.workspace import get_agent_workspace
+
 from ..types import PhaseResult, PipelineContext, PipelinePhase
 
 logger = logging.getLogger(__name__)

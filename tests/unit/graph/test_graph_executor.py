@@ -4,12 +4,14 @@ This module contains unit tests for the graph executor, verifying the orchestrat
 domain-specific agents, specialized steps, and MCP tool interactions.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+
 from agent_utilities.graph import executor
-from agent_utilities.graph.state import GraphState, GraphDeps
+from agent_utilities.graph.state import GraphDeps, GraphState
+from agent_utilities.models.graph import ExecutionStep, GraphPlan
 from agent_utilities.models.mcp import MCPAgent
-from agent_utilities.models.graph import GraphPlan, ExecutionStep
 from agent_utilities.models.usage import UsageStatistics
 
 pytestmark = pytest.mark.concept("architecture")
@@ -155,7 +157,7 @@ async def test_execute_agent_package_logic_remote_a2a():
     ctx = MockCtx(state, deps)
     meta = {"type": "remote_a2a", "url": "http://peer"}
 
-    with patch("agent_utilities.a2a.A2AClient") as mock_client_class:
+    with patch("agent_utilities.protocols.a2a.A2AClient") as mock_client_class:
         mock_client = mock_client_class.return_value
         mock_client.execute_task = AsyncMock(return_value="a2a result")
 

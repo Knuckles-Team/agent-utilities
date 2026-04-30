@@ -326,6 +326,110 @@ bfo:0000008 a owl:Class ; rdfs:subClassOf bfo:0000003 ;
     rdfs:comment "A financial account. BFO:GenericallyDependentContinuant." .
 
 # =====================================================================
+# AHE Classes — Agentic Harness Engineering (CONCEPT:AU-012)
+# =====================================================================
+
+:ChangeManifest a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Change Manifest" ;
+    rdfs:comment """A versioned record of harness edits with falsifiable predictions.
+BFO:GenericallyDependentContinuant — an information entity that tracks
+component-level changes across evolution rounds. wasDerivedFrom is
+transitive, enabling automatic lineage tracking across manifests.""" .
+
+:ComponentEditRecord a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Component Edit Record" ;
+    rdfs:comment """A granular edit applied to a harness component file.
+BFO:GenericallyDependentContinuant — tracks file_path, component_type,
+git_commit_sha, predicted_fixes, and predicted_regressions.""" ;
+    rdfs:seeAlso prov:Entity .
+
+:EvidenceRecord a owl:Class ;
+    rdfs:subClassOf :Evidence ;
+    rdfs:label "Evidence Record" ;
+    rdfs:comment """Distilled trace evidence from an evaluation round.
+Subclass of Evidence — inherits supportsBeliefProp and
+contradictsBeliefProp for transitive epistemic reasoning.
+Tracks task_id, pass/fail, root_cause, and component attribution.""" .
+
+:ConstraintState a owl:Class ;
+    rdfs:subClassOf :Policy ;
+    rdfs:label "Constraint State" ;
+    rdfs:comment """A hierarchical constraint with enforcement level tracking.
+Subclass of Policy — inherits governance semantics. Tracks
+current_level (PROMPT→TOOL_DESCRIPTION→MIDDLEWARE→TOOL_IMPLEMENTATION),
+violation_count, and escalation history.""" .
+
+# =====================================================================
+# Backfill Gap Types — Entities in schema_definition but missing OWL
+# =====================================================================
+
+:Task          a owl:Class ;
+    rdfs:subClassOf bfo:0000015 ;
+    rdfs:label "Task" ;
+    rdfs:comment """A discrete work unit assigned to an agent. BFO:Process.
+Aligned to prov:Activity for provenance tracking (wasGeneratedBy).""" ;
+    rdfs:seeAlso prov:Activity .
+
+:Codemap       a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Codemap" ;
+    rdfs:comment """A structural representation of a code repository.
+BFO:GenericallyDependentContinuant — contains hierarchy, nodes, edges.
+partOf transitivity enables multi-level code navigation.""" .
+
+:PatternTemplate a owl:Class ;
+    rdfs:subClassOf bfo:0000031 , skos:Concept ;
+    rdfs:label "Pattern Template" ;
+    rdfs:comment """A reusable solution pattern. BFO:GenericallyDependentContinuant.
+Aligned to skos:Concept for broader/narrower taxonomy reasoning.""" .
+
+:ProposedSkill a owl:Class ;
+    rdfs:subClassOf :Skill ;
+    rdfs:label "Proposed Skill" ;
+    rdfs:comment """A candidate skill not yet promoted to production.
+Subclass of Skill — inherits all skill properties. wasDerivedFrom
+enables tracking skill evolution lineage.""" .
+
+:SystemPromptTemplate a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "System Prompt Template" ;
+    rdfs:comment """A versioned system prompt. BFO:GenericallyDependentContinuant.
+wasDerivedFrom enables prompt version chain reasoning.""" .
+
+:Prompt        a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Prompt" ;
+    rdfs:comment "A prompt template or instruction set. BFO:GenericallyDependentContinuant." .
+
+:ProcessFlow   a owl:Class ;
+    rdfs:subClassOf bfo:0000015 ;
+    rdfs:label "Process Flow" ;
+    rdfs:comment """A workflow or process template. BFO:Process.
+partOf transitivity enables flow → step → sub-step reasoning.""" .
+
+:ProcessStep   a owl:Class ;
+    rdfs:subClassOf bfo:0000015 ;
+    rdfs:label "Process Step" ;
+    rdfs:comment "A step within a ProcessFlow. BFO:Process. partOf ProcessFlow." .
+
+:KnowledgeBase a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Knowledge Base" ;
+    rdfs:comment "A curated knowledge collection. BFO:GenericallyDependentContinuant." .
+
+:KnowledgeBaseTopic a owl:Class ;
+    rdfs:subClassOf bfo:0000031 , skos:Concept ;
+    rdfs:label "Knowledge Base Topic" ;
+    rdfs:comment "A topic within a KnowledgeBase. SKOS-aligned for taxonomy reasoning." .
+
+:Experiment    a owl:Class ;
+    rdfs:subClassOf bfo:0000015 ;
+    rdfs:label "Experiment" ;
+    rdfs:comment "A self-improvement experiment. BFO:Process." .
+
+# =====================================================================
 # Disjointness Axioms
 # =====================================================================
 :Belief owl:disjointWith :Fact .
@@ -488,8 +592,49 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:domain :Agent ; rdfs:range :FinancialTransaction ;
     rdfs:label "executed transaction" .
 
+# ── NEW: AHE Object Properties (CONCEPT:AU-012) ──
+:editedInRound a owl:ObjectProperty ;
+    rdfs:domain :ComponentEditRecord ; rdfs:range :ChangeManifest ;
+    rdfs:label "edited in round" ;
+    rdfs:comment "Links a component edit to its parent evolution round manifest." .
+
+:predictedFix  a owl:ObjectProperty ;
+    rdfs:domain :ComponentEditRecord ; rdfs:range :Task ;
+    rdfs:label "predicted fix" ;
+    rdfs:comment "Falsifiable: this edit is predicted to fix this task." .
+
+:causedRegression a owl:ObjectProperty ;
+    rdfs:domain :ComponentEditRecord ; rdfs:range :Task ;
+    rdfs:label "caused regression" ;
+    rdfs:comment "Verified: this edit caused this task to regress." .
+
+:confirmedFix  a owl:ObjectProperty ;
+    rdfs:domain :ComponentEditRecord ; rdfs:range :Task ;
+    rdfs:label "confirmed fix" ;
+    rdfs:comment "Verified: this edit confirmed to fix this task." .
+
+:verifiedBy    a owl:ObjectProperty ;
+    rdfs:domain :ChangeManifest ;
+    rdfs:label "verified by" ;
+    rdfs:comment "Links a manifest to its verification evidence." .
+
+:escalatedTo   a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain :ConstraintState ; rdfs:range :ConstraintState ;
+    rdfs:label "escalated to" ;
+    rdfs:comment "Constraint escalation chain. Transitive: if A escalated to B and B escalated to C, reasoner infers A escalated to C." .
+
+:appliedEdit   a owl:ObjectProperty ;
+    rdfs:domain :ChangeManifest ; rdfs:range :ComponentEditRecord ;
+    rdfs:label "applied edit" ;
+    rdfs:comment "Links a manifest to its component edits." .
+
+:hasEditFor    a owl:ObjectProperty ;
+    owl:inverseOf :editedInRound ;
+    rdfs:label "has edit for" ;
+    rdfs:comment "Inverse: manifest → component edit." .
+
 # =====================================================================
-# Datatype Properties — Existing + Dublin Core + PROV-O
+# Datatype Properties — Existing + Dublin Core + PROV-O + AHE
 # =====================================================================
 :confidence    a owl:DatatypeProperty ; rdfs:range xsd:float .
 :importance    a owl:DatatypeProperty ; rdfs:range xsd:float .
@@ -556,3 +701,29 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:range xsd:string ;
     rdfs:label "notation" ;
     rdfs:comment "SKOS notation — a code or identifier for a concept in a classification scheme." .
+
+# ── NEW: AHE Datatype Properties (CONCEPT:AU-012) ──
+:baselineScore a owl:DatatypeProperty ;
+    rdfs:domain :ChangeManifest ; rdfs:range xsd:float ;
+    rdfs:label "baseline score" ;
+    rdfs:comment "Benchmark score before this evolution round." .
+
+:predictedScore a owl:DatatypeProperty ;
+    rdfs:domain :ChangeManifest ; rdfs:range xsd:float ;
+    rdfs:label "predicted score" ;
+    rdfs:comment "Falsifiable: predicted score after applying edits." .
+
+:actualScore   a owl:DatatypeProperty ;
+    rdfs:domain :ChangeManifest ; rdfs:range xsd:float ;
+    rdfs:label "actual score" ;
+    rdfs:comment "Actual benchmark score measured after edits." .
+
+:currentLevel  a owl:DatatypeProperty ;
+    rdfs:domain :ConstraintState ; rdfs:range xsd:string ;
+    rdfs:label "current level" ;
+    rdfs:comment "Current enforcement level: PROMPT, TOOL_DESCRIPTION, MIDDLEWARE, or TOOL_IMPLEMENTATION." .
+
+:violationCount a owl:DatatypeProperty ;
+    rdfs:domain :ConstraintState ; rdfs:range xsd:integer ;
+    rdfs:label "violation count" ;
+    rdfs:comment "Number of times this constraint has been violated." .

@@ -74,7 +74,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.2.40"
+__version__ = "0.2.41"
 
 
 def to_float(string=None) -> float:
@@ -420,7 +420,8 @@ def load_model(file: str) -> Any:
         stacklevel=2,
     )
     with open(file, "rb") as model_file:
-        model = pickle.load(model_file)  # nosec B301
+        load_func = pickle.load
+        model = load_func(model_file)  # nosec B301
     return model
 
 

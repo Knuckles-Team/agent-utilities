@@ -148,7 +148,7 @@ def test_a2a_mount_present(app_with_web_ui: FastAPI) -> None:
 
 def test_acp_available_when_acp_installed() -> None:
     """``is_acp_available()`` returns True when ``pydantic-acp`` is installed."""
-    from agent_utilities.acp_adapter import is_acp_available
+    from agent_utilities.protocols.acp_adapter import is_acp_available
 
     assert is_acp_available() is True
 
@@ -205,17 +205,17 @@ def test_deep_imports() -> None:
     Mirrors the Phase 6 Scenario 5 import-integrity smoke test.
     """
     from agent_utilities import create_agent_server, create_graph_agent_server
-    from agent_utilities.a2a import A2AClient, register_a2a_peer
-    from agent_utilities.acp_adapter import (
-        create_acp_app,
-        create_graph_acp_app,
-        is_acp_available,
-    )
     from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.kb.ingestion import KBIngestionEngine
     from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
     from agent_utilities.knowledge_graph.pipeline.runner import PipelineRunner
+    from agent_utilities.protocols.a2a import A2AClient, register_a2a_peer
+    from agent_utilities.protocols.acp_adapter import (
+        create_acp_app,
+        create_graph_acp_app,
+        is_acp_available,
+    )
     from agent_utilities.sdd import SDDManager
 
     # Every symbol must be a real object (not a stub/None). We don't need to

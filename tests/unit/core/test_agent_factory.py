@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Coverage push for agent_utilities.agent_factory.
 
 Targets create_agent_parser (argparse wiring) and non-LLM branches of
@@ -9,14 +10,12 @@ output_style, checkpoint_store, include_teams.
 
 
 import argparse
-import os
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities import agent_factory
-
+from agent_utilities.agent import factory as agent_factory
 
 # ---------------------------------------------------------------------------
 # create_agent_parser (lines 113-222)
@@ -625,7 +624,7 @@ def test_create_agent_mcp_config_resolve_and_load(
     fake_path = tmp_path / "mcp_config.json"
     fake_path.write_text("{}")
     monkeypatch.setattr(
-        "agent_utilities.workspace.resolve_mcp_config_path",
+        "agent_utilities.core.workspace.resolve_mcp_config_path",
         lambda p: Path(fake_path),
     )
     agent, initialized = agent_factory.create_agent(
@@ -650,7 +649,7 @@ def test_create_agent_mcp_config_load_error(
         MagicMock(side_effect=RuntimeError("bad config")),
     )
     monkeypatch.setattr(
-        "agent_utilities.workspace.resolve_mcp_config_path",
+        "agent_utilities.core.workspace.resolve_mcp_config_path",
         lambda p: None,
     )
     agent, _ = agent_factory.create_agent(
@@ -680,7 +679,7 @@ def test_create_agent_mcp_config_with_tool_tags(
     fake_path = tmp_path / "mcp.json"
     fake_path.write_text("{}")
     monkeypatch.setattr(
-        "agent_utilities.workspace.resolve_mcp_config_path",
+        "agent_utilities.core.workspace.resolve_mcp_config_path",
         lambda p: Path(fake_path),
     )
     mock_filter = MagicMock(side_effect=lambda s, tags: s)

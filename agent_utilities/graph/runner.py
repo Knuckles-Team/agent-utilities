@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from ..config import (
+from agent_utilities.core.config import (
     DEFAULT_ENABLE_LLM_VALIDATION,
     DEFAULT_GRAPH_AGENT_MODEL,
     DEFAULT_GRAPH_PERSISTENCE_PATH,
@@ -28,7 +28,8 @@ from ..config import (
     DEFAULT_ROUTER_MODEL,
     DEFAULT_SSL_VERIFY,
 )
-from ..model_factory import create_model
+from agent_utilities.core.model_factory import create_model
+
 from ..models import GraphResponse
 from .config_helpers import (
     DEFAULT_GRAPH_TIMEOUT,
@@ -853,7 +854,7 @@ def validate_graph(graph: Any, config: dict) -> dict:
     info["mcp_tool_count"] = len(registry.tools)
 
     # Discovered agents (A2A)
-    from ..discovery import discover_agents
+    from agent_utilities.agent.discovery import discover_agents
 
     discovered = discover_agents()
     info["discovered_agent_count"] = len(discovered)

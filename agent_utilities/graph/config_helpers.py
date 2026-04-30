@@ -16,12 +16,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..base_utilities import to_integer
-from ..models import MCPAgentRegistryModel, MCPConfigModel
-from ..workspace import (
+from agent_utilities.core.workspace import (
     CORE_FILES,
     get_workspace_path,
 )
+
+from ..base_utilities import to_integer
+from ..models import MCPAgentRegistryModel, MCPConfigModel
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
     if not engine:
         import networkx as nx
 
-        from ..workspace import get_agent_workspace
+        from agent_utilities.core.workspace import get_agent_workspace
 
         ws = get_agent_workspace()
         db_path = str(ws / "knowledge_graph.db")
@@ -314,7 +315,7 @@ def _render_prompt_payload(data: dict[str, Any]) -> str:
         return json.dumps(data, indent=2)
 
     try:
-        from ..structured_prompts import StructuredPrompt
+        from agent_utilities.prompting.structured import StructuredPrompt
 
         return StructuredPrompt.model_validate(data).render()
     except Exception as e:
