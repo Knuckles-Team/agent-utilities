@@ -160,13 +160,7 @@ disallow_untyped_defs = false
 
 [dependency-groups]
 
-[tool.uv.sources]
-agent-terminal-ui = { path = "../agent-terminal-ui" }
-agent-webui = { path = "../agent-webui" }
-repository-manager = { path = "../agents/repository-manager", editable = true }
-universal-skills = { path = "../skills/universal-skills" }
-skill-graphs = { path = "../skills/skill-graphs" }
-acpkit = { path = "../../open-source-libraries/acpkit" }
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = "."
