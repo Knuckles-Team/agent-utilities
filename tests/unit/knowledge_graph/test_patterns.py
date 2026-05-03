@@ -99,7 +99,9 @@ async def test_generate_linear_walkthrough(mock_dispatch, mock_deps):
 @patch("agent_utilities.patterns.interactive_explanations.dispatch_subagent")
 async def test_generate_interactive_explanation(mock_dispatch, mock_deps):
     mock_dispatch.return_value = "<html><body>Explanation</body></html>"
-    result = await generate_interactive_explanation("Explain this", "content", mock_deps)
+    result = await generate_interactive_explanation(
+        "Explain this", "content", mock_deps
+    )
     assert "<html>" in result
 
 

@@ -25,5 +25,15 @@
             "**Common Sense Check**: Does this pass the \"explain it to a smart friend at dinner\" test?",
             "**User Empathy**: If you were the target user/customer encountering this for the first time, what would confuse you? What would excite you? What would make you leave?"
         ]
-    }
+    },
+    "rules": {
+        "responsibilities": [
+            "Jargon Detection: Flag every term, acronym, or concept that wouldn't be immediately clear to an intelligent outsider.",
+            "Value Proposition Clarity: Can someone who has never heard of this understand WHY it matters in 30 seconds? If not, what's missing?",
+            "Logic Gap Identification: Where does the reasoning skip steps that insiders fill in automatically but outsiders can't?",
+            "Common Sense Check: Does this pass the \"explain it to a smart friend at dinner\" test?",
+            "User Empathy: If you were the target user/customer encountering this for the first time, what would confuse you? What would excite you? What would make you leave?"
+        ]
+    },
+    "version": "1.0.0"
 }

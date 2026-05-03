@@ -14,6 +14,13 @@ members introduced per ``docs/KG_V2_DESIGN.md`` §§2-3. Tests focus on:
 * Schema coverage — every new node class has a matching
   ``TableDefinition`` and every new edge has a ``RelDefinition``.
 """
+# CONCEPT:AU-022 — Agentic Coding Patterns
+
+# CONCEPT:AU-021 — Exploration & Discovery
+
+# CONCEPT:AU-019 — Evaluation & Monitoring
+
+# CONCEPT:AU-001 — Agent Identity Management
 
 from __future__ import annotations
 
@@ -325,7 +332,10 @@ def test_principle_node_happy_path() -> None:
 def test_organization_invalid_org_type_rejected() -> None:
     with pytest.raises(ValidationError):
         OrganizationNode(
-            id="org:x", name="x", org_id="x", org_type="invalid-value"  # type: ignore[arg-type]
+            id="org:x",
+            name="x",
+            org_id="x",
+            org_type="invalid-value",  # type: ignore[arg-type]
         )
 
 
@@ -517,16 +527,10 @@ def test_belief_node_disjoint_sets_accepted() -> None:
 def sample_nodes() -> dict[type, object]:
     """One minimally-constructed instance of each of the 10 new node types."""
     return {
-        OrganizationNode: OrganizationNode(
-            id="org:a", name="A", org_id="a"
-        ),
+        OrganizationNode: OrganizationNode(id="org:a", name="A", org_id="a"),
         RoleNode: RoleNode(id="role:a", name="A", role_id="a", title="A"),
-        PlaceNode: PlaceNode(
-            id="place:a", name="A", place_id="a", kind="physical"
-        ),
-        PhaseNode: PhaseNode(
-            id="phase:a", name="A", phase_id="a", started_at=ISO_TS
-        ),
+        PlaceNode: PlaceNode(id="place:a", name="A", place_id="a", kind="physical"),
+        PhaseNode: PhaseNode(id="phase:a", name="A", phase_id="a", started_at=ISO_TS),
         DecisionNode: DecisionNode(
             id="dec:a",
             name="A",
@@ -549,9 +553,7 @@ def sample_nodes() -> dict[type, object]:
             confidence=0.5,
             last_reviewed=ISO_TS,
         ),
-        HypothesisNode: HypothesisNode(
-            id="hyp:a", name="A", prediction="x"
-        ),
+        HypothesisNode: HypothesisNode(id="hyp:a", name="A", prediction="x"),
         PrincipleNode: PrincipleNode(
             id="prin:a", name="A", principle_id="a", statement="x"
         ),
@@ -573,9 +575,7 @@ def sample_nodes() -> dict[type, object]:
         PrincipleNode,
     ],
 )
-def test_node_json_round_trip(
-    cls: type, sample_nodes: dict[type, object]
-) -> None:
+def test_node_json_round_trip(cls: type, sample_nodes: dict[type, object]) -> None:
     """model_dump_json → model_validate_json is an identity for V2 nodes."""
     original = sample_nodes[cls]
     raw = original.model_dump_json()  # type: ignore[attr-defined]
@@ -601,9 +601,7 @@ def test_node_json_round_trip(
         PrincipleNode,
     ],
 )
-def test_node_dict_round_trip(
-    cls: type, sample_nodes: dict[type, object]
-) -> None:
+def test_node_dict_round_trip(cls: type, sample_nodes: dict[type, object]) -> None:
     """model_dump (python dict) round-trips through model_validate as well."""
     original = sample_nodes[cls]
     dump = original.model_dump()  # type: ignore[attr-defined]
@@ -793,9 +791,7 @@ def test_new_table_definitions_include_registry_node_columns() -> None:
     for tbl in SCHEMA.nodes:
         if tbl.name in new_node_names:
             missing = base_cols - set(tbl.columns.keys())
-            assert not missing, (
-                f"{tbl.name} missing base cols: {sorted(missing)}"
-            )
+            assert not missing, f"{tbl.name} missing base cols: {sorted(missing)}"
 
 
 def test_new_edge_snake_case_enum_values() -> None:
@@ -865,9 +861,7 @@ def test_retrieve_epistemic_view_stub_has_expected_shape() -> None:
     assert result["beliefs"] == []
 
 
-def test_retrieve_orthogonal_context_includes_v2_views_when_requested() -> (
-    None
-):
+def test_retrieve_orthogonal_context_includes_v2_views_when_requested() -> None:
     import networkx as nx
 
     from agent_utilities.knowledge_graph.engine import (

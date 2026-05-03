@@ -12,13 +12,11 @@ def mock_graph():
     graph.run = AsyncMock()
     return graph
 
+
 @pytest.mark.asyncio
 async def test_run_graph_basic(mock_graph):
     # Mock graph.run result - it should return a GraphResponse
-    mock_result = GraphResponse(
-        status="completed",
-        results={"output": "final answer"}
-    )
+    mock_result = GraphResponse(status="completed", results={"output": "final answer"})
     mock_graph.run.return_value = mock_result
 
     deps = MagicMock()
@@ -30,15 +28,13 @@ async def test_run_graph_basic(mock_graph):
     with patch("agent_utilities.graph.runner.load_node_agents_registry") as mock_reg:
         mock_reg.return_value.agents = []
         response = await runner.run_graph(
-            mock_graph,
-            config,
-            query="hello",
-            streamdown=False
+            mock_graph, config, query="hello", streamdown=False
         )
 
     assert response["status"] == "completed"
     assert response["results"]["output"] == "final answer"
     mock_graph.run.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_run_graph_exception(mock_graph):
@@ -52,14 +48,12 @@ async def test_run_graph_exception(mock_graph):
     with patch("agent_utilities.graph.runner.load_node_agents_registry") as mock_reg:
         mock_reg.return_value.agents = []
         response = await runner.run_graph(
-            mock_graph,
-            config,
-            query="hello",
-            streamdown=False
+            mock_graph, config, query="hello", streamdown=False
         )
 
     assert response["status"] == "error"
     assert "test error" in response["error"]
+
 
 @pytest.mark.asyncio
 async def test_run_graph_stream_basic(mock_graph):
@@ -70,14 +64,12 @@ async def test_run_graph_stream_basic(mock_graph):
     mock_deps.event_queue = None
     mock_deps.request_id = "test-run"
 
-    config = {
-        "deps": mock_deps,
-        "router_model": "test",
-        "agent_model": "test"
-    }
+    config = {"deps": mock_deps, "router_model": "test", "agent_model": "test"}
 
     # Mock graph.run for the background task
-    mock_graph.run = AsyncMock(return_value=GraphResponse(status="completed", results={"output": "bg done"}))
+    mock_graph.run = AsyncMock(
+        return_value=GraphResponse(status="completed", results={"output": "bg done"})
+    )
 
     class MockStreamedRun:
         async def __aenter__(self):
@@ -105,17 +97,15 @@ async def test_run_graph_stream_basic(mock_graph):
 
     mock_graph.run_stream.return_value = MockStreamedRun()
 
-    with patch("agent_utilities.graph.runner.load_node_agents_registry") as mock_reg, \
-         patch("agent_utilities.graph.runner.create_model") as mock_model:
+    with (
+        patch("agent_utilities.graph.runner.load_node_agents_registry") as mock_reg,
+        patch("agent_utilities.graph.runner.create_model") as mock_model,
+    ):
         mock_reg.return_value.agents = []
         mock_model.return_value = MagicMock()
 
         # We need to test run_graph_stream generator
-        stream = runner.run_graph_stream(
-            mock_graph,
-            config,
-            query="hello"
-        )
+        stream = runner.run_graph_stream(mock_graph, config, query="hello")
 
         results = []
         async for chunk in stream:

@@ -13,6 +13,7 @@ No external network, no subprocesses, no live LLM required — everything
 runs against a fake "dummy-model" provider and a tempfile-backed Ladybug
 graph database.
 """
+
 from __future__ import annotations
 
 import os
@@ -137,7 +138,8 @@ def test_chats(client_with_web_ui: TestClient) -> None:
 def test_a2a_mount_present(app_with_web_ui: FastAPI) -> None:
     """The ``/a2a`` ``Mount`` route is always registered on the app."""
     mounts = [
-        r for r in app_with_web_ui.routes
+        r
+        for r in app_with_web_ui.routes
         if isinstance(r, Mount) and getattr(r, "path", None) == "/a2a"
     ]
     assert len(mounts) == 1, (
@@ -148,6 +150,7 @@ def test_a2a_mount_present(app_with_web_ui: FastAPI) -> None:
 
 def test_acp_available_when_acp_installed() -> None:
     """``is_acp_available()`` returns True when ``pydantic-acp`` is installed."""
+    pytest.importorskip("pydantic_acp")
     from agent_utilities.protocols.acp_adapter import is_acp_available
 
     assert is_acp_available() is True

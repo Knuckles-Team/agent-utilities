@@ -147,9 +147,7 @@ def test_flag_mcp_tool_definitions_with_sensitive_names(
 
     monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "on")
     mcp_ts = MagicMock(spec=["list_tools"])
-    result = tg.flag_mcp_tool_definitions(
-        [mcp_ts], sensitive_names={"dangerous_tool"}
-    )
+    result = tg.flag_mcp_tool_definitions([mcp_ts], sensitive_names={"dangerous_tool"})
     assert len(result) == 1
 
 
@@ -348,9 +346,7 @@ async def test_spawn_team_no_capability() -> None:
     # Delete to simulate missing
     ctx.configure_mock(**{"team_capability": None})
     # getattr with default None will auto-init
-    with patch(
-        "agent_utilities.tools.team_tools.TeamCapability"
-    ) as MockCap:
+    with patch("agent_utilities.tools.team_tools.TeamCapability") as MockCap:
         instance = MagicMock()
         instance.create_team = AsyncMock(return_value="team_1")
         MockCap.return_value = instance

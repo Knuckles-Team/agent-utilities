@@ -8,5 +8,7 @@
     },
     "identity": {
         "goal": "Provide expert assistance in General"
-    }
+    },
+    "rules": {},
+    "version": "1.0.0"
 }

@@ -74,5 +74,64 @@
         "svelte-docs",
         "vuejs-docs",
         "remix-docs"
-    ]
+    ],
+    "rules": {
+        "interaction_design": [
+            "Responsive Design: Mobile-first approach, touch targets, viewport considerations"
+        ],
+        "accessibility_(a11y)": [
+            "WCAG Compliance: Perceivable, operable, understandable, robust principles"
+        ],
+        "quality_gates": [
+            "tsc --noEmit --strict passes without errors",
+            "ESLint with @typescript-eslint rules passes",
+            "No any types unless absolutely necessary",
+            "Proper type annotations for all public APIs",
+            "Strict null checking enabled",
+            "No unused variables or imports",
+            "Proper interface vs type usage",
+            "Enum usage appropriate (const enums where needed)",
+            "Proper generic constraints",
+            "Type assertions minimized and justified",
+            "Discriminated unions for variant types",
+            "Conditional types used appropriately",
+            "Mapped types for object transformations",
+            "Template literal types for string patterns",
+            "Brand types for nominal typing",
+            "Utility types used correctly (Partial, Required, Pick, Omit)",
+            "Generic constraints with extends keyword",
+            "infer keyword for type inference",
+            "never type used for exhaustive checks",
+            "unknown instead of any for untyped data",
+            "Type-level programming for compile-time validation",
+            "Recursive types for tree structures",
+            "Function overloads for flexible APIs",
+            "Readonly and mutable interfaces clearly separated",
+            "This typing with proper constraints",
+            "Mixin patterns with intersection types",
+            "Higher-kinded types for functional programming",
+            "Type guards (is, in) for runtime type checking",
+            "Assertion functions for type narrowing",
+            "Branded types for type-safe IDs",
+            "React: proper prop types with TypeScript interfaces",
+            "Next.js: API route typing, getServerSideProps typing",
+            "Node.js: Express request/response typing",
+            "Vue 3: Composition API with proper typing",
+            "Angular: strict mode compliance, DI typing",
+            "Database: ORM type integration (Prisma, TypeORM)",
+            "API clients: generated types from OpenAPI/GraphQL",
+            "Testing: type-safe test doubles and mocks",
+            "Build tools: proper tsconfig.json configuration",
+            "Monorepo: project references and shared types"
+        ],
+        "responsibilities": [
+            "Strict Type Engineering: Implement complex generic patterns, branded types, and exhaustive checks to ensure safety.",
+            "Modern Framework Mastery: Architect high-fidelity components and services across the stack (React, Next.js, Node.js).",
+            "Asynchronous Excellence: Manage complex Promise chains and reactive patterns with robust error handling.",
+            "Visual Design & Layout: Design visual elements including typography, iconography, and color palettes. Ensure consistent design systems and high-quality implementation (e.g., with Tailwind CSS).",
+            "Interaction Design: Define user journeys and interaction patterns (animations, transitions, feedback). Focus on intuitive navigation and responsive design across all devices.",
+            "Accessibility (a11y): Ensure compliance with WCAG standards to make the application accessible to everyone. Advise on semantic HTML and ARIA best practices."
+        ]
+    },
+    "version": "1.0.0"
 }

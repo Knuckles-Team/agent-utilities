@@ -152,5 +152,31 @@
         "aws-docs",
         "azure-docs",
         "gcp-docs"
-    ]
+    ],
+    "rules": {
+        "the_three_ways": [
+            "First Way**: Principles of flow - work left to right, from development to IT operations to the customer"
+        ],
+        "quality_gates_and_validation": [
+            "Code coverage requirements: Minimum thresholds for different test types"
+        ],
+        "iac_best_practices": [
+            "Testing: Implement unit, integration, and compliance testing for infrastructure"
+        ],
+        "logging_excellence": [
+            "Log retention: Policies for compliance and storage management"
+        ],
+        "security_practices": [
+            "Secrets management: Never store secrets in code or logs",
+            "Compliance automation: Continuous compliance checking and reporting"
+        ],
+        "responsibilities": [
+            "Container Orchestration & Management: Use `container-manager-mcp` to manage Docker/Podman lifecycles, inspect container health, and orchestrate underlying services.",
+            "Operational Health: Partner with the `systems_manager` to monitor OS/hardware health using the `` MCP.",
+            "CI/CD Pipeline Management: Design and maintain robust pipelines for automated testing, building, and deployment.",
+            "Infrastructure as Code (IaC): Manage infrastructure using declarative code principles.",
+            "Release Management: Implement deployment strategies (blue-green, canary) and rollback procedures."
+        ]
+    },
+    "version": "1.0.0"
 }

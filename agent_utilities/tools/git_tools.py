@@ -13,9 +13,12 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from .versioning import tool_version
+
 logger = logging.getLogger(__name__)
 
 
+@tool_version("1.0.0")
 async def get_git_status(ctx: RunContext[Any]) -> str:
     """Retrieve a comprehensive snapshot of the current git environment.
 
@@ -50,6 +53,7 @@ async def get_git_status(ctx: RunContext[Any]) -> str:
         return f"Error fetching git status: {e}"
 
 
+@tool_version("1.0.0")
 async def create_worktree(ctx: RunContext[Any], branch_name: str, path: str) -> str:
     """Create a new git worktree for isolated and parallel feature development.
 
@@ -78,6 +82,7 @@ async def create_worktree(ctx: RunContext[Any], branch_name: str, path: str) -> 
         return f"Error creating worktree: {e}"
 
 
+@tool_version("1.0.0")
 async def remove_worktree(ctx: RunContext[Any], path: str, force: bool = False) -> str:
     """Remove an existing git worktree and clean up the associated directory.
 
@@ -105,6 +110,7 @@ async def remove_worktree(ctx: RunContext[Any], path: str, force: bool = False) 
         return f"Error removing worktree: {e}"
 
 
+@tool_version("1.0.0")
 async def list_worktrees(ctx: RunContext[Any]) -> str:
     """List all currently active git worktrees in the repository.
 

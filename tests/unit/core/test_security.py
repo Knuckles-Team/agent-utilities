@@ -12,9 +12,11 @@ def test_is_safe_tool():
     assert is_safe_tool("delete_file") is False
     assert is_safe_tool("write_file") is False
 
+
 def test_is_sensitive_tool_strict():
     # Force strict mode for this test
     import agent_utilities.security.tool_guard as tg
+
     original_mode = tg.TOOL_GUARD_MODE
     tg.TOOL_GUARD_MODE = "strict"
     try:
@@ -24,9 +26,11 @@ def test_is_sensitive_tool_strict():
     finally:
         tg.TOOL_GUARD_MODE = original_mode
 
+
 def test_path_traversal_protection(tmp_path):
     # Mock workspace directory
     import agent_utilities.core.workspace as ws
+
     original_ws = ws.WORKSPACE_DIR
     ws.WORKSPACE_DIR = str(tmp_path)
 
@@ -47,6 +51,7 @@ def test_path_traversal_protection(tmp_path):
             validate_workspace_path(traversal_path)
     finally:
         ws.WORKSPACE_DIR = original_ws
+
 
 def test_expanded_sensitive_patterns():
     # These should be sensitive even in default mode if they match patterns

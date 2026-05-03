@@ -33,28 +33,24 @@ def discover_agents(
         if exclude_packages and agent.name in exclude_packages:
             continue
 
-        # Type-specific mapping
-        if agent.agent_type == "prompt":
-            agent_descriptions[agent.name] = {
-                "description": agent.description,
-                "name": agent.name,
-                "type": "prompt",
-                "skills": agent.capabilities,
-            }
-        elif agent.agent_type == "mcp":
-            agent_descriptions[agent.name] = {
-                "package": agent.name,
-                "description": agent.description,
-                "name": agent.name,
-                "type": "local_mcp",
-            }
-        elif agent.agent_type == "a2a":
+        # AU-029: Two execution models — remote A2A vs. unified specialist
+        if agent.agent_type == "a2a":
             agent_descriptions[agent.name.lower()] = {
                 "url": agent.endpoint_url,
                 "name": agent.name,
                 "description": agent.description,
                 "capabilities": ", ".join(agent.capabilities),
                 "type": "remote_a2a",
+            }
+        else:
+            # Unified specialist (was prompt, mcp, or specialist)
+            agent_descriptions[agent.name] = {
+                "description": agent.description,
+                "name": agent.name,
+                "type": "specialist",
+                "skills": getattr(agent, "capabilities", []),
+                "mcp_server": getattr(agent, "mcp_server", None),
+                "tools": getattr(agent, "tools", []),
             }
 
     return agent_descriptions

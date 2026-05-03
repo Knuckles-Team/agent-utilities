@@ -83,6 +83,18 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "knowledge_base",
     "knowledge_base_topic",
     "experiment",
+    # Engineering Rules Engine (CONCEPT:AU-023)
+    "engineering_rule",
+    "rule_book",
+    # External Integration & SDLC Entities (CONCEPT:AU-024)
+    "repository",
+    "merge_request",
+    "pull_request",
+    "pipeline",
+    "commit",
+    "issue",
+    "external_graph_reference",
+    "external_entity",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -129,6 +141,18 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "escalated_to",
     "applied_edit",
     "has_edit_for",
+    # Engineering Rules Engine Edges (CONCEPT:AU-023)
+    "conflicts_with",
+    "corrects_bias",
+    "applicable_when",
+    "derived_from_book",
+    "applied_in_task",
+    # External Integration & SDLC Entities (CONCEPT:AU-024)
+    "modified_in",
+    "mentioned_in",
+    "triggered",
+    "targets",
+    "mapped_to_external",
 }
 
 

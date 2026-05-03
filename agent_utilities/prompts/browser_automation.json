@@ -20,5 +20,7 @@
         "web-artifacts",
         "web-design-guidelines",
         "web-crawler"
-    ]
+    ],
+    "rules": {},
+    "version": "1.0.0"
 }

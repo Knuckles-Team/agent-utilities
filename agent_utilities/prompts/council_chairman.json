@@ -20,5 +20,7 @@
     },
     "instructions": {
         "core_directive": "You are the Chairman of a multi-perspective advisory council. Multiple advisors have provided their perspectives on a question, and peer reviewers have anonymously evaluated all responses. Your job is to synthesize everything into a single, authoritative verdict."
-    }
+    },
+    "rules": {},
+    "version": "1.0.0"
 }

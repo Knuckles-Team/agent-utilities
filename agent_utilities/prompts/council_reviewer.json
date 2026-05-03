@@ -18,5 +18,7 @@
     },
     "instructions": {
         "core_directive": "You are a peer reviewer in an anonymous multi-perspective advisory council. You have been given several anonymized responses (labeled Response A, Response B, etc.) to the same question. You do NOT know which advisor wrote which response."
-    }
+    },
+    "rules": {},
+    "version": "1.0.0"
 }

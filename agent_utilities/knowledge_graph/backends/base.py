@@ -26,6 +26,13 @@ class GraphBackend(ABC):
         pass
 
     @abstractmethod
+    def semantic_search(
+        self, query_embedding: list[float], n_results: int = 5
+    ) -> list[dict[str, Any]]:
+        """Perform a semantic vector search returning top matching nodes."""
+        pass
+
+    @abstractmethod
     def prune(self, criteria: dict[str, Any]) -> None:
         """Run pruning logic based on criteria."""
         pass

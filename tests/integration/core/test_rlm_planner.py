@@ -9,7 +9,9 @@ from agent_utilities.graph.steps import router_step
 @pytest.mark.asyncio
 async def test_router_rlm_trigger():
     # Setup state and deps
-    state = GraphState(query="Analyze the entire history of the project and summarize every failure.")
+    state = GraphState(
+        query="Analyze the entire history of the project and summarize every failure."
+    )
     state.error = None
 
     deps = MagicMock(spec=GraphDeps)
@@ -29,11 +31,15 @@ async def test_router_rlm_trigger():
     ctx.deps = deps
 
     # Patch RLMEnvironment.run_full_rlm
-    with patch("agent_utilities.rlm.repl.RLMEnvironment.run_full_rlm", new_callable=AsyncMock) as mock_rlm:
+    with patch(
+        "agent_utilities.rlm.repl.RLMEnvironment.run_full_rlm", new_callable=AsyncMock
+    ) as mock_rlm:
         mock_rlm.return_value = '{"steps": [{"node_id": "test", "input_data": {}}], "metadata": {"reasoning": "test"}}'
 
         # Patch fetch_unified_context to return a large string
-        with patch("agent_utilities.graph.steps.fetch_unified_context", new_callable=AsyncMock) as mock_fetch:
+        with patch(
+            "agent_utilities.graph.steps.fetch_unified_context", new_callable=AsyncMock
+        ) as mock_fetch:
             mock_fetch.return_value = "A" * 60000
 
             # Patch RLMConfig
@@ -41,7 +47,9 @@ async def test_router_rlm_trigger():
             mock_config.enabled = True
             mock_config.max_context_threshold = 50000
 
-            with patch("agent_utilities.rlm.config.RLMConfig", return_value=mock_config):
+            with patch(
+                "agent_utilities.rlm.config.RLMConfig", return_value=mock_config
+            ):
                 res = await router_step(ctx)
                 assert res == "dispatcher"
                 mock_rlm.assert_called_once()

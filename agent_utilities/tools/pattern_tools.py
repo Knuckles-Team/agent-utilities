@@ -8,8 +8,10 @@ like agentic manual testing and specialized subagent dispatch.
 from pydantic_ai import RunContext
 
 from ..models import AgentDeps
+from .versioning import tool_version
 
 
+@tool_version("1.0.0")
 async def run_manual_test(
     ctx: RunContext[AgentDeps], verification_goal: str, context: str = ""
 ) -> str:

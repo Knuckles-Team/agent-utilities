@@ -43,7 +43,10 @@ class TestUnifiedIDManager:
         """Test unified ID validation."""
         assert UnifiedIDManager.is_unified_id("doc_1234567890abcdef") is True
         assert UnifiedIDManager.is_unified_id("doc_1234567890abcdef_chunk_0000") is True
-        assert UnifiedIDManager.is_unified_id("doc_1234567890abcdef_entity_PERSON_0000") is True
+        assert (
+            UnifiedIDManager.is_unified_id("doc_1234567890abcdef_entity_PERSON_0000")
+            is True
+        )
         assert UnifiedIDManager.is_unified_id("not_a_doc_id") is False
         assert UnifiedIDManager.is_unified_id("") is False
         assert UnifiedIDManager.is_unified_id("12345") is False
@@ -119,9 +122,7 @@ class TestUnifiedIDRegistry:
         assert doc_id in registry.document_ids
         assert registry.document_ids[doc_id]["metadata"] == metadata
         assert registry.document_ids[doc_id]["status"] == "registered"
-        assert registry.document_ids[doc_id]["systems"]["document_db"] is False
-        assert registry.document_ids[doc_id]["systems"]["vector_db"] is False
-        assert registry.document_ids[doc_id]["systems"]["knowledge_graph"] is False
+        assert registry.document_ids[doc_id]["synced"] is False
 
     def test_mark_system_synced(self):
         """Test marking document as synced to system."""
@@ -129,18 +130,9 @@ class TestUnifiedIDRegistry:
         doc_id = "doc_1234567890abcdef1234567890abcdef"
         registry.register_document(doc_id)
 
-        # Mark document_db as synced
-        registry.mark_system_synced(doc_id, "document_db")
-        assert registry.is_system_synced(doc_id, "document_db") is True
-        assert registry.document_ids[doc_id]["status"] == "registered"  # Not fully synced yet
-
-        # Mark vector_db as synced
-        registry.mark_system_synced(doc_id, "vector_db")
-        assert registry.is_system_synced(doc_id, "vector_db") is True
-
-        # Mark knowledge_graph as synced
-        registry.mark_system_synced(doc_id, "knowledge_graph")
-        assert registry.is_system_synced(doc_id, "knowledge_graph") is True
+        # Mark as synced
+        registry.mark_system_synced(doc_id)
+        assert registry.is_system_synced(doc_id) is True
         assert registry.document_ids[doc_id]["status"] == "fully_synced"
 
     def test_is_fully_synced(self):
@@ -151,13 +143,9 @@ class TestUnifiedIDRegistry:
 
         assert registry.is_fully_synced(doc_id) is False
 
-        registry.mark_system_synced(doc_id, "document_db")
         assert registry.is_fully_synced(doc_id) is False
 
-        registry.mark_system_synced(doc_id, "vector_db")
-        assert registry.is_fully_synced(doc_id) is False
-
-        registry.mark_system_synced(doc_id, "knowledge_graph")
+        registry.mark_system_synced(doc_id)
         assert registry.is_fully_synced(doc_id) is True
 
     def test_is_system_synced(self):
@@ -166,11 +154,10 @@ class TestUnifiedIDRegistry:
         doc_id = "doc_1234567890abcdef1234567890abcdef"
         registry.register_document(doc_id)
 
-        assert registry.is_system_synced(doc_id, "document_db") is False
+        assert registry.is_system_synced(doc_id) is False
 
-        registry.mark_system_synced(doc_id, "document_db")
-        assert registry.is_system_synced(doc_id, "document_db") is True
-        assert registry.is_system_synced(doc_id, "vector_db") is False
+        registry.mark_system_synced(doc_id)
+        assert registry.is_system_synced(doc_id) is True
 
     def test_get_document_info(self):
         """Test getting document information."""
@@ -220,9 +207,7 @@ class TestUnifiedIDRegistry:
 
         registry.register_document("doc_1")
         registry.register_document("doc_2")
-        registry.mark_system_synced("doc_1", "document_db")
-        registry.mark_system_synced("doc_1", "vector_db")
-        registry.mark_system_synced("doc_1", "knowledge_graph")
+        registry.mark_system_synced("doc_1")
 
         registered = registry.get_documents_by_status("registered")
         fully_synced = registry.get_documents_by_status("fully_synced")
@@ -238,14 +223,11 @@ class TestUnifiedIDRegistry:
 
         registry.register_document("doc_1")
         registry.register_document("doc_2")
-        registry.mark_system_synced("doc_1", "document_db")
+        registry.mark_system_synced("doc_1")
 
-        unsynced = registry.get_unsynced_documents("document_db")
+        unsynced = registry.get_unsynced_documents()
         assert len(unsynced) == 1
         assert "doc_2" in unsynced
-
-        unsynced_vector = registry.get_unsynced_documents("vector_db")
-        assert len(unsynced_vector) == 2
 
     def test_update_document_metadata(self):
         """Test updating document metadata."""
@@ -257,7 +239,7 @@ class TestUnifiedIDRegistry:
         assert result is True
         assert registry.document_ids[doc_id]["metadata"] == {
             "title": "Original",
-            "author": "Test Author"
+            "author": "Test Author",
         }
 
         # Non-existent document
@@ -275,14 +257,9 @@ class TestUnifiedIDRegistry:
         # Add some documents
         registry.register_document("doc_1")
         registry.register_document("doc_2")
-        registry.mark_system_synced("doc_1", "document_db")
-        registry.mark_system_synced("doc_1", "vector_db")
-        registry.mark_system_synced("doc_1", "knowledge_graph")
+        registry.mark_system_synced("doc_1")
 
         stats = registry.get_statistics()
         assert stats["total_documents"] == 2
         assert stats["fully_synced"] == 1
         assert stats["partially_synced"] == 1
-        assert stats["system_sync_counts"]["document_db"] == 1
-        assert stats["system_sync_counts"]["vector_db"] == 1
-        assert stats["system_sync_counts"]["knowledge_graph"] == 1

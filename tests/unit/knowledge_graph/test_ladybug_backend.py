@@ -12,6 +12,7 @@ def temp_db_dir(tmp_path):
     db_dir.mkdir()
     return db_dir
 
+
 def test_ladybug_backend_init_and_backup(temp_db_dir):
     db_path = str(temp_db_dir / "test.db")
 
@@ -30,18 +31,22 @@ def test_ladybug_backend_init_and_backup(temp_db_dir):
         backups = list(temp_db_dir.glob("test.db.*.bak"))
         assert len(backups) == 1
 
+
 def test_ladybug_backend_backup_rotation(temp_db_dir):
     db_path = str(temp_db_dir / "test.db")
     with open(db_path, "w") as f:
         f.write("dummy data")
 
-    with patch("ladybug.Database"), patch("ladybug.Connection"), \
-         patch("agent_utilities.core.config.DEFAULT_KG_BACKUPS", 2):
-
+    with (
+        patch("ladybug.Database"),
+        patch("ladybug.Connection"),
+        patch("agent_utilities.core.config.DEFAULT_KG_BACKUPS", 2),
+    ):
         backend = LadybugBackend(db_path)
 
         # Trigger backup 3 times
         import time
+
         backend._backup_db()
         time.sleep(1.1)
         backend._backup_db()
@@ -51,6 +56,7 @@ def test_ladybug_backend_backup_rotation(temp_db_dir):
         # Should only keep 2 backups
         backups = list(temp_db_dir.glob("test.db.*.bak"))
         assert len(backups) == 2
+
 
 def test_ladybug_backend_cleanup_corrupted(temp_db_dir):
     db_path = temp_db_dir / "corrupt.db"
@@ -72,14 +78,17 @@ def test_ladybug_backend_cleanup_corrupted(temp_db_dir):
         assert not wal_path.exists()
         assert not shm_path.exists()
 
+
 def test_ladybug_backend_disabled_backup(temp_db_dir):
     db_path = str(temp_db_dir / "test.db")
     with open(db_path, "w") as f:
         f.write("dummy data")
 
-    with patch("ladybug.Database"), patch("ladybug.Connection"), \
-         patch("agent_utilities.core.config.DEFAULT_KG_BACKUPS", 0):
-
+    with (
+        patch("ladybug.Database"),
+        patch("ladybug.Connection"),
+        patch("agent_utilities.core.config.DEFAULT_KG_BACKUPS", 0),
+    ):
         backend = LadybugBackend(db_path)
         backend._backup_db()
 

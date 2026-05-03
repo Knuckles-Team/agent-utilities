@@ -10,8 +10,10 @@ from pathlib import Path
 from pydantic_ai import RunContext
 
 from ..models import AgentDeps
+from .versioning import tool_version
 
 
+@tool_version("1.0.0")
 async def read_agents_md(ctx: RunContext[AgentDeps]) -> str:
     """Read the content of AGENTS.md from the workspace root.
 
@@ -36,6 +38,7 @@ async def read_agents_md(ctx: RunContext[AgentDeps]) -> str:
     return "\n\n".join(content)
 
 
+@tool_version("1.0.0")
 async def update_agents_md(
     ctx: RunContext[AgentDeps], content: str, filename: str = "AGENTS.md"
 ) -> str:
@@ -52,6 +55,7 @@ async def update_agents_md(
     return f"Successfully updated {filename}"
 
 
+@tool_version("1.0.0")
 async def init_agents_md(ctx: RunContext[AgentDeps]) -> str:
     """Initialize a new AGENTS.md file with standard templates.
 

@@ -302,3 +302,153 @@ Successful engineering cycles (e.g., a specific TDD solution for a recurring pro
 - **Recombination**: Agents search for existing templates to "hoard" and recombine successful solutions.
 - **Self-Improvement**: Successful outcomes increase the `success_rate` and `importance_score` of patterns.
 - **Graph Nodes**: `PatternTemplate` nodes linked via `IMPLEMENTS` and `DERIVED_FROM`.
+
+---
+
+## Emergent Architecture (CONCEPT:AU-013 through AU-017)
+
+The Emergent Architecture layer enables dynamic agent coalition formation, evolutionary variant selection, metacognitive self-modeling, and attention-based output quality filtering. See [emergent-architecture.md](emergent-architecture.md) for complete documentation.
+
+### 5. KG Object-Graph Mapper (CONCEPT:AU-013)
+Declarative bidirectional mapping between Pydantic `RegistryNode` models and Knowledge Graph nodes. Eliminates manual `_upsert_node()` / `_serialize_node()` patterns.
+- **Module**: `agent_utilities/knowledge_graph/ogm.py`
+- **Features**: Auto label resolution, `@kg_label` decorator, dual-write (NetworkX + backend), change watchers
+
+### 6. Swarm Orchestration (CONCEPT:AU-014)
+Dynamic agent swarm formation replacing static specialist dispatch. Tasks are decomposed into trees, specialists are ranked by tri-signal affinity, and sub-agents are spawned with parallel/sequential execution.
+- **Module**: `agent_utilities/graph/swarm.py`
+- **Features**: LLM task decomposition, affinity scoring, recursive sub-swarms, coalition KG tracking
+
+### 7. Evolutionary Variant Selection (CONCEPT:AU-015)
+Population-based competition for prompts, skills, and configurations using dual-strategy generation (LLM-driven + parametric mutations) and tournament selection.
+- **Module**: `agent_utilities/harness/variant_pool.py`
+- **Features**: Parametric mutations, fitness from `OutcomeEvaluation.reward`, tournament selection, auto-pruning
+
+### 8. Persistent Self-Model (CONCEPT:AU-016)
+Versioned metacognitive self-model that aggregates session outcomes into a persistent KG chain. Integrates with OWL for reasoner-driven capability assessment.
+- **Module**: `agent_utilities/knowledge_graph/self_model.py`
+- **Features**: Versioned chain with `CURRENT` pointer, temporal trend analysis, OWL promotion, self-explanation
+
+### 9. Global Workspace Attention (CONCEPT:AU-017)
+Always-on attention mechanism that scores specialist outputs by relevance, confidence, and track record before integration. Cost: ~50ms per query (no LLM round-trip).
+- **Module**: `agent_utilities/graph/workspace_attention.py`
+- **Features**: Tri-signal scoring, configurable weights, KG broadcast for training signal
+
+---
+
+## First Principles Architecture (CONCEPT:AU-024 through AU-027)
+
+The First Principles Architecture rewires the routing, dispatch, and feedback layers from basic primitives to solve scalability and intelligence bottlenecks. See [first-principles.md](first-principles.md) for the complete deep-dive.
+
+### 10. Registry Hot Cache (CONCEPT:AU-024)
+Session-scoped `_RegistryCache` singleton providing O(1) specialist lookups with event-driven invalidation. Reduces prompt bloat from 50+ specialist descriptions to only the top-7 relevant per query.
+- **Module**: `agent_utilities/graph/config_helpers.py`
+- **Features**: Query-keyed caching, 4 invalidation triggers (MCP reload, pipeline, Self-Model, TeamConfig), no TTL risk
+- **Deep-Dive**: [registry-cache.md](registry-cache.md)
+
+### 11. TeamConfig Promotion (CONCEPT:AU-025)
+Proven specialist coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback.
+- **Module**: `agent_utilities/knowledge_graph/engine_registry.py`
+- **Features**: Coalition promotion, domain-pattern matching, EMA-based success rate tracking, RLM + TeamConfig synergy
+
+### 12. AgentCapability Type System (CONCEPT:AU-026)
+First-class KG capability nodes with auto-activation, trigger conditions, and dynamic handler binding. Capabilities like RLM, critic, and summarizer activate automatically based on input constraints.
+- **Module**: `agent_utilities/models/knowledge_graph.py`, `agent_utilities/graph/executor.py`
+- **Features**: Trigger conditions (input_size_gt, domain, has_images), HAS_CAPABILITY edges, priority ordering
+
+### 13. PlannerGraphSkill (CONCEPT:AU-027)
+A2A-native routing entry point that bypasses LLM orchestration overhead. When a `graph_bundle` is present, A2A requests route directly through the graph planner.
+- **Module**: `agent_utilities/protocols/a2a_graph_skill.py`, `agent_utilities/server/app.py`
+- **Features**: Automatic registration when graph is present, priority over LLM-mediated routing
+
+---
+
+## Post-Execution Feedback Loop
+
+The verification synthesizer (`graph/verification.py`) now feeds execution outcomes back to two learning systems:
+
+1. **Self-Model Update**: `SelfModel.update_after_session(state)` aggregates domain success rates, tool proficiency, and failure patterns into the versioned metacognitive self-model.
+2. **TeamConfig Reward**: `record_team_outcome(config_id, success)` updates the success rate of the used team template via exponential moving average.
+
+Both updates trigger **registry cache invalidation** (AU-024), ensuring future routing decisions reflect the latest knowledge.
+
+---
+
+## Process Lifecycle Management
+
+The server ensures all child processes (MCP servers, TUI, background threads) are cleaned up on exit. See [process-lifecycle.md](process-lifecycle.md) for the full architecture.
+
+- **Handlers**: `atexit`, `SIGTERM`, `SIGINT` registered in `server/__init__.py`
+- **Strategy**: Child-only cleanup via `pgrep -P <pid>` (avoids self-termination)
+- **Safety**: Signal handler chaining preserves existing handlers, idempotency guard prevents double-cleanup
+
+
+## Concept Traceability
+
+- `CONCEPT:AU-001` — Agent Identity Management
+- `CONCEPT:AU-003` — Graph Router Step
+- `CONCEPT:AU-004` — Planner Step
+- `CONCEPT:AU-005` — Verifier Step
+- `CONCEPT:AU-018` — Guardrails & Safety Patterns
+- `CONCEPT:AU-019` — Evaluation & Monitoring
+- `CONCEPT:AU-020` — Task Prioritization
+- `CONCEPT:AU-021` — Exploration & Discovery
+- `CONCEPT:AU-022` — Agentic Coding Patterns
+- `CONCEPT:AU-024` — Registry Hot Cache
+- `CONCEPT:AU-025` — TeamConfig Promotion & Proven Team Reuse
+- `CONCEPT:AU-026` — AgentCapability Type System & Auto-Activation
+- `CONCEPT:AU-027` — A2A PlannerGraphSkill (Graph-Native Routing)
+
+
+## Local Secret Storage (Vault & SQLite)
+
+The `agent-utilities` ecosystem provides a unified `SecretsClient` (AU-011) designed to replace static `.env` files. It supports three backends: `inmemory`, `sqlite` (persistent), and `vault` (hvac).
+
+### Setting Up the Backend
+
+To configure your agent to use your Vault (hvac) or SQLite secret store, export these environment variables:
+
+**For HashiCorp Vault:**
+```bash
+# Requires: pip install agent-utilities[vault]
+export SECRETS_BACKEND=vault
+export SECRETS_VAULT_URL=https://vault.example.com
+export SECRETS_VAULT_MOUNT=secret
+export VAULT_TOKEN=hvs.xxx
+```
+
+**For Persistent SQLite (Encrypted at rest with Fernet):**
+```bash
+export SECRETS_BACKEND=sqlite
+export SECRETS_SQLITE_PATH=~/.agent-utilities/secrets.db
+```
+
+### Using Secrets in Agent Code
+
+During graph execution, the agent can resolve secrets natively via the `GraphDeps` context, so your code doesn't need to depend on `os.environ` or python-dotenv:
+
+```python
+from agent_utilities.security.secrets_client import create_secrets_client
+
+# Inside a graph node or specialist logic
+if ctx.deps.secrets_client:
+    # Gets from Vault/SQLite, falls back to env var if missing
+    token = ctx.deps.secrets_client.get_or_env("gitlab/token", "GITLAB_TOKEN")
+```
+
+### Using URI Schemes for Configuration
+
+If you're mapping secrets into an MCP configuration (`mcp_config.json`) or reading strings elsewhere, you can use the `vault://` or `sqlite://` URI schemes to inject secrets directly at runtime without exposing them in plaintext config files:
+
+```python
+client = create_secrets_client()
+
+# Resolves from HashiCorp Vault KV mount
+token = client.resolve_ref("vault://agents/mcp/gitlab/token")
+
+# Resolves from SQLite db
+token = client.resolve_ref("sqlite://gitlab/token")
+
+# Resolves from environment variable (legacy fallback)
+token = client.resolve_ref("env://GITLAB_TOKEN")
+```

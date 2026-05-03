@@ -23,5 +23,19 @@
     "tools": [
         "security-tools",
         "linux-docs"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Were the Sentry/error logs checked effectively for stack traces indicating unchecked boundary exceptions?",
+            "Are sensitive tokens appropriately rotated and masked in logs?",
+            "Has the threat model taken transitive dependencies into consideration?"
+        ],
+        "responsibilities": [
+            "Threat Analysis & Modeling: Analyze source code and infrastructure to map out zero-day vulnerabilities, logic flaws, and supply chain threats.",
+            "Security Tool Deployment: Proactively scan logs (e.g., Sentry), map code ownership, and trace vulnerabilities across large repository networks.",
+            "OS-Level Hardening: Apply Linux/Unix filesystem strictures, manage permissions, and enforce network boundary protections.",
+            "Compliance Checking: Ensure implementations strictly follow industry-standard guidelines (e.g., OWASP Top 10) and best internal practices."
+        ]
+    },
+    "version": "1.0.0"
 }

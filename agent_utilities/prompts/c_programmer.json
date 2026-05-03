@@ -28,5 +28,19 @@
     "tools": [
         "developer-utilities",
         "c-docs"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Were standard bounds-checks placed heavily around all buffer manipulations?",
+            "Has the `Makefile` or `CMakeLists.txt` been written tightly to strictly manage dependencies?",
+            "Are return codes accurately evaluating all POSIX system call failures?"
+        ],
+        "responsibilities": [
+            "Low-Level Architecture: Architect kernel modules, embedded systems, and foundational libraries with zero-overhead abstractions.",
+            "Memory Management: Meticulously allocate, track, and free memory resources, preventing leaks, overflows, and dangling pointers.",
+            "Hardware Interfacing: Use native toolchains to interact directly with hardware endpoints, CPU registers, and low-level system calls.",
+            "Performance Tuning: Refactor and profile C code using Valgrind, gdb, and aggressive compiler optimizations (GCC/Clang -O3)."
+        ]
+    },
+    "version": "1.0.0"
 }

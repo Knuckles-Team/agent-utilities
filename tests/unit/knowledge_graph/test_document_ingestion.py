@@ -2,7 +2,7 @@
 Tests for Document Ingestion Pipeline.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -21,20 +21,12 @@ class TestDocumentIngestionPipeline:
     def test_initialization(self):
         """Test pipeline initialization."""
         # Create mock backends
-        document_db = AsyncMock()
-        vector_db = MagicMock()
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
 
         # Create pipeline
-        pipeline = DocumentIngestionPipeline(
-            document_db=document_db,
-            vector_db=vector_db,
-            knowledge_graph=knowledge_graph
-        )
+        pipeline = DocumentIngestionPipeline(knowledge_graph=knowledge_graph)
 
-        assert pipeline.document_db == document_db
-        assert pipeline.vector_db == vector_db
         assert pipeline.knowledge_graph == knowledge_graph
         assert isinstance(pipeline.id_manager, UnifiedIDManager)
         assert isinstance(pipeline.id_registry, UnifiedIDRegistry)
@@ -42,8 +34,6 @@ class TestDocumentIngestionPipeline:
 
     def test_initialization_with_custom_id_manager(self):
         """Test pipeline initialization with custom ID manager."""
-        document_db = AsyncMock()
-        vector_db = MagicMock()
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
 
@@ -51,11 +41,9 @@ class TestDocumentIngestionPipeline:
         id_registry = UnifiedIDRegistry()
 
         pipeline = DocumentIngestionPipeline(
-            document_db=document_db,
-            vector_db=vector_db,
             knowledge_graph=knowledge_graph,
             id_manager=id_manager,
-            id_registry=id_registry
+            id_registry=id_registry,
         )
 
         assert pipeline.id_manager == id_manager
@@ -63,16 +51,10 @@ class TestDocumentIngestionPipeline:
 
     def test_chunk_document(self):
         """Test document chunking."""
-        document_db = AsyncMock()
-        vector_db = MagicMock()
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
 
-        pipeline = DocumentIngestionPipeline(
-            document_db=document_db,
-            vector_db=vector_db,
-            knowledge_graph=knowledge_graph
-        )
+        pipeline = DocumentIngestionPipeline(knowledge_graph=knowledge_graph)
 
         # Test with paragraphs
         content = "Paragraph 1\n\nParagraph 2\n\nParagraph 3"
@@ -96,16 +78,10 @@ class TestDocumentIngestionPipeline:
 
     def test_get_ingested_documents(self):
         """Test getting ingested documents list."""
-        document_db = AsyncMock()
-        vector_db = MagicMock()
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
 
-        pipeline = DocumentIngestionPipeline(
-            document_db=document_db,
-            vector_db=vector_db,
-            knowledge_graph=knowledge_graph
-        )
+        pipeline = DocumentIngestionPipeline(knowledge_graph=knowledge_graph)
 
         # Initially empty
         assert pipeline.get_ingested_documents() == []
@@ -121,16 +97,10 @@ class TestDocumentIngestionPipeline:
 
     def test_get_registry_statistics(self):
         """Test getting registry statistics."""
-        document_db = AsyncMock()
-        vector_db = MagicMock()
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
 
-        pipeline = DocumentIngestionPipeline(
-            document_db=document_db,
-            vector_db=vector_db,
-            knowledge_graph=knowledge_graph
-        )
+        pipeline = DocumentIngestionPipeline(knowledge_graph=knowledge_graph)
 
         stats = pipeline.get_registry_statistics()
         assert "total_documents" in stats
@@ -144,16 +114,10 @@ class TestDocumentIngestionPipeline:
     @pytest.mark.asyncio
     async def test_generate_embeddings(self):
         """Test embedding generation (currently uses dummy embeddings)."""
-        document_db = AsyncMock()
-        vector_db = MagicMock()
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
 
-        pipeline = DocumentIngestionPipeline(
-            document_db=document_db,
-            vector_db=vector_db,
-            knowledge_graph=knowledge_graph
-        )
+        pipeline = DocumentIngestionPipeline(knowledge_graph=knowledge_graph)
 
         chunks = ["Chunk 1", "Chunk 2", "Chunk 3"]
         embeddings = await pipeline._generate_embeddings(chunks)

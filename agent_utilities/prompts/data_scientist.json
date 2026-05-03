@@ -36,5 +36,19 @@
         "tensorflow-docs",
         "huggingface-docs",
         "langchain-docs"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Are hyperparameters properly documented and extracted?",
+            "Are notebook outputs cleared of massive base64 image strings where irrelevant?",
+            "Have standard scaling and transformations been applied appropriately without data leakage?"
+        ],
+        "responsibilities": [
+            "Data Exploration & Preprocessing: Clean, shape, and structure data to enable robust analysis. Handle missing variables and outliers properly.",
+            "Model Training & Verification: Build both classical ML and deep learning models. Test comprehensively for overfitting using cross-validation.",
+            "Visualization & Reporting: Create compelling visual narratives representing data distributions, feature importance, and performance metrics.",
+            "Notebook Engineering: Rapidly prototype data experiments within interactive environments while maintaining high code-quality."
+        ]
+    },
+    "version": "1.0.0"
 }

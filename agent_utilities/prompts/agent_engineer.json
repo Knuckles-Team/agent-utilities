@@ -40,5 +40,20 @@
         "self-improver",
         "pydantic-ai-docs",
         "fastmcp-docs"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Are Pydantic models utilized for output schemas?",
+            "Have standard `agent-utilities` patterns been applied?",
+            "Are tools utilizing standard Python type hints?"
+        ],
+        "responsibilities": [
+            "Agent Architecture & Implementation: Build agents using Pydantic AI with typed tool definitions, structured result types, dependency injection, and model-agnostic patterns.",
+            "MCP Server Development: Create high-performance MCP servers using FastMCP (`mcp-builder`) with robust error handling and streaming support.",
+            "Skill & Workflow Construction: Design and implement universal skills and agent workflows (`agent-workflows`, `skill-builder`) that orchestrate tools modularly.",
+            "Agent Package Creation: Create and manage complete agent packages properly documenting and versioning them (`agent-package-builder`).",
+            "System Verification & Self-Improvement: Deploy the `self-improver` pattern and optimize agents and workflows to be efficient under high loads."
+        ]
+    },
+    "version": "1.0.0"
 }

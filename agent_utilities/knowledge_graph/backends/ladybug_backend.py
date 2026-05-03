@@ -260,9 +260,25 @@ class LadybugBackend(GraphBackend):
                     )
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        """Add embedding to an existing message."""
-        query = "MATCH (m:Message {id: $id}) SET m.embedding = $emb"
+        """Add embedding to an existing node."""
+        query = "MATCH (n {id: $id}) SET n.embedding = $emb"
         self.execute(query, {"id": node_id, "emb": embedding})
+
+    def semantic_search(
+        self, query_embedding: list[float], n_results: int = 5
+    ) -> list[dict[str, Any]]:
+        """Perform a semantic vector search returning top matching nodes."""
+        query = """
+        MATCH (n)
+        WHERE n.embedding IS NOT NULL
+        WITH n, array_cosine_similarity(n.embedding, $query_embedding) AS similarity
+        ORDER BY similarity DESC
+        LIMIT $n_results
+        RETURN n
+        """
+        return self.execute(
+            query, {"query_embedding": query_embedding, "n_results": n_results}
+        )
 
     def prune(self, criteria: dict[str, Any]) -> None:
         """Prune nodes based on criteria.

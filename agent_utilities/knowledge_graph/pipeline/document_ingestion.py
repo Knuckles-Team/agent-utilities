@@ -5,13 +5,11 @@ Tightly integrated pipeline that ingests documents through all storage layers
 (document database, vector database, knowledge graph) with unified IDs.
 """
 
-import asyncio
 import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from ..backends.document_storage.base import DocumentDB
 from ..engine import IntelligenceGraphEngine
 from ..id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
 
@@ -32,8 +30,6 @@ class DocumentIngestionPipeline:
 
     def __init__(
         self,
-        document_db: DocumentDB,
-        vector_db: Any,  # Will be vector-mcp VectorDB
         knowledge_graph: IntelligenceGraphEngine,
         id_manager: UnifiedIDManager | None = None,
         id_registry: UnifiedIDRegistry | None = None,
@@ -42,14 +38,10 @@ class DocumentIngestionPipeline:
         Initialize the document ingestion pipeline.
 
         Args:
-            document_db: Document database backend
-            vector_db: Vector database backend (vector-mcp)
             knowledge_graph: Knowledge graph engine
             id_manager: Optional unified ID manager (creates default if None)
             id_registry: Optional unified ID registry (creates default if None)
         """
-        self.document_db = document_db
-        self.vector_db = vector_db
         self.knowledge_graph = knowledge_graph
         self.id_manager = id_manager or UnifiedIDManager()
         self.id_registry = id_registry or UnifiedIDRegistry()
@@ -90,91 +82,32 @@ class DocumentIngestionPipeline:
             unified_id = self.id_manager.generate_document_id()
             logger.info(f"Generated unified ID: {unified_id}")
 
-            # Step 2: Store in document database
-            doc_record = {
-                "id": unified_id,
-                "content": content,
-                "file_path": file_path,
-                "metadata": metadata or {},
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-                "is_deleted": False,
-            }
-
-            await self._insert_document_with_rollback(
-                doc_record, "documents", rollback_actions
-            )
-            self.id_registry.mark_system_synced(unified_id, "document_db")
-            logger.info(f"Stored in document database: {unified_id}")
-
-            # Step 3: Process document (chunking)
+            # Step 2: Process document (chunking)
             chunks = self._chunk_document(content)
             logger.info(f"Chunked document into {len(chunks)} chunks")
 
-            # Step 4: Store chunks in document database
-            chunk_ids = []
-            for i, chunk in enumerate(chunks):
-                chunk_id = self.id_manager.generate_chunk_id(unified_id, i)
-                chunk_record = {
-                    "id": chunk_id,
-                    "parent_doc_id": unified_id,
-                    "chunk_index": i,
-                    "content": chunk,
-                    "metadata": metadata or {},
-                    "created_at": datetime.now().isoformat(),
-                }
-
-                await self._insert_document_with_rollback(
-                    chunk_record, "chunks", rollback_actions
-                )
-                chunk_ids.append(chunk_id)
-
-            logger.info(f"Stored {len(chunk_ids)} chunks in document database")
-
-            # Step 5: Generate embeddings
+            # Step 3: Generate chunks IDs and embeddings
+            chunk_ids = [
+                self.id_manager.generate_chunk_id(unified_id, i)
+                for i in range(len(chunks))
+            ]
             embeddings = await self._generate_embeddings(chunks)
             logger.info(f"Generated {len(embeddings)} embeddings")
 
-            # Step 6: Store embeddings in vector database
-            for i, (chunk_id, embedding) in enumerate(
-                zip(chunk_ids, embeddings, strict=False)
-            ):
-                vector_doc = {
-                    "id": chunk_id,
-                    "content": chunks[i],
-                    "metadata": {
-                        "parent_doc_id": unified_id,
-                        "chunk_index": i,
-                        "unified_id": unified_id,
-                    },
-                    "embedding": embedding,
-                }
-
-                await self._insert_vector_with_rollback(
-                    vector_doc, "knowledge_graph", rollback_actions
-                )
-
-            self.id_registry.mark_system_synced(unified_id, "vector_db")
-            logger.info("Stored embeddings in vector database")
-
-            # Step 7: Create knowledge graph nodes
+            # Step 4: Create knowledge graph nodes (now includes everything)
             await self._create_graph_nodes(
                 unified_id=unified_id,
                 chunks=chunks,
                 chunk_ids=chunk_ids,
+                embeddings=embeddings,
                 metadata=metadata or {},
                 rollback_actions=rollback_actions,
             )
-            self.id_registry.mark_system_synced(unified_id, "knowledge_graph")
-            logger.info("Created knowledge graph nodes")
+            self.id_registry.mark_system_synced(unified_id)
+            logger.info("Created unified knowledge graph nodes")
 
-            # Step 8: Register unified ID (before marking synced to avoid reset)
+            # Step 5: Register unified ID
             self.id_registry.register_document(unified_id, metadata or {})
-
-            # Mark all systems as synced (after registration)
-            self.id_registry.mark_system_synced(unified_id, "document_db")
-            self.id_registry.mark_system_synced(unified_id, "vector_db")
-            self.id_registry.mark_system_synced(unified_id, "knowledge_graph")
             self._ingested_docs.append(unified_id)
 
             logger.info(f"Successfully ingested document: {unified_id}")
@@ -183,7 +116,7 @@ class DocumentIngestionPipeline:
                 "unified_id": unified_id,
                 "chunk_count": len(chunks),
                 "embedding_count": len(embeddings),
-                "synced_systems": ["document_db", "vector_db", "knowledge_graph"],
+                "synced_systems": ["knowledge_graph"],
                 "status": "completed",
                 "created_at": datetime.now().isoformat(),
             }
@@ -195,80 +128,6 @@ class DocumentIngestionPipeline:
             raise Exception(
                 f"Document ingestion failed and was rolled back: {e}"
             ) from e
-
-    async def _insert_document_with_rollback(
-        self,
-        document: dict[str, Any],
-        collection_name: str,
-        rollback_actions: list[Callable],
-    ) -> str:
-        """
-        Insert document with rollback capability.
-
-        Args:
-            document: Document to insert
-            collection_name: Collection name
-            rollback_actions: List to append rollback action
-
-        Returns:
-            str: Document ID
-        """
-        # Handle both sync and async document DB
-        if asyncio.iscoroutinefunction(self.document_db.insert_document):
-            doc_id = await self.document_db.insert_document(document, collection_name)
-        else:
-            doc_id = self.document_db.insert_document(document, collection_name)
-
-        # Add rollback action
-        async def rollback():
-            try:
-                if asyncio.iscoroutinefunction(self.document_db.delete_document):
-                    await self.document_db.delete_document(doc_id, collection_name)
-                else:
-                    self.document_db.delete_document(doc_id, collection_name)
-            except Exception as e:
-                logger.warning(f"Rollback failed for document {doc_id}: {e}")
-
-        rollback_actions.append(rollback)
-        return doc_id
-
-    async def _insert_vector_with_rollback(
-        self,
-        vector_doc: dict[str, Any],
-        collection_name: str,
-        rollback_actions: list[Callable],
-    ):
-        """
-        Insert vector document with rollback capability.
-
-        Args:
-            vector_doc: Vector document to insert
-            collection_name: Collection name
-            rollback_actions: List to append rollback action
-        """
-        # Handle both sync and async vector DB
-        if hasattr(self.vector_db, "insert_documents"):
-            if asyncio.iscoroutinefunction(self.vector_db.insert_documents):
-                await self.vector_db.insert_documents([vector_doc], collection_name)
-            else:
-                self.vector_db.insert_documents([vector_doc], collection_name)
-
-        # Add rollback action
-        async def rollback():
-            try:
-                if hasattr(self.vector_db, "delete_documents"):
-                    if asyncio.iscoroutinefunction(self.vector_db.delete_documents):
-                        await self.vector_db.delete_documents(
-                            [vector_doc["id"]], collection_name
-                        )
-                    else:
-                        self.vector_db.delete_documents(
-                            [vector_doc["id"]], collection_name
-                        )
-            except Exception as e:
-                logger.warning(f"Rollback failed for vector {vector_doc['id']}: {e}")
-
-        rollback_actions.append(rollback)
 
     async def _rollback(self, rollback_actions: list[Callable], unified_id: str | None):
         """
@@ -337,6 +196,7 @@ class DocumentIngestionPipeline:
         unified_id: str,
         chunks: list[str],
         chunk_ids: list[str],
+        embeddings: list[list[float]],
         metadata: dict[str, Any],
         rollback_actions: list[Callable],
     ):
@@ -370,12 +230,15 @@ class DocumentIngestionPipeline:
         rollback_actions.append(rollback_doc_node)
 
         # Create chunk nodes and relationships
-        for i, (chunk, chunk_id) in enumerate(zip(chunks, chunk_ids, strict=False)):
+        for i, (chunk, chunk_id, emb) in enumerate(
+            zip(chunks, chunk_ids, embeddings, strict=False)
+        ):
             chunk_node_data = {
                 "id": chunk_id,
                 "parent_doc_id": unified_id,
                 "chunk_index": i,
                 "content": chunk,
+                "embedding": emb,
                 "metadata": {"unified_id": unified_id},
             }
 

@@ -25,5 +25,15 @@
             "**Analogical Reasoning**: What does this problem look like when stripped to its essence? What solved problems in other domains share the same structure?",
             "**Constraint vs. Convention**: Separate hard constraints (physics, law, math) from soft constraints (convention, habit, \"that's how we've always done it\")."
         ]
-    }
+    },
+    "rules": {
+        "responsibilities": [
+            "Problem Decomposition: Break the question into its atomic components. What are the true inputs, outputs, and constraints?",
+            "Assumption Stripping: List every assumption embedded in how the question was framed. Which of these are actually constraints vs. habits?",
+            "Variable Identification: What is the real variable being optimized? Is it the right one? What would change if we optimized a different variable?",
+            "Analogical Reasoning: What does this problem look like when stripped to its essence? What solved problems in other domains share the same structure?",
+            "Constraint vs. Convention: Separate hard constraints (physics, law, math) from soft constraints (convention, habit, \"that's how we've always done it\")."
+        ]
+    },
+    "version": "1.0.0"
 }

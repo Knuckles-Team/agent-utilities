@@ -73,9 +73,7 @@ def registry() -> ModelRegistry:
 
 def _build_client(agent, **kwargs) -> TestClient:
     """Construct a TestClient without mounting the web UI or ACP."""
-    with patch(
-        "agent_utilities.server.app.create_agent", return_value=(agent, [])
-    ):
+    with patch("agent_utilities.server.app.create_agent", return_value=(agent, [])):
         app = build_agent_app(
             enable_web_ui=False,
             enable_acp=False,
@@ -98,9 +96,7 @@ def _probe_app(
     """
     captures: list[dict[str, Any]] = []
 
-    with patch(
-        "agent_utilities.server.app.create_agent", return_value=(agent, [])
-    ):
+    with patch("agent_utilities.server.app.create_agent", return_value=(agent, [])):
         app = build_agent_app(
             enable_web_ui=False,
             enable_acp=False,
@@ -231,7 +227,7 @@ def test_ag_ui_route_honors_header(mock_agent, registry):
     from fastapi.responses import StreamingResponse
 
     async def fake_iter():
-        yield b"0:\"hi\"\n"
+        yield b'0:"hi"\n'
 
     # Instrument ``mock_agent.override`` so we can observe it being used.
     override_calls: list[dict[str, Any]] = []
@@ -278,7 +274,7 @@ def test_ag_ui_route_invalid_id_falls_back_to_default(mock_agent, registry):
     from fastapi.responses import StreamingResponse
 
     async def fake_iter():
-        yield b"0:\"hi\"\n"
+        yield b'0:"hi"\n'
 
     mock_agent.override = MagicMock()
 
@@ -359,11 +355,15 @@ def test_executor_falls_back_to_tier_when_requested_id_unknown(registry):
     # Mock get_discovery_registry so KG tier overrides don't interfere.
     empty_registry = MagicMock()
     empty_registry.agents = []
-    with patch(
-        "agent_utilities.core.model_factory.create_model", side_effect=fake_create_model
-    ), patch(
-        "agent_utilities.graph.executor.get_discovery_registry",
-        return_value=empty_registry,
+    with (
+        patch(
+            "agent_utilities.core.model_factory.create_model",
+            side_effect=fake_create_model,
+        ),
+        patch(
+            "agent_utilities.graph.executor.get_discovery_registry",
+            return_value=empty_registry,
+        ),
     ):
         model = pick_specialist_model(deps, "researcher")
 
@@ -408,11 +408,15 @@ def test_invalid_model_id_falls_back_to_default(registry):
     # Mock get_discovery_registry so KG tier overrides don't interfere.
     empty_registry = MagicMock()
     empty_registry.agents = []
-    with patch(
-        "agent_utilities.core.model_factory.create_model", side_effect=fake_create_model
-    ), patch(
-        "agent_utilities.graph.executor.get_discovery_registry",
-        return_value=empty_registry,
+    with (
+        patch(
+            "agent_utilities.core.model_factory.create_model",
+            side_effect=fake_create_model,
+        ),
+        patch(
+            "agent_utilities.graph.executor.get_discovery_registry",
+            return_value=empty_registry,
+        ),
     ):
         # researcher → light tier → cheap-local
         assert pick_specialist_model(deps, "researcher") == (

@@ -37,7 +37,9 @@ def _populate_episodes(engine: FakeEngine, count: int = 6, reward: float = 0.9) 
     - episode -[produced_outcome]-> outcome_node (with reward attr)
     """
     # Create a shared tool node
-    engine.graph.add_node("tool_code_search", type="tool", tool_name="code_search", name="code_search")
+    engine.graph.add_node(
+        "tool_code_search", type="tool", tool_name="code_search", name="code_search"
+    )
     for i in range(count):
         ep_id = f"ep_{i}"
         outcome_id = f"outcome_{i}"
@@ -47,7 +49,9 @@ def _populate_episodes(engine: FakeEngine, count: int = 6, reward: float = 0.9) 
         engine.graph.add_edge(ep_id, outcome_id, type="produced_outcome")
 
 
-def _populate_decisions(engine: FakeEngine, approach: str = "structured output", count: int = 4) -> None:
+def _populate_decisions(
+    engine: FakeEngine, approach: str = "structured output", count: int = 4
+) -> None:
     """Add decision nodes with a shared approach to the graph."""
     for i in range(count):
         engine.graph.add_node(
@@ -78,8 +82,7 @@ def test_persist_proposals_creates_nodes() -> None:
     assert len(proposals) >= 1
     # Verify proposal node exists in graph
     proposal_nodes = [
-        nid for nid, d in engine.graph.nodes(data=True)
-        if d.get("type") == "proposal"
+        nid for nid, d in engine.graph.nodes(data=True) if d.get("type") == "proposal"
     ]
     assert len(proposal_nodes) >= 1
     assert engine.graph.nodes[proposal_nodes[0]]["status"] == "pending"
@@ -120,7 +123,8 @@ def test_approve_proposal_creates_real_node() -> None:
 
     # Check that a real node was created
     promoted_edges = [
-        (u, v) for u, v, d in engine.graph.edges(data=True)
+        (u, v)
+        for u, v, d in engine.graph.edges(data=True)
         if d.get("type") == "PROMOTED_TO"
     ]
     assert len(promoted_edges) >= 1

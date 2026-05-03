@@ -26,6 +26,7 @@ _LIFECYCLE_XFAIL_REASON = (
     "See docs/AGENTS.md 'Known Issues'."
 )
 
+
 class MockStream:
     def __init__(self, data):
         self.data = data
@@ -52,22 +53,33 @@ class MockStream:
         else:
             yield "chunk"
 
+
 @pytest.mark.asyncio
 @pytest.mark.xfail(strict=False, reason=_LIFECYCLE_XFAIL_REASON)
 async def test_full_graph_lifecycle():
     # 1. Initialize graph
-    with patch("agent_utilities.graph.builder.get_discovery_registry") as mock_reg, \
-         patch("agent_utilities.agent.discovery.discover_all_specialists", return_value=[]), \
-         patch("agent_utilities.mcp.agent_manager.should_sync", return_value=False), \
-         patch("agent_utilities.core.workspace.resolve_mcp_config_path", return_value=None), \
-         patch("agent_utilities.agent.discovery.discover_agents", return_value={"researcher": {"description": "Research agent", "type": "prompt"}}):
-
+    with (
+        patch("agent_utilities.graph.builder.get_discovery_registry") as mock_reg,
+        patch(
+            "agent_utilities.agent.discovery.discover_all_specialists", return_value=[]
+        ),
+        patch("agent_utilities.mcp.agent_manager.should_sync", return_value=False),
+        patch(
+            "agent_utilities.core.workspace.resolve_mcp_config_path", return_value=None
+        ),
+        patch(
+            "agent_utilities.agent.discovery.discover_agents",
+            return_value={
+                "researcher": {"description": "Research agent", "type": "specialist"}
+            },
+        ),
+    ):
         mock_reg.return_value.agents = []
         graph, config = initialize_graph_from_workspace()
 
     plan = GraphPlan(
         steps=[ExecutionStep(node_id="researcher", status="pending")],
-        metadata={"reasoning": "Test plan"}
+        metadata={"reasoning": "Test plan"},
     )
     validation_ok = ValidationResult(is_valid=True, score=0.9, feedback="Perfect")
 
@@ -92,40 +104,54 @@ async def test_full_graph_lifecycle():
             return res
         return MagicMock(output="Research data.")
 
-    with patch.object(Agent, "run", new=mock_run_call), \
-         patch.object(Agent, "run_stream", new=mock_run_stream), \
-         patch("agent_utilities.graph.runner.create_model", return_value=MagicMock()), \
-         patch("agent_utilities.graph.steps.fetch_unified_context", return_value="context"):
-
+    with (
+        patch.object(Agent, "run", new=mock_run_call),
+        patch.object(Agent, "run_stream", new=mock_run_stream),
+        patch("agent_utilities.graph.runner.create_model", return_value=MagicMock()),
+        patch(
+            "agent_utilities.graph.steps.fetch_unified_context", return_value="context"
+        ),
+    ):
         result = await asyncio.wait_for(
             run_graph(graph, config, "What is X?"),
             timeout=_LIFECYCLE_RUN_TIMEOUT_S,
         )
         assert result["status"] == "completed"
 
+
 @pytest.mark.asyncio
 @pytest.mark.xfail(strict=False, reason=_LIFECYCLE_XFAIL_REASON)
 async def test_graph_parallel_and_fallback():
     # 1. Initialize graph
-    with patch("agent_utilities.graph.builder.get_discovery_registry") as mock_reg, \
-         patch("agent_utilities.agent.discovery.discover_all_specialists", return_value=[]), \
-         patch("agent_utilities.mcp.agent_manager.should_sync", return_value=False), \
-         patch("agent_utilities.core.workspace.resolve_mcp_config_path", return_value=None), \
-         patch("agent_utilities.agent.discovery.discover_agents", return_value={"researcher": {"description": "Research agent", "type": "prompt"}}):
-
+    with (
+        patch("agent_utilities.graph.builder.get_discovery_registry") as mock_reg,
+        patch(
+            "agent_utilities.agent.discovery.discover_all_specialists", return_value=[]
+        ),
+        patch("agent_utilities.mcp.agent_manager.should_sync", return_value=False),
+        patch(
+            "agent_utilities.core.workspace.resolve_mcp_config_path", return_value=None
+        ),
+        patch(
+            "agent_utilities.agent.discovery.discover_agents",
+            return_value={
+                "researcher": {"description": "Research agent", "type": "specialist"}
+            },
+        ),
+    ):
         mock_reg.return_value.agents = []
         graph, config = initialize_graph_from_workspace()
 
     plan_a = GraphPlan(
         steps=[
             ExecutionStep(node_id="researcher", is_parallel=True),
-            ExecutionStep(node_id="researcher", is_parallel=True)
+            ExecutionStep(node_id="researcher", is_parallel=True),
         ],
-        metadata={"reasoning": "Parallel research plan"}
+        metadata={"reasoning": "Parallel research plan"},
     )
     plan_b = GraphPlan(
         steps=[ExecutionStep(node_id="researcher", is_parallel=False)],
-        metadata={"reasoning": "Simple fallback plan"}
+        metadata={"reasoning": "Simple fallback plan"},
     )
 
     validation_fail = ValidationResult(is_valid=False, score=0.2, feedback="Fail")
@@ -138,10 +164,16 @@ async def test_graph_parallel_and_fallback():
             test_graph_parallel_and_fallback.routed_count = 0
 
         if agent_self.output_type == GraphPlan:
-            out = plan_a if test_graph_parallel_and_fallback.routed_count == 0 else plan_b
+            out = (
+                plan_a if test_graph_parallel_and_fallback.routed_count == 0 else plan_b
+            )
             test_graph_parallel_and_fallback.routed_count += 1
         elif agent_self.output_type == ValidationResult:
-            out = validation_fail if test_graph_parallel_and_fallback.verified_count == 0 else validation_ok
+            out = (
+                validation_fail
+                if test_graph_parallel_and_fallback.verified_count == 0
+                else validation_ok
+            )
             test_graph_parallel_and_fallback.verified_count += 1
         else:
             out = "Final answer."
@@ -167,11 +199,14 @@ async def test_graph_parallel_and_fallback():
 
         return MagicMock(output="Parallel research data.")
 
-    with patch.object(Agent, "run", new=mock_run_call), \
-         patch.object(Agent, "run_stream", new=mock_run_stream), \
-         patch("agent_utilities.graph.runner.create_model", return_value=MagicMock()), \
-         patch("agent_utilities.graph.steps.fetch_unified_context", return_value="context"):
-
+    with (
+        patch.object(Agent, "run", new=mock_run_call),
+        patch.object(Agent, "run_stream", new=mock_run_stream),
+        patch("agent_utilities.graph.runner.create_model", return_value=MagicMock()),
+        patch(
+            "agent_utilities.graph.steps.fetch_unified_context", return_value="context"
+        ),
+    ):
         test_graph_parallel_and_fallback.verified_count = 0
         test_graph_parallel_and_fallback.routed_count = 0
 

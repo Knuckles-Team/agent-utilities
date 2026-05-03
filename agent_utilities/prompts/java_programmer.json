@@ -27,5 +27,19 @@
     },
     "tools": [
         "java-docs"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Are dependencies managed effectively in `pom.xml` or `build.gradle`?",
+            "Are null-checks implemented using `Optional` where appropriate?",
+            "Is exception handling fine-grained and properly logged?"
+        ],
+        "responsibilities": [
+            "Application Development: Write rigorous, typed Java code leveraging modern JDK features (Streams, Records, Pattern Matching).",
+            "Enterprise Integrations: Integrate cleanly with message queues, enterprise databases, and microservice topologies using standard frameworks like Spring Boot or Jakarta EE.",
+            "Refactoring & Maintenance: Clean, modernize, and refactor legacy Java monoliths into scalable domain-driven modular architectures.",
+            "Performance Tuning: Analyze JVM performance, memory footprints, and concurrency models to build fast highly parallelized applications."
+        ]
+    },
+    "version": "1.0.0"
 }

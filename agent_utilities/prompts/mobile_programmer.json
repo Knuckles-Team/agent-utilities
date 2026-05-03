@@ -28,5 +28,19 @@
     "tools": [
         "react-native-skills",
         "react-docs"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Are safe area context boundaries respected for iOS notches?",
+            "Have standard `React.memo` optimizations been applied for heavy list items?",
+            "Is input handling configured correctly with keyboard avoiding views?"
+        ],
+        "responsibilities": [
+            "React Native Development: Craft strictly-typed, scalable mobile components leveraging React paradigms.",
+            "Platform Styling: Execute flawless UI implementations that adapt correctly and gracefully across different device notches, screen sizes, and orientations.",
+            "State Management: Architect global UI state correctly to prevent excessive re-renders and animation jittering.",
+            "Offline Resilience: Ensure smooth user interactions and intelligent data-caching regardless of network connectivity."
+        ]
+    },
+    "version": "1.0.0"
 }

@@ -237,9 +237,9 @@ def test_engine_isolates_broken_rules(
     # Terraform proposal still emerges from the good rule
     assert len(proposals) == 1
     # Warning logged for the broken rule
-    assert any(
-        "broken" in rec.message for rec in caplog.records
-    ), "expected a warning for the broken rule"
+    assert any("broken" in rec.message for rec in caplog.records), (
+        "expected a warning for the broken rule"
+    )
 
 
 def test_engine_dedup_by_signature() -> None:

@@ -18,14 +18,15 @@ async def test_owl_reasoning_phase_execution():
     context = MagicMock()
     context.graph = nx.MultiDiGraph()
     context.engine = MagicMock()
-    context.config = PipelineConfig(
-        workspace_path=".",
-        enable_owl_reasoning=True
-    )
+    context.config = PipelineConfig(workspace_path=".", enable_owl_reasoning=True)
 
     # Mock OWLBridge and create_owl_backend
-    with patch("agent_utilities.knowledge_graph.pipeline.phases.owl_reasoning.create_owl_backend") as mock_create:
-        with patch("agent_utilities.knowledge_graph.pipeline.phases.owl_reasoning.OWLBridge") as mock_bridge_cls:
+    with patch(
+        "agent_utilities.knowledge_graph.pipeline.phases.owl_reasoning.create_owl_backend"
+    ) as mock_create:
+        with patch(
+            "agent_utilities.knowledge_graph.pipeline.phases.owl_reasoning.OWLBridge"
+        ) as mock_bridge_cls:
             mock_backend = MagicMock()
             mock_create.return_value = mock_backend
 
@@ -40,13 +41,11 @@ async def test_owl_reasoning_phase_execution():
             mock_bridge.run_cycle.assert_called_once()
             mock_backend.close.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_owl_reasoning_phase_disabled():
     context = MagicMock()
-    context.config = PipelineConfig(
-        workspace_path=".",
-        enable_owl_reasoning=False
-    )
+    context.config = PipelineConfig(workspace_path=".", enable_owl_reasoning=False)
 
     result = await execute_owl_reasoning(context, {})
 

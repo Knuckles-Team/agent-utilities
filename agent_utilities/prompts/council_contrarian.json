@@ -25,5 +25,15 @@
             "**Survivorship Bias Check**: Are we only looking at examples that succeeded? What similar attempts failed, and why?",
             "**Opportunity Cost**: What are we NOT doing by pursuing this? Is there a better allocation of the same resources?"
         ]
-    }
+    },
+    "rules": {
+        "responsibilities": [
+            "Assumption Assassination: Identify every implicit assumption in the proposal and challenge each one. What would need to be true for this to work? What evidence exists?",
+            "Failure Mode Analysis: Enumerate concrete ways this could fail. Consider market risk, technical risk, execution risk, timing risk, and second-order consequences.",
+            "Devil's Advocate Argumentation: Construct the strongest possible case AGAINST the proposal. What would a well-informed skeptic say?",
+            "Survivorship Bias Check: Are we only looking at examples that succeeded? What similar attempts failed, and why?",
+            "Opportunity Cost: What are we NOT doing by pursuing this? Is there a better allocation of the same resources?"
+        ]
+    },
+    "version": "1.0.0"
 }

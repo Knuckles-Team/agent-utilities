@@ -305,7 +305,7 @@ The `GraphMaintainer` class (`knowledge_graph/maintainer.py`) runs several backg
 
 > **Note:** The complete specification, tasks, and acceptance criteria for the Document Pipeline are now formally tracked using SDD in `.specify/specs/document_pipeline.md`.
 
-The Document Pipeline provides a tightly-wired system for managing documents across three storage layers: Document DB, Vector DB (via vector-mcp), and Knowledge Graph. It uses a unified ID system to track synchronization status across all systems.
+The Document Pipeline provides a tightly-wired system for managing documents natively within the Knowledge Graph. By leveraging the Graph DB's inherent structure and native vector indexing capabilities, it eliminates the need for redundant external document and vector storage dependencies. The Knowledge Graph acts as the single source of truth for seamless semantic and topological retrieval.
 
 ```mermaid
 graph TD
@@ -316,36 +316,21 @@ graph TD
         Delete[Document Deletion Pipeline]
         Cleanup[Document Cleanup Manager]
 
-        Ingest --> DocDB[("Document DB")]
-        Ingest --> VecDB[("Vector DB")]
         Ingest --> KGNode[("Knowledge Graph")]
         Ingest --> IDReg[("Unified ID Registry")]
 
-        Update --> DocDB
-        Update --> VecDB
         Update --> KGNode
         Update --> IDReg
 
-        Delete --> DocDB
-        Delete --> VecDB
         Delete --> KGNode
         Delete --> IDReg
 
-        Cleanup --> DocDB
+        Cleanup --> KGNode
         Cleanup --> IDReg
     end
 
     style Document_Pipeline fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
 ```
-
-**Document Storage Backends** (`agent_utilities/knowledge_graph/backends/document_storage/`):
-
-| Backend | Status | Connection | Use Case |
-|---|---|---|---|
-| **SQLiteMemoryBackend** | Full (default) | In-memory | Testing, temporary storage |
-| **SQLiteBackend** | Full | File path (`documents.db`) | Local production storage |
-| **PostgreSQLBackend** | Full | PostgreSQL connection string | Production, scalable storage |
-| **MongoDBBackend** | Full | MongoDB connection string | Production, document-oriented storage |
 
 ## KG v2 Schema Extensions
 

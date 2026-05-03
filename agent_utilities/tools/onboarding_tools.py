@@ -15,6 +15,7 @@ from pydantic_ai import RunContext
 from ..models import (
     AgentDeps,
 )
+from .versioning import tool_version
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,7 @@ def scan_for_entry_points(root: Path) -> list[str]:
     return found
 
 
+@tool_version("1.0.0")
 async def bootstrap_project(ctx: RunContext[AgentDeps]) -> str:
     """Identify the project's technical stack and entry points.
 

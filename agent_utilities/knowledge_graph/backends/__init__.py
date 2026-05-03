@@ -6,7 +6,7 @@ FalkorDB, Neo4j, and Vector-MCP. Use `create_backend()` to instantiate the corre
 backend from configuration or environment variables.
 
 Environment Variables:
-    GRAPH_BACKEND: Backend type ("ladybug", "falkordb", "neo4j", "vector_mcp"). Default: "ladybug".
+    GRAPH_BACKEND: Backend type ("ladybug", "falkordb", "neo4j"). Default: "ladybug".
     GRAPH_DB_PATH: File path for LadybugDB. Default: "knowledge_graph.db".
     GRAPH_DB_HOST: Host for FalkorDB/Neo4j. Default: "localhost".
     GRAPH_DB_PORT: Port for FalkorDB (6379) or Neo4j (7687).
@@ -23,7 +23,6 @@ from .base import GraphBackend
 from .falkordb_backend import FalkorDBBackend
 from .ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
 from .neo4j_backend import Neo4jBackend
-from .vector_mcp_backend import VectorMCPBackend
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,6 @@ __all__ = [
     "LadybugBackend",
     "FalkorDBBackend",
     "Neo4jBackend",
-    "VectorMCPBackend",
     "LADYBUG_AVAILABLE",
     "create_backend",
     "get_active_backend",
@@ -71,7 +69,7 @@ def create_backend(
     backend if nothing is specified.
 
     Args:
-        backend_type: One of "ladybug", "falkordb", "neo4j", "vector_mcp". Falls back to
+        backend_type: One of "ladybug", "falkordb", "neo4j". Falls back to
             ``GRAPH_BACKEND`` env var, then "ladybug".
         db_path: File path for LadybugDB. Falls back to ``GRAPH_DB_PATH``.
         host: Host for FalkorDB/Neo4j. Falls back to ``GRAPH_DB_HOST``.
@@ -80,7 +78,7 @@ def create_backend(
         user: Username for Neo4j. Falls back to ``GRAPH_DB_USER``.
         password: Password for Neo4j. Falls back to ``GRAPH_DB_PASSWORD``.
         db_name: Database name for FalkorDB. Falls back to ``GRAPH_DB_NAME``.
-        **kwargs: Additional arguments for Vector-MCP backend (e.g., vector_db_type).
+
 
     Returns:
         A configured ``GraphBackend`` instance, or ``None`` if the requested
@@ -104,20 +102,6 @@ def create_backend(
         )
         backend = LadybugBackend(resolved_path)
 
-    elif backend_type == "vector_mcp":
-        # Vector-MCP backend with fallback to LadybugDB
-        vector_db_type = kwargs.get("vector_db_type", "chroma")
-        fallback_db = (
-            LadybugBackend(db_path or "knowledge_graph.db")
-            if LADYBUG_AVAILABLE
-            else None
-        )
-        backend = VectorMCPBackend(
-            db_type=vector_db_type,
-            fallback_graph_db=fallback_db,
-            **{k: v for k, v in kwargs.items() if k != "vector_db_type"},
-        )
-
     elif backend_type == "falkordb":
         resolved_host = host or os.environ.get("GRAPH_DB_HOST") or "localhost"
         resolved_port = port or int(os.environ.get("GRAPH_DB_PORT", "6379"))
@@ -138,7 +122,7 @@ def create_backend(
 
     else:
         logger.error(
-            f"Unknown graph backend type: '{backend_type}'. Supported: ladybug, falkordb, neo4j, vector_mcp"
+            f"Unknown graph backend type: '{backend_type}'. Supported: ladybug, falkordb, neo4j"
         )
         return None
 

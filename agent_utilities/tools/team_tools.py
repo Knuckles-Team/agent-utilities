@@ -12,8 +12,10 @@ from typing import Any
 from pydantic_ai import RunContext
 
 from ..capabilities.teams import TeamCapability
+from .versioning import tool_version
 
 
+@tool_version("1.0.0")
 async def spawn_team(
     ctx: RunContext[Any], team_name: str, member_ids: list[str]
 ) -> str:
@@ -31,6 +33,7 @@ async def spawn_team(
     return f"Team '{team_name}' created with ID: {team_id}. Members: {', '.join(member_ids)}"
 
 
+@tool_version("1.0.0")
 async def assign_team_task(
     ctx: RunContext[Any], content: str, assigned_to: str | None = None
 ) -> str:
@@ -47,6 +50,7 @@ async def assign_team_task(
     return f"Task assigned to {target}. Task ID: {task_id}"
 
 
+@tool_version("1.0.0")
 async def message_teammate(ctx: RunContext[Any], member_id: str, message: str) -> str:
     """Send a direct message to a team member via ACP.
 
@@ -62,6 +66,7 @@ async def message_teammate(ctx: RunContext[Any], member_id: str, message: str) -
     return f"Failed to send message to {member_id}. Ensure ACP session is active."
 
 
+@tool_version("1.0.0")
 async def list_team_tasks(ctx: RunContext[Any]) -> str:
     """List all tasks associated with the current team from the knowledge graph."""
     engine = getattr(ctx.deps, "graph_engine", None)
@@ -82,6 +87,7 @@ async def list_team_tasks(ctx: RunContext[Any]) -> str:
     return "Team Tasks:\n" + "\n".join(tasks)
 
 
+@tool_version("1.0.0")
 async def discover_teams(ctx: RunContext[Any]) -> str:
     """Discover all active teams from the knowledge graph.
 
@@ -103,6 +109,7 @@ async def discover_teams(ctx: RunContext[Any]) -> str:
     return "\n".join(lines)
 
 
+@tool_version("1.0.0")
 async def update_task_status(ctx: RunContext[Any], task_id: str, status: str) -> str:
     """Update the status of a team task.
 

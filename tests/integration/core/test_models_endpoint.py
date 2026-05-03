@@ -149,9 +149,7 @@ def test_models_endpoint_multi_model_registry(mock_agent, monkeypatch):
     assert _opus.tier == "heavy"
 
 
-def test_models_endpoint_picks_up_models_config_env(
-    tmp_path, mock_agent, monkeypatch
-):
+def test_models_endpoint_picks_up_models_config_env(tmp_path, mock_agent, monkeypatch):
     """MODELS_CONFIG env var is honoured when no explicit kwargs."""
     payload = {
         "models": [
@@ -220,9 +218,7 @@ def test_resolve_model_registry_missing_config_file_logs_and_falls_back(
     """Bad MODELS_CONFIG path must not crash server startup."""
     monkeypatch.setenv("MODELS_CONFIG", str(tmp_path / "nope.json"))
     # File does not exist -> resolver falls through to kwargs/empty.
-    result = resolve_model_registry(
-        provider="openai", model_id="gpt-4o-mini"
-    )
+    result = resolve_model_registry(provider="openai", model_id="gpt-4o-mini")
     _missing_default = result.get_default()
     assert _missing_default is not None
     assert _missing_default.id == "openai:gpt-4o-mini"
@@ -235,9 +231,7 @@ def test_resolve_model_registry_invalid_yaml_falls_back_to_bootstrap(
     cfg = tmp_path / "broken.json"
     cfg.write_text("{not: valid: json")
     monkeypatch.setenv("MODELS_CONFIG", str(cfg))
-    result = resolve_model_registry(
-        provider="openai", model_id="gpt-4o-mini"
-    )
+    result = resolve_model_registry(provider="openai", model_id="gpt-4o-mini")
     _broken_default = result.get_default()
     assert _broken_default is not None
     assert _broken_default.id == "openai:gpt-4o-mini"

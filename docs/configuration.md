@@ -11,7 +11,7 @@ This document provides a unified reference for all environment variables, config
 | `MODEL_ID` | `llama-3.2-3b-instruct` | Specific model identifier to use |
 | `LLM_BASE_URL` | `http://host.docker.internal:1234/v1` | Base URL for the LLM API |
 | `LLM_API_KEY` | `llama` | API key for the provider |
-| `MODELS_CONFIG` | *None* | Path to a multi-model registry JSON configuration |
+| `MODELS_CONFIG` | *None* | Path to a multi-model registry JSON configuration. See [models.md](models.md) |
 | `MODEL_OVERRIDE` | *None* | Override model specified per-request via middleware |
 | `LLM_CUSTOM_HEADERS` | *None* | Comma-separated list of custom headers to pass to the LLM |
 
@@ -44,7 +44,7 @@ This document provides a unified reference for all environment variables, config
 ### Secrets & Auth (AU-011)
 | Variable | Default | Description |
 |---|---|---|
-| `SECRETS_BACKEND` | `inmemory` | Storage for secrets (`inmemory`, `sqlite`, `vault`) |
+| `SECRETS_BACKEND` | `inmemory` | Storage for secrets (`inmemory`, `sqlite`, `vault`). See [secrets-auth.md](secrets-auth.md) |
 | `SECRETS_SQLITE_PATH` | `~/.agent-utilities/secrets.db` | Path for SQLite secrets DB |
 | `SECRETS_VAULT_URL` | *None* | URL for HashiCorp Vault |
 | `SECRETS_VAULT_MOUNT` | `secret` | Vault KV v2 mount point |
@@ -74,6 +74,13 @@ This document provides a unified reference for all environment variables, config
 | `RLM_USE_CONTAINER` | `True` | Run RLM in an isolated container if available |
 | `AHE_TRACE_THRESHOLD` | `0.7` | Quality threshold triggering distillation traces |
 
+### Swarm & First Principles
+| Variable | Default | Description |
+|---|---|---|
+| `SWARM_MODE` | `False` | Enable swarm orchestration in dispatcher |
+| `SWARM_MAX_DEPTH` | `3` | Maximum recursion depth for sub-swarms |
+| `SWARM_MAX_AGENTS` | `10` | Maximum agents per swarm |
+
 ### Observability
 | Variable | Default | Description |
 |---|---|---|
@@ -89,6 +96,12 @@ This document provides a unified reference for all environment variables, config
 | `MCP_SEMAPHORE_LIMIT` | `30` | Max parallel subprocesses during tool discovery |
 | `TOOL_GUARD_MODE` | `on` | Strictness of the tool execution guard (`on`, `off`, `custom`) |
 | `DISABLE_TOOL_GUARD` | `False` | Completely bypass tool elicitation and safety checks |
+
+### A2A Agent Discovery (AU-028)
+| Variable | Default | Description |
+|---|---|---|
+| `A2A_CONFIG` | *None* | Path to `a2a_config.json` for external A2A agent discovery |
+| `A2A_REFRESH_INTERVAL` | `300` | Seconds between periodic `.well-known/agent-card.json` re-fetch |
 
 ## CLI Flags
 

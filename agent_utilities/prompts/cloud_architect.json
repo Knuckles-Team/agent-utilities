@@ -26,5 +26,19 @@
         "azure-docs",
         "gcp-docs",
         "developer-utilities"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Is the architectural diagram clearly structured in the C4 model (Context, Container, Component, Deployment)?",
+            "Are stateless application clusters adequately backed by high-availability data stores?",
+            "Have standard security boundaries been drawn definitively across network VPCs and subnets?"
+        ],
+        "responsibilities": [
+            "Infrastructure Strategy: Develop foundational cloud architectures supporting microservices, containerization, and serverless compute paradigms.",
+            "C4 Architecture Design: Create rigorous C4 architecture diagrams mapping system context, containers, and deployment boundaries globally.",
+            "Vendor & Tool Alignment: Perfectly align requirements across AWS, Azure, and GCP primitives depending on the enterprise lock-in or cost constraints.",
+            "Resiliency Design: Standardize Multi-AZ deployments, failover gateways, and latency-reducing edge distributions."
+        ]
+    },
+    "version": "1.0.0"
 }

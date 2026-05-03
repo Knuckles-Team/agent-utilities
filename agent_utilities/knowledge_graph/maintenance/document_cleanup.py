@@ -8,7 +8,6 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from ..backends.document_storage.base import DocumentDB
 from ..engine import IntelligenceGraphEngine
 from ..id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
 
@@ -28,8 +27,6 @@ class DocumentCleanup:
 
     def __init__(
         self,
-        document_db: DocumentDB,
-        vector_db: Any,  # Interface from vector-mcp if available
         knowledge_graph: IntelligenceGraphEngine,
         id_registry: UnifiedIDRegistry | None = None,
     ):
@@ -37,13 +34,9 @@ class DocumentCleanup:
         Initialize the document cleanup operations.
 
         Args:
-            document_db: Document database backend
-            vector_db: Vector database backend (vector-mcp)
             knowledge_graph: Knowledge graph engine
             id_registry: Optional unified ID registry
         """
-        self.document_db = document_db
-        self.vector_db = vector_db
         self.knowledge_graph = knowledge_graph
         self.id_manager = UnifiedIDManager()
         self.id_registry = id_registry or UnifiedIDRegistry()
@@ -86,8 +79,6 @@ class DocumentCleanup:
         from ..pipeline.document_deletion import DocumentDeletionPipeline
 
         deletion_pipeline = DocumentDeletionPipeline(
-            document_db=self.document_db,
-            vector_db=self.vector_db,
             knowledge_graph=self.knowledge_graph,
             id_registry=self.id_registry,
         )
@@ -95,12 +86,7 @@ class DocumentCleanup:
         for doc_id in old_doc_ids:
             try:
                 # Check if document is soft-deleted
-                import asyncio
-
-                if asyncio.iscoroutinefunction(self.document_db.find_document):
-                    doc = await self.document_db.find_document(doc_id, "documents")
-                else:
-                    doc = self.document_db.find_document(doc_id, "documents")
+                doc = self.knowledge_graph.graph.nodes.get(doc_id)
                 if doc and doc.get("is_deleted"):
                     if hard_delete_soft_deleted:
                         await deletion_pipeline.delete_document(
@@ -135,23 +121,10 @@ class DocumentCleanup:
 
         results: dict[str, Any] = {"embeddings_deleted": 0, "errors": []}
 
-        # Get all embeddings from vector database
-        # This depends on vector-mcp API
-        # For now, we'll implement a placeholder
+        # Not needed since graph and vector are tied together now in the node
         try:
-            # Placeholder: Get all documents from vector-mcp
-            # all_embeddings = await self.vector_db.get_all_documents(collection_name="knowledge_graph")
-
-            # For each embedding, check if parent document exists in registry
-            # for embedding_doc in all_embeddings:
-            #     unified_id = embedding_doc.get("metadata", {}).get("parent_doc_id")
-            #     if unified_id and unified_id not in self.id_registry.document_ids:
-            #         # Orphan embedding - delete it
-            #         self.vector_db.delete_documents([embedding_doc["id"]], collection_name="knowledge_graph")
-            #         results["embeddings_deleted"] += 1
-
             logger.warning(
-                "Orphan embedding cleanup not fully implemented - requires vector-mcp API integration"
+                "Orphan embedding cleanup is inherently handled by Graph deletion"
             )
 
         except Exception as e:
@@ -217,28 +190,25 @@ class DocumentCleanup:
 
         results: dict[str, Any] = {"documents_hard_deleted": 0, "errors": []}
 
-        # cutoff_date = datetime.now() - timedelta(days=age_days)
-
-        # Get all documents and filter for soft-deleted
-        # This depends on document DB implementation
-        # For now, we'll implement a placeholder
+        cutoff_date = datetime.now() - timedelta(days=age_days)
 
         try:
-            # Placeholder: Get all soft-deleted documents older than threshold
-            # soft_deleted_docs = await self.document_db.find_documents({
-            #     "is_deleted": True,
-            #     "deleted_at": {"$lt": cutoff_date.isoformat()}
-            # }, "documents")
+            # Get all soft-deleted documents older than threshold
+            soft_deleted_docs = []
+            for node_id, data in self.knowledge_graph.graph.nodes(data=True):
+                if data.get("is_deleted") and "deleted_at" in data:
+                    deleted_at = datetime.fromisoformat(data["deleted_at"])
+                    if deleted_at < cutoff_date:
+                        soft_deleted_docs.append(node_id)
 
-            # for doc in soft_deleted_docs:
-            #     from .document_deletion import DocumentDeletionPipeline
-            #     deletion_pipeline = DocumentDeletionPipeline(...)
-            #     await deletion_pipeline.delete_document(doc["id"], hard_delete=True)
-            #     results["documents_hard_deleted"] += 1
+            for doc_id in soft_deleted_docs:
+                from ..pipeline.document_deletion import DocumentDeletionPipeline
 
-            logger.warning(
-                "Soft-deleted document cleanup not fully implemented - requires document DB API integration"
-            )
+                deletion_pipeline = DocumentDeletionPipeline(
+                    knowledge_graph=self.knowledge_graph, id_registry=self.id_registry
+                )
+                await deletion_pipeline.delete_document(doc_id, hard_delete=True)
+                results["documents_hard_deleted"] += 1
 
         except Exception as e:
             logger.error(f"Failed to cleanup soft-deleted documents: {e}")

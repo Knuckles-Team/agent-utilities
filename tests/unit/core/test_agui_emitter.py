@@ -110,9 +110,7 @@ class TestTranslate:
         decoded = json.loads(text_line[2:].strip())
         assert decoded == "Final answer"
         # Should also contain a sideband with graph_complete
-        sideband_chunks = [
-            c for c in chunks if c.decode("utf-8").startswith("8:")
-        ]
+        sideband_chunks = [c for c in chunks if c.decode("utf-8").startswith("8:")]
         assert len(sideband_chunks) >= 1
         sb_payload = json.loads(sideband_chunks[0].decode("utf-8")[2:].strip())
         assert sb_payload["type"] == "graph_complete"
@@ -170,7 +168,5 @@ class TestTranslate:
         }
         chunks = emitter.translate(event)
         # Should only have sideband, no text delta
-        text_chunks = [
-            c for c in chunks if c.decode("utf-8").startswith("2:")
-        ]
+        text_chunks = [c for c in chunks if c.decode("utf-8").startswith("2:")]
         assert len(text_chunks) == 0

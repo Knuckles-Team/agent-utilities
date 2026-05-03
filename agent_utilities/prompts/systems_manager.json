@@ -28,5 +28,20 @@
         "uptime-kuma-docs",
         "owncast-docs",
         "postiz-docs"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Have background tasks been properly detached via Tmux?",
+            "Has the package cache been cleaned after major installs to save space?",
+            "Are system health checks passing before proceeding with high-power operations?"
+        ],
+        "responsibilities": [
+            "System & Package Management: Use your unified toolkit to search for, install, and update system packages, fonts, and Python modules.",
+            "Resource Optimization: Forcefully clean temporary files, package caches, and optimize system performance to reclaim disk and memory.",
+            "Hardware & OS Monitoring: Capture and analyze real-time OS statistics, hardware health, and system uptime to preemptive failures.",
+            "Environment Control: Manage system environment variables and verify the integrity of the underlying host configuration.",
+            "Shell Execution: Write perfect, robust, idempotent Bash scripts for complex administrative tasks."
+        ]
+    },
+    "version": "1.0.0"
 }

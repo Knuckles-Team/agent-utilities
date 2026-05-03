@@ -102,6 +102,23 @@ class RegistryNodeType(StrEnum):
     COMPONENT_EDIT_RECORD = "component_edit_record"
     EVIDENCE_RECORD = "evidence_record"
     CONSTRAINT_STATE = "constraint_state"
+    # Emergent Architecture Node Types (CONCEPT:AU-013/AU-014/AU-016/AU-017)
+    SELF_MODEL = "self_model"
+    SWARM_COALITION = "swarm_coalition"
+    PROPOSAL = "proposal"
+    # Agentic Design Patterns Gap Concepts (CONCEPT:AU-018 through AU-022)
+    PROMPT_CHAIN = "prompt_chain"
+    RESOURCE_USAGE = "resource_usage"
+    EVALUATION_RECORD = "evaluation_record"
+    PRIORITIZED_TASK = "prioritized_task"
+    KNOWLEDGE_GAP = "knowledge_gap"
+    EXPLORATION_EXPERIMENT = "exploration_experiment"
+    # Engineering Rules Engine (agent-rules-books integration)
+    ENGINEERING_RULE = "engineering_rule"
+    RULE_BOOK = "rule_book"
+    # First-Principles Architecture (CONCEPT:AU-025/AU-026)
+    TEAM_CONFIG = "team_config"
+    AGENT_CAPABILITY = "agent_capability"
 
 
 class RegistryEdgeType(StrEnum):
@@ -221,6 +238,30 @@ class RegistryEdgeType(StrEnum):
     CONFIRMED_FIX = "confirmed_fix"
     VERIFIED_BY = "verified_by"
     ESCALATED_TO = "escalated_to"
+    # Emergent Architecture Edges (CONCEPT:AU-014/AU-015/AU-016/AU-017)
+    VARIANT_OF = "variant_of"
+    CURRENT_SELF_MODEL = "current_self_model"
+    SPAWNED_BY = "spawned_by"
+    COORDINATED_BY = "coordinated_by"
+    PROPOSED_FOR = "proposed_for"
+    # Agentic Design Patterns Gap Edges (CONCEPT:AU-018 through AU-022)
+    CHAIN_STEP = "chain_step"
+    BRANCHES_TO = "branches_to"
+    CONSUMED_RESOURCE = "consumed_resource"
+    EVALUATED_WITH = "evaluated_with"
+    CALIBRATED_AGAINST = "calibrated_against"
+    BLOCKS = "blocks"
+    ASSIGNED_TO_SPECIALIST = "assigned_to_specialist"
+    TESTS_HYPOTHESIS = "tests_hypothesis"
+    EXPLORED_GAP = "explored_gap"
+    RESULTED_IN_DISCOVERY = "resulted_in_discovery"
+    # Engineering Rules Engine Edges (agent-rules-books)
+    CONFLICTS_WITH = "conflicts_with"
+    CORRECTS_BIAS = "corrects_bias"
+    APPLICABLE_WHEN = "applicable_when"
+    # First-Principles Architecture Edges (CONCEPT:AU-025/AU-026)
+    HAS_CAPABILITY = "has_capability"
+    REUSED_TEAM = "reused_team"
 
 
 class RegistryNode(BaseModel):
@@ -1025,6 +1066,127 @@ class PrincipleNode(RegistryNode):
     last_reviewed: str | None = None
 
 
+class EngineeringRuleNode(PrincipleNode):
+    """A software engineering rule derived from a canonical book.
+
+    Subclass of PrincipleNode specialized for agent-rules-books integration.
+    Stores structured rule metadata for context-budget-aware retrieval and
+    AHE efficacy tracking.
+
+    CONCEPT:AU-023 — Engineering Rules Engine
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ENGINEERING_RULE
+    # Rule tier for context-budget selection
+    tier: Literal["full", "mini", "nano"] = Field(
+        default="mini",
+        description="Context-budget tier: full (reference), mini (recommended), nano (fallback)",
+    )
+    # Classification per agent-rules-books PROCESS.md taxonomy
+    rule_class: Literal[
+        "book-thesis",
+        "decision-changing",
+        "micro-decision",
+        "conflict-resolver",
+        "trigger",
+        "checklist-only",
+        "framing",
+        "default",
+    ] = Field(
+        default="decision-changing",
+        description="Rule classification from PROCESS.md taxonomy",
+    )
+    # The LLM bias this rule corrects
+    bias_corrected: str = Field(
+        default="",
+        description="The known LLM shortcut or bias this rule prevents",
+    )
+    # Trigger condition (for trigger rules)
+    trigger_condition: str = Field(
+        default="",
+        description="When this rule activates (e.g., 'adding external dependency')",
+    )
+    # Task type tags for relevance matching
+    task_relevance_tags: list[str] = Field(
+        default_factory=list,
+        description="Task types: architecture, refactoring, legacy, production, data-systems, domain-modeling, code-quality",
+    )
+    # Source book reference
+    source_book_id: str = Field(
+        default="",
+        description="ID of the RuleBookNode this rule was derived from",
+    )
+    # Section within the source (for traceability)
+    source_section: str = Field(
+        default="",
+        description="Section name in the source book (e.g., 'Decision rules', 'Trigger rules')",
+    )
+    # AHE tracking
+    application_count: int = Field(
+        default=0,
+        description="Number of times this rule has been applied to a task",
+    )
+    violation_count: int = Field(
+        default=0,
+        description="Number of times this rule was violated in a task",
+    )
+    efficacy_score: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Running efficacy score from AHE feedback (0=ineffective, 1=highly effective)",
+    )
+    # Conflict tracking
+    conflict_weight: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Deterministic weight for conflict resolution (derived from evidence/reasoning/material)",
+    )
+    version: str = Field(
+        default="1.0.0",
+        description="Semantic version for rule evolution tracking",
+    )
+
+
+class RuleBookNode(RegistryNode):
+    """A canonical software engineering book that is the source of engineering rules.
+
+    Represents the upstream source (e.g., 'Clean Architecture', 'Domain-Driven Design')
+    from which EngineeringRuleNode instances are derived.
+
+    CONCEPT:AU-023 — Engineering Rules Engine
+    """
+
+    type: RegistryNodeType = RegistryNodeType.RULE_BOOK
+    book_id: str = Field(description="Kebab-case slug, e.g. 'clean-architecture'")
+    author: str = Field(default="", description="Book author(s)")
+    # Domain tags for routing
+    domain_tags: list[str] = Field(
+        default_factory=list,
+        description="Applicable domains: architecture, code-quality, domain-modeling, refactoring, legacy, production, data-systems",
+    )
+    # Bias the book corrects
+    primary_bias: str = Field(
+        default="",
+        description="The book's central corrective bias (from mini.md 'Primary bias to correct')",
+    )
+    # When to use
+    when_to_use: str = Field(
+        default="",
+        description="Usage context (from mini.md 'When to use')",
+    )
+    # Rule counts per tier
+    full_rule_count: int = Field(default=0)
+    mini_rule_count: int = Field(default=0)
+    nano_rule_count: int = Field(default=0)
+    # Version tracking
+    version: str = Field(
+        default="1.0.0",
+        description="Version of the rule extraction",
+    )
+
+
 class ObservationNode(RegistryNode):
     """An agent observation — a structured record of something perceived.
 
@@ -1222,6 +1384,362 @@ class AccountNode(RegistryNode):
     institution: str | None = None
     currency: str | None = None
     status: str = "active"  # active, closed, frozen
+
+
+# --- Emergent Architecture Nodes (CONCEPT:AU-014/AU-016/AU-017) ---
+
+
+class SelfModelNode(RegistryNode):
+    """Versioned metacognitive self-model of the agent's capabilities.
+
+    CONCEPT:AU-016 — Persistent Self-Model
+
+    Each session creates a new version linked by SUPERSEDES edges, with a
+    CURRENT_SELF_MODEL pointer for O(1) lookup. Integrates with OWL via
+    ``self_model.promote_to_owl()`` for reasoner-driven metacognition.
+
+    See docs/emergent-architecture.md §AU-016.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SELF_MODEL
+    version: int = Field(default=1, description="Monotonically increasing version")
+    domain_success_rates: dict[str, float] = Field(
+        default_factory=dict,
+        description="Running average success rate per routed domain",
+    )
+    capability_confidence: dict[str, float] = Field(
+        default_factory=dict,
+        description="Self-evaluated confidence per capability area",
+    )
+    tool_proficiency: dict[str, float] = Field(
+        default_factory=dict,
+        description="Frequency × success rate per tool",
+    )
+    total_sessions: int = 0
+    total_tasks_completed: int = 0
+    known_failure_patterns: list[str] = Field(
+        default_factory=list,
+        description="Recurring failure modes extracted from low-reward episodes",
+    )
+    session_id: str = Field(default="", description="Session that created this version")
+
+
+class SwarmCoalitionNode(RegistryNode):
+    """A dynamically formed agent coalition for task execution.
+
+    CONCEPT:AU-014 — Swarm Orchestration
+
+    Tracks the lifecycle of a dynamically spawned swarm: which agents
+    participated, the task tree they were assigned, and the achieved
+    parallelism ratio. Registered as transient KG nodes for observability.
+
+    See docs/emergent-architecture.md §AU-014.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SWARM_COALITION
+    agents_spawned: int = 0
+    depth_reached: int = 0
+    parallelism_achieved: float = Field(
+        default=0.0,
+        description="Ratio of parallel vs sequential execution",
+    )
+    task_description: str = ""
+    status: str = "active"  # active, completed, failed
+
+
+class ProposalNode(RegistryNode):
+    """A specialist output proposal competing for broadcast.
+
+    CONCEPT:AU-017 — Global Workspace Attention
+
+    Specialists submit proposals that are scored by relevance, confidence,
+    and track record. Winners are broadcast to the KG for integration.
+
+    See docs/emergent-architecture.md §AU-017.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.PROPOSAL
+    specialist_id: str = Field(description="ID of the specialist that generated this")
+    output: str = ""
+    relevance_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    track_record_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    composite_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    selected: bool = False
+
+
+# --- Agentic Design Patterns Gap Nodes (CONCEPT:AU-018 through AU-022) ---
+
+
+class PromptChainNode(RegistryNode):
+    """A declarative multi-step prompt pipeline.
+
+    CONCEPT:AU-018 — Prompt Chaining Pattern
+
+    Models a sequence of prompt steps with intermediate validation,
+    conditional branching, and result transformation. Persisted to the KG
+    for discovery and reuse across sessions.
+
+    BFO:Process (occurrent), aligned to :Procedure.
+    See docs/design-patterns-alignment.md §AU-018.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.PROMPT_CHAIN
+    chain_id: str = Field(description="Stable slug, e.g. 'extract-and-summarize'")
+    step_count: int = 0
+    steps: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ordered list of chain step definitions",
+    )
+    max_retries_per_step: int = 2
+    total_executions: int = 0
+    avg_latency_ms: float = 0.0
+    success_rate: float = 1.0
+
+
+class ResourceUsageNode(RegistryNode):
+    """Per-session resource consumption record.
+
+    CONCEPT:AU-019 — Resource-Aware Optimization
+
+    Tracks token usage, cost, and latency per specialist per session.
+    Historical data feeds into the SelfModel for trend analysis and
+    the OWL reasoner for model selection optimization.
+
+    BFO:Process (occurrent), aligned to :ResourceUsage.
+    See docs/design-patterns-alignment.md §AU-019.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.RESOURCE_USAGE
+    session_id: str = Field(description="Session that generated this record")
+    specialist_id: str | None = Field(
+        default=None, description="Specialist that consumed resources"
+    )
+    tokens_input: int = 0
+    tokens_output: int = 0
+    cost_usd: float = 0.0
+    latency_ms: float = 0.0
+    model_id: str | None = None
+    model_tier: str | None = None
+    budget_allocated: float = 0.0
+    budget_remaining: float = 0.0
+
+
+class EvaluationRecordNode(RegistryNode):
+    """Multi-dimensional evaluation of an agent response.
+
+    CONCEPT:AU-020 — Evaluation & Monitoring
+
+    Provides per-dimension scoring (correctness, completeness, relevance,
+    safety) with a composite score for backward compatibility with the
+    existing verifier gate. Supports LLM-as-Judge and human calibration.
+
+    BFO:SpecificallyDependentContinuant, aligned to :Observation.
+    See docs/design-patterns-alignment.md §AU-020.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.EVALUATION_RECORD
+    correctness_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    completeness_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    relevance_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    safety_score: float = Field(default=1.0, ge=0.0, le=1.0)
+    composite_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    evaluator: str = "llm-judge"  # llm-judge, human, automated
+    rubric_id: str | None = None
+    evidence: str = ""
+    session_id: str = ""
+
+
+class PrioritizedTaskNode(RegistryNode):
+    """A task with multi-factor priority scoring.
+
+    CONCEPT:AU-021 — Task Prioritization
+
+    Extends the basic SDD task model with urgency, impact, effort, and risk
+    dimensions. Supports dynamic re-prioritization, priority inheritance
+    from blocking tasks, and capability-based specialist assignment.
+
+    BFO:Process (occurrent), aligned to :Action.
+    See docs/design-patterns-alignment.md §AU-021.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.PRIORITIZED_TASK
+    task_id: str = Field(description="Stable task identifier")
+    urgency: float = Field(default=0.5, ge=0.0, le=1.0)
+    impact: float = Field(default=0.5, ge=0.0, le=1.0)
+    effort: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Estimated complexity (0=trivial, 1=massive)",
+    )
+    risk: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Failure probability",
+    )
+    composite_priority: float = Field(default=0.0, ge=0.0, le=1.0)
+    status: str = "pending"  # pending, in_progress, completed, blocked
+    assigned_specialist: str | None = None
+    blocking_task_ids: list[str] = Field(default_factory=list)
+    blocked_by_task_ids: list[str] = Field(default_factory=list)
+
+
+class KnowledgeGapNode(RegistryNode):
+    """An identified gap in the agent's knowledge.
+
+    CONCEPT:AU-022 — Exploration & Discovery
+
+    Represents a domain or topic where the agent has identified insufficient
+    knowledge. Links to hypotheses generated to fill the gap and experiments
+    designed to test those hypotheses.
+
+    BFO:SpecificallyDependentContinuant, aligned to :Observation.
+    See docs/design-patterns-alignment.md §AU-022.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.KNOWLEDGE_GAP
+    domain: str = Field(description="Domain area of the gap")
+    gap_statement: str = Field(description="Description of what is missing")
+    severity: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="How critical this gap is (0=nice-to-know, 1=blocking)",
+    )
+    status: str = "identified"  # identified, exploring, filled, deferred
+    hypothesis_ids: list[str] = Field(default_factory=list)
+    discovered_fact_ids: list[str] = Field(default_factory=list)
+
+
+class ExplorationExperimentNode(RegistryNode):
+    """A structured experiment to explore a hypothesis.
+
+    CONCEPT:AU-022 — Exploration & Discovery
+
+    Represents an experiment designed to test a hypothesis, including
+    design, variables, success criteria, and results. Supports
+    multi-reviewer evaluation with structured scoring.
+
+    BFO:Process (occurrent), aligned to :Procedure.
+    See docs/design-patterns-alignment.md §AU-022.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.EXPLORATION_EXPERIMENT
+    experiment_id: str = Field(description="Stable experiment identifier")
+    hypothesis_id: str = Field(description="HypothesisNode ID being tested")
+    design: str = Field(description="Natural language experiment description")
+    variables: dict[str, str] = Field(
+        default_factory=dict,
+        description="Variable name -> description mapping",
+    )
+    success_criteria: str = ""
+    results: str | None = None
+    review_scores: dict[str, float] = Field(
+        default_factory=dict,
+        description="Reviewer name -> score mapping",
+    )
+    status: str = "designed"  # designed, running, completed, failed
+
+
+# --- First-Principles Architecture Nodes (CONCEPT:AU-025/AU-026) ---
+
+
+class TeamConfigNode(RegistryNode):
+    """Reusable team composition template promoted from successful coalitions.
+
+    CONCEPT:AU-025 — Proven Team Reuse
+
+    When a ``SwarmCoalition`` completes successfully (reward > threshold),
+    it is promoted into a ``TeamConfigNode``.  The router queries matching
+    TeamConfigs before LLM-based planning — if a proven template exists
+    with a high enough ``success_rate``, it is reused directly.
+
+    The ``capability_overrides`` field enables RLM + TeamConfig synergy:
+    specialists that historically receive large data can have the ``rlm``
+    capability auto-attached at reuse time.
+
+    See docs/emergent-architecture.md §AU-025.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.TEAM_CONFIG
+    task_pattern: str = Field(
+        description="Semantic descriptor of the task type this team solves"
+    )
+    specialist_ids: list[str] = Field(
+        default_factory=list,
+        description="Agent IDs that form this team",
+    )
+    tool_assignments: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Mapping of agent_id → assigned tool names",
+    )
+    prompt_template_ids: list[str] = Field(
+        default_factory=list,
+        description="Prompt node IDs used by the team",
+    )
+    capability_overrides: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Mapping of agent_id → capability types to auto-attach",
+    )
+    success_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Rolling average success rate from OutcomeEvaluations",
+    )
+    usage_count: int = Field(default=0, description="Number of times reused")
+    reuse_threshold: float = Field(
+        default=0.72,
+        ge=0.0,
+        le=1.0,
+        description="Minimum cosine similarity to consider reuse (adaptive)",
+    )
+
+
+class AgentCapabilityNode(RegistryNode):
+    """First-class capability assignable to specialist agents.
+
+    CONCEPT:AU-026 — Agent Capability Type System
+
+    Formalizes capabilities (RLM, Critic, Navigator, etc.) as typed KG
+    nodes with handler metadata and trigger conditions.  Linked to agents
+    via ``HAS_CAPABILITY`` edges.  When ``auto_activate`` is True and
+    trigger conditions are met at runtime, the executor dynamically
+    invokes the capability handler.
+
+    See docs/emergent-architecture.md §AU-026.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_CAPABILITY
+    capability_type: str = Field(
+        description=(
+            "Capability identifier: 'rlm', 'critic', 'navigator', "
+            "'synthesizer', 'researcher', 'data_synthesizer', 'memory_manager'"
+        )
+    )
+    handler_module: str = Field(
+        description="Python import path, e.g. 'agent_utilities.rlm.specialist'"
+    )
+    handler_function: str = Field(
+        default="run",
+        description="Entry point function name within handler_module",
+    )
+    trigger_conditions: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Conditions for auto-activation, e.g. {'input_chars_gt': 50000}",
+    )
+    performance_score: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Rolling performance score from outcome evaluations",
+    )
+    auto_activate: bool = Field(
+        default=True,
+        description="Whether to auto-engage when trigger conditions are met",
+    )
 
 
 # --- Schema Definition for Backend Abstraction ---

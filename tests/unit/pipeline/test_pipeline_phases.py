@@ -20,6 +20,7 @@ def mock_pipeline_ctx():
     ctx.config = MagicMock()
     return ctx
 
+
 @pytest.mark.asyncio
 async def test_execute_centrality(mock_pipeline_ctx):
     # Add some nodes and edges
@@ -32,12 +33,17 @@ async def test_execute_centrality(mock_pipeline_ctx):
     assert "centrality" in mock_pipeline_ctx.nx_graph.nodes["A"]
     assert result["top_node"] is not None
 
+
 @pytest.mark.asyncio
 async def test_execute_workspace_sync_no_yml(mock_pipeline_ctx, tmp_path):
-    with patch("agent_utilities.knowledge_graph.pipeline.phases.workspace_sync.get_agent_workspace", return_value=tmp_path):
+    with patch(
+        "agent_utilities.knowledge_graph.pipeline.phases.workspace_sync.get_agent_workspace",
+        return_value=tmp_path,
+    ):
         result = await execute_workspace_sync(mock_pipeline_ctx, {})
         assert result["status"] == "skipped"
         assert "workspace.yml missing" in result["reason"]
+
 
 @pytest.mark.asyncio
 async def test_execute_workspace_sync_success(mock_pipeline_ctx, tmp_path):
@@ -46,12 +52,20 @@ async def test_execute_workspace_sync_success(mock_pipeline_ctx, tmp_path):
     yml_path = tmp_path / "workspace.yml"
     project_dir = tmp_path / "Workspace" / "repo"
     project_dir.mkdir(parents=True)
-    yml_path.write_text(f"projects:\n  - url: https://github.com/test/repo.git\n    name: repo\n    path: {project_dir}")
+    yml_path.write_text(
+        f"projects:\n  - url: https://github.com/test/repo.git\n    name: repo\n    path: {project_dir}"
+    )
 
-    with patch("agent_utilities.knowledge_graph.pipeline.phases.workspace_sync.get_agent_workspace", return_value=workspace_dir), \
-         patch("repository_manager.repository_manager.Git") as MockGit, \
-         patch("agent_utilities.knowledge_graph.kb.ingestion.KBIngestionEngine") as MockIngest:
-
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.pipeline.phases.workspace_sync.get_agent_workspace",
+            return_value=workspace_dir,
+        ),
+        patch("repository_manager.repository_manager.Git") as MockGit,
+        patch(
+            "agent_utilities.knowledge_graph.kb.ingestion.KBIngestionEngine"
+        ) as MockIngest,
+    ):
         MockIngest.return_value.ingest_directory = AsyncMock()
 
         result = await execute_workspace_sync(mock_pipeline_ctx, {})

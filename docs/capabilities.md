@@ -65,3 +65,46 @@ Multi-agent coordination patterns:
 - **Parallel dispatch**: Send tasks to multiple agents simultaneously
 - **Sequential pipeline**: Chain agent outputs as inputs to the next
 - **Voting/consensus**: Aggregate multiple agent responses
+- **TeamConfig Promotion (AU-025)**: Successful coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. See [first-principles.md](first-principles.md) for details on proven team reuse and reward tracking.
+
+---
+
+## AgentCapability Type System (AU-026)
+
+> See also: [First Principles Architecture](first-principles.md) for the complete AU-026 deep-dive.
+
+The AgentCapability system extends the static tool-binding model with dynamic, condition-based capability activation. Capabilities are modeled as first-class Knowledge Graph nodes (`AgentCapabilityNode`) with trigger conditions that are evaluated at execution time.
+
+### How It Works
+
+1. Capabilities are registered in the KG with `auto_activate=true` and `trigger_conditions`
+2. Before each specialist execution, the executor queries for capabilities linked via `HAS_CAPABILITY` edges
+3. If trigger conditions are met (e.g., input > 5000 chars), the capability handler is activated
+
+### Example Capabilities
+
+| Capability | Trigger | Effect |
+|-----------|---------|--------|
+| RLM (Recursive LM) | `input_size_gt: 5000` | Decomposes large inputs into recursive sub-problems |
+| Critic | `domain: code` | Adds code review step before final output |
+| Summarizer | `tool_count_gt: 20` | Compresses specialist context before LLM call |
+
+---
+
+## Registry Hot Cache (AU-024)
+
+> See also: [Registry Cache Deep-Dive](registry-cache.md) for the complete architecture.
+
+The Registry Hot Cache provides session-scoped O(1) specialist lookups, replacing the previous O(N) full-registry scan on every routing call. Key features:
+
+- **Filtered specialist injection**: Only the top-7 relevant specialists are injected into the LLM prompt, reducing token consumption by ~7x
+- **Event-driven invalidation**: Cache invalidates on MCP reload, pipeline completion, Self-Model updates, and TeamConfig promotions
+- **Zero TTL risk**: No time-based expiry — invalidation only fires when underlying data changes
+
+### Integration with Routing
+
+The router uses `get_relevant_specialists(query, engine)` instead of the full registry, ensuring:
+
+1. The LLM sees fewer, more relevant specialist descriptions
+2. Routing accuracy improves due to reduced prompt noise
+3. Latency decreases from eliminated registry scans

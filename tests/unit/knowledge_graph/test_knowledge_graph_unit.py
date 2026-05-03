@@ -19,6 +19,7 @@ def sample_graph():
     g.add_edge("func1", "func2", type="calls")
     return g
 
+
 @pytest.mark.asyncio
 async def test_extract_focused_subgraph(sample_graph):
     engine = IntelligenceGraphEngine(sample_graph)
@@ -30,17 +31,15 @@ async def test_extract_focused_subgraph(sample_graph):
     node_ids = [n["id"] for n in subgraph.nodes]
     assert "func1" in node_ids
     assert "file1.py" in node_ids
-    assert "func2" in node_ids # func1 calls func2
+    assert "func2" in node_ids  # func1 calls func2
+
 
 @pytest.mark.asyncio
 async def test_codemap_persistence(sample_graph):
     engine = IntelligenceGraphEngine(sample_graph)
 
     artifact = CodemapArtifact(
-        id="test-codemap",
-        prompt="test prompt",
-        mode="fast",
-        hierarchy=[]
+        id="test-codemap", prompt="test prompt", mode="fast", hierarchy=[]
     )
 
     # Store
@@ -51,6 +50,7 @@ async def test_codemap_persistence(sample_graph):
     assert retrieved is not None
     assert retrieved.id == "test-codemap"
     assert retrieved.prompt == "test prompt"
+
 
 @pytest.mark.asyncio
 async def test_hybrid_search(sample_graph):

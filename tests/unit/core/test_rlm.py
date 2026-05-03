@@ -3,7 +3,6 @@
 CONCEPT:AU-007 — RLM Execution (Expanded Triggers & Whitepaper Alignment)
 """
 
-
 import pytest
 
 from agent_utilities.rlm.config import RLMConfig
@@ -44,11 +43,14 @@ class TestRLMTriggerConditions:
             trigger_on_ahe_distillation=False,
             trigger_on_kg_bulk_analysis=False,
         )
-        assert config.should_trigger(
-            output_size=100_000,
-            trace_count=10_000,
-            kg_node_count=50_000,
-        ) is False
+        assert (
+            config.should_trigger(
+                output_size=100_000,
+                trace_count=10_000,
+                kg_node_count=50_000,
+            )
+            is False
+        )
 
     def test_custom_thresholds(self):
         config = RLMConfig(
@@ -67,7 +69,7 @@ class TestRLMMetadataRoot:
 
     def test_infer_context_type_json(self):
         assert RLMEnvironment._infer_context_type('{"key": "value"}') == "json"
-        assert RLMEnvironment._infer_context_type('[1, 2, 3]') == "json"
+        assert RLMEnvironment._infer_context_type("[1, 2, 3]") == "json"
 
     def test_infer_context_type_csv(self):
         csv_data = "name,age\nAlice,30\nBob,25"
@@ -218,9 +220,10 @@ print("Debug: ran code")
 """
     vars, stdout = await env.execute(code)
 
-    assert vars['out'] == "Test data works"
+    assert vars["out"] == "Test data works"
     assert "Debug: ran code" in stdout
-    assert env.vars['out'] == "Test data works"
+    assert env.vars["out"] == "Test data works"
+
 
 @pytest.mark.asyncio
 async def test_rlm_environment_async_sub_calls():
@@ -232,7 +235,10 @@ async def test_rlm_environment_async_sub_calls():
         return f"Mocked {prompt} at depth {self_instance.depth}"
 
     import unittest.mock
-    with unittest.mock.patch('agent_utilities.rlm.repl.RLMEnvironment.run_full_rlm', new=mock_run_full_rlm):
+
+    with unittest.mock.patch(
+        "agent_utilities.rlm.repl.RLMEnvironment.run_full_rlm", new=mock_run_full_rlm
+    ):
         code = """
 calls = [
     {"prompt": "A", "context": "Data A"},
@@ -248,6 +254,7 @@ FINAL_VAR('results', results)
         assert len(res) == 2
         assert res[0] == "Mocked A at depth 1"
         assert res[1] == "Mocked B at depth 1"
+
 
 @pytest.mark.asyncio
 async def test_rlm_recursion_limit():

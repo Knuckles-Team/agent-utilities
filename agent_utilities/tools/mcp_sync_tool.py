@@ -12,9 +12,12 @@ from pydantic_ai import RunContext
 
 from agent_utilities.mcp.agent_manager import sync_mcp_agents
 
+from .versioning import tool_version
+
 logger = logging.getLogger(__name__)
 
 
+@tool_version("1.0.0")
 async def trigger_mcp_sync(ctx: RunContext[Any], force_reprompt: bool = False) -> str:
     """Synchronize the MCP specialist agent registry with the current configuration.
 

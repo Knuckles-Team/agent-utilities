@@ -28,6 +28,7 @@ async def test_destructive_guard_scenario():
     result = await delete_tool(mock_ctx)
     assert result == "cancelled"
 
+
 @pytest.mark.asyncio
 async def test_progress_scenario():
     """Scenario: Long running operation should report 0% and 100%."""
@@ -44,6 +45,7 @@ async def test_progress_scenario():
     mock_ctx.report_progress.assert_any_call(progress=0, total=100)
     mock_ctx.report_progress.assert_any_call(progress=100, total=100)
 
+
 @pytest.mark.asyncio
 async def test_dual_logging_scenario():
     """Scenario: Logging should go to both the python logger and the MCP context."""
@@ -56,6 +58,7 @@ async def test_dual_logging_scenario():
     tool_with_logs(mock_ctx)
     mock_logger.info.assert_called_with("Operation started")
     mock_ctx.info.assert_called_with("Operation started")
+
 
 @pytest.mark.asyncio
 async def test_auth_state_scenario():
@@ -70,6 +73,7 @@ async def test_auth_state_scenario():
 
     await login_tool(mock_ctx)
     mock_ctx.session.set_state.assert_called_with("myproj_token", "dummy_jwt_token")
+
 
 @pytest.mark.asyncio
 async def test_sampling_scenario():

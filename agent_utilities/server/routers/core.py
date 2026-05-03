@@ -76,6 +76,26 @@ async def get_chat(chat_id: str):
     return chat_data
 
 
+@router.get("/tools", summary="List Available Tools and Skills")
+async def list_tools():
+    """Returns a list of all tools and skills loaded in the Knowledge Graph."""
+    from ...knowledge_graph.engine import IntelligenceGraphEngine
+
+    kg = IntelligenceGraphEngine.get_active()
+    if not kg or not kg.backend:
+        return []
+
+    # Query for Tools
+    tool_query = "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS description, t.mcp_server AS source_name, 'tool' AS type"
+    tools = kg.backend.execute(tool_query) or []
+
+    # Query for Skills
+    skill_query = "MATCH (s:Skill) RETURN s.id AS id, s.name AS name, s.description AS description, s.category AS source_name, 'skill' AS type"
+    skills = kg.backend.execute(skill_query) or []
+
+    return tools + skills
+
+
 @router.post("/api/codemap", summary="Generate a codebase codemap")
 async def generate_codemap_endpoint(payload: CodemapRequest):
     """Generate a task-specific hierarchical codemap artifact."""

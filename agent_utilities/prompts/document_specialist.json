@@ -25,5 +25,19 @@
         "document-converter",
         "marp-presentations",
         "creative-media"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Are the headings hierarchically correct (H1 -> H2 -> H3)?",
+            "Has Marp syntax been validated against strict layout rules?",
+            "Were proprietary formatting artifacts (e.g. Word table remnants) cleaned effectively?"
+        ],
+        "responsibilities": [
+            "Document Conversion: Accurately convert legacy binaries (.pdf, .docx, .xlsx) into clean, high-fidelity markdown or structured data.",
+            "Slide Architecture: Build professional, stunning, data-driven slides using Marp syntax, ensuring proper paginations and style directives.",
+            "Creative Media Orchestration: Assist in light visual asset transformations, clipping, formatting, and packaging.",
+            "Data Extraction: Extract textual intelligence from forms, invoices, technical manuals, and unstructured office files."
+        ]
+    },
+    "version": "1.0.0"
 }

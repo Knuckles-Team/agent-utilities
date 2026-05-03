@@ -179,10 +179,9 @@ class UnifiedIDManager:
 @dataclass
 class UnifiedIDRegistry:
     """
-    Registry to track unified IDs and their synchronization status across systems.
+    Registry to track unified IDs and their synchronization status in the Knowledge Graph.
 
-    Maintains a mapping of unified IDs to their metadata and synchronization
-    status across document database, vector database, and knowledge graph.
+    Maintains a mapping of unified IDs to their metadata and status.
     """
 
     document_ids: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -200,60 +199,53 @@ class UnifiedIDRegistry:
         """
         self.document_ids[doc_id] = {
             "metadata": metadata or {},
-            "systems": {
-                "document_db": False,
-                "vector_db": False,
-                "knowledge_graph": False,
-            },
+            "synced": False,
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             "status": "registered",
         }
 
-    def mark_system_synced(self, doc_id: str, system: str) -> None:
+    def mark_system_synced(self, doc_id: str, _system: str = "knowledge_graph") -> None:
         """
-        Mark a document as synced to a specific system.
+        Mark a document as synced to the knowledge graph.
+        (system arg kept for backwards compatibility)
 
         Args:
             doc_id: Unified document ID
-            system: One of 'document_db', 'vector_db', 'knowledge_graph'
+            system: Ignored in the unified graph architecture
         """
         if doc_id in self.document_ids:
-            self.document_ids[doc_id]["systems"][system] = True
+            self.document_ids[doc_id]["synced"] = True
             self.document_ids[doc_id]["updated_at"] = datetime.now().isoformat()
-
-            # Check if fully synced
-            if self.is_fully_synced(doc_id):
-                self.document_ids[doc_id]["status"] = "fully_synced"
+            self.document_ids[doc_id]["status"] = "fully_synced"
 
     def is_fully_synced(self, doc_id: str) -> bool:
         """
-        Check if a document is synced to all systems.
+        Check if a document is synced.
 
         Args:
             doc_id: Unified document ID
 
         Returns:
-            bool: True if synced to all systems
+            bool: True if synced
         """
         if doc_id not in self.document_ids:
             return False
-        return all(self.document_ids[doc_id]["systems"].values())
+        return self.document_ids[doc_id].get("synced", False)
 
-    def is_system_synced(self, doc_id: str, system: str) -> bool:
+    def is_system_synced(self, doc_id: str, _system: str = "knowledge_graph") -> bool:
         """
-        Check if a document is synced to a specific system.
+        Check if a document is synced.
+        (system arg kept for backwards compatibility)
 
         Args:
             doc_id: Unified document ID
-            system: One of 'document_db', 'vector_db', 'knowledge_graph'
+            system: Ignored in the unified graph architecture
 
         Returns:
-            bool: True if synced to the specified system
+            bool: True if synced
         """
-        if doc_id not in self.document_ids:
-            return False
-        return self.document_ids[doc_id]["systems"].get(system, False)
+        return self.is_fully_synced(doc_id)
 
     def get_document_info(self, doc_id: str) -> dict[str, Any] | None:
         """
@@ -307,20 +299,20 @@ class UnifiedIDRegistry:
             if info.get("status") == status
         ]
 
-    def get_unsynced_documents(self, system: str) -> list[str]:
+    def get_unsynced_documents(self, _system: str = "knowledge_graph") -> list[str]:
         """
-        Get documents that are not synced to a specific system.
+        Get documents that are not synced to the graph.
 
         Args:
-            system: System to check ('document_db', 'vector_db', 'knowledge_graph')
+            system: Ignored in the unified graph architecture
 
         Returns:
-            List[str]: List of document IDs not synced to the system
+            List[str]: List of document IDs not synced
         """
         return [
             doc_id
             for doc_id, info in self.document_ids.items()
-            if not info["systems"].get(system, False)
+            if not info.get("synced", False)
         ]
 
     def get_documents_older_than(self, days: int) -> list[str]:
@@ -370,12 +362,7 @@ class UnifiedIDRegistry:
         total = len(self.document_ids)
         fully_synced = len(self.get_documents_by_status("fully_synced"))
 
-        system_stats = {"document_db": 0, "vector_db": 0, "knowledge_graph": 0}
-
-        for info in self.document_ids.values():
-            for system in system_stats:
-                if info["systems"].get(system, False):
-                    system_stats[system] += 1
+        system_stats = {"knowledge_graph": fully_synced}
 
         return {
             "total_documents": total,

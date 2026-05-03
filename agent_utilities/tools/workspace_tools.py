@@ -26,10 +26,12 @@ from agent_utilities.core.workspace import (
 from ..models import (
     MCPConfigModel,
 )
+from .versioning import tool_version
 
 logger = logging.getLogger(__name__)
 
 
+@tool_version("1.0.0")
 async def read_workspace_file(
     ctx: RunContext[Any], filename: str
 ) -> MCPConfigModel | str:
@@ -66,6 +68,7 @@ async def read_workspace_file(
     return content
 
 
+@tool_version("1.0.0")
 async def append_note_to_file(ctx: RunContext[Any], filename: str, text: str) -> str:
     """Append a markdown entry or note to an existing workspace file.
 
@@ -82,6 +85,7 @@ async def append_note_to_file(ctx: RunContext[Any], filename: str, text: str) ->
     return f"Appended to {filename}"
 
 
+@tool_version("1.0.0")
 async def create_skill(
     ctx: RunContext[Any],
     name: str,
@@ -108,6 +112,7 @@ async def create_skill(
     return create_new_skill(name, description, when_to_use, how_to_use)
 
 
+@tool_version("1.0.0")
 async def delete_skill(ctx: RunContext[Any], name: str) -> str:
     """Permanently remove a dynamic skill folder from the local workspace.
 
@@ -122,6 +127,7 @@ async def delete_skill(ctx: RunContext[Any], name: str) -> str:
     return delete_skill_from_disk(name)
 
 
+@tool_version("1.0.0")
 async def edit_skill(ctx: RunContext[Any], name: str, new_content: str) -> str:
     """Update the logic or documentation of an existing workspace skill.
 
@@ -137,6 +143,7 @@ async def edit_skill(ctx: RunContext[Any], name: str, new_content: str) -> str:
     return write_skill_md(name, new_content)
 
 
+@tool_version("1.0.0")
 async def get_skill_content(ctx: RunContext[Any], name: str) -> str:
     """Retrieve the raw markdown definition of a workspace skill.
 
@@ -152,6 +159,7 @@ async def get_skill_content(ctx: RunContext[Any], name: str) -> str:
 
 
 # New: List Workspace Files (Code Puppy Port)
+@tool_version("1.0.0")
 async def list_files(
     ctx: RunContext[Any], path: str = ".", recursive: bool = False
 ) -> str:

@@ -24,6 +24,7 @@ from agent_utilities.graph.council import (
 
 # ── Schema Validation ──────────────────────────────────────────────────
 
+
 @pytest.mark.concept("council-deliberation")
 class TestCouncilVerdict:
     """Validate the CouncilVerdict Pydantic model."""
@@ -95,6 +96,7 @@ class TestAgentTranscript:
 
 # ── Anonymization Logic ────────────────────────────────────────────────
 
+
 @pytest.mark.concept("council-deliberation")
 class TestAnonymization:
     """Validate the anonymization shuffling logic."""
@@ -144,10 +146,11 @@ class TestAnonymization:
         anonymized, label_map = _anonymize_responses(responses)
 
         assert len(set(label_map.values())) == 5  # all roles unique
-        assert len(set(label_map.keys())) == 5    # all labels unique
+        assert len(set(label_map.keys())) == 5  # all labels unique
 
 
 # ── Markdown Transcript Rendering ──────────────────────────────────────
+
 
 @pytest.mark.concept("council-deliberation")
 class TestTranscriptRendering:
@@ -217,6 +220,7 @@ class TestTranscriptRendering:
 
 # ── Council JSON Prompt Loading ────────────────────────────────────────
 
+
 @pytest.mark.concept("council-deliberation")
 class TestCouncilPromptLoading:
     """Validate that all council JSON prompts load correctly."""
@@ -240,7 +244,9 @@ class TestCouncilPromptLoading:
 
         # Must return a non-empty string
         assert isinstance(content, str), f"{prompt_name} did not return a string"
-        assert len(content) > 50, f"{prompt_name} render too short ({len(content)} chars)"
+        assert len(content) > 50, (
+            f"{prompt_name} render too short ({len(content)} chars)"
+        )
 
     @pytest.mark.parametrize("prompt_name", COUNCIL_PROMPTS)
     def test_prompt_has_council_content(self, prompt_name):
@@ -271,6 +277,7 @@ class TestCouncilPromptLoading:
 
 # ── Default Advisor Roles ──────────────────────────────────────────────
 
+
 @pytest.mark.concept("council-deliberation")
 def test_default_advisor_roles():
     """DEFAULT_ADVISOR_ROLES must match the 5 standard council advisors."""
@@ -284,6 +291,7 @@ def test_default_advisor_roles():
 
 # ── Council Step Description Registration ──────────────────────────────
 
+
 @pytest.mark.concept("council-deliberation")
 def test_council_in_step_descriptions():
     """The council must appear in get_step_descriptions() output."""
@@ -291,4 +299,6 @@ def test_council_in_step_descriptions():
 
     descriptions = get_step_descriptions()
     assert "council" in descriptions
-    assert "advisory council" in descriptions.lower() or "advisor" in descriptions.lower()
+    assert (
+        "advisory council" in descriptions.lower() or "advisor" in descriptions.lower()
+    )

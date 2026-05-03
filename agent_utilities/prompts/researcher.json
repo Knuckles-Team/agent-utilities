@@ -27,5 +27,7 @@
         "Research findings",
         "Validated assumptions",
         "Context summaries"
-    ]
+    ],
+    "rules": {},
+    "version": "1.0.0"
 }

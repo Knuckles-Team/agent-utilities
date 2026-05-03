@@ -1,10 +1,10 @@
 # Agent Utilities Concept Overview
 
-> The **Concept Galaxy** — A high-level orientation of the `agent-utilities` ecosystem. Read this page first to understand how the components tie together.
+> The **Concept Galaxy** — A high-level orientation of the `agent-utilities` ecosystem. Read this page first to understand how the 29 concepts tie together.
 
 ## Concept Galaxy Diagram
 
-The `agent-utilities` architecture is composed of 12 foundational concepts working together.
+The `agent-utilities` architecture is composed of 29 foundational concepts working together.
 
 ```mermaid
 graph TD
@@ -45,6 +45,73 @@ graph TD
     style AU007 fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
     style AU009 fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
     style AU012 fill:#fff2cc,stroke:#d6b656,stroke-width:2px
+
+    %% Emergent Architecture (AU-013 to AU-017)
+    AU013["<b>AU-013: KG OGM</b><br/>(Object-Graph Mapper)"]
+    AU014["<b>AU-014: Swarm</b><br/>(Swarm Orchestration)"]
+    AU015["<b>AU-015: Variants</b><br/>(Evolutionary Selection)"]
+    AU016["<b>AU-016: Self-Model</b><br/>(Metacognition)"]
+    AU017["<b>AU-017: Attention</b><br/>(Global Workspace)"]
+
+    %% Agentic Design Patterns (AU-018 to AU-022)
+    AU018["<b>AU-018: Prompt Chaining</b><br/>(Pipeline Pattern)"]
+    AU019["<b>AU-019: Resource Opt</b><br/>(Cost-Aware Selection)"]
+    AU020["<b>AU-020: Evaluation</b><br/>(Multi-Dim Scoring)"]
+    AU021["<b>AU-021: Prioritization</b><br/>(Task Engine)"]
+    AU022["<b>AU-022: Exploration</b><br/>(Discovery Loop)"]
+
+    %% Emergent relationships
+    AU012 --> AU013
+    AU012 --> AU015
+    AU002 --> AU014
+    AU013 --> AU016
+    AU002 --> AU017
+
+    %% Design Patterns relationships
+    AU006 --> AU018
+    AU002 --> AU019
+    AU002 --> AU020
+    AU009 --> AU021
+    AU015 --> AU022
+
+    %% First Principles Architecture (AU-024 to AU-027)
+    AU024["<b>AU-024: Registry Cache</b><br/>(Hot Cache Layer)"]
+    AU025["<b>AU-025: TeamConfig</b><br/>(Proven Team Reuse)"]
+    AU026["<b>AU-026: Capabilities</b><br/>(Auto-Activation)"]
+    AU027["<b>AU-027: A2A Planner</b><br/>(Graph-Native Routing)"]
+
+    %% Unified Specialist & A2A Config (AU-028 to AU-029)
+    AU028["<b>AU-028: A2A Config</b><br/>(Config File Loader)"]
+    AU029["<b>AU-029: Unified Specialist</b><br/>(Type Collapse)"]
+
+    AU002 --> AU024
+    AU024 --> AU025
+    AU016 --> AU025
+    AU010 --> AU026
+    AU004 --> AU027
+    AU002 --> AU027
+    AU004 --> AU028
+    AU011 --> AU028
+    AU028 --> AU024
+    AU010 --> AU029
+    AU029 --> AU002
+
+    style AU013 fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style AU014 fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style AU015 fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style AU016 fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style AU017 fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style AU018 fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style AU019 fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style AU020 fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style AU021 fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style AU022 fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style AU024 fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    style AU025 fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    style AU026 fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    style AU027 fill:#ffe6cc,stroke:#d79b00,stroke-width:2px
+    style AU028 fill:#e6ccff,stroke:#9673a6,stroke-width:2px
+    style AU029 fill:#e6ccff,stroke:#9673a6,stroke-width:2px
 ```
 
 ## Concept Index
@@ -63,19 +130,38 @@ graph TD
 | **AU-010** | Agent Tool System | The dynamic registry handling standard tools and dynamically loading MCP Server toolsets. | `agent_utilities/tools/` | [tools.md](tools.md) |
 | **AU-011** | Secrets & Auth | Secure handling of credentials, JWT token verification, and session delegation across processes. | `agent_utilities/security/` | [secrets-auth.md](secrets-auth.md) |
 | **AU-012** | Harness Engineering | Formalized trace distillation, component observation, and prompt evolution mechanisms. | `agent_utilities/harness/` | [AHE_ARCHITECTURE.md](AHE_ARCHITECTURE.md) |
+| **AU-013** | KG Object-Graph Mapper | Declarative persistence between Pydantic models and graph backend nodes. | `agent_utilities/knowledge_graph/` | [emergent-architecture.md](emergent-architecture.md) |
+| **AU-014** | Swarm Orchestration | Dynamic, recursive sub-agent spawning with affinity-based coalition formation. | `agent_utilities/graph/swarm.py` | [emergent-architecture.md](emergent-architecture.md) |
+| **AU-015** | Evolutionary Variants | Parametric mutation and tournament selection for prompt/skill optimization. | `agent_utilities/harness/` | [emergent-architecture.md](emergent-architecture.md) |
+| **AU-016** | Persistent Self-Model | Versioned metacognitive self-model with OWL-backed capability awareness. | `agent_utilities/graph/` | [emergent-architecture.md](emergent-architecture.md) |
+| **AU-017** | Global Workspace Attention | Competitive broadcast mechanism for ranking specialist proposals. | `agent_utilities/graph/workspace_attention.py` | [emergent-architecture.md](emergent-architecture.md) |
+| **AU-018** | Prompt Chaining | Declarative multi-step prompt pipelines with intermediate validation and branching. | `agent_utilities/patterns/prompt_chain.py` | [design-patterns-alignment.md](design-patterns-alignment.md) |
+| **AU-019** | Resource Optimization | Cost-aware model selection, per-specialist budget allocation, and latency routing. | `agent_utilities/core/resource_optimizer.py` | [design-patterns-alignment.md](design-patterns-alignment.md) |
+| **AU-020** | Evaluation & Monitoring | Multi-dimensional evaluation with LLM-as-Judge rubrics and quality trend analysis. | `agent_utilities/observability/evaluation.py` | [design-patterns-alignment.md](design-patterns-alignment.md) |
+| **AU-021** | Task Prioritization | Multi-factor priority scoring with dependency tracking and priority inheritance. | `agent_utilities/patterns/prioritization.py` | [design-patterns-alignment.md](design-patterns-alignment.md) |
+| **AU-022** | Exploration & Discovery | Autonomous knowledge gap identification, hypothesis generation, and experiment execution. | `agent_utilities/patterns/exploration.py` | [design-patterns-alignment.md](design-patterns-alignment.md) |
+| **AU-024** | Registry Hot Cache | Session-scoped O(1) specialist lookup cache with event-driven invalidation. Reduces prompt bloat to top-7 relevant specialists. | `agent_utilities/graph/config_helpers.py` | [first-principles.md](first-principles.md) |
+| **AU-025** | TeamConfig Promotion | Proven specialist coalition templates persisted in the KG. Enables 3-stage hybrid routing: TeamConfig → Self-Model → LLM. | `agent_utilities/knowledge_graph/engine_registry.py` | [first-principles.md](first-principles.md) |
+| **AU-026** | AgentCapability System | First-class KG capability nodes with auto-activation, trigger conditions, and dynamic handler binding. | `agent_utilities/models/knowledge_graph.py` | [first-principles.md](first-principles.md) |
+| **AU-027** | A2A PlannerGraphSkill | A2A-native routing via graph-backed skill, bypassing LLM orchestration for direct graph planning. | `agent_utilities/protocols/a2a_graph_skill.py` | [first-principles.md](first-principles.md) |
+| **AU-028** | A2A Config File | File-based external A2A agent discovery with `secret://` auth, soft-fail health checks, and periodic card re-fetch. | `agent_utilities/protocols/a2a_config.py` | [configuration.md](configuration.md) |
+| **AU-029** | Unified Specialist | Collapses the `prompt`/`mcp` agent type distinction into a single `specialist` type that can host any combination of tools and skills. | `agent_utilities/models/mcp.py` | [architecture.md](architecture.md) |
+
 
 ## Query Lifecycle Walkthrough
 
 When a user submits a query, it traverses the system through specific phases:
 
-1. **Protocol Ingress (`protocols/`)**: The query arrives via `/acp`, `/ag-ui`, or `/a2a`. The Protocol Layer normalizes the payload into a standard `GraphState`.
+1. **Protocol Ingress (`protocols/`)**: The query arrives via `/acp`, `/ag-ui`, or `/a2a`. The Protocol Layer normalizes the payload into a standard `GraphState`. For A2A, the `PlannerGraphSkill` (AU-027) may bypass the full pipeline for direct graph execution.
 2. **Usage Guard & Validation (`security/`)**: Validates rate limits, security constraints, and ensures the user has authorization (AU-011).
-3. **Router (`graph/steps.py`)**: A lightweight evaluation model determines the topological path. Is it trivial? Does it require research? (AU-002).
-4. **Memory Injection (`knowledge_graph/`)**: The system queries the Knowledge Graph for contextual memories (Semantic, Temporal, Causal) and injects them into the state.
-5. **Dispatcher (`graph/runner.py`)**: The orchestration engine spawns necessary Specialist Superstates in parallel (Python Coder, DevOps, Architect).
-6. **Execution (`tools/` & `rlm/`)**: Specialists interact with MCP servers or invoke their own recursive REPL loops to gather data and write code.
-7. **Verification (`harness/verifier.py`)**: The results are passed to a Verifier. If the quality score is `< 0.7`, it's fed back to the Dispatcher with a textual gradient for self-correction.
-8. **Synthesis & Persistence**: The final result is composed into Markdown, and the trace of the execution is persisted back to the Knowledge Graph for future Agentic Harness Engineering (AU-012) review.
+3. **TeamConfig Check (`knowledge_graph/engine_registry.py`)**: Before invoking the LLM, the router checks for a matching `TeamConfig` (AU-025) — a proven specialist coalition from a previous successful execution. If found, the system skips LLM planning and dispatches the team directly.
+4. **Router (`graph/steps.py`)**: If no TeamConfig matches, a lightweight evaluation model determines the topological path. The **Registry Hot Cache** (AU-024) provides a filtered list of only the top-7 relevant specialists to reduce prompt bloat. The Self-Model (AU-016) biases specialist selection toward historically successful domains.
+5. **Memory Injection (`knowledge_graph/`)**: The system queries the Knowledge Graph for contextual memories (Semantic, Temporal, Causal) and injects them into the state.
+6. **Capability Activation (`graph/executor.py`)**: Before execution, the system checks for `AgentCapabilityNode` entries (AU-026) with `auto_activate=true` and activates them if trigger conditions are met (e.g., RLM for large inputs, critic for code tasks).
+7. **Dispatcher (`graph/runner.py`)**: The orchestration engine spawns necessary Specialist Superstates in parallel (Python Coder, DevOps, Architect). **WorkspaceAttention** (AU-017) scores rank specialists by relevance, track record, and confidence.
+8. **Execution (`tools/` & `rlm/`)**: Specialists interact with MCP servers or invoke their own recursive REPL loops to gather data and write code.
+9. **Verification & Feedback (`graph/verification.py`)**: The results are passed to a Verifier. If the quality score is `< 0.7`, it's fed back to the Dispatcher with a textual gradient for self-correction. On success, the **Self-Model** is updated with session outcomes, and the specialist coalition is recorded as a **TeamConfig reward** (AU-025). Both updates trigger **cache invalidation** (AU-024).
+10. **Synthesis & Persistence**: The final result is composed into Markdown, and the trace of the execution is persisted back to the Knowledge Graph for future Agentic Harness Engineering (AU-012) review.
 
 ## Layered Architecture
 
@@ -135,6 +221,5 @@ The framework abstracts heavy persistence mechanisms behind a standardized set o
 |---|---|---|---|
 | **LLM Provider** | OpenAI | Anthropic, Groq, local | `PROVIDER` / `MODEL_ID` |
 | **Knowledge Graph** | LadybugDB (Embedded) | FalkorDB, Neo4j | `GRAPH_BACKEND` |
-| **Document Storage**| SQLite | MongoDB, PostgreSQL | `DOC_BACKEND` |
 | **OWL Reasoning** | Stardog | HermiT (Local Java) | `OWL_BACKEND` |
 | **Secrets Engine** | In-Memory | SQLite, HashiCorp Vault | `SECRETS_BACKEND` |

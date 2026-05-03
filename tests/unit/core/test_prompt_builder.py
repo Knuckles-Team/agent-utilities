@@ -44,7 +44,7 @@ def test_build_system_prompt_from_workspace():
     main_agent_json = json.dumps(
         {
             "name": "main-agent",
-            "type": "prompt",
+            "type": "specialist",
             "description": "Primary orchestrator.",
             "capabilities": ["workspace-manager"],
             "content": "I am an agent.",
@@ -111,7 +111,9 @@ def test_resolve_prompt():
         assert resolve_prompt("@test.md") == "file content"
         assert resolve_prompt("raw prompt") == "raw prompt"
 
-    with patch("agent_utilities.prompting.builder.load_workspace_file", return_value=""):
+    with patch(
+        "agent_utilities.prompting.builder.load_workspace_file", return_value=""
+    ):
         assert resolve_prompt("@missing.md") == "@missing.md"
 
 

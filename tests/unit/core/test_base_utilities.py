@@ -19,6 +19,7 @@ def test_to_float():
     assert base_utilities.to_float("invalid") == 0.0
     assert base_utilities.to_float(None) == 0.0
 
+
 def test_to_boolean():
     assert base_utilities.to_boolean("true") is True
     assert base_utilities.to_boolean("YES") is True
@@ -27,11 +28,13 @@ def test_to_boolean():
     assert base_utilities.to_boolean("false") is False
     assert base_utilities.to_boolean(None) is False
 
+
 def test_to_integer():
     assert base_utilities.to_integer("10") == 10
     assert base_utilities.to_integer(5) == 5
     assert base_utilities.to_integer("abc") == 0
     assert base_utilities.to_integer(None) == 0
+
 
 def test_to_list():
     assert base_utilities.to_list("[1, 2, 3]") == [1, 2, 3]
@@ -39,12 +42,14 @@ def test_to_list():
     assert base_utilities.to_list([1, 2]) == [1, 2]
     assert base_utilities.to_list(None) == []
 
+
 def test_to_dict():
     assert base_utilities.to_dict('{"a": 1}') == {"a": 1}
     assert base_utilities.to_dict({"b": 2}) == {"b": 2}
     assert base_utilities.to_dict(None) == {}
     with pytest.raises(ValueError):
         base_utilities.to_dict("not a dict")
+
 
 def test_expand_env_vars(monkeypatch):
     monkeypatch.delenv("VALIDATION_MODE", raising=False)
@@ -58,17 +63,31 @@ def test_expand_env_vars(monkeypatch):
     assert base_utilities.expand_env_vars("${API_KEY}") == "dummy_api_key"
     assert base_utilities.expand_env_vars("${NORMAL_VAR}") == "validation_normal_var"
 
+
 def test_is_loopback_url():
-    assert base_utilities.is_loopback_url("http://localhost:8000", current_port=8000) is True
-    assert base_utilities.is_loopback_url("http://127.0.0.1:8000", current_port=8000) is True
-    assert base_utilities.is_loopback_url("http://google.com", current_port=8000) is False
-    assert base_utilities.is_loopback_url("http://localhost:9000", current_port=8000) is False
+    assert (
+        base_utilities.is_loopback_url("http://localhost:8000", current_port=8000)
+        is True
+    )
+    assert (
+        base_utilities.is_loopback_url("http://127.0.0.1:8000", current_port=8000)
+        is True
+    )
+    assert (
+        base_utilities.is_loopback_url("http://google.com", current_port=8000) is False
+    )
+    assert (
+        base_utilities.is_loopback_url("http://localhost:9000", current_port=8000)
+        is False
+    )
+
 
 def test_retrieve_package_name():
     # In a test environment, it might return 'agent_utilities' or the test runner package
     pkg = base_utilities.retrieve_package_name()
     assert isinstance(pkg, str)
     assert pkg != ""
+
 
 def test_save_load_model(tmp_path):
     data = {"key": "value"}
@@ -77,6 +96,7 @@ def test_save_load_model(tmp_path):
 
     loaded = base_utilities.load_model(path)
     assert loaded == data
+
 
 def test_result_class():
     res = base_utilities.Result()
@@ -88,6 +108,7 @@ def test_result_class():
 
     res._failed = True
     assert res.is_successful is False
+
 
 def test_optional_import_block():
     # Clean block: no exception escapes -> is_successful stays True.
@@ -101,6 +122,7 @@ def test_optional_import_block():
         import __definitely_not_a_real_module__  # noqa: F401
     assert result.is_successful is False
 
+
 def test_module_info_from_str():
     mi = base_utilities.ModuleInfo.from_str("requests>=2.0.0")
     assert mi.name == "requests"
@@ -112,11 +134,13 @@ def test_module_info_from_str():
     assert mi2.max_version == "8.0"
     assert mi2.max_inclusive is False
 
+
 def test_get_missing_imports():
     # Assuming requests is installed
     missing = base_utilities.get_missing_imports(["requests", "non_existent_pkg"])
     assert "non_existent_pkg" in missing
     assert "requests" not in missing
+
 
 def test_expand_env_vars_empty_string_returns_empty() -> None:
     """Empty string short-circuit: line 191 early return."""
@@ -128,7 +152,9 @@ def test_expand_env_vars_none_returns_none() -> None:
     assert base_utilities.expand_env_vars(None) is None  # type: ignore[arg-type]
 
 
-def test_expand_env_vars_strips_carriage_return(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_expand_env_vars_strips_carriage_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Carriage-return stripping on env values (line 201)."""
     monkeypatch.setenv("SOME_VAR", "value\r")
     assert base_utilities.expand_env_vars("${SOME_VAR}") == "value"
@@ -231,7 +257,9 @@ def test_ensure_package_installed_missing_no_auto_install(
 ) -> None:
     """Missing + auto_install=False logs warning and returns False (line 293-295)."""
     caplog.set_level(logging.WARNING, logger="agent_utilities.base_utilities")
-    result = base_utilities.ensure_package_installed("pkg_definitely_does_not_exist_12345")
+    result = base_utilities.ensure_package_installed(
+        "pkg_definitely_does_not_exist_12345"
+    )
     assert result is False
 
 
@@ -305,7 +333,9 @@ def test_load_env_vars_finds_dotenv(
     monkeypatch.setenv("PUSH_ENV_VAR_MARKER", "initial_value")
     monkeypatch.setattr(inspect, "stack", fake_stack)
     # Also force retrieve_package_name to return a valid value
-    monkeypatch.setattr(base_utilities, "retrieve_package_name", lambda: "some_caller_pkg")
+    monkeypatch.setattr(
+        base_utilities, "retrieve_package_name", lambda: "some_caller_pkg"
+    )
 
     base_utilities.load_env_vars(override=True)
     # .env should have been loaded and overridden
@@ -327,10 +357,12 @@ def test_load_env_vars_no_dotenv_found(
         return [FakeFrame()]
 
     monkeypatch.setattr(inspect, "stack", fake_stack)
-    monkeypatch.setattr(base_utilities, "retrieve_package_name", lambda: "some_caller_pkg")
+    monkeypatch.setattr(
+        base_utilities, "retrieve_package_name", lambda: "some_caller_pkg"
+    )
     # Must not raise
     base_utilities.load_env_vars()
-    assert True, 'load_env_vars should not raise when .env is missing'
+    assert True, "load_env_vars should not raise when .env is missing"
 
 
 def test_load_env_vars_exception_handling(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -347,9 +379,11 @@ def test_load_env_vars_exception_handling(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_load_env_vars_unknown_package(monkeypatch: pytest.MonkeyPatch) -> None:
     """retrieve_package_name returns 'unknown_package' early-exit."""
-    monkeypatch.setattr(base_utilities, "retrieve_package_name", lambda: "unknown_package")
+    monkeypatch.setattr(
+        base_utilities, "retrieve_package_name", lambda: "unknown_package"
+    )
     base_utilities.load_env_vars()
-    assert True, 'load_env_vars should not raise for unknown packages'
+    assert True, "load_env_vars should not raise for unknown packages"
 
 
 def test_load_env_vars_no_external_caller(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -363,7 +397,7 @@ def test_load_env_vars_no_external_caller(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(base_utilities, "retrieve_package_name", lambda: "foo_pkg")
     # Must not raise (caller_file is None)
     base_utilities.load_env_vars()
-    assert True, 'load_env_vars should not raise without external caller'
+    assert True, "load_env_vars should not raise without external caller"
 
 
 # ---------------------------------------------------------------------------
@@ -371,11 +405,15 @@ def test_load_env_vars_no_external_caller(monkeypatch: pytest.MonkeyPatch) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_save_model_default_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_model_default_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """save_model with default file_name='model' and custom path."""
     monkeypatch.chdir(tmp_path)
     data = [1, 2, 3]
-    path = base_utilities.save_model(data, file_name="serialized", file_path=str(tmp_path))
+    path = base_utilities.save_model(
+        data, file_name="serialized", file_path=str(tmp_path)
+    )
     assert Path(path).exists()
     loaded = base_utilities.load_model(path)
     assert loaded == data
@@ -404,9 +442,7 @@ def test_retrieve_package_name_frame_not_exists(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Frame file that does not exist is skipped (line 434-435)."""
-    FakeFrame = type(
-        "FakeFrame", (), {"filename": "/definitely/not/here/caller.py"}
-    )
+    FakeFrame = type("FakeFrame", (), {"filename": "/definitely/not/here/caller.py"})
     monkeypatch.setattr(inspect, "stack", lambda: [FakeFrame()])
     result = base_utilities.retrieve_package_name()
     assert isinstance(result, str) and result  # Still returns something
@@ -438,7 +474,9 @@ def test_retrieve_package_name_stack_raises(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_get_library_file_path_agent_utilities_init() -> None:
     """get_library_file_path resolves a real file in the package."""
-    with patch.object(base_utilities, "retrieve_package_name", return_value="agent_utilities"):
+    with patch.object(
+        base_utilities, "retrieve_package_name", return_value="agent_utilities"
+    ):
         result = base_utilities.get_library_file_path("__init__.py")
         assert isinstance(result, str)
         assert result.endswith("__init__.py")
@@ -457,9 +495,7 @@ def test_get_logger_returns_logger_with_handler() -> None:
     logging.Logger.manager.loggerDict.pop(name, None)
     logger = base_utilities.get_logger(name)
     assert logger.level == logging.INFO
-    assert any(
-        isinstance(h, logging.StreamHandler) for h in logger.handlers
-    )
+    assert any(isinstance(h, logging.StreamHandler) for h in logger.handlers)
 
 
 def test_get_logger_idempotent() -> None:
@@ -498,7 +534,9 @@ def test_module_info_installed_no_constraint() -> None:
 
 def test_module_info_with_valid_min_version() -> None:
     """Valid min version constraint (line 571-577)."""
-    mi = base_utilities.ModuleInfo(name="packaging", min_version="0.0.1", min_inclusive=True)
+    mi = base_utilities.ModuleInfo(
+        name="packaging", min_version="0.0.1", min_inclusive=True
+    )
     assert mi.is_in_sys_modules() is None
 
 
@@ -516,9 +554,10 @@ def test_module_info_with_failing_min_inclusive() -> None:
 
 def test_module_info_with_failing_min_strict() -> None:
     """Failing min strict constraint returns error string."""
-    with patch(
-        "importlib.metadata.version", return_value="1.0.0"
-    ), patch("importlib.util.find_spec", return_value=True):
+    with (
+        patch("importlib.metadata.version", return_value="1.0.0"),
+        patch("importlib.util.find_spec", return_value=True),
+    ):
         mi = base_utilities.ModuleInfo(
             name="packaging",
             min_version="1.0.0",
@@ -551,9 +590,10 @@ def test_module_info_with_failing_max_inclusive() -> None:
 
 def test_module_info_with_failing_max_strict() -> None:
     """Failing max strict constraint returns error string."""
-    with patch(
-        "importlib.metadata.version", return_value="1.0.0"
-    ), patch("importlib.util.find_spec", return_value=True):
+    with (
+        patch("importlib.metadata.version", return_value="1.0.0"),
+        patch("importlib.util.find_spec", return_value=True),
+    ):
         mi = base_utilities.ModuleInfo(
             name="packaging",
             max_version="1.0.0",
@@ -567,32 +607,40 @@ def test_module_info_with_failing_max_strict() -> None:
 def test_module_info_package_not_found_but_has_version_attr() -> None:
     """Fallback path when get_version raises but __version__ exists (line 560-562)."""
     fake_mod = MagicMock(__version__="1.2.3")
-    with patch(
-        "importlib.util.find_spec", return_value=True
-    ), patch(
-        "importlib.metadata.version",
-        side_effect=__import__("importlib.metadata").metadata.PackageNotFoundError(
-            "nope"
+    with (
+        patch("importlib.util.find_spec", return_value=True),
+        patch(
+            "importlib.metadata.version",
+            side_effect=__import__("importlib.metadata").metadata.PackageNotFoundError(
+                "nope"
+            ),
         ),
-    ), patch("importlib.import_module", return_value=fake_mod):
-        mi = base_utilities.ModuleInfo(name="fake_pkg", min_version="1.0.0", min_inclusive=True)
+        patch("importlib.import_module", return_value=fake_mod),
+    ):
+        mi = base_utilities.ModuleInfo(
+            name="fake_pkg", min_version="1.0.0", min_inclusive=True
+        )
         assert mi.is_in_sys_modules() is None
 
 
 def test_module_info_package_not_found_no_version_attr() -> None:
     """Fallback raises ImportError when no __version__ (line 563-564)."""
-    with patch(
-        "importlib.util.find_spec", return_value=True
-    ), patch(
-        "importlib.metadata.version",
-        side_effect=__import__("importlib.metadata").metadata.PackageNotFoundError(
-            "nope"
+    with (
+        patch("importlib.util.find_spec", return_value=True),
+        patch(
+            "importlib.metadata.version",
+            side_effect=__import__("importlib.metadata").metadata.PackageNotFoundError(
+                "nope"
+            ),
         ),
-    ), patch(
-        "importlib.import_module",
-        side_effect=ImportError("cannot import"),
+        patch(
+            "importlib.import_module",
+            side_effect=ImportError("cannot import"),
+        ),
     ):
-        mi = base_utilities.ModuleInfo(name="fake_pkg", min_version="1.0.0", min_inclusive=True)
+        mi = base_utilities.ModuleInfo(
+            name="fake_pkg", min_version="1.0.0", min_inclusive=True
+        )
         result = mi.is_in_sys_modules()
         assert result is not None
         assert "version could not be retrieved" in result
@@ -600,10 +648,13 @@ def test_module_info_package_not_found_no_version_attr() -> None:
 
 def test_module_info_installed_version_none() -> None:
     """When installed version is None (line 566-567)."""
-    with patch(
-        "importlib.util.find_spec", return_value=True
-    ), patch("importlib.metadata.version", return_value=None):
-        mi = base_utilities.ModuleInfo(name="fake_pkg", min_version="1.0.0", min_inclusive=True)
+    with (
+        patch("importlib.util.find_spec", return_value=True),
+        patch("importlib.metadata.version", return_value=None),
+    ):
+        mi = base_utilities.ModuleInfo(
+            name="fake_pkg", min_version="1.0.0", min_inclusive=True
+        )
         result = mi.is_in_sys_modules()
         assert result is not None
         assert "version is not available" in result

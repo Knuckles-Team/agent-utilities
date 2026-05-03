@@ -217,7 +217,7 @@ async def test_record_specialist_outcome_no_engine():
         )
     finally:
         IntelligenceGraphEngine.get_active = original  # type: ignore[method-assign]
-    assert True, 'No-engine specialist outcome should not raise'
+    assert True, "No-engine specialist outcome should not raise"
 
 
 @pytest.mark.asyncio
@@ -295,7 +295,7 @@ async def test_record_specialist_outcome_add_node_error(monkeypatch):
         server_name="mcp",
         duration=1.0,
     )
-    assert True, 'add_node error in specialist outcome handled'
+    assert True, "add_node error in specialist outcome handled"
 
 
 def test_graph_integration_initialize():
@@ -303,7 +303,7 @@ def test_graph_integration_initialize():
 
     # The register function is module-level; just ensure no exception
     initialize_integration()
-    assert True, 'Graph integration init completed'
+    assert True, "Graph integration init completed"
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +406,7 @@ def test_agent_utilities_facade_imports():
     # Importing the facade should not raise
     import agent_utilities.agent_utilities as au_facade
 
-    assert au_facade.__version__ == "0.2.40"
+    assert au_facade.__version__ == "0.3.0"
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +421,7 @@ def test_custom_observability_disabled(monkeypatch):
     import agent_utilities.observability.custom_observability as obs
 
     importlib.reload(obs)
-    assert True, 'Disabled observability handled gracefully'
+    assert True, "Disabled observability handled gracefully"
 
 
 def test_custom_observability_initialize_function(monkeypatch):
@@ -465,7 +465,7 @@ def test_discover_agents_filters(monkeypatch):
     agent_a = SimpleNamespace(
         name="alpha",
         description="d",
-        agent_type="prompt",
+        agent_type="specialist",
         capabilities=["skill1"],
         endpoint_url=None,
         mcp_server=None,
@@ -492,9 +492,7 @@ def test_discover_agents_filters(monkeypatch):
 
     from agent_utilities.graph import config_helpers
 
-    monkeypatch.setattr(
-        config_helpers, "get_discovery_registry", lambda: Reg()
-    )
+    monkeypatch.setattr(config_helpers, "get_discovery_registry", lambda: Reg())
 
     # Exercise filter branches
     result = discovery.discover_agents(
@@ -518,16 +516,14 @@ def test_discover_all_specialists(monkeypatch):
             SimpleNamespace(
                 name="alpha",
                 description="d",
-                agent_type="prompt",
+                agent_type="specialist",
                 capabilities=[],
                 endpoint_url=None,
                 mcp_server=None,
             )
         ]
 
-    monkeypatch.setattr(
-        config_helpers, "get_discovery_registry", lambda: Reg()
-    )
+    monkeypatch.setattr(config_helpers, "get_discovery_registry", lambda: Reg())
     specs = discovery.discover_all_specialists()
     assert specs and specs[0].tag == "alpha"
 
@@ -667,4 +663,4 @@ def test_main_setup_logging_debug(monkeypatch):
 
     m.setup_logging(debug=True)
     m.setup_logging(debug=False)
-    assert True, 'Debug logging setup completed'
+    assert True, "Debug logging setup completed"
