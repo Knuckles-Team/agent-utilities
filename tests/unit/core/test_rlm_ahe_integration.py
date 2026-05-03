@@ -52,9 +52,7 @@ class TestTraceDistillerRLMIntegration:
             }
         ]
 
-        with patch(
-            "agent_utilities.rlm.repl.RLMEnvironment"
-        ) as MockEnv:
+        with patch("agent_utilities.rlm.repl.RLMEnvironment") as MockEnv:
             mock_env_instance = MagicMock()
             mock_env_instance.run_full_rlm = AsyncMock(
                 return_value=json.dumps(mock_clusters)
@@ -91,9 +89,7 @@ class TestTraceDistillerRLMIntegration:
         ]
 
         # Should use keyword clustering, not RLM
-        with patch(
-            "agent_utilities.rlm.config.RLMConfig"
-        ) as MockConfig:
+        with patch("agent_utilities.rlm.config.RLMConfig") as MockConfig:
             mock_config = RLMConfig(enabled=False, ahe_trace_threshold=500)
             MockConfig.return_value = mock_config
 
@@ -131,9 +127,7 @@ class TestEvolveAgentRLMIntegration:
             }
         ]
 
-        with patch(
-            "agent_utilities.rlm.repl.RLMEnvironment"
-        ) as MockEnv:
+        with patch("agent_utilities.rlm.repl.RLMEnvironment") as MockEnv:
             mock_env_instance = MagicMock()
             mock_env_instance.run_full_rlm = AsyncMock(
                 return_value=json.dumps(mock_edits)

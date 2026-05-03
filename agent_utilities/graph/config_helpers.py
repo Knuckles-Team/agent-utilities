@@ -1,9 +1,16 @@
 #!/usr/bin/python
 """Graph Configuration Helpers Module.
 
+CONCEPT:AU-024 — Hot Cache Layer & Registry Optimization
+
 This module provides utility functions for loading and saving graph-related
 configurations, managing dynamic agent registries, emitting sideband events
 for the WebUI, and resolving specialized prompts from the package resources.
+
+The ``_RegistryCache`` class (AU-024) provides zero-cost typed lookups for
+registry data.  The cache is populated on first access and invalidated by
+explicit signals from ``sync_mcp_agents()``, pipeline completion,
+``promote_coalition_to_template()``, and ``SelfModel.update_after_session()``.
 """
 
 from __future__ import annotations
@@ -22,21 +29,75 @@ from agent_utilities.core.workspace import (
 )
 
 from ..base_utilities import to_integer
-from ..models import MCPAgentRegistryModel, MCPConfigModel
+from ..models import MCPAgent, MCPAgentRegistryModel, MCPConfigModel, MCPToolInfo
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_GRAPH_TIMEOUT = to_integer(os.environ.get("GRAPH_TIMEOUT", "1200000"))
 
 
-def get_discovery_registry() -> MCPAgentRegistryModel:
-    """Load the unified agent discovery registry from the Knowledge Graph.
+# ---------------------------------------------------------------------------
+# CONCEPT:AU-024 — Session-Scoped Registry Cache
+# ---------------------------------------------------------------------------
 
-    Returns:
-        The populated MCPAgentRegistryModel.
+
+class _RegistryCache:
+    """Session-scoped cache for KG registry data.
+
+    CONCEPT:AU-024 — Hot Cache Layer
+
+    Populated on first access, invalidated by explicit event signals.
+    No TTL — pure event-driven invalidation from four callsites:
+
+    1. ``agent_manager.sync_mcp_agents()`` (MCP reload)
+    2. Pipeline completion (``PipelineRunner.run()``)
+    3. ``promote_coalition_to_template()`` (TeamConfig creation)
+    4. ``SelfModel.update_after_session()`` (proficiency update)
+    """
+
+    _registry: MCPAgentRegistryModel | None = None
+    _prompts: dict[str, str] = {}
+    _tool_agent_map: dict[str, list[str]] = {}
+
+    @classmethod
+    def invalidate(cls) -> None:
+        """Clear all cached data.  Called by event-driven signals."""
+        cls._registry = None
+        cls._prompts.clear()
+        cls._tool_agent_map.clear()
+        logger.info("[CACHE] Registry cache invalidated (AU-024).")
+
+    @classmethod
+    def get_registry(cls) -> MCPAgentRegistryModel:
+        """Return the cached registry, populating on first access."""
+        if cls._registry is None:
+            cls._registry = _fetch_registry_from_kg()
+            logger.info(
+                "[CACHE] Registry cache populated: %d agents, %d tools.",
+                len(cls._registry.agents),
+                len(cls._registry.tools),
+            )
+        return cls._registry
+
+
+def invalidate_registry_cache() -> None:
+    """Public API to invalidate the hot cache.
+
+    CONCEPT:AU-024 — Hot Cache Layer
+
+    Call this after any operation that changes the registry state:
+    MCP reload, pipeline ingestion, TeamConfig promotion, or
+    Self-Model update.
+    """
+    _RegistryCache.invalidate()
+
+
+def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
+    """Fetch the full registry from the Knowledge Graph (uncached).
+
+    This is the expensive operation that ``_RegistryCache`` wraps.
     """
     from ..knowledge_graph.engine import IntelligenceGraphEngine
-    from ..models import MCPAgent, MCPToolInfo
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
@@ -49,10 +110,9 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
         engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), db_path=db_path)
 
     if not engine or not engine.backend:
-        # Fallback to local prompt discovery if graph not active
         return MCPAgentRegistryModel()
 
-    agents = []
+    agents: list[MCPAgent] = []
     # 1. Fetch Prompt Agents
     try:
         prompt_rows = engine.backend.execute(
@@ -62,8 +122,6 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
             blueprint = row.get("json_blueprint")
             if isinstance(blueprint, str):
                 try:
-                    import json
-
                     blueprint = json.loads(blueprint)
                 except Exception:
                     try:
@@ -87,7 +145,7 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
                 MCPAgent(
                     name=row.get("name", ""),
                     description=row.get("description", ""),
-                    agent_type="prompt",
+                    agent_type="specialist",
                     capabilities=row.get("capabilities", []),
                     system_prompt=row.get("system_prompt", ""),
                     json_blueprint=parsed_blueprint,
@@ -102,11 +160,14 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
             "MATCH (a:Agent) RETURN a.name AS name, a.description AS description, a.agent_type AS agent_type, a.system_prompt AS system_prompt, a.tool_count AS tool_count, a.mcp_server AS mcp_server"
         )
         for row in agent_rows:
+            # AU-029: Normalize legacy prompt/mcp to unified specialist
+            _raw_type = row.get("agent_type", "specialist")
+            _agent_type = _raw_type if _raw_type == "a2a" else "specialist"
             agents.append(
                 MCPAgent(
                     name=row.get("name", "unknown"),
                     description=row.get("description", ""),
-                    agent_type=row.get("agent_type", "mcp"),
+                    agent_type=_agent_type,
                     system_prompt=row.get("system_prompt", ""),
                     tool_count=row.get("tool_count", 0),
                     mcp_server=row.get("mcp_server"),
@@ -116,7 +177,7 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
         logger.debug(f"Failed to fetch specialist agents from KG: {e}")
 
     # 2. Fetch Tools
-    tools = []
+    tools: list[MCPToolInfo] = []
     try:
         tool_rows = engine.backend.execute(
             "MATCH (t:Tool) RETURN t.name, t.description, t.mcp_server, t.relevance_score, t.tags, t.requires_approval"
@@ -136,6 +197,77 @@ def get_discovery_registry() -> MCPAgentRegistryModel:
         logger.debug(f"Failed to fetch Tool nodes: {e}")
 
     return MCPAgentRegistryModel(agents=agents, tools=tools)
+
+
+def get_discovery_registry() -> MCPAgentRegistryModel:
+    """Load the unified agent discovery registry (cached).
+
+    CONCEPT:AU-024 — Hot Cache Layer
+
+    Returns the registry from the in-memory cache.  On first call,
+    populates the cache from the Knowledge Graph.  Subsequent calls
+    are O(1) until ``invalidate_registry_cache()`` is called.
+
+    Returns:
+        The populated MCPAgentRegistryModel.
+    """
+    return _RegistryCache.get_registry()
+
+
+def get_relevant_specialists(
+    query: str,
+    engine: Any | None = None,
+    top_n: int = 7,
+) -> list[MCPAgent]:
+    """Return the top-N specialists most relevant to a query.
+
+    CONCEPT:AU-024 — Hot Cache Layer
+
+    Uses KG discovery results (hybrid search + tool matching) to filter
+    the full specialist list down to the most relevant agents for a
+    given query.  Falls back to the full list if KG discovery returns
+    nothing or the engine is unavailable.
+
+    Args:
+        query: The user query to match against.
+        engine: Optional ``IntelligenceGraphEngine`` for hybrid search.
+        top_n: Maximum number of specialists to return.
+
+    Returns:
+        A list of the most relevant ``MCPAgent`` objects.
+    """
+    registry = get_discovery_registry()
+    all_agents = registry.agents
+
+    if not all_agents:
+        return []
+
+    if not engine or not query:
+        return all_agents[:top_n]
+
+    # Use hybrid search to find relevant nodes
+    try:
+        results = engine.search_hybrid(query, top_k=top_n * 3)
+        matched_names: set[str] = set()
+        for r in results:
+            name = r.get("name", "")
+            if name:
+                matched_names.add(name.lower())
+            # Also check the node type for agent/prompt matches
+            node_type = str(r.get("type", "")).lower()
+            if node_type in ("agent", "prompt"):
+                matched_names.add(name.lower())
+
+        # Score agents by whether they appear in search results
+        relevant = [a for a in all_agents if a.name.lower() in matched_names]
+
+        if relevant:
+            return relevant[:top_n]
+    except Exception as e:
+        logger.debug(f"Hybrid search for specialists failed: {e}")
+
+    # Fallback: return all agents (capped)
+    return all_agents[:top_n]
 
 
 def load_node_agents_registry() -> MCPAgentRegistryModel:

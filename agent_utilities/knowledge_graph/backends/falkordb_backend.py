@@ -53,20 +53,36 @@ class FalkorDBBackend(GraphBackend):
         return output
 
     def create_schema(self) -> None:
-        logger.info(
-            "FalkorDB does not require strict DDL schema. Creating vector indices if needed."
-        )
+        logger.info("Creating FalkorDB vector index for embeddings.")
+        query = "CALL db.idx.vector.create('idx_embedding', 'Chunk', 'embedding', 768, 'cosine')"
+        try:
+            self.execute(query)
+        except Exception as e:
+            logger.warning(f"Could not create vector index in FalkorDB: {e}")
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        query = """
-        MATCH (n {id: $id})
-        CALL db.create.setNodeVectorProperty(n, 'embedding', $embedding)
-        """
-        # Note: vector support in FalkorDB is evolving, using standard approach if possible
+        query = "MATCH (n {id: $id}) SET n.embedding = vecf32($embedding)"
         try:
             self.execute(query, {"id": node_id, "embedding": embedding})
         except Exception as e:
             logger.warning(f"Failed to add embedding in FalkorDB: {e}")
+
+    def semantic_search(
+        self, query_embedding: list[float], n_results: int = 5
+    ) -> list[dict[str, Any]]:
+        """Perform a semantic vector search returning top matching nodes using FalkorDB."""
+        query = """
+        CALL db.idx.vector.queryNodes('Chunk', 'embedding', $n_results, vecf32($query_embedding))
+        YIELD node, score
+        RETURN node
+        """
+        try:
+            return self.execute(
+                query, {"query_embedding": query_embedding, "n_results": n_results}
+            )
+        except Exception as e:
+            logger.error(f"FalkorDB semantic search failed: {e}")
+            return []
 
     def prune(self, criteria: dict[str, Any]) -> None:
         query = "MATCH (n) WHERE n.last_accessed < $timestamp DELETE n"

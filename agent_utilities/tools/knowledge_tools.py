@@ -20,6 +20,7 @@ from ..models import (
     TaskStatus,
 )
 from ..sdd import SDDManager
+from .versioning import tool_version
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ def get_knowledge_engine(ctx: RunContext[AgentDeps]) -> RegistryGraphEngine | No
     return getattr(ctx.deps, "knowledge_engine", None)
 
 
+@tool_version("1.0.0")
 async def search_knowledge_graph(ctx: RunContext[AgentDeps], query: str) -> str:
     """Search the Knowledge Graph for relevant agents, tools, code, or memories.
 
@@ -55,6 +57,7 @@ async def search_knowledge_graph(ctx: RunContext[AgentDeps], query: str) -> str:
     return "\n---\n".join(output)
 
 
+@tool_version("1.0.0")
 async def get_code_impact(ctx: RunContext[AgentDeps], symbol_or_file: str) -> str:
     """Analyze the potential impact of changing a specific code entity.
 
@@ -77,6 +80,7 @@ async def get_code_impact(ctx: RunContext[AgentDeps], symbol_or_file: str) -> st
     return "\n".join(output)
 
 
+@tool_version("1.0.0")
 async def add_knowledge_memory(
     ctx: RunContext[AgentDeps],
     content: str,
@@ -101,6 +105,7 @@ async def add_knowledge_memory(
     return f"Successfully added memory to Knowledge Graph with ID: {mem_id}"
 
 
+@tool_version("1.0.0")
 async def get_knowledge_memory(ctx: RunContext[AgentDeps], memory_id: str) -> str:
     """Retrieve a specific memory from the Knowledge Graph by ID (READ).
 
@@ -119,6 +124,7 @@ async def get_knowledge_memory(ctx: RunContext[AgentDeps], memory_id: str) -> st
     return f"ID: {memory['id']}\nName: {memory['name']}\nTimestamp: {memory['timestamp']}\nCategory: {memory['category']}\nContent: {memory['description']}"
 
 
+@tool_version("1.0.0")
 async def update_knowledge_memory(
     ctx: RunContext[AgentDeps],
     memory_id: str,
@@ -156,6 +162,7 @@ async def update_knowledge_memory(
     return f"Successfully updated memory '{memory_id}'."
 
 
+@tool_version("1.0.0")
 async def delete_knowledge_memory(ctx: RunContext[AgentDeps], memory_id: str) -> str:
     """Permanently remove a memory from the Knowledge Graph (DELETE).
 
@@ -171,6 +178,7 @@ async def delete_knowledge_memory(ctx: RunContext[AgentDeps], memory_id: str) ->
     return f"Successfully deleted memory '{memory_id}'."
 
 
+@tool_version("1.0.0")
 async def link_knowledge_nodes(
     ctx: RunContext[AgentDeps],
     source_id: str,
@@ -205,6 +213,7 @@ async def link_knowledge_nodes(
     return f"Successfully established {relationship} link between {source_id} and {target_id}."
 
 
+@tool_version("1.0.0")
 async def sync_feature_to_memory(ctx: RunContext[AgentDeps], feature_id: str) -> str:
     """Synchronize the full SDD lifecycle of a feature into the Knowledge Graph memory.
 
@@ -271,6 +280,7 @@ async def sync_feature_to_memory(ctx: RunContext[AgentDeps], feature_id: str) ->
         return f"Successfully captured feature '{feature_id}' in Knowledge Graph memory (ID: {mem_id})."
 
 
+@tool_version("1.0.0")
 async def log_heartbeat(
     ctx: RunContext[AgentDeps],
     agent_name: str,
@@ -311,6 +321,7 @@ async def log_heartbeat(
     return "Failed to log heartbeat."
 
 
+@tool_version("1.0.0")
 async def create_client(
     ctx: RunContext[AgentDeps], name: str, description: str = ""
 ) -> str:
@@ -335,6 +346,7 @@ async def create_client(
     return "Failed to create client."
 
 
+@tool_version("1.0.0")
 async def create_user(
     ctx: RunContext[AgentDeps],
     name: str,
@@ -361,6 +373,7 @@ async def create_user(
     return "Failed to create user."
 
 
+@tool_version("1.0.0")
 async def save_preference(
     ctx: RunContext[AgentDeps], user_id: str, category: str, value: str
 ) -> str:
@@ -384,6 +397,7 @@ async def save_preference(
     return "Failed to save preference."
 
 
+@tool_version("1.0.0")
 async def save_chat_message(
     ctx: RunContext[AgentDeps], thread_id: str, role: str, content: str
 ) -> str:
@@ -419,6 +433,7 @@ async def save_chat_message(
     return "Failed to save message."
 
 
+@tool_version("1.0.0")
 async def log_cron_execution(
     ctx: RunContext[AgentDeps], job_id: str, status: str, output: str
 ) -> str:
@@ -492,6 +507,7 @@ def _get_kb_engine(ctx: RunContext[AgentDeps]):
     )
 
 
+@tool_version("1.0.0")
 async def ingest_knowledge_base(
     ctx: RunContext[AgentDeps],
     source: str,
@@ -571,6 +587,7 @@ async def ingest_knowledge_base(
         return f"❌ Ingestion error: {e}"
 
 
+@tool_version("1.0.0")
 async def list_knowledge_bases(ctx: RunContext[AgentDeps]) -> str:
     """List all knowledge bases with their article counts and status.
 
@@ -605,6 +622,7 @@ async def list_knowledge_bases(ctx: RunContext[AgentDeps]) -> str:
         return f"❌ Error listing knowledge bases: {e}"
 
 
+@tool_version("1.0.0")
 async def search_knowledge_base_tool(
     ctx: RunContext[AgentDeps],
     query: str,
@@ -645,6 +663,7 @@ async def search_knowledge_base_tool(
         return f"❌ Search error: {e}"
 
 
+@tool_version("1.0.0")
 async def get_kb_article(
     ctx: RunContext[AgentDeps],
     article_id: str,
@@ -688,6 +707,7 @@ async def get_kb_article(
         return f"❌ Error retrieving article: {e}"
 
 
+@tool_version("1.0.0")
 async def update_knowledge_base(
     ctx: RunContext[AgentDeps],
     kb_id: str,
@@ -717,6 +737,7 @@ async def update_knowledge_base(
         return f"❌ Update error: {e}"
 
 
+@tool_version("1.0.0")
 async def run_kb_health_check(
     ctx: RunContext[AgentDeps],
     kb_id: str,
@@ -767,6 +788,7 @@ async def run_kb_health_check(
         return f"❌ Health check error: {e}"
 
 
+@tool_version("1.0.0")
 async def archive_knowledge_base(
     ctx: RunContext[AgentDeps],
     kb_id: str,
@@ -801,6 +823,7 @@ async def archive_knowledge_base(
         return f"❌ Archive error: {e}"
 
 
+@tool_version("1.0.0")
 async def export_knowledge_base(
     ctx: RunContext[AgentDeps],
     kb_id: str,

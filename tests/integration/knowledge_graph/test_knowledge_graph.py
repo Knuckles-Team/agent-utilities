@@ -21,7 +21,7 @@ def mock_graph():
         type=RegistryNodeType.AGENT,
         name="TestBot",
         description="A test bot",
-        agent_type="prompt",
+        agent_type="specialist",
     )
     # Add a tool
     graph.add_node(

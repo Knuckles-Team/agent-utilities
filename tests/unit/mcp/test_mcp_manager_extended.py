@@ -66,9 +66,7 @@ def test_score_desc_tier_30_points() -> None:
 
 def test_score_all_tags_two_or_more() -> None:
     """two+ explicit tags = 30 points for tag confidence."""
-    tool = MCPToolInfo(
-        name="", description="", mcp_server="s", all_tags=["a", "b"]
-    )
+    tool = MCPToolInfo(name="", description="", mcp_server="s", all_tags=["a", "b"])
     # +30 tag confidence, +15 multi_tag coverage (2 tags)
     assert mgr.compute_tool_relevance_score(tool) == 30 + 15
 
@@ -122,9 +120,7 @@ def test_score_all_tags_single_short() -> None:
 
 def test_score_tag_only() -> None:
     """Only tag (no all_tags) = 10 tag confidence."""
-    tool = MCPToolInfo(
-        name="", description="", mcp_server="s", tag="git"
-    )
+    tool = MCPToolInfo(name="", description="", mcp_server="s", tag="git")
     assert mgr.compute_tool_relevance_score(tool) == 10
 
 
@@ -360,9 +356,7 @@ def test_should_sync_no_config_file() -> None:
     assert mgr.should_sync(Path("/definitely/nonexistent/mcp.json")) is False
 
 
-def test_should_sync_no_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_should_sync_no_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Engine is None -> should_sync returns True (never synced)."""
     cfg = tmp_path / "mcp.json"
     cfg.write_text("{}")
@@ -561,7 +555,7 @@ async def test_sync_mcp_agents_default_config_path(
     fake_path.exists.return_value = True
     monkeypatch.setattr(mgr, "get_workspace_path", lambda name: fake_path)
     await mgr.sync_mcp_agents()
-    assert True, 'Default config path sync should not raise'
+    assert True, "Default config path sync should not raise"
 
 
 @pytest.mark.asyncio
@@ -797,9 +791,7 @@ async def test_extract_inner_dynamic_success_annotation_tags_list() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(
-        server, {}, timeout=5
-    )
+    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
     assert len(tools) == 1
     assert tools[0].name == "my_tool"
     assert tools[0].tag == "git"
@@ -824,9 +816,7 @@ async def test_extract_inner_dynamic_success_annotation_object() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(
-        server, {}, timeout=5
-    )
+    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
     assert len(tools) == 1
     assert tools[0].all_tags == ["file"]
 
@@ -847,9 +837,7 @@ async def test_extract_inner_annotation_string_tag() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(
-        server, {}, timeout=5
-    )
+    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
     assert tools[0].all_tags == ["solo-tag"]
 
 
@@ -870,9 +858,7 @@ async def test_extract_inner_tool_without_annotations_but_with_meta() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(
-        server, {}, timeout=5
-    )
+    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
     assert tools[0].all_tags == ["meta-tag"]
 
 
@@ -891,9 +877,7 @@ async def test_extract_inner_heuristic_tag_from_verb_name() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(
-        server, {}, timeout=5
-    )
+    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
     assert tools[0].tag == "containers"
 
 
@@ -912,9 +896,7 @@ async def test_extract_inner_heuristic_tag_non_verb_first() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(
-        server, {}, timeout=5
-    )
+    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
     assert tools[0].tag == "docker"
 
 
@@ -933,9 +915,7 @@ async def test_extract_inner_single_word_name_defaults_to_general() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(
-        server, {}, timeout=5
-    )
+    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
     assert tools[0].tag == "general"
 
 
@@ -990,6 +970,7 @@ async def test_extract_list_result_tools_attribute() -> None:
 @pytest.mark.asyncio
 async def test_extract_exception_group_reports_first() -> None:
     """ExceptionGroup from aexit -> error_msg uses first sub-exception."""
+
     # Simulate ExceptionGroup-like object.  Python 3.11+ has it built in,
     # but our fallback code just checks for `.exceptions`.
     class FakeExceptionGroup(Exception):
@@ -1020,12 +1001,13 @@ async def test_extract_server_uses_id_when_name_missing() -> None:
     )
     assert len(tools) == 1
     assert tools[0].mcp_server == "byid"
+
+
 """Coverage push for agent_utilities.tools.knowledge_tools.
 
 Targets all CRUD operations with a mocked RegistryGraphEngine.  Each tool
 exercises the no-engine path, the happy path, and any error branches.
 """
-
 
 
 import networkx as nx

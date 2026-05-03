@@ -31,6 +31,7 @@ tags: [tag1, tag2]
     assert "tag1" in skill["tags"]
     assert skill["version"] == "1.0.0"
 
+
 def test_extract_skill_tags(tmp_path):
     skill_dir = tmp_path / "my_skill"
     skill_dir.mkdir()
@@ -40,6 +41,7 @@ tags: [alpha, beta]
 """)
     tags = extract_skill_tags(str(skill_dir))
     assert tags == ["alpha", "beta"]
+
 
 def test_extract_tool_tags():
     # Mock tool with fastmcp tags
@@ -54,6 +56,7 @@ def test_extract_tool_tags():
     tool2.metadata = None
     assert extract_tool_tags(tool2) == ["direct_tag"]
 
+
 def test_filter_tools_by_tag():
     tool1 = MagicMock()
     tool1.tags = ["tag1"]
@@ -63,6 +66,7 @@ def test_filter_tools_by_tag():
     filtered = filter_tools_by_tag([tool1, tool2], "tag1")
     assert len(filtered) == 1
     assert filtered[0] == tool1
+
 
 def test_skill_matches_tags(tmp_path):
     skill_dir = tmp_path / "skill"
@@ -74,8 +78,9 @@ categories: [cat1]
 """)
     assert skill_matches_tags(str(skill_dir), ["tag1"]) is True
     assert skill_matches_tags(str(skill_dir), ["cat1"]) is True
-    assert skill_matches_tags(str(skill_dir), ["skill"]) is True # matches basename
+    assert skill_matches_tags(str(skill_dir), ["skill"]) is True  # matches basename
     assert skill_matches_tags(str(skill_dir), ["other"]) is False
+
 
 def test_load_skills_from_directory(tmp_path):
     s1 = tmp_path / "s1"

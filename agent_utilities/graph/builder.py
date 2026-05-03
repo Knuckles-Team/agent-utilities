@@ -109,6 +109,7 @@ def build_tag_env_map(tag_names: list[str]) -> dict[str, str]:
 
 def initialize_graph_from_workspace(
     mcp_config: str | None = "mcp_config.json",
+    a2a_config: str | None = None,
     router_model: str | None = None,
     agent_model: str | None = None,
     api_key: str | None = None,
@@ -121,12 +122,12 @@ def initialize_graph_from_workspace(
 ) -> tuple[Graph, dict]:
     """Initialize a graph bundle by discovering domains in the current workspace.
 
-    This utility handles MCP agent synchronization, domain tag discovery,
-    and graph construction. It matches the local workspace directory against
-    the provided MCP configuration to build a functional orchestrator.
+    This utility handles MCP agent synchronization, A2A agent discovery,
+    domain tag discovery, and graph construction.
 
     Args:
         mcp_config: Filename or path to the MCP configuration file.
+        a2a_config: Filename or path to the A2A agent configuration file (AU-028).
         router_model: Optional override for the router's LLM model ID.
         agent_model: Optional override for the specialist agents' LLM model ID.
         api_key: Optional API key for the LLM provider.
@@ -226,7 +227,30 @@ def initialize_graph_from_workspace(
         except Exception as e:
             logger.warning(f"Failed to load MCP discovery metadata: {e}")
 
-    # Unified Discovery: merge MCP and A2A sources into a single roster
+    # --- AU-028: A2A Agent Sync ---
+    _a2a_config = a2a_config or os.getenv("A2A_CONFIG")
+    if _a2a_config:
+        try:
+            from agent_utilities.protocols.a2a_config import sync_a2a_agents
+
+            if loop and loop.is_running():
+                loop.create_task(sync_a2a_agents(config_path=_a2a_config))
+            else:
+                sync_bg = (
+                    os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
+                    == "true"
+                )
+                if sync_bg:
+                    logger.info("Backgrounding A2A agent sync...")
+                else:
+                    import asyncio as _aio
+
+                    _aio.run(sync_a2a_agents(config_path=_a2a_config))
+                    logger.info("Initializing Graph: A2A agents synced successfully.")
+        except Exception as e:
+            logger.debug(f"A2A agent sync skip/fail: {e}")
+
+    # Unified Discovery: merge MCP, A2A, and prompt sources into a single roster
     logger.info("Initializing Graph: Discovering domain tags and agents...")
 
     all_specialists = discover_all_specialists()

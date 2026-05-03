@@ -10,8 +10,10 @@ from pydantic_ai import RunContext
 
 from ..models import AgentDeps, Spec, Tasks
 from ..sdd import SDDManager
+from .versioning import tool_version
 
 
+@tool_version("1.0.0")
 async def get_project_context(ctx: RunContext[AgentDeps]) -> str:
     """Retrieve the high-level project constitution and context."""
     manager = SDDManager(ctx.deps.workspace_path)
@@ -21,6 +23,7 @@ async def get_project_context(ctx: RunContext[AgentDeps]) -> str:
     return f"Project: {constitution.get('metadata', {}).get('project_name', 'Unknown')}\nStack: {constitution.get('tech_stack')}\nVision: {constitution.get('vision')}"
 
 
+@tool_version("1.0.0")
 async def setup_sdd(ctx: RunContext[AgentDeps], project_name: str) -> str:
     """Initialize the SDD environment in the workspace."""
     manager = SDDManager(ctx.deps.workspace_path)
@@ -28,6 +31,7 @@ async def setup_sdd(ctx: RunContext[AgentDeps], project_name: str) -> str:
     return f"SDD environment initialized for '{project_name}' at .specify/"
 
 
+@tool_version("1.0.0")
 async def save_spec(ctx: RunContext[AgentDeps], feature_id: str, content: str) -> str:
     """Save a feature specification to the SDD storage."""
     manager = SDDManager(ctx.deps.workspace_path)
@@ -37,6 +41,7 @@ async def save_spec(ctx: RunContext[AgentDeps], feature_id: str, content: str) -
     return f"Specification for '{feature_id}' saved successfully."
 
 
+@tool_version("1.0.0")
 async def save_tasks(
     ctx: RunContext[AgentDeps], feature_id: str, task_list: list[str]
 ) -> str:
@@ -54,6 +59,7 @@ async def save_tasks(
     return f"Task list for '{feature_id}' saved successfully."
 
 
+@tool_version("1.0.0")
 async def get_sdd_status(ctx: RunContext[AgentDeps], feature_id: str) -> str:
     """Retrieve the current status of an SDD feature."""
     manager = SDDManager(ctx.deps.workspace_path)
@@ -66,6 +72,7 @@ async def get_sdd_status(ctx: RunContext[AgentDeps], feature_id: str) -> str:
     return status
 
 
+@tool_version("1.0.0")
 async def export_sdd_to_markdown(
     ctx: RunContext[AgentDeps], feature_id: str, artifact_type: str = "spec"
 ) -> str:
@@ -80,6 +87,7 @@ async def export_sdd_to_markdown(
     return f"Artifact natively available as Markdown at {path}"
 
 
+@tool_version("1.0.0")
 async def import_sdd_from_markdown(
     ctx: RunContext[AgentDeps], feature_id: str, markdown_path: str
 ) -> str:
@@ -93,6 +101,7 @@ async def import_sdd_from_markdown(
     return f"Imported tasks for '{feature_id}' from {markdown_path} into structured storage."
 
 
+@tool_version("1.0.0")
 async def get_sdd_parallel_batches(
     ctx: RunContext[AgentDeps], feature_id: str
 ) -> list[list[str]]:
@@ -110,6 +119,7 @@ async def get_sdd_parallel_batches(
     return [parallel, sequential] if parallel else [sequential]
 
 
+@tool_version("1.0.0")
 async def run_tdd_cycle(
     ctx: RunContext[AgentDeps],
     feature_id: str,

@@ -38,7 +38,12 @@ from agent_utilities.models.knowledge_graph import (
 from agent_utilities.models.schema_definition import SCHEMA
 
 # Path to ontology.ttl
-ONTOLOGY_PATH = Path(__file__).parent.parent.parent.parent / "agent_utilities" / "knowledge_graph" / "ontology.ttl"
+ONTOLOGY_PATH = (
+    Path(__file__).parent.parent.parent.parent
+    / "agent_utilities"
+    / "knowledge_graph"
+    / "ontology.ttl"
+)
 
 ISO_TS = "2026-01-01T00:00:00Z"
 
@@ -119,8 +124,12 @@ class TestOntologyFile:
         content = ONTOLOGY_PATH.read_text()
         # Continuants
         assert "rdfs:subClassOf bfo:0000004" in content  # IndependentContinuant
-        assert "rdfs:subClassOf bfo:0000031" in content  # GenericallyDependentContinuant
-        assert "rdfs:subClassOf bfo:0000020" in content  # SpecificallyDependentContinuant
+        assert (
+            "rdfs:subClassOf bfo:0000031" in content
+        )  # GenericallyDependentContinuant
+        assert (
+            "rdfs:subClassOf bfo:0000020" in content
+        )  # SpecificallyDependentContinuant
         # Occurrents
         assert "rdfs:subClassOf bfo:0000015" in content  # Process
         assert "rdfs:subClassOf bfo:0000008" in content  # TemporalRegion
@@ -305,27 +314,15 @@ class TestStandardNodeModels:
 @pytest.fixture(scope="module")
 def standard_sample_nodes() -> dict[type, object]:
     return {
-        DocumentNode: DocumentNode(
-            id="doc:a", name="A", title="T"
-        ),
-        CreativeWorkNode: CreativeWorkNode(
-            id="cw:a", name="A", title="T"
-        ),
+        DocumentNode: DocumentNode(id="doc:a", name="A", title="T"),
+        CreativeWorkNode: CreativeWorkNode(id="cw:a", name="A", title="T"),
         DatasetNode: DatasetNode(id="ds:a", name="A"),
-        SoftwareProjectNode: SoftwareProjectNode(
-            id="proj:a", name="A"
-        ),
-        MedicalEntityNode: MedicalEntityNode(
-            id="med:a", name="A"
-        ),
+        SoftwareProjectNode: SoftwareProjectNode(id="proj:a", name="A"),
+        MedicalEntityNode: MedicalEntityNode(id="med:a", name="A"),
         ProcedureNode: ProcedureNode(id="proc:a", name="A"),
         RegulationNode: RegulationNode(id="reg:a", name="A"),
-        FinancialInstrumentNode: FinancialInstrumentNode(
-            id="fi:a", name="A"
-        ),
-        FinancialTransactionNode: FinancialTransactionNode(
-            id="ft:a", name="A"
-        ),
+        FinancialInstrumentNode: FinancialInstrumentNode(id="fi:a", name="A"),
+        FinancialTransactionNode: FinancialTransactionNode(id="ft:a", name="A"),
         AccountNode: AccountNode(id="acct:a", name="A"),
     }
 
@@ -491,9 +488,7 @@ def test_standard_table_definitions_include_base_columns() -> None:
     for tbl in SCHEMA.nodes:
         if tbl.name in standard_names:
             missing = base_cols - set(tbl.columns.keys())
-            assert not missing, (
-                f"{tbl.name} missing base cols: {sorted(missing)}"
-            )
+            assert not missing, f"{tbl.name} missing base cols: {sorted(missing)}"
 
 
 # ---------------------------------------------------------------------------
@@ -567,9 +562,7 @@ def test_standard_inference_skos_broader_transitivity() -> None:
     result = inf.run_inference()
 
     assert result >= 1, "Expected at least 1 inference from SKOS broader transitivity"
-    assert g.has_edge("concept:a", "concept:c"), (
-        "Expected transitive broader edge a->c"
-    )
+    assert g.has_edge("concept:a", "concept:c"), "Expected transitive broader edge a->c"
 
 
 def test_standard_inference_prov_derivation_transitivity() -> None:

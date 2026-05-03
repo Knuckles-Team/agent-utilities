@@ -17,5 +17,7 @@
     "tools": [
         "workspace-manager",
         "agent-workflows"
-    ]
+    ],
+    "rules": {},
+    "version": "1.0.0"
 }

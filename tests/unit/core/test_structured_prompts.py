@@ -47,7 +47,11 @@ def test_nested_structure():
 
 def test_extra_fields():
     """Test that extra fields are allowed and included in rendering."""
-    data: dict[str, Any] = {"task": "custom task", "custom_field": "custom value", "another_field": 123}
+    data: dict[str, Any] = {
+        "task": "custom task",
+        "custom_field": "custom value",
+        "another_field": 123,
+    }
     prompt = StructuredPrompt(**data)
     assert prompt.custom_field == "custom value"  # type: ignore[attr-defined]
 

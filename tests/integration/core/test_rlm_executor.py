@@ -52,29 +52,59 @@ async def test_executor_rlm_summary():
 
     # Patch create_agent AND pydantic_ai.Agent
     with patch("agent_utilities.graph.executor.Agent", return_value=mock_agent):
-        with patch("agent_utilities.graph.executor.create_agent", return_value=(mock_agent, [])):
+        with patch(
+            "agent_utilities.graph.executor.create_agent", return_value=(mock_agent, [])
+        ):
             # Patch recursive_reasoner_tool
-            with patch("agent_utilities.rlm.specialist.recursive_reasoner_tool", new_callable=AsyncMock) as mock_rlm_tool:
+            with patch(
+                "agent_utilities.rlm.specialist.recursive_reasoner_tool",
+                new_callable=AsyncMock,
+            ) as mock_rlm_tool:
                 mock_rlm_tool.return_value = "This is a summary of 60k chars."
 
                 # Patch RLMConfig
                 mock_config = MagicMock()
                 mock_config.max_context_threshold = 50000
 
-                with patch("agent_utilities.rlm.config.RLMConfig", return_value=mock_config):
+                with patch(
+                    "agent_utilities.rlm.config.RLMConfig", return_value=mock_config
+                ):
                     # Patch load_node_agents_registry
-                    with patch("agent_utilities.graph.executor.load_node_agents_registry", return_value=MagicMock()):
+                    with patch(
+                        "agent_utilities.graph.executor.load_node_agents_registry",
+                        return_value=MagicMock(),
+                    ):
                         # Patch on_enter/exit
-                        with patch("agent_utilities.graph.executor.on_enter_specialist", new_callable=AsyncMock):
-                            with patch("agent_utilities.graph.executor.on_exit_specialist", new_callable=AsyncMock):
+                        with patch(
+                            "agent_utilities.graph.executor.on_enter_specialist",
+                            new_callable=AsyncMock,
+                        ):
+                            with patch(
+                                "agent_utilities.graph.executor.on_exit_specialist",
+                                new_callable=AsyncMock,
+                            ):
                                 # Patch check_specialist_preconditions
-                                with patch("agent_utilities.graph.executor.check_specialist_preconditions", return_value=(True, None)):
+                                with patch(
+                                    "agent_utilities.graph.executor.check_specialist_preconditions",
+                                    return_value=(True, None),
+                                ):
                                     # Patch pick_specialist_model
-                                    with patch("agent_utilities.graph.executor.pick_specialist_model", return_value=MagicMock()):
-                                        res = await _execute_dynamic_mcp_agent(ctx, agent_info)
+                                    with patch(
+                                        "agent_utilities.graph.executor.pick_specialist_model",
+                                        return_value=MagicMock(),
+                                    ):
+                                        res = await _execute_dynamic_mcp_agent(
+                                            ctx, agent_info
+                                        )
                                         assert res == "execution_joiner"
                                         # Check if the result was summarized
                                         result_key = "test-specialist_0"
-                                        assert "[RLM Synthesized Summary of Massive Data]" in state.results_registry[result_key]
-                                        assert "This is a summary of 60k chars." in state.results_registry[result_key]
+                                        assert (
+                                            "[RLM Synthesized Summary of Massive Data]"
+                                            in state.results_registry[result_key]
+                                        )
+                                        assert (
+                                            "This is a summary of 60k chars."
+                                            in state.results_registry[result_key]
+                                        )
                                         mock_rlm_tool.assert_called_once()

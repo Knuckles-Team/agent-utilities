@@ -144,5 +144,24 @@
     },
     "tools": [
         "rust-docs"
-    ]
+    ],
+    "rules": {
+        "ownership_and_borrowing": [
+            "Borrowing: References (&T and &mut T) with strict lifetime rules"
+        ],
+        "operating_systems_and_embedded": [
+            "Bare-metal programming: No std, core only"
+        ],
+        "memory_safety_guarantees": [
+            "No null pointer dereferences (except unsafe)",
+            "No buffer overflows (bounds checking on slices)",
+            "No use-after-free (ownership and lifetimes)",
+            "No data races (Send/Sync traits)",
+            "No iterator invalidation (borrowing rules)"
+        ],
+        "secure_coding_practices": [
+            "Sandboxing: Running untrusted code in restricted environments"
+        ]
+    },
+    "version": "1.0.0"
 }

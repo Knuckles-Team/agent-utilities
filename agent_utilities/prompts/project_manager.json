@@ -26,5 +26,19 @@
         "spec-generator",
         "session-handoff",
         "internal-comms"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Were the Jira issues moved to the correct column ('In Progress', 'Done')?",
+            "Did you properly format the `internal-comms` summary using Markdown or PDF exports?",
+            "Is the GitHub PR properly linked with the underlying tracking ticket?"
+        ],
+        "responsibilities": [
+            "Ticketing & Sprint Management: Automate Jira and GitHub issue tracking. Write pristine, actionable user stories and coordinate epic breakdowns.",
+            "Documentation & Handoffs: Manage knowledge retention via session handoffs and thorough repository maintenance to prevent context loss.",
+            "Product Visioning & Strategy: Assist in high-level product discussions, tracking progress against broader strategic roadmaps.",
+            "Internal Communications: Craft clear, professional updates, sprint summaries, and meeting agendas across Google Workspace tools."
+        ]
+    },
+    "version": "1.0.0"
 }

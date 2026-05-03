@@ -15,7 +15,13 @@ from agent_utilities.knowledge_graph.owl_bridge import OWLBridge
 
 @pytest.fixture
 def ontology_path():
-    return str(Path(__file__).parent.parent.parent.parent / "agent_utilities" / "knowledge_graph" / "ontology.ttl")
+    return str(
+        Path(__file__).parent.parent.parent.parent
+        / "agent_utilities"
+        / "knowledge_graph"
+        / "ontology.ttl"
+    )
+
 
 @pytest.fixture
 def mock_engine():
@@ -23,6 +29,7 @@ def mock_engine():
     engine.graph = nx.MultiDiGraph()
     engine.backend = None
     return engine
+
 
 def test_bridge_run_cycle(mock_engine, ontology_path, monkeypatch):
     # Setup graph with promotable nodes and edges
@@ -44,9 +51,12 @@ def test_bridge_run_cycle(mock_engine, ontology_path, monkeypatch):
             symbol_A.dependsOn.append(symbol_C)
 
     import owlready2
+
     monkeypatch.setattr(owlready2, "sync_reasoner_hermit", mock_reasoner)
 
-    bridge = OWLBridge(graph=mock_engine.graph, owl_backend=backend, backend=mock_engine.backend)
+    bridge = OWLBridge(
+        graph=mock_engine.graph, owl_backend=backend, backend=mock_engine.backend
+    )
     stats = bridge.run_cycle()
 
     assert stats["promoted_nodes"] == 3
@@ -62,25 +72,40 @@ def test_bridge_run_cycle(mock_engine, ontology_path, monkeypatch):
 
     backend.close()
 
+
 def test_bridge_eligibility(mock_engine, ontology_path):
     backend = Owlready2Backend(ontology_path=ontology_path)
     bridge = OWLBridge(
         graph=mock_engine.graph,
         owl_backend=backend,
         backend=mock_engine.backend,
-        importance_threshold=0.5
+        importance_threshold=0.5,
     )
 
     # Important node
-    assert bridge._is_eligible_node("1", {"type": "agent", "importance_score": 0.8}) is True
+    assert (
+        bridge._is_eligible_node("1", {"type": "agent", "importance_score": 0.8})
+        is True
+    )
 
     # Unimportant node
-    assert bridge._is_eligible_node("2", {"type": "agent", "importance_score": 0.2}) is False
+    assert (
+        bridge._is_eligible_node("2", {"type": "agent", "importance_score": 0.2})
+        is False
+    )
 
     # Non-promotable type
-    assert bridge._is_eligible_node("3", {"type": "unknown", "importance_score": 0.9}) is False
+    assert (
+        bridge._is_eligible_node("3", {"type": "unknown", "importance_score": 0.9})
+        is False
+    )
 
     # Permanent node (always eligible)
-    assert bridge._is_eligible_node("4", {"type": "agent", "importance_score": 0.1, "is_permanent": True}) is True
+    assert (
+        bridge._is_eligible_node(
+            "4", {"type": "agent", "importance_score": 0.1, "is_permanent": True}
+        )
+        is True
+    )
 
     backend.close()

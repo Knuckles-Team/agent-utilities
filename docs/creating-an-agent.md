@@ -155,8 +155,8 @@ List the MCP servers your agent should connect to. Environment variables are aut
       "command": "uv",
       "args": ["run", "my-service-mcp", "-t", "stdio"],
       "env": {
-        "SERVICE_URL": "${SERVICE_URL}",
-        "SERVICE_TOKEN": "${SERVICE_TOKEN}"
+        "SERVICE_URL": "secret://my-service/url",
+        "SERVICE_TOKEN": "secret://my-service/token"
       }
     }
   }

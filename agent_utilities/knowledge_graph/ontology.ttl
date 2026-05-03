@@ -727,3 +727,306 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:domain :ConstraintState ; rdfs:range xsd:integer ;
     rdfs:label "violation count" ;
     rdfs:comment "Number of times this constraint has been violated." .
+
+# =====================================================================
+# Agentic Design Patterns Gap Classes (CONCEPT:AU-018 through AU-022)
+# =====================================================================
+
+# ── AU-018: Prompt Chaining ──
+:PromptChain   a owl:Class ;
+    rdfs:subClassOf :Procedure ;
+    rdfs:label "Prompt Chain" ;
+    rdfs:comment "A declarative multi-step prompt pipeline with intermediate validation and conditional branching. BFO:Process via Procedure." .
+
+:PromptChainStep a owl:Class ;
+    rdfs:subClassOf :Action ;
+    rdfs:label "Prompt Chain Step" ;
+    rdfs:comment "A single step within a PromptChain. BFO:Process via Action." .
+
+# ── AU-019: Resource-Aware Optimization ──
+:ResourceUsage a owl:Class ;
+    rdfs:subClassOf bfo:0000015 ;
+    rdfs:label "Resource Usage Record" ;
+    rdfs:comment "Per-session resource consumption tracking (tokens, cost, latency). BFO:Process." .
+
+# ── AU-020: Evaluation & Monitoring ──
+:EvaluationRecord a owl:Class ;
+    rdfs:subClassOf :Observation ;
+    rdfs:label "Multi-Dimensional Evaluation Record" ;
+    rdfs:comment "Multi-dimensional quality evaluation with per-dimension scoring. Subclass of Observation." .
+
+# ── AU-021: Task Prioritization ──
+:PrioritizedTask a owl:Class ;
+    rdfs:subClassOf :Action ;
+    rdfs:label "Prioritized Task" ;
+    rdfs:comment "A task with multi-factor priority scoring (urgency, impact, effort, risk). BFO:Process via Action." .
+
+# ── AU-022: Exploration & Discovery ──
+:KnowledgeGap  a owl:Class ;
+    rdfs:subClassOf :Observation ;
+    rdfs:label "Knowledge Gap" ;
+    rdfs:comment "An identified gap in the agent's knowledge. Subclass of Observation." .
+
+:ExplorationExperiment a owl:Class ;
+    rdfs:subClassOf :Procedure ;
+    rdfs:label "Exploration Experiment" ;
+    rdfs:comment "A structured experiment to test a hypothesis. BFO:Process via Procedure." .
+
+# =====================================================================
+# Object Properties — AU-018 through AU-022
+# =====================================================================
+
+# ── AU-018 ──
+:hasChainStep  a owl:ObjectProperty ;
+    rdfs:domain :PromptChain ; rdfs:range :PromptChainStep ;
+    rdfs:label "has chain step" .
+
+:branchesTo    a owl:ObjectProperty ;
+    rdfs:domain :PromptChainStep ; rdfs:range :PromptChainStep ;
+    rdfs:label "branches to" .
+
+# ── AU-019 ──
+:consumedResource a owl:ObjectProperty ;
+    rdfs:domain :Episode ; rdfs:range :ResourceUsage ;
+    rdfs:label "consumed resource" .
+
+# ── AU-020 ──
+:evaluatedWith a owl:ObjectProperty ;
+    rdfs:domain :Episode ; rdfs:range :EvaluationRecord ;
+    rdfs:label "evaluated with" .
+
+:calibratedAgainst a owl:ObjectProperty ;
+    rdfs:domain :EvaluationRecord ; rdfs:range :EvaluationRecord ;
+    rdfs:label "calibrated against" ;
+    rdfs:comment "Links a machine evaluation to a human calibration baseline." .
+
+# ── AU-021 ──
+:blocksProp    a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain :PrioritizedTask ; rdfs:range :PrioritizedTask ;
+    rdfs:label "blocks" ;
+    rdfs:comment "Transitive: if A blocks B and B blocks C, A indirectly blocks C." .
+
+:assignedToSpecialist a owl:ObjectProperty ;
+    rdfs:domain :PrioritizedTask ; rdfs:range :Agent ;
+    rdfs:label "assigned to specialist" .
+
+:hasPriority   a owl:DatatypeProperty ;
+    rdfs:domain :PrioritizedTask ; rdfs:range xsd:float ;
+    rdfs:label "has priority" ;
+    rdfs:comment "Composite priority score (0.0–1.0)." .
+
+# ── AU-022 ──
+:testsHypothesis a owl:ObjectProperty ;
+    rdfs:domain :ExplorationExperiment ; rdfs:range :Hypothesis ;
+    rdfs:label "tests hypothesis" .
+
+:exploredGap   a owl:ObjectProperty ;
+    rdfs:domain :Hypothesis ; rdfs:range :KnowledgeGap ;
+    rdfs:label "explored gap" .
+
+:resultedInDiscovery a owl:ObjectProperty ;
+    rdfs:domain :ExplorationExperiment ; rdfs:range :Fact ;
+    rdfs:label "resulted in discovery" .
+
+# =====================================================================
+# Datatype Properties — AU-019, AU-020
+# =====================================================================
+
+:hasResourceEfficiency a owl:DatatypeProperty ;
+    rdfs:domain :Agent ; rdfs:range xsd:float ;
+    rdfs:label "has resource efficiency" ;
+    rdfs:comment "Composite resource efficiency metric for model selection optimization." .
+
+:correctnessScore a owl:DatatypeProperty ;
+    rdfs:domain :EvaluationRecord ; rdfs:range xsd:float ;
+    rdfs:label "correctness score" .
+
+:completenessScore a owl:DatatypeProperty ;
+    rdfs:domain :EvaluationRecord ; rdfs:range xsd:float ;
+    rdfs:label "completeness score" .
+
+:relevanceScore a owl:DatatypeProperty ;
+    rdfs:domain :EvaluationRecord ; rdfs:range xsd:float ;
+    rdfs:label "relevance score" .
+
+:safetyScore   a owl:DatatypeProperty ;
+    rdfs:domain :EvaluationRecord ; rdfs:range xsd:float ;
+    rdfs:label "safety score" .
+
+# =====================================================================
+# Engineering Rules Engine (CONCEPT:AU-023)
+# Agent-rules-books integration for context-sensitive rule retrieval
+# =====================================================================
+
+# ── AU-023: Core Classes ──
+:EngineeringRule a owl:Class ;
+    rdfs:subClassOf :Principle ;
+    rdfs:label "Engineering Rule" ;
+    rdfs:comment """A software engineering rule derived from a canonical book.
+Subclass of Principle — inherits strength, scope, and derivation semantics.
+Adds tier (full/mini/nano), rule classification, bias correction tracking,
+and AHE efficacy scoring for evolutionary rule selection.""" .
+
+:RuleBook a owl:Class ;
+    rdfs:subClassOf :CreativeWork ;
+    rdfs:label "Rule Book" ;
+    rdfs:comment """A canonical software engineering book that is the source
+of engineering rules (e.g., 'Clean Architecture', 'Domain-Driven Design').
+Subclass of CreativeWork for Dublin Core / BIBO alignment.""" .
+
+# ── AU-023: Object Properties ──
+:correctsBias  a owl:ObjectProperty ;
+    rdfs:domain :EngineeringRule ;
+    rdfs:label "corrects bias" ;
+    rdfs:comment "Links a rule to the LLM bias pattern it prevents." .
+
+:applicableWhen a owl:ObjectProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range :Concept ;
+    rdfs:label "applicable when" ;
+    rdfs:comment "Links a rule to the task context Concept where it activates." .
+
+:conflictsWith a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range :EngineeringRule ;
+    rdfs:label "conflicts with" ;
+    rdfs:comment """Symmetric: if Rule A conflicts with Rule B, then B conflicts
+with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
+
+:derivedFromBook a owl:ObjectProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range :RuleBook ;
+    rdfs:label "derived from book" ;
+    rdfs:comment "Links a rule to its source book for provenance tracking." .
+
+:appliedInTask a owl:ObjectProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range :Task ;
+    rdfs:label "applied in task" ;
+    rdfs:comment "Links a rule to tasks where it was active for AHE tracking." .
+
+# ── AU-023: Datatype Properties ──
+:ruleTier      a owl:DatatypeProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range xsd:string ;
+    rdfs:label "rule tier" ;
+    rdfs:comment "Context-budget tier: full, mini, or nano." .
+
+:ruleClass     a owl:DatatypeProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range xsd:string ;
+    rdfs:label "rule class" ;
+    rdfs:comment "Classification: book-thesis, decision-changing, micro-decision, trigger, conflict-resolver, checklist-only, framing, default." .
+
+:efficacyScore a owl:DatatypeProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range xsd:float ;
+    rdfs:label "efficacy score" ;
+    rdfs:comment "Running efficacy score from AHE feedback (0.0–1.0)." .
+
+:conflictWeight a owl:DatatypeProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range xsd:float ;
+    rdfs:label "conflict weight" ;
+    rdfs:comment "Deterministic weight for cross-book conflict resolution (0.0–1.0)." .
+
+:applicationCount a owl:DatatypeProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range xsd:integer ;
+    rdfs:label "application count" ;
+    rdfs:comment "Number of times this rule has been applied." .
+
+:violationCount a owl:DatatypeProperty ;
+    rdfs:domain :EngineeringRule ; rdfs:range xsd:integer ;
+    rdfs:label "violation count" ;
+    rdfs:comment "Number of times this rule was violated." .
+
+# =====================================================================
+# External Integration & SDLC Entities (CONCEPT:AU-024)
+# =====================================================================
+
+# ── SDLC Core Classes ──
+:Repository a owl:Class ;
+    rdfs:subClassOf :SoftwareProject ;
+    rdfs:label "Repository" ;
+    rdfs:comment "A source code repository (e.g. GitHub, GitLab)." .
+
+:MergeRequest a owl:Class ;
+    rdfs:subClassOf bfo:0000015 ;
+    rdfs:label "Merge Request" ;
+    rdfs:comment "A merge request or pull request. BFO:Process." .
+
+:PullRequest a owl:Class ;
+    owl:equivalentClass :MergeRequest ;
+    rdfs:label "Pull Request" .
+
+:Pipeline a owl:Class ;
+    rdfs:subClassOf bfo:0000015 ;
+    rdfs:label "Pipeline" ;
+    rdfs:comment "A CI/CD pipeline run. BFO:Process." .
+
+:Commit a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Commit" ;
+    rdfs:comment "A version control commit. BFO:GenericallyDependentContinuant." .
+
+:Issue a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Issue" ;
+    rdfs:comment "A project management issue or ticket." .
+
+# ── External Knowledge Graph Classes ──
+:ExternalGraphReference a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "External Graph Reference" ;
+    rdfs:comment "A reference to an external Knowledge Graph (e.g., LeanIX)." .
+
+:ExternalEntity a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "External Entity" ;
+    rdfs:comment "A stub entity representing a node in an external Knowledge Graph." .
+
+# ── Object Properties ──
+:modifiedIn a owl:ObjectProperty ;
+    rdfs:label "modified in" ;
+    rdfs:comment "Links a File or Symbol to the Commit that modified it." .
+
+:mentionedIn a owl:ObjectProperty ;
+    rdfs:label "mentioned in" ;
+    rdfs:comment "Links an entity to an Issue or MergeRequest where it is mentioned." .
+
+:triggered a owl:ObjectProperty ;
+    rdfs:label "triggered" ;
+    rdfs:comment "Links a MergeRequest or Commit to the Pipeline it triggered." .
+
+:targets a owl:ObjectProperty ;
+    rdfs:label "targets" ;
+    rdfs:comment "Links a MergeRequest to its target Repository." .
+
+:mappedToExternal a owl:ObjectProperty ;
+    rdfs:label "mapped to external" ;
+    rdfs:comment "Links an internal node to an ExternalEntity stub." .
+
+# ── Datatype Properties ──
+:sourceUrl a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "source url" .
+
+:platform a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "platform" .
+
+:state a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "state" .
+
+:sha a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "sha" .
+
+:message a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "message" .
+
+:status a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "status" .
+
+:externalUri a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "external uri" .
+
+:externalSystemId a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "external system id" .

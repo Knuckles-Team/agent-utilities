@@ -8,7 +8,6 @@ output_style, checkpoint_store, include_teams.
 """
 
 
-
 import argparse
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -185,9 +184,7 @@ def test_create_agent_with_custom_system_prompt(
 ) -> None:
     """When system_prompt is provided, it is used verbatim (bypasses workspace build)."""
     build_mock = MagicMock(return_value="SHOULD NOT BE USED")
-    monkeypatch.setattr(
-        agent_factory, "build_system_prompt_from_workspace", build_mock
-    )
+    monkeypatch.setattr(agent_factory, "build_system_prompt_from_workspace", build_mock)
     agent, _ = agent_factory.create_agent(
         name="TestCustomPrompt",
         system_prompt="My custom system prompt text",
@@ -205,9 +202,7 @@ def test_create_agent_builds_system_prompt_when_none(
 ) -> None:
     """When system_prompt is None, workspace builder is called."""
     build_mock = MagicMock(return_value="Built prompt")
-    monkeypatch.setattr(
-        agent_factory, "build_system_prompt_from_workspace", build_mock
-    )
+    monkeypatch.setattr(agent_factory, "build_system_prompt_from_workspace", build_mock)
     agent, _ = agent_factory.create_agent(
         name="TestDefaultPrompt",
         system_prompt=None,

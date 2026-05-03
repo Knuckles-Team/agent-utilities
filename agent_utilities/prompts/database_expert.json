@@ -99,5 +99,14 @@
         "falkordb-docs",
         "chromadb-docs",
         "qdrant-docs"
-    ]
+    ],
+    "rules": {
+        "replication_and_high_availability": [
+            "Clustering: Galera Cluster, RAC, Always On Availability Groups"
+        ],
+        "monitoring_and_maintenance": [
+            "Audit & compliance: Activity logging, data access monitoring"
+        ]
+    },
+    "version": "1.0.0"
 }

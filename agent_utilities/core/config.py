@@ -173,6 +173,10 @@ class AgentConfig(BaseSettings):
     a2a_broker_url: str | None = Field(default=None, alias="A2A_BROKER_URL")
     a2a_storage: str = Field(default="in-memory", alias="A2A_STORAGE")
     a2a_storage_url: str | None = Field(default=None, alias="A2A_STORAGE_URL")
+    a2a_config: str | None = Field(default=None, alias="A2A_CONFIG")
+    """Path to a2a_config.json for external A2A agent discovery (AU-028)."""
+    a2a_refresh_interval: int = Field(default=300, alias="A2A_REFRESH_INTERVAL")
+    """Interval in seconds for periodic A2A agent card re-fetch (AU-028)."""
 
     max_tokens: int = Field(default=16384, alias="MAX_TOKENS")
     temperature: float = Field(default=0.7, alias="TEMPERATURE")
@@ -310,6 +314,8 @@ DEFAULT_A2A_BROKER = config.a2a_broker
 DEFAULT_A2A_BROKER_URL = config.a2a_broker_url
 DEFAULT_A2A_STORAGE = config.a2a_storage
 DEFAULT_A2A_STORAGE_URL = config.a2a_storage_url
+DEFAULT_A2A_CONFIG = config.a2a_config
+DEFAULT_A2A_REFRESH_INTERVAL = config.a2a_refresh_interval
 
 DEFAULT_MAX_TOKENS = config.max_tokens
 DEFAULT_TEMPERATURE = config.temperature

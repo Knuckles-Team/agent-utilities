@@ -66,7 +66,8 @@ def test_mcp_config_endpoint(client, tmp_path):
 
 def test_list_chats_endpoint(client):
     with patch(
-        "agent_utilities.server.routers.core.list_chats_from_disk", return_value=["chat1", "chat2"]
+        "agent_utilities.server.routers.core.list_chats_from_disk",
+        return_value=["chat1", "chat2"],
     ):
         response = client.get("/chats")
         assert response.status_code == 200

@@ -20,5 +20,7 @@
     ],
     "deliverables": [
         "Linear sequence of ExecutionStep objects"
-    ]
+    ],
+    "rules": {},
+    "version": "1.0.0"
 }

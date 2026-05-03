@@ -42,7 +42,7 @@ def setup_server_file_logging(workspace: str | None = None) -> str | None:
     from agent_utilities.core.workspace import WORKSPACE_DIR
 
     ws = workspace or WORKSPACE_DIR or "."
-    log_dir = Path(ws) / "agent_data" / "logs"
+    log_dir = Path(ws) / ".agent_data" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "server.log"
 
@@ -92,7 +92,7 @@ async def process_parts(parts: list[dict[str, Any]]) -> list[Any]:
 
                 from agent_utilities.core.workspace import WORKSPACE_DIR
 
-                img_dir = Path(WORKSPACE_DIR or ".") / "agent_data" / "images"
+                img_dir = Path(WORKSPACE_DIR or ".") / ".agent_data" / "images"
                 img_dir.mkdir(parents=True, exist_ok=True)
 
                 img_filename = f"{uuid4().hex}.{media_type.split('/')[-1]}"

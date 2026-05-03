@@ -25,6 +25,7 @@ from .knowledge_tools import (
     sync_feature_to_memory,
     update_knowledge_memory,
 )
+from .versioning import tool_version
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ def _get_diff(old_content: str, new_content: str, filename: str) -> str:
     )
 
 
+@tool_version("1.0.0")
 async def project_search(
     ctx: RunContext[AgentDeps], query: str, path: str = "."
 ) -> str:
@@ -101,6 +103,7 @@ async def project_search(
         return f"Error during search: {e}"
 
 
+@tool_version("1.0.0")
 async def replace_in_file(
     ctx: RunContext[AgentDeps], path: str, old_str: str, new_str: str
 ) -> str:
@@ -141,6 +144,7 @@ async def replace_in_file(
         return f"Error updating file: {e}"
 
 
+@tool_version("1.0.0")
 async def run_shell_with_diagnostics(
     ctx: RunContext[AgentDeps], command: str, cwd: str = ".", timeout: int = 120
 ) -> ShellCommandOutput:
@@ -198,6 +202,7 @@ async def run_shell_with_diagnostics(
 
 
 # Ported from code_puppy: create_file, delete_file, delete_snippet
+@tool_version("1.0.0")
 async def create_file(ctx: RunContext[AgentDeps], path: str, content: str) -> str:
     """Create a new file in the workspace, creating parent directories if needed.
 
@@ -220,6 +225,7 @@ async def create_file(ctx: RunContext[AgentDeps], path: str, content: str) -> st
         return f"Error creating file: {e}"
 
 
+@tool_version("1.0.0")
 async def delete_file(ctx: RunContext[AgentDeps], path: str) -> str:
     """Permanently delete a file from the local workspace.
 

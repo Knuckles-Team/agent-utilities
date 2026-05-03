@@ -1,5 +1,7 @@
+import atexit
 import logging
 import os
+import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -10,6 +12,7 @@ from pydantic_ai import Agent
 from agent_utilities.core.config import (
     DEFAULT_A2A_BROKER,
     DEFAULT_A2A_BROKER_URL,
+    DEFAULT_A2A_CONFIG,
     DEFAULT_A2A_STORAGE,
     DEFAULT_A2A_STORAGE_URL,
     DEFAULT_ACP_SESSION_ROOT,
@@ -41,6 +44,9 @@ from agent_utilities.core.config import (
     DEFAULT_PROVIDER,
     DEFAULT_ROUTER_MODEL,
     DEFAULT_SSL_VERIFY,
+)
+from agent_utilities.core.config import (
+    DEFAULT_A2A_REFRESH_INTERVAL as DEFAULT_A2A_REFRESH_INTERVAL,
 )
 
 from ..models import ModelRegistry
@@ -81,6 +87,7 @@ def create_agent_server(
     a2a_broker_url: str | None = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
     a2a_storage_url: str | None = DEFAULT_A2A_STORAGE_URL,
+    a2a_config: str | None = DEFAULT_A2A_CONFIG,
     skill_types: list[str] | None = None,
     agent_instance: Agent | None = None,
     graph_bundle: tuple[Any, ...] | None = None,
@@ -97,9 +104,57 @@ def create_agent_server(
     enable_web_logs: bool = DEFAULT_ENABLE_WEB_LOGS,
 ):
     """Create and run an agent server with FastAPI and FastMCP."""
-    from contextlib import suppress
-
     import uvicorn
+
+    # Process group cleanup: ensure all sidecars (MCP servers, TUI, background
+    # threads) are killed when the main agent server exits.
+    _main_pid = os.getpid()
+    _cleanup_done = False
+
+    def _cleanup_child_processes(signum=None, frame=None):
+        """Kill all child processes spawned by this server on exit."""
+        nonlocal _cleanup_done
+        if _cleanup_done:
+            return
+        _cleanup_done = True
+        try:
+            import subprocess
+
+            # Find all child PIDs of this process
+            result = subprocess.run(  # nosec B603 B607
+                ["pgrep", "-P", str(_main_pid)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.stdout.strip():
+                for pid_str in result.stdout.strip().split("\n"):
+                    try:
+                        child_pid = int(pid_str.strip())
+                        os.kill(child_pid, signal.SIGTERM)
+                        logger.debug(f"Cleaned up child process {child_pid}")
+                    except (ProcessLookupError, PermissionError, ValueError):
+                        pass  # nosec B110
+        except Exception:
+            pass  # nosec B110 — best-effort cleanup
+
+    # Register cleanup for both graceful and forced exits
+    atexit.register(_cleanup_child_processes)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            prev = signal.getsignal(sig)
+            if prev in (signal.SIG_DFL, signal.SIG_IGN, None):
+                signal.signal(sig, _cleanup_child_processes)
+            else:
+                # Chain: call previous handler after cleanup
+                def _chained(signum, frame, _prev=prev):
+                    _cleanup_child_processes(signum, frame)
+                    if callable(_prev):
+                        _prev(signum, frame)
+
+                signal.signal(sig, _chained)
+        except (OSError, ValueError):
+            pass  # nosec B110 — signal registration may fail in threads
 
     print(
         f"Starting {DEFAULT_AGENT_NAME}:"
@@ -149,6 +204,7 @@ def create_agent_server(
         isolate_mcp=isolate_mcp,
         mcp_toolsets=mcp_toolsets,
         model_registry=model_registry,
+        a2a_config=a2a_config,
     )
 
     reloadable = app.state.reload_app
@@ -162,9 +218,10 @@ def create_agent_server(
         log_file_path = setup_server_file_logging(workspace)
 
     if enable_terminal_ui:
+        # TUI is now launched in create_graph_agent_server to avoid blocking.
+        # This block is preserved if create_agent_server is called directly.
         import subprocess
         import threading
-        import time
 
         def run_server():
             uvicorn.run(
@@ -179,29 +236,18 @@ def create_agent_server(
         server_thread = threading.Thread(target=run_server, daemon=True)
         server_thread.start()
 
-        # Wait for server to be healthy
-        url = f"http://{host}:{port}/health"
-        max_retries = 10
-        for i in range(max_retries):
-            with suppress(Exception):
-                import requests
-
-                resp = requests.get(url, timeout=1)
-                if resp.status_code == 200:
-                    break
-            time.sleep(0.5)
-
-        logger.info(f"Launching Agent Terminal UI connecting to {url}...")
+        logger.info(
+            f"Launching Agent Terminal UI connecting to http://{host}:{port}..."
+        )
         env = os.environ.copy()
         env["AGENT_URL"] = f"http://{host}:{port}"
         if log_file_path:
             env["AGENT_LOG_FILE"] = log_file_path
+
         try:
             subprocess.run(["agent-terminal-ui"], env=env, check=False)  # nosec B607
         except FileNotFoundError:
-            print(
-                "\nError: 'agent-terminal-ui' command not found. Please install the agent-terminal-ui package."
-            )
+            print("\nError: 'agent-terminal-ui' command not found.")
         except Exception as e:
             print(f"Error launching TUI: {e}")
 
@@ -284,6 +330,73 @@ def create_graph_agent_server(
         _auto_ws = get_agent_workspace()
         logger.info(f"Graph Agent: Auto-detected workspace {_auto_ws}")
 
+    if enable_terminal_ui:
+        import subprocess
+        import threading
+
+        logger.info(
+            f"Launching Agent Terminal UI connecting to http://{host or '0.0.0.0'}:{port or 9000}..."  # nosec B104
+        )
+        env = os.environ.copy()
+        env["AGENT_URL"] = f"http://{host or '0.0.0.0'}:{port or 9000}"  # nosec B104
+
+        if enable_web_logs:
+            from agent_utilities.server.dependencies import setup_server_file_logging
+
+            log_file_path = setup_server_file_logging(workspace)
+            if log_file_path:
+                env["AGENT_LOG_FILE"] = log_file_path
+
+        # Preserve original terminal descriptors for the TUI
+        try:
+            terminal_stdout_fd = os.dup(1)
+            terminal_stderr_fd = os.dup(2)
+            terminal_stdin_fd = os.dup(0)
+        except OSError:
+            terminal_stdout_fd, terminal_stderr_fd, terminal_stdin_fd = None, None, None
+
+        def run_tui():
+            try:
+                kwargs: dict[str, Any] = {}
+                if (
+                    terminal_stdout_fd is not None
+                    and terminal_stdin_fd is not None
+                    and terminal_stderr_fd is not None
+                ):
+                    kwargs["stdin"] = terminal_stdin_fd
+                    kwargs["stdout"] = terminal_stdout_fd
+                    kwargs["stderr"] = terminal_stderr_fd
+                    kwargs["pass_fds"] = (
+                        terminal_stdin_fd,
+                        terminal_stdout_fd,
+                        terminal_stderr_fd,
+                    )
+
+                subprocess.run(["agent-terminal-ui"], env=env, check=False, **kwargs)  # type: ignore[call-overload]  # nosec B607
+            except FileNotFoundError:
+                print("Error: agent-terminal-ui command not found.")
+            import os
+            import signal
+
+            os.kill(os.getpid(), signal.SIGTERM)
+
+        tui_thread = threading.Thread(target=run_tui, daemon=False)
+        tui_thread.start()
+        # Disable it in create_agent_server so it's not launched twice
+        enable_terminal_ui = False
+
+        if enable_web_logs and "log_file_path" in locals() and log_file_path:
+            import time
+
+            time.sleep(0.5)  # Allow TUI to start
+            try:
+                fd = os.open(log_file_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT)
+                os.dup2(fd, 1)
+                os.dup2(fd, 2)
+                os.close(fd)
+            except OSError:
+                pass
+
     _mcp_url = mcp_url or os.getenv("MCP_URL")
     if _mcp_url:
         logger.info(f"Graph Agent: Using external MCP server at {_mcp_url}")
@@ -313,14 +426,20 @@ def create_graph_agent_server(
                 from agent_utilities.mcp.agent_manager import sync_mcp_agents
 
                 logger.info(
-                    f"Ingesting MCP tools from {_mcp_cfg_path} to Knowledge Graph..."
+                    f"Ingesting MCP tools from {_mcp_cfg_path} to Knowledge Graph in background..."
                 )
                 try:
                     asyncio.get_running_loop().create_task(
                         sync_mcp_agents(config_path=_mcp_cfg_path)
                     )
                 except RuntimeError:
-                    asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
+                    import threading
+
+                    def _run_sync():
+                        asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
+
+                    t = threading.Thread(target=_run_sync, daemon=True)
+                    t.start()
 
             graph, graph_config = initialize_graph_from_workspace(
                 mcp_config=mcp_config,

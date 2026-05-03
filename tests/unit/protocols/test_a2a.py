@@ -266,7 +266,7 @@ def test_setup_otel_no_logfire(monkeypatch):
 
     monkeypatch.setattr(obs, "HAS_LOGFIRE", False)
     obs.setup_otel()  # early return
-    assert True, 'setup_otel without logfire should not raise'
+    assert True, "setup_otel without logfire should not raise"
 
 
 def test_setup_otel_with_public_secret_keys(monkeypatch):
@@ -295,7 +295,7 @@ def test_setup_otel_already_initialized(monkeypatch):
     monkeypatch.setattr(obs, "logfire", MagicMock())
     monkeypatch.setattr(obs, "Agent", MagicMock())
     obs.setup_otel(service_name="svc")
-    assert True, 'setup_otel already initialized is idempotent'
+    assert True, "setup_otel already initialized is idempotent"
 
 
 # ---------------------------------------------------------------------------
@@ -538,4 +538,4 @@ def test_agent_utilities_reloadable_after_init(monkeypatch):
     import agent_utilities
 
     importlib.reload(agent_utilities)
-    assert agent_utilities.__version__ == "0.2.40"
+    assert agent_utilities.__version__ == "0.3.0"

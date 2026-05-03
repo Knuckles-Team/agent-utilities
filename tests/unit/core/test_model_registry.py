@@ -119,12 +119,8 @@ def test_get_default_prefers_is_default_flag(sample_registry: ModelRegistry):
 def test_get_default_falls_back_to_first_when_none_flagged():
     reg = ModelRegistry(
         models=[
-            ModelDefinition(
-                id="a", name="A", provider="openai", model_id="a-model"
-            ),
-            ModelDefinition(
-                id="b", name="B", provider="openai", model_id="b-model"
-            ),
+            ModelDefinition(id="a", name="A", provider="openai", model_id="a-model"),
+            ModelDefinition(id="b", name="B", provider="openai", model_id="b-model"),
         ]
     )
     _default = reg.get_default()
@@ -161,10 +157,7 @@ def test_pick_for_task_exact_tier(sample_registry: ModelRegistry):
     assert sample_registry.pick_for_task(complexity="light").id == "local-fast"
     assert sample_registry.pick_for_task(complexity="medium").id == "cloud-mini"
     assert sample_registry.pick_for_task(complexity="heavy").id == "cloud-opus"
-    assert (
-        sample_registry.pick_for_task(complexity="reasoning").id
-        == "cloud-reasoning"
-    )
+    assert sample_registry.pick_for_task(complexity="reasoning").id == "cloud-reasoning"
 
 
 def test_pick_for_task_heavy_prefers_reasoning_over_medium():
@@ -192,9 +185,7 @@ def test_pick_for_task_heavy_prefers_reasoning_over_medium():
 def test_pick_for_task_required_tags_filter(sample_registry: ModelRegistry):
     # Only two models carry 'tools'; for light tier they should fall back
     # through the tier ladder and select cloud-mini (medium/tools).
-    match = sample_registry.pick_for_task(
-        complexity="light", required_tags=["tools"]
-    )
+    match = sample_registry.pick_for_task(complexity="light", required_tags=["tools"])
     assert match.id == "cloud-mini"
 
 
@@ -203,9 +194,7 @@ def test_pick_for_task_tag_miss_falls_back_to_tierwise_default(
 ):
     # 'vision' is not on any model. Spec says: after tag-filtering wipes
     # out every candidate, retry without tags rather than hard-fail.
-    match = sample_registry.pick_for_task(
-        complexity="heavy", required_tags=["vision"]
-    )
+    match = sample_registry.pick_for_task(complexity="heavy", required_tags=["vision"])
     assert match.id == "cloud-opus"
 
 
@@ -217,16 +206,12 @@ def test_pick_for_task_empty_registry_raises():
 
 def test_add_appends_and_rejects_duplicates():
     reg = ModelRegistry()
-    m1 = ModelDefinition(
-        id="only", name="Only", provider="openai", model_id="foo"
-    )
+    m1 = ModelDefinition(id="only", name="Only", provider="openai", model_id="foo")
     reg.add(m1)
     assert reg.get_by_id("only") is m1
     with pytest.raises(ValueError, match="Duplicate model id"):
         reg.add(
-            ModelDefinition(
-                id="only", name="Clash", provider="openai", model_id="bar"
-            )
+            ModelDefinition(id="only", name="Clash", provider="openai", model_id="bar")
         )
 
 
@@ -296,7 +281,5 @@ def test_pick_for_task_returns_default_when_all_filters_fail():
             )
         ]
     )
-    match = reg.pick_for_task(
-        complexity="reasoning", required_tags=["nothing"]
-    )
+    match = reg.pick_for_task(complexity="reasoning", required_tags=["nothing"])
     assert match.id == "only"

@@ -14,7 +14,9 @@ from agent_utilities.rlm.repl import RLMEnvironment
 async def test_rlm_helpers():
     # Mock graph_deps and knowledge_engine
     mock_engine = MagicMock()
-    mock_engine.retrieve_orthogonal_context = MagicMock(return_value={"semantic": ["test"]})
+    mock_engine.retrieve_orthogonal_context = MagicMock(
+        return_value={"semantic": ["test"]}
+    )
     mock_engine.query_cypher = MagicMock(return_value=[{"id": 1}])
 
     mock_deps = MagicMock()

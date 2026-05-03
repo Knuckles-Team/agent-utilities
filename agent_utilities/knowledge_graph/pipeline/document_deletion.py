@@ -4,12 +4,10 @@ Document Deletion Pipeline for Knowledge Graph.
 Handle document deletion with cascading cleanup across all storage layers.
 """
 
-import asyncio
 import logging
 from datetime import datetime
 from typing import Any
 
-from ..backends.document_storage.base import DocumentDB
 from ..engine import IntelligenceGraphEngine
 from ..id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
 
@@ -29,8 +27,6 @@ class DocumentDeletionPipeline:
 
     def __init__(
         self,
-        document_db: DocumentDB,
-        vector_db: Any,  # Will be vector-mcp VectorDB
         knowledge_graph: IntelligenceGraphEngine,
         id_manager: UnifiedIDManager | None = None,
         id_registry: UnifiedIDRegistry | None = None,
@@ -39,14 +35,10 @@ class DocumentDeletionPipeline:
         Initialize the document deletion pipeline.
 
         Args:
-            document_db: Document database backend
-            vector_db: Vector database backend (vector-mcp)
             knowledge_graph: Knowledge graph engine
             id_manager: Optional unified ID manager
             id_registry: Optional unified ID registry
         """
-        self.document_db = document_db
-        self.vector_db = vector_db
         self.knowledge_graph = knowledge_graph
         self.id_manager = id_manager or UnifiedIDManager()
         self.id_registry = id_registry or UnifiedIDRegistry()
@@ -62,9 +54,7 @@ class DocumentDeletionPipeline:
 
         This deletes from:
         1. Knowledge graph (nodes + relationships)
-        2. Vector database (embeddings)
-        3. Document database (document + chunks)
-        4. Unified ID registry (if hard_delete and delete_from_registry)
+        2. Unified ID registry (if hard_delete and delete_from_registry)
 
         Args:
             unified_id: Unified document ID
@@ -79,10 +69,7 @@ class DocumentDeletionPipeline:
             Exception: If deletion fails
         """
         # Step 1: Get document information
-        if asyncio.iscoroutinefunction(self.document_db.find_document):
-            existing_doc = await self.document_db.find_document(unified_id, "documents")
-        else:
-            existing_doc = self.document_db.find_document(unified_id, "documents")
+        existing_doc = self.knowledge_graph.graph.nodes.get(unified_id)
 
         if not existing_doc:
             logger.warning(
@@ -98,23 +85,16 @@ class DocumentDeletionPipeline:
         )
 
         try:
-            # Step 3: Delete from knowledge graph
-            await self._delete_from_knowledge_graph(unified_id, chunk_ids, entity_ids)
-            logger.info(f"Deleted from knowledge graph: {unified_id}")
-
-            # Step 4: Delete embeddings from vector database
-            await self._delete_from_vector_db(chunk_ids)
-            logger.info(
-                f"Deleted embeddings from vector database: {len(chunk_ids)} embeddings"
-            )
-
-            # Step 5: Delete from document database
             if hard_delete:
-                await self._hard_delete_from_document_db(unified_id, chunk_ids)
-                logger.info(f"Hard deleted from document database: {unified_id}")
+                # Step 3: Delete from knowledge graph completely
+                await self._delete_from_knowledge_graph(
+                    unified_id, chunk_ids, entity_ids
+                )
+                logger.info(f"Deleted from knowledge graph: {unified_id}")
             else:
-                await self._soft_delete_from_document_db(unified_id)
-                logger.info(f"Soft deleted from document database: {unified_id}")
+                # Soft delete in knowledge graph
+                await self._soft_delete_from_knowledge_graph(unified_id)
+                logger.info(f"Soft deleted from knowledge graph: {unified_id}")
 
             # Step 6: Remove from registry
             if delete_from_registry and hard_delete:
@@ -144,17 +124,14 @@ class DocumentDeletionPipeline:
         Returns:
             List[str]: List of chunk IDs
         """
-        # Handle both sync and async document DB
-        if asyncio.iscoroutinefunction(self.document_db.find_documents):
-            chunks = await self.document_db.find_documents(
-                {"parent_doc_id": unified_id}, "chunks"
-            )
-        else:
-            chunks = self.document_db.find_documents(
-                {"parent_doc_id": unified_id}, "chunks"
-            )
-
-        return [chunk.get("id") for chunk in chunks]
+        chunks = []
+        if self.knowledge_graph.graph.has_node(unified_id):
+            for _, chunk_id, edge_data in self.knowledge_graph.graph.edges(
+                unified_id, data=True
+            ):
+                if edge_data.get("relationship_type") == "HAS_CHUNK":
+                    chunks.append(chunk_id)
+        return chunks
 
     async def _get_document_entity_ids(self, unified_id: str) -> list[str]:
         """
@@ -195,61 +172,18 @@ class DocumentDeletionPipeline:
         if self.knowledge_graph.graph.has_node(unified_id):
             self.knowledge_graph.graph.remove_node(unified_id)
 
-    async def _delete_from_vector_db(self, chunk_ids: list[str]):
+    async def _soft_delete_from_knowledge_graph(self, unified_id: str):
         """
-        Delete embeddings from vector database.
-
-        Args:
-            chunk_ids: List of chunk IDs
-        """
-        if chunk_ids:
-            self.vector_db.delete_documents(
-                chunk_ids, collection_name="knowledge_graph"
-            )
-
-    async def _hard_delete_from_document_db(
-        self, unified_id: str, chunk_ids: list[str]
-    ):
-        """
-        Hard delete document from document database.
-
-        Args:
-            unified_id: Unified document ID
-            chunk_ids: List of chunk IDs
-        """
-        # Delete chunks
-        for chunk_id in chunk_ids:
-            if asyncio.iscoroutinefunction(self.document_db.delete_document):
-                await self.document_db.delete_document(chunk_id, "chunks")
-            else:
-                self.document_db.delete_document(chunk_id, "chunks")
-
-        # Delete document
-        if asyncio.iscoroutinefunction(self.document_db.delete_document):
-            await self.document_db.delete_document(unified_id, "documents")
-        else:
-            self.document_db.delete_document(unified_id, "documents")
-
-    async def _soft_delete_from_document_db(self, unified_id: str):
-        """
-        Soft delete document from document database.
+        Soft delete document from knowledge graph.
 
         Args:
             unified_id: Unified document ID
         """
-        # Mark document as deleted
-        if asyncio.iscoroutinefunction(self.document_db.update_document):
-            await self.document_db.update_document(
-                unified_id,
-                {"is_deleted": True, "deleted_at": datetime.now().isoformat()},
-                "documents",
-            )
-        else:
-            self.document_db.update_document(
-                unified_id,
-                {"is_deleted": True, "deleted_at": datetime.now().isoformat()},
-                "documents",
-            )
+        if self.knowledge_graph.graph.has_node(unified_id):
+            node_data = self.knowledge_graph.graph.nodes[unified_id]
+            node_data["is_deleted"] = True
+            node_data["deleted_at"] = datetime.now().isoformat()
+            self.knowledge_graph.graph.add_node(unified_id, **node_data)
 
     async def restore_document(self, unified_id: str) -> dict[str, Any]:
         """
@@ -265,10 +199,7 @@ class DocumentDeletionPipeline:
             ValueError: If document not found or not soft-deleted
         """
         # Get document
-        if asyncio.iscoroutinefunction(self.document_db.find_document):
-            doc = await self.document_db.find_document(unified_id, "documents")
-        else:
-            doc = self.document_db.find_document(unified_id, "documents")
+        doc = self.knowledge_graph.graph.nodes.get(unified_id)
 
         if not doc:
             raise ValueError(f"Document {unified_id} not found")
@@ -277,26 +208,10 @@ class DocumentDeletionPipeline:
             raise ValueError(f"Document {unified_id} is not soft-deleted")
 
         # Restore document
-        if asyncio.iscoroutinefunction(self.document_db.update_document):
-            await self.document_db.update_document(
-                unified_id,
-                {
-                    "is_deleted": False,
-                    "deleted_at": None,
-                    "updated_at": datetime.now().isoformat(),
-                },
-                "documents",
-            )
-        else:
-            self.document_db.update_document(
-                unified_id,
-                {
-                    "is_deleted": False,
-                    "deleted_at": None,
-                    "updated_at": datetime.now().isoformat(),
-                },
-                "documents",
-            )
+        doc["is_deleted"] = False
+        doc["deleted_at"] = None
+        doc["updated_at"] = datetime.now().isoformat()
+        self.knowledge_graph.graph.add_node(unified_id, **doc)
 
         logger.info(f"Restored document: {unified_id}")
 

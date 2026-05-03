@@ -27,6 +27,7 @@ from agent_utilities.security.auth import (
 # Helper: Build a config mock
 # ---------------------------------------------------------------------------
 
+
 def _make_config(**overrides):
     """Create a config-like mock with sensible defaults."""
     cfg = MagicMock()
@@ -140,7 +141,9 @@ class TestDecodeJWT:
         token = authlib_jwt.encode(header, payload, key).decode()
 
         with pytest.raises(HTTPException) as exc_info:
-            _decode_jwt(token, jwks, issuer="https://auth.example.com", audience="my-api")
+            _decode_jwt(
+                token, jwks, issuer="https://auth.example.com", audience="my-api"
+            )
         assert exc_info.value.status_code == 401
 
     @pytest.mark.concept("AU-011")
@@ -165,7 +168,8 @@ class TestDecodeJWT:
 
         with pytest.raises(HTTPException) as exc_info:
             _decode_jwt(
-                token, jwks,
+                token,
+                jwks,
                 issuer="https://correct-issuer.com",
                 audience="my-api",
             )
@@ -193,7 +197,8 @@ class TestDecodeJWT:
 
         with pytest.raises(HTTPException) as exc_info:
             _decode_jwt(
-                token, jwks,
+                token,
+                jwks,
                 issuer="https://auth.example.com",
                 audience="correct-audience",
             )
@@ -221,7 +226,9 @@ class TestDecodeJWT:
         token = authlib_jwt.encode(header, payload, key1).decode()
 
         with pytest.raises(HTTPException) as exc_info:
-            _decode_jwt(token, jwks, issuer="https://auth.example.com", audience="my-api")
+            _decode_jwt(
+                token, jwks, issuer="https://auth.example.com", audience="my-api"
+            )
         assert exc_info.value.status_code == 401
 
     @pytest.mark.concept("AU-011")
@@ -328,9 +335,7 @@ class TestVerifyCredentials:
         with mock.patch("agent_utilities.core.config.config", cfg):
             request = MagicMock(spec=Request)
             with pytest.raises(HTTPException) as exc_info:
-                await verify_credentials(
-                    request=request, api_key=None, bearer=None
-                )
+                await verify_credentials(request=request, api_key=None, bearer=None)
             assert exc_info.value.status_code == 401
 
 

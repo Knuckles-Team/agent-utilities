@@ -132,9 +132,7 @@ async def test_communities_louvain_fails(monkeypatch: pytest.MonkeyPatch) -> Non
     def raise_louvain(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("louvain failed")
 
-    monkeypatch.setattr(
-        communities.nx.community, "louvain_communities", raise_louvain
-    )
+    monkeypatch.setattr(communities.nx.community, "louvain_communities", raise_louvain)
     g = nx.MultiDiGraph()
     g.add_node("a")
     ctx = _make_ctx(graph=g)
@@ -824,7 +822,7 @@ async def test_registry_with_agents_and_tools() -> None:
             MCPAgent(
                 name="router",
                 description="Routes queries",
-                agent_type="prompt",
+                agent_type="specialist",
                 system_prompt="You route",
                 tool_count=3,
             ),
@@ -931,9 +929,7 @@ async def test_embedding_http_fails_fallback_used(
     """HTTP fails, LlamaIndex fallback succeeds."""
     from agent_utilities.knowledge_graph.pipeline.phases import embedding
 
-    monkeypatch.setattr(
-        embedding, "_generate_embedding_batch", lambda t: None
-    )
+    monkeypatch.setattr(embedding, "_generate_embedding_batch", lambda t: None)
 
     def fake_llama(texts: list[str]) -> list[list[float]]:
         return [[0.4, 0.5] for _ in texts]
@@ -957,12 +953,8 @@ async def test_embedding_both_fail_error_count(
     """Both HTTP and LlamaIndex fail -> errors=1."""
     from agent_utilities.knowledge_graph.pipeline.phases import embedding
 
-    monkeypatch.setattr(
-        embedding, "_generate_embedding_batch", lambda t: None
-    )
-    monkeypatch.setattr(
-        embedding, "_generate_embedding_llamaindex", lambda t: None
-    )
+    monkeypatch.setattr(embedding, "_generate_embedding_batch", lambda t: None)
+    monkeypatch.setattr(embedding, "_generate_embedding_llamaindex", lambda t: None)
     g = nx.MultiDiGraph()
     g.add_node(
         "n1",

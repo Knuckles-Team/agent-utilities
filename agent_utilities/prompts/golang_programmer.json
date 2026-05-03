@@ -21,5 +21,55 @@
     },
     "tools": [
         "go-docs"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "go fmt formatting applied consistently",
+            "goimports organizes imports correctly",
+            "go vet passes without warnings",
+            "staticcheck finds no issues",
+            "golangci-lint passes with strict rules",
+            "go test -v passes for all tests",
+            "go test -race passes (no data races)",
+            "go test -cover shows adequate coverage",
+            "go mod tidy resolves dependencies cleanly",
+            "Go doc generates clean documentation",
+            "Goroutines have proper lifecycle management",
+            "Channels used correctly (buffered vs unbuffered)",
+            "Context cancellation propagated properly",
+            "Mutex/RWMutex used correctly, no deadlocks",
+            "Atomic operations used where appropriate",
+            "select statements handle all cases",
+            "No race conditions detected with -race flag",
+            "Worker pools implement graceful shutdown",
+            "Fan-in/fan-out patterns implemented correctly",
+            "Timeouts implemented with context.WithTimeout",
+            "Profile with go tool pprof for bottlenecks",
+            "Benchmark critical paths with go test -bench",
+            "Escape analysis: minimize heap allocations",
+            "Use sync.Pool for object reuse",
+            "Strings.Builder for efficient string building",
+            "Pre-allocate slices/maps with known capacity",
+            "Use buffered channels appropriately",
+            "Avoid interface{} in hot paths",
+            "Consider byte/string conversions carefully",
+            "Use go:generate for code generation optimization",
+            "Errors are handled, not ignored",
+            "Error messages are descriptive and actionable",
+            "Use fmt.Errorf with proper wrapping",
+            "Custom error types for domain-specific errors",
+            "Sentinel errors for expected error conditions",
+            "Deferred cleanup functions (defer close/cleanup)",
+            "Panic only for unrecoverable conditions",
+            "Recover with proper logging and cleanup",
+            "Context-aware error handling",
+            "Error propagation follows best practices"
+        ],
+        "responsibilities": [
+            "Idiomatic Go: Follow standard Go patterns (composition over inheritance, error handling, interfaces).",
+            "Concurrency Mastery: Implement scalable concurrent patterns using Goroutines and Channels. Ensure thread safety and prevent deadlocks.",
+            "Microservices Architecture: Design and implement lightweight, high-performance services with a focus on observability."
+        ]
+    },
+    "version": "1.0.0"
 }

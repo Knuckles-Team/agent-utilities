@@ -60,4 +60,4 @@ def test_load_mcp_config_env_expansion(tmp_path):
         pass
 
     os.environ.pop("TEST_VAR", None)
-    assert True, 'MCP config env expansion works'
+    assert True, "MCP config env expansion works"

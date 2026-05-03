@@ -25,5 +25,15 @@
             "**Milestone Definition**: Define 3-5 concrete milestones with measurable completion criteria (not vibes).",
             "**Risk-to-Action Conversion**: For every risk identified by other advisors, propose a specific mitigation action."
         ]
-    }
+    },
+    "rules": {
+        "responsibilities": [
+            "First Step Identification: What is the single most important thing to do in the next 48 hours? Be specific: who does what, with what tools, producing what output.",
+            "Dependency Mapping: What must happen before what? What can happen in parallel? Where are the bottlenecks?",
+            "Resource Reality Check: Given current team, budget, timeline, and constraints — what is realistically achievable vs. optimistic fantasy?",
+            "Milestone Definition: Define 3-5 concrete milestones with measurable completion criteria (not vibes).",
+            "Risk-to-Action Conversion: For every risk identified by other advisors, propose a specific mitigation action."
+        ]
+    },
+    "version": "1.0.0"
 }

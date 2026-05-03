@@ -37,6 +37,7 @@ async def test_hsm_hooks():
     await on_exit_specialist(deps, state, "test_agent", True, "test_server")
     exit_hook.assert_called()
 
+
 @pytest.mark.asyncio
 async def test_run_orthogonal_regions():
     agent = MagicMock()
@@ -52,6 +53,7 @@ async def test_run_orthogonal_regions():
     assert results["query1"] == "Result"
     assert results["query2"] == "Result"
 
+
 def test_assert_state_valid():
     state = GraphState(query="")
     with pytest.raises(StateInvariantError, match="Empty query"):
@@ -66,6 +68,7 @@ def test_assert_state_valid():
     state.global_research_loops = 6
     with pytest.raises(StateInvariantError, match="Infinite re-plan loop"):
         assert_state_valid(state, "test")
+
 
 def test_static_route_query():
     specialists = {"researcher": "Search for info", "git_expert": "Git operations"}

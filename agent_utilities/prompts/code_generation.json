@@ -12,5 +12,7 @@
     "constraints": [
         "must work on MacOS",
         "include comments"
-    ]
+    ],
+    "rules": {},
+    "version": "1.0.0"
 }

@@ -9,6 +9,7 @@ it can't reach a real embedding/extraction endpoint — that is tolerated;
 the ingest still produces at least one ``Article`` node from the raw
 markdown, which is what these tests assert.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -107,7 +108,8 @@ async def test_kb_ingest_small_directory(
     assert meta.article_count >= 1
 
     article_nodes = [
-        n for n, d in graph.nodes(data=True)
+        n
+        for n, d in graph.nodes(data=True)
         if d.get("type") == RegistryNodeType.ARTICLE
     ]
     assert len(article_nodes) >= 1, (

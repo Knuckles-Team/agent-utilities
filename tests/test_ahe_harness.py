@@ -260,9 +260,15 @@ class TestEvidenceCorpus:
     def test_top_failure_clusters(self):
         corpus = EvidenceCorpus(
             failure_clusters=[
-                FailureCluster(label="A", root_cause_summary="A", severity=0.3, frequency=1),
-                FailureCluster(label="B", root_cause_summary="B", severity=0.9, frequency=5),
-                FailureCluster(label="C", root_cause_summary="C", severity=0.5, frequency=3),
+                FailureCluster(
+                    label="A", root_cause_summary="A", severity=0.3, frequency=1
+                ),
+                FailureCluster(
+                    label="B", root_cause_summary="B", severity=0.9, frequency=5
+                ),
+                FailureCluster(
+                    label="C", root_cause_summary="C", severity=0.5, frequency=3
+                ),
             ]
         )
         top = corpus.get_top_failure_clusters(n=2)
@@ -377,7 +383,9 @@ class TestTraceDistiller:
     async def test_distill_empty(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = FileTraceBackend(trace_dir=tmpdir)
-            config = DistillationConfig(evidence_output_dir=os.path.join(tmpdir, "evidence"))
+            config = DistillationConfig(
+                evidence_output_dir=os.path.join(tmpdir, "evidence")
+            )
             distiller = TraceDistiller(backend=backend, config=config)
             corpus = await distiller.distill("nonexistent")
             assert corpus.total_tasks == 0
@@ -388,14 +396,22 @@ class TestTraceDistiller:
             # Write test traces
             traces = [
                 {"id": "t1", "name": "task_pass", "status": "success", "score": 0.9},
-                {"id": "t2", "name": "task_fail", "status": "error", "score": 0.1, "error": "timeout"},
+                {
+                    "id": "t2",
+                    "name": "task_fail",
+                    "status": "error",
+                    "score": 0.1,
+                    "error": "timeout",
+                },
                 {"id": "t3", "name": "task_pass2", "status": "success", "score": 0.85},
             ]
             with open(os.path.join(tmpdir, "round_001.json"), "w") as f:
                 json.dump(traces, f)
 
             backend = FileTraceBackend(trace_dir=tmpdir)
-            config = DistillationConfig(evidence_output_dir=os.path.join(tmpdir, "evidence"))
+            config = DistillationConfig(
+                evidence_output_dir=os.path.join(tmpdir, "evidence")
+            )
             distiller = TraceDistiller(backend=backend, config=config)
             corpus = await distiller.distill("round_001")
 
@@ -478,7 +494,9 @@ class TestManifestVerifier:
             new = EvidenceCorpus(
                 entries=[
                     EvidenceEntry(task_id="t1", pass_fail=True, score=1.0),
-                    EvidenceEntry(task_id="t2", pass_fail=False, score=0.0),  # Regressed!
+                    EvidenceEntry(
+                        task_id="t2", pass_fail=False, score=0.0
+                    ),  # Regressed!
                 ],
                 benchmark_score=0.5,
             )

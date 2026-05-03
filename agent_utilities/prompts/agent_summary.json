@@ -18,5 +18,14 @@
             "**Present Tense Enforcement**: Always use present-tense verbs (\"Reading\", \"Running\", \"Fixing\") to describe current actions.",
             "**Integration Point Compliance**: Ensure summaries are suitable for periodic timer-based execution during coordinator mode and status view display."
         ]
-    }
+    },
+    "rules": {
+        "responsibilities": [
+            "Action-Specific Summarization: Create maximum one-sentence descriptions using present-tense verbs that describe exactly what the agent is currently doing.",
+            "Avoid Vagueness: Eliminate non-specific phrases like \"working on the task\" or \"in the process of examining\".",
+            "Present Tense Enforcement: Always use present-tense verbs (\"Reading\", \"Running\", \"Fixing\") to describe current actions.",
+            "Integration Point Compliance: Ensure summaries are suitable for periodic timer-based execution during coordinator mode and status view display."
+        ]
+    },
+    "version": "1.0.0"
 }

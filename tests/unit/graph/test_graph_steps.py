@@ -1,5 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+# CONCEPT:AU-014 — Swarm Orchestration & Specialist Factory
+# CONCEPT:AU-020 — Task Prioritization
+# CONCEPT:AU-018 — Guardrails & Safety Patterns
+# CONCEPT:AU-012 — Exception Handling & Recovery
 import pytest
 
 from agent_utilities.graph import steps
@@ -16,6 +20,7 @@ async def test_usage_guard_step():
     result = await steps.usage_guard_step(ctx)
     assert result == "router"
 
+
 @pytest.mark.asyncio
 async def test_router_step_fast_path():
     ctx = MagicMock()
@@ -28,7 +33,7 @@ async def test_router_step_fast_path():
     mock_resp.output = "hi there"
 
     # Mock Agent class
-    with patch("agent_utilities.graph.steps.Agent") as mock_agent_class:
+    with patch("agent_utilities.graph.routing.Agent") as mock_agent_class:
         mock_agent = mock_agent_class.return_value
         mock_agent.run = AsyncMock(return_value=mock_resp)
 
@@ -36,6 +41,7 @@ async def test_router_step_fast_path():
 
     assert type(result).__name__ == "End"
     assert result.data.results["output"] == "hi there"  # type: ignore[union-attr]
+
 
 @pytest.mark.asyncio
 async def test_synthesizer_step():
@@ -62,11 +68,12 @@ async def test_synthesizer_step():
     class MockStreamContext:
         async def __aenter__(self):
             return mock_stream
+
         async def __aexit__(self, *args: object) -> bool:
             return False
 
     ctx.deps.agent_model = MagicMock()
-    with patch("agent_utilities.graph.steps.Agent") as mock_agent_class:
+    with patch("agent_utilities.graph.verification.Agent") as mock_agent_class:
         mock_agent = mock_agent_class.return_value
         mock_agent.run_stream.return_value = MockStreamContext()
 

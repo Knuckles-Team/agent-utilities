@@ -23,5 +23,7 @@
     "deliverables": [
         "Coordinated response summaries",
         "Delegation reports"
-    ]
+    ],
+    "rules": {},
+    "version": "1.0.0"
 }

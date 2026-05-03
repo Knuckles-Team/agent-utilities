@@ -122,10 +122,11 @@ async def test_run_graph_iter_yields_node_transitions():
     graph = _FakeGraph([tasks_step1, tasks_step2, end_marker])
 
     events = []
-    with patch(
-        "agent_utilities.graph.runner.load_node_agents_registry"
-    ) as mock_registry, patch(
-        "pydantic_graph.beta.graph.EndMarker", _FakeEndMarker
+    with (
+        patch(
+            "agent_utilities.graph.runner.load_node_agents_registry"
+        ) as mock_registry,
+        patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
@@ -157,10 +158,11 @@ async def test_run_graph_iter_state_snapshots():
     graph = _FakeGraph([end_marker])
 
     events = []
-    with patch(
-        "agent_utilities.graph.runner.load_node_agents_registry"
-    ) as mock_registry, patch(
-        "pydantic_graph.beta.graph.EndMarker", _FakeEndMarker
+    with (
+        patch(
+            "agent_utilities.graph.runner.load_node_agents_registry"
+        ) as mock_registry,
+        patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
@@ -241,10 +243,11 @@ async def test_run_graph_iter_drains_sideband():
     graph = _SidebandGraph()
 
     events = []
-    with patch(
-        "agent_utilities.graph.runner.load_node_agents_registry"
-    ) as mock_registry, patch(
-        "pydantic_graph.beta.graph.EndMarker", _FakeEndMarker
+    with (
+        patch(
+            "agent_utilities.graph.runner.load_node_agents_registry"
+        ) as mock_registry,
+        patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
@@ -257,7 +260,5 @@ async def test_run_graph_iter_drains_sideband():
     assert len(sideband_events) >= 1
     # The first sideband may be from emit_graph_event("graph_start"),
     # our custom event should also appear in the sideband list.
-    sideband_types = [
-        e["event"].get("type") for e in sideband_events
-    ]
+    sideband_types = [e["event"].get("type") for e in sideband_events]
     assert "specialist_started" in sideband_types

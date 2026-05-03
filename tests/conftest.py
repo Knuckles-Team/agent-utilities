@@ -8,10 +8,13 @@ os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "false")
 os.environ.setdefault("ENABLE_GRAPH_INTEGRATION", "false")
 os.environ.setdefault("AGENT_UTILITIES_TESTING", "true")
 
+
 def pytest_configure(config):
     config.addinivalue_line(
-        "markers", "concept(id): mark test as validating a specific documentation concept"
+        "markers",
+        "concept(id): mark test as validating a specific documentation concept",
     )
+
 
 import pytest
 

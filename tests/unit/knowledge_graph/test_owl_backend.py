@@ -13,7 +13,13 @@ from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import (
 @pytest.fixture
 def ontology_path():
     """Path to the standard ontology file."""
-    return str(Path(__file__).parent.parent.parent.parent / "agent_utilities" / "knowledge_graph" / "ontology.ttl")
+    return str(
+        Path(__file__).parent.parent.parent.parent
+        / "agent_utilities"
+        / "knowledge_graph"
+        / "ontology.ttl"
+    )
+
 
 def test_owlready2_init(ontology_path):
     """Test backend initialization and ontology loading."""
@@ -24,6 +30,7 @@ def test_owlready2_init(ontology_path):
     assert stats["classes"] > 0
     assert stats["properties"] > 0
     backend.close()
+
 
 def test_owlready2_promote(ontology_path):
     """Test promotion of nodes to OWL individuals."""
@@ -47,6 +54,7 @@ def test_owlready2_promote(ontology_path):
 
     backend.close()
 
+
 def test_owlready2_promote_edges(ontology_path):
     """Test promotion of edges to OWL property assertions."""
     backend = Owlready2Backend(ontology_path=ontology_path)
@@ -68,12 +76,15 @@ def test_owlready2_promote_edges(ontology_path):
     tool = backend._onto.search_one(iri="*tool_test-tool")
 
     print(f"\nDebug: agent={agent}, tool={tool}")
-    print(f"Debug: agent.provides={agent.provides if hasattr(agent, 'provides') else 'N/A'}")
+    print(
+        f"Debug: agent.provides={agent.provides if hasattr(agent, 'provides') else 'N/A'}"
+    )
     print(f"Debug: properties={[p.python_name for p in agent.get_properties()]}")
 
     assert tool in agent.provides
 
     backend.close()
+
 
 def test_owlready2_reasoning(ontology_path, monkeypatch):
     """Test OWL reasoning (simulated to avoid Java dependency in tests)."""
@@ -103,6 +114,7 @@ def test_owlready2_reasoning(ontology_path, monkeypatch):
             symbol_A.dependsOn.append(symbol_C)
 
     import owlready2
+
     monkeypatch.setattr(owlready2, "sync_reasoner_hermit", mock_reasoner)
 
     inferences = backend.reason()
@@ -110,12 +122,17 @@ def test_owlready2_reasoning(ontology_path, monkeypatch):
     # We expect an inference: A depends_on C
     found = False
     for inf in inferences:
-        if inf["subject"] == "symbol_A" and inf["predicate"] == "dependsOn" and inf["object"] == "symbol_C":
+        if (
+            inf["subject"] == "symbol_A"
+            and inf["predicate"] == "dependsOn"
+            and inf["object"] == "symbol_C"
+        ):
             found = True
             break
 
     assert found, f"Inference A -> C not found in {inferences}"
     backend.close()
+
 
 def test_owlready2_clear(ontology_path):
     """Test clearing ABox individuals."""

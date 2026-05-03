@@ -6,6 +6,7 @@ import logging
 from pydantic_ai import RunContext
 
 from ..models import AgentDeps
+from .versioning import tool_version
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ except ImportError:
     IntelligenceGraphEngine = None  # type: ignore
 
 
+@tool_version("1.0.0")
 async def export_subgraph(
     ctx: RunContext[AgentDeps], topic: str, depth: int = 2
 ) -> str:
@@ -62,6 +64,7 @@ async def export_subgraph(
         return f"Failed to export subgraph: {e}"
 
 
+@tool_version("1.0.0")
 async def import_agent_card(
     ctx: RunContext[AgentDeps], agent_url: str, agent_card_json: str
 ) -> str:

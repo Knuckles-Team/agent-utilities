@@ -17,7 +17,9 @@ from agent_utilities.observability.mermaid import (
 
 
 def test_flowchart_builder():
-    builder = FlowchartBuilder(title="Test Flow", direction="LR", theme=MermaidTheme.FOREST)
+    builder = FlowchartBuilder(
+        title="Test Flow", direction="LR", theme=MermaidTheme.FOREST
+    )
     builder.add_node("node1", label="Node 1", shape="round", css_class="active")
     builder.add_node("node2", label="Node 2", shape="box")
     builder.add_edge("node1", "node2", label="links to", edge_type="==>")
@@ -28,15 +30,20 @@ def test_flowchart_builder():
     assert "title: Test Flow" in result
     assert "theme: forest" in result
     assert "flowchart LR" in result
-    assert "node1(\"Node 1\")" in result
+    assert 'node1("Node 1")' in result
     assert "class node1 active" in result
-    assert "node1 ==> |\"links to\"| node2" in result
+    assert 'node1 ==> |"links to"| node2' in result
     assert "subgraph Group A" in result
 
 
 def test_class_diagram_builder():
     builder = ClassDiagramBuilder(title="Test Classes")
-    builder.add_class("MyClass", attributes=["int x", "string y"], methods=["void run()"], annotation="Interface")
+    builder.add_class(
+        "MyClass",
+        attributes=["int x", "string y"],
+        methods=["void run()"],
+        annotation="Interface",
+    )
     builder.add_relationship("MyClass", "OtherClass", rel_type="<|--", label="inherits")
 
     result = builder.render()
@@ -57,7 +64,7 @@ def test_er_diagram_builder():
     assert "erDiagram" in result
     assert "User {" in result
     assert "string name" in result
-    assert "User ||--|{ Post : \"writes\"" in result
+    assert 'User ||--|{ Post : "writes"' in result
 
 
 def test_graph_plan_to_mermaid():
@@ -80,13 +87,24 @@ def test_graph_plan_to_mermaid():
 def test_sdd_tasks_to_mermaid():
     tasks = Tasks(
         tasks=[
-            Task(id="T1", title="Task 1", description="Desc 1", status=TaskStatus.COMPLETED),
-            Task(id="T2", title="Task 2", description="Desc 2", depends_on=["T1"], status=TaskStatus.IN_PROGRESS),
+            Task(
+                id="T1",
+                title="Task 1",
+                description="Desc 1",
+                status=TaskStatus.COMPLETED,
+            ),
+            Task(
+                id="T2",
+                title="Task 2",
+                description="Desc 2",
+                depends_on=["T1"],
+                status=TaskStatus.IN_PROGRESS,
+            ),
         ]
     )
     mermaid = tasks.to_mermaid()
     # Account for sanitization of brackets in label
-    assert "T1[\"Task 1\n&#40;T1&#41;\"]" in mermaid
+    assert 'T1["Task 1\n&#40;T1&#41;"]' in mermaid
     assert "T1 --> T2" in mermaid
     assert "class T1 completed" in mermaid
 
@@ -95,7 +113,7 @@ def test_implementation_plan_to_mermaid():
     plan = ImplementationPlan(
         feature_id="F1",
         title="Test Feature",
-        proposed_changes=["api.py: add endpoint", "models.py: add table"]
+        proposed_changes=["api.py: add endpoint", "models.py: add table"],
     )
     mermaid = plan.to_mermaid()
     assert "classDiagram" in mermaid
@@ -110,18 +128,34 @@ def test_codemap_artifact_to_mermaid():
         prompt="Visualize code",
         mode="smart",
         nodes=[
-            CodemapNode(id="f1", label="main.py", type="file", file="main.py", line=1, end_line=10, description="test", importance=0.5),
-            CodemapNode(id="c1", label="MyClass", type="class", file="main.py", line=1, end_line=10, description="test", importance=0.5),
+            CodemapNode(
+                id="f1",
+                label="main.py",
+                type="file",
+                file="main.py",
+                line=1,
+                end_line=10,
+                description="test",
+                importance=0.5,
+            ),
+            CodemapNode(
+                id="c1",
+                label="MyClass",
+                type="class",
+                file="main.py",
+                line=1,
+                end_line=10,
+                description="test",
+                importance=0.5,
+            ),
         ],
-        edges=[
-            CodemapEdge(source="f1", target="c1", type="contains")
-        ]
+        edges=[CodemapEdge(source="f1", target="c1", type="contains")],
     )
     mermaid = artifact.to_mermaid()
     assert "Codemap: Visualize code" in mermaid
     # Account for sanitization
-    assert "f1[(\"main.py\n&#40;file&#41;\")]" in mermaid
-    assert "f1 --> |\"contains\"| c1" in mermaid
+    assert 'f1[("main.py\n&#40;file&#41;")]' in mermaid
+    assert 'f1 --> |"contains"| c1' in mermaid
 
 
 def test_kg_mermaid_generation():
@@ -134,9 +168,9 @@ def test_kg_mermaid_generation():
     mermaid = engine.generate_mermaid_graph()
 
     # Account for sanitization
-    assert "agent1((\"Agent 1\n&#40;agent&#41;\"))" in mermaid
-    assert "mem1[(\"mem1\n&#40;memory&#41;\")]" in mermaid
-    assert "agent1 --> |\"CREATED\"| mem1" in mermaid
+    assert 'agent1(("Agent 1\n&#40;agent&#41;"))' in mermaid
+    assert 'mem1[("mem1\n&#40;memory&#41;")]' in mermaid
+    assert 'agent1 --> |"CREATED"| mem1' in mermaid
 
 
 def test_focused_subgraph_to_mermaid():
@@ -145,13 +179,13 @@ def test_focused_subgraph_to_mermaid():
             {"id": "n1", "label": "Node 1", "type": "class"},
             {"id": "n2", "label": "Node 2", "type": "file"},
         ],
-        edges=[
-            {"source": "n1", "target": "n2", "type": "defined_in"}
-        ],
+        edges=[{"source": "n1", "target": "n2", "type": "defined_in"}],
         summary="Test subgraph",
-        query="test"
+        query="test",
     )
-    assert True, 'Focused subgraph rendering completed'
+    assert True, "Focused subgraph rendering completed"
+
+
 from agent_utilities.graph.mermaid import get_graph_mermaid
 
 
@@ -175,10 +209,10 @@ def test_flowchart_builder_extended():
     builder.add_edge("n3", "n4", edge_type="==>")
 
     result = builder.render()
-    assert "n1{\"n1\"}" in result
-    assert "n2((\"n2\"))" in result
-    assert "n3[(\"n3\")]" in result
-    assert "n4(\"n4\")" in result
+    assert 'n1{"n1"}' in result
+    assert 'n2(("n2"))' in result
+    assert 'n3[("n3")]' in result
+    assert 'n4("n4")' in result
     assert "n1 --- n2" in result
     assert "n2 -.-> n3" in result
 
@@ -199,7 +233,9 @@ def test_get_graph_mermaid():
     config = {"router_model": "gpt-4"}
 
     # Test with title and routed_domain
-    result = get_graph_mermaid(graph, config, title="Custom Title", routed_domain="test_domain")
+    result = get_graph_mermaid(
+        graph, config, title="Custom Title", routed_domain="test_domain"
+    )
     assert "title: Custom Title" in result
     assert "Router (gpt-4)" in result
     assert "Domain Node (test_domain)" in result
@@ -231,20 +267,47 @@ def test_codemap_artifact_to_mermaid_extended():
         prompt="Visualize code",
         mode="smart",
         nodes=[
-            CodemapNode(id="c1", label="MyClass", type="class", file="main.py", line=1, end_line=10, description="test", importance=0.5),
-            CodemapNode(id="f1", label="main.py", type="file", file="main.py", line=1, end_line=10, description="test", importance=0.5),
-            CodemapNode(id="m1", label="mod", type="module", file="mod.py", line=1, end_line=10, description="test", importance=0.5),
+            CodemapNode(
+                id="c1",
+                label="MyClass",
+                type="class",
+                file="main.py",
+                line=1,
+                end_line=10,
+                description="test",
+                importance=0.5,
+            ),
+            CodemapNode(
+                id="f1",
+                label="main.py",
+                type="file",
+                file="main.py",
+                line=1,
+                end_line=10,
+                description="test",
+                importance=0.5,
+            ),
+            CodemapNode(
+                id="m1",
+                label="mod",
+                type="module",
+                file="mod.py",
+                line=1,
+                end_line=10,
+                description="test",
+                importance=0.5,
+            ),
         ],
         edges=[
             CodemapEdge(source="c1", target="c2", type="inherits"),
             CodemapEdge(source="f1", target="f2", type="imports"),
-        ]
+        ],
     )
     mermaid = artifact.to_mermaid()
-    assert "c1(\"MyClass\n&#40;class&#41;\")" in mermaid
-    assert "f1[(\"main.py\n&#40;file&#41;\")]" in mermaid
-    assert "c1 ==> |\"inherits\"| c2" in mermaid
-    assert "f1 -.-> |\"imports\"| f2" in mermaid
+    assert 'c1("MyClass\n&#40;class&#41;")' in mermaid
+    assert 'f1[("main.py\n&#40;file&#41;")]' in mermaid
+    assert 'c1 ==> |"inherits"| c2' in mermaid
+    assert 'f1 -.-> |"imports"| f2' in mermaid
 
 
 def test_graph_plan_to_acp_entries():
@@ -274,16 +337,12 @@ def test_flowchart_builder_no_label():
     builder = FlowchartBuilder()
     builder.add_node("node1")
     result = builder.render()
-    assert "node1(\"node1\")" in result
+    assert 'node1("node1")' in result
 
 
 def test_codemap_json_methods():
     artifact = CodemapArtifact(
-        id="test-json",
-        prompt="json test",
-        mode="fast",
-        nodes=[],
-        edges=[]
+        id="test-json", prompt="json test", mode="fast", nodes=[], edges=[]
     )
     json_str = artifact.to_json()
     assert "test-json" in json_str

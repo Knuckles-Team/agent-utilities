@@ -7,7 +7,7 @@ from agent_utilities.models import MCPAgent, MCPAgentRegistryModel
 def test_load_specialized_prompts(tmp_path):
     import json
 
-    mock_agent = MCPAgent(name="test", description="desc", agent_type="prompt")
+    mock_agent = MCPAgent(name="test", description="desc", agent_type="specialist")
     mock_registry = MCPAgentRegistryModel(agents=[mock_agent])
 
     prompt_content = json.dumps({"task": "test", "input": "# Real Prompt"})

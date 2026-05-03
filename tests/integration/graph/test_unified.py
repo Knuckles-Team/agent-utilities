@@ -8,7 +8,8 @@ from agent_utilities.graph.config_helpers import (
     load_mcp_config,
     load_node_agents_registry,
 )
-from agent_utilities.graph.steps import _emit_node_lifecycle, fetch_unified_context
+from agent_utilities.graph.lifecycle import _emit_node_lifecycle
+from agent_utilities.graph.planning import fetch_unified_context
 from agent_utilities.models import MCPAgentRegistryModel, MCPConfigModel
 
 
@@ -22,7 +23,8 @@ async def test_fetch_unified_context_mocked():
     mock_registry.agents = [mock_agent]
 
     with patch(
-        "agent_utilities.graph.steps.get_discovery_registry", return_value=mock_registry
+        "agent_utilities.graph.planning.get_discovery_registry",
+        return_value=mock_registry,
     ):
         with patch("subprocess.check_output", return_value=b"M somefile.py"):
             context = await fetch_unified_context()
@@ -47,7 +49,7 @@ def test_emit_graph_event():
 def test_emit_node_lifecycle():
     """Test _emit_node_lifecycle helper."""
     eq: asyncio.Queue = asyncio.Queue()
-    with patch("agent_utilities.graph.steps.emit_graph_event") as mock_emit:
+    with patch("agent_utilities.graph.lifecycle.emit_graph_event") as mock_emit:
         _emit_node_lifecycle(eq, "node1", "node_start", extra="data")
         mock_emit.assert_called_once_with(
             eq, "node_start", node_id="node1", extra="data"

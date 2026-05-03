@@ -3,6 +3,7 @@ Concept: building-mcp-servers
 
 Tests for MCP utilities.
 """
+
 import json
 import os
 import tempfile
@@ -21,6 +22,7 @@ def test_create_mcp_parser():
     assert args.transport == "sse"
     assert args.port == 9000
 
+
 @patch("fastmcp.FastMCP")
 def test_create_mcp_server_basic(mock_fastmcp):
     # Mocking parse_known_args to return default values
@@ -36,11 +38,13 @@ def test_create_mcp_server_basic(mock_fastmcp):
 
         assert args == mock_args
         mock_fastmcp.assert_called_once_with("TestServer", auth=None, instructions="")
-        assert len(middlewares) >= 4 # Default middlewares
+        assert len(middlewares) >= 4  # Default middlewares
+
 
 def test_load_mcp_servers_from_config_missing():
     servers = mcp_utilities.load_mcp_servers_from_config("non_existent.json")
     assert servers == []
+
 
 @patch("pydantic_ai.mcp.load_mcp_servers")
 def test_load_mcp_servers_from_config_success(mock_load):
@@ -49,7 +53,7 @@ def test_load_mcp_servers_from_config_success(mock_load):
             "test-server": {
                 "command": "python",
                 "args": ["-m", "test"],
-                "env": {"FOO": "BAR"}
+                "env": {"FOO": "BAR"},
             }
         }
     }
@@ -71,10 +75,12 @@ def test_load_mcp_servers_from_config_success(mock_load):
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
+
 def test_mcp_auth_config_defaults():
     # Should use env vars
     assert isinstance(mcp_utilities.mcp_auth_config, dict)
     assert "enable_delegation" in mcp_utilities.mcp_auth_config
+
 
 @patch("requests.get")
 def test_create_mcp_server_delegation_error(mock_get):
@@ -84,7 +90,7 @@ def test_create_mcp_server_delegation_error(mock_get):
         mock_args.port = 8000
         mock_args.help = False
         mock_args.enable_delegation = True
-        mock_args.auth_type = "jwt" # Wrong type
+        mock_args.auth_type = "jwt"  # Wrong type
         mock_args.audience = "aud"
         mock_args.delegated_scopes = "api"
         mock_args.oidc_config_url = None
@@ -96,11 +102,12 @@ def test_create_mcp_server_delegation_error(mock_get):
             mcp_utilities.create_mcp_server()
         assert excinfo.value.code == 1
 
+
 def test_create_mcp_server_invalid_port():
     with patch("argparse.ArgumentParser.parse_known_args") as mock_parse:
         mock_args = MagicMock()
         mock_args.help = False
-        mock_args.port = 70000 # Invalid
+        mock_args.port = 70000  # Invalid
         mock_parse.return_value = (mock_args, [])
 
         with pytest.raises(SystemExit) as excinfo:

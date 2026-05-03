@@ -5,13 +5,11 @@ Handle document updates with cascading sync across all storage layers,
 including embedding regeneration and knowledge graph relationship updates.
 """
 
-import asyncio
 import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from ..backends.document_storage.base import DocumentDB
 from ..engine import IntelligenceGraphEngine
 from ..id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
 
@@ -30,8 +28,6 @@ class DocumentUpdatePipeline:
 
     def __init__(
         self,
-        document_db: DocumentDB,
-        vector_db: Any,  # Will be vector-mcp VectorDB
         knowledge_graph: IntelligenceGraphEngine,
         id_manager: UnifiedIDManager | None = None,
         id_registry: UnifiedIDRegistry | None = None,
@@ -40,14 +36,10 @@ class DocumentUpdatePipeline:
         Initialize the document update pipeline.
 
         Args:
-            document_db: Document database backend
-            vector_db: Vector database backend (vector-mcp)
             knowledge_graph: Knowledge graph engine
             id_manager: Optional unified ID manager
             id_registry: Optional unified ID registry
         """
-        self.document_db = document_db
-        self.vector_db = vector_db
         self.knowledge_graph = knowledge_graph
         self.id_manager = id_manager or UnifiedIDManager()
         self.id_registry = id_registry or UnifiedIDRegistry()
@@ -80,13 +72,10 @@ class DocumentUpdatePipeline:
             ValueError: If document not found
             Exception: If update fails
         """
-        # Step 1: Verify document exists
-        if asyncio.iscoroutinefunction(self.document_db.find_document):
-            existing_doc = await self.document_db.find_document(unified_id, "documents")
-        else:
-            existing_doc = self.document_db.find_document(unified_id, "documents")
+        # Step 1: Verify document exists in graph
+        existing_doc = self.knowledge_graph.graph.nodes.get(unified_id)
         if not existing_doc:
-            raise ValueError(f"Document {unified_id} not found in document database")
+            raise ValueError(f"Document {unified_id} not found in knowledge graph")
 
         # Check if document is soft-deleted
         if existing_doc.get("is_deleted"):
@@ -97,7 +86,7 @@ class DocumentUpdatePipeline:
         rollback_actions: list[Callable] = []
 
         try:
-            # Step 2: Update document database
+            # Step 2: Update document node
             updated_doc = existing_doc.copy()
 
             if new_content is not None:
@@ -111,20 +100,16 @@ class DocumentUpdatePipeline:
 
             updated_doc["updated_at"] = datetime.now().isoformat()
 
-            # Store old content for rollback
-            old_content = existing_doc.get("content")
-            old_metadata = existing_doc.get("metadata", {}).copy()
+            # Store old for rollback
+            old_doc = existing_doc.copy()
+            self.knowledge_graph.graph.add_node(unified_id, **updated_doc)
 
-            await self._update_document_with_rollback(
-                unified_id,
-                updated_doc,
-                "documents",
-                old_content,
-                old_metadata,
-                rollback_actions,
-            )
+            def rollback_doc_update():
+                self.knowledge_graph.graph.add_node(unified_id, **old_doc)
 
-            logger.info(f"Updated document in database: {unified_id}")
+            rollback_actions.append(rollback_doc_update)
+
+            logger.info(f"Updated document in graph: {unified_id}")
 
             # Step 3: Re-chunk document (if content changed)
             if new_content is not None and regenerate_embeddings:
@@ -134,16 +119,6 @@ class DocumentUpdatePipeline:
                 # Step 4: Update knowledge graph nodes
                 await self._update_graph_nodes(
                     unified_id, old_chunks, new_chunks, rollback_actions
-                )
-
-                # Step 5: Regenerate embeddings for changed chunks
-                await self._regenerate_embeddings(
-                    unified_id, old_chunks, new_chunks, rollback_actions
-                )
-
-                # Step 6: Update chunks in document database
-                await self._update_document_chunks(
-                    unified_id, new_chunks, rollback_actions
                 )
 
                 embeddings_regenerated = True
@@ -179,60 +154,6 @@ class DocumentUpdatePipeline:
             await self._rollback(rollback_actions, unified_id)
             raise Exception(f"Document update failed and was rolled back: {e}") from e
 
-    async def _update_document_with_rollback(
-        self,
-        doc_id: str,
-        updated_doc: dict[str, Any],
-        collection_name: str,
-        old_content: str,
-        old_metadata: dict[str, Any],
-        rollback_actions: list[Callable],
-    ):
-        """
-        Update document with rollback capability.
-
-        Args:
-            doc_id: Document ID
-            updated_doc: Updated document
-            collection_name: Collection name
-            old_content: Old content for rollback
-            old_metadata: Old metadata for rollback
-            rollback_actions: List to append rollback action
-        """
-        # Handle both sync and async document DB
-        if asyncio.iscoroutinefunction(self.document_db.update_document):
-            success = await self.document_db.update_document(
-                doc_id, updated_doc, collection_name
-            )
-        else:
-            success = self.document_db.update_document(
-                doc_id, updated_doc, collection_name
-            )
-
-        if not success:
-            raise Exception(f"Failed to update document {doc_id}")
-
-        # Add rollback action
-        async def rollback():
-            try:
-                rollback_doc = {
-                    "content": old_content,
-                    "metadata": old_metadata,
-                    "updated_at": datetime.now().isoformat(),
-                }
-                if asyncio.iscoroutinefunction(self.document_db.update_document):
-                    await self.document_db.update_document(
-                        doc_id, rollback_doc, collection_name
-                    )
-                else:
-                    self.document_db.update_document(
-                        doc_id, rollback_doc, collection_name
-                    )
-            except Exception as e:
-                logger.warning(f"Rollback failed for document {doc_id}: {e}")
-
-        rollback_actions.append(rollback)
-
     async def _get_document_chunks(self, unified_id: str) -> list[str]:
         """
         Get existing chunks for a document.
@@ -243,15 +164,14 @@ class DocumentUpdatePipeline:
         Returns:
             List[str]: List of chunk contents
         """
-        # Handle both sync and async document DB
-        if asyncio.iscoroutinefunction(self.document_db.find_documents):
-            chunks = await self.document_db.find_documents(
-                {"parent_doc_id": unified_id}, "chunks"
-            )
-        else:
-            chunks = self.document_db.find_documents(
-                {"parent_doc_id": unified_id}, "chunks"
-            )
+        chunks = []
+        for _, chunk_id, edge_data in self.knowledge_graph.graph.edges(
+            unified_id, data=True
+        ):
+            if edge_data.get("relationship_type") == "HAS_CHUNK":
+                node_data = self.knowledge_graph.graph.nodes.get(chunk_id)
+                if node_data:
+                    chunks.append(node_data)
 
         # Sort by chunk_index
         chunks_sorted = sorted(chunks, key=lambda x: x.get("chunk_index", 0))
@@ -327,6 +247,7 @@ class DocumentUpdatePipeline:
         rollback_actions.append(rollback_graph)
 
         # Create new chunk nodes
+        new_embeddings = await self._generate_embeddings(new_chunks)
         for i, chunk in enumerate(new_chunks):
             chunk_id = self.id_manager.generate_chunk_id(unified_id, i)
             chunk_node_data = {
@@ -334,6 +255,7 @@ class DocumentUpdatePipeline:
                 "parent_doc_id": unified_id,
                 "chunk_index": i,
                 "content": chunk,
+                "embedding": new_embeddings[i],
                 "metadata": {"unified_id": unified_id},
                 "updated_at": datetime.now().isoformat(),
             }
@@ -348,149 +270,6 @@ class DocumentUpdatePipeline:
                 created_at=datetime.now().isoformat(),
                 updated_at=datetime.now().isoformat(),
             )
-
-    async def _regenerate_embeddings(
-        self,
-        unified_id: str,
-        old_chunks: list[str],
-        new_chunks: list[str],
-        rollback_actions: list[Callable],
-    ):
-        """
-        Regenerate embeddings for updated document.
-
-        Args:
-            unified_id: Unified document ID
-            old_chunks: Old chunks
-            new_chunks: New chunks
-            rollback_actions: List to append rollback actions
-        """
-        # Delete old embeddings from vector database
-        old_chunk_ids = [
-            self.id_manager.generate_chunk_id(unified_id, i)
-            for i in range(len(old_chunks))
-        ]
-
-        # Store old embeddings for rollback (if possible)
-        old_embeddings: dict[str, list[float] | None] = {}
-        try:
-            for chunk_id in old_chunk_ids:
-                # Try to get old embedding from vector DB
-                # This depends on vector-mcp API
-                old_embeddings[chunk_id] = None  # Placeholder
-        except Exception:  # nosec B110
-            pass
-
-        for chunk_id in old_chunk_ids:
-            self.vector_db.delete_documents(
-                [chunk_id], collection_name="knowledge_graph"
-            )
-
-        # Generate new embeddings
-        new_embeddings = await self._generate_embeddings(new_chunks)
-
-        # Store new embeddings
-        new_chunk_ids = [
-            self.id_manager.generate_chunk_id(unified_id, i)
-            for i in range(len(new_chunks))
-        ]
-
-        for chunk_id, embedding in zip(new_chunk_ids, new_embeddings, strict=True):
-            vector_doc = {
-                "id": chunk_id,
-                "content": new_chunks[new_chunk_ids.index(chunk_id)],
-                "metadata": {
-                    "parent_doc_id": unified_id,
-                    "chunk_index": new_chunk_ids.index(chunk_id),
-                    "unified_id": unified_id,
-                },
-                "embedding": embedding,
-            }
-            self.vector_db.insert_documents(
-                [vector_doc], collection_name="knowledge_graph"
-            )
-
-        # Add rollback action (delete new embeddings, restore old ones)
-        async def rollback_embeddings():
-            # Delete new embeddings
-            for chunk_id in new_chunk_ids:
-                self.vector_db.delete_documents(
-                    [chunk_id], collection_name="knowledge_graph"
-                )
-
-            # Restore old embeddings (if we stored them)
-            # This would require vector-mcp to support restoring embeddings
-            logger.warning("Embedding rollback may not restore original embeddings")
-
-        rollback_actions.append(rollback_embeddings)
-
-    async def _update_document_chunks(
-        self, unified_id: str, new_chunks: list[str], rollback_actions: list[Callable]
-    ):
-        """
-        Update chunks in document database.
-
-        Args:
-            unified_id: Unified document ID
-            new_chunks: New chunks
-            rollback_actions: List to append rollback actions
-        """
-        # Delete old chunks
-        if asyncio.iscoroutinefunction(self.document_db.find_documents):
-            old_chunks = await self.document_db.find_documents(
-                {"parent_doc_id": unified_id}, "chunks"
-            )
-        else:
-            old_chunks = self.document_db.find_documents(
-                {"parent_doc_id": unified_id}, "chunks"
-            )
-
-        old_chunk_ids = [chunk.get("id") for chunk in old_chunks]
-        old_chunk_data = {chunk.get("id"): chunk.copy() for chunk in old_chunks}
-
-        for chunk_id in old_chunk_ids:
-            if asyncio.iscoroutinefunction(self.document_db.delete_document):
-                await self.document_db.delete_document(chunk_id, "chunks")
-            else:
-                self.document_db.delete_document(chunk_id, "chunks")
-
-        # Insert new chunks
-        new_chunk_ids = []
-        for i, chunk in enumerate(new_chunks):
-            chunk_id = self.id_manager.generate_chunk_id(unified_id, i)
-            chunk_record = {
-                "id": chunk_id,
-                "parent_doc_id": unified_id,
-                "chunk_index": i,
-                "content": chunk,
-                "metadata": {"unified_id": unified_id},
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-            }
-
-            if asyncio.iscoroutinefunction(self.document_db.insert_document):
-                await self.document_db.insert_document(chunk_record, "chunks")
-            else:
-                self.document_db.insert_document(chunk_record, "chunks")
-            new_chunk_ids.append(chunk_id)
-
-        # Add rollback action
-        async def rollback_chunks():
-            # Delete new chunks
-            for chunk_id in new_chunk_ids:
-                if asyncio.iscoroutinefunction(self.document_db.delete_document):
-                    await self.document_db.delete_document(chunk_id, "chunks")
-                else:
-                    self.document_db.delete_document(chunk_id, "chunks")
-
-            # Restore old chunks
-            for chunk_id, chunk_data in old_chunk_data.items():
-                if asyncio.iscoroutinefunction(self.document_db.insert_document):
-                    await self.document_db.insert_document(chunk_data, "chunks")
-                else:
-                    self.document_db.insert_document(chunk_data, "chunks")
-
-        rollback_actions.append(rollback_chunks)
 
     async def _generate_embeddings(self, chunks: list[str]) -> list[list[float]]:
         """

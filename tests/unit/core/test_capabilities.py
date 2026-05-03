@@ -249,7 +249,7 @@ async def test_graph_checkpoint_store_save_exception() -> None:
     cp = Checkpoint(id="cp1", label="l", turn=1, messages=[], metadata={})
     # Must not raise
     await store.save(cp)
-    assert True, 'Exception during checkpoint save should be caught'
+    assert True, "Exception during checkpoint save should be caught"
 
 
 @pytest.mark.asyncio
@@ -275,9 +275,7 @@ async def test_graph_checkpoint_store_get_with_backend() -> None:
     engine = MagicMock()
     engine.backend = MagicMock()
     source = Checkpoint(id="cp1", label="l", turn=1, messages=[])
-    engine.backend.get_node = AsyncMock(
-        return_value={"message_data": source.to_json()}
-    )
+    engine.backend.get_node = AsyncMock(return_value={"message_data": source.to_json()})
     engine.graph = nx.MultiDiGraph()
     store = GraphCheckpointStore(engine)
     cp = await store.get("cp1")
@@ -472,9 +470,7 @@ async def test_stuck_loop_repeated_error_mode() -> None:
     call = MagicMock(tool_name="same", tool_call_id="id")
     tool_def = MagicMock()
     args = {"x": 1}
-    await s.after_tool_execute(
-        ctx, call=call, tool_def=tool_def, args=args, result="r"
-    )
+    await s.after_tool_execute(ctx, call=call, tool_def=tool_def, args=args, result="r")
     with pytest.raises(StuckLoopError) as exc:
         await s.after_tool_execute(
             ctx, call=call, tool_def=tool_def, args=args, result="r"
@@ -512,7 +508,7 @@ async def test_stuck_loop_alternating_detection() -> None:
             )
         except ModelRetry:
             break
-    assert True, 'Alternating pattern detection completed'
+    assert True, "Alternating pattern detection completed"
 
 
 @pytest.mark.asyncio
@@ -832,7 +828,7 @@ async def test_context_warner_graph_exception_handled() -> None:
     req = MagicMock(parts=[])
     # Must not raise
     await w.before_model_run(ctx, req)
-    assert True, 'Context warner handled graph exceptions'
+    assert True, "Context warner handled graph exceptions"
 
 
 @pytest.mark.asyncio
@@ -858,7 +854,7 @@ async def test_hooks_before_run_no_hooks() -> None:
     cap = HooksCapability()
     ctx = MagicMock()
     await cap.before_run(ctx)
-    assert True, 'No-hooks before-run is a no-op'
+    assert True, "No-hooks before-run is a no-op"
 
 
 @pytest.mark.asyncio

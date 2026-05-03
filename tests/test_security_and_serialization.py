@@ -4,6 +4,7 @@ Verifies the JSON-based safe_save_model and safe_load_model functions
 provide equivalent functionality to the deprecated pickle-based alternatives
 without the CWE-502 security risk.
 """
+
 import json
 import os
 import warnings
@@ -65,7 +66,9 @@ class TestSafeSerialization:
 
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
-            path = save_model({"test": True}, file_name="dep_load", file_path=str(tmp_path))
+            path = save_model(
+                {"test": True}, file_name="dep_load", file_path=str(tmp_path)
+            )
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")

@@ -46,9 +46,28 @@ token = client.resolve_ref("vault://agents/mcp/gitlab/token")
 token = client.resolve_ref("env://GITLAB_TOKEN")
 ```
 
-## Backends
+## Secret Manager CLI
 
-### InMemory (Default)
+`agent-utilities` provides a built-in CLI to easily populate and manage your local secrets (such as the SQLite database) before running your agent.
+
+```bash
+# Set a secret
+secret-manager set gitlab/token glpat-my-token
+
+# Set a secret explicitly using the sqlite backend (overrides env var)
+secret-manager --backend sqlite set my-service/api-key 12345
+
+# Retrieve a secret
+secret-manager get gitlab/token
+
+# List all stored keys
+secret-manager list
+
+# Delete a secret
+secret-manager delete gitlab/token
+```
+
+## Backends### InMemory (Default)
 
 - **Zero config** — works out of the box
 - Values encrypted with [Fernet](https://cryptography.io/en/latest/fernet/) (AES-128-CBC)

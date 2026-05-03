@@ -1,1 +1,0 @@
-- pydantic-acp dependency pydantic-ai-slim can be relaxed to >=1.83.0 to support agent-utilities ecosystem compatibility.

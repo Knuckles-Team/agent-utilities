@@ -224,7 +224,7 @@ def test_update_cron_task_no_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     # Should not raise
     scheduler.update_cron_task_in_cron_md("t1", "Task", 5, "do stuff")
-    assert True, 'No-engine cron update should not raise'
+    assert True, "No-engine cron update should not raise"
 
 
 def test_update_cron_task_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,7 +238,7 @@ def test_update_cron_task_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
         fake_kg,
     )
     scheduler.update_cron_task_in_cron_md("t1", "Task", 5, "do stuff")
-    assert True, 'No-backend cron update should not raise'
+    assert True, "No-backend cron update should not raise"
 
 
 def test_update_cron_task_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -420,7 +420,7 @@ def test_append_cron_log_no_engine(monkeypatch: pytest.MonkeyPatch) -> None:
         fake_kg,
     )
     scheduler.append_cron_log("t1", "Task", "output")
-    assert True, 'No-engine cron log append should not raise'
+    assert True, "No-engine cron log append should not raise"
 
 
 def test_append_cron_log_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -434,7 +434,7 @@ def test_append_cron_log_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
         fake_kg,
     )
     scheduler.append_cron_log("t1", "Task", "output")
-    assert True, 'No-backend cron log append should not raise'
+    assert True, "No-backend cron log append should not raise"
 
 
 def test_append_cron_log_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -489,7 +489,7 @@ def test_cleanup_cron_log_no_engine(monkeypatch: pytest.MonkeyPatch) -> None:
         fake_kg,
     )
     scheduler.cleanup_cron_log()
-    assert True, 'No-engine cron log cleanup should not raise'
+    assert True, "No-engine cron log cleanup should not raise"
 
 
 def test_cleanup_cron_log_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -503,7 +503,7 @@ def test_cleanup_cron_log_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
         fake_kg,
     )
     scheduler.cleanup_cron_log()
-    assert True, 'No-backend cron log cleanup should not raise'
+    assert True, "No-backend cron log cleanup should not raise"
 
 
 def test_cleanup_cron_log_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -644,6 +644,7 @@ async def test_background_processor_runs_due_task(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """background_processor picks up a due task, calls agent.run, and logs."""
+
     # A short-circuiting asyncio.sleep
     async def instant_sleep(n: float) -> None:  # noqa: ARG001
         # Only sleep once, then raise to break the loop on the second call

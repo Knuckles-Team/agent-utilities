@@ -17,6 +17,17 @@
 <!-- CONCEPT:AU-009 Spec-Driven Development -->
 <!-- CONCEPT:AU-010 Agent Tool System -->
 <!-- CONCEPT:AU-011 Secrets & Authentication -->
+<!-- CONCEPT:AU-013 KG Object-Graph Mapper -->
+<!-- CONCEPT:AU-014 Swarm Orchestration -->
+<!-- CONCEPT:AU-015 Evolutionary Variants -->
+<!-- CONCEPT:AU-016 Persistent Self-Model -->
+<!-- CONCEPT:AU-017 Global Workspace Attention -->
+<!-- CONCEPT:AU-024 Registry Hot Cache -->
+<!-- CONCEPT:AU-025 TeamConfig Promotion -->
+<!-- CONCEPT:AU-026 AgentCapability Type System -->
+<!-- CONCEPT:AU-027 PlannerGraphSkill (A2A-Native Routing) -->
+<!-- CONCEPT:AU-028 A2A Config File (Config File Loader) -->
+<!-- CONCEPT:AU-029 Unified Specialist (Type Collapse) -->
 
 **agent-utilities is a protocol-first, framework-light agent core library.**
 
@@ -30,6 +41,9 @@
 - **Tools and transports are pluggable**: Any tool or transport can be swapped without changing agent code
 - **UI-agnostic**: No assumptions about user interface (terminal, web, mobile, voice)
 - **JSON Prompting (Prompts-as-Code)**: Favor structured JSON blueprints over free-form Markdown for high-fidelity task specification.
+- **Graph-native intelligence**: All agent knowledge, routing decisions, and learned patterns are persisted in the Knowledge Graph — not flat files.
+- **Event-driven invalidation**: Caches and indices are invalidated by mutation events, never by TTL. This eliminates stale-cache risks.
+- **Feedback-driven learning**: Execution outcomes feed back to Self-Model and TeamConfig, enabling progressive routing improvement without human intervention.
 
 ### When to Use agent-utilities
 
@@ -40,6 +54,8 @@
 - Knowledge graph integration for long-term memory
 - MCP tool integration for external capabilities
 - Multi-agent coordination via ACP/A2A
+- Dynamic team formation with proven coalition reuse
+- Auto-activating capabilities based on task characteristics
 
 **Do NOT use agent-utilities for:**
 - Simple single-shot LLM calls (use pydantic-ai directly)
@@ -70,7 +86,7 @@
 - **Web Frontend (`agent-webui`)**: A React application using Vercel AI SDK that provides a cinematic chat interface.
 - **Terminal Frontend (`agent-terminal-ui`)**: A Textual-based terminal interface for direct CLI interaction.
 - **Communication**: Frontends primarily connect via the Agent Communication Protocol (ACP).
-- **Memory System**: Local project memory is managed via `AGENTS.md` (auto-loaded into the system prompt). Native agent memory is power by a Knowledge Graph.
+- **Memory System**: Local project memory is managed via `AGENTS.md` (auto-loaded into the system prompt). Native agent memory is powered by a Knowledge Graph.
 
 ## Ecosystem Dependency Graph
 
@@ -148,6 +164,9 @@ uv run ruff format --check agent_utilities/ tests/
 # Type check
 uv run mypy agent_utilities/
 
+# Full pre-commit suite
+pre-commit run --all-files
+
 # Run the server
 uv run python -m agent_utilities.server --debug --provider openai --model-id llama-3.2-3b-instruct
 ```
@@ -157,34 +176,76 @@ uv run python -m agent_utilities.server --debug --provider openai --model-id lla
 ```text
 agent-utilities/
 ├── agent_utilities/          # Core package
-│   ├── server.py             # FastAPI server (ACP/A2A/MCP/AG-UI endpoints)
+│   ├── server/               # FastAPI server (ACP/A2A/MCP/AG-UI endpoints, process lifecycle)
 │   ├── base_utilities.py     # Low-level helpers, env expansion, model I/O
 │   ├── acp_adapter.py        # ACP adapter (per-session agent_factory)
 │   ├── agui_emitter.py       # AG-UI wire format translator for direct graph execution
-│   ├── secrets_client.py     # Pluggable secrets manager (in-memory/SQLite/Vault)
-│   ├── auth.py               # JWT + API key authentication (authlib)
-│   ├── graph/                # Graph orchestration (builder, runner, iter, nodes)
+│   ├── graph/                # Graph orchestration (builder, runner, iter, routing, executor, verification)
+│   │   ├── config_helpers.py # Registry Hot Cache (AU-024)
+│   │   ├── routing.py        # 3-stage hybrid routing (AU-025, AU-016)
+│   │   ├── executor.py       # Capability auto-activation (AU-026)
+│   │   └── verification.py   # Self-Model + TeamConfig feedback loop
 │   ├── knowledge_graph/      # Unified Intelligence Graph (14-phase pipeline)
-│   ├── models/               # Pydantic models and schema definitions
+│   │   ├── self_model.py     # Persistent Self-Model (AU-016)
+│   │   ├── engine_registry.py # TeamConfig promotion/reuse (AU-025)
+│   │   └── ogm.py            # Object-Graph Mapper (AU-013)
 │   ├── protocols/            # Protocol adapters (ACP, A2A, AG-UI)
+│   │   ├── a2a_graph_skill.py # PlannerGraphSkill (AU-027)
+│   │   └── a2a_config.py     # A2A Config Loader (AU-028)
+│   ├── models/               # Pydantic models and schema definitions
+│   ├── security/             # JWT + API key auth, secrets client
 │   ├── prompts/              # Externalized JSON prompt blueprints (51 files)
-│   └── tools/                # Agent tools (developer, workspace, etc.)
-├── tests/                    # Test suite (unit, integration, knowledge_graph)
-├── docs/                     # Comprehensive documentation
+│   ├── policies/             # Engineering rule books (YAML frontmatter)
+│   ├── capabilities/         # Self-healing: checkpointing, circuit breakers, teams
+│   ├── tools/                # Agent tools (developer, workspace, etc.)
+│   ├── mcp/                  # MCP server wrappers and agent manager
+│   ├── rlm/                  # Recursive Language Model environments
+│   ├── sdd/                  # Spec-Driven Development pipelines
+│   ├── harness/              # Agentic Harness Engineering toolkit
+│   └── patterns/             # Design patterns (prompt chaining, prioritization, exploration)
+├── tests/                    # Test suite (1857 tests: unit, integration, knowledge_graph)
+├── docs/                     # Comprehensive documentation (24 guides)
 ├── .specify/                 # SDD specs, tasks, and constitution
 ├── pyproject.toml            # PEP 621 project metadata
 ├── .env.example              # Environment variable template
 └── AGENTS.md                 # This file (project rules for AI agents)
 ```
 
+## Architectural Concepts
+
+The system is built on 27 foundational concepts organized into 5 layers:
+
+### Core Infrastructure (AU-001 to AU-011)
+Agent creation, graph orchestration, workspace management, protocol adapters, serialization, structured prompts, RLM, capabilities, SDD, tools, and secrets.
+
+### Emergent Architecture (AU-013 to AU-017)
+KG Object-Graph Mapper, Swarm Orchestration, Evolutionary Variants, Persistent Self-Model, Global Workspace Attention.
+
+### Design Patterns (AU-018 to AU-022)
+Prompt Chaining, Resource Optimization, Evaluation & Monitoring, Task Prioritization, Exploration & Discovery.
+
+### First Principles (AU-024 to AU-027)
+Registry Hot Cache, TeamConfig Promotion, AgentCapability Type System, A2A PlannerGraphSkill.
+
+### Unified Specialist & A2A Integration (AU-028 to AU-029)
+A2A Config File Loader, Unified Specialist Model (type collapse).
+
+→ See [docs/overview.md](docs/overview.md) for the full Concept Galaxy diagram and **Concept Map table** (all 29 AU-XXX concepts with descriptions and code paths).
+
 ## Detailed Documentation
 
 For comprehensive documentation, see the `docs/` directory:
 
-- **[Architecture](docs/architecture.md)** — Core architecture diagrams, graph orchestration (HSM/BT), protocol layer, server endpoints
-- **[Knowledge Graph](docs/knowledge-graph.md)** — UIG, 14-phase pipeline, backends, OWL reasoning, MAGMA views, KB layer, maintenance
-- **[Agents & Orchestration](docs/agents.md)** — Specialist registry, MCP loading, event system, memory CRUD, governance
-- **[Features](docs/features.md)** — Model registry, SDD lifecycle, human-in-the-loop, tool safety, JSON prompting, agentic patterns
-- **[Development Guide](docs/development.md)** — Commands, testing, environment variables, project structure, code style, troubleshooting
-- **[Creating an Agent](docs/creating-an-agent.md)** — Step-by-step guide to creating a Python agent using `genius-agent` as template
-- **[Building MCP Servers](docs/building-mcp-servers.md)** — Building MCP servers and API wrappers with context helpers
+- **[Overview Map](docs/overview.md)** — The Concept Galaxy connecting all 29 concepts, plus the **Concept Map table** (AU-001 → AU-029)
+- **[Architecture](docs/architecture.md)** — System architecture, protocol adapters, 3-stage hybrid routing
+- **[Knowledge Graph](docs/knowledge-graph.md)** — UIG, 14-phase pipeline, OWL reasoning, MAGMA views
+- **[First Principles](docs/first-principles.md)** — Registry Hot Cache, TeamConfig, AgentCapability, PlannerGraphSkill (AU-024–AU-027)
+- **[Emergent Architecture](docs/emergent-architecture.md)** — OGM, Swarm, Variant Selection, Self-Model, Attention (AU-013–AU-017)
+- **[Agents & Orchestration](docs/agents.md)** — Specialist registry, MCP loading, event system, governance
+- **[Features](docs/features.md)** — Model registry, SDD lifecycle, human-in-the-loop, tool safety, agentic patterns, feedback loops
+- **[Configuration](docs/configuration.md)** — All environment variables, config files, and CLI flags
+- **[Development Guide](docs/development.md)** — Commands, testing, environment variables, code style, troubleshooting
+- **[Creating an Agent](docs/creating-an-agent.md)** — Step-by-step guide using `genius-agent` as template
+- **[Building MCP Servers](docs/building-mcp-servers.md)** — Building MCP servers and API wrappers
+- **[Registry Cache](docs/registry-cache.md)** — Deep-dive into O(1) specialist lookups
+- **[Process Lifecycle](docs/process-lifecycle.md)** — Sidecar cleanup and signal handling

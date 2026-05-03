@@ -27,5 +27,19 @@
     },
     "tools": [
         "developer-utilities"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Were standard `<algorithm>` templates preferred over hand-written imperative loops?",
+            "Is RAII effectively managing all handles, sockets, and memory bounds?",
+            "Has Valgrind cleanly cleared dynamic execution paths?"
+        ],
+        "responsibilities": [
+            "Modern C++ Application Development: Deliver complex systems employing modern C++ attributes, leveraging type safety and compile-time evaluations heavily.",
+            "Resource Management: Implement flawless RAII object bounds to ensure memory and hardware resources are acquired and released automatically perfectly.",
+            "Template Metaprogramming: Design highly generalized structures that evaluate logic during compilation rather than execution to maximize run-time throughput.",
+            "STL Orchestration: Manipulate standard algorithms and unrolled containers for pristine optimization."
+        ]
+    },
+    "version": "1.0.0"
 }

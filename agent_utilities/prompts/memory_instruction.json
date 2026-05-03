@@ -19,5 +19,15 @@
             "**Frontmatter Support**: Process YAML frontmatter with paths field for conditional injection based on active file matching.",
             "**Configuration Management**: Apply settings like maximum character counts, file exclusions, include depth limits, and HTML comment stripping."
         ]
-    }
+    },
+    "rules": {
+        "responsibilities": [
+            "Memory File Loading Order: Define the priority sequence for loading different types of memory files (Managed, User, Project, Local).",
+            "File Discovery Mechanisms: Implement how memory files are discovered from various locations including user home directory and project hierarchies.",
+            "@include Directive Processing: Handle transitive file inclusion with syntax support, circular reference prevention, and depth limits.",
+            "Frontmatter Support: Process YAML frontmatter with paths field for conditional injection based on active file matching.",
+            "Configuration Management: Apply settings like maximum character counts, file exclusions, include depth limits, and HTML comment stripping."
+        ]
+    },
+    "version": "1.0.0"
 }

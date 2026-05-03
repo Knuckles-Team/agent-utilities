@@ -24,6 +24,25 @@ class AgentDeps:
     api_key: str | None = None
     mcp_toolsets: list[Any] = field(default_factory=list)
     patterns: Any | None = None
+    external_ontologies: list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        # Auto-register external ontologies with the active graph engine
+        if self.external_ontologies:
+            try:
+                from agent_utilities.knowledge_graph.engine import (
+                    IntelligenceGraphEngine,
+                )
+
+                engine = IntelligenceGraphEngine.get_active()
+                if engine and hasattr(engine, "register_external_ontology"):
+                    for ext in self.external_ontologies:
+                        parts = ext.split("|", 1)
+                        uri = parts[0].strip()
+                        endpoint = parts[1].strip() if len(parts) > 1 else None
+                        engine.register_external_ontology(uri, endpoint)
+            except ImportError:
+                pass
 
 
 class IdentityModel(BaseModel):

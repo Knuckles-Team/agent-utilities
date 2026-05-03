@@ -12,7 +12,15 @@ class MCPConfigModel(BaseModel):
 
 class MCPAgent(BaseModel):
     name: str = Field(description="Unique agent identifier / tag")
-    agent_type: str = Field(default="prompt", description="Type: prompt, mcp, a2a")
+    agent_type: str = Field(
+        default="specialist",
+        description=(
+            "Agent classification. 'specialist' for all local agents "
+            "(regardless of origin: prompts, MCP partitioning, or skills). "
+            "'a2a' for remote Agent-to-Agent peers. Legacy values 'prompt' "
+            "and 'mcp' are normalized to 'specialist' at read time (AU-029)."
+        ),
+    )
     prompt_file: str | None = Field(
         default=None, description="Markdown prompt file path"
     )
@@ -82,7 +90,12 @@ class DiscoveredSpecialist(BaseModel):
     tag: str = Field(description="Routing key used by the dispatcher")
     name: str = Field(description="Human-readable display name")
     description: str = Field(default="", description="Specialist summary")
-    source: str = Field(description="Origin: 'prompt', 'mcp', or 'a2a'")
+    source: str = Field(
+        description=(
+            "Origin: 'specialist' (unified local agent) or 'a2a' (remote peer). "
+            "Legacy values 'prompt' and 'mcp' are normalized to 'specialist' (AU-029)."
+        ),
+    )
     mcp_server: str = Field(default="", description="Source MCP server (MCP only)")
     tools: list[str] = Field(default_factory=list, description="Known tool names")
     url: str = Field(default="", description="Agent endpoint URL (A2A/MCP only)")

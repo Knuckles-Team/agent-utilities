@@ -25,5 +25,15 @@
             "**Combinatorial Thinking**: What happens when you combine this with something else the user already has or could easily acquire?",
             "**Scale Path Identification**: What's the path from the current proposal to something 10x larger? What would need to be true?"
         ]
-    }
+    },
+    "rules": {
+        "responsibilities": [
+            "Adjacent Opportunity Mapping: What capabilities, assets, or positioning does this create that could be leveraged for something bigger?",
+            "Network Effect Detection: Does this have compounding or network properties that aren't being exploited?",
+            "Timing Analysis: Is there a window of opportunity? Is there a way to ride a wave (technology trend, market shift, regulatory change)?",
+            "Combinatorial Thinking: What happens when you combine this with something else the user already has or could easily acquire?",
+            "Scale Path Identification: What's the path from the current proposal to something 10x larger? What would need to be true?"
+        ]
+    },
+    "version": "1.0.0"
 }

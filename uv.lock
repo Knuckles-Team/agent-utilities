@@ -23,75 +23,23 @@ wheels = [
 
 [[package]]
 name = "acpkit"
-source = { directory = "../../open-source-libraries/acpkit" }
+version = "0.9.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "fast-agent-mcp" },
     { name = "mcp" },
     { name = "typing-extensions" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/af/00/b792fb6e2a42a3f7994a4c7c9b4fce5838d95fbcb012b2014f95a28876e3/acpkit-0.9.1.tar.gz", hash = "sha256:6a7d9e94d67f0c0151a0c74ab38ea8e6b927b449c2a854bc5c51067ac42d0b38", size = 424479, upload-time = "2026-04-29T22:31:45.387Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fc/c5/f039b2f467338669ceea5a67f93aa7bf6939d6490b7638cb51e20b1552d8/acpkit-0.9.1-py3-none-any.whl", hash = "sha256:f8d9eb8e8a13b8e707179055095e75a3e2bb21c83930418278b7762966880c5a", size = 19546, upload-time = "2026-04-29T22:31:47.219Z" },
+]
 
 [package.optional-dependencies]
 pydantic = [
     { name = "pydantic-acp" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "acpremote", marker = "extra == 'all'", editable = "../../open-source-libraries/acpkit/packages/transports/acpremote" },
-    { name = "acpremote", marker = "extra == 'dev'", editable = "../../open-source-libraries/acpkit/packages/transports/acpremote" },
-    { name = "acpremote", marker = "extra == 'remote'", editable = "../../open-source-libraries/acpkit/packages/transports/acpremote" },
-    { name = "agent-client-protocol", marker = "extra == 'all'", specifier = ">=0.9.0" },
-    { name = "agent-client-protocol", marker = "extra == 'dev'", specifier = ">=0.9.0" },
-    { name = "basedpyright", marker = "extra == 'all'" },
-    { name = "basedpyright", marker = "extra == 'dev'" },
-    { name = "click", specifier = ">=8.1.8" },
-    { name = "codex-auth-helper", marker = "extra == 'all'", editable = "../../open-source-libraries/acpkit/packages/helpers/codex-auth-helper" },
-    { name = "codex-auth-helper", marker = "extra == 'codex'", editable = "../../open-source-libraries/acpkit/packages/helpers/codex-auth-helper" },
-    { name = "codex-auth-helper", marker = "extra == 'dev'", editable = "../../open-source-libraries/acpkit/packages/helpers/codex-auth-helper" },
-    { name = "fast-agent-mcp", specifier = ">=0.2.25" },
-    { name = "langchain-acp", marker = "extra == 'all'", editable = "../../open-source-libraries/acpkit/packages/adapters/langchain-acp" },
-    { name = "langchain-acp", marker = "extra == 'dev'", editable = "../../open-source-libraries/acpkit/packages/adapters/langchain-acp" },
-    { name = "langchain-acp", marker = "extra == 'langchain'", editable = "../../open-source-libraries/acpkit/packages/adapters/langchain-acp" },
-    { name = "langchain-acp", extras = ["deepagents"], marker = "extra == 'all'", editable = "../../open-source-libraries/acpkit/packages/adapters/langchain-acp" },
-    { name = "langchain-acp", extras = ["deepagents"], marker = "extra == 'deepagents'", editable = "../../open-source-libraries/acpkit/packages/adapters/langchain-acp" },
-    { name = "langchain-openai", marker = "extra == 'all'", specifier = ">=0.3.26" },
-    { name = "langchain-openai", marker = "extra == 'dev'", specifier = ">=0.3.26" },
-    { name = "mcp", specifier = ">=1.27.0" },
-    { name = "mkdocs-material", marker = "extra == 'all'" },
-    { name = "mkdocs-material", marker = "extra == 'docs'" },
-    { name = "mkdocstrings", extras = ["python"], marker = "extra == 'all'" },
-    { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'" },
-    { name = "pre-commit", marker = "extra == 'all'" },
-    { name = "pre-commit", marker = "extra == 'dev'" },
-    { name = "pydantic", marker = "extra == 'all'", specifier = ">=2.7" },
-    { name = "pydantic", marker = "extra == 'dev'", specifier = ">=2.7" },
-    { name = "pydantic-acp", marker = "extra == 'all'", editable = "../../open-source-libraries/acpkit/packages/adapters/pydantic-acp" },
-    { name = "pydantic-acp", marker = "extra == 'dev'", editable = "../../open-source-libraries/acpkit/packages/adapters/pydantic-acp" },
-    { name = "pydantic-acp", marker = "extra == 'pydantic'", editable = "../../open-source-libraries/acpkit/packages/adapters/pydantic-acp" },
-    { name = "pydantic-ai-slim", marker = "extra == 'all'" },
-    { name = "pydantic-ai-slim", marker = "extra == 'dev'" },
-    { name = "pydantic-graph", marker = "extra == 'all'" },
-    { name = "pydantic-graph", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'all'" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-asyncio", marker = "extra == 'all'" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'" },
-    { name = "pytest-cov", marker = "extra == 'all'" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "python-dotenv", marker = "extra == 'all'" },
-    { name = "python-dotenv", marker = "extra == 'dev'" },
-    { name = "ruff", marker = "extra == 'all'" },
-    { name = "ruff", marker = "extra == 'dev'" },
-    { name = "ty", marker = "extra == 'all'" },
-    { name = "ty", marker = "extra == 'dev'" },
-    { name = "typing-extensions", specifier = ">=4.12.0" },
-    { name = "typing-extensions", marker = "extra == 'all'", specifier = ">=4.12.0" },
-    { name = "typing-extensions", marker = "extra == 'dev'", specifier = ">=4.12.0" },
-    { name = "uv", marker = "extra == 'all'", specifier = ">=0.8.3" },
-    { name = "uv", marker = "extra == 'launch'", specifier = ">=0.8.3" },
-]
-provides-extras = ["all", "codex", "deepagents", "dev", "docs", "langchain", "launch", "pydantic", "remote"]
 
 [[package]]
 name = "ag-ui-protocol"
@@ -119,21 +67,21 @@ wheels = [
 
 [[package]]
 name = "agent-terminal-ui"
-version = "0.1.37"
+version = "0.3.0"
 source = { directory = "../agent-terminal-ui" }
 dependencies = [
     { name = "agent-client-protocol" },
-    { name = "agent-utilities" },
     { name = "httpx" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "textual" },
+    { name = "textual-diff-view" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "agent-client-protocol", specifier = ">=0.9.0,<1.0.0" },
-    { name = "agent-utilities", specifier = ">=0.2.41,<0.3.0" },
+    { name = "bashlex", marker = "extra == 'shell'", specifier = ">=0.18" },
     { name = "httpx", specifier = ">=0.28.1,<1.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.0,<10.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.3.0,<2.0.0" },
@@ -142,12 +90,13 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3,<7.0.0" },
     { name = "rich", specifier = ">=15.0.0,<16.0.0" },
     { name = "textual", specifier = ">=8.2.0,<9.0.0" },
+    { name = "textual-diff-view", specifier = ">=0.1.0" },
 ]
-provides-extras = ["test"]
+provides-extras = ["shell", "test"]
 
 [[package]]
 name = "agent-utilities"
-version = "0.2.41"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -174,16 +123,15 @@ ag-ui = [
     { name = "agent-webui" },
 ]
 agent = [
-    { name = "agent-terminal-ui" },
-    { name = "agent-webui" },
-    { name = "eunomia-mcp" },
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "httpx" },
+    { name = "ladybug" },
+    { name = "networkx" },
     { name = "pydantic-ai-skills" },
     { name = "pydantic-ai-slim", extra = ["a2a", "ag-ui", "cli", "fastmcp", "openai", "web"] },
     { name = "pydantic-graph" },
     { name = "skill-graphs" },
+    { name = "tree-sitter-javascript" },
+    { name = "tree-sitter-python" },
+    { name = "tree-sitter-typescript" },
     { name = "universal-skills" },
 ]
 agent-anthropic = [
@@ -203,8 +151,6 @@ agent-mistral = [
 ]
 all = [
     { name = "acpkit", extra = ["pydantic"] },
-    { name = "agent-terminal-ui" },
-    { name = "agent-webui" },
     { name = "authlib" },
     { name = "eunomia-mcp" },
     { name = "fastapi" },
@@ -266,24 +212,16 @@ embeddings-openai = [
 falkordb = [
     { name = "falkordb" },
 ]
-graph = [
+logfire = [
     { name = "ladybug" },
     { name = "networkx" },
-    { name = "tree-sitter-javascript" },
-    { name = "tree-sitter-python" },
-    { name = "tree-sitter-typescript" },
-]
-logfire = [
-    { name = "agent-terminal-ui" },
-    { name = "agent-webui" },
-    { name = "eunomia-mcp" },
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "httpx" },
     { name = "pydantic-ai-skills" },
     { name = "pydantic-ai-slim", extra = ["a2a", "ag-ui", "cli", "fastmcp", "logfire", "openai", "web"] },
     { name = "pydantic-graph" },
     { name = "skill-graphs" },
+    { name = "tree-sitter-javascript" },
+    { name = "tree-sitter-python" },
+    { name = "tree-sitter-typescript" },
     { name = "universal-skills" },
 ]
 mcp = [
@@ -309,12 +247,6 @@ terminal = [
 ]
 test = [
     { name = "acpkit", extra = ["pydantic"] },
-    { name = "agent-terminal-ui" },
-    { name = "agent-webui" },
-    { name = "eunomia-mcp" },
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "httpx" },
     { name = "hypothesis" },
     { name = "ladybug" },
     { name = "mutmut" },
@@ -346,56 +278,55 @@ vault = [
 
 [package.metadata]
 requires-dist = [
-    { name = "acpkit", extras = ["pydantic"], marker = "extra == 'acp'", directory = "../../open-source-libraries/acpkit" },
+    { name = "acpkit", extras = ["pydantic"], marker = "extra == 'acp'", specifier = ">=0.1.0" },
     { name = "agent-terminal-ui", marker = "extra == 'terminal'", directory = "../agent-terminal-ui" },
-    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.2.41" },
+    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.3.0" },
     { name = "agent-utilities", extras = ["agent", "graph", "acp", "owl"], marker = "extra == 'test'" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.2.41" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.2.41" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.2.41" },
-    { name = "agent-utilities", extras = ["mcp", "ag-ui", "terminal"], marker = "extra == 'agent'", specifier = ">=0.2.41" },
-    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "graph", "browser", "test", "owl", "stardog", "vault", "auth"], marker = "extra == 'all'", specifier = ">=0.2.41" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.3.0" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.3.0" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.3.0" },
+    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "graph", "browser", "test", "owl", "stardog", "vault", "auth"], marker = "extra == 'all'", specifier = ">=0.3.0" },
     { name = "agent-utilities", extras = ["owl"], marker = "extra == 'stardog'" },
     { name = "agent-webui", marker = "extra == 'ag-ui'", directory = "../agent-webui" },
-    { name = "authlib", marker = "extra == 'auth'", specifier = ">=1.4.0" },
+    { name = "authlib", marker = "extra == 'auth'", specifier = ">=1.7.0" },
     { name = "cryptography", specifier = ">=47.0.0" },
     { name = "eunomia-mcp", marker = "extra == 'mcp'", specifier = ">=0.3.10" },
-    { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.0.1" },
+    { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.6.1" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.131.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.2.0" },
     { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28.1" },
-    { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.3.0" },
+    { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.4.0" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.152.1" },
-    { name = "ladybug", specifier = ">=0.15.3" },
-    { name = "ladybug", marker = "extra == 'graph'", specifier = ">=0.15.3" },
+    { name = "ladybug", specifier = ">=0.16.0" },
+    { name = "ladybug", marker = "extra == 'agent'", specifier = ">=0.16.0" },
     { name = "llama-index-core", marker = "extra == 'embeddings'", specifier = ">=0.14.15" },
-    { name = "llama-index-embeddings-huggingface", marker = "extra == 'embeddings-huggingface'", specifier = ">=0.6.1" },
-    { name = "llama-index-embeddings-ollama", marker = "extra == 'embeddings-ollama'", specifier = ">=0.8.6" },
-    { name = "llama-index-embeddings-openai", marker = "extra == 'embeddings-openai'", specifier = ">=0.5.1" },
+    { name = "llama-index-embeddings-huggingface", marker = "extra == 'embeddings-huggingface'", specifier = ">=0.7.0" },
+    { name = "llama-index-embeddings-ollama", marker = "extra == 'embeddings-ollama'", specifier = ">=0.9.0" },
+    { name = "llama-index-embeddings-openai", marker = "extra == 'embeddings-openai'", specifier = ">=0.6.0" },
     { name = "mutmut", marker = "extra == 'test'" },
     { name = "mypy", marker = "extra == 'test'" },
     { name = "neo4j", marker = "extra == 'neo4j'", specifier = ">=6.1.0" },
     { name = "networkx", specifier = ">=3.0" },
-    { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0" },
+    { name = "networkx", marker = "extra == 'agent'", specifier = ">=3.0" },
     { name = "numpy" },
     { name = "opentelemetry-instrumentation-asgi", marker = "extra == 'test'" },
     { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'test'" },
     { name = "opentelemetry-instrumentation-starlette", marker = "extra == 'test'" },
     { name = "owlready2", marker = "extra == 'owl'", specifier = ">=0.46" },
     { name = "pathspec" },
-    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.49.1" },
+    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.59.0" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.8.2" },
     { name = "pydantic-acp", marker = "extra == 'acp'", specifier = ">=0.1.0" },
     { name = "pydantic-ai-skills", marker = "extra == 'agent'", specifier = ">=0.4.1" },
     { name = "pydantic-ai-slim", extras = ["anthropic"], marker = "extra == 'agent-anthropic'", specifier = ">=1.73.0,<2.0.0" },
-    { name = "pydantic-ai-slim", extras = ["fastmcp", "openai", "a2a", "ag-ui", "web", "cli"], marker = "extra == 'agent'", specifier = ">=1.73.0,<2.0.0" },
+    { name = "pydantic-ai-slim", extras = ["fastmcp", "openai", "a2a", "ag-ui", "web", "cli"], marker = "extra == 'agent'", specifier = ">=1.88.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["google"], marker = "extra == 'agent-google'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["groq"], marker = "extra == 'agent-groq'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["huggingface"], marker = "extra == 'agent-huggingface'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["logfire"], marker = "extra == 'logfire'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["mistral"], marker = "extra == 'agent-mistral'", specifier = ">=1.73.0,<2.0.0" },
-    { name = "pydantic-graph", marker = "extra == 'agent'", specifier = ">=1.0.0" },
-    { name = "pydantic-settings", specifier = ">=2.0.0" },
+    { name = "pydantic-graph", marker = "extra == 'agent'", specifier = ">=1.88.0" },
+    { name = "pydantic-settings", specifier = ">=2.14.0" },
     { name = "pystardog", marker = "extra == 'stardog'", specifier = ">=0.20.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'" },
     { name = "pytest-cov", marker = "extra == 'test'" },
@@ -403,23 +334,23 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "rdflib", marker = "extra == 'owl'", specifier = ">=7.0.0" },
-    { name = "repository-manager", marker = "extra == 'test'", editable = "../agents/repository-manager" },
+    { name = "repository-manager", marker = "extra == 'test'" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "ruff", marker = "extra == 'test'" },
     { name = "scipy" },
-    { name = "skill-graphs", marker = "extra == 'agent'", directory = "../skills/skill-graphs" },
+    { name = "skill-graphs", marker = "extra == 'agent'", specifier = ">=0.1.41" },
     { name = "tree-sitter", specifier = ">=0.23.2" },
-    { name = "tree-sitter-javascript", marker = "extra == 'graph'", specifier = ">=0.23.0" },
-    { name = "tree-sitter-python", marker = "extra == 'graph'", specifier = ">=0.23.0" },
-    { name = "tree-sitter-typescript", marker = "extra == 'graph'", specifier = ">=0.23.0" },
-    { name = "universal-skills", marker = "extra == 'agent'", directory = "../skills/universal-skills" },
-    { name = "urllib3", specifier = ">=2.3.0" },
+    { name = "tree-sitter-javascript", marker = "extra == 'agent'", specifier = ">=0.23.0" },
+    { name = "tree-sitter-python", marker = "extra == 'agent'", specifier = ">=0.23.0" },
+    { name = "tree-sitter-typescript", marker = "extra == 'agent'", specifier = ">=0.23.0" },
+    { name = "universal-skills", marker = "extra == 'agent'", specifier = ">=0.1.60" },
+    { name = "urllib3", specifier = ">=2.6.3" },
 ]
-provides-extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "ag-ui", "terminal", "browser", "acp", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "graph", "neo4j", "falkordb", "owl", "stardog", "vault", "auth", "test", "all"]
+provides-extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "ag-ui", "terminal", "browser", "acp", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "neo4j", "falkordb", "owl", "stardog", "vault", "auth", "test", "all"]
 
 [[package]]
 name = "agent-webui"
-version = "0.1.37"
+version = "0.2.0"
 source = { directory = "../agent-webui" }
 dependencies = [
     { name = "fastapi" },
@@ -434,7 +365,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-utilities", extras = ["graph"], marker = "extra == 'test'", directory = "." },
+    { name = "agent-utilities", extras = ["graph"], marker = "extra == 'test'" },
     { name = "fastapi", specifier = ">=0.117.1" },
     { name = "langfuse", specifier = ">=4.5.1" },
     { name = "logfire", extras = ["fastapi", "starlette"] },
@@ -447,9 +378,9 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'test'" },
     { name = "pytest-cov", marker = "extra == 'test'" },
     { name = "pytest-env", marker = "extra == 'test'" },
-    { name = "sse-starlette", specifier = ">=3.0.2" },
+    { name = "sse-starlette", specifier = ">=3.4.1" },
     { name = "starlette", specifier = ">=1.0.0" },
-    { name = "uvicorn", specifier = ">=0.37.0" },
+    { name = "uvicorn", specifier = ">=0.46.0" },
     { name = "watchfiles", specifier = ">=1.1.0" },
 ]
 provides-extras = ["test"]
@@ -653,14 +584,15 @@ wheels = [
 
 [[package]]
 name = "authlib"
-version = "1.6.10"
+version = "1.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
+    { name = "joserfc" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/aa/e2/2cd626412bfc3c78b17ca5e5ea8d489f8cae31d40b061f4da0a89068d8a3/authlib-1.6.10.tar.gz", hash = "sha256:856a4f54d6ef3361ca6bb6d14a27e8b88f8097cca795fb428ffe13720e2ecde6", size = 165333, upload-time = "2026-04-13T13:30:34.718Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/82/4d0603f30c1b4629b1f091bb266b0d7986434891d6940a8c87f8098db24e/authlib-1.7.0.tar.gz", hash = "sha256:b3e326c9aa9cc3ea95fe7d89fd880722d3608da4d00e8a27e061e64b48d801d5", size = 175890, upload-time = "2026-04-18T11:00:28.559Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/f6/9093f1ed17b6e2f4ac50d214543d4ec5268902a70e2158a752a06423b5ef/authlib-1.6.10-py2.py3-none-any.whl", hash = "sha256:aa639b43292554539924a3b4aaa9e81cd67ab64d3e28b22428c61f1200240287", size = 244351, upload-time = "2026-04-13T13:30:33.34Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/48/c954218b2a250e23f178f10167c4173fecb5a75d2c206f0a67ba58006c26/authlib-1.7.0-py2.py3-none-any.whl", hash = "sha256:e36817afb02f6f0b6bf55f150782499ddd6ddf44b402bb055d3263cc65ac9ae0", size = 258779, upload-time = "2026-04-18T11:00:26.64Z" },
 ]
 
 [[package]]
@@ -1298,15 +1230,15 @@ wheels = [
 
 [[package]]
 name = "falkordb"
-version = "1.6.0"
+version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "python-dateutil" },
     { name = "redis" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/72/52/5495fcba8e21c269a605092a7c4a8b33ceecae283dbfe76fc53f7f5b50ab/falkordb-1.6.0.tar.gz", hash = "sha256:5c307d973f3fc3987a18478ebd5882f7e842d4225463a8ef5e026970ebfba8c6", size = 98157, upload-time = "2026-02-21T06:36:19.107Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c8/3a/58da510e5800a5cdbf9591111e4287cbf68b475bf074db12a94e5db8bcea/falkordb-1.6.1.tar.gz", hash = "sha256:bbef448a0b43e00ff3062bd6201368618d7b36e969d16ba71e8b8e3fa90873d4", size = 103185, upload-time = "2026-04-28T13:24:44.524Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/8b/59ec60885abd3b6b2b3a1e5917627c3cae656b4cff7f847c5217ec3dc952/falkordb-1.6.0-py3-none-any.whl", hash = "sha256:0f190e9d6104595fd51ece4f1e7b5d49d62cfee346d94151d7986a138fd90d89", size = 37378, upload-time = "2026-02-21T06:36:17.769Z" },
+    { url = "https://files.pythonhosted.org/packages/90/02/1cf9cef72228ca2b2776b4ed0cb2645298ddcc57c1fe2c545cd46bc11eae/falkordb-1.6.1-py3-none-any.whl", hash = "sha256:cf51caeb433c04db303de5967a0c2590675fcc0354e80997870b1e0497d30c34", size = 37802, upload-time = "2026-04-28T13:24:45.677Z" },
 ]
 
 [[package]]
@@ -2163,6 +2095,18 @@ wheels = [
 ]
 
 [[package]]
+name = "joserfc"
+version = "1.6.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/c6/de8fdbdfa75c8ca04fead38a82d573df8a82906e984c349d58665f459558/joserfc-1.6.4.tar.gz", hash = "sha256:34ce5f499bfcc5e9ad4cc75077f9278ab3227b71da9aaf28f9ab705f8a560d3c", size = 231866, upload-time = "2026-04-13T13:15:40.632Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/f7/210b27752e972edb36d239315b08d3eb6b14824cc4a590da2337d195260b/joserfc-1.6.4-py3-none-any.whl", hash = "sha256:3e4a22b509b41908989237a045e25c8308d5fd47ab96bdae2dd8057c6451003a", size = 70464, upload-time = "2026-04-13T13:15:39.259Z" },
+]
+
+[[package]]
 name = "jsonpath-python"
 version = "1.1.5"
 source = { registry = "https://pypi.org/simple" }
@@ -2241,31 +2185,30 @@ wheels = [
 
 [[package]]
 name = "ladybug"
-version = "0.15.3"
+version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ed/8e/bfcb0a08dd097d24cfed0a0a8439b8c80d9cfc6171ef9c52087bf3dcfbcf/ladybug-0.15.3.tar.gz", hash = "sha256:cbb6b672ec7f87714c7b26aa017b0d4ea1595194479a5544b20e6b4c6192e4c7", size = 9942208, upload-time = "2026-04-10T07:08:38.601Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/40/53/167fccc4874404b92f3f22f484abde2ccfb894c2ca417924ec911de7f2d7/ladybug-0.15.3-cp311-cp311-macosx_13_0_arm64.whl", hash = "sha256:1af0199af74a4bbe9dea2bd9206323e0a73610ef4cb850857fb7fa2ab5450577", size = 4018866, upload-time = "2026-04-10T07:07:40.94Z" },
-    { url = "https://files.pythonhosted.org/packages/3c/da/5a488fae17ef5ad6bfde09dd87050689d932a1da6a0d1c32a5d46295a697/ladybug-0.15.3-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:18f2f0f51152335b56c87da3be30b303e4009984e949a8ed91fb6cde55913091", size = 4482130, upload-time = "2026-04-10T07:07:42.812Z" },
-    { url = "https://files.pythonhosted.org/packages/0c/ba/6460fd3a0f97e68c46256a0d02894ed99fabc24e28cfa47bdc55aafbc826/ladybug-0.15.3-cp311-cp311-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:9ba99b50793019de73803bc8a46592830e5faae676581a6f66f4d56444c90aeb", size = 6872192, upload-time = "2026-04-10T07:07:45.367Z" },
-    { url = "https://files.pythonhosted.org/packages/b1/8d/5c6aec470b1a03d2dfced4ca6e7822d0965510961303d760b89d0bd51c1c/ladybug-0.15.3-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1f782367e47aca8ad58d88cd1b043466235628100c39192660219dbe0591dc94", size = 7775024, upload-time = "2026-04-10T07:07:47.195Z" },
-    { url = "https://files.pythonhosted.org/packages/8c/a7/2a40ed23509d0b301cbc2cb29b453030da333ae7a524b3b3147143a5673e/ladybug-0.15.3-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:c5a0efcbfc5beb9645b1a71f03b57bc357f042b37a378674adaedb36cdf68ef6", size = 8041560, upload-time = "2026-04-10T07:07:48.805Z" },
-    { url = "https://files.pythonhosted.org/packages/b1/07/78ef0e7a54eccc368348405ca745ef2abef7ff09b93b5b977af40a99b352/ladybug-0.15.3-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:128283f495bcdb1d65821df753237de1e2866d3dd6b43d60ed56a3b8eec43eb7", size = 8789225, upload-time = "2026-04-10T07:07:51.238Z" },
-    { url = "https://files.pythonhosted.org/packages/56/12/27fc4f5c4e1db17a2639c084cc3fd1082fe67f1518383b67bafd75befbe1/ladybug-0.15.3-cp311-cp311-win_amd64.whl", hash = "sha256:82e4891dd38f781f03aa41c9e78c6a3fa067370733c4365ca28f36b6fd51323b", size = 5078528, upload-time = "2026-04-10T07:07:53.595Z" },
-    { url = "https://files.pythonhosted.org/packages/94/d7/fe70313c304740f660f3f5b622028751ffadf4081ad682092e44a86834bd/ladybug-0.15.3-cp312-cp312-macosx_13_0_arm64.whl", hash = "sha256:8bc1d6408cb0b7a827426f0d916470be522a09fcf2ab970e512fa0697a1b942c", size = 4017715, upload-time = "2026-04-10T07:07:55.417Z" },
-    { url = "https://files.pythonhosted.org/packages/9d/14/31f8606bae563b49907cda7109c2aca9e3a132818428ef44baa29ffc2cb1/ladybug-0.15.3-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:3f6d4b03fbb13f4a1080241de9947cae922911a912058ff714e3b281cd318154", size = 4484307, upload-time = "2026-04-10T07:07:57.097Z" },
-    { url = "https://files.pythonhosted.org/packages/c9/af/75a739228ff774341562edcd46153f9efc006d1ac5f049b0df806d412dcf/ladybug-0.15.3-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:99b04bbb0dd8c603837fb7baab85c43635f836e7ec8fffb478eb36331f2ae8dc", size = 6869227, upload-time = "2026-04-10T07:07:58.986Z" },
-    { url = "https://files.pythonhosted.org/packages/6a/55/44c4ec8ceb429673055305be1ec1b6bcf094ec2d190480c1da3bcbf12b0f/ladybug-0.15.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8242c06143cb176a9ead085a3304aa8edb3979d54cc743ca5e7d7670c4fc03c8", size = 7772428, upload-time = "2026-04-10T07:08:00.513Z" },
-    { url = "https://files.pythonhosted.org/packages/4d/c7/8917a8394d99d876b99f5c1ac15d094245d89b06a5cd8d0bfe9b79459670/ladybug-0.15.3-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:baf9e27bd16419bd5913f88e5cfaafa11da8f8772fe4704749255531d9da3edb", size = 8037029, upload-time = "2026-04-10T07:08:02.11Z" },
-    { url = "https://files.pythonhosted.org/packages/90/23/2f1548ee3316c76ab3dddfd87877ddbf5228d5dc4d17b9ee8a1963ee6f1c/ladybug-0.15.3-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:eaf156bc0c6842f7b4dfc58a850c4f9026603b62e7ad5d1ec1a54f1391368c1c", size = 8788037, upload-time = "2026-04-10T07:08:04.194Z" },
-    { url = "https://files.pythonhosted.org/packages/2c/06/4e2b2fcbd18c8ea9596523904651657ed502a9bbcc9567dae5e7cf5b130f/ladybug-0.15.3-cp312-cp312-win_amd64.whl", hash = "sha256:0583e1c4c14568da3a2df6f6bf8d72a05802e2be4aec8744976f0326a6410cd5", size = 5079160, upload-time = "2026-04-10T07:08:06.248Z" },
-    { url = "https://files.pythonhosted.org/packages/73/05/7c529d45d825c1a474ec0953347b9f9b2c4a3da441172b87cd7b2c1ec048/ladybug-0.15.3-cp313-cp313-macosx_13_0_arm64.whl", hash = "sha256:01926ef51570c13b535ebb3d9accaa34303eba9f1c4325463d72d703cbbcfd94", size = 4017840, upload-time = "2026-04-10T07:08:07.74Z" },
-    { url = "https://files.pythonhosted.org/packages/34/90/8a595ebc0885d6fe5bce55538667c66ee73e5312880c0fb732d8284decc7/ladybug-0.15.3-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:ba095b21f18b1c47e51a70c9e640e10e42b7b122868a183b44290fac32caa3ae", size = 4484523, upload-time = "2026-04-10T07:08:09.166Z" },
-    { url = "https://files.pythonhosted.org/packages/95/50/29e2e5882c75800561b7d3fb63c7333930e5499cce15db5b5a61bd76a338/ladybug-0.15.3-cp313-cp313-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:37e4182514b454f63094c41dd55c78d42d693e8f4a2afa92068dd06512ce2e6d", size = 6869367, upload-time = "2026-04-10T07:08:10.894Z" },
-    { url = "https://files.pythonhosted.org/packages/9d/69/316889a42131e093c023a4ff185d63603437ab5bd99cdf1a2aa6d35147c3/ladybug-0.15.3-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c52128275e8faec23aa15441c70368e238b831c2d79f5f8351f6fed541157bf5", size = 7772429, upload-time = "2026-04-10T07:08:12.858Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/cf/8e6b877a4ddba350f36d94c5330c7155786f4f38beb47e6d2b9890dc7caf/ladybug-0.15.3-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:ec3a32153152d235d1ccb51319d1e7cc3934ebd6af46e6649ceaf0e15a206abb", size = 8037279, upload-time = "2026-04-10T07:08:14.643Z" },
-    { url = "https://files.pythonhosted.org/packages/2a/cf/fa82fd87f7ab88d9b667c77b2577d3a669938e8201796af707a6e472f163/ladybug-0.15.3-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:17df519815ed2795445119bc94d0d73ef60e1936500024abd8ae5feaa35bf7b5", size = 8787511, upload-time = "2026-04-10T07:08:16.933Z" },
-    { url = "https://files.pythonhosted.org/packages/e0/be/e58638d17dcbfed0552eb1d32998a634439ec5c25f9951b2bcf7e0a247c7/ladybug-0.15.3-cp313-cp313-win_amd64.whl", hash = "sha256:a5a874b8bab458b71f2d3634de4015f830de8953a86faf8f91aa00f0780576f1", size = 5079386, upload-time = "2026-04-10T07:08:18.759Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/e0/be357fc5ca383699115f8df523cad46de3675064eefb018f5c8a15adcbcd/ladybug-0.16.0-cp311-cp311-macosx_13_0_arm64.whl", hash = "sha256:504b3f71cab827cc111f4fa95a6d71bf2fc4247ae93bfbbf4d7b9e2cd998a54f", size = 4041866, upload-time = "2026-04-29T01:23:52.559Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/82/125dd2ea19baaddddb26705cfeddbeaa9344d8d0c2aa7ee9dac9ec43c916/ladybug-0.16.0-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:52a68b6deaab8593a25224ed62d3be8acac1efc30527d54c1711fce691d91cad", size = 4503631, upload-time = "2026-04-29T01:23:54.66Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/05/8531ec47d8d2a5af5838187844c4bfaf53c2efc31bd24f3ff3922b1477eb/ladybug-0.16.0-cp311-cp311-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1256abdb7f3c21cd3ced5e65380e6706309611facf700cec851ae1d396e6ce7c", size = 6869526, upload-time = "2026-04-29T01:23:56.501Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/b1/2e50721650356109791b263c0f98364d97e645235218fc6c775de942ca26/ladybug-0.16.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ba0347cdca9f6e0d98decf428d21dae6a73969de1928732ff5da00d153e80d67", size = 7710455, upload-time = "2026-04-29T01:23:59.213Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/d9/7bf9d21d24446fce65307143f5510e63b6b36da0378d749243a27f3a0cd0/ladybug-0.16.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:c4673936e2c8d5402fe6a86d92eee0e79650c70e66d74a936a64a716bd9e6f89", size = 7745395, upload-time = "2026-04-29T01:24:01.386Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/05/0c6c80e8f7f9719fe0191f76fdec6d3e34bfd062b6ebbf07e75ebcbb1485/ladybug-0.16.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:3dbb6a11b341d0e4944380900b37bea674e5bd6c99d288866bedc5da9e4fa6ff", size = 8597668, upload-time = "2026-04-29T01:24:03.507Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/9a/c803bc74cee1ed37943f39514539f370997b0238d741ebc24d7576c301b6/ladybug-0.16.0-cp311-cp311-win_amd64.whl", hash = "sha256:7fee95e546082b7e565e360f9f3f3c36f1fff1209acaec731dec4773ccf8331e", size = 5104039, upload-time = "2026-04-29T01:24:06.116Z" },
+    { url = "https://files.pythonhosted.org/packages/14/a6/fc88073f3d53571e9982ef64532a96252e91bf7a3ae9427543ea71c18840/ladybug-0.16.0-cp312-cp312-macosx_13_0_arm64.whl", hash = "sha256:d49ba0f5a9b1774dfa225294cad16882467b4e6c694c3cde4c28714c77ea2fe5", size = 4041025, upload-time = "2026-04-29T01:24:08.288Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/25/b028b8ee30ccbc4ab5e20fe9b3f1005b0ad68aef7e52df72e1c2d6c5ea8a/ladybug-0.16.0-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:c01671e7990a7b685c211e8cfd12098c4fb35d1f3ca398ff1d17e719bf733d88", size = 4504984, upload-time = "2026-04-29T01:24:10.49Z" },
+    { url = "https://files.pythonhosted.org/packages/23/9c/d414c6652e048e21b365b323dfaf9025524cc5513d6a9405162ba51cc686/ladybug-0.16.0-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0741586f9a33cb97e29b469f85f40a812d7ac36c03d9e8bf42edff0e5ce7e923", size = 6865662, upload-time = "2026-04-29T01:24:12.387Z" },
+    { url = "https://files.pythonhosted.org/packages/17/e8/0028e9f7451d759b2867e067a36547cf88ef472052ca940cca852a245180/ladybug-0.16.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e33f0fcadcc5a9ce23d4b08a9dbef7204b8194efb3cda49ec292d8c278f1ee97", size = 7708365, upload-time = "2026-04-29T01:24:14.807Z" },
+    { url = "https://files.pythonhosted.org/packages/14/14/e06c3b4fb0aa30d57ad2369432f9e3fc17ec3c7baea0b39b5d9b3cc012d6/ladybug-0.16.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:056cdc2c6d77bab72fb876538bc629511738966b067c08b2d75cc40f72adae8f", size = 7742427, upload-time = "2026-04-29T01:24:17.343Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/f7/8c032a9b2a5f696a505dfec3902e6937f067a69c6e44377e07e019521f4b/ladybug-0.16.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:4f20103e00d44351d036de98ecd4532f9c0e0c33a0885649b2762869449de277", size = 8597136, upload-time = "2026-04-29T01:24:19.847Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/9e/7856b2c24b713423403dbf774b280c9ba5e8e54e365ffff68a8d2648c4a9/ladybug-0.16.0-cp312-cp312-win_amd64.whl", hash = "sha256:ab657600fdec982c24dcd6828cc24900aded83256ba6bbc2df198b11fccc55fe", size = 5105833, upload-time = "2026-04-29T01:24:22.612Z" },
+    { url = "https://files.pythonhosted.org/packages/db/bf/888ca72f7497566edcea375d05d2a3cd39f34cc2b6c69aa13ed288f2c63d/ladybug-0.16.0-cp313-cp313-macosx_13_0_arm64.whl", hash = "sha256:397eb053e8d380bcf3f0d15b036dd39e531bbd1f34c9b0d210a61ede7311b12e", size = 4041225, upload-time = "2026-04-29T01:24:24.434Z" },
+    { url = "https://files.pythonhosted.org/packages/96/d0/093aec486e0470b90923adcdcbdde8610b6f46f69a457246e725446f6934/ladybug-0.16.0-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:85b16d32ff061d829fda1bfd9923bc0cbf74cb304f0102b33da3f74867a0ce45", size = 4504950, upload-time = "2026-04-29T01:24:26.402Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/a5/b5bbf998882f56ad2a88cfff906988be504726f8c213d9ee0203c79e7fae/ladybug-0.16.0-cp313-cp313-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5f29fd2c8f1de623586afe0d42d56840dcd4318b9c9da1c69c81e25155ae74c5", size = 6865849, upload-time = "2026-04-29T01:24:28.534Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/2f/229650dab5b6d131d6433f86485986ce508e66a5f44fd5e98e58c34589ba/ladybug-0.16.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ba2398cb365626f1010f97eefdd7b3fd548069cc919196ea873fa53df134c4af", size = 7708739, upload-time = "2026-04-29T01:24:30.741Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/6b/7fac77516d48ab694f6151af402c1974f7289ef67c2eabbb2282b7ba8067/ladybug-0.16.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:6e56ff315cc09075a207884e326ab475c16097e70f8da62c2ea9d5c4b66fad4b", size = 7742344, upload-time = "2026-04-29T01:24:33.328Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/d2/ebe4f2b453ff06fd6a48b2b721c7791af65053258913762da1c7936837f9/ladybug-0.16.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:691f90fad0769f8ea2b6e59296506f6446eccb18122d926f47077e05ede1eaca", size = 8597158, upload-time = "2026-04-29T01:24:35.525Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/3b/d0b122f6552f0d398e1faa3d1956e4361b24df08d2468155d0f5fa5906af/ladybug-0.16.0-cp313-cp313-win_amd64.whl", hash = "sha256:812be3edbce7f9201fff8fdf8761c88200170c31a9cc0daffd76729f7723f265", size = 5105875, upload-time = "2026-04-29T01:24:38.163Z" },
 ]
 
 [[package]]
@@ -3509,21 +3452,21 @@ wheels = [
 
 [[package]]
 name = "playwright"
-version = "1.58.0"
+version = "1.59.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "greenlet" },
     { name = "pyee" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/c9/9c6061d5703267f1baae6a4647bfd1862e386fbfdb97d889f6f6ae9e3f64/playwright-1.58.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:96e3204aac292ee639edbfdef6298b4be2ea0a55a16b7068df91adac077cc606", size = 42251098, upload-time = "2026-01-30T15:09:24.028Z" },
-    { url = "https://files.pythonhosted.org/packages/e0/40/59d34a756e02f8c670f0fee987d46f7ee53d05447d43cd114ca015cb168c/playwright-1.58.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:70c763694739d28df71ed578b9c8202bb83e8fe8fb9268c04dd13afe36301f71", size = 41039625, upload-time = "2026-01-30T15:09:27.558Z" },
-    { url = "https://files.pythonhosted.org/packages/e1/ee/3ce6209c9c74a650aac9028c621f357a34ea5cd4d950700f8e2c4b7fe2c4/playwright-1.58.0-py3-none-macosx_11_0_universal2.whl", hash = "sha256:185e0132578733d02802dfddfbbc35f42be23a45ff49ccae5081f25952238117", size = 42251098, upload-time = "2026-01-30T15:09:30.461Z" },
-    { url = "https://files.pythonhosted.org/packages/f1/af/009958cbf23fac551a940d34e3206e6c7eed2b8c940d0c3afd1feb0b0589/playwright-1.58.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:c95568ba1eda83812598c1dc9be60b4406dffd60b149bc1536180ad108723d6b", size = 46235268, upload-time = "2026-01-30T15:09:33.787Z" },
-    { url = "https://files.pythonhosted.org/packages/d9/a6/0e66ad04b6d3440dae73efb39540c5685c5fc95b17c8b29340b62abbd952/playwright-1.58.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8f9999948f1ab541d98812de25e3a8c410776aa516d948807140aff797b4bffa", size = 45964214, upload-time = "2026-01-30T15:09:36.751Z" },
-    { url = "https://files.pythonhosted.org/packages/0e/4b/236e60ab9f6d62ed0fd32150d61f1f494cefbf02304c0061e78ed80c1c32/playwright-1.58.0-py3-none-win32.whl", hash = "sha256:1e03be090e75a0fabbdaeab65ce17c308c425d879fa48bb1d7986f96bfad0b99", size = 36815998, upload-time = "2026-01-30T15:09:39.627Z" },
-    { url = "https://files.pythonhosted.org/packages/41/f8/5ec599c5e59d2f2f336a05b4f318e733077cd5044f24adb6f86900c3e6a7/playwright-1.58.0-py3-none-win_amd64.whl", hash = "sha256:a2bf639d0ce33b3ba38de777e08697b0d8f3dc07ab6802e4ac53fb65e3907af8", size = 36816005, upload-time = "2026-01-30T15:09:42.449Z" },
-    { url = "https://files.pythonhosted.org/packages/c8/c4/cc0229fea55c87d6c9c67fe44a21e2cd28d1d558a5478ed4d617e9fb0c93/playwright-1.58.0-py3-none-win_arm64.whl", hash = "sha256:32ffe5c303901a13a0ecab91d1c3f74baf73b84f4bedbb6b935f5bc11cc98e1b", size = 33085919, upload-time = "2026-01-30T15:09:45.71Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/48/abab23f40643b4de8f2665816f0a1bf0994eeecda39d6d62f0f292b2ad01/playwright-1.59.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:bfc6940100b57423175c819ce2422ec5880d55fa2769987f62ab7a1f5fe6783e", size = 43156922, upload-time = "2026-04-29T08:11:08.921Z" },
+    { url = "https://files.pythonhosted.org/packages/08/71/5e4d98b2ce3641b4343623c6450ff33b9de1c979d12a957505e392338b07/playwright-1.59.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:af068143a0c045ec11608b67d6c42e58db7e9cf65a742dd21fddedc1a9802c47", size = 41947177, upload-time = "2026-04-29T08:11:12.867Z" },
+    { url = "https://files.pythonhosted.org/packages/80/91/fd219aa78ca03d37e93aaedaed4e224131e3090a9264f9bb773c8271d67e/playwright-1.59.0-py3-none-macosx_11_0_universal2.whl", hash = "sha256:4a4a2d4842b0e4120de3fa48636e4b69085a05b81d8a35ad4353f530ade72ed6", size = 43156922, upload-time = "2026-04-29T08:11:16.595Z" },
+    { url = "https://files.pythonhosted.org/packages/73/0c/1e513d37c5be07d12829ebce93dbfe7baee230084cb66966c423432799c4/playwright-1.59.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:c5792aad9e22b91a09264b9edbc18553cf05ea5a39404d65dc19a012c6b2e51d", size = 47151793, upload-time = "2026-04-29T08:11:19.979Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/2d/15f72288cb65d690134e18fefb9483cc4976f7579b580648c45e494481a7/playwright-1.59.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8c881a19377d2b900af855fb525b5f22a27bf3cfbecba6d1edb36766d56cb100", size = 46877615, upload-time = "2026-04-29T08:11:23.863Z" },
+    { url = "https://files.pythonhosted.org/packages/72/a1/717ac5bc99f387c0f60def91271ea4262125c0815d764a5d1776a272275c/playwright-1.59.0-py3-none-win32.whl", hash = "sha256:6989c476be2b9cd3e24a18cc9dcf202e266fb3d91e3e5395cd668c54ea54b119", size = 37713698, upload-time = "2026-04-29T08:11:27.251Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/a5/4e630ee05d8b46b840f943268e86d6063703e8dadb2d3eb405c7b9b2e48c/playwright-1.59.0-py3-none-win_amd64.whl", hash = "sha256:d5a5cc064b82ca92996080025710844e417f44df8fda9001102c28f44174171c", size = 37713704, upload-time = "2026-04-29T08:11:30.41Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/0c/3ece41761ba13c8321009aefcaec7a016eb42799c42eef5e03ace7f2de5b/playwright-1.59.0-py3-none-win_arm64.whl", hash = "sha256:93581ad515728cadc8af39b288a5633ba6d36e7d72048e79d890ce01ea2156f9", size = 33956745, upload-time = "2026-04-29T08:11:34.738Z" },
 ]
 
 [[package]]
@@ -3708,32 +3651,23 @@ email = [
 
 [[package]]
 name = "pydantic-acp"
-source = { editable = "../../open-source-libraries/acpkit/packages/adapters/pydantic-acp" }
-dependencies = [
-    { name = "agent-client-protocol" },
-    { name = "pydantic" },
-    { name = "pydantic-ai-slim" },
-    { name = "typing-extensions" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "agent-client-protocol", specifier = "==0.9.0" },
-    { name = "pydantic", specifier = ">=2.7" },
-    { name = "pydantic-ai-slim", specifier = ">=1.83.0" },
-    { name = "typing-extensions", specifier = ">=4.12.0" },
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/46/c92f138cfd336da733218678ab41ea843632e45693564710653c618e3e36/pydantic_acp-0.1.0.tar.gz", hash = "sha256:8d367a88bd6ad78e53940809cbabce0b568994fb490d4032fe19b619266ba4f6", size = 982, upload-time = "2026-03-07T14:15:03.54Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/6f/e1dd55275f39f8ece44c38c998fc3afb43b67881a16d08e20ac66e362a9a/pydantic_acp-0.1.0-py3-none-any.whl", hash = "sha256:d1de80624708273d6cbd7f32a316570283a46b652c77498cf62495480166bdf3", size = 1296, upload-time = "2026-03-07T14:15:02.077Z" },
 ]
 
 [[package]]
 name = "pydantic-ai"
-version = "1.88.0"
+version = "1.89.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic-ai-slim", extra = ["ag-ui", "anthropic", "bedrock", "cli", "cohere", "evals", "fastmcp", "google", "groq", "huggingface", "logfire", "mcp", "mistral", "openai", "retries", "spec", "temporal", "ui", "vertexai", "xai"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/39/ee/a72554fe74d3138c879f2b21e2e76120350f5975df2b8e85a1cffa5c7427/pydantic_ai-1.88.0.tar.gz", hash = "sha256:fa88de79a5e87faff157478e67fe4db983503d9aba598654748074eb21ba1e84", size = 13037, upload-time = "2026-04-29T04:53:13.284Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/01/fa/adb5141d6c8e4a677539e46e0b17540eee5b7362c6935a32992721eb886f/pydantic_ai-1.89.0.tar.gz", hash = "sha256:93227cd20f461ce406ce9510629b38834aebd64b1a646424e4e14f4e53a23968", size = 13036, upload-time = "2026-05-01T03:20:02.074Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d9/7a/e026fd138be753cfb40b5c2e305bb0778c30a38e263ed57434426a14f620/pydantic_ai-1.88.0-py3-none-any.whl", hash = "sha256:03aef8e941bb4f75599c0cb5c3743197c188625c5a436dad5813ce1f0b516fbf", size = 7578, upload-time = "2026-04-29T04:53:03.507Z" },
+    { url = "https://files.pythonhosted.org/packages/11/70/4af5e3b20a711336021c45466394475aaf6c601ba9b231eb191832f79fa7/pydantic_ai-1.89.0-py3-none-any.whl", hash = "sha256:5fc61909b6ac75eb1b4fb4b7b8dbc2680ce9a41250e2c1b42b122c9b55fe7abb", size = 7576, upload-time = "2026-05-01T03:19:51.599Z" },
 ]
 
 [[package]]
@@ -3752,7 +3686,7 @@ wheels = [
 
 [[package]]
 name = "pydantic-ai-slim"
-version = "1.88.0"
+version = "1.89.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "genai-prices" },
@@ -3763,9 +3697,9 @@ dependencies = [
     { name = "pydantic-graph" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/e8/68662b8eacf0a653525bb86967d7b7a8e6115e3073a9736a5d50d1b73df5/pydantic_ai_slim-1.88.0.tar.gz", hash = "sha256:e2ae3aff8180414dc6496fa7e042aa20713d4ca15a65394503c1d813780b00af", size = 594216, upload-time = "2026-04-29T04:53:15.327Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/28/02d71ab369bae2cc99e745c46dcddd5e537f35cc693372849dc6f628dad2/pydantic_ai_slim-1.89.0.tar.gz", hash = "sha256:75165d7fa795a89c5ff2300723cd585e900df9b1bebf8b43c43c2b4308b4c08e", size = 597886, upload-time = "2026-05-01T03:20:04.574Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/39/43/78867da252a3ee6bc71dee084b32a0989d7dc55be5b5def06b05b0ca57c6/pydantic_ai_slim-1.88.0-py3-none-any.whl", hash = "sha256:7c49811ca54f994ddbbd6c1eb1fec3ded2d25a4f0984f7e4e257d78cbfa1babb", size = 751652, upload-time = "2026-04-29T04:53:06.678Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/3c/91c79d77ee82fad11cc6e20ba5cfaa9d227ba3c2e862c1334d75ee97f736/pydantic_ai_slim-1.89.0-py3-none-any.whl", hash = "sha256:ea533474152d4ea46a035604fa04b6d898f0a65a08f0417845fdfbb08753d388", size = 755951, upload-time = "2026-05-01T03:19:55.489Z" },
 ]
 
 [package.optional-dependencies]
@@ -3920,7 +3854,7 @@ wheels = [
 
 [[package]]
 name = "pydantic-evals"
-version = "1.88.0"
+version = "1.89.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -3930,9 +3864,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/33/5f/02fe658907a763ddb1a73e9e1501f19dcfda119b3dfb9e39231ca4b4d83b/pydantic_evals-1.88.0.tar.gz", hash = "sha256:eb3793f4d9d470d513bfe51243c4f9b1ef29ee6b5e290b9ddc7e9334c727d1c2", size = 76578, upload-time = "2026-04-29T04:53:16.567Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/8c/608d74c576083746d5812eaafcb461a1a28150a3d140b7c5afd738af7357/pydantic_evals-1.89.0.tar.gz", hash = "sha256:9fe10831d7647e97095203bed9a69422659d85946b47e7a596a2d976844b01e4", size = 76579, upload-time = "2026-05-01T03:20:06.236Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/ff/181bd5613aaff51d8ff65cbe37d7ea911e06a50542f965488df70db6afbf/pydantic_evals-1.88.0-py3-none-any.whl", hash = "sha256:6268c15e40ea71fe513a2e3a26b826d89214116f55a22fb955f0fca302a59935", size = 91529, upload-time = "2026-04-29T04:53:08.622Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/08/b8592f190869988568b2bc5d656fe1f9e3a3c38ad9a202683930906b2a88/pydantic_evals-1.89.0-py3-none-any.whl", hash = "sha256:14d5732381baf044fcb5a1496fba60eae16cf8aec39d67ee8b7ef89dd5d1a575", size = 91529, upload-time = "2026-05-01T03:19:57.685Z" },
 ]
 
 [[package]]
@@ -3950,7 +3884,7 @@ wheels = [
 
 [[package]]
 name = "pydantic-graph"
-version = "1.88.0"
+version = "1.89.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -3958,9 +3892,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fa/3f/662122e695eca2c1045c5fbbd160fe5569c7606fd79975dfd3fb4b47d1ee/pydantic_graph-1.88.0.tar.gz", hash = "sha256:90bd912780c378bd32b19aec0486702650db0b35b5de225e8ce16cc42e216ff9", size = 59253, upload-time = "2026-04-29T04:53:17.803Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/10/ab08c580b9e74996623691c388fe4f280427ed4051e74c49c57ef2dc76cc/pydantic_graph-1.89.0.tar.gz", hash = "sha256:8cbc0d63fe33e51f3c00b9684c8582e1fc63c6dc6c15df58930973e73a2023a3", size = 59253, upload-time = "2026-05-01T03:20:07.417Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/75/dc/de046ee6eced4424016f77aa9d3b450cf9c19fbfeef983a8408f11cefd67/pydantic_graph-1.88.0-py3-none-any.whl", hash = "sha256:f7a1ebba8dcd2e43c655b424d5cefd3931f6999d38e54a0ee17eb0fb7b0a3e79", size = 73064, upload-time = "2026-04-29T04:53:10.024Z" },
+    { url = "https://files.pythonhosted.org/packages/04/7b/f14dba664e4ac688e7e30cdedd6110d64436ff5bd879e19aaf20b255e8b1/pydantic_graph-1.89.0-py3-none-any.whl", hash = "sha256:91a92dc7fa3f416547689c0e349cb08e2f170621cf5233c9ee6dc2e4425d300f", size = 73066, upload-time = "2026-05-01T03:19:59.566Z" },
 ]
 
 [[package]]
@@ -3977,16 +3911,16 @@ wheels = [
 
 [[package]]
 name = "pydantic-settings"
-version = "2.13.1"
+version = "2.14.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/52/6d/fffca34caecc4a3f97bda81b2098da5e8ab7efc9a66e819074a11955d87e/pydantic_settings-2.13.1.tar.gz", hash = "sha256:b4c11847b15237fb0171e1462bf540e294affb9b86db4d9aa5c01730bdbe4025", size = 223826, upload-time = "2026-02-19T13:45:08.055Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/98/c8345dccdc31de4228c039a98f6467a941e39558da41c1744fbe29fa5666/pydantic_settings-2.14.0.tar.gz", hash = "sha256:24285fd4b0e0c06507dd9fdfd331ee23794305352aaec8fc4eb92d4047aeb67d", size = 235709, upload-time = "2026-04-20T13:37:40.293Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/4b/ccc026168948fec4f7555b9164c724cf4125eac006e176541483d2c959be/pydantic_settings-2.13.1-py3-none-any.whl", hash = "sha256:d56fd801823dbeae7f0975e1f8c8e25c258eb75d278ea7abb5d9cebb01b56237", size = 58929, upload-time = "2026-02-19T13:45:06.034Z" },
+    { url = "https://files.pythonhosted.org/packages/01/dd/bebff3040138f00ae8a102d426b27349b9a49acc310fcae7f92112d867e3/pydantic_settings-2.14.0-py3-none-any.whl", hash = "sha256:fc8d5d692eb7092e43c8647c1c35a3ecd00e040fcf02ed86f4cb5458ca62182e", size = 60940, upload-time = "2026-04-20T13:37:38.586Z" },
 ]
 
 [[package]]
@@ -4363,25 +4297,15 @@ wheels = [
 
 [[package]]
 name = "repository-manager"
-version = "1.3.56"
-source = { editable = "../agents/repository-manager" }
+version = "1.3.57"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "agent-utilities", extra = ["mcp"] },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "agent-utilities", extras = ["agent", "logfire"], marker = "extra == 'agent'", editable = "." },
-    { name = "agent-utilities", extras = ["agent", "logfire"], marker = "extra == 'all'", editable = "." },
-    { name = "agent-utilities", extras = ["mcp"], editable = "." },
-    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'all'", editable = "." },
-    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'mcp'", editable = "." },
-    { name = "bump2version", marker = "extra == 'agent'", specifier = ">=1.0.1" },
-    { name = "bump2version", marker = "extra == 'all'", specifier = ">=1.0.1" },
-    { name = "pre-commit", marker = "extra == 'agent'", specifier = ">=4.5.1" },
-    { name = "pre-commit", marker = "extra == 'all'", specifier = ">=4.5.1" },
+sdist = { url = "https://files.pythonhosted.org/packages/e0/07/06ff67bad35e3cb38314f0ceda33d16926270a97d28aabd8e1ec6fdfceae/repository_manager-1.3.57.tar.gz", hash = "sha256:c7b42742f4af4f781bfd090bf7cde211fe2f182dd16367ca9bb0225471853e21", size = 72697, upload-time = "2026-04-30T07:13:57.73Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/db/f16b6b5835386d583ffdd4a38980eb30e7c383bc6d01d1763d15e4e8890b/repository_manager-1.3.57-py3-none-any.whl", hash = "sha256:d048ce64541ad722d156ec5c8d3941f37570cf2e4325c6b452c52a731dde887b", size = 76493, upload-time = "2026-04-30T07:13:56.141Z" },
 ]
-provides-extras = ["mcp", "agent", "all"]
 
 [[package]]
 name = "requests"
@@ -4879,15 +4803,12 @@ wheels = [
 
 [[package]]
 name = "skill-graphs"
-version = "0.1.40"
-source = { directory = "../skills/skill-graphs" }
-
-[package.metadata]
-requires-dist = [
-    { name = "pytest", marker = "extra == 'test'" },
-    { name = "pytest-asyncio", marker = "extra == 'test'" },
+version = "0.1.41"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/ba/546f5d613a9afab0d638076a90b9448cae49d73d5983b17a7d405fc90f18/skill_graphs-0.1.41.tar.gz", hash = "sha256:30d0c7eceb29bc151e2bb4371d4a43c927d6cf559059f04e313f5d58ed70e502", size = 5450, upload-time = "2026-04-30T06:58:03.986Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/cc/d504d40c74c909891bfcdc46138c58133f754c44532ede58e26618bbb938/skill_graphs-0.1.41-py3-none-any.whl", hash = "sha256:38f59045b08f28796fc63110ee856e0b57c64138d4fe394888558829ce7d983e", size = 5813, upload-time = "2026-04-30T06:58:03.025Z" },
 ]
-provides-extras = ["test"]
 
 [[package]]
 name = "sniffio"
@@ -4954,15 +4875,15 @@ asyncio = [
 
 [[package]]
 name = "sse-starlette"
-version = "3.3.4"
+version = "3.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "starlette" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/26/8c/f9290339ef6d79badbc010f067cd769d6601ec11a57d78569c683fb4dd87/sse_starlette-3.3.4.tar.gz", hash = "sha256:aaf92fc067af8a5427192895ac028e947b484ac01edbc3caf00e7e7137c7bef1", size = 32427, upload-time = "2026-03-29T09:00:23.307Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/9a/f35932a8c0eb6b2287b66fa65a0321df8c84e4e355a659c1841a37c39fdb/sse_starlette-3.4.1.tar.gz", hash = "sha256:f780bebcf6c8997fe514e3bd8e8c648d8284976b391c8bed0bcb1f611632b555", size = 35127, upload-time = "2026-04-26T13:32:32.292Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/7f/3de5402f39890ac5660b86bcf5c03f9d855dad5c4ed764866d7b592b46fd/sse_starlette-3.3.4-py3-none-any.whl", hash = "sha256:84bb06e58939a8b38d8341f1bc9792f06c2b53f48c608dd207582b664fc8f3c1", size = 14330, upload-time = "2026-03-29T09:00:21.846Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/07/45c21ed03d708c477367305726b89919b020a3a2a01f72aaf5ad941caf35/sse_starlette-3.4.1-py3-none-any.whl", hash = "sha256:6b43cf21f1d574d582a6e1b0cfbde1c94dc86a32a701a7168c99c4475c6bd1d0", size = 16487, upload-time = "2026-04-26T13:32:30.819Z" },
 ]
 
 [[package]]
@@ -5053,6 +4974,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/89/bec5709fb759f9c784bbcb30b2e3497df3f901691d13c2b864dbf6694a17/textual-8.2.4.tar.gz", hash = "sha256:d4e2b2ddd7157191d00b228592b7c739ea080b7d792fd410f23ca75f05ea76c4", size = 1848933, upload-time = "2026-04-19T04:20:45.845Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5c/32/02932f0d597cdbb34e34bf24266ff0f2cf292ccb3aafc37dd9efcb0cc416/textual-8.2.4-py3-none-any.whl", hash = "sha256:a83bd3f0cc7125ca203845af753f9d6b6be030025ecd1b05cc75ebe645b9c4ba", size = 724390, upload-time = "2026-04-19T04:20:49.968Z" },
+]
+
+[[package]]
+name = "textual-diff-view"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "textual" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1c/d9/c0dc252171d3b4c35ba34608d267ae47a69f75f906bd25d4ebedc76b32e8/textual_diff_view-0.1.4.tar.gz", hash = "sha256:f0ad09195239a0061207e0d4790efeff593353c5b9c9318e9fd5eeb209cfefc6", size = 11467, upload-time = "2026-04-20T07:12:14.765Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/86/059da5be27664311a5e883536604e51de337ceb05e3a0de6f1e9e998e8d3/textual_diff_view-0.1.4-py3-none-any.whl", hash = "sha256:a90f6b986734c8c0043c03af504a0722f085160f237af1bdfbfb966cb76fc83b", size = 12427, upload-time = "2026-04-20T07:12:12.726Z" },
 ]
 
 [[package]]
@@ -5440,129 +5373,12 @@ wheels = [
 
 [[package]]
 name = "universal-skills"
-version = "0.1.59"
-source = { directory = "../skills/universal-skills" }
-
-[package.metadata]
-requires-dist = [
-    { name = "bcrypt", marker = "extra == 'developer-utilities'" },
-    { name = "crawl4ai", marker = "extra == 'skill-graph-builder'" },
-    { name = "crawl4ai", marker = "extra == 'web-crawler'" },
-    { name = "crawl4ai", marker = "extra == 'web-fetch'" },
-    { name = "cryptography", marker = "extra == 'developer-utilities'" },
-    { name = "ddgs", marker = "extra == 'web-search'" },
-    { name = "defusedxml", marker = "extra == 'document-tools'" },
-    { name = "ebooklib", marker = "extra == 'document-tools'" },
-    { name = "fastmcp", marker = "extra == 'mcp-builder'" },
-    { name = "fastmcp", marker = "extra == 'mcp-client'" },
-    { name = "httpx", marker = "extra == 'agent-workflows'" },
-    { name = "httpx", marker = "extra == 'test'" },
-    { name = "keepachangelog", marker = "extra == 'code-enhancer'", specifier = ">=2.0.0" },
-    { name = "keyring", marker = "extra == 'google-workspace'" },
-    { name = "lxml", marker = "extra == 'document-tools'" },
-    { name = "mammoth", marker = "extra == 'document-converter'" },
-    { name = "markdownify", marker = "extra == 'document-converter'" },
-    { name = "markitdown", marker = "extra == 'skill-graph-builder'", specifier = ">=0.1.5" },
-    { name = "mdsplit", marker = "extra == 'skill-graph-builder'" },
-    { name = "mysql-connector-python", marker = "extra == 'database-tools'" },
-    { name = "nbconvert", marker = "extra == 'jupyter-notebook'" },
-    { name = "nbformat", marker = "extra == 'jupyter-notebook'" },
-    { name = "networkx", marker = "extra == 'security-tools'" },
-    { name = "openpyxl", marker = "extra == 'document-tools'" },
-    { name = "packaging", marker = "extra == 'code-enhancer'" },
-    { name = "pdf2image", marker = "extra == 'document-tools'" },
-    { name = "pdfplumber", marker = "extra == 'document-tools'" },
-    { name = "pillow", marker = "extra == 'browser-tools'" },
-    { name = "pillow", marker = "extra == 'creative-media'" },
-    { name = "pillow", marker = "extra == 'document-tools'" },
-    { name = "playwright", marker = "extra == 'browser-tools'" },
-    { name = "playwright", marker = "extra == 'skill-graph-builder'" },
-    { name = "playwright", marker = "extra == 'web-crawler'" },
-    { name = "playwright", marker = "extra == 'web-fetch'" },
-    { name = "psutil", marker = "extra == 'skill-graph-builder'" },
-    { name = "psutil", marker = "extra == 'system-tools'" },
-    { name = "psutil", marker = "extra == 'web-crawler'" },
-    { name = "psutil", marker = "extra == 'web-fetch'" },
-    { name = "psycopg2-binary", marker = "extra == 'database-tools'" },
-    { name = "pydantic", marker = "extra == 'api-wrapper-builder'" },
-    { name = "pygments", marker = "extra == 'document-tools'" },
-    { name = "pymssql", marker = "extra == 'database-tools'" },
-    { name = "pymupdf4llm", marker = "extra == 'document-converter'" },
-    { name = "pymupdf4llm", marker = "extra == 'skill-graph-builder'", specifier = ">=0.0.17" },
-    { name = "pypdf", marker = "extra == 'document-tools'" },
-    { name = "pytest", marker = "extra == 'test'" },
-    { name = "pytest-asyncio", marker = "extra == 'test'" },
-    { name = "python-docx", marker = "extra == 'document-tools'" },
-    { name = "python-dotenv", marker = "extra == 'agent-spawner'" },
-    { name = "python-dotenv", marker = "extra == 'cloudflare-deploy'" },
-    { name = "python-dotenv", marker = "extra == 'github-tools'" },
-    { name = "python-dotenv", marker = "extra == 'mcp-client'" },
-    { name = "python-pptx", marker = "extra == 'document-tools'" },
-    { name = "pyyaml", marker = "extra == 'agent-builder'" },
-    { name = "pyyaml", marker = "extra == 'agent-workflows'" },
-    { name = "pyyaml", marker = "extra == 'developer-utilities'" },
-    { name = "pyyaml", marker = "extra == 'skill-builder'" },
-    { name = "pyyaml", marker = "extra == 'skill-graph-builder'", specifier = ">=6.0" },
-    { name = "pyyaml", marker = "extra == 'test'" },
-    { name = "requests", marker = "extra == 'api-wrapper-builder'" },
-    { name = "requests", marker = "extra == 'cloudflare-deploy'" },
-    { name = "requests", marker = "extra == 'code-enhancer'" },
-    { name = "requests", marker = "extra == 'github-tools'" },
-    { name = "requests", marker = "extra == 'google-workspace'" },
-    { name = "requests", marker = "extra == 'security-tools'" },
-    { name = "requests", marker = "extra == 'skill-graph-builder'" },
-    { name = "requests", marker = "extra == 'web-artifacts'" },
-    { name = "requests", marker = "extra == 'web-crawler'" },
-    { name = "requests", marker = "extra == 'web-fetch'" },
-    { name = "requests", marker = "extra == 'web-search'" },
-    { name = "sqlparse", marker = "extra == 'developer-utilities'" },
-    { name = "toml", marker = "extra == 'developer-utilities'" },
-    { name = "universal-skills", extras = ["agent-browser"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["agent-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["agent-package-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["agent-spawner"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["agent-workflows"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["algorithmic-art"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["api-wrapper-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["brainstorming"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["brand-guidelines"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["browser-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["c4-architecture"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["canvas-design"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["cloudflare-deploy"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["code-enhancer"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["creative-media"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["database-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["developer-utilities"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["document-converter"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["document-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["github-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["google-workspace"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["internal-comms"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["mcp-client"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["product-strategy"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["react-development"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["react-native-skills"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["security-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["session-handoff"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["skill-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["skill-graph-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["skill-installer"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["system-tools"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["tdd-methodology"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["theme-factory"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["user-research"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["web-artifacts"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["web-crawler"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["web-design-guidelines"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["web-fetch"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["web-search"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["website-builder"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "universal-skills", extras = ["website-cloner"], marker = "extra == 'all'", specifier = ">=0.1.59" },
-    { name = "user-agents", marker = "extra == 'developer-utilities'" },
-    { name = "validators", marker = "extra == 'document-tools'" },
+version = "0.1.60"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/10/796ccce11a5e98e6856f564661838871d45f76471090665956588ed3c36c/universal_skills-0.1.60.tar.gz", hash = "sha256:09aaa4a3bc2ad133612e9f725be13cfee176fd45c14f7497e1eca7d6d3ea456f", size = 373769, upload-time = "2026-04-30T06:57:53.298Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/6b/621c43e67f7bddadbcbb23acfe61f69b191f8a1f0f19bce70c7b0c25379f/universal_skills-0.1.60-py3-none-any.whl", hash = "sha256:78982e144c1da66dce07c855a2a4408f23be89eff3b96e8938c505e7c5fd384c", size = 490196, upload-time = "2026-04-30T06:57:51.143Z" },
 ]
-provides-extras = ["test", "agent-browser", "agent-builder", "agent-package-builder", "agent-spawner", "mcp-client", "agent-workflows", "algorithmic-art", "api-wrapper-builder", "brainstorming", "brand-guidelines", "browser-tools", "c4-architecture", "canvas-design", "cloudflare-deploy", "creative-media", "database-tools", "document-converter", "developer-utilities", "document-tools", "github-tools", "google-workspace", "internal-comms", "jupyter-notebook", "marp-presentations", "mcp-builder", "mermaid-diagrams", "product-strategy", "react-development", "react-native-skills", "security-tools", "session-handoff", "skill-builder", "skill-installer", "skill-graph-builder", "system-tools", "tdd-methodology", "theme-factory", "user-research", "web-artifacts", "web-crawler", "web-design-guidelines", "web-search", "web-fetch", "website-builder", "website-cloner", "code-enhancer", "all"]
 
 [[package]]
 name = "urllib3"
@@ -5604,15 +5420,15 @@ wheels = [
 
 [[package]]
 name = "uvicorn"
-version = "0.44.0"
+version = "0.46.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "h11" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5e/da/6eee1ff8b6cbeed47eeb5229749168e81eb4b7b999a1a15a7176e51410c9/uvicorn-0.44.0.tar.gz", hash = "sha256:6c942071b68f07e178264b9152f1f16dfac5da85880c4ce06366a96d70d4f31e", size = 86947, upload-time = "2026-04-06T09:23:22.826Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/93/041fca8274050e40e6791f267d82e0e2e27dd165627bd640d3e0e378d877/uvicorn-0.46.0.tar.gz", hash = "sha256:fb9da0926999cc6cb22dc7cd71a94a632f078e6ae47ff683c5c420750fb7413d", size = 88758, upload-time = "2026-04-23T07:16:00.151Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/23/a5bbd9600dd607411fa644c06ff4951bec3a4d82c4b852374024359c19c0/uvicorn-0.44.0-py3-none-any.whl", hash = "sha256:ce937c99a2cc70279556967274414c087888e8cec9f9c94644dfca11bd3ced89", size = 69425, upload-time = "2026-04-06T09:23:21.524Z" },
+    { url = "https://files.pythonhosted.org/packages/31/a3/5b1562db76a5a488274b2332a97199b32d0442aca0ed193697fd47786316/uvicorn-0.46.0-py3-none-any.whl", hash = "sha256:bbebbcbed972d162afca128605223022bedd345b7bc7855ce66deb31487a9048", size = 70926, upload-time = "2026-04-23T07:15:58.355Z" },
 ]
 
 [package.optional-dependencies]

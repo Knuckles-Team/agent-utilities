@@ -48,7 +48,9 @@ def test_prompts_have_structured_sections():
             data = json.load(fp)
         if data.get("metadata") or data.get("identity") or data.get("instructions"):
             structured_count += 1
-    assert structured_count >= 40, f"Expected at least 40 structured prompts, got {structured_count}"
+    assert structured_count >= 40, (
+        f"Expected at least 40 structured prompts, got {structured_count}"
+    )
 
 
 def test_render_preserves_content():
@@ -57,5 +59,7 @@ def test_render_preserves_content():
         data = json.load(fp)
     p = StructuredPrompt.model_validate(data)
     rendered = p.render()
-    assert len(rendered) > 3000, f"Python programmer render too short: {len(rendered)} chars"
+    assert len(rendered) > 3000, (
+        f"Python programmer render too short: {len(rendered)} chars"
+    )
     assert "Python" in rendered or "python" in rendered

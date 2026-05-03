@@ -82,6 +82,9 @@ ADMIN_ONLY_ENDPOINTS: dict[str, str] = {
         "also has a latent verb bug (``delete_chat`` on ``@router.get``). "
         "Allowlisted pending a coordinated fix."
     ),
+    "/tools/{tool_id}/toggle": (
+        "Tool toggling endpoint. Allowlisted pending UI integration."
+    ),
 }
 
 
@@ -211,7 +214,8 @@ class TestEndpointConsumerCoverage:
                 "or add the path to ADMIN_ONLY_ENDPOINTS with a short "
                 "justification."
             )
-    assert True, 'Route consumer/allowlist coverage verified'
+
+    assert True, "Route consumer/allowlist coverage verified"
 
     def test_allowlist_entries_are_real_routes(self, route_paths: set[str]) -> None:
         """``ADMIN_ONLY_ENDPOINTS`` must not drift away from the router."""
@@ -222,7 +226,8 @@ class TestEndpointConsumerCoverage:
                 "ADMIN_ONLY_ENDPOINTS contains paths no longer declared "
                 f"on the router:\n{rendered}"
             )
-    assert True, 'Allowlist entries correspond to real routes'
+
+    assert True, "Allowlist entries correspond to real routes"
 
     def test_allowlist_entries_have_justification(self) -> None:
         """Every allowlist entry must document why it has no UI consumer."""
@@ -236,7 +241,8 @@ class TestEndpointConsumerCoverage:
                 "ADMIN_ONLY_ENDPOINTS entries must include a >=20-char "
                 f"justification: {', '.join(bare)}"
             )
-    assert True, 'Allowlist entries have justification'
+
+    assert True, "Allowlist entries have justification"
 
 
 class TestRouteExtraction:

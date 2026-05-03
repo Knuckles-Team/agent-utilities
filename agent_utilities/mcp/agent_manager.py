@@ -197,10 +197,29 @@ async def _extract_single_server_metadata_inner(
                         )
                     )
     except Exception as e:
+        import traceback
+
         error_msg = str(e)
-        # Handle ExceptionGroup (Python 3.11+) and report the first sub-exception
+
+        # Deep extraction for ExceptionGroups (like anyio.ExceptionGroup)
         if hasattr(e, "exceptions") and e.exceptions:
-            error_msg = f"{type(e).__name__}({str(e.exceptions[0])})"
+            sub_errs = []
+            for sub_e in e.exceptions:
+                if hasattr(sub_e, "exceptions") and sub_e.exceptions:
+                    sub_errs.append(
+                        f"{type(sub_e.exceptions[0]).__name__}({str(sub_e.exceptions[0])})"
+                    )
+                else:
+                    sub_errs.append(f"{type(sub_e).__name__}({str(sub_e)})")
+            error_msg = f"{type(e).__name__}({', '.join(sub_errs)})"
+            # Also log full traceback to debug logs
+            logger.debug(
+                f"Full ExceptionGroup traceback for {server_name}:\n{''.join(traceback.format_exception(type(e), e, e.__traceback__))}"
+            )
+        else:
+            logger.debug(
+                f"Full traceback for {server_name}:\n{''.join(traceback.format_exception(type(e), e, e.__traceback__))}"
+            )
 
         logger.warning(
             f"Dynamic extraction failed for {server_name}, falling back to static hints: {error_msg}"
@@ -264,24 +283,46 @@ async def extract_tool_metadata(
         mcp_servers_config = {}
 
     servers = load_mcp_config(config_path)
+    server_count = len(servers)
+    logger.info(
+        f"Extracting tool metadata from {server_count} MCP servers in parallel..."
+    )
 
     # Parallel extraction using anyio to handle FastMCP/anyio internals correctly
+    import time as _time
+
     import anyio
 
     all_tools: list[MCPToolInfo] = []
-    semaphore = anyio.Semaphore(5)  # Limit to 5 concurrent connections
+    completed = {"count": 0}
+    # Scale concurrency with server count: min 2, max 4
+    concurrency = min(4, max(2, server_count // 8))
+    semaphore = anyio.Semaphore(concurrency)
 
     async def _safe_extract(server, results):
+        server_name = getattr(
+            server, "name", getattr(server, "_id", getattr(server, "id", "unknown"))
+        )
+        t0 = _time.monotonic()
         async with semaphore:
             server_tools = await _extract_single_server_metadata_inner(
                 server, mcp_servers_config, timeout=timeout
             )
             results.extend(server_tools)
+            completed["count"] += 1
+            elapsed = _time.monotonic() - t0
+            logger.info(
+                f"  [{completed['count']}/{server_count}] {server_name}: "
+                f"{len(server_tools)} tools ({elapsed:.1f}s)"
+            )
 
     async with anyio.create_task_group() as tg:
         for server in servers:
             tg.start_soon(_safe_extract, server, all_tools)
 
+    logger.info(
+        f"Parallel extraction complete: {len(all_tools)} tools from {server_count} servers"
+    )
     return all_tools
 
 
@@ -568,6 +609,24 @@ async def sync_mcp_agents(
 
                 sync_ts = int(time.time())
 
+                # Batch upsert tools for performance (single loop, minimal queries)
+                logger.info(
+                    f"Batching {len(tools_inventory)} tool upserts to Knowledge Graph..."
+                )
+                # Pre-create server nodes in bulk (deduplicated)
+                seen_servers: set[str] = set()
+                for tool in tools_inventory:
+                    if tool.mcp_server not in seen_servers:
+                        seen_servers.add(tool.mcp_server)
+                        backend.execute(
+                            "MERGE (s:Server {id: $server_id}) SET s.name = $server_name, s.last_sync = $sync_ts",
+                            {
+                                "server_id": f"server:{tool.mcp_server}",
+                                "server_name": tool.mcp_server,
+                                "sync_ts": sync_ts,
+                            },
+                        )
+
                 for tool in tools_inventory:
                     query = "MERGE (t:Tool {id: $id}) SET t.name = $name, t.description = $description, t.mcp_server = $mcp_server, t.relevance_score = $score, t.tags = $tags, t.requires_approval = $requires_approval, t.last_sync = $sync_ts"
                     props = {
@@ -583,86 +642,26 @@ async def sync_mcp_agents(
                     backend.execute(query, props)
 
                     # Link Tool to Server node
-                    query_link = "MERGE (s:Server {id: $server_id}) SET s.name = $server_name WITH s MATCH (t:Tool {id: $tool_id}) MERGE (s)-[:PROVIDES]->(t)"
+                    query_link = "MATCH (s:Server {id: $server_id}), (t:Tool {id: $tool_id}) MERGE (s)-[:PROVIDES]->(t)"
                     backend.execute(
                         query_link,
                         {
                             "server_id": f"server:{tool.mcp_server}",
-                            "server_name": tool.mcp_server,
                             "tool_id": f"tool:{tool.name}",
                         },
                     )
 
-                # 2c. Partition tools and create specialist agents
-                partitions = await partition_tools(tools_inventory)
                 logger.info(
-                    f"Partitioned {len(tools_inventory)} tools into {len(partitions)} specialist domains: {list(partitions.keys())}"
+                    f"✅ Synced {len(tools_inventory)} MCP tools directly to the Knowledge Graph."
                 )
 
-                for tag, partition_tools_list in partitions.items():
-                    # Heuristic: use the server of the first tool as the source
-                    source_server = (
-                        partition_tools_list[0].mcp_server
-                        if partition_tools_list
-                        else "unknown"
-                    )
-
-                    system_prompt = await generate_system_prompt(
-                        tag, partition_tools_list, tag, source_server
-                    )
-
-                    agent_id = f"agent:{tag}"
-                    agent_name = tag
-                    agent_desc = f"Specialist for {tag} (from {source_server})"
-
-                    logger.info(
-                        f"Upserting agent {agent_id} with {len(partition_tools_list)} tools"
-                    )
-
-                    query_agent = """
-                    MERGE (a:Agent {id: $id})
-                    SET a.name = $name,
-                        a.description = $description,
-                        a.agent_type = 'mcp',
-                        a.system_prompt = $system_prompt,
-                        a.tool_count = $tool_count,
-                        a.mcp_server = $mcp_server,
-                        a.last_sync = $sync_ts
-                    """
-                    backend.execute(
-                        query_agent,
-                        {
-                            "id": agent_id,
-                            "name": agent_name,
-                            "description": agent_desc,
-                            "system_prompt": system_prompt,
-                            "tool_count": len(partition_tools_list),
-                            "mcp_server": source_server,
-                            "sync_ts": sync_ts,
-                        },
-                    )
-
-                    # Link Agent to its Tools
-                    for t in partition_tools_list:
-                        query_link_tool = "MATCH (a:Agent {id: $agent_id}), (t:Tool {id: $tool_id}) MERGE (a)-[:PROVIDES]->(t)"
-                        backend.execute(
-                            query_link_tool,
-                            {"agent_id": agent_id, "tool_id": f"tool:{t.name}"},
-                        )
-
-                # Cleanup old tools and agents that were not in this sync
-                try:
-                    query_clean_tools = "MATCH (t:Tool) WHERE t.last_sync < $sync_ts OR t.last_sync IS NULL DETACH DELETE t"
-                    backend.execute(query_clean_tools, {"sync_ts": sync_ts})
-
-                    query_clean_agents = "MATCH (a:Agent) WHERE a.last_sync < $sync_ts OR a.last_sync IS NULL DETACH DELETE a"
-                    backend.execute(query_clean_agents, {"sync_ts": sync_ts})
-                except Exception as e:
-                    logger.debug(f"Cleanup skipped (likely empty DB): {e}")
-
-                logger.info(
-                    f"✅ Synced {len(tools_inventory)} MCP tools and {len(partitions)} specialist agents directly to the Knowledge Graph."
+                # CONCEPT:AU-024 — Invalidate hot cache after sync
+                from agent_utilities.graph.config_helpers import (
+                    invalidate_registry_cache,
                 )
+
+                invalidate_registry_cache()
+
             except Exception as e:
                 logger.exception(f"Failed to sync MCP agents to Knowledge Graph: {e}")
     except Timeout:

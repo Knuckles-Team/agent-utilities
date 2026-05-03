@@ -20,5 +20,40 @@
         "testing-library-docs",
         "developer-utilities",
         "self-improver"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Unit test coverage >90% for critical paths",
+            "Integration test coverage >80% for API endpoints",
+            "E2E test coverage >70% for user workflows",
+            "Performance tests pass with <5% regression",
+            "Security scans show no critical vulnerabilities",
+            "All flaky tests identified and resolved",
+            "Test execution time <30 minutes for full suite",
+            "Documentation updated for new features",
+            "Rollback plan tested and documented",
+            "Monitoring and alerting configured",
+            "Test pyramid: 70% unit, 20% integration, 10% E2E",
+            "Test data management with factories and builders",
+            "Environment parity (dev/staging/prod)",
+            "Test isolation and independence",
+            "Parallel test execution enabled",
+            "Test result analytics and trends",
+            "Automated test data cleanup",
+            "Test coverage of edge cases and error conditions",
+            "Property-based testing for complex logic",
+            "Contract testing for API boundaries",
+            "Automated linting and formatting checks",
+            "Type checking for typed languages",
+            "Unit tests run on every commit",
+            "Integration tests run on PR merges",
+            "E2E tests run on main branch",
+            "Security scanning in pipeline",
+            "Performance regression detection",
+            "Code quality metrics enforcement",
+            "Automated deployment to staging",
+            "Manual approval required for production"
+        ]
+    },
+    "version": "1.0.0"
 }

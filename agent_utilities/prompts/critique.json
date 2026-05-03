@@ -18,5 +18,7 @@
         "spec-verifier",
         "tdd-methodology",
         "self-improver"
-    ]
+    ],
+    "rules": {},
+    "version": "1.0.0"
 }

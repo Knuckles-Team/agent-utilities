@@ -16,6 +16,8 @@ from agent_utilities.agent.factory import create_agent
 from agent_utilities.core.config import (
     DEFAULT_A2A_BROKER,
     DEFAULT_A2A_BROKER_URL,
+    DEFAULT_A2A_CONFIG,
+    DEFAULT_A2A_REFRESH_INTERVAL,
     DEFAULT_A2A_STORAGE,
     DEFAULT_A2A_STORAGE_URL,
     DEFAULT_ACP_SESSION_ROOT,
@@ -98,6 +100,7 @@ def build_agent_app(
     isolate_mcp: bool = False,
     mcp_toolsets: list[Any] | None = None,
     model_registry: Any | None = None,
+    a2a_config: str | None = DEFAULT_A2A_CONFIG,
 ) -> FastAPI:
     """Construct and configure a complete Agent FastAPI application."""
     from fasta2a import Skill
@@ -201,16 +204,39 @@ def build_agent_app(
         skills_list = enabled_skills
 
         if not skills_list:
-            skills_list = [
-                Skill(
-                    id="agent",
-                    name=_name,
-                    description=f"General access to {_name} tools",
-                    tags=["agent"],
-                    input_modes=["text"],
-                    output_modes=["text"],
-                )
-            ]
+            # CONCEPT:AU-027 — Register PlannerGraphSkill when graph_bundle is available
+            if graph_bundle is not None:
+                try:
+                    from ..protocols.a2a_graph_skill import PlannerGraphSkill
+
+                    _graph_obj, _graph_cfg = graph_bundle
+                    planner_skill = PlannerGraphSkill(
+                        graph=_graph_obj,
+                        graph_config=_graph_cfg,
+                        mcp_toolsets=_initialized_mcp_toolsets,
+                        skill_id="planner",
+                        name=f"{_name} Planner",
+                        description=f"Graph-backed planning agent for {_name}",
+                        tags=["agent", "planner", "graph"],
+                    )
+                    skills_list.append(planner_skill)
+                    logger.info(
+                        "[AU-027] Registered PlannerGraphSkill as A2A-native skill"
+                    )
+                except Exception as e:
+                    logger.warning(f"PlannerGraphSkill registration failed: {e}")
+
+            if not skills_list:
+                skills_list = [
+                    Skill(
+                        id="agent",
+                        name=_name,
+                        description=f"General access to {_name} tools",
+                        tags=["agent"],
+                        input_modes=["text"],
+                        output_modes=["text"],
+                    )
+                ]
 
         a2a_kwargs = {}
         if a2a_broker == "redis":
@@ -277,57 +303,41 @@ def build_agent_app(
                     f"Automatic Knowledge Graph ingestion failed on startup: {e}"
                 )
 
-            processor_task = asyncio.create_task(background_processor(_agent_instance))
-            shutdown_event = anyio.Event()
-
-            async def connect_server(server, ready_event):
-                srv_id = getattr(server, "id", getattr(server, "name", str(server)))
-                if (
-                    hasattr(server, "__aenter__")
-                    and getattr(server, "_ag_connected", False) is False
-                ):
-                    try:
-                        logger.info(
-                            f"Server Startup: Connecting MCP server '{srv_id}'..."
-                        )
-                        async with server:
-                            logger.info(
-                                f"Server Startup: Successfully connected '{srv_id}'"
-                            )
-                            ready_event.set()
-                            await shutdown_event.wait()
-                    except Exception as e:
-                        logger.error(
-                            f"Server Startup: Failed to connect to MCP server '{srv_id}': {e}"
-                        )
-                        ready_event.set()
-                else:
-                    ready_event.set()
-
-            try:
-                async with anyio.create_task_group() as tg:
-                    ready_events = []
-                    for s in _initialized_mcp_toolsets:
-                        re = anyio.Event()
-                        ready_events.append(re)
-                        tg.start_soon(connect_server, s, re)
-
-                    for re in ready_events:
-                        await re.wait()
-
-                    logger.info(
-                        f"Server Startup: Connected valid MCP toolsets ({len(_initialized_mcp_toolsets)} total)."
+            # AU-028: A2A agent sync and periodic refresh
+            _a2a_cfg = a2a_config or os.getenv("A2A_CONFIG")
+            if _a2a_cfg:
+                try:
+                    from agent_utilities.protocols.a2a_config import (
+                        periodic_a2a_refresh,
+                        sync_a2a_agents,
                     )
 
-                    if hasattr(a2a_app, "router") and hasattr(
-                        a2a_app.router, "lifespan_context"
-                    ):
-                        async with a2a_app.router.lifespan_context(a2a_app):
-                            yield
-                    else:
-                        yield
+                    asyncio.create_task(sync_a2a_agents(config_path=_a2a_cfg))
+                    asyncio.create_task(
+                        periodic_a2a_refresh(
+                            config_path=_a2a_cfg,
+                            interval_seconds=DEFAULT_A2A_REFRESH_INTERVAL,
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"A2A startup sync failed: {e}")
 
-                    shutdown_event.set()
+            processor_task = asyncio.create_task(background_processor(_agent_instance))
+            shutdown_event = anyio.Event()
+            shutdown_event = anyio.Event()
+
+            try:
+                # We no longer connect to all MCP servers on startup.
+                # Servers are now lazy-loaded on demand during graph execution.
+                if hasattr(a2a_app, "router") and hasattr(
+                    a2a_app.router, "lifespan_context"
+                ):
+                    async with a2a_app.router.lifespan_context(a2a_app):
+                        yield
+                else:
+                    yield
+
+                shutdown_event.set()
             finally:
                 processor_task.cancel()
                 try:

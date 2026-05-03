@@ -28,19 +28,12 @@ def temp_workspace(tmp_path, monkeypatch):
     main_agent = {
         "name": "Test Creation Agent",
         "description": "A test agent",
-        "content": "You are a test agent."
+        "content": "You are a test agent.",
     }
     (workspace_dir / "main_agent.json").write_text(json.dumps(main_agent))
 
     # mcp_config.json
-    mcp_config = {
-        "mcpServers": {
-            "test-server": {
-                "command": "echo",
-                "args": ["hello"]
-            }
-        }
-    }
+    mcp_config = {"mcpServers": {"test-server": {"command": "echo", "args": ["hello"]}}}
     (workspace_dir / "mcp_config.json").write_text(json.dumps(mcp_config))
 
     # Use monkeypatch to ensure isolation
@@ -66,7 +59,8 @@ def test_create_agent_bootstrap_pattern(mock_run, temp_workspace):
 
     agent_name = os.getenv("DEFAULT_AGENT_NAME", meta.get("name", "My Agent"))
     system_prompt = os.getenv(
-        "AGENT_SYSTEM_PROMPT", meta.get("content") or build_system_prompt_from_workspace()
+        "AGENT_SYSTEM_PROMPT",
+        meta.get("content") or build_system_prompt_from_workspace(),
     )
 
     # 3. Create server (uvicorn.run is mocked so it won't block)

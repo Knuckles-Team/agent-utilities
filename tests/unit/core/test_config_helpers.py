@@ -16,6 +16,15 @@ import pytest
 
 from agent_utilities.graph import config_helpers as ch
 
+
+@pytest.fixture(autouse=True)
+def _clear_registry_cache():
+    """Invalidate the _RegistryCache before each test so mocked engines are hit."""
+    ch._RegistryCache.invalidate()
+    yield
+    ch._RegistryCache.invalidate()
+
+
 # ---------------------------------------------------------------------------
 # load_mcp_config / save_mcp_config
 # ---------------------------------------------------------------------------
@@ -37,9 +46,7 @@ def test_load_mcp_config_reads_valid_json(
 ) -> None:
     """Valid JSON is parsed into MCPConfigModel."""
     config_path = tmp_path / "mcp_config.json"
-    config_path.write_text(
-        json.dumps({"mcpServers": {"srv1": {"command": "run"}}})
-    )
+    config_path.write_text(json.dumps({"mcpServers": {"srv1": {"command": "run"}}}))
     monkeypatch.setattr(ch, "get_workspace_path", lambda name: config_path)
     cfg = ch.load_mcp_config()
     assert "srv1" in cfg.mcpServers
@@ -140,14 +147,18 @@ def test_log_graph_trace_message_is_truncated(caplog: pytest.LogCaptureFixture) 
     assert "x" * 121 not in caplog.text
 
 
-def test_log_graph_trace_unknown_event_uses_graph_phase(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_graph_trace_unknown_event_uses_graph_phase(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Unknown event type falls back to 'GRAPH' phase."""
     with caplog.at_level(logging.INFO, logger="agent_utilities.graph.trace"):
         ch._log_graph_trace("totally_unknown_event", 0.0)
     assert "[GRAPH]" in caplog.text
 
 
-def test_log_graph_trace_message_on_unrelated_event(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_graph_trace_message_on_unrelated_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """`message` is only logged for expert_warning/safety_warning."""
     with caplog.at_level(logging.INFO, logger="agent_utilities.graph.trace"):
         ch._log_graph_trace("graph_start", 0.0, message="hi")

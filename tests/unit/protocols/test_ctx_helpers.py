@@ -15,6 +15,7 @@ async def test_ctx_progress():
     # Test with ctx=None (no error)
     await mcp_utilities.ctx_progress(None, 50, 100)
 
+
 @pytest.mark.asyncio
 async def test_ctx_confirm_destructive():
     # Test with ctx - Accepted
@@ -30,7 +31,7 @@ async def test_ctx_confirm_destructive():
 
     # Test with ctx - Cancelled
     mock_ctx.elicit.reset_mock()
-    mock_result.action = "cancelled" # or anything not "accept"
+    mock_result.action = "cancelled"  # or anything not "accept"
     res = await mcp_utilities.ctx_confirm_destructive(mock_ctx, "delete something")
     assert res is False
 
@@ -42,6 +43,7 @@ async def test_ctx_confirm_destructive():
     mock_ctx.elicit.side_effect = Exception("MCP client error")
     res = await mcp_utilities.ctx_confirm_destructive(mock_ctx, "delete something")
     assert res is True
+
 
 def test_ctx_log():
     mock_logger = MagicMock()
@@ -68,7 +70,8 @@ def test_ctx_log():
     mock_ctx = MagicMock()
     del mock_ctx.debug
     mcp_utilities.ctx_log(mock_ctx, mock_logger, "debug", "debug message")
-    mock_ctx.info.assert_called() # Should fallback to info on ctx if debug missing
+    mock_ctx.info.assert_called()  # Should fallback to info on ctx if debug missing
+
 
 @pytest.mark.asyncio
 async def test_ctx_state_management():
@@ -87,13 +90,16 @@ async def test_ctx_state_management():
 
     # Test get_state with default
     mock_ctx.session.get_state.return_value = None
-    val = await mcp_utilities.ctx_get_state(mock_ctx, "testproj", "missing", default="fallback")
+    val = await mcp_utilities.ctx_get_state(
+        mock_ctx, "testproj", "missing", default="fallback"
+    )
     assert val == "fallback"
 
     # Test with ctx=None
     await mcp_utilities.ctx_set_state(None, "p", "k", "v")
     val = await mcp_utilities.ctx_get_state(None, "p", "k", default="def")
     assert val == "def"
+
 
 @pytest.mark.asyncio
 async def test_ctx_sample():

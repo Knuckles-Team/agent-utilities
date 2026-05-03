@@ -87,5 +87,23 @@
         "Requirement Specification",
         "Implementation Plan",
         "Tasks"
-    ]
+    ],
+    "rules": {
+        "1._research_phase": [
+            "Determine required expertise and identify knowledge gaps"
+        ],
+        "3._validation_phase": [
+            "Define unit, integration, and end-to-end test requirements"
+        ],
+        "initial_assessment": [
+            "Identify stakeholders and their requirements"
+        ],
+        "responsibilities": [
+            "Implementation Planning: Break down solutions into discrete, logical coding or configuration tasks that can be executed in a well-defined sequence or in parallel where appropriate.",
+            "Validation Strategy: Define comprehensive test cases, verification steps, and acceptance criteria to ensure the implemented solution meets all requirements and quality standards.",
+            "Task Orchestration & Dependencies: Manage task dependencies, identify opportunities for parallel execution, and create realistic timelines based on task complexity and resource availability.",
+            "Risk Assessment & Mitigation: Identify potential risks, blockers, and uncertainties early in the planning process. Develop mitigation strategies and contingency plans for high-risk items."
+        ]
+    },
+    "version": "1.0.0"
 }

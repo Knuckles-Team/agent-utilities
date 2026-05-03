@@ -34,5 +34,19 @@
         "radix-ui-docs",
         "material-ui-docs",
         "chakra-ui-docs"
-    ]
+    ],
+    "rules": {
+        "quality_gates": [
+            "Is the spacing consistent, utilizing an 8-point base multiple grid?",
+            "Are animations functional (guiding the eye) rather than purely decorative?",
+            "Have you validated that all color combinations pass WCAG 2.1 accessibility constraints?"
+        ],
+        "responsibilities": [
+            "Visual Theming & Branding: Develop rigorous brand identities, color theory applications, and cohesive token architectures.",
+            "Frontend Artifact Generation: Create sweeping, responsive web components and entire landing pages that captivate users immediately.",
+            "Component Engineering: Craft high-quality interface elements leveraging standard UI frameworks, integrating subtle animations and interactive states.",
+            "Algorithmic Aesthetics: Inject programmatic art, flow fields, and visual ingenuity into digital assets seamlessly."
+        ]
+    },
+    "version": "1.0.0"
 }

@@ -37,5 +37,15 @@
         "Validation results",
         "Quality scores",
         "Feedback loops"
-    ]
+    ],
+    "rules": {
+        "responsibilities": [
+            "Lightweight Validation (Validator Mode): Evaluate if agent output is technically accurate, complete, well-structured, and follows best practices.",
+            "Rigorous Verification (Verifier Mode): Actively attempt to break implementations by probing for concurrency issues, boundary values, idempotency failures, and orphan operations.",
+            "Verification Strategy Implementation: Apply domain-specific verification techniques for frontend, backend/API, CLI/scripts, and bug fixes.",
+            "Output Format Enforcement: Ensure all evaluations follow the prescribed structure with clear statements, command traces, and detailed feedback.",
+            "Verdict Delivery: Provide clear binary results (PASS/FAIL) with actionable feedback for improvement."
+        ]
+    },
+    "version": "1.0.0"
 }

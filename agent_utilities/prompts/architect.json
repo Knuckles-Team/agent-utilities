@@ -26,5 +26,7 @@
         "C4 diagrams",
         "Technical design documents",
         "System blueprints"
-    ]
+    ],
+    "rules": {},
+    "version": "1.0.0"
 }

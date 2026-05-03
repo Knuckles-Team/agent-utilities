@@ -41,16 +41,36 @@ class Neo4jBackend(GraphBackend):
             return [dict(record) for record in result]
 
     def create_schema(self) -> None:
-        logger.info(
-            "Neo4j does not require strict DDL schema. Creating vector indices if needed."
-        )
+        logger.info("Creating Neo4j vector index for embeddings.")
+        query = """
+        CREATE VECTOR INDEX idx_embedding IF NOT EXISTS
+        FOR (n:Chunk) ON (n.embedding)
+        OPTIONS {indexConfig: {
+          `vector.dimensions`: 768,
+          `vector.similarity_function`: 'cosine'
+        }}
+        """
+        try:
+            self.execute(query)
+        except Exception as e:
+            logger.warning(f"Could not create vector index in Neo4j: {e}")
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        query = """
-        MATCH (n {id: $id})
-        CALL db.create.setNodeVectorProperty(n, 'embedding', $embedding)
-        """
+        query = "MATCH (n {id: $id}) SET n.embedding = $embedding"
         self.execute(query, {"id": node_id, "embedding": embedding})
+
+    def semantic_search(
+        self, query_embedding: list[float], n_results: int = 5
+    ) -> list[dict[str, Any]]:
+        """Perform a semantic vector search returning top matching nodes using Neo4j 5.11+."""
+        query = """
+        CALL db.index.vector.queryNodes('idx_embedding', $n_results, $query_embedding)
+        YIELD node, score
+        RETURN node
+        """
+        return self.execute(
+            query, {"query_embedding": query_embedding, "n_results": n_results}
+        )
 
     def prune(self, criteria: dict[str, Any]) -> None:
         query = "MATCH (n) WHERE n.last_accessed < $timestamp DETACH DELETE n"

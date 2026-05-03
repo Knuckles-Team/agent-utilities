@@ -18,6 +18,7 @@ def clear_global_state():
     IntelligenceGraphEngine.set_active(None)
     set_active_backend(None)
 
+
 @pytest.fixture
 def memory_engine():
     graph = nx.MultiDiGraph()
@@ -40,6 +41,7 @@ def memory_engine():
     engine = IntelligenceGraphEngine(graph=graph)
     return engine
 
+
 def test_inference_engine_fallback(memory_engine):
     """Test topological inference in NetworkX fallback mode."""
     inf_engine = memory_engine.inference_engine
@@ -50,9 +52,12 @@ def test_inference_engine_fallback(memory_engine):
     assert new_facts > 0
     # module_1 should now depend indirectly on module_3
     assert memory_engine.graph.has_edge("entity:module_1", "entity:module_3")
-    edge_data = memory_engine.graph.get_edge_data("entity:module_1", "entity:module_3")[0]
+    edge_data = memory_engine.graph.get_edge_data("entity:module_1", "entity:module_3")[
+        0
+    ]
     assert edge_data["type"] == "DEPENDS_ON_INDIRECT"
     assert edge_data["inferred"] is True
+
 
 @patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
 def test_hybrid_retriever_fallback(mock_create_model, memory_engine):
@@ -72,7 +77,8 @@ def test_hybrid_retriever_fallback(mock_create_model, memory_engine):
     result_ids = [r["id"] for r in results]
     assert "entity:agent_a" in result_ids
     assert "entity:tool_x" in result_ids
-    assert "entity:agent_b" not in result_ids # Too far (2 hops)
+    assert "entity:agent_b" not in result_ids  # Too far (2 hops)
+
 
 @patch("agent_utilities.core.model_factory.create_model")
 @patch("pydantic_ai.Agent.run_sync")
@@ -82,10 +88,14 @@ def test_consolidate_memory_llm(mock_run_sync, mock_create_model, memory_engine)
 
     # Mock backend to simulate matching episodes
     mock_backend = MagicMock()
-    mock_backend.execute.side_effect = lambda query, params=None: [
-        {"id": "mem1", "description": "Episode 1"},
-        {"id": "mem2", "description": "Episode 2"}
-    ] if "MATCH (e:Episode)" in query else []
+    mock_backend.execute.side_effect = lambda query, params=None: (
+        [
+            {"id": "mem1", "description": "Episode 1"},
+            {"id": "mem2", "description": "Episode 2"},
+        ]
+        if "MATCH (e:Episode)" in query
+        else []
+    )
     memory_engine.backend = mock_backend
 
     maintainer = GraphMaintainer(memory_engine)
@@ -95,6 +105,10 @@ def test_consolidate_memory_llm(mock_run_sync, mock_create_model, memory_engine)
 
     assert processed == 2
     # Check if backend create was called for the summary
-    create_calls = [c for c in mock_backend.execute.call_args_list if "CREATE (s:ChatSummary" in c[0][0]]
+    create_calls = [
+        c
+        for c in mock_backend.execute.call_args_list
+        if "CREATE (s:ChatSummary" in c[0][0]
+    ]
     assert len(create_calls) == 1
     assert create_calls[0][0][1]["text"] == "This is a consolidated summary."

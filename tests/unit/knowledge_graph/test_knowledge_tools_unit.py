@@ -20,6 +20,7 @@ def mock_ctx():
     ctx.deps = deps
     return ctx
 
+
 @pytest.mark.asyncio
 async def test_search_knowledge_graph(mock_ctx):
     mock_ctx.deps.knowledge_engine.search_hybrid.return_value = [
@@ -28,6 +29,7 @@ async def test_search_knowledge_graph(mock_ctx):
     result = await search_knowledge_graph(mock_ctx, "query")
     assert "[AGENT]" in result
     assert "Test Agent" in result
+
 
 @pytest.mark.asyncio
 async def test_add_knowledge_memory(mock_ctx):
@@ -38,6 +40,7 @@ async def test_add_knowledge_memory(mock_ctx):
         "content", name="name", category="general", tags=None
     )
 
+
 @pytest.mark.asyncio
 async def test_get_knowledge_memory(mock_ctx):
     mock_ctx.deps.knowledge_engine.get_memory.return_value = {
@@ -45,11 +48,12 @@ async def test_get_knowledge_memory(mock_ctx):
         "name": "Memory",
         "timestamp": "2026",
         "category": "fact",
-        "description": "content"
+        "description": "content",
     }
     result = await get_knowledge_memory(mock_ctx, "mem:123")
     assert "content" in result
     assert "Memory" in result
+
 
 @pytest.mark.asyncio
 async def test_get_code_impact(mock_ctx):
