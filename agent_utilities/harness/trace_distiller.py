@@ -1,6 +1,6 @@
 """Automated Trace Distillation Pipeline.
 
-CONCEPT:AU-012 — Agentic Harness Engineering (Experience Observability)
+CONCEPT:AHE-3.0 — Agentic Harness Engineering (Experience Observability)
 
 Transforms raw traces from a pluggable TraceBackend into a structured
 EvidenceCorpus suitable for the Evolve Agent. This is the critical
@@ -178,7 +178,7 @@ class TraceDistiller:
         """Stage 3: Group failures by root cause.
 
         Uses RLM for deep semantic clustering when trace count exceeds
-        the configured ``ahe_trace_threshold`` (CONCEPT:AU-007 × AU-012).
+        the configured ``ahe_trace_threshold`` (CONCEPT:ORCH-1.1 × AU-012).
         Falls back to keyword-based grouping otherwise.
 
         Args:
@@ -216,7 +216,7 @@ class TraceDistiller:
     ) -> list[FailureCluster]:
         """RLM-powered failure clustering for large trace sets.
 
-        CONCEPT:AU-007 × AU-012 — RLM for AHE Experience Observability
+        CONCEPT:ORCH-1.1 × AU-012 — RLM for AHE Experience Observability
 
         Delegates to an RLM sub-agent that programmatically loops over
         all failure entries, applies semantic grouping using the KG,
@@ -396,6 +396,22 @@ class TraceDistiller:
             return ComponentType.SYSTEM_PROMPT
         if any(k in combined for k in ("guard", "policy", "blocked", "denied")):
             return ComponentType.MIDDLEWARE
+        if any(
+            k in combined
+            for k in (
+                "plan",
+                "planning",
+                "router",
+                "route",
+                "orchestrator",
+                "orchestration",
+            )
+        ):
+            return ComponentType.ORCHESTRATOR_SKILL
+        if any(
+            k in combined for k in ("execution", "worker", "executor", "parallel_batch")
+        ):
+            return ComponentType.WORKER_SKILL
         if any(k in combined for k in ("skill", "capability")):
             return ComponentType.SKILL
         if any(k in combined for k in ("memory", "recall", "context")):

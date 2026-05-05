@@ -66,7 +66,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "financial_instrument",
     "financial_transaction",
     "account",
-    # AHE Types (CONCEPT:AU-012)
+    # AHE Types (CONCEPT:AHE-3.0)
     "change_manifest",
     "component_edit_record",
     "evidence_record",
@@ -86,7 +86,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     # Engineering Rules Engine (CONCEPT:AU-023)
     "engineering_rule",
     "rule_book",
-    # External Integration & SDLC Entities (CONCEPT:AU-024)
+    # External Integration & SDLC Entities (CONCEPT:ORCH-1.2)
     "repository",
     "merge_request",
     "pull_request",
@@ -132,7 +132,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "cites_source",
     "has_financial_instrument",
     "executed_transaction",
-    # AHE Edges (CONCEPT:AU-012)
+    # AHE Edges (CONCEPT:AHE-3.0)
     "edited_in_round",
     "predicted_fix",
     "caused_regression",
@@ -147,7 +147,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "applicable_when",
     "derived_from_book",
     "applied_in_task",
-    # External Integration & SDLC Entities (CONCEPT:AU-024)
+    # External Integration & SDLC Entities (CONCEPT:ORCH-1.2)
     "modified_in",
     "mentioned_in",
     "triggered",
@@ -180,12 +180,24 @@ class OWLBridge:
         backend: GraphBackend | None = None,
         importance_threshold: float = 0.1,
         recency_days: int = 7,
+        schema_pack: Any | None = None,
     ):
         self.graph = graph
         self.backend = backend
         self.owl = owl_backend
         self.importance_threshold = importance_threshold
         self.recency_days = recency_days
+        self._schema_pack = schema_pack
+
+        # Compute effective promotable types filtered by schema pack (AU-041)
+        if schema_pack is not None:
+            active_nodes = {str(t) for t in schema_pack.get_active_node_types()}
+            active_edges = {str(t) for t in schema_pack.get_active_edge_types()}
+            self._effective_node_types = PROMOTABLE_NODE_TYPES & active_nodes
+            self._effective_edge_types = PROMOTABLE_EDGE_TYPES & active_edges
+        else:
+            self._effective_node_types = PROMOTABLE_NODE_TYPES
+            self._effective_edge_types = PROMOTABLE_EDGE_TYPES
 
     def run_cycle(self) -> dict[str, int]:
         """Full promote → reason → downfeed cycle. Returns stats."""
@@ -208,7 +220,7 @@ class OWLBridge:
     def _is_eligible_node(self, node_id: str, attrs: dict[str, Any]) -> bool:
         """Check if a node meets promotion criteria."""
         node_type = attrs.get("type", "")
-        if node_type not in PROMOTABLE_NODE_TYPES:
+        if node_type not in self._effective_node_types:
             return False
 
         # Always promote permanent nodes
@@ -256,7 +268,7 @@ class OWLBridge:
 
         for src, tgt, attrs in self.graph.edges(data=True):
             edge_type = attrs.get("type", "")
-            if edge_type in PROMOTABLE_EDGE_TYPES:
+            if edge_type in self._effective_edge_types:
                 stable_edges.append(
                     {
                         "source": src,
@@ -271,8 +283,9 @@ class OWLBridge:
         return self.owl.promote_edges(stable_edges)
 
     def _downfeed_inferences(self, inferences: list[dict[str, Any]]) -> int:
-        """Write inferred facts back to the LPG as new edges."""
+        """Write inferred facts back to the LPG as new edges and re-embed affected nodes."""
         downfed = 0
+        affected_nodes = set()
 
         for inference in inferences:
             subject = inference.get("subject", "")
@@ -312,10 +325,24 @@ class OWLBridge:
                 timestamp=datetime.now(UTC).isoformat(),
             )
             downfed += 1
+            affected_nodes.add(subject)
+            affected_nodes.add(obj)
 
         # Also sync to backend if available
         if downfed > 0 and self.backend:
             self._sync_inferred_to_backend(inferences, downfed)
+
+        # Trigger Context-Aware Re-embedding (CONCEPT:KG-2.2)
+        if affected_nodes:
+            from .engine import IntelligenceGraphEngine
+
+            engine = IntelligenceGraphEngine.get_active()
+            if engine and hasattr(engine, "re_embed_node"):
+                re_embedded = 0
+                for node_id in affected_nodes:
+                    if engine.re_embed_node(node_id):
+                        re_embedded += 1
+                logger.info(f"Re-embedded {re_embedded} nodes with new OWL context.")
 
         logger.info("Downfed %d inferred facts to LPG", downfed)
         return downfed
@@ -358,7 +385,7 @@ class OWLBridge:
     def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against the OWL backend.
 
-        CONCEPT:AU-007 — RLM × OWL Integration
+        CONCEPT:ORCH-1.1 — RLM × OWL Integration
 
         Exposes the OWL reasoner's SPARQL interface for programmatic
         queries from the RLM REPL. Supports transitive property traversal,

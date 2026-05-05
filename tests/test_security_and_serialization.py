@@ -1,4 +1,4 @@
-"""Tests for safe serialization functions (CONCEPT:AU-005 Serialization Safety).
+"""Tests for safe serialization functions (CONCEPT:ORCH-1.3 Serialization Safety).
 
 Verifies the JSON-based safe_save_model and safe_load_model functions
 provide equivalent functionality to the deprecated pickle-based alternatives
@@ -12,7 +12,7 @@ import warnings
 import pytest
 
 
-# CONCEPT:AU-005 Serialization Safety
+# CONCEPT:ORCH-1.3 Serialization Safety
 @pytest.mark.concept("AU-005")
 class TestSafeSerialization:
     """Test suite for the safe serialization API."""
@@ -79,7 +79,7 @@ class TestSafeSerialization:
             assert result == {"test": True}
 
 
-# CONCEPT:AU-003 Workspace Management
+# CONCEPT:OS-5.0 Workspace Management
 @pytest.mark.concept("AU-003")
 class TestWorkspaceTraversalGuard:
     """Verify workspace path traversal protection."""

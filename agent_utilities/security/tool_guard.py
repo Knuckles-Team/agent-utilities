@@ -97,6 +97,8 @@ def build_sensitive_tool_names() -> set[str]:
 def flag_mcp_tool_definitions(
     toolsets: list[Any],
     sensitive_names: set[str] | None = None,
+    permissions_kernel: Any | None = None,
+    agent_identity: Any | None = None,
 ) -> list[Any]:
     """Wrap MCP toolsets so sensitive tools require human approval.
 
@@ -106,14 +108,22 @@ def flag_mcp_tool_definitions(
     ``True`` from a prior approval round).  This causes pydantic-ai to
     return ``DeferredToolRequests`` instead of executing the tool.
 
-    The ``approval_required_func`` checks the tool name against both the
-    NODE_AGENTS.md registry (``sensitive_names``) and live pattern
-    matching (``is_sensitive_tool``).
+    The ``approval_required_func`` checks:
+    1. **Identity-based policy** (AU-031): If a ``PermissionsKernel`` and
+       ``AgentIdentity`` are provided, the kernel's role-based policy
+       takes precedence.  DENY → raise, REQUIRE_APPROVAL → True.
+    2. **Pattern-based fallback**: If no kernel is available or the
+       identity check returns ALLOW, falls back to the existing
+       NODE_AGENTS.md registry (``sensitive_names``) and live pattern
+       matching (``is_sensitive_tool``).
 
     Args:
         toolsets: The original list of MCP toolsets to wrap.
         sensitive_names: Pre-built set from :func:`build_sensitive_tool_names`.
             If ``None``, pattern matching alone is used.
+        permissions_kernel: Optional ``PermissionsKernel`` for identity-based
+            authorization (CONCEPT:OS-5.1).
+        agent_identity: Optional ``AgentIdentity`` for the calling agent.
 
     Returns:
         A new list of toolsets where MCP toolsets are wrapped with
@@ -135,6 +145,23 @@ def flag_mcp_tool_definitions(
         _ctx: Any, tool_def: Any, _tool_args: dict[str, Any]
     ) -> bool:
         name = getattr(tool_def, "name", "")
+
+        # CONCEPT:OS-5.1 — Identity-based policy check (highest priority)
+        if permissions_kernel and agent_identity:
+            try:
+                decision = permissions_kernel.authorize_tool(agent_identity, name)
+                if str(decision) == "deny":
+                    # Deny = require approval (let the approval manager handle it)
+                    return True
+                if str(decision) == "require_approval":
+                    return True
+                if str(decision) == "allow":
+                    # Explicit allow from identity policy — skip pattern check
+                    return False
+            except Exception:
+                pass  # nosec B110 # Fall through to pattern matching
+
+        # Pattern-based fallback
         return name.lower() in sensitive_names or is_sensitive_tool(name)
 
     wrapped: list[Any] = []

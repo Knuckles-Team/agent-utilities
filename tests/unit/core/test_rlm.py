@@ -1,6 +1,6 @@
 """Tests for expanded RLM trigger conditions and metadata-only root prompting.
 
-CONCEPT:AU-007 — RLM Execution (Expanded Triggers & Whitepaper Alignment)
+CONCEPT:ORCH-1.1 — RLM Execution (Expanded Triggers & Whitepaper Alignment)
 """
 
 import pytest

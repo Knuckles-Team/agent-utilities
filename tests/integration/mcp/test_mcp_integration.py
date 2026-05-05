@@ -10,7 +10,8 @@ def graph_engine():
     backend = LadybugBackend(db_path=":memory:")
     backend.create_schema()
     engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), backend=backend)
-    return engine
+    yield engine
+    backend.close()
 
 
 def test_mcp_server_ingestion_and_discovery(graph_engine):

@@ -1,6 +1,6 @@
 # Recursive Language Models (RLM)
 
-> CONCEPT:AU-007 — Recursive Language Model Execution
+> CONCEPT:ORCH-1.1 — Recursive Language Model Execution
 
 ## Overview
 
@@ -10,7 +10,7 @@ RLM enables agents to:
 - Process inputs **two orders of magnitude** beyond model context windows
 - Perform **unbounded semantic work** through recursive sub-calls
 - Leverage **OWL reasoning** and **KG bulk analysis** within execution
-- Power **AHE trace distillation** for large-scale evolution analysis (CONCEPT:AU-012)
+- Power **AHE trace distillation** for large-scale evolution analysis (CONCEPT:AHE-3.0)
 
 ## Architecture
 
@@ -139,7 +139,7 @@ The main agent loop:
 4. If `FINAL_VAR` was called, the result is returned
 5. Otherwise, the loop continues (up to `max_turns=5`)
 
-## AHE Integration (CONCEPT:AU-012)
+## AHE Integration (CONCEPT:AHE-3.0)
 
 RLM is deeply integrated with the [Agentic Harness Engineering](AHE_ARCHITECTURE.md) evolution loop:
 

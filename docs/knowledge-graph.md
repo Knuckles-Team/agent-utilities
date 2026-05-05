@@ -37,7 +37,7 @@ The `GraphMaintainer` (`knowledge_graph/maintainer.py`) autonomously manages the
 
 ```mermaid
 graph TD
-    subgraph Ingestion_Pipeline ["14-Phase Unified Intelligence Pipeline"]
+    subgraph Ingestion_Pipeline ["15-Phase Unified Intelligence Pipeline"]
         direction LR
         Memory["1. Memory"] --> Scan["2. Scan"]
         Scan --> Registry["3. Registry"]
@@ -52,6 +52,7 @@ graph TD
         RegInt --> Sync["12. Sync"]
         Sync --> OWL["13. OWL Reasoning"]
         OWL --> KB["14. Knowledge Base"]
+        KB --> Val["15. Validate"]
     end
 
     subgraph Memory_Layer ["In-Memory Graph"]
@@ -152,7 +153,7 @@ graph TB
 4. **Episodic Ingestion**: Agents can dynamically extract knowledge triples (`Entity -> Relation -> Entity`) from task episodes to autonomously extend the graph geometry (`kg_evolution_tools`).
 5. **P2P Graph Sharing**: Agents can selectively export context subgraphs or "agent cards" to share capabilities and learned knowledge across the A2A network (`kg_share_tools`).
 
-## Unified Intelligence Pipeline (14 Phases)
+## Unified Intelligence Pipeline (15 Phases)
 
 | Phase | Name | Purpose |
 |-------|------|---------|
@@ -170,16 +171,18 @@ graph TB
 | 12 | **OWL Reasoning** | Promotes stable nodes to OWL, runs HermiT/Stardog inference, downfeeds inferred facts. |
 | 13 | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
 | 14 | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
+| 15 | **Validate** | Runs **AU-053 Graph Integrity Validator** — 4-tier non-blocking post-ingestion validation with auto-fix. |
 
 ## MAGMA-Inspired Orthogonal Reasoning Views
 
-The graph engine supports policy-guided retrieval across four orthogonal views, ensuring the agent has the right context for the right task:
+The graph engine supports policy-guided retrieval across five orthogonal views, ensuring the agent has the right context for the right task:
 - **Semantic View**: Traditional RAG/vector search for conceptual similarity.
 - **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
 - **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
 - **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
+- **Epistemic View** (AU-054): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions (CONTRADICTS). Powered by `retrieve_epistemic_view()`.
 
-## Agent Lightning Self-Improvement Loop
+## Autonomous Self-Improvement Loop
 
 The system autonomously refines its own performance through a continuous feedback loop:
 1. **Outcome Evaluation**: Every significant episode is evaluated for success (Reward) using `record_outcome`.
@@ -565,3 +568,290 @@ To add a new domain ontology (e.g., SNOMED-CT for medical, ISO 27001 for securit
 5. **Register** in `PROMOTABLE_NODE_TYPES`, `_NODE_TYPE_TO_OWL_CLASS`, and `SCHEMA.nodes`
 
 6. **Add tests** to `test_standard_ontology.py`
+
+> [!TIP]
+> For most use cases, consider using **Schema Packs** (below) instead of manually extending the ontology. Packs automate steps 3–6 and provide domain-scoped filtering.
+
+---
+
+## Schema Packs (AU-041)
+
+Schema Packs are domain-configurable KG profiles that scope the active node types, edge types, retrieval boosts, and OWL extensions to a specific domain.
+
+### Operating Modes
+
+| Mode | Behavior | Use Case |
+|---|---|---|
+| **ADDITIVE** (default) | Pack types are layered on top of all existing types | General-purpose: "I want research types *plus* everything else" |
+| **EXCLUSIVE** | Only the pack's types + protected core are active | Focused deployments: "Only clinical types for this biomedical pipeline" |
+
+Both modes always include a **protected core** set (memory, episode, person, concept, fact, agent, tool, skill) to prevent breaking fundamental agent operations.
+
+### Pre-Built Packs
+
+| Pack | Key Types | Backlink Strategy | Retrieval Boosts |
+|---|---|---|---|
+| `core` | All 90+ types | `global` | None |
+| `research-state` | hypothesis, dataset, document, evidence | `context_only` | `cites_source: 1.5`, `tests_hypothesis: 1.4` |
+| `biomedical` | medical_entity, procedure, regulation | `global` | `exact_match: 1.5`, `cites_source: 1.4` |
+| `finance` | financial_instrument, transaction, account | `global` | `has_financial_instrument: 1.4`, `executed_transaction: 1.3` |
+
+### Usage
+
+```python
+from agent_utilities.models.schema_packs import get_schema_pack
+
+# Load a pre-built pack
+pack = get_schema_pack("research-state")
+
+# Check active types
+active_nodes = pack.get_active_node_types()
+assert RegistryNodeType.HYPOTHESIS in active_nodes
+
+# Use with HybridRetriever
+retriever = HybridRetriever(engine, schema_pack=pack)
+```
+
+### Custom Packs
+
+```python
+from agent_utilities.models.schema_pack import SchemaPack, SchemaPackMode
+from agent_utilities.models.schema_packs import register_schema_pack
+
+class LegalSchemaPack(SchemaPack):
+    name: str = "legal"
+    mode: SchemaPackMode = SchemaPackMode.EXCLUSIVE
+    node_types: set = {RegistryNodeType.REGULATION, RegistryNodeType.DOCUMENT}
+    edge_types: set = {RegistryEdgeType.CITES_SOURCE, RegistryEdgeType.BROADER}
+
+register_schema_pack("legal", LegalSchemaPack)
+```
+
+---
+
+## Backlink-Density Retrieval Boost (AU-042)
+
+The `HybridRetriever` supports optional backlink-density retrieval weighting that boosts the relevance score of hub entities (nodes with many inbound edges).
+
+### Scoring Formula
+
+```
+boosted_score = base_score × (1.0 + factor × log(1 + in_degree))
+```
+
+| In-Degree | Factor=0.1 | Factor=0.5 |
+|---|---|---|
+| 0 | 1.00× | 1.00× |
+| 1 | 1.07× | 1.35× |
+| 10 | 1.24× | 2.20× |
+| 100 | 1.46× | 3.31× |
+
+### Strategies
+
+| Strategy | Applied During | Best For |
+|---|---|---|
+| `global` | Semantic search scoring | CRM, people-centric, hub-entity queries |
+| `context_only` | Multi-hop context assembly | Research (preserves novel/low-citation papers) |
+| `disabled` | Never | Domains where all nodes are equally important |
+
+Strategy and factor are configured per `SchemaPack`. The research pack defaults to `context_only`; all others default to `global`.
+
+---
+
+## KG Eval Capture (AU-043)
+
+The KG Eval Capture harness records real queries and their retrieval results to a **separate SQLite database** (never in the KG itself), enabling replay-based regression testing when KG configuration changes.
+
+### Architecture
+
+```
+┌─────────────┐     ┌─────────────────────┐
+│  KG Engine   │────▶│  HybridRetriever    │
+│              │     │  (backlink boost)   │
+└─────────────┘     └────────┬────────────┘
+                              │ capture()
+                    ┌─────────▼──────────┐
+                    │  eval_log.db       │  ← Separate SQLite
+                    │  (query, results,  │
+                    │   scores, latency) │
+                    └─────────┬──────────┘
+                              │ replay()
+                    ┌─────────▼──────────┐
+                    │  EvalReplayResult  │
+                    │  - Jaccard@k       │
+                    │  - top-1 stability │
+                    │  - latency delta   │
+                    │  - regressions[]   │
+                    └────────────────────┘
+```
+
+### Configuration
+
+| Env Variable | Default | Description |
+|---|---|---|
+| `KG_EVAL_CAPTURE` | `false` | Enable/disable capture |
+| `KG_EVAL_DB_PATH` | `~/.agent-utilities/eval_log.db` | Database path |
+
+### Usage
+
+```python
+from agent_utilities.knowledge_graph.eval_capture import KGEvalCapture
+
+capture = KGEvalCapture(enabled=True)
+capture.capture("who founded Acme?", "hybrid", ["acme-01", "bob-02"], [0.94, 0.87])
+
+# After making KG changes, replay:
+result = capture.replay(search_fn=engine.search_hybrid)
+if result.regressions:
+    print(f"⚠️ {len(result.regressions)} queries regressed!")
+```
+
+---
+
+## Structural Fingerprint Engine (AU-048)
+
+The fingerprint engine enables incremental KG updates by classifying file changes into three levels, avoiding costly full re-ingestion when only cosmetic changes (comments, formatting) have occurred.
+
+### Change Classification
+
+| Level | Meaning | KG Action |
+|---|---|---|
+| `NONE` | File content identical (same SHA-256) | Skip entirely |
+| `COSMETIC` | Content changed but structure identical (comments, docstrings, whitespace) | Update content hash only |
+| `STRUCTURAL` | Signature-level changes (new params, renamed classes, changed imports) | Full re-ingestion |
+
+### Python AST Extraction
+
+For Python files, the engine extracts a structural skeleton via `ast`:
+- Function/method names, parameters, return types, decorators
+- Class names, base classes, method lists
+- Import specifiers (module + imported name)
+- `__all__` exports
+
+The skeleton is hashed independently of the file content, enabling the COSMETIC/STRUCTURAL distinction.
+
+### Usage
+
+```python
+from agent_utilities.knowledge_graph.fingerprint import (
+    FingerprintManager,
+    compute_fingerprint,
+    classify_change,
+)
+
+# Single file fingerprinting
+fp = compute_fingerprint("src/engine.py")
+print(fp.functions)  # [{"name": "run", "args": ["ctx"], ...}]
+
+# Workspace-level incremental analysis
+manager = FingerprintManager("/path/to/repo")
+current = manager.scan()
+structural_only = manager.get_structural_changes(previous_snapshot)
+# Only re-ingest files in structural_only list
+```
+
+### Git Staleness Detection
+
+`detect_stale_files()` uses `git diff` to identify changed files since a reference commit, providing a fast pre-filter before fingerprint comparison.
+
+---
+
+## Graph Integrity Validator (AU-053)
+
+Non-blocking, tiered validation for the Unified Intelligence Graph. Inspired by Understand-Anything's `graph-reviewer` agent with a 4-tier auto-fix pipeline.
+
+### Validation Tiers
+
+| Tier | Behavior | Examples |
+|---|---|---|
+| **1 — Auto-fix** | Silently corrected, logged as INFO | LLM type aliases (`func` → `symbol`), score clamping, missing names |
+| **2 — Integrity** | Logged as WARNING, reported | Dangling edges, missing node types, untyped edges, duplicate IDs |
+| **3 — Quality** | Logged as INFO, advisory | Orphan nodes, self-referencing edges, generic descriptions, underscored hubs |
+| **4 — Fatal** | Only fires on catastrophic failures | Zero nodes, graph fragmented below 50% largest component |
+
+### LLM Alias Normalization
+
+The validator includes comprehensive alias maps for both node types (30+ aliases like `func` → `symbol`, `service` → `agent`) and edge types (30+ aliases like `extends` → `inherits_from`, `uses` → `depends_on`), ensuring consistent schema regardless of which LLM generated the graph data.
+
+### Pipeline Integration
+
+The validator runs as the **15th pipeline phase** (`validate`), executing after `knowledge_base` ingestion. Results are stored via `KGEvalCapture` (AU-043) for trend analysis.
+
+```python
+from agent_utilities.knowledge_graph.graph_validator import GraphValidator
+
+validator = GraphValidator(engine)
+report = validator.validate()
+
+print(report.summary())
+# Graph Validation Report (2026-05-05T02:30:00Z)
+#   Nodes: 1247 | Edges: 3891 | Duration: 12.3ms
+#   Tier 1 (auto-fixed): 8
+#   Tier 2 (violations): 0
+#   Tier 3 (warnings):   3
+#   Status: HEALTHY
+```
+
+---
+
+## Entity-Claim Extraction — MAGMA Completion (AU-054)
+
+Completes the MAGMA epistemic view system by implementing real entity-claim extraction from ingested documents. Claims participate in `BUILDS_ON`, `CONTRADICTS`, and `EXEMPLIFIES` relationships for epistemic reasoning.
+
+### Two-Phase Extraction
+
+| Phase | Method | Scope |
+|---|---|---|
+| **Deterministic** | Regex patterns | Citations `(Author, YYYY)`, `[[wikilinks]]`, assertion patterns (`must`, `recommend`, `therefore`) |
+| **Semantic** (planned) | LLM-based | Implicit relationships, nuanced claims, cross-document contradiction detection |
+
+### New Schema Elements
+
+**Node type:** `ClaimNode` — a discrete claim, assertion, or thesis with confidence scoring and epistemic metadata.
+
+**Edge types:**
+| Edge | Meaning |
+|---|---|
+| `BUILDS_ON` | Claim extends or depends on another claim |
+| `CONTRADICTS` | Claim opposes another claim (existing) |
+| `EXEMPLIFIES` | Concrete example supporting a general claim |
+| `AUTHORED_BY` | Attribution link to a person/org |
+
+### MAGMA Epistemic View (Now Complete)
+
+The `retrieve_epistemic_view()` method on `IntelligenceGraphEngine` is now fully implemented with real Cypher reasoning:
+
+```python
+# Returns beliefs, supporting evidence, and contradictions
+view = engine.retrieve_epistemic_view("graph validation")
+# {
+#   "beliefs": [ClaimNode(claim_text="Tiered validation prevents server crashes", confidence=0.85)],
+#   "supporting": [EntityNode(name="UA graph-reviewer", _relationship="builds_on")],
+#   "contradicting": [ClaimNode(claim_text="Single-pass validation is sufficient", _relationship="contradicts")]
+# }
+```
+
+**NetworkX fallback:** When no Cypher backend is available, the epistemic view falls back to in-memory graph traversal using `in_edges()` with edge type filtering.
+
+---
+
+## Context-Aware Entity Representations (AU-058)
+
+Injects multi-hop structural logic and OWL relationships directly into node vector embeddings to enable "topology-aware" semantic search.
+
+### ContextualRepresentationBuilder
+
+The `ContextualRepresentationBuilder` dynamically assembles a rich text description for any node before embedding. It extracts:
+1. **Node Profile**: The node's raw content, `name`, `type`, and `description`.
+2. **Topological Hierarchy**: A 2-level traversal capturing up to 5 immediate parent/grandparent relations, and up to 5 child/grandchild relations.
+3. **OWL Inferences**: Any relationships specifically marked with `inferred=True` (typically originating from HermiT or Stardog downfeed).
+
+This contextual string is passed to the embedding model (LM Studio), ensuring the resulting vector captures both the semantic meaning of the node *and* its position in the broader ontology.
+
+### Immediate Re-Embedding on Inference Downfeed
+
+To prevent the vector space from drifting out of sync with the topological space:
+1. When the `OWLBridge` promotes nodes and runs reasoning, it downfeeds new facts back to the LPG.
+2. The bridge tracks every LPG node that received a new edge.
+3. It immediately triggers `re_embed_node()` on those specific nodes.
+4. The `ContextualRepresentationBuilder` rebuilds the description (now including the new OWL inferences) and generates a fresh embedding.

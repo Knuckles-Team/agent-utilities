@@ -27,6 +27,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ModelTier = Literal["light", "medium", "heavy", "reasoning"]
 
+# Ordered tier list for AU-039 confidence-gated routing helpers.
+_TIER_ORDER: list[ModelTier] = ["light", "medium", "heavy", "reasoning"]
+
 
 class ModelCostRate(BaseModel):
     """USD cost per 1 million tokens.
@@ -182,6 +185,81 @@ class ModelRegistry(BaseModel):
         if default is None:
             raise ValueError("Model registry is empty; configure at least one model.")
         return default
+
+    # ── AU-039 tier helpers ────────────────────────────────────────────
+
+    @staticmethod
+    def _tier_down(tier: ModelTier) -> ModelTier:
+        """Return one tier below the given tier, clamped at 'light'.
+
+        CONCEPT:ORCH-1.2 — Confidence-Gated Router
+        """
+        idx = _TIER_ORDER.index(tier)
+        return _TIER_ORDER[max(0, idx - 1)]
+
+    @staticmethod
+    def _tier_up(tier: ModelTier) -> ModelTier:
+        """Return one tier above the given tier, clamped at 'reasoning'.
+
+        CONCEPT:ORCH-1.2 — Confidence-Gated Router
+        """
+        idx = _TIER_ORDER.index(tier)
+        return _TIER_ORDER[min(len(_TIER_ORDER) - 1, idx + 1)]
+
+    def pick_for_task_adaptive(
+        self,
+        *,
+        complexity: ModelTier = "medium",
+        confidence_signal: float = 0.5,
+        routing_percentile: float = 50.0,
+        required_tags: list[str] | None = None,
+    ) -> ModelDefinition:
+        """Confidence-gated adaptive model selection (CONCEPT:ORCH-1.2).
+
+        Extends :meth:`pick_for_task` with a runtime confidence signal
+        derived from specialist consensus or WorkspaceAttention scores.
+        When confidence exceeds the routing threshold, the task is
+        downgraded to a cheaper model tier.  When confidence is low,
+        the task may be escalated to a more capable tier.
+
+        This implements the core routing principle from Squeeze Evolve
+        (Maheswaran et al., 2026): allocate model capability where it
+        has the highest marginal utility.
+
+        The routing threshold is ``routing_percentile / 100``.  Values
+        above trigger a downgrade; values below ``1 - threshold``
+        trigger an escalation.
+
+        Args:
+            complexity: Base tier of the task being spawned.
+            confidence_signal: Normalised confidence ``[0, 1]`` from
+                upstream scoring (e.g. WorkspaceAttention composite).
+            routing_percentile: Threshold percentile ``[0, 100]``
+                for the downgrade gate.  Default 50 gives a balanced
+                split; lower values (e.g. 30) route more aggressively
+                to cheap models.
+            required_tags: Tags every candidate must carry (AND
+                semantics).
+
+        Returns:
+            The selected ``ModelDefinition``.
+
+        Raises:
+            ValueError: If the registry is empty.
+        """
+        threshold = routing_percentile / 100.0
+        effective_tier = complexity
+
+        if confidence_signal > threshold:
+            # High confidence → cheaper model is sufficient
+            effective_tier = self._tier_down(complexity)
+        elif confidence_signal < (1.0 - threshold):
+            # Low confidence → escalate to more capable model
+            effective_tier = self._tier_up(complexity)
+
+        return self.pick_for_task(
+            complexity=effective_tier, required_tags=required_tags
+        )
 
     def add(self, model: ModelDefinition) -> None:
         """Append a model to the registry.

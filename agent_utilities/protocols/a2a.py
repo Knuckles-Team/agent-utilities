@@ -158,6 +158,46 @@ class A2AClient:
                 return f"A2A Communication Error: {e}"
         return "Error: A2A execution timed out or failed."
 
+    async def execute_bft_consensus(
+        self, urls: list[str], query: str, threshold: float = 0.66
+    ) -> Any:
+        """CONCEPT:ECO-4.2 — Multi-agent BFT consensus for A2A.
+        Queries multiple peers simultaneously and requires a consensus threshold to return a validated result.
+
+        Args:
+            urls: List of A2A endpoint URLs to query.
+            query: The task description.
+            threshold: The required consensus ratio (e.g. 0.66 for 2/3 majority).
+
+        Returns:
+            The consensus result or an error message.
+        """
+        import asyncio
+        from collections import Counter
+
+        tasks = [self.execute_task(url, query) for url in urls]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        valid_results = []
+        for res in results:
+            if not isinstance(res, Exception) and not str(res).startswith("Error:"):
+                valid_results.append(res)
+
+        if not valid_results:
+            return "BFT Error: No valid responses received."
+
+        counts = Counter(str(r).strip() for r in valid_results)
+        most_common, count = counts.most_common(1)[0]
+
+        consensus_ratio = count / len(urls)
+        if consensus_ratio >= threshold:
+            logger.info(
+                f"BFT Consensus reached: {consensus_ratio * 100:.1f}% agreement"
+            )
+            return most_common
+
+        return f"BFT Error: Consensus failed (max agreement {consensus_ratio * 100:.1f}% < {threshold * 100:.1f}%)"
+
 
 # --- Registry Utilities (Graph-Native Fallbacks) ---
 

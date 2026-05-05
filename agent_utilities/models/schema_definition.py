@@ -467,7 +467,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # Self-Improvement & Learning (Agent Lightning style)
+        # Self-Improvement & Learning
         TableDefinition(
             name="OutcomeEvaluation",
             columns={
@@ -821,7 +821,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # --- AHE (Agentic Harness Engineering) Nodes (CONCEPT:AU-012) ---
+        # --- AHE (Agentic Harness Engineering) Nodes (CONCEPT:AHE-3.0) ---
         TableDefinition(
             name="ChangeManifest",
             columns={

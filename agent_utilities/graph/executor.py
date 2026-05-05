@@ -54,7 +54,45 @@ _SPECIALIST_TIER_HINTS: dict[str, str] = {
     "architect": "heavy",
     "synthesizer": "heavy",
     "verifier": "reasoning",
+    "recursive_orchestrator": "heavy",
 }
+
+
+def _resolve_access_context(
+    step: ExecutionStep,
+    results_registry: dict[str, Any],
+) -> str:
+    """CONCEPT:ORCH-1.3 — Build context string from access_list.
+
+    Filters the results_registry to only include outputs from steps
+    specified in the ExecutionStep's access_list.  This prevents
+    context pollution and reduces prompt bloat.
+
+    Args:
+        step: The current execution step with its access_list.
+        results_registry: The full results registry from GraphState.
+
+    Returns:
+        A formatted context string with only the permitted results.
+    """
+    if not step.access_list:
+        return ""  # No prior context shared
+
+    if "all" in step.access_list:
+        # Full access — inject everything
+        if not results_registry:
+            return ""
+        return "\n".join(
+            f"### Prior result from '{k}':\n{v}" for k, v in results_registry.items()
+        )
+
+    # Selective access — only specified steps
+    sections: list[str] = []
+    for key in step.access_list:
+        for reg_key, value in results_registry.items():
+            if key.lower() in reg_key.lower():
+                sections.append(f"### Prior result from '{reg_key}':\n{value}")
+    return "\n".join(sections)
 
 
 def _default_tier_for(node_id: str) -> str:
@@ -132,17 +170,108 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
     except Exception as e:
         logger.debug(f"Registry tier lookup failed for '{node_id}': {e}")
 
+    # CONCEPT:OS-5.2 — Homeostatic Model Downgrade
+    # When the ResourceOptimizer detects budget pressure, autonomously
+    # downgrade the tier to reduce cost — the system's "blood pressure"
+    # regulation.  The optimizer's select_model_for_step() already knows
+    # how to map remaining_pct → effective_complexity; we just need to
+    # ask it and let it override our heuristic tier.
+    resource_optimizer = getattr(ctx_deps, "resource_optimizer", None)
+    if resource_optimizer is not None:
+        try:
+            optimized = resource_optimizer.select_model_for_step(
+                complexity=tier,
+                required_tags=required_tags or None,
+            )
+            if optimized is not None:
+                # The optimizer returned a model dict — it handled tier
+                # adjustment itself.  We log the homeostatic event.
+                effective_tier = optimized.get("tier", tier)
+                if effective_tier != tier:
+                    logger.info(
+                        "[AU-033] Homeostatic downgrade: '%s' tier %s → %s "
+                        "(budget %.0f%% remaining)",
+                        node_id,
+                        tier,
+                        effective_tier,
+                        resource_optimizer.budget.cost_remaining
+                        / max(resource_optimizer.budget.total_cost_budget_usd, 0.01)
+                        * 100,
+                    )
+                    tier = effective_tier
+        except Exception as e:
+            logger.debug(f"AU-033 homeostatic check skipped: {e}")
+
+    # CONCEPT:ORCH-1.2 — Confidence-Gated Model Router
+    # Compute a confidence signal from upstream scoring to adaptively
+    # select cheaper or more expensive models.  Composes with AU-033:
+    # budget pressure adjusts the tier first, then confidence further
+    # refines within the budget-allowed range.
+    confidence_signal: float | None = None
+    routing_percentile = getattr(ctx_deps, "routing_percentile", 50.0)
+
+    # Source 1: WorkspaceAttention attention score (runtime signal)
+    knowledge_engine = getattr(ctx_deps, "knowledge_engine", None)
+    runtime_confidence = 0.5
+    if knowledge_engine is not None:
+        try:
+            from ..knowledge_graph.workspace_attention import WorkspaceAttention as _WA
+
+            _wa = _WA(knowledge_engine)
+            _score = _wa.get_attention_score(node_id)
+            if _score is not None:
+                runtime_confidence = _score
+        except Exception:
+            pass  # nosec B110
+
+    # Source 2: MemoryRetriever historical proficiency (soft dependency on AU-016)
+    historical_confidence = 0.5
+    if knowledge_engine is not None:
+        try:
+            from ..knowledge_graph.memory_retriever import MemoryRetriever
+
+            sm = MemoryRetriever(knowledge_engine)
+            current = sm.get_current()
+            if current:
+                historical_confidence = current.tool_proficiency.get(node_id, 0.5)
+        except Exception:
+            pass  # nosec B110
+
+    # Blend: 70% runtime + 30% historical (degrades gracefully when
+    # no MemoryRetriever is present — both default to 0.5 neutral)
+    confidence_signal = 0.7 * runtime_confidence + 0.3 * historical_confidence
+
     try:
         from agent_utilities.core.model_factory import create_model
 
-        chosen = registry.pick_for_task(complexity=tier, required_tags=required_tags)
+        original_tier = tier
+        chosen = registry.pick_for_task_adaptive(
+            complexity=tier,
+            confidence_signal=confidence_signal,
+            routing_percentile=routing_percentile,
+            required_tags=required_tags,
+        )
+        effective_tier = chosen.tier
+
+        if effective_tier != original_tier:
+            logger.info(
+                "[AU-039] Confidence-gated routing: '%s' tier %s → %s "
+                "(confidence=%.2f, percentile=%.0f)",
+                node_id,
+                original_tier,
+                effective_tier,
+                confidence_signal,
+                routing_percentile,
+            )
+
         api_key = os.getenv(chosen.api_key_env) if chosen.api_key_env else None
         logger.debug(
-            "Spawning specialist '%s' with model '%s' (tier=%s, tags=%s)",
+            "Spawning specialist '%s' with model '%s' (tier=%s, tags=%s, confidence=%.2f)",
             node_id,
             chosen.id,
-            tier,
+            effective_tier,
             required_tags,
+            confidence_signal,
         )
         return create_model(
             provider=chosen.provider,
@@ -319,6 +448,12 @@ def get_step_descriptions() -> str:
         "verifier": "Final quality gate. Validates that the implementation meets the original query requirements.",
         "mcp_server": "General-purpose tool hub for any task not covered by specialized nodes.",
         "council": "Multi-perspective advisory council for high-stakes decisions. Spawns 5 advisors with different thinking styles (Contrarian, First Principles, Expansionist, Outsider, Executor), runs anonymous peer review, and produces a chairman verdict with confidence score. Use for strategy questions, architectural decisions, or when the user explicitly requests 'council this' or asks for diverse perspectives.",
+        "recursive_orchestrator": (
+            "CONCEPT:ORCH-1.1 — Recursive graph re-orchestration. Use when the "
+            "current plan has failed and needs a fundamentally different approach. "
+            "Spawns a nested graph execution with the parent's context and errors "
+            "to devise a corrected strategy. Only use for complex multi-step failures."
+        ),
     }
 
     for specialist in discover_all_specialists():
@@ -443,6 +578,41 @@ async def _execute_dynamic_mcp_agent(
             f"Address this feedback in your response by being more thorough or providing the missing data."
         )
 
+    # CONCEPT:ORCH-1.0 — Inject signal board observations from prior specialists
+    if ctx.state.signal_board:
+        signal_lines = []
+        for sig_type, messages in ctx.state.signal_board.items():
+            for msg in messages[:3]:  # Limit injection to avoid prompt bloat
+                signal_lines.append(f"- [{sig_type}] {msg}")
+        if signal_lines:
+            agent_sys_prompt += (
+                "\n\n### OBSERVATIONS FROM PRIOR SPECIALISTS\n"
+                "Other specialists have flagged the following for your awareness:\n"
+                + "\n".join(signal_lines[:10])
+                + "\nConsider these signals when performing your task."
+            )
+
+    # CONCEPT:ORCH-1.3 — Inject access-list-filtered prior results
+    step_input_for_access = ctx.inputs
+    if (
+        isinstance(step_input_for_access, ExecutionStep)
+        and step_input_for_access.access_list
+    ):
+        access_context = _resolve_access_context(
+            step_input_for_access, ctx.state.results_registry
+        )
+        if access_context:
+            agent_sys_prompt += (
+                f"\n\n### PRIOR STEP RESULTS (Access-List Filtered)\n"
+                f"{access_context}\n"
+                f"Use these results as context for your task."
+            )
+            logger.info(
+                "[AU-045] Injected %d access-list results for '%s'",
+                len(step_input_for_access.access_list),
+                agent_name,
+            )
+
     # Emit startup event with detailed metadata for UI transparency
     emit_graph_event(
         ctx.deps.event_queue,
@@ -455,7 +625,7 @@ async def _execute_dynamic_mcp_agent(
         node_id=getattr(ctx, "node_id", "unknown"),
     )
 
-    # CONCEPT:AU-026 — Capability Auto-Activation
+    # CONCEPT:ORCH-1.2 — Capability Auto-Activation
     # Check if this specialist has registered capabilities (e.g., RLM, critic)
     # and activate them before execution.
     activated_capabilities: list[str] = []
@@ -497,7 +667,7 @@ async def _execute_dynamic_mcp_agent(
         except Exception as e:
             logger.debug(f"Capability auto-activation lookup failed: {e}")
 
-    # CONCEPT:AU-016 — WorkspaceAttention scoring for specialist priority
+    # CONCEPT:KG-2.1 — WorkspaceAttention scoring for specialist priority
     attention_score: float | None = None
     if ctx.deps.knowledge_engine:
         try:
@@ -653,7 +823,15 @@ async def _execute_dynamic_mcp_agent(
         # Build Query
         sub_query = ctx.state.query
         step_input = ctx.inputs
-        if isinstance(step_input, ExecutionStep) and step_input.input_data:
+        # CONCEPT:ORCH-1.1 — Prefer refined subtask over raw query
+        if isinstance(step_input, ExecutionStep) and step_input.refined_subtask:
+            sub_query = step_input.refined_subtask
+            logger.info(
+                "[AU-044] Using refined subtask for '%s': '%s'",
+                agent_info.name,
+                sub_query[:100],
+            )
+        elif isinstance(step_input, ExecutionStep) and step_input.input_data:
             if isinstance(step_input.input_data, dict):
                 sub_query = step_input.input_data.get("question", sub_query)
             elif isinstance(step_input.input_data, str):

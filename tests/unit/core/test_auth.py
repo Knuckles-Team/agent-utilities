@@ -1,6 +1,6 @@
 """Tests for the JWT and API Key authentication module.
 
-CONCEPT:AU-011 — Secrets & Authentication
+CONCEPT:OS-5.1 — Secrets & Authentication
 
 Covers:
 - API key verification (valid, invalid, disabled)

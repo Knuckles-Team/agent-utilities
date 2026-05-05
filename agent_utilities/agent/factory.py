@@ -5,7 +5,7 @@ This module provides factory functions for creating and configuring Pydantic AI
 agents. It handles CLI argument parsing, MCP server initialization, toolset
 registration, and system prompt construction.
 
-CONCEPT:AU-001 Agent Creation
+CONCEPT:OS-5.0 Agent Creation
 """
 
 from __future__ import annotations
@@ -190,6 +190,12 @@ def create_agent_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--evolve",
+        action="store_true",
+        help="Run as an Evolutionary Vector (indefinitely runs SelfImprovementCycle)",
+    )
+
+    parser.add_argument(
         "--insecure",
         action="store_true",
         help="Disable SSL verification for LLM requests (Use with caution)",
@@ -276,7 +282,7 @@ def create_agent(
 ) -> tuple[Agent, list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
-    CONCEPT:AU-001 Agent Creation
+    CONCEPT:OS-5.0 Agent Creation
 
     Args:
         provider: LLM provider name.

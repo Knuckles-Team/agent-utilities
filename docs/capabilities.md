@@ -1,6 +1,6 @@
 # Capabilities (Self-Healing Patterns)
 
-> CONCEPT:AU-008 — Resilient Agent Capabilities
+> CONCEPT:ORCH-1.2 — Resilient Agent Capabilities
 
 ## Overview
 

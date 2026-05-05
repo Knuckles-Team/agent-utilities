@@ -1,9 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# CONCEPT:AU-014 — Swarm Orchestration & Specialist Factory
-# CONCEPT:AU-020 — Task Prioritization
-# CONCEPT:AU-018 — Guardrails & Safety Patterns
-# CONCEPT:AU-012 — Exception Handling & Recovery
+# CONCEPT:ORCH-1.0 — Swarm Orchestration & Specialist Factory
+# CONCEPT:AHE-3.1 — Task Prioritization
+# CONCEPT:ORCH-1.1 — Guardrails & Safety Patterns
+# CONCEPT:AHE-3.0 — Exception Handling & Recovery
 import pytest
 
 from agent_utilities.graph import steps

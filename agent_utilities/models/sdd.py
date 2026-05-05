@@ -41,6 +41,8 @@ class Task(BaseModel):
     assigned_to: str | None = None
     result: str | None = None
     git_commit: str | None = None
+    subtasks: list["Task"] = Field(default_factory=list)
+    """CONCEPT:ORCH-1.1 — HTN subtasks allowing recursive goal decomposition."""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

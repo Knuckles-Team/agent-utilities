@@ -47,9 +47,9 @@ from agent_utilities.harness.verifier import ManifestVerifier
 class TestComponentType:
     """Test ComponentType enum."""
 
-    def test_all_seven_types_exist(self):
-        """AHE defines exactly 7 component types."""
-        assert len(ComponentType) == 7
+    def test_all_component_types_exist(self):
+        """AHE defines exactly 9 component types."""
+        assert len(ComponentType) == 9
         assert ComponentType.SYSTEM_PROMPT == "system_prompt"
         assert ComponentType.TOOL_DESCRIPTION == "tool_description"
         assert ComponentType.TOOL_IMPLEMENTATION == "tool_implementation"
@@ -57,6 +57,8 @@ class TestComponentType:
         assert ComponentType.SKILL == "skill"
         assert ComponentType.SUB_AGENT == "sub_agent"
         assert ComponentType.LONG_TERM_MEMORY == "long_term_memory"
+        assert ComponentType.ORCHESTRATOR_SKILL == "orchestrator_skill"
+        assert ComponentType.WORKER_SKILL == "worker_skill"
 
 
 class TestComponentEdit:
@@ -419,6 +421,46 @@ class TestTraceDistiller:
             assert len(corpus.get_successes()) == 2
             assert len(corpus.get_failures()) == 1
             assert corpus.pass_rate == pytest.approx(2 / 3, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_attribute_orchestrator_and_worker(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            traces = [
+                {
+                    "id": "t1",
+                    "name": "orchestrator_step",
+                    "status": "error",
+                    "score": 0.1,
+                    "error": "planning failed",
+                },
+                {
+                    "id": "t2",
+                    "name": "worker_step",
+                    "status": "error",
+                    "score": 0.1,
+                    "error": "parallel_batch failed",
+                },
+            ]
+            with open(os.path.join(tmpdir, "round_002.json"), "w") as f:
+                json.dump(traces, f)
+
+            backend = FileTraceBackend(trace_dir=tmpdir)
+            config = DistillationConfig(
+                evidence_output_dir=os.path.join(tmpdir, "evidence")
+            )
+            distiller = TraceDistiller(backend=backend, config=config)
+            corpus = await distiller.distill("round_002")
+
+            assert corpus.total_tasks == 2
+            failures = corpus.get_failures()
+            assert len(failures) == 2
+
+            # Check attributions
+            t1_entry = next(e for e in failures if e.task_id == "orchestrator_step")
+            t2_entry = next(e for e in failures if e.task_id == "worker_step")
+
+            assert t1_entry.component_attribution == ComponentType.ORCHESTRATOR_SKILL
+            assert t2_entry.component_attribution == ComponentType.WORKER_SKILL
 
 
 # ===========================================================================

@@ -1,6 +1,6 @@
 """Tests for MCP tool loading, parsing, and configuration.
 
-CONCEPT:AU-010 — Agent Tool System
+CONCEPT:ECO-4.0 — Agent Tool System
 """
 
 import json

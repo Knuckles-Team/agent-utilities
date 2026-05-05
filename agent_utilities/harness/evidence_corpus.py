@@ -1,6 +1,6 @@
 """Layered Evidence Corpus Models.
 
-CONCEPT:AU-012 — Agentic Harness Engineering (Experience Observability)
+CONCEPT:AHE-3.0 — Agentic Harness Engineering (Experience Observability)
 
 Provides the structured evidence corpus with progressive disclosure.
 Instead of feeding raw Langfuse/OTel traces to the Evolve Agent

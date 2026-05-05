@@ -305,58 +305,58 @@ Successful engineering cycles (e.g., a specific TDD solution for a recurring pro
 
 ---
 
-## Emergent Architecture (CONCEPT:AU-013 through AU-017)
+## Emergent Architecture (CONCEPT:KG-2.0 through AU-017)
 
 The Emergent Architecture layer enables dynamic agent coalition formation, evolutionary variant selection, metacognitive self-modeling, and attention-based output quality filtering. See [emergent-architecture.md](emergent-architecture.md) for complete documentation.
 
-### 5. KG Object-Graph Mapper (CONCEPT:AU-013)
+### 5. KG Object-Graph Mapper (CONCEPT:KG-2.0)
 Declarative bidirectional mapping between Pydantic `RegistryNode` models and Knowledge Graph nodes. Eliminates manual `_upsert_node()` / `_serialize_node()` patterns.
 - **Module**: `agent_utilities/knowledge_graph/ogm.py`
 - **Features**: Auto label resolution, `@kg_label` decorator, dual-write (NetworkX + backend), change watchers
 
-### 6. Swarm Orchestration (CONCEPT:AU-014)
+### 6. Swarm Orchestration (CONCEPT:ORCH-1.0)
 Dynamic agent swarm formation replacing static specialist dispatch. Tasks are decomposed into trees, specialists are ranked by tri-signal affinity, and sub-agents are spawned with parallel/sequential execution.
 - **Module**: `agent_utilities/graph/swarm.py`
 - **Features**: LLM task decomposition, affinity scoring, recursive sub-swarms, coalition KG tracking
 
-### 7. Evolutionary Variant Selection (CONCEPT:AU-015)
+### 7. Evolutionary Variant Selection (CONCEPT:AHE-3.2)
 Population-based competition for prompts, skills, and configurations using dual-strategy generation (LLM-driven + parametric mutations) and tournament selection.
 - **Module**: `agent_utilities/harness/variant_pool.py`
 - **Features**: Parametric mutations, fitness from `OutcomeEvaluation.reward`, tournament selection, auto-pruning
 
-### 8. Persistent Self-Model (CONCEPT:AU-016)
+### 8. Persistent Self-Model (CONCEPT:KG-2.1)
 Versioned metacognitive self-model that aggregates session outcomes into a persistent KG chain. Integrates with OWL for reasoner-driven capability assessment.
 - **Module**: `agent_utilities/knowledge_graph/self_model.py`
 - **Features**: Versioned chain with `CURRENT` pointer, temporal trend analysis, OWL promotion, self-explanation
 
-### 9. Global Workspace Attention (CONCEPT:AU-017)
+### 9. Global Workspace Attention (CONCEPT:ORCH-1.2)
 Always-on attention mechanism that scores specialist outputs by relevance, confidence, and track record before integration. Cost: ~50ms per query (no LLM round-trip).
 - **Module**: `agent_utilities/graph/workspace_attention.py`
 - **Features**: Tri-signal scoring, configurable weights, KG broadcast for training signal
 
 ---
 
-## First Principles Architecture (CONCEPT:AU-024 through AU-027)
+## First Principles Architecture (CONCEPT:ORCH-1.2 through AU-027)
 
 The First Principles Architecture rewires the routing, dispatch, and feedback layers from basic primitives to solve scalability and intelligence bottlenecks. See [first-principles.md](first-principles.md) for the complete deep-dive.
 
-### 10. Registry Hot Cache (CONCEPT:AU-024)
+### 10. Registry Hot Cache (CONCEPT:ORCH-1.2)
 Session-scoped `_RegistryCache` singleton providing O(1) specialist lookups with event-driven invalidation. Reduces prompt bloat from 50+ specialist descriptions to only the top-7 relevant per query.
 - **Module**: `agent_utilities/graph/config_helpers.py`
 - **Features**: Query-keyed caching, 4 invalidation triggers (MCP reload, pipeline, Self-Model, TeamConfig), no TTL risk
 - **Deep-Dive**: [registry-cache.md](registry-cache.md)
 
-### 11. TeamConfig Promotion (CONCEPT:AU-025)
+### 11. TeamConfig Promotion (CONCEPT:AHE-3.3)
 Proven specialist coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback.
 - **Module**: `agent_utilities/knowledge_graph/engine_registry.py`
 - **Features**: Coalition promotion, domain-pattern matching, EMA-based success rate tracking, RLM + TeamConfig synergy
 
-### 12. AgentCapability Type System (CONCEPT:AU-026)
+### 12. AgentCapability Type System (CONCEPT:ORCH-1.2)
 First-class KG capability nodes with auto-activation, trigger conditions, and dynamic handler binding. Capabilities like RLM, critic, and summarizer activate automatically based on input constraints.
 - **Module**: `agent_utilities/models/knowledge_graph.py`, `agent_utilities/graph/executor.py`
 - **Features**: Trigger conditions (input_size_gt, domain, has_images), HAS_CAPABILITY edges, priority ordering
 
-### 13. PlannerGraphSkill (CONCEPT:AU-027)
+### 13. PlannerGraphSkill (CONCEPT:ECO-4.2)
 A2A-native routing entry point that bypasses LLM orchestration overhead. When a `graph_bundle` is present, A2A requests route directly through the graph planner.
 - **Module**: `agent_utilities/protocols/a2a_graph_skill.py`, `agent_utilities/server/app.py`
 - **Features**: Automatic registration when graph is present, priority over LLM-mediated routing
@@ -385,19 +385,19 @@ The server ensures all child processes (MCP servers, TUI, background threads) ar
 
 ## Concept Traceability
 
-- `CONCEPT:AU-001` — Agent Identity Management
-- `CONCEPT:AU-003` — Graph Router Step
-- `CONCEPT:AU-004` — Planner Step
-- `CONCEPT:AU-005` — Verifier Step
-- `CONCEPT:AU-018` — Guardrails & Safety Patterns
-- `CONCEPT:AU-019` — Evaluation & Monitoring
-- `CONCEPT:AU-020` — Task Prioritization
-- `CONCEPT:AU-021` — Exploration & Discovery
-- `CONCEPT:AU-022` — Agentic Coding Patterns
-- `CONCEPT:AU-024` — Registry Hot Cache
-- `CONCEPT:AU-025` — TeamConfig Promotion & Proven Team Reuse
-- `CONCEPT:AU-026` — AgentCapability Type System & Auto-Activation
-- `CONCEPT:AU-027` — A2A PlannerGraphSkill (Graph-Native Routing)
+- `CONCEPT:OS-5.0` — Agent Identity Management
+- `CONCEPT:OS-5.0` — Graph Router Step
+- `CONCEPT:ECO-4.0` — Planner Step
+- `CONCEPT:ORCH-1.3` — Verifier Step
+- `CONCEPT:ORCH-1.1` — Guardrails & Safety Patterns
+- `CONCEPT:OS-5.2` — Evaluation & Monitoring
+- `CONCEPT:AHE-3.1` — Task Prioritization
+- `CONCEPT:ORCH-1.1` — Exploration & Discovery
+- `CONCEPT:AHE-3.2` — Agentic Coding Patterns
+- `CONCEPT:ORCH-1.2` — Registry Hot Cache
+- `CONCEPT:AHE-3.3` — TeamConfig Promotion & Proven Team Reuse
+- `CONCEPT:ORCH-1.2` — AgentCapability Type System & Auto-Activation
+- `CONCEPT:ECO-4.2` — A2A PlannerGraphSkill (Graph-Native Routing)
 
 
 ## Local Secret Storage (Vault & SQLite)

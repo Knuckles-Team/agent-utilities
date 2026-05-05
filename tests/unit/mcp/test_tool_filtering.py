@@ -1,6 +1,6 @@
 """Tests for tool filtering, skill matching, and tag-based discovery.
 
-CONCEPT:AU-010 — Agent Tool System
+CONCEPT:ECO-4.0 — Agent Tool System
 """
 
 from unittest.mock import MagicMock

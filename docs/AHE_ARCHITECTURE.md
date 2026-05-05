@@ -1,6 +1,6 @@
 # Agentic Harness Engineering (AHE) — Architecture
 
-> CONCEPT:AU-012 — Agentic Harness Engineering
+> CONCEPT:AHE-3.0 — Agentic Harness Engineering
 
 ## Overview
 
@@ -89,7 +89,7 @@ important constraints.
 
 ```
 agent_utilities/harness/
-├── __init__.py              # Package exports (CONCEPT:AU-012)
+├── __init__.py              # Package exports (CONCEPT:AHE-3.0)
 ├── manifest.py              # ComponentType, ComponentEdit, ChangeManifest
 ├── evidence_corpus.py       # EvidenceLayer, EvidenceEntry, EvidenceCorpus
 ├── component_registry.py    # HarnessComponentRegistry

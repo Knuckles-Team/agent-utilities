@@ -1,6 +1,6 @@
 """AHE Evolve Agent.
 
-CONCEPT:AU-012 — Agentic Harness Engineering (Evolution Loop)
+CONCEPT:AHE-3.0 — Agentic Harness Engineering (Evolution Loop)
 
 The Evolve Agent reads distilled evidence, identifies component-level
 failure attribution, proposes targeted edits, and records falsifiable
@@ -71,7 +71,7 @@ class EvolveAgent:
 
         When the evidence corpus is too large for a single LLM context
         window, automatically delegates to RLM for deep analysis
-        (CONCEPT:AU-007 × AU-012).
+        (CONCEPT:ORCH-1.1 × AU-012).
 
         Args:
             evidence: The distilled evidence corpus for this round.
@@ -130,7 +130,7 @@ class EvolveAgent:
     ) -> list[ComponentEdit]:
         """RLM-powered deep analysis for large evidence corpora.
 
-        CONCEPT:AU-007 × AU-012 — RLM for AHE Evolution Loop
+        CONCEPT:ORCH-1.1 × AU-012 — RLM for AHE Evolution Loop
 
         When the serialized evidence exceeds the context threshold,
         delegates to an RLM sub-agent that programmatically loops
@@ -170,7 +170,8 @@ class EvolveAgent:
                 "Identify the top failure patterns and their component attributions. "
                 "For each, propose a ComponentEdit with: "
                 "'component_type' (one of: system_prompt, tool_description, "
-                "tool_implementation, middleware, skill, sub_agent, long_term_memory), "
+                "tool_implementation, middleware, skill, orchestrator_skill, "
+                "worker_skill, sub_agent, long_term_memory), "
                 "'file_path' (estimated target file), "
                 "'edit_summary' (what to change), "
                 "'predicted_fixes' (list of task_ids expected to fix), "

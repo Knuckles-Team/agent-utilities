@@ -1,6 +1,6 @@
 """Harness Component Registry.
 
-CONCEPT:AU-012 — Agentic Harness Engineering (Component Observability)
+CONCEPT:AHE-3.0 — Agentic Harness Engineering (Component Observability)
 
 Tracks which filesystem paths correspond to which AHE component types,
 enabling file-level version tracking and granular git rollbacks.

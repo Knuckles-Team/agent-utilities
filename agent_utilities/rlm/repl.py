@@ -23,7 +23,7 @@ class RecursionLimitError(Exception):
 class RLMEnvironment:
     """A persistent Python REPL environment for Recursive Language Models.
 
-    CONCEPT:AU-007 — RLM Execution
+    CONCEPT:ORCH-1.1 — RLM Execution
 
     Implements Algorithm 1 from Zhang et al. (2025): the user prompt is
     loaded as a variable inside the REPL — the root LLM receives only

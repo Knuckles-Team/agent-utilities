@@ -5,7 +5,7 @@ New code should import from the submodules directly:
 - ``agent_utilities.mcp.server_factory`` — parser, server creation, auth config
 - ``agent_utilities.mcp.context_helpers`` — ctx_* helpers
 
-CONCEPT:AU-010 — MCP Standardized Interfaces
+CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 """
 
 __version__ = "0.4.0"

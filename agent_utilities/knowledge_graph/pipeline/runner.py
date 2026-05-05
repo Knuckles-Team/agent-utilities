@@ -75,7 +75,7 @@ class PipelineRunner:
                 logger.error(f"Phase {phase.name} failed: {e}")
                 raise e
 
-        # CONCEPT:AU-024 — Invalidate hot cache after pipeline completion
+        # CONCEPT:ORCH-1.2 — Invalidate hot cache after pipeline completion
         from agent_utilities.graph.config_helpers import invalidate_registry_cache
 
         invalidate_registry_cache()

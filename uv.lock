@@ -67,7 +67,7 @@ wheels = [
 
 [[package]]
 name = "agent-terminal-ui"
-version = "0.3.0"
+version = "0.7.0"
 source = { directory = "../agent-terminal-ui" }
 dependencies = [
     { name = "agent-client-protocol" },
@@ -123,15 +123,16 @@ ag-ui = [
     { name = "agent-webui" },
 ]
 agent = [
-    { name = "ladybug" },
-    { name = "networkx" },
+    { name = "agent-terminal-ui" },
+    { name = "agent-webui" },
+    { name = "eunomia-mcp" },
+    { name = "fastapi" },
+    { name = "fastmcp" },
+    { name = "httpx" },
     { name = "pydantic-ai-skills" },
     { name = "pydantic-ai-slim", extra = ["a2a", "ag-ui", "cli", "fastmcp", "openai", "web"] },
     { name = "pydantic-graph" },
     { name = "skill-graphs" },
-    { name = "tree-sitter-javascript" },
-    { name = "tree-sitter-python" },
-    { name = "tree-sitter-typescript" },
     { name = "universal-skills" },
 ]
 agent-anthropic = [
@@ -151,6 +152,8 @@ agent-mistral = [
 ]
 all = [
     { name = "acpkit", extra = ["pydantic"] },
+    { name = "agent-terminal-ui" },
+    { name = "agent-webui" },
     { name = "authlib" },
     { name = "eunomia-mcp" },
     { name = "fastapi" },
@@ -179,6 +182,7 @@ all = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-env" },
+    { name = "pytest-timeout" },
     { name = "rdflib" },
     { name = "repository-manager" },
     { name = "ruff" },
@@ -212,16 +216,24 @@ embeddings-openai = [
 falkordb = [
     { name = "falkordb" },
 ]
-logfire = [
+graph = [
     { name = "ladybug" },
     { name = "networkx" },
+    { name = "tree-sitter-javascript" },
+    { name = "tree-sitter-python" },
+    { name = "tree-sitter-typescript" },
+]
+logfire = [
+    { name = "agent-terminal-ui" },
+    { name = "agent-webui" },
+    { name = "eunomia-mcp" },
+    { name = "fastapi" },
+    { name = "fastmcp" },
+    { name = "httpx" },
     { name = "pydantic-ai-skills" },
     { name = "pydantic-ai-slim", extra = ["a2a", "ag-ui", "cli", "fastmcp", "logfire", "openai", "web"] },
     { name = "pydantic-graph" },
     { name = "skill-graphs" },
-    { name = "tree-sitter-javascript" },
-    { name = "tree-sitter-python" },
-    { name = "tree-sitter-typescript" },
     { name = "universal-skills" },
 ]
 mcp = [
@@ -247,6 +259,12 @@ terminal = [
 ]
 test = [
     { name = "acpkit", extra = ["pydantic"] },
+    { name = "agent-terminal-ui" },
+    { name = "agent-webui" },
+    { name = "eunomia-mcp" },
+    { name = "fastapi" },
+    { name = "fastmcp" },
+    { name = "httpx" },
     { name = "hypothesis" },
     { name = "ladybug" },
     { name = "mutmut" },
@@ -263,6 +281,7 @@ test = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-env" },
+    { name = "pytest-timeout" },
     { name = "rdflib" },
     { name = "repository-manager" },
     { name = "ruff" },
@@ -285,72 +304,74 @@ requires-dist = [
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.3.0" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.3.0" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.3.0" },
+    { name = "agent-utilities", extras = ["mcp", "ag-ui", "terminal"], marker = "extra == 'agent'", specifier = ">=0.3.0" },
     { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "graph", "browser", "test", "owl", "stardog", "vault", "auth"], marker = "extra == 'all'", specifier = ">=0.3.0" },
     { name = "agent-utilities", extras = ["owl"], marker = "extra == 'stardog'" },
     { name = "agent-webui", marker = "extra == 'ag-ui'", directory = "../agent-webui" },
-    { name = "authlib", marker = "extra == 'auth'", specifier = ">=1.7.0" },
+    { name = "authlib", marker = "extra == 'auth'", specifier = ">=1.4.0" },
     { name = "cryptography", specifier = ">=47.0.0" },
     { name = "eunomia-mcp", marker = "extra == 'mcp'", specifier = ">=0.3.10" },
-    { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.6.1" },
+    { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.0.1" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.131.0" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.2.0" },
     { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28.1" },
-    { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.4.0" },
+    { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.3.0" },
     { name = "hypothesis", marker = "extra == 'test'", specifier = ">=6.152.1" },
-    { name = "ladybug", specifier = ">=0.16.0" },
-    { name = "ladybug", marker = "extra == 'agent'", specifier = ">=0.16.0" },
+    { name = "ladybug", specifier = ">=0.15.3" },
+    { name = "ladybug", marker = "extra == 'graph'", specifier = ">=0.15.3" },
     { name = "llama-index-core", marker = "extra == 'embeddings'", specifier = ">=0.14.15" },
-    { name = "llama-index-embeddings-huggingface", marker = "extra == 'embeddings-huggingface'", specifier = ">=0.7.0" },
-    { name = "llama-index-embeddings-ollama", marker = "extra == 'embeddings-ollama'", specifier = ">=0.9.0" },
-    { name = "llama-index-embeddings-openai", marker = "extra == 'embeddings-openai'", specifier = ">=0.6.0" },
+    { name = "llama-index-embeddings-huggingface", marker = "extra == 'embeddings-huggingface'", specifier = ">=0.6.1" },
+    { name = "llama-index-embeddings-ollama", marker = "extra == 'embeddings-ollama'", specifier = ">=0.8.6" },
+    { name = "llama-index-embeddings-openai", marker = "extra == 'embeddings-openai'", specifier = ">=0.5.1" },
     { name = "mutmut", marker = "extra == 'test'" },
     { name = "mypy", marker = "extra == 'test'" },
     { name = "neo4j", marker = "extra == 'neo4j'", specifier = ">=6.1.0" },
     { name = "networkx", specifier = ">=3.0" },
-    { name = "networkx", marker = "extra == 'agent'", specifier = ">=3.0" },
+    { name = "networkx", marker = "extra == 'graph'", specifier = ">=3.0" },
     { name = "numpy" },
     { name = "opentelemetry-instrumentation-asgi", marker = "extra == 'test'" },
     { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'test'" },
     { name = "opentelemetry-instrumentation-starlette", marker = "extra == 'test'" },
     { name = "owlready2", marker = "extra == 'owl'", specifier = ">=0.46" },
     { name = "pathspec" },
-    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.59.0" },
+    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.49.1" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.8.2" },
     { name = "pydantic-acp", marker = "extra == 'acp'", specifier = ">=0.1.0" },
     { name = "pydantic-ai-skills", marker = "extra == 'agent'", specifier = ">=0.4.1" },
     { name = "pydantic-ai-slim", extras = ["anthropic"], marker = "extra == 'agent-anthropic'", specifier = ">=1.73.0,<2.0.0" },
-    { name = "pydantic-ai-slim", extras = ["fastmcp", "openai", "a2a", "ag-ui", "web", "cli"], marker = "extra == 'agent'", specifier = ">=1.88.0,<2.0.0" },
+    { name = "pydantic-ai-slim", extras = ["fastmcp", "openai", "a2a", "ag-ui", "web", "cli"], marker = "extra == 'agent'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["google"], marker = "extra == 'agent-google'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["groq"], marker = "extra == 'agent-groq'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["huggingface"], marker = "extra == 'agent-huggingface'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["logfire"], marker = "extra == 'logfire'", specifier = ">=1.73.0,<2.0.0" },
     { name = "pydantic-ai-slim", extras = ["mistral"], marker = "extra == 'agent-mistral'", specifier = ">=1.73.0,<2.0.0" },
-    { name = "pydantic-graph", marker = "extra == 'agent'", specifier = ">=1.88.0" },
-    { name = "pydantic-settings", specifier = ">=2.14.0" },
+    { name = "pydantic-graph", marker = "extra == 'agent'", specifier = ">=1.0.0" },
+    { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pystardog", marker = "extra == 'stardog'", specifier = ">=0.20.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'" },
     { name = "pytest-cov", marker = "extra == 'test'" },
     { name = "pytest-env", marker = "extra == 'test'" },
+    { name = "pytest-timeout", marker = "extra == 'test'" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "rdflib", marker = "extra == 'owl'", specifier = ">=7.0.0" },
-    { name = "repository-manager", marker = "extra == 'test'" },
+    { name = "repository-manager", marker = "extra == 'test'", directory = "../agents/repository-manager" },
     { name = "requests", specifier = ">=2.32.5" },
     { name = "ruff", marker = "extra == 'test'" },
     { name = "scipy" },
-    { name = "skill-graphs", marker = "extra == 'agent'", specifier = ">=0.1.41" },
+    { name = "skill-graphs", marker = "extra == 'agent'", directory = "../skills/skill-graphs" },
     { name = "tree-sitter", specifier = ">=0.23.2" },
-    { name = "tree-sitter-javascript", marker = "extra == 'agent'", specifier = ">=0.23.0" },
-    { name = "tree-sitter-python", marker = "extra == 'agent'", specifier = ">=0.23.0" },
-    { name = "tree-sitter-typescript", marker = "extra == 'agent'", specifier = ">=0.23.0" },
-    { name = "universal-skills", marker = "extra == 'agent'", specifier = ">=0.1.60" },
-    { name = "urllib3", specifier = ">=2.6.3" },
+    { name = "tree-sitter-javascript", marker = "extra == 'graph'", specifier = ">=0.23.0" },
+    { name = "tree-sitter-python", marker = "extra == 'graph'", specifier = ">=0.23.0" },
+    { name = "tree-sitter-typescript", marker = "extra == 'graph'", specifier = ">=0.23.0" },
+    { name = "universal-skills", marker = "extra == 'agent'", directory = "../skills/universal-skills" },
+    { name = "urllib3", specifier = ">=2.3.0" },
 ]
-provides-extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "ag-ui", "terminal", "browser", "acp", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "neo4j", "falkordb", "owl", "stardog", "vault", "auth", "test", "all"]
+provides-extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "ag-ui", "terminal", "browser", "acp", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "graph", "neo4j", "falkordb", "owl", "stardog", "vault", "auth", "test", "all"]
 
 [[package]]
 name = "agent-webui"
-version = "0.2.0"
+version = "0.5.0"
 source = { directory = "../agent-webui" }
 dependencies = [
     { name = "fastapi" },
@@ -4047,6 +4068,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-timeout"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/82/4c9ecabab13363e72d880f2fb504c5f750433b2b6f16e99f4ec21ada284c/pytest_timeout-2.4.0.tar.gz", hash = "sha256:7e68e90b01f9eff71332b25001f85c75495fc4e3a836701876183c4bcfd0540a", size = 17973, upload-time = "2025-05-05T19:44:34.99Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/b6/3127540ecdf1464a00e5a01ee60a1b09175f6913f0644ac748494d9c4b21/pytest_timeout-2.4.0-py3-none-any.whl", hash = "sha256:c42667e5cdadb151aeb5b26d114aff6bdf5a907f176a007a30b940d3d865b5c2", size = 14382, upload-time = "2025-05-05T19:44:33.502Z" },
+]
+
+[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 source = { registry = "https://pypi.org/simple" }
@@ -4297,15 +4330,28 @@ wheels = [
 
 [[package]]
 name = "repository-manager"
-version = "1.3.57"
-source = { registry = "https://pypi.org/simple" }
+version = "1.8.0"
+source = { directory = "../agents/repository-manager" }
 dependencies = [
     { name = "agent-utilities", extra = ["mcp"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/07/06ff67bad35e3cb38314f0ceda33d16926270a97d28aabd8e1ec6fdfceae/repository_manager-1.3.57.tar.gz", hash = "sha256:c7b42742f4af4f781bfd090bf7cde211fe2f182dd16367ca9bb0225471853e21", size = 72697, upload-time = "2026-04-30T07:13:57.73Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/db/f16b6b5835386d583ffdd4a38980eb30e7c383bc6d01d1763d15e4e8890b/repository_manager-1.3.57-py3-none-any.whl", hash = "sha256:d048ce64541ad722d156ec5c8d3941f37570cf2e4325c6b452c52a731dde887b", size = 76493, upload-time = "2026-04-30T07:13:56.141Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "agent-utilities", extras = ["agent", "logfire"], marker = "extra == 'agent'", editable = "." },
+    { name = "agent-utilities", extras = ["agent", "logfire"], marker = "extra == 'all'", editable = "." },
+    { name = "agent-utilities", extras = ["mcp"], editable = "." },
+    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'all'", editable = "." },
+    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'mcp'", editable = "." },
+    { name = "bump2version", marker = "extra == 'agent'", specifier = ">=1.0.1" },
+    { name = "bump2version", marker = "extra == 'all'", specifier = ">=1.0.1" },
+    { name = "pre-commit", marker = "extra == 'agent'", specifier = ">=4.5.1" },
+    { name = "pre-commit", marker = "extra == 'all'", specifier = ">=4.5.1" },
 ]
+provides-extras = ["mcp", "agent", "all"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest-timeout", specifier = ">=2.4.0" }]
 
 [[package]]
 name = "requests"
@@ -4803,12 +4849,15 @@ wheels = [
 
 [[package]]
 name = "skill-graphs"
-version = "0.1.41"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f5/ba/546f5d613a9afab0d638076a90b9448cae49d73d5983b17a7d405fc90f18/skill_graphs-0.1.41.tar.gz", hash = "sha256:30d0c7eceb29bc151e2bb4371d4a43c927d6cf559059f04e313f5d58ed70e502", size = 5450, upload-time = "2026-04-30T06:58:03.986Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/18/cc/d504d40c74c909891bfcdc46138c58133f754c44532ede58e26618bbb938/skill_graphs-0.1.41-py3-none-any.whl", hash = "sha256:38f59045b08f28796fc63110ee856e0b57c64138d4fe394888558829ce7d983e", size = 5813, upload-time = "2026-04-30T06:58:03.025Z" },
+version = "0.4.0"
+source = { directory = "../skills/skill-graphs" }
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest", marker = "extra == 'test'" },
+    { name = "pytest-asyncio", marker = "extra == 'test'" },
 ]
+provides-extras = ["test"]
 
 [[package]]
 name = "sniffio"
@@ -5373,12 +5422,129 @@ wheels = [
 
 [[package]]
 name = "universal-skills"
-version = "0.1.60"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/91/10/796ccce11a5e98e6856f564661838871d45f76471090665956588ed3c36c/universal_skills-0.1.60.tar.gz", hash = "sha256:09aaa4a3bc2ad133612e9f725be13cfee176fd45c14f7497e1eca7d6d3ea456f", size = 373769, upload-time = "2026-04-30T06:57:53.298Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/6b/621c43e67f7bddadbcbb23acfe61f69b191f8a1f0f19bce70c7b0c25379f/universal_skills-0.1.60-py3-none-any.whl", hash = "sha256:78982e144c1da66dce07c855a2a4408f23be89eff3b96e8938c505e7c5fd384c", size = 490196, upload-time = "2026-04-30T06:57:51.143Z" },
+version = "0.4.0"
+source = { directory = "../skills/universal-skills" }
+
+[package.metadata]
+requires-dist = [
+    { name = "bcrypt", marker = "extra == 'developer-utilities'" },
+    { name = "crawl4ai", marker = "extra == 'skill-graph-builder'" },
+    { name = "crawl4ai", marker = "extra == 'web-crawler'" },
+    { name = "crawl4ai", marker = "extra == 'web-fetch'" },
+    { name = "cryptography", marker = "extra == 'developer-utilities'" },
+    { name = "ddgs", marker = "extra == 'web-search'" },
+    { name = "defusedxml", marker = "extra == 'document-tools'" },
+    { name = "ebooklib", marker = "extra == 'document-tools'" },
+    { name = "fastmcp", marker = "extra == 'mcp-builder'" },
+    { name = "fastmcp", marker = "extra == 'mcp-client'" },
+    { name = "httpx", marker = "extra == 'agent-workflows'" },
+    { name = "httpx", marker = "extra == 'test'" },
+    { name = "keepachangelog", marker = "extra == 'code-enhancer'", specifier = ">=2.0.0" },
+    { name = "keyring", marker = "extra == 'google-workspace'" },
+    { name = "lxml", marker = "extra == 'document-tools'" },
+    { name = "mammoth", marker = "extra == 'document-converter'" },
+    { name = "markdownify", marker = "extra == 'document-converter'" },
+    { name = "markitdown", marker = "extra == 'skill-graph-builder'", specifier = ">=0.1.5" },
+    { name = "mdsplit", marker = "extra == 'skill-graph-builder'" },
+    { name = "mysql-connector-python", marker = "extra == 'database-tools'" },
+    { name = "nbconvert", marker = "extra == 'jupyter-notebook'" },
+    { name = "nbformat", marker = "extra == 'jupyter-notebook'" },
+    { name = "networkx", marker = "extra == 'security-tools'" },
+    { name = "openpyxl", marker = "extra == 'document-tools'" },
+    { name = "packaging", marker = "extra == 'code-enhancer'" },
+    { name = "pdf2image", marker = "extra == 'document-tools'" },
+    { name = "pdfplumber", marker = "extra == 'document-tools'" },
+    { name = "pillow", marker = "extra == 'browser-tools'" },
+    { name = "pillow", marker = "extra == 'creative-media'" },
+    { name = "pillow", marker = "extra == 'document-tools'" },
+    { name = "playwright", marker = "extra == 'browser-tools'" },
+    { name = "playwright", marker = "extra == 'skill-graph-builder'" },
+    { name = "playwright", marker = "extra == 'web-crawler'" },
+    { name = "playwright", marker = "extra == 'web-fetch'" },
+    { name = "psutil", marker = "extra == 'skill-graph-builder'" },
+    { name = "psutil", marker = "extra == 'system-tools'" },
+    { name = "psutil", marker = "extra == 'web-crawler'" },
+    { name = "psutil", marker = "extra == 'web-fetch'" },
+    { name = "psycopg2-binary", marker = "extra == 'database-tools'" },
+    { name = "pydantic", marker = "extra == 'api-wrapper-builder'" },
+    { name = "pygments", marker = "extra == 'document-tools'" },
+    { name = "pymssql", marker = "extra == 'database-tools'" },
+    { name = "pymupdf4llm", marker = "extra == 'document-converter'" },
+    { name = "pymupdf4llm", marker = "extra == 'skill-graph-builder'", specifier = ">=0.0.17" },
+    { name = "pypdf", marker = "extra == 'document-tools'" },
+    { name = "pytest", marker = "extra == 'test'" },
+    { name = "pytest-asyncio", marker = "extra == 'test'" },
+    { name = "python-docx", marker = "extra == 'document-tools'" },
+    { name = "python-dotenv", marker = "extra == 'agent-spawner'" },
+    { name = "python-dotenv", marker = "extra == 'cloudflare-deploy'" },
+    { name = "python-dotenv", marker = "extra == 'github-tools'" },
+    { name = "python-dotenv", marker = "extra == 'mcp-client'" },
+    { name = "python-pptx", marker = "extra == 'document-tools'" },
+    { name = "pyyaml", marker = "extra == 'agent-builder'" },
+    { name = "pyyaml", marker = "extra == 'agent-workflows'" },
+    { name = "pyyaml", marker = "extra == 'developer-utilities'" },
+    { name = "pyyaml", marker = "extra == 'skill-builder'" },
+    { name = "pyyaml", marker = "extra == 'skill-graph-builder'", specifier = ">=6.0" },
+    { name = "pyyaml", marker = "extra == 'test'" },
+    { name = "requests", marker = "extra == 'api-wrapper-builder'" },
+    { name = "requests", marker = "extra == 'cloudflare-deploy'" },
+    { name = "requests", marker = "extra == 'code-enhancer'" },
+    { name = "requests", marker = "extra == 'github-tools'" },
+    { name = "requests", marker = "extra == 'google-workspace'" },
+    { name = "requests", marker = "extra == 'security-tools'" },
+    { name = "requests", marker = "extra == 'skill-graph-builder'" },
+    { name = "requests", marker = "extra == 'web-artifacts'" },
+    { name = "requests", marker = "extra == 'web-crawler'" },
+    { name = "requests", marker = "extra == 'web-fetch'" },
+    { name = "requests", marker = "extra == 'web-search'" },
+    { name = "sqlparse", marker = "extra == 'developer-utilities'" },
+    { name = "toml", marker = "extra == 'developer-utilities'" },
+    { name = "universal-skills", extras = ["agent-browser"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["agent-builder"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["agent-package-builder"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["agent-spawner"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["agent-workflows"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["algorithmic-art"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["api-wrapper-builder"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["brainstorming"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["brand-guidelines"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["browser-tools"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["c4-architecture"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["canvas-design"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["cloudflare-deploy"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["code-enhancer"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["creative-media"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["database-tools"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["developer-utilities"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["document-converter"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["document-tools"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["github-tools"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["google-workspace"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["internal-comms"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["mcp-client"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["product-strategy"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["react-development"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["react-native-skills"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["security-tools"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["session-handoff"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["skill-builder"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["skill-graph-builder"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["skill-installer"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["system-tools"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["tdd-methodology"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["theme-factory"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["user-research"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["web-artifacts"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["web-crawler"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["web-design-guidelines"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["web-fetch"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["web-search"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["website-builder"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "universal-skills", extras = ["website-cloner"], marker = "extra == 'all'", specifier = ">=0.1.60" },
+    { name = "user-agents", marker = "extra == 'developer-utilities'" },
+    { name = "validators", marker = "extra == 'document-tools'" },
 ]
+provides-extras = ["test", "agent-browser", "agent-builder", "agent-package-builder", "agent-spawner", "mcp-client", "agent-workflows", "algorithmic-art", "api-wrapper-builder", "brainstorming", "brand-guidelines", "browser-tools", "c4-architecture", "canvas-design", "cloudflare-deploy", "creative-media", "database-tools", "document-converter", "developer-utilities", "document-tools", "github-tools", "google-workspace", "internal-comms", "jupyter-notebook", "marp-presentations", "mcp-builder", "mermaid-diagrams", "product-strategy", "react-development", "react-native-skills", "security-tools", "session-handoff", "skill-builder", "skill-installer", "skill-graph-builder", "system-tools", "tdd-methodology", "theme-factory", "user-research", "web-artifacts", "web-crawler", "web-design-guidelines", "web-search", "web-fetch", "website-builder", "website-cloner", "code-enhancer", "all"]
 
 [[package]]
 name = "urllib3"

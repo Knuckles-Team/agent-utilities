@@ -37,12 +37,14 @@ from agent_utilities.core.config import (
 )
 
 from ..models import (
+    ExecutionBudget,
     GraphPlan,
     ParallelBatch,
     ProgressLog,
     SprintContract,
     Tasks,
     UsageStatistics,
+    WideSearchWorkboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,7 +112,7 @@ class GraphDeps:
     """Map of server_id to list of tool names found during discovery phase."""
     secrets_client: Any | None = None
     """Optional SecretsClient for encrypted credential resolution.
-    CONCEPT:AU-011 — Secrets & Authentication"""
+    CONCEPT:OS-5.1 — Secrets & Authentication"""
 
     plan_sync: PlanSyncCallback | None = None
     """Optional async callback for syncing graph plan state to ACP.
@@ -145,6 +147,34 @@ class GraphDeps:
     inside :attr:`model_registry`, :func:`pick_specialist_model` uses it
     verbatim for every specialist node, bypassing the tier/tag heuristic.
     Invalid or unknown ids fall back to the default selection logic."""
+
+    cognitive_scheduler: Any | None = None
+    """Optional :class:`~agent_utilities.core.cognitive_scheduler.CognitiveScheduler`
+    for priority-aware agent management.  Typed as Any to avoid circular import.
+    CONCEPT:OS-5.2 — Cognitive Scheduler"""
+
+    permissions_kernel: Any | None = None
+    """Optional :class:`~agent_utilities.security.permissions_kernel.PermissionsKernel`
+    for identity-based tool governance.  Typed as Any to avoid circular import.
+    CONCEPT:OS-5.1 — Permissions Kernel"""
+
+    agent_identity: Any | None = None
+    """The signed ``AgentIdentity`` for this execution context.
+    Populated by the ``PermissionsKernel`` when the graph is initialised.
+    CONCEPT:OS-5.1 — Permissions Kernel"""
+
+    resource_optimizer: Any | None = None
+    """Optional :class:`~agent_utilities.core.resource_optimizer.ResourceOptimizer`
+    for budget-aware model tier selection.  When populated,
+    :func:`pick_specialist_model` consults it for homeostatic downgrade.
+    CONCEPT:OS-5.2 — Homeostatic Model Downgrade"""
+
+    routing_percentile: float = float(os.getenv("ROUTING_PERCENTILE", "50.0"))
+    """Confidence threshold percentile for adaptive model tier routing.
+    Values above ``routing_percentile / 100`` trigger a tier downgrade;
+    values below ``1 - threshold`` trigger escalation.  Default 50 gives
+    a balanced split; lower values route more aggressively to cheap models.
+    CONCEPT:ORCH-1.2 — Confidence-Gated Router"""
 
 
 @dataclass
@@ -220,6 +250,9 @@ class GraphState:
     session_usage: UsageStatistics = field(default_factory=UsageStatistics)
     """Aggregated token usage and cost for this session."""
 
+    execution_budget: ExecutionBudget = field(default_factory=ExecutionBudget)
+    """CONCEPT:ORCH-1.3 — Execution Budget. Defines caps for this session."""
+
     user_redirect_feedback: str | None = None
     """Feedback from a triage pause that redirects the graph to a different domain."""
 
@@ -268,6 +301,53 @@ class GraphState:
 
     active_policies: list[Policy] = field(default_factory=list)
     """List of policies applicable to the current context."""
+
+    signal_board: dict[str, list[str]] = field(default_factory=dict)
+    """CONCEPT:ORCH-1.0 — Stigmergy Signal Board.
+    Lightweight pub/sub within the graph execution session. Specialists
+    emit signals (e.g., ``dependency_gap``, ``security_concern``) via
+    ``emit_signal()`` and the dispatcher injects relevant signals into
+    subsequent specialist system prompts.
+
+    Schema: ``{signal_type: [message, ...]}``."""
+
+    routing_confidence_log: list[dict[str, Any]] = field(default_factory=list)
+    """CONCEPT:ORCH-1.2 — Log of confidence-gated routing decisions.
+    Each entry records the specialist id, confidence signal, original
+    tier, routed tier, and timestamp for observability and diagnostics.
+
+    Schema: ``[{specialist_id, confidence, original_tier, routed_tier, timestamp}, ...]``."""
+
+    recursion_depth: int = 0
+    """CONCEPT:ORCH-1.1 — Current nesting depth for recursive graph orchestration.
+    Incremented when a nested run_graph() is spawned as a specialist step.
+    Capped at MAX_RECURSION_DEPTH (default 2, configurable via env var).
+    Inspired by the RL Conductor's self-referential recursive topologies
+    (Nielsen et al., ICLR 2026)."""
+
+    workboard: WideSearchWorkboard | None = None
+    """CONCEPT:AU-055 — Pydantic-Native Shared Workboard.
+    A thread-safe/merge-safe shared memory scratchpad for parallel workers
+    during wide-search extraction tasks."""
+
+    def merge_workboard_data(self, entity_id: str, row_data: dict[str, Any]):
+        """Safely merge extracted data into the shared workboard."""
+        if not self.workboard:
+            self.workboard = WideSearchWorkboard()
+
+        if entity_id in self.workboard.row_slots:
+            # Simple conflict log for now
+            self.workboard.conflict_log.append(
+                {
+                    "entity_id": entity_id,
+                    "existing": self.workboard.row_slots[entity_id],
+                    "new": row_data,
+                }
+            )
+            # Merge dicts
+            self.workboard.row_slots[entity_id].update(row_data)
+        else:
+            self.workboard.row_slots[entity_id] = row_data
 
     def _update_usage(self, result_usage: Any):
         """Update the accumulated session usage statistics.

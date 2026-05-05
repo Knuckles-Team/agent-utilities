@@ -41,8 +41,12 @@
 - [Contributing](#contributing)
 - [License](#license)
 
-## Overview
-Agent Utilities provides a robust foundation for building production-ready Pydantic AI Agents with an Artificial General Intelligence (AGI) Harness, it simplifies agent creation, adds advanced **Graph Orchestration**, and provides essential "operating system" tools including state persistence, resilience, and high-fidelity streaming.
+## 🌌 Mission & Future State: Distributed Evolution
+The core vision for `agent-utilities` transcends being just an execution harness—it is the bedrock for **Distributed Agentic Evolution**.
+
+As autonomous agents leverage this ecosystem to solve complex problems, they continuously learn, adapt, and refine their own capabilities. Our future state envisions a community of independent, self-improving agents that not only run on this harness but dynamically contribute their localized evolutionary breakthroughs—new skills, optimized TeamConfigs, refined prompts, and advanced reasoning traces—back to the open-source collective.
+
+By tying our unified Knowledge Graph, capability auto-activation, and cross-agent communication protocols together, `agent-utilities` becomes an interconnected hive mind where the evolution of one agent elevates the intelligence of all. The harness is not just a way to run an agent; it is the heartbeat of a distributed, self-evolving intelligence network.
 
 ## Key Features
 
@@ -67,25 +71,40 @@ Agent Utilities provides a robust foundation for building production-ready Pydan
 - **Direct Graph Execution**: Protocol adapters (AG-UI, ACP) can bypass the outer LLM agent and invoke `graph.iter()` directly, eliminating one full inference round-trip per request. Controlled via `GRAPH_DIRECT_EXECUTION` env var.
 - **Typed Foundation**: Zero-config dependency injection using `AgentDeps`.
 - **Specialist Discovery**: Automated discovery of domain specialists directly from the **Knowledge Graph**.
-- **Autonomous Memory Architecture**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Agent Lightning-style self-improvement loops. Unifies code awareness, chat memory, and **Research Knowledge Bases** (Medical, Chemistry, etc.) into a singular, schema-enforced graph. Cross-domain relationships emerge automatically through shared concepts. Supports unified ingestion of MCP, A2A, and Skill-based resources with automated importance scoring and temporal decay.
+- **Autonomous Memory Architecture**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Autonomous Self-Improvement loops. Unifies code awareness, chat memory, and **Research Knowledge Bases** (Medical, Chemistry, etc.) into a singular, schema-enforced graph. Cross-domain relationships emerge automatically through shared concepts. Supports unified ingestion of MCP, A2A, and Skill-based resources with automated importance scoring and temporal decay.
 - **Agent Server**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/acp` (Standardized Protocol), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation**: Runtime generation of OpenAPI specifications for all agent server APIs.
 - **Workspace Management**: Automated management of agent state through standardized structures. (Note: Legacy files like `IDENTITY.md` and `USER.md` have been migrated to the Knowledge Graph and `main_agent.json` templates).
 - **Spec-Driven Development (SDD)**: High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`Spec`), Implementation Plans, and dependency-aware Tasks. Ensures technical precision and parallel execution safety.
-- **Unified Intelligence Graph**: A powerful 14-phase topological pipeline that unifies **NetworkX** in-memory analysis with Cypher persistence. Enables deep structural codebase awareness, cross-repository symbol mapping, and long-term agent memory. Includes a **Hybrid OWL Reasoning Sidecar** for deterministic transitive inference.
+- **Unified Intelligence Graph**: A powerful 15-phase topological pipeline that unifies **NetworkX** in-memory analysis with Cypher persistence. Enables deep structural codebase awareness, cross-repository symbol mapping, and long-term agent memory. Includes a **Hybrid OWL Reasoning Sidecar** for deterministic transitive inference and a **Graph Integrity Validator** for post-ingestion validation.
 - **Graph Database Abstraction**: Out-of-the-box support for multiple Cypher-compatible backends including **LadybugDB** (default embedded), **FalkorDB**, and **Neo4j**.
 - **Graph-Native Ecosystem State**: Flat-file management (`MEMORY.md`, `USER.md`, `HEARTBEAT.md`, `CRON.md`) has been fully deprecated. Agent memory, execution logs, client profiles, and background scheduled tasks are now stored natively as highly-relational nodes within the Knowledge Graph.
 - **Automated Graph Maintenance**: Built-in Cypher-driven maintenance routines (`maintenance.py`) that handle vector embedding enrichment, scheduled cron log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
 - **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies are lazy-loaded only when requested via optional extras.
+- **Confidence-Gated Model Routing (AU-039)**: Adaptive model tier selection using runtime confidence signals from specialist consensus. High-confidence groups route to cheaper models; low-confidence groups escalate to reasoning-tier models. Based on the Squeeze Evolve multi-model orchestration framework.
+- **Evolutionary Aggregation (AU-040)**: Group-level diversity scoring with three-tier aggregation (majority vote / light synthesis / deep aggregation). Convergence-aware early stopping prevents diversity collapse in multi-loop specialist tasks.
+- **Schema Packs (AU-041)**: Domain-configurable KG profiles with dual ADDITIVE/EXCLUSIVE modes. Scopes active node types, edge types, retrieval boosts, and OWL extensions to a specific domain. Pre-built packs: `core`, `research-state`, `biomedical`, `finance`.
+- **Backlink-Density Retrieval Boost (AU-042)**: Logarithmic in-degree retrieval weighting in `HybridRetriever`. Hub entities with many inbound edges are boosted proportionally. Pack-configurable strategy: `global`, `context_only`, or `disabled`.
+- **KG Eval Capture (AU-043)**: Lightweight regression testing harness recording query-result pairs to a separate SQLite database. Enables Jaccard@k replay and top-1 stability tracking after KG changes.
+- **Conductor Workflow Specification (AU-044)**: Refined natural-language subtask instructions per specialist step. The planner crafts focused sub-goals tailored to each specialist's strengths instead of forwarding the raw user query. Inspired by the RL Conductor (Nielsen et al., ICLR 2026).
+- **Execution Visibility Graph (AU-045)**: Per-step `access_list` controlling which prior step results are visible to each specialist. Enables tree-structured workflows with precise context isolation, reducing prompt bloat and preventing context pollution.
+- **Model Synergy Tracker (AU-046)**: Tracks per-model-combination success rates in the SelfModel via EMA. When a preferred model becomes unavailable, the system queries historical synergies to find the best alternative combination.
+- **Recursive Graph Orchestration (AU-047)**: Nested `run_graph()` calls for self-referential test-time scaling. When a plan fails, a recursive orchestrator spawns an inner graph with the parent's full error context to devise a corrected strategy. Controlled by `MAX_RECURSION_DEPTH` (default 2).
+- **Structural Fingerprint Engine (AU-048)**: AST-based signature extraction and three-level change classification (NONE/COSMETIC/STRUCTURAL) for incremental KG updates. Avoids costly full re-ingestion when only comments or formatting changed. Generic capability for any workspace.
+- **Graph Integrity Validator (AU-053)**: Non-blocking 4-tier graph validation inspired by Understand-Anything's graph-reviewer. Auto-fixes LLM type aliases (30+ mappings), clamps out-of-range scores, detects dangling edges, orphan nodes, and self-referencing loops. Runs as the 15th pipeline phase.
+- **Entity-Claim Extraction / MAGMA Completion (AU-054)**: Two-phase entity-claim extraction that fills the MAGMA epistemic view with real data. Deterministic regex extraction of citations, wikilinks, and assertions + `ClaimNode` model with confidence scoring. `retrieve_epistemic_view()` now fully implemented with Cypher queries.
+- **Wide-Search Orchestration (AU-056)**: Pydantic-native Graph node architecture for orchestrating large-scale extractions. Automates batch decomposition within the SDD pipeline and uses a hybrid validation strategy (fast-path schema validation + slow-path `wide_search_joiner` LLM repair node).
+- **Trace Distillation Error Categorization (AU-057)**: Categorizes orchestrator (`ORCHESTRATOR_SKILL`) vs worker (`WORKER_SKILL`) failure modes through AHE skill distillation to enable targeted self-evolving updates.
+- **Context-Aware Entity Representations (AU-058)**: Injects multi-hop topological structure (up to 2 levels of parents/children) and OWL-inferred relationships directly into node vector embeddings. Enables robust "topology-aware" semantic search and immediate re-embedding on inference downfeed.
 
 - **JSON-as-Code Prompting & Governance**: Standardized Pydantic models for structured prompting. Moves away from free-form Markdown to robust, versioned JSON blueprints for high-precision task specification. Engineering rule books have been migrated to the `agent_utilities/policies/` directory with versioned YAML frontmatter, and prompt-based governance uses an explicit `rules` key.
 - **Project-Aware Memory (AGENTS.md)**: Native support for Claude-style project rules and memory. Backend automatically loads and injects `AGENTS.md` (Project Rules) into the system prompt for high-fidelity codebase awareness.
 
 ## 🧠 Intelligence Graph
 
-Agent Utilities implements a sophisticated 14-phase pipeline to map and analyze your workspace. This system unifies **NetworkX** (for topological algorithms) and **LadybugDB** (for persistent Cypher queries and hybrid search).
+Agent Utilities implements a sophisticated 15-phase pipeline to map and analyze your workspace. This system unifies **NetworkX** (for topological algorithms) and **LadybugDB** (for persistent Cypher queries and hybrid search).
 
-### The 14-Phase Unified Intelligence Pipeline
+### The 15-Phase Unified Intelligence Pipeline
 
 | Phase | Name | Purpose |
 | :--- | :--- | :--- |
@@ -103,14 +122,15 @@ Agent Utilities implements a sophisticated 14-phase pipeline to map and analyze 
 | **12** | **OWL Reasoning** | Promotes stable nodes to OWL, runs HermiT/Stardog inference, downfeeds inferred facts. |
 | **13** | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
 | **14** | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
+| **15** | **Validate** | Runs **AU-053 Graph Integrity Validator** — 4-tier non-blocking post-ingestion validation with auto-fix. |
 
 ### Architecture
 
 ```mermaid
 graph TD
-    subgraph Ingestion_Pipeline [14-Phase Intelligence Pipeline]
+    subgraph Ingestion_Pipeline [15-Phase Intelligence Pipeline]
         direction LR
-        Scan --> Parse --> Resolve --> MRO --> Ref --> Comm --> Cent --> Emb --> Sync --> OWL[OWL Reasoning] --> KB[Knowledge Base] --> WS[Workspace Sync]
+        Scan --> Parse --> Resolve --> MRO --> Ref --> Comm --> Cent --> Emb --> Sync --> OWL[OWL Reasoning] --> KB[Knowledge Base] --> WS[Workspace Sync] --> Val[Validate]
     end
 
     subgraph Memory_Layer [In-Memory Graph]
@@ -146,6 +166,7 @@ The graph engine supports policy-guided retrieval across four orthogonal views:
 - **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
 - **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
 - **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
+- **Epistemic View** (AU-054): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions. Powered by `retrieve_epistemic_view()`.
 - **Research Knowledge Base**: Grounded evidence and sources for domain-specific topics (e.g., Medical Journals).
 
 ## 🧬 First Principles Architecture
@@ -183,18 +204,17 @@ graph LR
 
 ## 🗺 Concept Map
 
-The full architecture is organized into **29 traceable concepts** (AU-001 through AU-029). Each concept has a unique identifier, code path, and deep-dive documentation link.
+The full architecture has been ontologically compressed from 60+ flat concepts into **5 Unified Pillars**. Each pillar has a specific domain of responsibility within the ecosystem.
 
-→ **Full Concept Map table**: [docs/overview.md](docs/overview.md#concept-index) — includes all 29 concepts with descriptions, source paths, and documentation links.
+→ **Full Concept Map table**: [docs/overview.md](docs/overview.md#concept-index) — includes all pillars with descriptions, source paths, and documentation links.
 
-| Group | Concepts | Focus |
+| Pillar | Sub-Concepts | Focus |
 |:------|:---------|:------|
-| Core Infrastructure | AU-001 to AU-006, AU-010, AU-011 | Agent creation, workspace, serialization, prompts, tools, security |
-| Advanced Patterns | AU-007, AU-008, AU-009, AU-012 | RLM, resilience, SDD, harness engineering |
-| Emergent Architecture | AU-013 to AU-017 | KG OGM, swarm, variants, self-model, attention |
-| Design Patterns | AU-018 to AU-022 | Prompt chaining, resource optimization, evaluation, prioritization, exploration |
-| First Principles | AU-024 to AU-027 | Registry cache, TeamConfig, capability system, A2A planner |
-| Unified Specialist & A2A | AU-028, AU-029 | A2A config file loader, unified specialist type collapse |
+| **ORCH-1.0** Graph Orchestration | ORCH-1.1 to ORCH-1.3 | Hierarchical Task Network (HTN), Wide-Search, LATS, routing, execution budgets |
+| **KG-2.0** Knowledge Graph | KG-2.1 to KG-2.3 | Active Object-Graph Mapping, tiered memory, epistemology, structural fingerprinting |
+| **AHE-3.0** Agentic Harness | AHE-3.1 to AHE-3.3 | Prompt evolution, LLM-as-judge evaluation, trace distillation, synergy tracking |
+| **ECO-4.0** Ecosystem | ECO-4.1 to ECO-4.2 | Unified MCP tool interface, A2A network consensus, universal skills |
+| **OS-5.0** Agent OS Kernel | OS-5.1 to OS-5.2 | Workspace management, scheduling, JWT auth, resource optimization |
 
 ## Architecture & Orchestration
 
@@ -829,7 +849,7 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 
 | Guide | Description |
 | :--- | :--- |
-| [Overview Map](docs/overview.md) | The Concept Galaxy connecting all 29 core concepts (AU-001 to AU-029), plus the **Concept Map table** |
+| [Overview Map](docs/overview.md) | The Concept Galaxy connecting all 40 core concepts (AU-001 to AU-040), plus the **Concept Map table** |
 | [Creating an Agent](docs/creating-an-agent.md) | Step-by-step guide to bootstrapping a new Pydantic AI agent |
 | [Building MCP Servers](docs/building-mcp-servers.md) | Guide for creating FastMCP servers, API wrappers, and context helpers |
 
@@ -885,7 +905,8 @@ Contributions are welcome. Please follow these guidelines:
 1. **Fork** the repository and create a feature branch.
 2. **Write tests** for new functionality — all tests must include assertions.
 3. **Follow existing patterns** — use the established Pydantic models, structured prompts, and concept markers.
-4. **Run the test suite** before submitting: `uv run pytest tests/ -q`
+4. **Run the test suite** before submitting: `uv run pytest tests/ -q`.
+   > **Note:** All tests are strictly bounded by a 60-second timeout via `pytest-timeout`. Any test that sleeps or hangs indefinitely will fail automatically. Ensure you don't use `time.sleep` without bounds.
 5. **Update documentation** in `docs/` if your changes affect public APIs.
 
 See [AGENTS.md](AGENTS.md) for project-specific conventions and architecture rules.

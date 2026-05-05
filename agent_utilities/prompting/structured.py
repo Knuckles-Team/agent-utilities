@@ -1,6 +1,6 @@
 """Structured Prompt models for JSON-as-Code prompting.
 
-CONCEPT:AU-006 — Structured Prompting
+CONCEPT:ORCH-1.0 — Structured Prompting
     Provides Pydantic models for defining agent system prompts as structured
     JSON documents with decomposed ``metadata``, ``identity``, and
     ``instructions`` sections for machine-parseable prompt engineering.

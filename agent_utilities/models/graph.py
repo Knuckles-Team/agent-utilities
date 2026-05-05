@@ -3,6 +3,19 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class WideSearchWorkboard(BaseModel):
+    """CONCEPT:AU-055 — Pydantic-Native Shared Workboard.
+
+    A thread-safe/merge-safe shared memory scratchpad for parallel workers
+    during wide-search extraction tasks.
+    """
+
+    schema_definition: dict[str, Any] = Field(default_factory=dict)
+    expected_row_count: int = 0
+    row_slots: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    conflict_log: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class GraphResponse(BaseModel):
     status: str = "pending"
     results: dict[str, Any] = Field(default_factory=dict)
@@ -17,6 +30,16 @@ class ExecutionStep(BaseModel):
     input_data: Any | None = Field(
         default=None, description="Input data passed to the step"
     )
+    refined_subtask: str | None = Field(
+        default=None,
+        description=(
+            "CONCEPT:ORCH-1.1 — A focused natural-language instruction crafted "
+            "by the router/planner for this specific specialist. When present, "
+            "the executor uses this instead of the raw user query as the "
+            "specialist's primary task description. Inspired by the RL "
+            "Conductor's per-step subtask specification (Nielsen et al., ICLR 2026)."
+        ),
+    )
     is_parallel: bool = Field(
         default=False, description="Whether this step starts a parallel batch"
     )
@@ -24,6 +47,17 @@ class ExecutionStep(BaseModel):
     timeout: float = Field(default=120.0, description="Per-node timeout in seconds")
     depends_on: list[str] = Field(
         default_factory=list, description="Node IDs that must complete before this step"
+    )
+    access_list: list[str] = Field(
+        default_factory=list,
+        description=(
+            "CONCEPT:ORCH-1.3 — Execution Visibility Graph. Controls which prior "
+            "step results are injected into this specialist's context. An empty "
+            "list means no prior results are shared. Use ['all'] to inject the "
+            "entire results_registry. Specific step node_ids (e.g., ['researcher', "
+            "'architect']) inject only those results. Inspired by the RL Conductor's "
+            "access_list per workflow step (Nielsen et al., ICLR 2026)."
+        ),
     )
 
 
