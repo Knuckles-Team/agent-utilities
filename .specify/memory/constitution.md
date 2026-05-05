@@ -29,6 +29,7 @@
 ## Quality Gates
 - **Testing**:
   - All features MUST be implemented with corresponding **Pytests**.
+  - All tests MUST complete within 60 seconds (strictly enforced via `pytest-timeout`). Tests that sleep or hang indefinitely violate CI/CD stability and will fail.
   - Integration tests pass for the Unified Intelligence Graph and all supported backends.
 - **Verification Loop**:
   - After any code change, `pre-commit run --all-files` MUST be executed to verify integrity.

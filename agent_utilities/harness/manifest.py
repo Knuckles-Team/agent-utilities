@@ -1,6 +1,6 @@
 """Harness Change Manifest Models.
 
-CONCEPT:AU-012 — Agentic Harness Engineering (Component & Decision Observability)
+CONCEPT:AHE-3.0 — Agentic Harness Engineering (Component & Decision Observability)
 
 Provides Pydantic models for the AHE change manifest system. Each manifest
 records edits to harness components with self-declared predictions that are
@@ -38,6 +38,8 @@ class ComponentType(StrEnum):
     TOOL_IMPLEMENTATION = "tool_implementation"
     MIDDLEWARE = "middleware"
     SKILL = "skill"
+    ORCHESTRATOR_SKILL = "orchestrator_skill"
+    WORKER_SKILL = "worker_skill"
     SUB_AGENT = "sub_agent"
     LONG_TERM_MEMORY = "long_term_memory"
 

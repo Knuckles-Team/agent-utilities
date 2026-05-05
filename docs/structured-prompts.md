@@ -1,6 +1,6 @@
 # Structured Prompts
 
-> CONCEPT:AU-006 — Structured Prompting System
+> CONCEPT:ORCH-1.0 — Structured Prompting System
 
 ## Overview
 

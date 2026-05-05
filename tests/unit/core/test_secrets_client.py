@@ -1,6 +1,6 @@
-"""Tests for the SecretsClient (CONCEPT:AU-011 Secrets & Authentication).
+"""Tests for the SecretsClient (CONCEPT:OS-5.1 Secrets & Authentication).
 
-CONCEPT:AU-011 — Secrets & Authentication
+CONCEPT:OS-5.1 — Secrets & Authentication
 
 Covers:
 - InMemoryBackend: encryption round-trip, isolation, CRUD
@@ -22,7 +22,7 @@ from agent_utilities.security.secrets_client import (
     create_secrets_client,
 )
 
-# CONCEPT:AU-011 Secrets & Authentication
+# CONCEPT:OS-5.1 Secrets & Authentication
 
 
 # ---------------------------------------------------------------------------

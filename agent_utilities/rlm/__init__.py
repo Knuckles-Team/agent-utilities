@@ -1,6 +1,6 @@
 """Recursive Language Models (RLM) Module.
 
-CONCEPT:AU-007 — RLM Execution
+CONCEPT:ORCH-1.1 — RLM Execution
 """
 
 from .config import RLMConfig

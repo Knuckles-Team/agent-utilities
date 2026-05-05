@@ -97,16 +97,16 @@ class RegistryNodeType(StrEnum):
     FINANCIAL_INSTRUMENT = "financial_instrument"
     FINANCIAL_TRANSACTION = "financial_transaction"
     ACCOUNT = "account"
-    # AHE (Agentic Harness Engineering) Node Types (CONCEPT:AU-012)
+    # AHE (Agentic Harness Engineering) Node Types (CONCEPT:AHE-3.0)
     CHANGE_MANIFEST = "change_manifest"
     COMPONENT_EDIT_RECORD = "component_edit_record"
     EVIDENCE_RECORD = "evidence_record"
     CONSTRAINT_STATE = "constraint_state"
-    # Emergent Architecture Node Types (CONCEPT:AU-013/AU-014/AU-016/AU-017)
-    SELF_MODEL = "self_model"
+    # Emergent Architecture Node Types (CONCEPT:KG-2.0/AU-014/AU-016/AU-017)
+    SELF_MODEL = "memory_retriever"
     SWARM_COALITION = "swarm_coalition"
     PROPOSAL = "proposal"
-    # Agentic Design Patterns Gap Concepts (CONCEPT:AU-018 through AU-022)
+    # Agentic Design Patterns Gap Concepts (CONCEPT:ORCH-1.1 through AU-022)
     PROMPT_CHAIN = "prompt_chain"
     RESOURCE_USAGE = "resource_usage"
     EVALUATION_RECORD = "evaluation_record"
@@ -116,9 +116,26 @@ class RegistryNodeType(StrEnum):
     # Engineering Rules Engine (agent-rules-books integration)
     ENGINEERING_RULE = "engineering_rule"
     RULE_BOOK = "rule_book"
-    # First-Principles Architecture (CONCEPT:AU-025/AU-026)
+    # First-Principles Architecture (CONCEPT:AHE-3.3/AU-026)
     TEAM_CONFIG = "team_config"
     AGENT_CAPABILITY = "agent_capability"
+    # Agent OS Architecture (CONCEPT:OS-5.2/AU-031/AU-032)
+    AGENT_PROCESS = "agent_process"
+    AGENT_IDENTITY = "agent_identity"
+    SPECIALIST_PACKAGE = "specialist_package"
+    # Agent OS Infrastructure
+    HOST = "host"
+    INFRASTRUCTURE_TEMPLATE = "infrastructure_template"
+    # Squeeze Evolve Routing (CONCEPT:ORCH-1.2/AU-040)
+    ROUTING_DECISION = "routing_decision"
+    # Schema Packs (CONCEPT:KG-2.2)
+    SCHEMA_PACK = "schema_pack"
+    # Entity-Claim Extraction / MAGMA Epistemic (CONCEPT:KG-2.2)
+    CLAIM = "claim"
+    # Tiered Virtual Context/Memory blocks (CONCEPT:KG-2.1)
+    VIRTUAL_CONTEXT_BLOCK = "virtual_context_block"
+    # Quiet-STaR rationale persistence (CONCEPT:KG-2.1)
+    QUIET_STAR_RATIONALE = "quiet_star_rationale"
 
 
 class RegistryEdgeType(StrEnum):
@@ -231,20 +248,20 @@ class RegistryEdgeType(StrEnum):
     CITES_SOURCE = "cites_source"
     HAS_FINANCIAL_INSTRUMENT = "has_financial_instrument"
     EXECUTED_TRANSACTION = "executed_transaction"
-    # AHE (Agentic Harness Engineering) Edges (CONCEPT:AU-012)
+    # AHE (Agentic Harness Engineering) Edges (CONCEPT:AHE-3.0)
     EDITED_IN_ROUND = "edited_in_round"
     PREDICTED_FIX = "predicted_fix"
     CAUSED_REGRESSION = "caused_regression"
     CONFIRMED_FIX = "confirmed_fix"
     VERIFIED_BY = "verified_by"
     ESCALATED_TO = "escalated_to"
-    # Emergent Architecture Edges (CONCEPT:AU-014/AU-015/AU-016/AU-017)
+    # Emergent Architecture Edges (CONCEPT:ORCH-1.0/AU-015/AU-016/AU-017)
     VARIANT_OF = "variant_of"
-    CURRENT_SELF_MODEL = "current_self_model"
+    CURRENT_SELF_MODEL = "current_memory_retriever"
     SPAWNED_BY = "spawned_by"
     COORDINATED_BY = "coordinated_by"
     PROPOSED_FOR = "proposed_for"
-    # Agentic Design Patterns Gap Edges (CONCEPT:AU-018 through AU-022)
+    # Agentic Design Patterns Gap Edges (CONCEPT:ORCH-1.1 through AU-022)
     CHAIN_STEP = "chain_step"
     BRANCHES_TO = "branches_to"
     CONSUMED_RESOURCE = "consumed_resource"
@@ -259,9 +276,24 @@ class RegistryEdgeType(StrEnum):
     CONFLICTS_WITH = "conflicts_with"
     CORRECTS_BIAS = "corrects_bias"
     APPLICABLE_WHEN = "applicable_when"
-    # First-Principles Architecture Edges (CONCEPT:AU-025/AU-026)
+    # First-Principles Architecture Edges (CONCEPT:AHE-3.3/AU-026)
     HAS_CAPABILITY = "has_capability"
     REUSED_TEAM = "reused_team"
+    # Agent OS Architecture Edges (CONCEPT:OS-5.2/AU-031/AU-032)
+    PREEMPTED_BY = "preempted_by"
+    CHECKPOINTED_TO = "checkpointed_to"
+    HAS_IDENTITY = "has_identity"
+    AUTHORIZED_FOR = "authorized_for"
+    INSTALLED_FROM = "installed_from"
+    # Squeeze Evolve Routing (CONCEPT:ORCH-1.2/AU-040)
+    ROUTED_BY = "routed_by"
+    AGGREGATED_FROM = "aggregated_from"
+    # Schema Packs (CONCEPT:KG-2.2)
+    USES_SCHEMA_PACK = "uses_schema_pack"
+    # Entity-Claim Extraction / MAGMA Epistemic (CONCEPT:KG-2.2)
+    BUILDS_ON = "builds_on"
+    EXEMPLIFIES = "exemplifies"
+    AUTHORED_BY = "authored_by"
 
 
 class RegistryNode(BaseModel):
@@ -567,6 +599,53 @@ class EvidenceNode(RegistryNode):
     confidence_score: float = 1.0
 
 
+class ClaimNode(RegistryNode):
+    """A discrete claim, assertion, or thesis extracted from documents.
+
+    CONCEPT:KG-2.2 — Entity-Claim Extraction / MAGMA Epistemic View
+
+    Represents verifiable assertions with confidence scoring and
+    epistemic metadata. Claims participate in BUILDS_ON, CONTRADICTS,
+    and EXEMPLIFIES relationships for epistemic reasoning.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.CLAIM
+    claim_text: str
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    claim_type: str = "assertion"  # assertion, decision, thesis, finding, opinion
+    source_ids: list[str] = Field(default_factory=list)
+    extracted_from: str | None = None  # source document/article ID
+    domain: str | None = None  # business or knowledge domain
+    is_verified: bool = False
+
+
+class VirtualContextBlockNode(RegistryNode):
+    """Tiered Virtual Context/Memory blocks.
+
+    CONCEPT:KG-2.1 — Manages tiered memory caching for the graph, ranging
+    from 'working_memory' to 'episodic' to 'semantic'.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.VIRTUAL_CONTEXT_BLOCK
+    tier: str = "working_memory"  # working_memory, episodic, semantic
+    block_data: dict[str, Any] = Field(default_factory=dict)
+    ttl_seconds: int | None = None
+
+
+class QuietStarRationaleNode(RegistryNode):
+    """Quiet-STaR rationale persistence in the Knowledge Graph.
+
+    CONCEPT:KG-2.1 — Captures the internal chain-of-thought rationale
+    used to arrive at decisions or plans, persistently stored for self-improvement.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.QUIET_STAR_RATIONALE
+    rationale: str
+    context_tokens: int = 0
+    decision_id: str | None = None
+    outcome_reward: float | None = None
+
+
 class PersonNode(RegistryNode):
     """Researchers, authors, or agents."""
 
@@ -601,6 +680,10 @@ class CallableResourceNode(RegistryNode):
     agent_card: dict[str, Any] | None = None
     skill_code_path: str | None = None
     metadata_id: str
+    # ECO-4.3 Community Telemetry
+    origin: Literal["local", "community", "upstream"] = "local"
+    timestamp: str | None = None
+    author: str | None = None
 
 
 class SpawnedAgentNode(RegistryNode):
@@ -1386,17 +1469,17 @@ class AccountNode(RegistryNode):
     status: str = "active"  # active, closed, frozen
 
 
-# --- Emergent Architecture Nodes (CONCEPT:AU-014/AU-016/AU-017) ---
+# --- Emergent Architecture Nodes (CONCEPT:ORCH-1.0/AU-016/AU-017) ---
 
 
-class SelfModelNode(RegistryNode):
+class MemoryRetrieverNode(RegistryNode):
     """Versioned metacognitive self-model of the agent's capabilities.
 
-    CONCEPT:AU-016 — Persistent Self-Model
+    CONCEPT:KG-2.1 — Persistent Self-Model
 
     Each session creates a new version linked by SUPERSEDES edges, with a
     CURRENT_SELF_MODEL pointer for O(1) lookup. Integrates with OWL via
-    ``self_model.promote_to_owl()`` for reasoner-driven metacognition.
+    ``memory_retriever.promote_to_owl()`` for reasoner-driven metacognition.
 
     See docs/emergent-architecture.md §AU-016.
     """
@@ -1421,13 +1504,34 @@ class SelfModelNode(RegistryNode):
         default_factory=list,
         description="Recurring failure modes extracted from low-reward episodes",
     )
+    pheromone_trails: dict[str, dict[str, float]] = Field(
+        default_factory=dict,
+        description=(
+            "ACO-inspired specialist→task-pattern affinity trails. "
+            "Outer key = specialist_id, inner key = task_pattern, "
+            "value = trail strength (0.0–1.0). Trails decay by 10%% "
+            "per session (evaporation) and strengthen on success."
+        ),
+    )
+    model_synergies: dict[str, float] = Field(
+        default_factory=dict,
+        description=(
+            "CONCEPT:AHE-3.3 — Model Synergy Tracker. Tracks success rates "
+            "for model combinations used in sessions. Keys are sorted, "
+            "pipe-delimited model IDs (e.g., 'gpt-4o|claude-sonnet'). "
+            "Values are EMA success rates [0.0, 1.0]. Enables intelligent "
+            "model recombination when preferred models are unavailable. "
+            "Inspired by the RL Conductor's adaptive worker pool selection "
+            "(Nielsen et al., ICLR 2026)."
+        ),
+    )
     session_id: str = Field(default="", description="Session that created this version")
 
 
 class SwarmCoalitionNode(RegistryNode):
     """A dynamically formed agent coalition for task execution.
 
-    CONCEPT:AU-014 — Swarm Orchestration
+    CONCEPT:ORCH-1.0 — Swarm Orchestration
 
     Tracks the lifecycle of a dynamically spawned swarm: which agents
     participated, the task tree they were assigned, and the achieved
@@ -1450,7 +1554,7 @@ class SwarmCoalitionNode(RegistryNode):
 class ProposalNode(RegistryNode):
     """A specialist output proposal competing for broadcast.
 
-    CONCEPT:AU-017 — Global Workspace Attention
+    CONCEPT:ORCH-1.2 — Global Workspace Attention
 
     Specialists submit proposals that are scored by relevance, confidence,
     and track record. Winners are broadcast to the KG for integration.
@@ -1468,13 +1572,13 @@ class ProposalNode(RegistryNode):
     selected: bool = False
 
 
-# --- Agentic Design Patterns Gap Nodes (CONCEPT:AU-018 through AU-022) ---
+# --- Agentic Design Patterns Gap Nodes (CONCEPT:ORCH-1.1 through AU-022) ---
 
 
 class PromptChainNode(RegistryNode):
     """A declarative multi-step prompt pipeline.
 
-    CONCEPT:AU-018 — Prompt Chaining Pattern
+    CONCEPT:ORCH-1.1 — Prompt Chaining Pattern
 
     Models a sequence of prompt steps with intermediate validation,
     conditional branching, and result transformation. Persisted to the KG
@@ -1500,10 +1604,10 @@ class PromptChainNode(RegistryNode):
 class ResourceUsageNode(RegistryNode):
     """Per-session resource consumption record.
 
-    CONCEPT:AU-019 — Resource-Aware Optimization
+    CONCEPT:OS-5.2 — Resource-Aware Optimization
 
     Tracks token usage, cost, and latency per specialist per session.
-    Historical data feeds into the SelfModel for trend analysis and
+    Historical data feeds into the MemoryRetriever for trend analysis and
     the OWL reasoner for model selection optimization.
 
     BFO:Process (occurrent), aligned to :ResourceUsage.
@@ -1528,7 +1632,7 @@ class ResourceUsageNode(RegistryNode):
 class EvaluationRecordNode(RegistryNode):
     """Multi-dimensional evaluation of an agent response.
 
-    CONCEPT:AU-020 — Evaluation & Monitoring
+    CONCEPT:AHE-3.1 — Evaluation & Monitoring
 
     Provides per-dimension scoring (correctness, completeness, relevance,
     safety) with a composite score for backward compatibility with the
@@ -1549,11 +1653,18 @@ class EvaluationRecordNode(RegistryNode):
     evidence: str = ""
     session_id: str = ""
 
+    # KG Eval Capture fields (AHE-3.1)
+    query: str | None = None
+    method: str | None = None
+    result_node_ids: list[str] | None = None
+    latency_ms: float | None = None
+    schema_pack: str | None = None
+
 
 class PrioritizedTaskNode(RegistryNode):
     """A task with multi-factor priority scoring.
 
-    CONCEPT:AU-021 — Task Prioritization
+    CONCEPT:ORCH-1.1 — Task Prioritization
 
     Extends the basic SDD task model with urgency, impact, effort, and risk
     dimensions. Supports dynamic re-prioritization, priority inheritance
@@ -1589,7 +1700,7 @@ class PrioritizedTaskNode(RegistryNode):
 class KnowledgeGapNode(RegistryNode):
     """An identified gap in the agent's knowledge.
 
-    CONCEPT:AU-022 — Exploration & Discovery
+    CONCEPT:AHE-3.2 — Exploration & Discovery
 
     Represents a domain or topic where the agent has identified insufficient
     knowledge. Links to hypotheses generated to fill the gap and experiments
@@ -1616,7 +1727,7 @@ class KnowledgeGapNode(RegistryNode):
 class ExplorationExperimentNode(RegistryNode):
     """A structured experiment to explore a hypothesis.
 
-    CONCEPT:AU-022 — Exploration & Discovery
+    CONCEPT:AHE-3.2 — Exploration & Discovery
 
     Represents an experiment designed to test a hypothesis, including
     design, variables, success criteria, and results. Supports
@@ -1643,13 +1754,13 @@ class ExplorationExperimentNode(RegistryNode):
     status: str = "designed"  # designed, running, completed, failed
 
 
-# --- First-Principles Architecture Nodes (CONCEPT:AU-025/AU-026) ---
+# --- First-Principles Architecture Nodes (CONCEPT:AHE-3.3/AU-026) ---
 
 
 class TeamConfigNode(RegistryNode):
     """Reusable team composition template promoted from successful coalitions.
 
-    CONCEPT:AU-025 — Proven Team Reuse
+    CONCEPT:AHE-3.3 — Proven Team Reuse
 
     When a ``SwarmCoalition`` completes successfully (reward > threshold),
     it is promoted into a ``TeamConfigNode``.  The router queries matching
@@ -1696,12 +1807,16 @@ class TeamConfigNode(RegistryNode):
         le=1.0,
         description="Minimum cosine similarity to consider reuse (adaptive)",
     )
+    # ECO-4.3 Community Telemetry
+    origin: Literal["local", "community", "upstream"] = "local"
+    timestamp: str | None = None
+    author: str | None = None
 
 
 class AgentCapabilityNode(RegistryNode):
     """First-class capability assignable to specialist agents.
 
-    CONCEPT:AU-026 — Agent Capability Type System
+    CONCEPT:ORCH-1.2 — Agent Capability Type System
 
     Formalizes capabilities (RLM, Critic, Navigator, etc.) as typed KG
     nodes with handler metadata and trigger conditions.  Linked to agents
@@ -1739,6 +1854,299 @@ class AgentCapabilityNode(RegistryNode):
     auto_activate: bool = Field(
         default=True,
         description="Whether to auto-engage when trigger conditions are met",
+    )
+
+
+# --- Agent OS Architecture Nodes (CONCEPT:OS-5.2/AU-031/AU-032) ---
+
+
+class AgentProcessNode(RegistryNode):
+    """Running agent process tracked by the Cognitive Scheduler.
+
+    CONCEPT:OS-5.2 — Cognitive Scheduler
+
+    Represents a live or paused specialist agent managed by the
+    ``CognitiveScheduler``.  Tracks priority, execution state,
+    token quota/usage, and optional checkpoint IDs for context
+    paging.  Linked to its parent agent via ``EXECUTED_BY`` edges
+    and to checkpoints via ``CHECKPOINTED_TO`` edges.
+
+    See docs/cognitive-scheduler.md §AU-030.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_PROCESS
+    priority: int = Field(
+        default=2,
+        ge=0,
+        le=3,
+        description="Scheduler priority: 0=CRITICAL, 1=HIGH, 2=NORMAL, 3=LOW",
+    )
+    state: str = Field(
+        default="waiting",
+        description="Process state: waiting, running, paused, completed, failed",
+    )
+    token_quota: int = Field(
+        default=100_000,
+        description="Maximum token budget for this process",
+    )
+    tokens_used: int = Field(
+        default=0,
+        description="Tokens consumed so far",
+    )
+    checkpoint_id: str | None = Field(
+        default=None,
+        description="ID of context checkpoint when paused",
+    )
+    task_description: str = Field(
+        default="",
+        description="Human-readable task this process is executing",
+    )
+    preempted_at: float | None = Field(
+        default=None,
+        description="Timestamp when process was last preempted",
+    )
+
+
+class AgentIdentityNode(RegistryNode):
+    """Signed agent identity for permissions governance.
+
+    CONCEPT:OS-5.1 — Permissions Kernel
+
+    Each specialist agent receives a signed identity when spawned,
+    binding it to a role (admin, operator, specialist, sandbox, guest)
+    and a set of granted capabilities.  The ``signature`` field contains
+    an HMAC-SHA256 of the identity payload for tamper detection.
+
+    Linked to agents via ``HAS_IDENTITY`` edges and to authorized
+    tools via ``AUTHORIZED_FOR`` edges.
+
+    See docs/permissions-kernel.md §AU-031.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_IDENTITY
+    role: str = Field(
+        default="specialist",
+        description="Permission role: admin, operator, specialist, sandbox, guest",
+    )
+    capabilities: list[str] = Field(
+        default_factory=list,
+        description="Granted capability identifiers",
+    )
+    signature: str = Field(
+        default="",
+        description="HMAC-SHA256 signature for identity verification",
+    )
+    issued_at: float = Field(
+        default=0.0,
+        description="Unix timestamp when identity was issued",
+    )
+
+
+class SpecialistPackageNode(RegistryNode):
+    """Installed specialist package metadata.
+
+    CONCEPT:OS-5.0 — Agent Registry
+
+    Tracks specialist packages installed via the Agent Registry CLI
+    (``agent-utilities install <name>``).  Each package maps to an
+    MCP server config fragment, a set of tools, and KG specialist
+    nodes.  Linked to the originating registry via ``INSTALLED_FROM``
+    edges.
+
+    See docs/agent-registry.md §AU-032.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SPECIALIST_PACKAGE
+    version: str = Field(
+        default="0.0.0",
+        description="Semantic version of the installed package",
+    )
+    mcp_server_name: str = Field(
+        default="",
+        description="Name of the MCP server this package provides",
+    )
+    tool_count: int = Field(
+        default=0,
+        description="Number of tools exposed by this package",
+    )
+    installed_at: str = Field(
+        default="",
+        description="ISO timestamp when the package was installed",
+    )
+    source_registry: str = Field(
+        default="local",
+        description="Registry source: local, remote, or systems-manager",
+    )
+
+
+class HostNode(RegistryNode):
+    """A remote host in the Agent OS infrastructure.
+
+    First-class KG citizen representing a managed server.
+    Credentials are resolved via the ``secret://`` engine —
+    passwords and keys are never stored in plaintext.
+
+    Used by:
+        - ``tunnel-manager``: SSH connections, remote exec, file transfer
+        - ``container-manager-mcp``: Docker/Podman endpoint targeting
+        - ``systems-manager``: Health checks and monitoring
+
+    Attributes:
+        hostname: IP address or FQDN of the host.
+        alias: Friendly name (e.g. ``media-server``).
+        port: SSH port (default 22).
+        user: SSH username.
+        credential_ref: ``secret://`` URI for password.
+        identity_file_ref: ``secret://`` URI for SSH key path.
+        os_type: Operating system (e.g. ``linux``, ``darwin``).
+        arch: CPU architecture (e.g. ``x86_64``, ``aarch64``).
+        labels: Arbitrary key-value labels for filtering.
+        docker_endpoint: Docker API endpoint (e.g. ``tcp://192.168.1.10:2375``).
+        docker_host: Whether this host can run containers.
+        swarm_role: Docker Swarm role (``manager``, ``worker``, or empty).
+        container_manager_url: URL of a deployed container-manager-mcp instance.
+        services: List of running compose service names.
+        last_seen: ISO timestamp from the last health check.
+        health_status: Current health (``healthy``, ``degraded``, ``unreachable``).
+    """
+
+    type: RegistryNodeType = RegistryNodeType.HOST
+
+    # Network identity
+    hostname: str = Field(default="", description="IP address or FQDN")
+    alias: str = Field(default="", description="Friendly host name")
+    port: int = Field(default=22, description="SSH port")
+
+    # Auth (secret:// references — never plaintext)
+    user: str = Field(default="", description="SSH username")
+    credential_ref: str = Field(
+        default="",
+        description="secret:// URI for password (e.g. secret://hosts/media-server/password)",
+    )
+    identity_file_ref: str = Field(
+        default="",
+        description="secret:// URI for SSH key (e.g. secret://hosts/media-server/identity)",
+    )
+
+    # Host capabilities
+    os_type: str = Field(default="", description="OS type: linux, darwin, windows")
+    arch: str = Field(default="", description="CPU architecture: x86_64, aarch64")
+    labels: dict[str, str] = Field(
+        default_factory=dict,
+        description="Arbitrary labels for filtering (e.g. role=media, rack=2)",
+    )
+
+    # Container runtime
+    docker_endpoint: str = Field(
+        default="",
+        description="Docker API URL: tcp://host:2375 or unix:///var/run/docker.sock",
+    )
+    docker_host: bool = Field(
+        default=False, description="Whether this host can run containers"
+    )
+    swarm_role: str = Field(
+        default="", description="Docker Swarm role: manager, worker, or empty"
+    )
+    container_manager_url: str = Field(
+        default="",
+        description="URL of deployed container-manager-mcp instance on this host",
+    )
+
+    # State
+    services: list[str] = Field(
+        default_factory=list, description="Running compose service names"
+    )
+    last_seen: str = Field(default="", description="ISO timestamp of last health check")
+    health_status: str = Field(
+        default="unknown",
+        description="Current health: healthy, degraded, unreachable",
+    )
+
+
+class InfrastructureTemplateNode(RegistryNode):
+    """A deployable infrastructure blueprint.
+
+    References existing compose files from agent repos — does NOT
+    duplicate them.  Used by ``container-manager-mcp`` to scaffold
+    dependencies on-demand (databases, search engines, observability).
+
+    Attributes:
+        compose_ref: Path to compose file relative to workspace root.
+        services: Service names defined in the compose file.
+        required_env: Environment variables that must be set before deploy.
+        optional_env: Optional env vars with defaults.
+        depends_on_templates: Other templates that must be deployed first.
+        profile: Deployment profile (standalone, traefik, swarm).
+        tags: Searchable tags.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.INFRASTRUCTURE_TEMPLATE
+
+    compose_ref: str = Field(
+        default="",
+        description="Compose file path relative to workspace (e.g. agents/langfuse-agent/compose.yml)",
+    )
+    services: list[str] = Field(
+        default_factory=list,
+        description="Service names in the compose file",
+    )
+    required_env: list[str] = Field(
+        default_factory=list,
+        description="Required env vars (e.g. LANGFUSE_URL, LANGFUSE_TOKEN)",
+    )
+    optional_env: dict[str, str] = Field(
+        default_factory=dict,
+        description="Optional env vars with defaults (e.g. PORT=9001)",
+    )
+    depends_on_templates: list[str] = Field(
+        default_factory=list,
+        description="Templates that must be deployed first (e.g. postgres)",
+    )
+    profile: str = Field(
+        default="standalone",
+        description="Deployment profile: standalone, traefik, swarm",
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Searchable tags (e.g. observability, os_service)",
+    )
+
+
+class SchemaPackNode(RegistryNode):
+    """A persisted Schema Pack configuration in the Knowledge Graph.
+
+    CONCEPT:KG-2.2 — Schema Packs
+
+    Tracks which domain profile is active for this workspace,
+    enabling pack-aware filtering in the OWL bridge, hybrid retriever,
+    and inference engine.
+
+    See docs/knowledge-graph.md §Schema Packs.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SCHEMA_PACK
+    pack_name: str = Field(description="Pack identifier (e.g. 'research-state')")
+    mode: str = Field(
+        default="additive",
+        description="Operating mode: 'additive' or 'exclusive'",
+    )
+    active_node_types: list[str] = Field(
+        default_factory=list,
+        description="Node type strings active under this pack",
+    )
+    active_edge_types: list[str] = Field(
+        default_factory=list,
+        description="Edge type strings active under this pack",
+    )
+    backlink_boost_strategy: str = Field(
+        default="global",
+        description="Backlink boost strategy: global, context_only, disabled",
+    )
+    backlink_boost_factor: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Logarithmic scaling coefficient for backlink boost",
     )
 
 

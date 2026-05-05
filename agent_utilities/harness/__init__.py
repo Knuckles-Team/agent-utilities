@@ -1,6 +1,6 @@
 """Agentic Harness Engineering (AHE) Package.
 
-CONCEPT:AU-012 — Agentic Harness Engineering
+CONCEPT:AHE-3.0 — Agentic Harness Engineering
 
 This package implements the AHE closed-loop evolution framework for
 self-improving AI agent harnesses. It provides:

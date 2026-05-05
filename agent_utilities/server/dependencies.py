@@ -25,7 +25,7 @@ async def verify_api_key(api_key: str = Depends(api_key_header)):
     Kept for backward compatibility.  New code should use
     ``auth.verify_credentials`` instead.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
     if not config.enable_api_auth and not config.auth_jwt_jwks_uri:
         return

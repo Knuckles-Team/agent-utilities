@@ -9,7 +9,7 @@ from ..base_utilities import to_boolean
 class RLMConfig(BaseModel):
     """Configuration for Recursive Language Models (RLM).
 
-    CONCEPT:AU-007 — Recursive Language Model Execution
+    CONCEPT:ORCH-1.1 — Recursive Language Model Execution
 
     RLM provides a persistent Python REPL that enables agents to process
     arbitrarily long inputs through recursive, programmatic decomposition.
@@ -32,7 +32,7 @@ class RLMConfig(BaseModel):
         use_container: Run REPL in Docker/Podman sandbox (env: ``RLM_USE_CONTAINER``).
         max_context_threshold: Character threshold for auto-triggering on large outputs.
         trigger_on_large_output: Auto-invoke RLM when output exceeds threshold.
-        trigger_on_ahe_distillation: Auto-invoke for AHE trace analysis (CONCEPT:AU-012).
+        trigger_on_ahe_distillation: Auto-invoke for AHE trace analysis (CONCEPT:AHE-3.0).
         trigger_on_kg_bulk_analysis: Auto-invoke for KG bulk queries.
         ahe_trace_threshold: Trace count that triggers AHE RLM routing.
         kg_bulk_threshold: Node count that triggers KG bulk RLM routing.
@@ -71,7 +71,7 @@ class RLMConfig(BaseModel):
         description="Character threshold for tool outputs to auto-trigger RLM routing.",
     )
 
-    # ── Semantic Trigger Conditions (CONCEPT:AU-007) ──
+    # ── Semantic Trigger Conditions (CONCEPT:ORCH-1.1) ──
 
     trigger_on_large_output: bool = Field(
         default=True,
@@ -86,7 +86,7 @@ class RLMConfig(BaseModel):
         description=(
             "Auto-invoke RLM during AHE trace distillation when trace "
             "count exceeds ahe_trace_threshold. Enables deep, programmatic "
-            "analysis of large evidence corpora (CONCEPT:AU-012)."
+            "analysis of large evidence corpora (CONCEPT:AHE-3.0)."
         ),
     )
 

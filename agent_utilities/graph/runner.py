@@ -5,7 +5,7 @@ This module provides the execution logic for the pydantic-graph orchestrator.
 It defines functions to run graphs synchronously or as asynchronous streams (SSE),
 handles state persistence, MCP server connectivity during runs, and graph validation.
 
-CONCEPT:AU-002 Graph Orchestration
+CONCEPT:ORCH-1.0 Graph Orchestration
 """
 
 from __future__ import annotations
@@ -600,7 +600,7 @@ async def run_graph_iter(
         * ``"graph_complete"`` — the graph has finished executing
         * ``"error"`` — an error occurred during execution
 
-    CONCEPT:AU-002 Graph Orchestration
+    CONCEPT:ORCH-1.0 Graph Orchestration
 
     """
     from contextlib import AsyncExitStack

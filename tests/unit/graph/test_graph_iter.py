@@ -4,7 +4,7 @@ Validates that :func:`run_graph_iter` correctly uses ``graph.iter()``
 for step-by-step execution and yields properly structured events
 including node transitions, sideband draining, and state snapshots.
 
-CONCEPT:AU-002 Graph Orchestration
+CONCEPT:ORCH-1.0 Graph Orchestration
 """
 
 from __future__ import annotations

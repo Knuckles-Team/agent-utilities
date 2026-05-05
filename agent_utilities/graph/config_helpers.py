@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Graph Configuration Helpers Module.
 
-CONCEPT:AU-024 — Hot Cache Layer & Registry Optimization
+CONCEPT:ORCH-1.2 — Hot Cache Layer & Registry Optimization
 
 This module provides utility functions for loading and saving graph-related
 configurations, managing dynamic agent registries, emitting sideband events
@@ -10,7 +10,7 @@ for the WebUI, and resolving specialized prompts from the package resources.
 The ``_RegistryCache`` class (AU-024) provides zero-cost typed lookups for
 registry data.  The cache is populated on first access and invalidated by
 explicit signals from ``sync_mcp_agents()``, pipeline completion,
-``promote_coalition_to_template()``, and ``SelfModel.update_after_session()``.
+``promote_coalition_to_template()``, and ``MemoryRetriever.update_after_session()``.
 """
 
 from __future__ import annotations
@@ -37,14 +37,14 @@ DEFAULT_GRAPH_TIMEOUT = to_integer(os.environ.get("GRAPH_TIMEOUT", "1200000"))
 
 
 # ---------------------------------------------------------------------------
-# CONCEPT:AU-024 — Session-Scoped Registry Cache
+# CONCEPT:ORCH-1.2 — Session-Scoped Registry Cache
 # ---------------------------------------------------------------------------
 
 
 class _RegistryCache:
     """Session-scoped cache for KG registry data.
 
-    CONCEPT:AU-024 — Hot Cache Layer
+    CONCEPT:ORCH-1.2 — Hot Cache Layer
 
     Populated on first access, invalidated by explicit event signals.
     No TTL — pure event-driven invalidation from four callsites:
@@ -52,7 +52,7 @@ class _RegistryCache:
     1. ``agent_manager.sync_mcp_agents()`` (MCP reload)
     2. Pipeline completion (``PipelineRunner.run()``)
     3. ``promote_coalition_to_template()`` (TeamConfig creation)
-    4. ``SelfModel.update_after_session()`` (proficiency update)
+    4. ``MemoryRetriever.update_after_session()`` (proficiency update)
     """
 
     _registry: MCPAgentRegistryModel | None = None
@@ -83,7 +83,7 @@ class _RegistryCache:
 def invalidate_registry_cache() -> None:
     """Public API to invalidate the hot cache.
 
-    CONCEPT:AU-024 — Hot Cache Layer
+    CONCEPT:ORCH-1.2 — Hot Cache Layer
 
     Call this after any operation that changes the registry state:
     MCP reload, pipeline ingestion, TeamConfig promotion, or
@@ -202,7 +202,7 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
 def get_discovery_registry() -> MCPAgentRegistryModel:
     """Load the unified agent discovery registry (cached).
 
-    CONCEPT:AU-024 — Hot Cache Layer
+    CONCEPT:ORCH-1.2 — Hot Cache Layer
 
     Returns the registry from the in-memory cache.  On first call,
     populates the cache from the Knowledge Graph.  Subsequent calls
@@ -221,7 +221,7 @@ def get_relevant_specialists(
 ) -> list[MCPAgent]:
     """Return the top-N specialists most relevant to a query.
 
-    CONCEPT:AU-024 — Hot Cache Layer
+    CONCEPT:ORCH-1.2 — Hot Cache Layer
 
     Uses KG discovery results (hybrid search + tool matching) to filter
     the full specialist list down to the most relevant agents for a

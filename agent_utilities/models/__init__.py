@@ -20,6 +20,7 @@ from .graph import (
     GraphPlan,
     GraphResponse,
     ParallelBatch,
+    WideSearchWorkboard,
 )
 from .mcp import (
     DiscoveredSpecialist,
@@ -62,6 +63,7 @@ from .sdd import (
 )
 from .usage import (
     CostModel,
+    ExecutionBudget,
     UsageStatistics,
 )
 
@@ -88,6 +90,7 @@ __all__ = [
     "ExecutionStep",
     "ParallelBatch",
     "GraphPlan",
+    "WideSearchWorkboard",
     "PeriodicTask",
     "CronTaskModel",
     "CronRegistryModel",
@@ -98,6 +101,7 @@ __all__ = [
     "SprintContract",
     "UsageStatistics",
     "CostModel",
+    "ExecutionBudget",
     "StructuredPrompt",
     "NestedStructure",
     "CodemapArtifact",

@@ -32,7 +32,7 @@ async def main():
     # 3. Shared team memory: Collaborative memory across agents
     # 4. Knowledge Base: LLM-maintained wiki system
     # 5. MAGMA orthogonal views: Semantic, Temporal, Causal, Entity
-    # 6. Agent Lightning: Self-improvement loops
+    # 6. Autonomous Self-Improvement loops
 
 
 if __name__ == "__main__":

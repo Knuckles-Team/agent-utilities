@@ -9,7 +9,7 @@ from agent_utilities.graph.config_helpers import (
     load_node_agents_registry,
 )
 from agent_utilities.graph.lifecycle import _emit_node_lifecycle
-from agent_utilities.graph.planning import fetch_unified_context
+from agent_utilities.graph.hierarchical_planner import fetch_unified_context
 from agent_utilities.models import MCPAgentRegistryModel, MCPConfigModel
 
 
@@ -23,7 +23,7 @@ async def test_fetch_unified_context_mocked():
     mock_registry.agents = [mock_agent]
 
     with patch(
-        "agent_utilities.graph.planning.get_discovery_registry",
+        "agent_utilities.graph.hierarchical_planner.get_discovery_registry",
         return_value=mock_registry,
     ):
         with patch("subprocess.check_output", return_value=b"M somefile.py"):

@@ -1,6 +1,6 @@
 """Agnostic Trace Backend Abstraction.
 
-CONCEPT:AU-012 — Agentic Harness Engineering (Experience Observability)
+CONCEPT:AHE-3.0 — Agentic Harness Engineering (Experience Observability)
 
 Provides a pluggable backend abstraction for trace ingestion, following
 the same pattern as the database backend abstraction in

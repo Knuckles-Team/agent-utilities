@@ -1,6 +1,6 @@
 """Hierarchical Constraint Engine.
 
-CONCEPT:AU-012 — Agentic Harness Engineering (Constraint Hierarchy)
+CONCEPT:AHE-3.0 — Agentic Harness Engineering (Constraint Hierarchy)
 
 Implements the AHE constraint hierarchy:
     tool_implementation → middleware → tool_description → prompt

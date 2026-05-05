@@ -7,7 +7,7 @@ standard agent prompt files (``main_agent.json``), parsing and serialization
 logic for these files, and robust path discovery for skills and MCP
 configurations.
 
-CONCEPT:AU-003 Workspace Management
+CONCEPT:OS-5.0 Workspace Management
 """
 
 import contextlib

@@ -11,6 +11,7 @@ from .registry import registry_phase
 from .resolve import resolve_phase
 from .scan import scan_phase
 from .sync import sync_phase
+from .validate import validate_phase
 
 PHASES = [
     memory_phase,
@@ -26,4 +27,5 @@ PHASES = [
     sync_phase,
     owl_reasoning_phase,
     knowledge_base_phase,
+    validate_phase,
 ]

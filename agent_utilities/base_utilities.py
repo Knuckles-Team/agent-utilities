@@ -5,7 +5,7 @@ This module provides a collection of low-level helper functions and classes used
 the agent-utilities package for type conversion, environment variable expansion,
 package management, and dynamic object patching.
 
-CONCEPT:AU-005 Serialization Safety
+CONCEPT:ORCH-1.3 Serialization Safety
 """
 
 import inspect
@@ -366,7 +366,7 @@ def load_env_vars(override: bool = False) -> None:
 def save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:
     """Serialize a model object to a pickle file.
 
-    CONCEPT:AU-005 Serialization Safety
+    CONCEPT:ORCH-1.3 Serialization Safety
 
     .. deprecated:: 0.2.40
         Use ``safe_save_model`` / ``safe_load_model`` (JSON-based) for new code.
@@ -399,7 +399,7 @@ def save_model(model: Any, file_name: str = "model", file_path: str = ".") -> st
 def load_model(file: str) -> Any:
     """Deserialize a model object from a pickle file.
 
-    CONCEPT:AU-005 Serialization Safety
+    CONCEPT:ORCH-1.3 Serialization Safety
 
     .. deprecated:: 0.2.40
         Use ``safe_load_model`` (JSON-based) for new code.
@@ -428,7 +428,7 @@ def load_model(file: str) -> Any:
 def safe_save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:
     """Serialize a model object to a JSON file (safe alternative to pickle).
 
-    CONCEPT:AU-005 Serialization Safety
+    CONCEPT:ORCH-1.3 Serialization Safety
 
     Supports Pydantic BaseModel instances (via .model_dump()), dicts, lists,
     and any JSON-serializable object.
@@ -456,7 +456,7 @@ def safe_save_model(model: Any, file_name: str = "model", file_path: str = ".") 
 def safe_load_model(file: str) -> Any:
     """Deserialize a model object from a JSON file (safe alternative to pickle).
 
-    CONCEPT:AU-005 Serialization Safety
+    CONCEPT:ORCH-1.3 Serialization Safety
 
     Args:
         file: Path to the JSON file.

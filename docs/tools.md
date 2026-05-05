@@ -1,6 +1,6 @@
 # Tools Registry
 
-> CONCEPT:AU-010 — Agent Tool System
+> CONCEPT:ECO-4.0 — Agent Tool System
 
 ## Overview
 

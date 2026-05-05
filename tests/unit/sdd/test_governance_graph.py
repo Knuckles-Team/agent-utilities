@@ -1,6 +1,6 @@
 """Tests for SDD governance graph nodes, policies, and process flows.
 
-CONCEPT:AU-009 — Spec-Driven Development
+CONCEPT:AHE-3.0 — Spec-Driven Development
 """
 
 import networkx as nx

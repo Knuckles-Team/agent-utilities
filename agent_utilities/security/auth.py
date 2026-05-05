@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """JWT and API Key Authentication Module.
 
-CONCEPT:AU-011 — Secrets & Authentication
+CONCEPT:OS-5.1 — Secrets & Authentication
 
 Provides FastAPI security dependencies for authenticating requests to the
 agent server.  Supports two modes that can be used independently or combined:
@@ -82,7 +82,7 @@ def _decode_jwt(
 ) -> dict:
     """Decode and validate a JWT token using authlib.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
 
     Args:
         token: The raw JWT string.
@@ -181,7 +181,7 @@ async def verify_api_key_only(
     Returns ``None`` if API key auth is not configured.  Raises
     ``HTTPException(403)`` if the key is invalid.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
     from agent_utilities.core.config import config
 
@@ -200,7 +200,7 @@ async def verify_jwt_only(
     Returns ``None`` if JWT auth is not configured or no token is present.
     Raises ``HTTPException(401)`` if a token is present but invalid.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
     from agent_utilities.core.config import config
 
@@ -242,7 +242,7 @@ async def verify_credentials(
     3. If neither auth mechanism is configured → allow (open mode)
     4. If auth is configured but no valid credential → reject
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
     from agent_utilities.core.config import config
 

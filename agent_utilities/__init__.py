@@ -262,7 +262,7 @@ if os.environ.get("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
 # Disabled by default to avoid import overhead during testing
 # Can be enabled by setting ENABLE_GRAPH_INTEGRATION=true and calling initialize_graph_integration() explicitly
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     # Agent creation
@@ -342,7 +342,7 @@ __all__ = [
     "CodemapArtifact",
     "CodemapGenerator",
     "parse_codemap_mentions",
-    # Secrets & Auth (CONCEPT:AU-011)
+    # Secrets & Auth (CONCEPT:OS-5.1)
     "SecretsClient",
     "create_secrets_client",
     "verify_credentials",

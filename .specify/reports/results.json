@@ -1,0 +1,4576 @@
+{
+  "project": "agent-utilities",
+  "path": "/home/apps/workspace/agent-packages/agent-utilities",
+  "domain_results": [
+    {
+      "domain": "Project Analysis",
+      "score": 69,
+      "grade": "D",
+      "findings": [
+        "Externalized prompts directory found with 51 files",
+        "Protocol support: MCP"
+      ],
+      "justifications": [
+        {
+          "criterion": "has_pyproject",
+          "points": 10,
+          "evidence": "pyproject.toml and requirements.txt",
+          "reasoning": "Both pyproject.toml and requirements.txt exist, fulfilling mandatory Python project requirements"
+        },
+        {
+          "criterion": "project_type_detected",
+          "points": 0,
+          "evidence": "dependency list",
+          "reasoning": "No recognized ecosystem markers found in dependencies"
+        },
+        {
+          "criterion": "externalized_prompts",
+          "points": 10,
+          "evidence": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/prompts",
+          "reasoning": "Prompts directory contains 51 externalized prompt files"
+        },
+        {
+          "criterion": "observability",
+          "points": 0,
+          "evidence": "dependency list",
+          "reasoning": "No observability tools (logfire, sentry, opentelemetry) found"
+        },
+        {
+          "criterion": "testing_suite",
+          "points": 5,
+          "evidence": "tests dir: True, pytest dep: False",
+          "reasoning": "Tests directory exists, pytest not in dependencies"
+        },
+        {
+          "criterion": "agents_md",
+          "points": 10,
+          "evidence": "/home/apps/workspace/agent-packages/agent-utilities/AGENTS.md (8972 bytes)",
+          "reasoning": "AGENTS.md exists with comprehensive content"
+        },
+        {
+          "criterion": "pre_commit_hooks",
+          "points": 10,
+          "evidence": "/home/apps/workspace/agent-packages/agent-utilities/.pre-commit-config.yaml",
+          "reasoning": "Pre-commit configuration found for automated code quality checks"
+        },
+        {
+          "criterion": "gitignore",
+          "points": 10,
+          "evidence": "/home/apps/workspace/agent-packages/agent-utilities/.gitignore",
+          "reasoning": ".gitignore exists to prevent committing build artifacts and secrets"
+        },
+        {
+          "criterion": "env_template",
+          "points": 10,
+          "evidence": "/home/apps/workspace/agent-packages/agent-utilities/.env.example",
+          "reasoning": "Environment template exists for onboarding and secret management"
+        },
+        {
+          "criterion": "protocol_support",
+          "points": 4,
+          "evidence": "MCP",
+          "reasoning": "1 communication protocol(s) detected"
+        }
+      ],
+      "details": {
+        "has_pyproject": true,
+        "has_requirements": true,
+        "dep_count": 1
+      }
+    },
+    {
+      "domain": "Dependency Audit",
+      "score": 100,
+      "grade": "A",
+      "findings": [],
+      "justifications": [
+        {
+          "criterion": "dependency_freshness",
+          "points": 100,
+          "evidence": "source=/home/apps/workspace/agent-packages/agent-utilities/pyproject.toml total=0 major=0 minor=0 patch=0 not_installed=0",
+          "reasoning": "Audited 0 deps (0 installed, 0 constraint-only). 0 major, 0 minor, 0 patch updates."
+        }
+      ],
+      "packages": {}
+    },
+    {
+      "domain": "Codebase Optimization",
+      "score": 42,
+      "grade": "F",
+      "findings": [
+        "16 functions exceed 200 lines (actionable refactoring targets): build_agent_app (510L), _execute_dynamic_mcp_agent (457L), app_factory (440L), create_graph_agent (432L), create_agent (359L)",
+        "Monolithic: steps.py (2423L) \u2014 5 functions with high complexity (worst: router_step at 316L, CC=35); Low cohesion: 61 distinct concepts in one file",
+        "Monolithic: base_utilities.py (1045L) \u2014 3 functions with high complexity (worst: retrieve_package_name at 95L, CC=22); Low cohesion: 36 distinct concepts in one file",
+        "Monolithic: engine.py (1881L) \u2014 2 functions with high complexity (worst: IntelligenceGraphEngine._query_nx_fallback at 64L, CC=19); God class: IntelligenceGraphEngine (65 methods) \u2014 consider mixins/composition",
+        "Needs attention: mcp_utilities.py (899L) \u2014 2 functions with high complexity (worst: create_mcp_server at 305L, CC=57)",
+        "Needs attention: factory.py (592L) \u2014 1 functions with high complexity (worst: create_agent at 359L, CC=59)",
+        "Needs attention: app.py (567L) \u2014 1 functions with high complexity (worst: build_agent_app at 510L, CC=66)",
+        "65 functions with nesting depth >4",
+        "1 flat directories with >15 Python files: agent_utilities/tools"
+      ],
+      "justifications": [
+        {
+          "criterion": "code_quality",
+          "points": 42,
+          "evidence": "{\"file_count\": 320, \"total_lines\": 69661, \"function_count\": 2746, \"avg_complexity\": 3.51, \"max_complexity\": 71, \"avg_function_length\": 18.7, \"max_function_length\": 510, \"max_nesting_depth\": 18, \"duplication_ratio\": 0.008, \"long_functions\": 141, \"complex_functions\": 101, \"deep_nesting_functions\": 65, \"parse_errors\": 0, \"structural_issues\": 14, \"truly_monolithic\": 4, \"resilience_issues\": 0}",
+          "reasoning": "Analyzed 320 files, 2746 functions. Avg CC=3.5, max length=510, duplication=0.8%, 14 structural issues (4 monolithic)."
+        }
+      ],
+      "metrics": {
+        "file_count": 320,
+        "total_lines": 69661,
+        "function_count": 2746,
+        "avg_complexity": 3.51,
+        "max_complexity": 71,
+        "avg_function_length": 18.7,
+        "max_function_length": 510,
+        "max_nesting_depth": 18,
+        "duplication_ratio": 0.008,
+        "long_functions": 141,
+        "complex_functions": 101,
+        "deep_nesting_functions": 65,
+        "parse_errors": 0,
+        "structural_issues": 14,
+        "truly_monolithic": 4,
+        "resilience_issues": 0
+      },
+      "top_complex": [
+        {
+          "name": "_execute_dynamic_mcp_agent",
+          "line": 342,
+          "length": 457,
+          "complexity": 71,
+          "nesting_depth": 8,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/graph/executor.py"
+        },
+        {
+          "name": "build_agent_app",
+          "line": 58,
+          "length": 510,
+          "complexity": 66,
+          "nesting_depth": 5,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/server/app.py"
+        },
+        {
+          "name": "app_factory",
+          "line": 124,
+          "length": 440,
+          "complexity": 62,
+          "nesting_depth": 5,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/server/app.py"
+        },
+        {
+          "name": "create_agent",
+          "line": 234,
+          "length": 359,
+          "complexity": 59,
+          "nesting_depth": 5,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/agent/factory.py"
+        },
+        {
+          "name": "create_mcp_server",
+          "line": 246,
+          "length": 305,
+          "complexity": 57,
+          "nesting_depth": 7,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py"
+        }
+      ],
+      "top_long": [
+        {
+          "name": "build_agent_app",
+          "line": 58,
+          "length": 510,
+          "complexity": 66,
+          "nesting_depth": 5,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/server/app.py"
+        },
+        {
+          "name": "_execute_dynamic_mcp_agent",
+          "line": 342,
+          "length": 457,
+          "complexity": 71,
+          "nesting_depth": 8,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/graph/executor.py"
+        },
+        {
+          "name": "app_factory",
+          "line": 124,
+          "length": 440,
+          "complexity": 62,
+          "nesting_depth": 5,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/server/app.py"
+        },
+        {
+          "name": "create_graph_agent",
+          "line": 327,
+          "length": 432,
+          "complexity": 32,
+          "nesting_depth": 8,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/graph/builder.py"
+        },
+        {
+          "name": "create_agent",
+          "line": 234,
+          "length": 359,
+          "complexity": 59,
+          "nesting_depth": 5,
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/agent/factory.py"
+        }
+      ],
+      "structural_issues": [
+        {
+          "file": "steps.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/graph/steps.py",
+          "lines": 2423,
+          "issues": [
+            "5 functions with high complexity (worst: router_step at 316L, CC=35)",
+            "Low cohesion: 61 distinct concepts in one file",
+            "43 public functions \u2014 consider grouping into modules"
+          ],
+          "func_issues": [
+            {
+              "name": "router_step",
+              "lines": 316,
+              "complexity": 35,
+              "nesting": 4
+            },
+            {
+              "name": "dispatcher_step",
+              "lines": 203,
+              "complexity": 33,
+              "nesting": 3
+            },
+            {
+              "name": "expert_executor_step",
+              "lines": 134,
+              "complexity": 18,
+              "nesting": 9
+            },
+            {
+              "name": "memory_selection_step",
+              "lines": 179,
+              "complexity": 27,
+              "nesting": 4
+            },
+            {
+              "name": "mcp_server_step",
+              "lines": 116,
+              "complexity": 17,
+              "nesting": 8
+            }
+          ],
+          "classification": "monolithic"
+        },
+        {
+          "file": "base_utilities.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "lines": 1045,
+          "issues": [
+            "3 functions with high complexity (worst: retrieve_package_name at 95L, CC=22)",
+            "Low cohesion: 36 distinct concepts in one file"
+          ],
+          "func_issues": [
+            {
+              "name": "retrieve_package_name",
+              "lines": 95,
+              "complexity": 22,
+              "nesting": 6
+            },
+            {
+              "name": "ModuleInfo.is_in_sys_modules",
+              "lines": 47,
+              "complexity": 17,
+              "nesting": 5
+            },
+            {
+              "name": "ModuleInfo.from_str",
+              "lines": 49,
+              "complexity": 9,
+              "nesting": 6
+            }
+          ],
+          "classification": "monolithic"
+        },
+        {
+          "file": "engine.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/engine.py",
+          "lines": 1881,
+          "issues": [
+            "2 functions with high complexity (worst: IntelligenceGraphEngine._query_nx_fallback at 64L, CC=19)",
+            "God class: IntelligenceGraphEngine (65 methods) \u2014 consider mixins/composition"
+          ],
+          "func_issues": [
+            {
+              "name": "IntelligenceGraphEngine._query_nx_fallback",
+              "lines": 64,
+              "complexity": 19,
+              "nesting": 6
+            },
+            {
+              "name": "IntelligenceGraphEngine.find_relevant_callable_resources",
+              "lines": 42,
+              "complexity": 13,
+              "nesting": 7
+            }
+          ],
+          "classification": "monolithic"
+        },
+        {
+          "file": "workspace.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/core/workspace.py",
+          "lines": 657,
+          "issues": [
+            "1 functions with high complexity (worst: resolve_mcp_config_path at 69L, CC=17)",
+            "Low cohesion: 26 distinct concepts in one file"
+          ],
+          "func_issues": [
+            {
+              "name": "resolve_mcp_config_path",
+              "lines": 69,
+              "complexity": 17,
+              "nesting": 5
+            }
+          ],
+          "classification": "monolithic"
+        },
+        {
+          "file": "mcp_utilities.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "lines": 899,
+          "issues": [
+            "2 functions with high complexity (worst: create_mcp_server at 305L, CC=57)"
+          ],
+          "func_issues": [
+            {
+              "name": "create_mcp_server",
+              "lines": 305,
+              "complexity": 57,
+              "nesting": 7
+            },
+            {
+              "name": "load_mcp_servers_from_config",
+              "lines": 132,
+              "complexity": 23,
+              "nesting": 8
+            }
+          ],
+          "classification": "needs_attention"
+        },
+        {
+          "file": "factory.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/agent/factory.py",
+          "lines": 592,
+          "issues": [
+            "1 functions with high complexity (worst: create_agent at 359L, CC=59)"
+          ],
+          "func_issues": [
+            {
+              "name": "create_agent",
+              "lines": 359,
+              "complexity": 59,
+              "nesting": 5
+            }
+          ],
+          "classification": "needs_attention"
+        },
+        {
+          "file": "app.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/server/app.py",
+          "lines": 567,
+          "issues": [
+            "1 functions with high complexity (worst: build_agent_app at 510L, CC=66)"
+          ],
+          "func_issues": [
+            {
+              "name": "build_agent_app",
+              "lines": 510,
+              "complexity": 66,
+              "nesting": 5
+            }
+          ],
+          "classification": "needs_attention"
+        },
+        {
+          "file": "repl.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/rlm/repl.py",
+          "lines": 590,
+          "issues": [
+            "1 functions with high complexity (worst: RLMEnvironment.run_full_rlm at 140L, CC=16)"
+          ],
+          "func_issues": [
+            {
+              "name": "RLMEnvironment.run_full_rlm",
+              "lines": 140,
+              "complexity": 16,
+              "nesting": 6
+            }
+          ],
+          "classification": "needs_attention"
+        },
+        {
+          "file": "agent_manager.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp/agent_manager.py",
+          "lines": 711,
+          "issues": [
+            "2 functions with high complexity (worst: _extract_single_server_metadata_inner at 144L, CC=28)"
+          ],
+          "func_issues": [
+            {
+              "name": "_extract_single_server_metadata_inner",
+              "lines": 144,
+              "complexity": 28,
+              "nesting": 5
+            },
+            {
+              "name": "compute_tool_relevance_score",
+              "lines": 79,
+              "complexity": 22,
+              "nesting": 4
+            }
+          ],
+          "classification": "needs_attention"
+        },
+        {
+          "file": "knowledge_tools.py",
+          "path": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/knowledge_tools.py",
+          "lines": 895,
+          "issues": [
+            "Low cohesion: 33 distinct concepts in one file"
+          ],
+          "func_issues": [],
+          "classification": "needs_attention"
+        }
+      ],
+      "flat_directories": [
+        {
+          "directory": "agent_utilities/tools",
+          "python_files": 20,
+          "suggestion": "Consider organizing into subdirectories by domain/feature"
+        }
+      ]
+    },
+    {
+      "domain": "Security Analysis",
+      "score": 0,
+      "grade": "F",
+      "findings": [
+        "10 HIGH severity vulnerabilities found",
+        "734 MEDIUM severity vulnerabilities found",
+        "eval/exec usage detected: 20 instances"
+      ],
+      "justifications": [
+        {
+          "criterion": "security_posture",
+          "points": 0,
+          "evidence": "high=10 med=734 low=35 attack_surface={\"subprocess_calls\": 140, \"file_io_calls\": 741, \"network_endpoints\": 70, \"eval_exec_usage\": 20, \"sql_usage\": 1336}",
+          "reasoning": "Scanned 1620 files. Found 779 security findings. High: -150pts, Med: -5872pts, Low: -105pts."
+        }
+      ],
+      "vulnerabilities": [
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/scripts/verify_acp.py",
+          "line": 61,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 872,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 794,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 821,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 768,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 642,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/__init__.py",
+          "line": 41,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 155,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-400",
+          "name": "Resource Exhaustion",
+          "severity": "Low",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 195,
+          "detail": "re.compile() called. Ensure the pattern avoids catastrophic backtracking."
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 259,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-400",
+          "name": "Resource Exhaustion",
+          "severity": "Low",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 707,
+          "detail": "re.compile() called. Ensure the pattern avoids catastrophic backtracking."
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/protocols/a2a.py",
+          "line": 210,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/protocols/a2a.py",
+          "line": 230,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/protocols/a2a.py",
+          "line": 60,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/protocols/a2a.py",
+          "line": 80,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/protocols/a2a.py",
+          "line": 157,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/hybrid_retriever.py",
+          "line": 123,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/engine.py",
+          "line": 711,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/migrations.py",
+          "line": 40,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/migrations.py",
+          "line": 55,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/maintainer.py",
+          "line": 388,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/maintainer.py",
+          "line": 195,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/owl_bridge.py",
+          "line": 331,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/secrets_client.py",
+          "line": 283,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/secrets_client.py",
+          "line": 303,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/secrets_client.py",
+          "line": 312,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/server/__init__.py",
+          "line": 205,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/rlm/repl.py",
+          "line": 186,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/rlm/repl.py",
+          "line": 147,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-94",
+          "name": "Code Injection",
+          "severity": "High",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/rlm/repl.py",
+          "line": 308,
+          "detail": "Dangerous call: exec()"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/rlm/repl.py",
+          "line": 361,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp/agent_manager.py",
+          "line": 61,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp/agent_manager.py",
+          "line": 696,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-400",
+          "name": "Resource Exhaustion",
+          "severity": "Low",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/sdd/__init__.py",
+          "line": 429,
+          "detail": "re.compile() called. Ensure the pattern avoids catastrophic backtracking."
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/observability/event_aggregator.py",
+          "line": 59,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/observability/approval_manager.py",
+          "line": 325,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/harness/trace_backend.py",
+          "line": 176,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/agent_tools.py",
+          "line": 99,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/self_improvement_tools.py",
+          "line": 40,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/git_tools.py",
+          "line": 49,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/git_tools.py",
+          "line": 77,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/git_tools.py",
+          "line": 104,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/git_tools.py",
+          "line": 120,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/developer_tools.py",
+          "line": 100,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/developer_tools.py",
+          "line": 140,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/developer_tools.py",
+          "line": 191,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/developer_tools.py",
+          "line": 219,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/developer_tools.py",
+          "line": 240,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/workspace_tools.py",
+          "line": 177,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        },
+        {
+          "cwe": "CWE-390",
+          "name": "Error Swallowing",
+          "severity": "Medium",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools/workspace_tools.py",
+          "line": 63,
+          "detail": "Broad 'except Exception' block without logging or raising the error"
+        }
+      ],
+      "attack_surface": {
+        "subprocess_calls": 140,
+        "file_io_calls": 741,
+        "network_endpoints": 70,
+        "eval_exec_usage": 20,
+        "sql_usage": 1336
+      }
+    },
+    {
+      "domain": "Test Coverage",
+      "score": 70,
+      "grade": "C",
+      "findings": [
+        "6 tests without assertions",
+        "8 potential doc-test drift items"
+      ],
+      "justifications": [
+        {
+          "criterion": "test_coverage_quality",
+          "points": 70,
+          "evidence": "{\"test_file_count\": 110, \"test_count\": 1395, \"source_file_count\": 1620, \"test_to_source_ratio\": 0.86, \"intent_distribution\": {\"unit\": 1384, \"integration\": 6, \"regression\": 2, \"performance\": 3}, \"tests_without_assertions\": 6, \"concept_traced_tests\": 0, \"drift_items\": 8}",
+          "reasoning": "1395 tests across 110 files. Ratio: 0.86. Intent: {'unit': 1384, 'integration': 6, 'regression': 2, 'performance': 3}. 6 without assertions, 8 drift items."
+        }
+      ],
+      "metrics": {
+        "test_file_count": 110,
+        "test_count": 1395,
+        "source_file_count": 1620,
+        "test_to_source_ratio": 0.86,
+        "intent_distribution": {
+          "unit": 1384,
+          "integration": 6,
+          "regression": 2,
+          "performance": 3
+        },
+        "tests_without_assertions": 6,
+        "concept_traced_tests": 0,
+        "drift_items": 8
+      },
+      "tests": [
+        {
+          "name": "test_cosine_similarity",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 11,
+          "length": 5,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_add_memory",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 28,
+          "length": 5,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_search_hybrid",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 34,
+          "length": 7,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_query_impact",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 42,
+          "length": 15,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_find_path",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 58,
+          "length": 5,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_get_agent_tools",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 64,
+          "length": 8,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_ingest_episode",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 73,
+          "length": 5,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_record_outcome",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 79,
+          "length": 11,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_nx_fallback_successful_episodes",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 91,
+          "length": 18,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_every_route_has_consumer_or_allowlist_entry",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 191,
+          "length": 23,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": false
+        },
+        {
+          "name": "test_allowlist_entries_are_real_routes",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 216,
+          "length": 9,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": false
+        },
+        {
+          "name": "test_allowlist_entries_have_justification",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 227,
+          "length": 12,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": false
+        },
+        {
+          "name": "test_router_regex_finds_routes",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 245,
+          "length": 6,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_router_regex_captures_all_verbs",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 252,
+          "length": 5,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_known_core_routes_are_detected",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 258,
+          "length": 4,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_graph_stats_has_consumer",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 267,
+          "length": 4,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_graph_memory_param_route_has_consumer",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 272,
+          "length": 4,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_unknown_path_has_no_consumer",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 277,
+          "length": 4,
+          "intent": "unit",
+          "markers": [],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_max_tokens_policy_blocks",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 28,
+          "length": 5,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_max_tokens_policy_allows",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 36,
+          "length": 5,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_content_filter_detects_ssn",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 49,
+          "length": 6,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_content_filter_clean_output",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 58,
+          "length": 4,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_content_filter_detects_email",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 65,
+          "length": 5,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_output_schema_policy_valid",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 78,
+          "length": 5,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_output_schema_policy_missing_keys",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 86,
+          "length": 6,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_cost_budget_tracks_usage",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 100,
+          "length": 9,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_cost_budget_blocks_over_limit",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 112,
+          "length": 8,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_cost_budget_reset",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 123,
+          "length": 6,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_policy_engine_runs_all_rules",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 137,
+          "length": 8,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        },
+        {
+          "name": "test_policy_engine_blocks_on_severity",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_guardrails.py",
+          "line": 148,
+          "length": 11,
+          "intent": "unit",
+          "markers": [
+            "concept"
+          ],
+          "concept_id": "",
+          "has_assertions": true
+        }
+      ],
+      "drift": [
+        {
+          "type": "untested_feature",
+          "source": "README.md",
+          "feature": "architecture",
+          "detail": "Feature heading in README has no corresponding test"
+        },
+        {
+          "type": "untested_feature",
+          "source": "README.md",
+          "feature": "architecture & orchestration",
+          "detail": "Feature heading in README has no corresponding test"
+        },
+        {
+          "type": "untested_feature",
+          "source": "README.md",
+          "feature": "quick start",
+          "detail": "Feature heading in README has no corresponding test"
+        },
+        {
+          "type": "untested_feature",
+          "source": "README.md",
+          "feature": "installation",
+          "detail": "Feature heading in README has no corresponding test"
+        },
+        {
+          "type": "untested_feature",
+          "source": "README.md",
+          "feature": "api documentation",
+          "detail": "Feature heading in README has no corresponding test"
+        },
+        {
+          "type": "untested_feature",
+          "source": "README.md",
+          "feature": "documentation",
+          "detail": "Feature heading in README has no corresponding test"
+        },
+        {
+          "type": "untested_feature",
+          "source": "README.md",
+          "feature": "contributing",
+          "detail": "Feature heading in README has no corresponding test"
+        },
+        {
+          "type": "untested_feature",
+          "source": "README.md",
+          "feature": "license",
+          "detail": "Feature heading in README has no corresponding test"
+        }
+      ]
+    },
+    {
+      "domain": "Documentation & Governance",
+      "score": 100,
+      "grade": "A",
+      "findings": [],
+      "justifications": [
+        {
+          "criterion": "documentation_quality",
+          "points": 100,
+          "evidence": "{\"README.md\": {\"exists\": true, \"missing\": []}, \"AGENTS.md\": {\"exists\": true, \"missing\": []}, \"STANDARDS.md\": {\"exists\": false, \"missing\": []}, \"CONTRIBUTING.md\": {\"exists\": false, \"missing\": []}, \"CHANGELOG.md\": {\"exists\": true, \"missing\": []}, \"LICENSE\": {\"exists\": true, \"missing\": []}, \"docs/\": {\"exists\": true, \"missing\": []}}",
+          "reasoning": "Audited 6 standard docs + docs/ directory. 0 broken references, 5 docs present. README industry grade: A (100.0%)."
+        }
+      ],
+      "doc_results": {
+        "README.md": {
+          "exists": true,
+          "size": 41706,
+          "headings": [
+            "Agent Utilities - AGI Harness",
+            "Table of Contents",
+            "Overview",
+            "Key Features",
+            "\ud83e\udde0 Intelligence Graph",
+            "The 14-Phase Unified Intelligence Pipeline",
+            "Architecture",
+            "MAGMA-Inspired Orthogonal Reasoning Views",
+            "Architecture & Orchestration",
+            "Ecosystem Dependency Graph",
+            "C4 Container Diagram",
+            "MCP Tools Mapping",
+            "Human-in-the-Loop (Tool Approval & Elicitation)",
+            "Server Endpoints",
+            "Spec-Driven Development (SDD) Lifecycle",
+            "Execution Flow: Dynamic Multi-Layer Parallelism",
+            "MCP Loading & Registry Architecture",
+            "Quick Start",
+            "Start a Graph Agent server with Universal Skills",
+            "Start with a custom MCP configuration"
+          ],
+          "missing_sections": [],
+          "heading_count": 61,
+          "stale": false,
+          "last_modified": "2026-04-30 08:27:31 -0500",
+          "category": "project_overview"
+        },
+        "AGENTS.md": {
+          "exists": true,
+          "size": 8816,
+          "headings": [
+            "AGENTS.md",
+            "Protocol-First Design Philosophy",
+            "Core Design Principles (Do Not Violate)",
+            "When to Use agent-utilities",
+            "Tech Stack",
+            "Dependency Notes",
+            "Package Relationships",
+            "Ecosystem Dependency Graph",
+            "Commands",
+            "Run tests (unit + integration, excludes live)",
+            "Lint & format",
+            "Type check",
+            "Run the server",
+            "Project Structure",
+            "Detailed Documentation"
+          ],
+          "missing_sections": [],
+          "heading_count": 15,
+          "stale": false,
+          "last_modified": "2026-04-29 02:20:34 -0500",
+          "category": "agentic_metadata"
+        },
+        "STANDARDS.md": {
+          "exists": false,
+          "missing_sections": [],
+          "size": 0,
+          "headings": [],
+          "stale": true,
+          "last_modified": "unknown",
+          "category": "standards"
+        },
+        "CONTRIBUTING.md": {
+          "exists": false,
+          "missing_sections": [],
+          "size": 0,
+          "headings": [],
+          "stale": true,
+          "last_modified": "unknown",
+          "category": "contributing"
+        },
+        "CHANGELOG.md": {
+          "exists": true,
+          "size": 4051,
+          "headings": [
+            "Changelog",
+            "[Unreleased]",
+            "[0.2.41] - 2026-04-29",
+            "Added",
+            "Changed",
+            "[0.2.40] - 2026-04-28",
+            "Added",
+            "Changed",
+            "Fixed",
+            "[0.2.39] - 2026-04-26",
+            "Added",
+            "Changed",
+            "[0.2.38] - 2026-04-24",
+            "Added",
+            "Changed"
+          ],
+          "missing_sections": [],
+          "heading_count": 15,
+          "stale": false,
+          "last_modified": "2026-04-29 02:20:34 -0500",
+          "category": "changelog"
+        },
+        "LICENSE": {
+          "exists": true,
+          "size": 1070,
+          "headings": [],
+          "missing_sections": [],
+          "heading_count": 0,
+          "stale": false,
+          "last_modified": "2026-02-21 22:57:47 -0600",
+          "category": "license"
+        },
+        "docs/": {
+          "exists": true,
+          "file_count": 17,
+          "files": [
+            "docs/features.md",
+            "docs/rlm.md",
+            "docs/creating-an-agent.md",
+            "docs/capabilities.md",
+            "docs/tools.md",
+            "docs/development.md",
+            "docs/architecture.md",
+            "docs/overview.md",
+            "docs/knowledge-graph.md",
+            "docs/structured-prompts.md",
+            "docs/agents.md",
+            "docs/secrets-auth.md",
+            "docs/AHE_ARCHITECTURE.md",
+            "docs/configuration.md",
+            "docs/building-mcp-servers.md",
+            "docs/sdd.md",
+            "docs/README.md"
+          ]
+        }
+      },
+      "drift": [
+        {
+          "type": "info",
+          "doc": "README.md",
+          "reference": "agent-utilities, agent-utilities[agent], agent-utilities[acp], agent-utilities[ag-ui], agent-utilities[terminal]",
+          "detail": "README references 24 install commands"
+        }
+      ],
+      "readme_grade": {
+        "score": 32,
+        "max_score": 32,
+        "percentage": 100.0,
+        "grade": "A",
+        "criteria": {
+          "has_title": true,
+          "has_badges": true,
+          "has_description": true,
+          "has_toc": true,
+          "has_installation": true,
+          "has_usage": true,
+          "has_api_docs": true,
+          "has_architecture": true,
+          "has_contributing": true,
+          "has_license": true,
+          "has_code_blocks": true,
+          "has_docs_refs": true,
+          "no_broken_links": true,
+          "reasonable_length": true,
+          "has_cli_api_details": true,
+          "has_mcp_configs": true,
+          "has_agent_configs": true,
+          "has_env_var_docs": true,
+          "has_mcp_tool_table": true,
+          "has_deployment_docs": true
+        },
+        "findings": []
+      }
+    },
+    {
+      "domain": "Architecture & Design Patterns",
+      "score": 75,
+      "grade": "C",
+      "findings": [
+        "SRP: 164 modules exceed 500 lines (god modules)",
+        "SRP: 30 classes have >15 methods",
+        "Low dependency injection ratio: 8%"
+      ],
+      "justifications": [
+        {
+          "criterion": "architecture_quality",
+          "points": 75,
+          "evidence": "{\"layers\": 2, \"di_ratio\": 0.08, \"solid_violations\": 2}",
+          "reasoning": "Analyzed 1620 files. 2/5 architecture layers present, DI ratio: 8%, 2 SOLID violations."
+        }
+      ],
+      "analysis": {
+        "solid_findings": [
+          {
+            "principle": "SRP",
+            "status": "violation",
+            "detail": "164 modules exceed 500 lines (god modules)",
+            "items": [
+              {
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/test_ahe_harness.py",
+                "lines": 599
+              },
+              {
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+                "lines": 899
+              },
+              {
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+                "lines": 1045
+              },
+              {
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/models/knowledge_graph.py",
+                "lines": 1242
+              },
+              {
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/models/schema_definition.py",
+                "lines": 1830
+              }
+            ]
+          },
+          {
+            "principle": "SRP",
+            "status": "violation",
+            "detail": "30 classes have >15 methods",
+            "items": [
+              {
+                "class": "IntelligenceGraphEngine",
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/engine.py",
+                "method_count": 65
+              },
+              {
+                "class": "GraphMaintainer",
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/maintainer.py",
+                "method_count": 17
+              },
+              {
+                "class": "RLMEnvironment",
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/rlm/repl.py",
+                "method_count": 17
+              },
+              {
+                "class": "SDDManager",
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/sdd/__init__.py",
+                "method_count": 24
+              },
+              {
+                "class": "KBIngestionEngine",
+                "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/kb/ingestion.py",
+                "method_count": 19
+              }
+            ]
+          }
+        ],
+        "layer_architecture": {
+          "has_domain_layer": true,
+          "has_adapter_layer": false,
+          "has_port_interfaces": false,
+          "has_service_layer": false,
+          "has_model_layer": true
+        },
+        "dependency_injection": {
+          "total_classes": 2281,
+          "di_classes": 178,
+          "di_ratio": 0.08
+        },
+        "event_driven": {
+          "event_classes": 25,
+          "callback_patterns": 150,
+          "observer_patterns": 0,
+          "signal_patterns": 970
+        },
+        "file_count": 1620
+      }
+    },
+    {
+      "domain": "Concept Traceability",
+      "score": 30,
+      "grade": "F",
+      "findings": [
+        "11 orphaned concepts (only in one source)",
+        "12 concepts with drift (missing from one source)",
+        "1306 test functions missing concept markers",
+        "623 significant functions (>10 lines) missing concept markers in docstrings"
+      ],
+      "justifications": [
+        {
+          "criterion": "concept_traceability",
+          "points": 30,
+          "evidence": "{\"total_concepts\": 33, \"well_traced\": 10, \"orphans\": 11, \"drift\": 12, \"code_concepts\": 105, \"doc_concepts\": 23, \"test_concepts\": 121, \"decorator_concepts\": 89, \"tests_missing_markers\": 1306, \"functions_missing_docstrings\": 623, \"registry_concepts\": 10, \"unimplemented_concepts\": 0}",
+          "reasoning": "33 unique concepts found. 10 fully traced (code+docs+tests), 11 orphans, 12 drifted. 1306 tests without concept markers. 623 functions without concept docstrings."
+        }
+      ],
+      "metrics": {
+        "total_concepts": 33,
+        "well_traced": 10,
+        "orphans": 11,
+        "drift": 12,
+        "code_concepts": 105,
+        "doc_concepts": 23,
+        "test_concepts": 121,
+        "decorator_concepts": 89,
+        "tests_missing_markers": 1306,
+        "functions_missing_docstrings": 623,
+        "registry_concepts": 10,
+        "unimplemented_concepts": 0
+      },
+      "concept_map": {
+        "AU-005": {
+          "code": 7,
+          "docs": 1,
+          "test": 2,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-003": {
+          "code": 2,
+          "docs": 1,
+          "test": 1,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-011": {
+          "code": 23,
+          "docs": 2,
+          "test": 4,
+          "test_decorator": 49,
+          "test_docstring": 0
+        },
+        "AU-011)": {
+          "code": 1,
+          "docs": 2,
+          "test": 0,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-012)": {
+          "code": 7,
+          "docs": 3,
+          "test": 0,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-001": {
+          "code": 2,
+          "docs": 1,
+          "test": 0,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-002": {
+          "code": 5,
+          "docs": 1,
+          "test": 2,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "KG-001": {
+          "code": 5,
+          "docs": 0,
+          "test": 2,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "KG-002": {
+          "code": 8,
+          "docs": 0,
+          "test": 2,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "KG-003": {
+          "code": 5,
+          "docs": 0,
+          "test": 2,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "KG-004": {
+          "code": 3,
+          "docs": 0,
+          "test": 2,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-007": {
+          "code": 11,
+          "docs": 2,
+          "test": 3,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-006": {
+          "code": 2,
+          "docs": 1,
+          "test": 1,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-012).": {
+          "code": 1,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-007)": {
+          "code": 1,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-012).\"": {
+          "code": 1,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-009": {
+          "code": 3,
+          "docs": 2,
+          "test": 2,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-012": {
+          "code": 9,
+          "docs": 1,
+          "test": 0,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-010": {
+          "code": 2,
+          "docs": 2,
+          "test": 2,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-008": {
+          "code": 1,
+          "docs": 2,
+          "test": 1,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "KG-001).\"\"\"": {
+          "code": 1,
+          "docs": 0,
+          "test": 1,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "KG-002).\"\"\"": {
+          "code": 2,
+          "docs": 0,
+          "test": 2,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "KG-003).\"\"\"": {
+          "code": 1,
+          "docs": 0,
+          "test": 1,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "KG-004).\"\"\"": {
+          "code": 1,
+          "docs": 0,
+          "test": 1,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "AU-004": {
+          "code": 1,
+          "docs": 1,
+          "test": 1,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "`": {
+          "code": 0,
+          "docs": 1,
+          "test": 0,
+          "test_decorator": 0,
+          "test_docstring": 0
+        },
+        "policy-guardrails": {
+          "code": 0,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 13,
+          "test_docstring": 0
+        },
+        "creating-an-agent": {
+          "code": 0,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 1,
+          "test_docstring": 0
+        },
+        "council-deliberation": {
+          "code": 0,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 2,
+          "test_docstring": 0
+        },
+        "memory-consolidation": {
+          "code": 0,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 6,
+          "test_docstring": 0
+        },
+        "cross-repo-symbols": {
+          "code": 0,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 5,
+          "test_docstring": 0
+        },
+        "team-coordination": {
+          "code": 0,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 4,
+          "test_docstring": 0
+        },
+        "eval-tracing": {
+          "code": 0,
+          "docs": 0,
+          "test": 0,
+          "test_decorator": 9,
+          "test_docstring": 0
+        }
+      },
+      "orphans": [
+        {
+          "concept_id": "AU-012).",
+          "present_in": [
+            "code"
+          ],
+          "missing_from": [
+            "docs",
+            "test"
+          ]
+        },
+        {
+          "concept_id": "AU-007)",
+          "present_in": [
+            "code"
+          ],
+          "missing_from": [
+            "docs",
+            "test"
+          ]
+        },
+        {
+          "concept_id": "AU-012).\"",
+          "present_in": [
+            "code"
+          ],
+          "missing_from": [
+            "docs",
+            "test"
+          ]
+        },
+        {
+          "concept_id": "`",
+          "present_in": [
+            "docs"
+          ],
+          "missing_from": [
+            "code",
+            "test"
+          ]
+        },
+        {
+          "concept_id": "policy-guardrails",
+          "present_in": [
+            "test_decorator"
+          ],
+          "missing_from": [
+            "code",
+            "docs",
+            "test"
+          ]
+        },
+        {
+          "concept_id": "creating-an-agent",
+          "present_in": [
+            "test_decorator"
+          ],
+          "missing_from": [
+            "code",
+            "docs",
+            "test"
+          ]
+        },
+        {
+          "concept_id": "council-deliberation",
+          "present_in": [
+            "test_decorator"
+          ],
+          "missing_from": [
+            "code",
+            "docs",
+            "test"
+          ]
+        },
+        {
+          "concept_id": "memory-consolidation",
+          "present_in": [
+            "test_decorator"
+          ],
+          "missing_from": [
+            "code",
+            "docs",
+            "test"
+          ]
+        },
+        {
+          "concept_id": "cross-repo-symbols",
+          "present_in": [
+            "test_decorator"
+          ],
+          "missing_from": [
+            "code",
+            "docs",
+            "test"
+          ]
+        },
+        {
+          "concept_id": "team-coordination",
+          "present_in": [
+            "test_decorator"
+          ],
+          "missing_from": [
+            "code",
+            "docs",
+            "test"
+          ]
+        }
+      ],
+      "drift": [
+        {
+          "concept_id": "AU-011)",
+          "present_in": [
+            "code",
+            "docs"
+          ],
+          "missing_from": [
+            "test"
+          ]
+        },
+        {
+          "concept_id": "AU-012)",
+          "present_in": [
+            "code",
+            "docs"
+          ],
+          "missing_from": [
+            "test"
+          ]
+        },
+        {
+          "concept_id": "AU-001",
+          "present_in": [
+            "code",
+            "docs"
+          ],
+          "missing_from": [
+            "test"
+          ]
+        },
+        {
+          "concept_id": "KG-001",
+          "present_in": [
+            "code",
+            "test"
+          ],
+          "missing_from": [
+            "docs"
+          ]
+        },
+        {
+          "concept_id": "KG-002",
+          "present_in": [
+            "code",
+            "test"
+          ],
+          "missing_from": [
+            "docs"
+          ]
+        },
+        {
+          "concept_id": "KG-003",
+          "present_in": [
+            "code",
+            "test"
+          ],
+          "missing_from": [
+            "docs"
+          ]
+        },
+        {
+          "concept_id": "KG-004",
+          "present_in": [
+            "code",
+            "test"
+          ],
+          "missing_from": [
+            "docs"
+          ]
+        },
+        {
+          "concept_id": "AU-012",
+          "present_in": [
+            "code",
+            "docs"
+          ],
+          "missing_from": [
+            "test"
+          ]
+        },
+        {
+          "concept_id": "KG-001).\"\"\"",
+          "present_in": [
+            "code",
+            "test"
+          ],
+          "missing_from": [
+            "docs"
+          ]
+        },
+        {
+          "concept_id": "KG-002).\"\"\"",
+          "present_in": [
+            "code",
+            "test"
+          ],
+          "missing_from": [
+            "docs"
+          ]
+        }
+      ],
+      "tests_missing_markers": [
+        {
+          "test_name": "test_cosine_similarity",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 11
+        },
+        {
+          "test_name": "test_add_memory",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 28
+        },
+        {
+          "test_name": "test_search_hybrid",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 34
+        },
+        {
+          "test_name": "test_query_impact",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 42
+        },
+        {
+          "test_name": "test_find_path",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 58
+        },
+        {
+          "test_name": "test_get_agent_tools",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 64
+        },
+        {
+          "test_name": "test_ingest_episode",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 73
+        },
+        {
+          "test_name": "test_record_outcome",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 79
+        },
+        {
+          "test_name": "test_nx_fallback_successful_episodes",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/graph/test_graph_engine.py",
+          "line": 91
+        },
+        {
+          "test_name": "test_every_route_has_consumer_or_allowlist_entry",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 191
+        },
+        {
+          "test_name": "test_allowlist_entries_are_real_routes",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 216
+        },
+        {
+          "test_name": "test_allowlist_entries_have_justification",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 227
+        },
+        {
+          "test_name": "test_router_regex_finds_routes",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 245
+        },
+        {
+          "test_name": "test_router_regex_captures_all_verbs",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 252
+        },
+        {
+          "test_name": "test_known_core_routes_are_detected",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 258
+        },
+        {
+          "test_name": "test_graph_stats_has_consumer",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 267
+        },
+        {
+          "test_name": "test_graph_memory_param_route_has_consumer",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 272
+        },
+        {
+          "test_name": "test_unknown_path_has_no_consumer",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/integration/graph/test_endpoint_consumer_coverage.py",
+          "line": 277
+        },
+        {
+          "test_name": "test_is_safe_tool",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_security.py",
+          "line": 9
+        },
+        {
+          "test_name": "test_is_sensitive_tool_strict",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_security.py",
+          "line": 15
+        }
+      ],
+      "functions_missing_docstrings": [
+        {
+          "function": "validate_acp_stack",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/scripts/verify_acp_stack.py",
+          "line": 23,
+          "length": 120
+        },
+        {
+          "function": "verify_acp",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/scripts/verify_acp.py",
+          "line": 6,
+          "length": 57
+        },
+        {
+          "function": "setup_logging",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/__main__.py",
+          "line": 17,
+          "length": 10
+        },
+        {
+          "function": "agent_server",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/__main__.py",
+          "line": 29,
+          "length": 50
+        },
+        {
+          "function": "create_mcp_parser",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 52,
+          "length": 192
+        },
+        {
+          "function": "create_mcp_server",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 246,
+          "length": 305
+        },
+        {
+          "function": "ctx_progress",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 697,
+          "length": 11
+        },
+        {
+          "function": "ctx_confirm_destructive",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 710,
+          "length": 30
+        },
+        {
+          "function": "ctx_log",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 742,
+          "length": 28
+        },
+        {
+          "function": "ctx_set_state",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 772,
+          "length": 24
+        },
+        {
+          "function": "ctx_get_state",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 798,
+          "length": 26
+        },
+        {
+          "function": "ctx_sample",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/mcp_utilities.py",
+          "line": 826,
+          "length": 49
+        },
+        {
+          "function": "run",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/graph_orchestration.py",
+          "line": 60,
+          "length": 10
+        },
+        {
+          "function": "__getattr__",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/__init__.py",
+          "line": 64,
+          "length": 193
+        },
+        {
+          "function": "to_float",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 80,
+          "length": 18
+        },
+        {
+          "function": "to_boolean",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 100,
+          "length": 16
+        },
+        {
+          "function": "to_integer",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 118,
+          "length": 18
+        },
+        {
+          "function": "to_list",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 138,
+          "length": 19
+        },
+        {
+          "function": "to_dict",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 159,
+          "length": 21
+        },
+        {
+          "function": "expand_env_vars",
+          "file": "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/base_utilities.py",
+          "line": 182,
+          "length": 44
+        }
+      ],
+      "unimplemented_concepts": []
+    },
+    {
+      "domain": "Linting & Formatting",
+      "score": 96,
+      "grade": "A",
+      "findings": [
+        "Total lint findings: 2 (high/error: 0, medium/warning: 2, low: 0)"
+      ],
+      "justifications": [
+        {
+          "criterion": "lint_compliance",
+          "points": 96,
+          "evidence": "ruff=0, bandit=0, mypy=2",
+          "reasoning": "2 total findings across 3 tools. High/error: -0pts, Med/warning: -4pts, Low: -0pt."
+        }
+      ],
+      "tool_results": {
+        "ruff": {
+          "available": true,
+          "finding_count": 0,
+          "returncode": 2
+        },
+        "bandit": {
+          "available": true,
+          "finding_count": 0,
+          "returncode": -2
+        },
+        "mypy": {
+          "available": true,
+          "finding_count": 2,
+          "returncode": 2
+        }
+      },
+      "all_findings": [
+        {
+          "file": "build/lib/agent_utilities/__init__.py",
+          "line": "note",
+          "message": "//mypy.readthedocs.io/en/stable/running_mypy.html#mapping-file-paths-to-modules for more info",
+          "severity": "warning",
+          "tool": "mypy"
+        },
+        {
+          "file": "build/lib/agent_utilities/__init__.py",
+          "line": "note",
+          "message": "",
+          "severity": "warning",
+          "tool": "mypy"
+        }
+      ]
+    },
+    {
+      "domain": "Pre-Commit Compliance",
+      "score": 54,
+      "grade": "F",
+      "findings": [
+        "8/20 pre-commit hooks failed: check toml, don't commit to branch, ruff (legacy alias), ruff format, vulture, codespell, nbqa-ruff, uv-lock",
+        "2 hook(s) may be outdated: ruff-pre-commit, uv-pre-commit",
+        "Pytest hooks skipped (handled by CE-016 Test Execution): local-pytest, pytest"
+      ],
+      "justifications": [
+        {
+          "criterion": "precommit_compliance",
+          "points": 54,
+          "evidence": "{\"total_hooks\": 20, \"passed\": 11, \"failed\": 8, \"skipped\": 1, \"outdated_hooks\": 2, \"pytest_hooks_skipped\": 2, \"exit_code\": 1}",
+          "reasoning": "Ran pre-commit with 20 hooks: 11 passed, 8 failed, 1 skipped. 2 potentially outdated. 2 pytest hooks deferred to CE-016."
+        }
+      ],
+      "hook_results": [
+        {
+          "hook": "check for added large files",
+          "status": "passed"
+        },
+        {
+          "hook": "check python ast",
+          "status": "passed"
+        },
+        {
+          "hook": "check yaml",
+          "status": "passed"
+        },
+        {
+          "hook": "check toml",
+          "status": "failed"
+        },
+        {
+          "hook": "check json",
+          "status": "passed"
+        },
+        {
+          "hook": "fix utf-8 byte order marker",
+          "status": "passed"
+        },
+        {
+          "hook": "check for merge conflicts",
+          "status": "passed"
+        },
+        {
+          "hook": "detect private key",
+          "status": "passed"
+        },
+        {
+          "hook": "trim trailing whitespace",
+          "status": "passed"
+        },
+        {
+          "hook": "fix end of files",
+          "status": "passed"
+        },
+        {
+          "hook": "don't commit to branch",
+          "status": "failed"
+        },
+        {
+          "hook": "ruff (legacy alias)",
+          "status": "failed"
+        },
+        {
+          "hook": "ruff format",
+          "status": "failed"
+        },
+        {
+          "hook": "mypy",
+          "status": "passed"
+        },
+        {
+          "hook": "vulture",
+          "status": "failed"
+        },
+        {
+          "hook": "codespell",
+          "status": "failed"
+        },
+        {
+          "hook": "bandit",
+          "status": "passed"
+        },
+        {
+          "hook": "nbqa-ruff",
+          "status": "failed"
+        },
+        {
+          "hook": "uv-lock",
+          "status": "failed"
+        },
+        {
+          "hook": "pytest",
+          "status": "skipped"
+        }
+      ],
+      "pytest_hooks_skipped": [
+        "local-pytest",
+        "pytest"
+      ],
+      "outdated_hooks": [
+        {
+          "repo": "https://github.com/astral-sh/ruff-pre-commit",
+          "current_rev": "v0.15.12",
+          "issue": "Pre-1.0 version \u2014 check for updates"
+        },
+        {
+          "repo": "https://github.com/astral-sh/uv-pre-commit",
+          "current_rev": "0.11.8",
+          "issue": "Pre-1.0 version \u2014 check for updates"
+        }
+      ],
+      "metrics": {
+        "total_hooks": 20,
+        "passed": 11,
+        "failed": 8,
+        "skipped": 1,
+        "outdated_hooks": 2,
+        "pytest_hooks_skipped": 2,
+        "exit_code": 1
+      }
+    },
+    {
+      "domain": "Test Execution",
+      "score": 25,
+      "grade": "F",
+      "findings": [
+        "No tests were executed (test framework detected but no tests found)"
+      ],
+      "justifications": [
+        {
+          "criterion": "test_execution",
+          "points": 25,
+          "evidence": "{\"frameworks_detected\": 1, \"total_passed\": 0, \"total_failed\": 0, \"total_errors\": 0, \"pass_rate\": 0.0, \"timeout\": 300}",
+          "reasoning": "Executed 1 framework(s). 0 passed, 0 failed, 0 errors. Pass rate: 0%."
+        }
+      ],
+      "framework_results": [
+        {
+          "language": "python",
+          "framework": "pytest",
+          "command": [
+            "python",
+            "-m",
+            "pytest",
+            "--tb=line",
+            "-q",
+            "--timeout=300",
+            "--no-header"
+          ],
+          "status": "failed",
+          "exit_code": 4,
+          "parsed": {
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "warnings": 0,
+            "skipped": 0,
+            "failures": []
+          }
+        }
+      ],
+      "metrics": {
+        "frameworks_detected": 1,
+        "total_passed": 0,
+        "total_failed": 0,
+        "total_errors": 0,
+        "pass_rate": 0.0,
+        "timeout": 300
+      }
+    },
+    {
+      "domain": "Directory Organization",
+      "score": 80,
+      "grade": "B",
+      "findings": [
+        "1 directories with >40 files: agent_utilities/prompts",
+        "2 directories with >20 files: tests/unit/core, agent_utilities/tools"
+      ],
+      "justifications": [
+        {
+          "criterion": "directory_organization",
+          "points": 80,
+          "evidence": "{\"total_source_files\": 416, \"total_directories\": 56, \"max_depth\": 4, \"avg_depth\": 2.3, \"crowded_dirs_20plus\": 2, \"severely_crowded_40plus\": 1, \"monolithic_dirs\": 0, \"empty_dirs\": 7, \"avg_files_per_dir\": 7.4, \"rogue_scripts\": 0}",
+          "reasoning": "416 files across 56 directories. Max depth: 4, avg files/dir: 7.4. 2 crowded, 1 severely crowded, 0 monolithic, 0 rogue scripts."
+        }
+      ],
+      "metrics": {
+        "total_source_files": 416,
+        "total_directories": 56,
+        "max_depth": 4,
+        "avg_depth": 2.3,
+        "crowded_dirs_20plus": 2,
+        "severely_crowded_40plus": 1,
+        "monolithic_dirs": 0,
+        "empty_dirs": 7,
+        "avg_files_per_dir": 7.4,
+        "rogue_scripts": 0
+      },
+      "crowded_dirs": [
+        {
+          "directory": "agent_utilities/prompts",
+          "file_count": 50,
+          "files": [
+            "mobile_programmer.json",
+            "architect.json",
+            "typescript_programmer.json",
+            "coordinator.json",
+            "database_expert.json",
+            "researcher.json",
+            "browser_automation.json",
+            "python_programmer.json",
+            "knowledge_graph.json",
+            "ui_ux_designer.json"
+          ]
+        },
+        {
+          "directory": "tests/unit/core",
+          "file_count": 30,
+          "files": [
+            "test_config_helpers.py",
+            "test_auth.py",
+            "test_rlm.py",
+            "test_core_modules_misc.py",
+            "test_base_utilities.py",
+            "test_prompt_builder.py",
+            "test_prompts.py",
+            "test_rlm_helpers.py",
+            "test_structured_prompts.py",
+            "test_rlm_ahe_integration.py"
+          ]
+        },
+        {
+          "directory": "agent_utilities/tools",
+          "file_count": 22,
+          "files": [
+            "pattern_tools.py",
+            "style_tools.py",
+            "tool_registry.py",
+            "team_tools.py",
+            "onboarding_tools.py",
+            "mcp_sync_tool.py",
+            "agent_tools.py",
+            "a2a_tools.py",
+            "eval_harness.py",
+            "scheduler_tools.py"
+          ]
+        }
+      ],
+      "monolithic_dirs": [],
+      "suggestions": [
+        {
+          "directory": "agent_utilities/prompts",
+          "current_count": 50,
+          "action": "Consider splitting 50 files into subdirectories",
+          "suggested_groups": [
+            "council"
+          ]
+        },
+        {
+          "directory": "tests/unit/core",
+          "current_count": 30,
+          "action": "Consider splitting 30 files into subdirectories",
+          "suggested_groups": [
+            "by-feature",
+            "by-domain"
+          ]
+        },
+        {
+          "directory": "agent_utilities/tools",
+          "current_count": 22,
+          "action": "Consider splitting 22 files into subdirectories",
+          "suggested_groups": [
+            "by-feature",
+            "by-domain"
+          ]
+        }
+      ],
+      "rogue_scripts": []
+    },
+    {
+      "domain": "Version Sync Analysis",
+      "score": 60,
+      "grade": "D",
+      "findings": [
+        "Found 2 file(s) with version '0.3.0' that are NOT tracked in .bumpversion.cfg:",
+        "  - .specify/reports/results.json",
+        "  - .specify/reports/code_enhancement_report.md"
+      ],
+      "justifications": [
+        {
+          "criterion": "bumpversion_exists",
+          "points": 20,
+          "evidence": "/home/apps/workspace/agent-packages/agent-utilities/.bumpversion.cfg",
+          "reasoning": ".bumpversion.cfg found"
+        },
+        {
+          "criterion": "current_version_defined",
+          "points": 20,
+          "evidence": "0.3.0",
+          "reasoning": "Current version tracked is 0.3.0"
+        },
+        {
+          "criterion": "files_tracked",
+          "points": 20,
+          "evidence": "7 files tracked",
+          "reasoning": "Found 7 files tracked in .bumpversion.cfg"
+        },
+        {
+          "criterion": "version_drift_check",
+          "points": 0,
+          "evidence": "2 untracked files",
+          "reasoning": "Version definitions found in codebase that are missing from .bumpversion.cfg"
+        }
+      ],
+      "details": {
+        "tracked_files": [
+          "pyproject.toml",
+          "README.md",
+          "agent_utilities/__init__.py",
+          "agent_utilities/agent_utilities.py",
+          "agent_utilities/api_utilities.py",
+          "agent_utilities/base_utilities.py",
+          "agent_utilities/mcp_utilities.py"
+        ],
+        "drifted_files": [
+          ".specify/reports/results.json",
+          ".specify/reports/code_enhancement_report.md"
+        ]
+      }
+    },
+    {
+      "domain": "Changelog Audit",
+      "score": 100,
+      "grade": "A",
+      "findings": [],
+      "justifications": [
+        {
+          "criterion": "changelog_quality",
+          "points": 100,
+          "evidence": "{\"exists\": true, \"parseable\": true, \"version_count\": 4, \"has_drift\": false, \"dep_deltas_found\": 0}",
+          "reasoning": "CHANGELOG.md exists. 4 versions tracked. 0 dependency changelogs analyzed."
+        }
+      ],
+      "format_validation": {
+        "exists": true,
+        "parseable": true,
+        "has_unreleased": true,
+        "version_count": 4,
+        "uses_semver": true,
+        "valid_categories": true,
+        "has_dates": true,
+        "has_header": true,
+        "issues": []
+      },
+      "version_drift": {
+        "has_drift": false,
+        "changelog_version": null,
+        "pyproject_version": null
+      },
+      "dependency_deltas": {}
+    },
+    {
+      "domain": "Pytest Quality",
+      "score": 61,
+      "grade": "D",
+      "findings": [
+        "15 test files exceed 500 lines \u2014 split into focused modules",
+        "13 test files have >30 tests \u2014 too dense",
+        "6 tests have no assertions",
+        "280 tests use weak assertions (assert result is not None, assert True, etc.)",
+        "29 tests have excessive mocking (>5 mocks) \u2014 test behavior, not implementation"
+      ],
+      "justifications": [
+        {
+          "criterion": "pytest_quality",
+          "points": 61,
+          "evidence": "{\"test_files\": 110, \"total_tests\": 1395, \"descriptive_name_ratio\": 0.96, \"generic_names\": 0, \"fixture_usage_ratio\": 0.39, \"parametrize_users\": 10, \"conftest_fixtures\": 5, \"no_assertion_tests\": 6, \"weak_assertion_tests\": 280, \"duplicate_groups\": 0, \"large_files\": 15, \"over_mocked_tests\": 29, \"very_long_tests\": 0, \"subscores\": {\"naming\": 20, \"structure\": 5, \"fixtures\": 16, \"assertions\": 5, \"ai_slop\": 15}}",
+          "reasoning": "1395 tests across 110 files. Naming: 20/20, Structure: 5/20, Fixtures: 16/20, Assertions: 5/20, AI Slop: 15/20."
+        }
+      ],
+      "metrics": {
+        "test_files": 110,
+        "total_tests": 1395,
+        "descriptive_name_ratio": 0.96,
+        "generic_names": 0,
+        "fixture_usage_ratio": 0.39,
+        "parametrize_users": 10,
+        "conftest_fixtures": 5,
+        "no_assertion_tests": 6,
+        "weak_assertion_tests": 280,
+        "duplicate_groups": 0,
+        "large_files": 15,
+        "over_mocked_tests": 29,
+        "very_long_tests": 0,
+        "subscores": {
+          "naming": 20,
+          "structure": 5,
+          "fixtures": 16,
+          "assertions": 5,
+          "ai_slop": 15
+        }
+      },
+      "conftest": {
+        "conftest_count": 5,
+        "total_shared_fixtures": 5,
+        "has_root_conftest": true
+      },
+      "duplicates": [],
+      "large_files": [
+        {
+          "file": "test_agent_factory.py",
+          "lines": 865
+        },
+        {
+          "file": "test_knowledge_base.py",
+          "lines": 637
+        },
+        {
+          "file": "test_a2a.py",
+          "lines": 541
+        },
+        {
+          "file": "test_ahe_harness.py",
+          "lines": 599
+        },
+        {
+          "file": "test_capabilities.py",
+          "lines": 1105
+        },
+        {
+          "file": "test_kg_models.py",
+          "lines": 906
+        },
+        {
+          "file": "test_mcp_manager_extended.py",
+          "lines": 1813
+        },
+        {
+          "file": "test_document_pipeline_performance.py",
+          "lines": 545
+        },
+        {
+          "file": "test_core_modules_misc.py",
+          "lines": 670
+        },
+        {
+          "file": "test_base_utilities.py",
+          "lines": 1026
+        },
+        {
+          "file": "test_standard_ontology.py",
+          "lines": 616
+        },
+        {
+          "file": "test_scheduler.py",
+          "lines": 875
+        },
+        {
+          "file": "test_tools_misc.py",
+          "lines": 609
+        },
+        {
+          "file": "test_config_helpers.py",
+          "lines": 569
+        },
+        {
+          "file": "test_pipeline_phases_extended.py",
+          "lines": 1053
+        }
+      ]
+    },
+    {
+      "domain": "Environment Variables",
+      "score": 55,
+      "grade": "F",
+      "findings": [
+        "Only 2% of env vars documented in README.md",
+        "Undocumented env vars: A2A_TOOLS, ACP_SESSION_ROOT, AGENT_SECRETS_MASTER_KEY, AGENT_URL, AGENT_USER_TOKEN, AGENT_UTILITIES_TESTING, AGENT_WORKSPACE, ANTHROPIC_API_KEY, AUDIENCE, BROWSER_TOOLS",
+        "104 Python env vars not in .env.example: A2A_TOOLS, ACP_SESSION_ROOT, AGENT_SECRETS_MASTER_KEY, AGENT_URL, AGENT_USER_TOKEN",
+        "45 env vars have no default value in code"
+      ],
+      "justifications": [
+        {
+          "criterion": "env_var_documentation",
+          "points": 55,
+          "evidence": "{\"total_vars\": 106, \"python_vars\": 106, \"dockerfile_vars\": 0, \"compose_vars\": 0, \"dotenv_vars\": 2, \"readme_documented\": 2, \"readme_undocumented\": 104, \"documentation_coverage\": 0.02}",
+          "reasoning": "Found 106 unique env vars across 936 occurrences. README documents 2/106. Has .env.example."
+        }
+      ],
+      "metrics": {
+        "total_vars": 106,
+        "python_vars": 106,
+        "dockerfile_vars": 0,
+        "compose_vars": 0,
+        "dotenv_vars": 2,
+        "readme_documented": 2,
+        "readme_undocumented": 104,
+        "documentation_coverage": 0.02
+      },
+      "variables": {
+        "AGENT_WORKSPACE": {
+          "name": "AGENT_WORKSPACE",
+          "sources": [
+            "run_test.py:11",
+            "agent_utilities/core/workspace.py:204",
+            "build/lib/agent_utilities/core/workspace.py:204",
+            "build/lib/build/lib/agent_utilities/core/workspace.py:204",
+            "build/lib/build/lib/build/lib/agent_utilities/core/workspace.py:204"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "AGENT_URL": {
+          "name": "AGENT_URL",
+          "sources": [
+            "scripts/verify_acp_stack.py:25",
+            "build/lib/scripts/verify_acp_stack.py:25",
+            "build/lib/build/lib/scripts/verify_acp_stack.py:25",
+            "build/lib/build/lib/build/lib/scripts/verify_acp_stack.py:25",
+            "build/lib/build/lib/build/lib/build/lib/scripts/verify_acp_stack.py:25"
+          ],
+          "defaults": [
+            "http://localhost:8000"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OTEL_SDK_DISABLED": {
+          "name": "OTEL_SDK_DISABLED",
+          "sources": [
+            "tests/conftest.py:5",
+            "agent_utilities/core/config.py:30",
+            "agent_utilities/core/config.py:34",
+            "agent_utilities/core/config.py:299",
+            "agent_utilities/core/config.py:301"
+          ],
+          "defaults": [
+            "false",
+            "true",
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OPENAI_API_KEY": {
+          "name": "OPENAI_API_KEY",
+          "sources": [
+            "tests/conftest.py:6",
+            "agent_utilities/core/model_factory.py:151",
+            "agent_utilities/core/model_factory.py:158",
+            "agent_utilities/core/model_factory.py:190",
+            "build/lib/tests/conftest.py:6"
+          ],
+          "defaults": [
+            "test-key"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "LOGFIRE_SEND_TO_LOGFIRE": {
+          "name": "LOGFIRE_SEND_TO_LOGFIRE",
+          "sources": [
+            "tests/conftest.py:7",
+            "agent_utilities/__init__.py:261",
+            "agent_utilities/core/config.py:31",
+            "build/lib/tests/conftest.py:7",
+            "build/lib/agent_utilities/__init__.py:257"
+          ],
+          "defaults": [
+            "false"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "ENABLE_GRAPH_INTEGRATION": {
+          "name": "ENABLE_GRAPH_INTEGRATION",
+          "sources": [
+            "tests/conftest.py:8",
+            "build/lib/tests/conftest.py:8",
+            "build/lib/build/lib/tests/conftest.py:8",
+            "build/lib/build/lib/build/lib/tests/conftest.py:8",
+            "build/lib/build/lib/build/lib/build/lib/tests/conftest.py:8"
+          ],
+          "defaults": [
+            "false"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "AGENT_UTILITIES_TESTING": {
+          "name": "AGENT_UTILITIES_TESTING",
+          "sources": [
+            "tests/conftest.py:9",
+            "agent_utilities/core/model_factory.py:126",
+            "agent_utilities/core/embedding_utilities.py:93",
+            "agent_utilities/core/embedding_utilities.py:135",
+            "agent_utilities/knowledge_graph/backends/__init__.py:138"
+          ],
+          "defaults": [
+            "true"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DEFAULT_AGENT_NAME": {
+          "name": "DEFAULT_AGENT_NAME",
+          "sources": [
+            "agent_utilities/__main__.py:44",
+            "build/lib/agent_utilities/__main__.py:44",
+            "build/lib/build/lib/agent_utilities/__main__.py:44",
+            "build/lib/build/lib/build/lib/agent_utilities/__main__.py:44",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/__main__.py:44"
+          ],
+          "defaults": [
+            "meta.get("
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "ENABLE_DELEGATION": {
+          "name": "ENABLE_DELEGATION",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:27",
+            "agent_utilities/mcp_utilities.py:189",
+            "build/lib/agent_utilities/mcp_utilities.py:27",
+            "build/lib/agent_utilities/mcp_utilities.py:189",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:27"
+          ],
+          "defaults": [
+            "False"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "AUDIENCE": {
+          "name": "AUDIENCE",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:28",
+            "agent_utilities/mcp_utilities.py:194",
+            "build/lib/agent_utilities/mcp_utilities.py:28",
+            "build/lib/agent_utilities/mcp_utilities.py:194",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:28"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DELEGATED_SCOPES": {
+          "name": "DELEGATED_SCOPES",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:29",
+            "agent_utilities/mcp_utilities.py:199",
+            "build/lib/agent_utilities/mcp_utilities.py:29",
+            "build/lib/agent_utilities/mcp_utilities.py:199",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:29"
+          ],
+          "defaults": [
+            "api"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OIDC_CLIENT_ID": {
+          "name": "OIDC_CLIENT_ID",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:31",
+            "build/lib/agent_utilities/mcp_utilities.py:31",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:31",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:31",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:31"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OIDC_CLIENT_SECRET": {
+          "name": "OIDC_CLIENT_SECRET",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:32",
+            "build/lib/agent_utilities/mcp_utilities.py:32",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:32",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:32",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:32"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OIDC_CONFIG_URL": {
+          "name": "OIDC_CONFIG_URL",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:33",
+            "build/lib/agent_utilities/mcp_utilities.py:33",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:33",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:33",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:33"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "FASTMCP_SERVER_AUTH_JWT_JWKS_URI": {
+          "name": "FASTMCP_SERVER_AUTH_JWT_JWKS_URI",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:34",
+            "agent_utilities/mcp_utilities.py:377",
+            "build/lib/agent_utilities/mcp_utilities.py:34",
+            "build/lib/agent_utilities/mcp_utilities.py:377",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:34"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "FASTMCP_SERVER_AUTH_JWT_ISSUER": {
+          "name": "FASTMCP_SERVER_AUTH_JWT_ISSUER",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:35",
+            "agent_utilities/mcp_utilities.py:378",
+            "build/lib/agent_utilities/mcp_utilities.py:35",
+            "build/lib/agent_utilities/mcp_utilities.py:378",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:35"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "FASTMCP_SERVER_AUTH_JWT_AUDIENCE": {
+          "name": "FASTMCP_SERVER_AUTH_JWT_AUDIENCE",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:36",
+            "agent_utilities/mcp_utilities.py:379",
+            "build/lib/agent_utilities/mcp_utilities.py:36",
+            "build/lib/agent_utilities/mcp_utilities.py:379",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:36"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "FASTMCP_SERVER_AUTH_JWT_ALGORITHM": {
+          "name": "FASTMCP_SERVER_AUTH_JWT_ALGORITHM",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:37",
+            "agent_utilities/mcp_utilities.py:101",
+            "build/lib/agent_utilities/mcp_utilities.py:37",
+            "build/lib/agent_utilities/mcp_utilities.py:101",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:37"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY": {
+          "name": "FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:38",
+            "agent_utilities/mcp_utilities.py:117",
+            "agent_utilities/mcp_utilities.py:122",
+            "build/lib/agent_utilities/mcp_utilities.py:38",
+            "build/lib/agent_utilities/mcp_utilities.py:117"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES": {
+          "name": "FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:39",
+            "agent_utilities/mcp_utilities.py:127",
+            "build/lib/agent_utilities/mcp_utilities.py:39",
+            "build/lib/agent_utilities/mcp_utilities.py:127",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:39"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "TRANSPORT": {
+          "name": "TRANSPORT",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:42",
+            "build/lib/agent_utilities/mcp_utilities.py:42",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:42",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:42",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:42"
+          ],
+          "defaults": [
+            "stdio"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "PROVIDER": {
+          "name": "PROVIDER",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:44",
+            "agent_utilities/server/app.py:475",
+            "agent_utilities/core/model_factory.py:131",
+            "agent_utilities/core/config.py:365",
+            "agent_utilities/knowledge_graph/kb/extractor.py:71"
+          ],
+          "defaults": [
+            "openai"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "MODEL_ID": {
+          "name": "MODEL_ID",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:45",
+            "agent_utilities/server/app.py:477",
+            "agent_utilities/core/model_factory.py:132",
+            "agent_utilities/core/config.py:359",
+            "agent_utilities/core/config.py:362"
+          ],
+          "defaults": [
+            "gpt-4o-mini",
+            "text-embedding-nomic-embed-text-v2-moe",
+            "config.model_id"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "LLM_BASE_URL": {
+          "name": "LLM_BASE_URL",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:46",
+            "agent_utilities/core/model_factory.py:145",
+            "agent_utilities/core/model_factory.py:175",
+            "agent_utilities/core/config.py:367",
+            "agent_utilities/core/embedding_utilities.py:63"
+          ],
+          "defaults": [
+            "http://localhost:1234/v1",
+            "http://10.0.0.18:1234/v1",
+            "http://host.docker.internal:1234/v1"
+          ],
+          "source_types": [
+            "dotenv",
+            "python"
+          ]
+        },
+        "LLM_API_KEY": {
+          "name": "LLM_API_KEY",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:47",
+            "agent_utilities/core/model_factory.py:151",
+            "agent_utilities/core/model_factory.py:177",
+            "agent_utilities/core/model_factory.py:196",
+            "agent_utilities/core/model_factory.py:217"
+          ],
+          "defaults": [
+            "None",
+            "llama"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OPENAPI_USERNAME": {
+          "name": "OPENAPI_USERNAME",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:220",
+            "build/lib/agent_utilities/mcp_utilities.py:220",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:220",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:220",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:220"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OPENAPI_PASSWORD": {
+          "name": "OPENAPI_PASSWORD",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:226",
+            "build/lib/agent_utilities/mcp_utilities.py:226",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:226",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:226",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:226"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OPENAPI_CLIENT_ID": {
+          "name": "OPENAPI_CLIENT_ID",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:232",
+            "build/lib/agent_utilities/mcp_utilities.py:232",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:232",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:232",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:232"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OPENAPI_CLIENT_SECRET": {
+          "name": "OPENAPI_CLIENT_SECRET",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:238",
+            "build/lib/agent_utilities/mcp_utilities.py:238",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:238",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:238",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:238"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "PATH": {
+          "name": "PATH",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:594",
+            "build/lib/agent_utilities/mcp_utilities.py:594",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:594",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:594",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:594"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "PYTHONPATH": {
+          "name": "PYTHONPATH",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:616",
+            "build/lib/agent_utilities/mcp_utilities.py:616",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:616",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:616",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:616"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "AGENT_USER_TOKEN": {
+          "name": "AGENT_USER_TOKEN",
+          "sources": [
+            "agent_utilities/mcp_utilities.py:633",
+            "build/lib/agent_utilities/mcp_utilities.py:633",
+            "build/lib/build/lib/agent_utilities/mcp_utilities.py:633",
+            "build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:633",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/mcp_utilities.py:633"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OTEL_ENABLE_OTEL": {
+          "name": "OTEL_ENABLE_OTEL",
+          "sources": [
+            "agent_utilities/__init__.py:260",
+            "agent_utilities/__init__.py:263",
+            "build/lib/agent_utilities/__init__.py:256",
+            "build/lib/agent_utilities/__init__.py:259",
+            "build/lib/build/lib/agent_utilities/__init__.py:256"
+          ],
+          "defaults": [
+            "false",
+            "True"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "ENABLE_OTEL": {
+          "name": "ENABLE_OTEL",
+          "sources": [
+            "agent_utilities/__init__.py:262",
+            "agent_utilities/agent/factory.py:201",
+            "agent_utilities/server/app.py:129",
+            "agent_utilities/core/config.py:32",
+            "build/lib/agent_utilities/__init__.py:258"
+          ],
+          "defaults": [
+            "False",
+            "True"
+          ],
+          "source_types": [
+            "dotenv",
+            "python"
+          ]
+        },
+        "VALIDATION_MODE": {
+          "name": "VALIDATION_MODE",
+          "sources": [
+            "agent_utilities/base_utilities.py:210",
+            "agent_utilities/core/config.py:348",
+            "build/lib/agent_utilities/base_utilities.py:210",
+            "build/lib/agent_utilities/core/config.py:348",
+            "build/lib/build/lib/agent_utilities/base_utilities.py:210"
+          ],
+          "defaults": [
+            "False"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "SSL_VERIFY": {
+          "name": "SSL_VERIFY",
+          "sources": [
+            "agent_utilities/base_utilities.py:271",
+            "agent_utilities/core/embedding_utilities.py:65",
+            "build/lib/agent_utilities/base_utilities.py:271",
+            "build/lib/agent_utilities/core/embedding_utilities.py:65",
+            "build/lib/build/lib/agent_utilities/base_utilities.py:271"
+          ],
+          "defaults": [
+            "true"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "ENABLE_WEB_UI": {
+          "name": "ENABLE_WEB_UI",
+          "sources": [
+            "agent_utilities/agent/factory.py:173",
+            "agent_utilities/server/app.py:448",
+            "build/lib/agent_utilities/agent/factory.py:173",
+            "build/lib/agent_utilities/server/app.py:448",
+            "build/lib/build/lib/agent_utilities/agent/factory.py:173"
+          ],
+          "defaults": [
+            "False"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "ACP_SESSION_ROOT": {
+          "name": "ACP_SESSION_ROOT",
+          "sources": [
+            "agent_utilities/protocols/acp_adapter.py:88",
+            "build/lib/agent_utilities/protocols/acp_adapter.py:88",
+            "build/lib/build/lib/agent_utilities/protocols/acp_adapter.py:88",
+            "build/lib/build/lib/build/lib/agent_utilities/protocols/acp_adapter.py:88",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/protocols/acp_adapter.py:88"
+          ],
+          "defaults": [
+            ".acp-sessions"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "VAULT_TOKEN": {
+          "name": "VAULT_TOKEN",
+          "sources": [
+            "agent_utilities/security/secrets_client.py:272",
+            "build/lib/agent_utilities/security/secrets_client.py:272",
+            "build/lib/build/lib/agent_utilities/security/secrets_client.py:272",
+            "build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:272",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:272"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "SECRETS_BACKEND": {
+          "name": "SECRETS_BACKEND",
+          "sources": [
+            "agent_utilities/security/secrets_client.py:442",
+            "build/lib/agent_utilities/security/secrets_client.py:442",
+            "build/lib/build/lib/agent_utilities/security/secrets_client.py:442",
+            "build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:442",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:442"
+          ],
+          "defaults": [
+            "inmemory"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "SECRETS_SQLITE_PATH": {
+          "name": "SECRETS_SQLITE_PATH",
+          "sources": [
+            "agent_utilities/security/secrets_client.py:443",
+            "build/lib/agent_utilities/security/secrets_client.py:443",
+            "build/lib/build/lib/agent_utilities/security/secrets_client.py:443",
+            "build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:443",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:443"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "SECRETS_VAULT_URL": {
+          "name": "SECRETS_VAULT_URL",
+          "sources": [
+            "agent_utilities/security/secrets_client.py:444",
+            "build/lib/agent_utilities/security/secrets_client.py:444",
+            "build/lib/build/lib/agent_utilities/security/secrets_client.py:444",
+            "build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:444",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:444"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "SECRETS_VAULT_MOUNT": {
+          "name": "SECRETS_VAULT_MOUNT",
+          "sources": [
+            "agent_utilities/security/secrets_client.py:445",
+            "build/lib/agent_utilities/security/secrets_client.py:445",
+            "build/lib/build/lib/agent_utilities/security/secrets_client.py:445",
+            "build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:445",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:445"
+          ],
+          "defaults": [
+            "secret"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "AGENT_SECRETS_MASTER_KEY": {
+          "name": "AGENT_SECRETS_MASTER_KEY",
+          "sources": [
+            "agent_utilities/security/secrets_client.py:446",
+            "build/lib/agent_utilities/security/secrets_client.py:446",
+            "build/lib/build/lib/agent_utilities/security/secrets_client.py:446",
+            "build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:446",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/security/secrets_client.py:446"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "MODELS_CONFIG": {
+          "name": "MODELS_CONFIG",
+          "sources": [
+            "agent_utilities/server/dependencies.py:168",
+            "build/lib/agent_utilities/server/dependencies.py:168",
+            "build/lib/build/lib/agent_utilities/server/dependencies.py:168",
+            "build/lib/build/lib/build/lib/agent_utilities/server/dependencies.py:168",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/server/dependencies.py:168"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "MCP_URL": {
+          "name": "MCP_URL",
+          "sources": [
+            "agent_utilities/server/__init__.py:287",
+            "build/lib/agent_utilities/server/__init__.py:287",
+            "build/lib/build/lib/agent_utilities/server/__init__.py:287",
+            "build/lib/build/lib/build/lib/agent_utilities/server/__init__.py:287",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/server/__init__.py:287"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "ENABLE_RLM": {
+          "name": "ENABLE_RLM",
+          "sources": [
+            "agent_utilities/rlm/config.py:45",
+            "build/lib/agent_utilities/rlm/config.py:45",
+            "build/lib/build/lib/agent_utilities/rlm/config.py:45",
+            "build/lib/build/lib/build/lib/agent_utilities/rlm/config.py:45",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/rlm/config.py:45"
+          ],
+          "defaults": [
+            "False"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "RLM_USE_CONTAINER": {
+          "name": "RLM_USE_CONTAINER",
+          "sources": [
+            "agent_utilities/rlm/config.py:65",
+            "build/lib/agent_utilities/rlm/config.py:65",
+            "build/lib/build/lib/agent_utilities/rlm/config.py:65",
+            "build/lib/build/lib/build/lib/agent_utilities/rlm/config.py:65",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/rlm/config.py:65"
+          ],
+          "defaults": [
+            "False"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OTEL_EXPORTER_OTLP_HEADERS": {
+          "name": "OTEL_EXPORTER_OTLP_HEADERS",
+          "sources": [
+            "agent_utilities/observability/custom_observability.py:64",
+            "agent_utilities/observability/custom_observability.py:72",
+            "agent_utilities/observability/custom_observability.py:81",
+            "build/lib/agent_utilities/observability/custom_observability.py:64",
+            "build/lib/agent_utilities/observability/custom_observability.py:72"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OTEL_EXPORTER_OTLP_PUBLIC_KEY": {
+          "name": "OTEL_EXPORTER_OTLP_PUBLIC_KEY",
+          "sources": [
+            "agent_utilities/observability/custom_observability.py:65",
+            "agent_utilities/observability/custom_observability.py:68",
+            "build/lib/agent_utilities/observability/custom_observability.py:65",
+            "build/lib/agent_utilities/observability/custom_observability.py:68",
+            "build/lib/build/lib/agent_utilities/observability/custom_observability.py:65"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OTEL_EXPORTER_OTLP_SECRET_KEY": {
+          "name": "OTEL_EXPORTER_OTLP_SECRET_KEY",
+          "sources": [
+            "agent_utilities/observability/custom_observability.py:66",
+            "agent_utilities/observability/custom_observability.py:69",
+            "build/lib/agent_utilities/observability/custom_observability.py:66",
+            "build/lib/agent_utilities/observability/custom_observability.py:69",
+            "build/lib/build/lib/agent_utilities/observability/custom_observability.py:66"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OTEL_EXPORTER_OTLP_ENDPOINT": {
+          "name": "OTEL_EXPORTER_OTLP_ENDPOINT",
+          "sources": [
+            "agent_utilities/observability/custom_observability.py:80",
+            "agent_utilities/harness/trace_backend.py:192",
+            "agent_utilities/harness/trace_backend.py:313",
+            "build/lib/agent_utilities/observability/custom_observability.py:80",
+            "build/lib/agent_utilities/harness/trace_backend.py:192"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "LANGFUSE_SECRET_KEY": {
+          "name": "LANGFUSE_SECRET_KEY",
+          "sources": [
+            "agent_utilities/harness/trace_backend.py:310",
+            "build/lib/agent_utilities/harness/trace_backend.py:310",
+            "build/lib/build/lib/agent_utilities/harness/trace_backend.py:310",
+            "build/lib/build/lib/build/lib/agent_utilities/harness/trace_backend.py:310",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/harness/trace_backend.py:310"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "WORKSPACE_TOOLS": {
+          "name": "WORKSPACE_TOOLS",
+          "sources": [
+            "agent_utilities/tools/tool_registry.py:57",
+            "build/lib/agent_utilities/tools/tool_registry.py:57",
+            "build/lib/build/lib/agent_utilities/tools/tool_registry.py:57",
+            "build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:57",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:57"
+          ],
+          "defaults": [
+            "True"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "A2A_TOOLS": {
+          "name": "A2A_TOOLS",
+          "sources": [
+            "agent_utilities/tools/tool_registry.py:59",
+            "build/lib/agent_utilities/tools/tool_registry.py:59",
+            "build/lib/build/lib/agent_utilities/tools/tool_registry.py:59",
+            "build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:59",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:59"
+          ],
+          "defaults": [
+            "True"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "SCHEDULER_TOOLS": {
+          "name": "SCHEDULER_TOOLS",
+          "sources": [
+            "agent_utilities/tools/tool_registry.py:61",
+            "build/lib/agent_utilities/tools/tool_registry.py:61",
+            "build/lib/build/lib/agent_utilities/tools/tool_registry.py:61",
+            "build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:61",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:61"
+          ],
+          "defaults": [
+            "True"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GIT_TOOLS": {
+          "name": "GIT_TOOLS",
+          "sources": [
+            "agent_utilities/tools/tool_registry.py:63",
+            "build/lib/agent_utilities/tools/tool_registry.py:63",
+            "build/lib/build/lib/agent_utilities/tools/tool_registry.py:63",
+            "build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:63",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:63"
+          ],
+          "defaults": [
+            "True"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "BROWSER_TOOLS": {
+          "name": "BROWSER_TOOLS",
+          "sources": [
+            "agent_utilities/tools/tool_registry.py:64",
+            "build/lib/agent_utilities/tools/tool_registry.py:64",
+            "build/lib/build/lib/agent_utilities/tools/tool_registry.py:64",
+            "build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:64",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:64"
+          ],
+          "defaults": [
+            "True"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DEVELOPER_TOOLS": {
+          "name": "DEVELOPER_TOOLS",
+          "sources": [
+            "agent_utilities/tools/tool_registry.py:66",
+            "build/lib/agent_utilities/tools/tool_registry.py:66",
+            "build/lib/build/lib/agent_utilities/tools/tool_registry.py:66",
+            "build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:66",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/tools/tool_registry.py:66"
+          ],
+          "defaults": [
+            "True"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OPENAI_BASE_URL": {
+          "name": "OPENAI_BASE_URL",
+          "sources": [
+            "agent_utilities/core/model_factory.py:146",
+            "agent_utilities/core/model_factory.py:156",
+            "agent_utilities/core/model_factory.py:189",
+            "build/lib/agent_utilities/core/model_factory.py:146",
+            "build/lib/agent_utilities/core/model_factory.py:156"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "ANTHROPIC_API_KEY": {
+          "name": "ANTHROPIC_API_KEY",
+          "sources": [
+            "agent_utilities/core/model_factory.py:197",
+            "agent_utilities/core/model_factory.py:200",
+            "build/lib/agent_utilities/core/model_factory.py:197",
+            "build/lib/agent_utilities/core/model_factory.py:200",
+            "build/lib/build/lib/agent_utilities/core/model_factory.py:197"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GEMINI_API_KEY": {
+          "name": "GEMINI_API_KEY",
+          "sources": [
+            "agent_utilities/core/model_factory.py:217",
+            "agent_utilities/core/model_factory.py:220",
+            "build/lib/agent_utilities/core/model_factory.py:217",
+            "build/lib/agent_utilities/core/model_factory.py:220",
+            "build/lib/build/lib/agent_utilities/core/model_factory.py:217"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GROQ_API_KEY": {
+          "name": "GROQ_API_KEY",
+          "sources": [
+            "agent_utilities/core/model_factory.py:225",
+            "agent_utilities/core/model_factory.py:228",
+            "build/lib/agent_utilities/core/model_factory.py:225",
+            "build/lib/agent_utilities/core/model_factory.py:228",
+            "build/lib/build/lib/agent_utilities/core/model_factory.py:225"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "MISTRAL_API_KEY": {
+          "name": "MISTRAL_API_KEY",
+          "sources": [
+            "agent_utilities/core/model_factory.py:244",
+            "agent_utilities/core/model_factory.py:247",
+            "build/lib/agent_utilities/core/model_factory.py:244",
+            "build/lib/agent_utilities/core/model_factory.py:247",
+            "build/lib/build/lib/agent_utilities/core/model_factory.py:244"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "HUGGING_FACE_API_KEY": {
+          "name": "HUGGING_FACE_API_KEY",
+          "sources": [
+            "agent_utilities/core/model_factory.py:255",
+            "agent_utilities/core/model_factory.py:258",
+            "build/lib/agent_utilities/core/model_factory.py:255",
+            "build/lib/agent_utilities/core/model_factory.py:258",
+            "build/lib/build/lib/agent_utilities/core/model_factory.py:255"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "LOGIT_BIAS": {
+          "name": "LOGIT_BIAS",
+          "sources": [
+            "agent_utilities/core/config.py:328",
+            "build/lib/agent_utilities/core/config.py:328",
+            "build/lib/build/lib/agent_utilities/core/config.py:328",
+            "build/lib/build/lib/build/lib/agent_utilities/core/config.py:328",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/config.py:328"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "STOP_SEQUENCES": {
+          "name": "STOP_SEQUENCES",
+          "sources": [
+            "agent_utilities/core/config.py:333",
+            "build/lib/agent_utilities/core/config.py:333",
+            "build/lib/build/lib/agent_utilities/core/config.py:333",
+            "build/lib/build/lib/build/lib/agent_utilities/core/config.py:333",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/config.py:333"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "EXTRA_HEADERS": {
+          "name": "EXTRA_HEADERS",
+          "sources": [
+            "agent_utilities/core/config.py:338",
+            "build/lib/agent_utilities/core/config.py:338",
+            "build/lib/build/lib/agent_utilities/core/config.py:338",
+            "build/lib/build/lib/build/lib/agent_utilities/core/config.py:338",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/config.py:338"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "EXTRA_BODY": {
+          "name": "EXTRA_BODY",
+          "sources": [
+            "agent_utilities/core/config.py:343",
+            "build/lib/agent_utilities/core/config.py:343",
+            "build/lib/build/lib/agent_utilities/core/config.py:343",
+            "build/lib/build/lib/build/lib/agent_utilities/core/config.py:343",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/config.py:343"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_ROUTER_BASE_URL": {
+          "name": "GRAPH_ROUTER_BASE_URL",
+          "sources": [
+            "agent_utilities/core/config.py:367",
+            "build/lib/agent_utilities/core/config.py:367",
+            "build/lib/build/lib/agent_utilities/core/config.py:367",
+            "build/lib/build/lib/build/lib/agent_utilities/core/config.py:367",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/config.py:367"
+          ],
+          "defaults": [
+            "os.getenv("
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_ROUTER_API_KEY": {
+          "name": "GRAPH_ROUTER_API_KEY",
+          "sources": [
+            "agent_utilities/core/config.py:368",
+            "build/lib/agent_utilities/core/config.py:368",
+            "build/lib/build/lib/agent_utilities/core/config.py:368",
+            "build/lib/build/lib/build/lib/agent_utilities/core/config.py:368",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/config.py:368"
+          ],
+          "defaults": [
+            "os.getenv("
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "EMBEDDING_PROVIDER": {
+          "name": "EMBEDDING_PROVIDER",
+          "sources": [
+            "agent_utilities/core/embedding_utilities.py:59",
+            "build/lib/agent_utilities/core/embedding_utilities.py:59",
+            "build/lib/build/lib/agent_utilities/core/embedding_utilities.py:59",
+            "build/lib/build/lib/build/lib/agent_utilities/core/embedding_utilities.py:59",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/embedding_utilities.py:59"
+          ],
+          "defaults": [
+            "openai"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "HF_HOME": {
+          "name": "HF_HOME",
+          "sources": [
+            "agent_utilities/core/embedding_utilities.py:112",
+            "build/lib/agent_utilities/core/embedding_utilities.py:112",
+            "build/lib/build/lib/agent_utilities/core/embedding_utilities.py:112",
+            "build/lib/build/lib/build/lib/agent_utilities/core/embedding_utilities.py:112",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/embedding_utilities.py:112"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "POSTGRES_DSN": {
+          "name": "POSTGRES_DSN",
+          "sources": [
+            "agent_utilities/core/persistence.py:228",
+            "build/lib/agent_utilities/core/persistence.py:228",
+            "build/lib/build/lib/agent_utilities/core/persistence.py:228",
+            "build/lib/build/lib/build/lib/agent_utilities/core/persistence.py:228",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/persistence.py:228"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "REDIS_URL": {
+          "name": "REDIS_URL",
+          "sources": [
+            "agent_utilities/core/persistence.py:234",
+            "build/lib/agent_utilities/core/persistence.py:234",
+            "build/lib/build/lib/agent_utilities/core/persistence.py:234",
+            "build/lib/build/lib/build/lib/agent_utilities/core/persistence.py:234",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/core/persistence.py:234"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_TIMEOUT": {
+          "name": "GRAPH_TIMEOUT",
+          "sources": [
+            "agent_utilities/graph/config_helpers.py:29",
+            "build/lib/agent_utilities/graph/config_helpers.py:29",
+            "build/lib/build/lib/agent_utilities/graph/config_helpers.py:29",
+            "build/lib/build/lib/build/lib/agent_utilities/graph/config_helpers.py:29",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/graph/config_helpers.py:29"
+          ],
+          "defaults": [
+            "1200000"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "KNOWLEDGE_GRAPH_SYNC_BACKGROUND": {
+          "name": "KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+          "sources": [
+            "agent_utilities/graph/builder.py:174",
+            "agent_utilities/graph/builder.py:195",
+            "agent_utilities/graph/builder.py:416",
+            "build/lib/agent_utilities/graph/builder.py:174",
+            "build/lib/agent_utilities/graph/builder.py:195"
+          ],
+          "defaults": [
+            "true"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "LADYBUG_MAX_DB_SIZE": {
+          "name": "LADYBUG_MAX_DB_SIZE",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/ladybug_backend.py:44",
+            "build/lib/agent_utilities/knowledge_graph/backends/ladybug_backend.py:44",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/ladybug_backend.py:44",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/ladybug_backend.py:44",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/ladybug_backend.py:44"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_BACKEND": {
+          "name": "GRAPH_BACKEND",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/__init__.py:92",
+            "build/lib/agent_utilities/knowledge_graph/backends/__init__.py:92",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:92",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:92",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:92"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_DB_PATH": {
+          "name": "GRAPH_DB_PATH",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/__init__.py:103",
+            "build/lib/agent_utilities/knowledge_graph/backends/__init__.py:103",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:103",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:103",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:103"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_DB_HOST": {
+          "name": "GRAPH_DB_HOST",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/__init__.py:109",
+            "build/lib/agent_utilities/knowledge_graph/backends/__init__.py:122",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:122",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:122",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:122"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_DB_PORT": {
+          "name": "GRAPH_DB_PORT",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/__init__.py:110",
+            "build/lib/agent_utilities/knowledge_graph/backends/__init__.py:123",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:123",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:123",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:123"
+          ],
+          "defaults": [
+            "6379"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_DB_NAME": {
+          "name": "GRAPH_DB_NAME",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/__init__.py:111",
+            "build/lib/agent_utilities/knowledge_graph/backends/__init__.py:124",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:124",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:124",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:124"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_DB_URI": {
+          "name": "GRAPH_DB_URI",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/__init__.py:117",
+            "build/lib/agent_utilities/knowledge_graph/backends/__init__.py:130",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:130",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:130",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:130"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_DB_USER": {
+          "name": "GRAPH_DB_USER",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/__init__.py:118",
+            "build/lib/agent_utilities/knowledge_graph/backends/__init__.py:131",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:131",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:131",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:131"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "GRAPH_DB_PASSWORD": {
+          "name": "GRAPH_DB_PASSWORD",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/__init__.py:120",
+            "build/lib/agent_utilities/knowledge_graph/backends/__init__.py:133",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:133",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:133",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/__init__.py:133"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OWL_DB_PATH": {
+          "name": "OWL_DB_PATH",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:152",
+            "build/lib/agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:152",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:152",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:152",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:152"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "STARDOG_DATABASE": {
+          "name": "STARDOG_DATABASE",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:56",
+            "build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:56",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:56",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:56",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:56"
+          ],
+          "defaults": [
+            "agent_kg"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "STARDOG_USER": {
+          "name": "STARDOG_USER",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:57",
+            "build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:57",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:57",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:57",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:57"
+          ],
+          "defaults": [
+            "admin"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "STARDOG_PASSWORD": {
+          "name": "STARDOG_PASSWORD",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:58",
+            "build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:58",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:58",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:58",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:58"
+          ],
+          "defaults": [
+            "admin"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "OWL_BACKEND": {
+          "name": "OWL_BACKEND",
+          "sources": [
+            "agent_utilities/knowledge_graph/backends/owl/__init__.py:50",
+            "build/lib/agent_utilities/knowledge_graph/backends/owl/__init__.py:50",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/__init__.py:50",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/__init__.py:50",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/owl/__init__.py:50"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DOCUMENT_DB_TYPE": {
+          "name": "DOCUMENT_DB_TYPE",
+          "sources": [
+            "build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:91",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:91",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:91",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:91"
+          ],
+          "defaults": [
+            "sqlite_memory"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DOCUMENT_DB_PATH": {
+          "name": "DOCUMENT_DB_PATH",
+          "sources": [
+            "build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:96",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:96",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:96",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:96"
+          ],
+          "defaults": [
+            "documents.db"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DOCUMENT_DB_HOST": {
+          "name": "DOCUMENT_DB_HOST",
+          "sources": [
+            "build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:99",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:99",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:99",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:99"
+          ],
+          "defaults": [
+            "localhost"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DOCUMENT_DB_PORT": {
+          "name": "DOCUMENT_DB_PORT",
+          "sources": [
+            "build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:100",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:100",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:100",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:100"
+          ],
+          "defaults": [
+            "5432"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DOCUMENT_DB_DATABASE": {
+          "name": "DOCUMENT_DB_DATABASE",
+          "sources": [
+            "build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:101",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:101",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:101",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:101"
+          ],
+          "defaults": [
+            "documents"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DOCUMENT_DB_USER": {
+          "name": "DOCUMENT_DB_USER",
+          "sources": [
+            "build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:102",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:102",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:102",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:102"
+          ],
+          "defaults": [
+            "postgres"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DOCUMENT_DB_PASSWORD": {
+          "name": "DOCUMENT_DB_PASSWORD",
+          "sources": [
+            "build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:103",
+            "build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:103",
+            "build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:103",
+            "build/lib/build/lib/build/lib/build/lib/agent_utilities/knowledge_graph/backends/document_storage/factory.py:103"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "PUSH_ENV_VAR_MARKER": {
+          "name": "PUSH_ENV_VAR_MARKER",
+          "sources": [
+            "build/lib/build/lib/build/lib/build/lib/tests/unit/core/test_base_utilities.py:312",
+            "build/lib/build/lib/build/lib/tests/unit/core/test_base_utilities.py:312",
+            "build/lib/build/lib/tests/unit/core/test_base_utilities.py:312",
+            "build/lib/tests/unit/core/test_base_utilities.py:312",
+            "tests/unit/core/test_base_utilities.py:312"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "HOST": {
+          "name": "HOST",
+          "sources": [
+            "build/lib/build/lib/build/lib/build/lib/tests/unit/core/test_config.py:15",
+            "build/lib/build/lib/build/lib/build/lib/tests/unit/core/test_config.py:22",
+            "build/lib/build/lib/build/lib/tests/unit/core/test_config.py:15",
+            "build/lib/build/lib/build/lib/tests/unit/core/test_config.py:22",
+            "build/lib/build/lib/tests/unit/core/test_config.py:15"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "PORT": {
+          "name": "PORT",
+          "sources": [
+            "build/lib/build/lib/build/lib/build/lib/tests/unit/core/test_config.py:16",
+            "build/lib/build/lib/build/lib/build/lib/tests/unit/core/test_config.py:23",
+            "build/lib/build/lib/build/lib/tests/unit/core/test_config.py:16",
+            "build/lib/build/lib/build/lib/tests/unit/core/test_config.py:23",
+            "build/lib/build/lib/tests/unit/core/test_config.py:16"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "TOOL_GUARD_MODE": {
+          "name": "TOOL_GUARD_MODE",
+          "sources": [
+            "build/lib/build/lib/build/lib/build/lib/tests/unit/core/test_config.py:32",
+            "build/lib/build/lib/build/lib/build/lib/tests/unit/core/test_config.py:37",
+            "build/lib/build/lib/build/lib/tests/unit/core/test_config.py:32",
+            "build/lib/build/lib/build/lib/tests/unit/core/test_config.py:37",
+            "build/lib/build/lib/tests/unit/core/test_config.py:32"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "TEST_VAR": {
+          "name": "TEST_VAR",
+          "sources": [
+            "build/lib/build/lib/build/lib/build/lib/tests/integration/mcp/test_mcp_utilities_integration.py:52",
+            "build/lib/build/lib/build/lib/build/lib/tests/integration/mcp/test_mcp_utilities_integration.py:62",
+            "build/lib/build/lib/build/lib/tests/integration/mcp/test_mcp_utilities_integration.py:52",
+            "build/lib/build/lib/build/lib/tests/integration/mcp/test_mcp_utilities_integration.py:62",
+            "build/lib/build/lib/tests/integration/mcp/test_mcp_utilities_integration.py:52"
+          ],
+          "defaults": [
+            "None"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "WORKSPACE_DIR": {
+          "name": "WORKSPACE_DIR",
+          "sources": [
+            "build/lib/build/lib/build/lib/build/lib/tests/integration/core/test_server_routes.py:41",
+            "build/lib/build/lib/build/lib/tests/integration/core/test_server_routes.py:41",
+            "build/lib/build/lib/tests/integration/core/test_server_routes.py:41",
+            "build/lib/tests/integration/core/test_server_routes.py:41",
+            "tests/integration/core/test_server_routes.py:41"
+          ],
+          "defaults": [],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DEFAULT_PROVIDER": {
+          "name": "DEFAULT_PROVIDER",
+          "sources": [
+            "build/lib/build/lib/build/lib/build/lib/tests/integration/core/test_server_routes.py:43",
+            "build/lib/build/lib/build/lib/tests/integration/core/test_server_routes.py:43",
+            "build/lib/build/lib/tests/integration/core/test_server_routes.py:43",
+            "build/lib/tests/integration/core/test_server_routes.py:43",
+            "tests/integration/core/test_server_routes.py:43"
+          ],
+          "defaults": [
+            "openai"
+          ],
+          "source_types": [
+            "python"
+          ]
+        },
+        "DEFAULT_MODEL_ID": {
+          "name": "DEFAULT_MODEL_ID",
+          "sources": [
+            "build/lib/build/lib/build/lib/build/lib/tests/integration/core/test_server_routes.py:44",
+            "build/lib/build/lib/build/lib/tests/integration/core/test_server_routes.py:44",
+            "build/lib/build/lib/tests/integration/core/test_server_routes.py:44",
+            "build/lib/tests/integration/core/test_server_routes.py:44",
+            "tests/integration/core/test_server_routes.py:44"
+          ],
+          "defaults": [
+            "dummy-model"
+          ],
+          "source_types": [
+            "python"
+          ]
+        }
+      },
+      "readme_coverage": {
+        "documented": [
+          "DEFAULT_AGENT_NAME",
+          "VALIDATION_MODE"
+        ],
+        "undocumented": [
+          "A2A_TOOLS",
+          "ACP_SESSION_ROOT",
+          "AGENT_SECRETS_MASTER_KEY",
+          "AGENT_URL",
+          "AGENT_USER_TOKEN",
+          "AGENT_UTILITIES_TESTING",
+          "AGENT_WORKSPACE",
+          "ANTHROPIC_API_KEY",
+          "AUDIENCE",
+          "BROWSER_TOOLS",
+          "DEFAULT_MODEL_ID",
+          "DEFAULT_PROVIDER",
+          "DELEGATED_SCOPES",
+          "DEVELOPER_TOOLS",
+          "DOCUMENT_DB_DATABASE",
+          "DOCUMENT_DB_HOST",
+          "DOCUMENT_DB_PASSWORD",
+          "DOCUMENT_DB_PATH",
+          "DOCUMENT_DB_PORT",
+          "DOCUMENT_DB_TYPE",
+          "DOCUMENT_DB_USER",
+          "EMBEDDING_PROVIDER",
+          "ENABLE_DELEGATION",
+          "ENABLE_GRAPH_INTEGRATION",
+          "ENABLE_OTEL",
+          "ENABLE_RLM",
+          "ENABLE_WEB_UI",
+          "EXTRA_BODY",
+          "EXTRA_HEADERS",
+          "FASTMCP_SERVER_AUTH_JWT_ALGORITHM",
+          "FASTMCP_SERVER_AUTH_JWT_AUDIENCE",
+          "FASTMCP_SERVER_AUTH_JWT_ISSUER",
+          "FASTMCP_SERVER_AUTH_JWT_JWKS_URI",
+          "FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY",
+          "FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES",
+          "GEMINI_API_KEY",
+          "GIT_TOOLS",
+          "GRAPH_BACKEND",
+          "GRAPH_DB_HOST",
+          "GRAPH_DB_NAME",
+          "GRAPH_DB_PASSWORD",
+          "GRAPH_DB_PATH",
+          "GRAPH_DB_PORT",
+          "GRAPH_DB_URI",
+          "GRAPH_DB_USER",
+          "GRAPH_ROUTER_API_KEY",
+          "GRAPH_ROUTER_BASE_URL",
+          "GRAPH_TIMEOUT",
+          "GROQ_API_KEY",
+          "HF_HOME",
+          "HOST",
+          "HUGGING_FACE_API_KEY",
+          "KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+          "LADYBUG_MAX_DB_SIZE",
+          "LANGFUSE_SECRET_KEY",
+          "LLM_API_KEY",
+          "LLM_BASE_URL",
+          "LOGFIRE_SEND_TO_LOGFIRE",
+          "LOGIT_BIAS",
+          "MCP_URL",
+          "MISTRAL_API_KEY",
+          "MODELS_CONFIG",
+          "MODEL_ID",
+          "OIDC_CLIENT_ID",
+          "OIDC_CLIENT_SECRET",
+          "OIDC_CONFIG_URL",
+          "OPENAI_API_KEY",
+          "OPENAI_BASE_URL",
+          "OPENAPI_CLIENT_ID",
+          "OPENAPI_CLIENT_SECRET",
+          "OPENAPI_PASSWORD",
+          "OPENAPI_USERNAME",
+          "OTEL_ENABLE_OTEL",
+          "OTEL_EXPORTER_OTLP_ENDPOINT",
+          "OTEL_EXPORTER_OTLP_HEADERS",
+          "OTEL_EXPORTER_OTLP_PUBLIC_KEY",
+          "OTEL_EXPORTER_OTLP_SECRET_KEY",
+          "OTEL_SDK_DISABLED",
+          "OWL_BACKEND",
+          "OWL_DB_PATH",
+          "PATH",
+          "PORT",
+          "POSTGRES_DSN",
+          "PROVIDER",
+          "PUSH_ENV_VAR_MARKER",
+          "PYTHONPATH",
+          "REDIS_URL",
+          "RLM_USE_CONTAINER",
+          "SCHEDULER_TOOLS",
+          "SECRETS_BACKEND",
+          "SECRETS_SQLITE_PATH",
+          "SECRETS_VAULT_MOUNT",
+          "SECRETS_VAULT_URL",
+          "SSL_VERIFY",
+          "STARDOG_DATABASE",
+          "STARDOG_PASSWORD",
+          "STARDOG_USER",
+          "STOP_SEQUENCES",
+          "TEST_VAR",
+          "TOOL_GUARD_MODE",
+          "TRANSPORT",
+          "VAULT_TOKEN",
+          "WORKSPACE_DIR",
+          "WORKSPACE_TOOLS"
+        ],
+        "coverage": 0.018867924528301886
+      }
+    }
+  ],
+  "gpa": 1.62,
+  "domain_count": 16,
+  "timing": {
+    "analyze_project": 0.11,
+    "audit_dependencies": 0.0,
+    "analyze_codebase": 2.91,
+    "analyze_security": 6.29,
+    "analyze_tests": 1.13,
+    "audit_documentation": 0.43,
+    "analyze_architecture": 20.27,
+    "trace_concepts": 3.01,
+    "run_linters": 120.81,
+    "run_precommit": 10.09,
+    "run_tests": 0.23,
+    "analyze_directory_density": 3.09,
+    "analyze_ui": 3.6,
+    "analyze_version_sync": 1.95,
+    "audit_changelog": 0.0,
+    "grade_pytest": 0.6,
+    "scan_env_vars": 2.81
+  }
+}

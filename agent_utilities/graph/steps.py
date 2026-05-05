@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import asyncio
 
+from .hierarchical_planner import *  # noqa: F401,F403
+
 # Re-export all public symbols from submodules
 from .lifecycle import *  # noqa: F401,F403
-from .planning import *  # noqa: F401,F403
 from .routing import *  # noqa: F401,F403
 from .specialists import *  # noqa: F401,F403
 from .verification import *  # noqa: F401,F403

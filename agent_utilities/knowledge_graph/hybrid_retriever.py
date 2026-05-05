@@ -3,30 +3,83 @@ from __future__ import annotations
 
 """Hybrid Retriever for Knowledge Graph.
 
-Combines semantic vector similarity with topological graph traversal.
+Combines semantic vector similarity with topological graph traversal
+and optional backlink-density retrieval weighting (AU-042).
 """
 
 import logging
-from typing import Any
+import math
+from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.embedding_utilities import create_embedding_model
 
 from .engine import IntelligenceGraphEngine, cosine_similarity
 
+if TYPE_CHECKING:
+    from agent_utilities.models.schema_pack import SchemaPack
+
 logger = logging.getLogger(__name__)
 
 
 class HybridRetriever:
-    """Retrieves relevant subgraph context using Hybrid GraphRAG."""
+    """Retrieves relevant subgraph context using Hybrid GraphRAG.
 
-    def __init__(self, engine: IntelligenceGraphEngine):
+    Supports optional backlink-density retrieval weighting (AU-042) controlled
+    by the active ``SchemaPack``. When a pack is configured, its
+    ``backlink_boost_strategy`` and ``backlink_boost_factor`` govern whether
+    and how in-degree density influences scoring.
+
+    Args:
+        engine: The ``IntelligenceGraphEngine`` instance.
+        schema_pack: Optional active schema pack for retrieval configuration.
+    """
+
+    def __init__(
+        self,
+        engine: IntelligenceGraphEngine,
+        schema_pack: SchemaPack | None = None,
+    ):
         self.engine = engine
+        self._schema_pack = schema_pack
+
+        # Backlink boost config from schema pack (AU-042)
+        if schema_pack:
+            self._boost_strategy = schema_pack.backlink_boost_strategy
+            self._boost_factor = schema_pack.backlink_boost_factor
+        else:
+            # Default: global boost with standard coefficient
+            from agent_utilities.models.schema_pack import BacklinkBoostStrategy
+
+            self._boost_strategy = BacklinkBoostStrategy.GLOBAL
+            self._boost_factor = 0.1
+
         try:
             self.embed_model = create_embedding_model()
             logger.info("HybridRetriever initialized with LlamaIndex embedding model.")
         except Exception as e:
             logger.warning(f"Failed to initialize embedding model: {e}")
             self.embed_model = None
+
+    def _backlink_boost(self, node_id: str) -> float:
+        """Compute retrieval boost from inbound edge density (AU-042).
+
+        Uses logarithmic scaling to prevent hub nodes from dominating:
+        ``boost = 1.0 + factor * log(1 + in_degree)``
+
+        A node with 0 inbound edges gets boost 1.0 (neutral).
+        A node with 10 inbound edges gets ~1.0 + 0.1 * 2.4 = ~1.24.
+        A node with 100 inbound edges gets ~1.0 + 0.1 * 4.6 = ~1.46.
+
+        Args:
+            node_id: The node identifier to compute boost for.
+
+        Returns:
+            Multiplicative boost factor (>= 1.0).
+        """
+        if node_id not in self.engine.graph:
+            return 1.0
+        in_degree = self.engine.graph.in_degree(node_id)
+        return 1.0 + self._boost_factor * math.log1p(in_degree)
 
     def retrieve_hybrid(
         self, query: str, context_window: int = 10, multi_hop_depth: int = 2
@@ -65,6 +118,11 @@ class HybridRetriever:
                             node_data["_score"] = sim
                             scored_nodes.append(node_data)
 
+                # 1b. Apply backlink-density boost (AU-042)
+                if self._boost_strategy == "global":
+                    for node in scored_nodes:
+                        node["_score"] *= self._backlink_boost(node["id"])
+
                 scored_nodes.sort(key=lambda x: x["_score"], reverse=True)
                 if scored_nodes:
                     base_nodes = scored_nodes[:context_window]
@@ -101,6 +159,11 @@ class HybridRetriever:
                 for n_row in neighbors:
                     m = n_row.get("m")
                     if m and m.get("id") not in visited:
+                        # Apply backlink boost during context assembly (AU-042)
+                        if self._boost_strategy == "context_only":
+                            m_id = m.get("id", "")
+                            boost = self._backlink_boost(m_id)
+                            m["_context_boost"] = boost
                         visited.add(m["id"])
                         context_nodes.append(m)
 
@@ -119,6 +182,9 @@ class HybridRetriever:
                                 visited.add(n)
                                 d = dict(data)
                                 d["id"] = n
+                                # Apply backlink boost during context assembly (AU-042)
+                                if self._boost_strategy == "context_only":
+                                    d["_context_boost"] = self._backlink_boost(n)
                                 assembled_subgraph.append(d)
                 except Exception as e:
                     logger.debug(f"NX fallback traversal failed: {e}")

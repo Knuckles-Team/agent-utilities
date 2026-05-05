@@ -204,7 +204,7 @@ def build_agent_app(
         skills_list = enabled_skills
 
         if not skills_list:
-            # CONCEPT:AU-027 — Register PlannerGraphSkill when graph_bundle is available
+            # CONCEPT:ECO-4.2 — Register PlannerGraphSkill when graph_bundle is available
             if graph_bundle is not None:
                 try:
                     from ..protocols.a2a_graph_skill import PlannerGraphSkill

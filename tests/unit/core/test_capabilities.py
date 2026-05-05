@@ -1,6 +1,6 @@
 """Coverage push for agent_utilities.capabilities.*.
 
-CONCEPT:AU-008 — Resilient Agent Capabilities
+CONCEPT:ORCH-1.2 — Resilient Agent Capabilities
 
 Targets pure-logic / mocked-engine paths for:
   * checkpointing.InMemoryCheckpointStore / FileCheckpointStore

@@ -1,6 +1,6 @@
 """AHE Manifest Verifier.
 
-CONCEPT:AU-012 — Agentic Harness Engineering (Decision Observability)
+CONCEPT:AHE-3.0 — Agentic Harness Engineering (Decision Observability)
 
 Verifies whether the Evolve Agent's predictions came true by comparing
 a ChangeManifest's self-declared predictions against actual outcomes

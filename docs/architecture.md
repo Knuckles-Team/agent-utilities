@@ -18,7 +18,7 @@ graph TD
 
         subgraph MemoryArchitecture [Autonomous Memory Architecture]
             KG --> MAGMA[MAGMA: Orthogonal Views]
-            KG --> Lightning[Agent Lightning: Self-Improvement]
+            KG --> Lightning[Autonomous Self-Improvement]
             KG --> UnifiedDB[(Unified Graph DB: Ladybug/Neo4j)]
 
             MAGMA --> Semantic[Semantic View]

@@ -1,6 +1,6 @@
 # Secrets & Authentication
 
-> CONCEPT:AU-011 — Secrets & Authentication
+> CONCEPT:OS-5.1 — Secrets & Authentication
 
 This document covers how `agent-utilities` manages secrets, credentials,
 and authentication across the agent ecosystem.

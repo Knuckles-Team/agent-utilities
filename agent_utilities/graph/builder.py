@@ -67,12 +67,13 @@ from .steps import (
     synthesizer_step,
     usage_guard_step,
     verifier_step,
+    wide_search_joiner_step,
 )
 
 try:
     from ..knowledge_graph.engine import RegistryGraphEngine
-    from ..knowledge_graph.models import PipelineConfig
     from ..knowledge_graph.pipeline import RegistryPipeline
+    from ..models.knowledge_graph import PipelineConfig
 except ImportError:
     # These might be missing if the extra is not installed, but we want them at top level for patching
     RegistryGraphEngine = None  # type: ignore
@@ -487,6 +488,7 @@ def create_graph_agent(
     # Dual Joiners for Phase Separation
     _research_joiner = g.step(join_step, node_id="research_joiner")
     _execution_joiner = g.step(join_step, node_id="execution_joiner")
+    _wide_search_joiner = g.step(wide_search_joiner_step, node_id="wide_search_joiner")
     _architect = g.step(architect_step, node_id="architect")
     _verifier = g.step(verifier_step, node_id="verifier")
     _synthesizer = g.step(synthesizer_step, node_id="synthesizer")
@@ -591,6 +593,7 @@ def create_graph_agent(
         "expert_executor": _expert_executor,
         "research_joiner": _research_joiner,
         "execution_joiner": _execution_joiner,
+        "wide_search_joiner": _wide_search_joiner,
         "architect": _architect,
         "verifier": _verifier,
         "synthesizer": _synthesizer,
@@ -618,6 +621,7 @@ def create_graph_agent(
         ("planner", _planner),
         ("verifier", _verifier),
         ("synthesizer", _synthesizer),
+        ("wide_search_joiner", _wide_search_joiner),
         ("council", _council),
         ("mcp_router", _mcp_router),
         ("error_recovery", _error),
@@ -640,6 +644,24 @@ def create_graph_agent(
 
     # 3. Termination Route (returns None)
     _dispatcher_route.branches.append(g.match(type(None)).to(g.end_node))
+
+    # Joiner Routes
+    _research_joiner_route = g.decision(node_id="research_joiner_route")
+    _research_joiner_route.branches.append(
+        g.match(Literal["dispatcher"]).to(_dispatcher)
+    )
+    _research_joiner_route.branches.append(g.match(type(None)).to(g.end_node))
+
+    _execution_joiner_route = g.decision(node_id="execution_joiner_route")
+    _execution_joiner_route.branches.append(
+        g.match(Literal["dispatcher"]).to(_dispatcher)
+    )
+    _execution_joiner_route.branches.append(g.match(Literal["router_step"]).to(_router))
+    _execution_joiner_route.branches.append(g.match(Literal["router"]).to(_router))
+    _execution_joiner_route.branches.append(
+        g.match(Literal["wide_search_joiner"]).to(_wide_search_joiner)
+    )
+    _execution_joiner_route.branches.append(g.match(type(None)).to(g.end_node))
 
     # Register the decision node and edges
     g.add(
@@ -666,9 +688,10 @@ def create_graph_agent(
         # Special Handling for MCP Parallel Flow
         g.edge_from(_mcp_router).map().to(_mcp_server),
         g.edge_from(_mcp_server).to(_execution_joiner),
-        # Joiners: Return control to Dispatcher
-        g.edge_from(_research_joiner).to(_dispatcher),
-        g.edge_from(_execution_joiner).to(_dispatcher),
+        # Joiners: Return control to Dispatcher or designated node
+        g.edge_from(_research_joiner).to(_research_joiner_route),
+        g.edge_from(_execution_joiner).to(_execution_joiner_route),
+        g.edge_from(_wide_search_joiner).to(_dispatcher_route),
         # Error handling and Finalization
         g.edge_from(_error).label("error_recovery").to(g.end_node),
         g.edge_from(_error).label("planner").to(_planner),

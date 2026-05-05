@@ -63,7 +63,7 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "financial_instrument": "FinancialInstrument",
     "financial_transaction": "FinancialTransaction",
     "account": "Account",
-    # AHE Types (CONCEPT:AU-012)
+    # AHE Types (CONCEPT:AHE-3.0)
     "change_manifest": "ChangeManifest",
     "component_edit_record": "ComponentEditRecord",
     "evidence_record": "EvidenceRecord",
@@ -117,7 +117,7 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "cites_source": "citesSource",
     "has_financial_instrument": "hasFinancialInstrument",
     "executed_transaction": "executedTransaction",
-    # AHE Edges (CONCEPT:AU-012)
+    # AHE Edges (CONCEPT:AHE-3.0)
     "edited_in_round": "editedInRound",
     "predicted_fix": "predictedFix",
     "caused_regression": "causedRegression",

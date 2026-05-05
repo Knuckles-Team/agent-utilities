@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """SDD (Spec-Driven Development) Utility Module.
 
-CONCEPT:AU-009 — Spec-Driven Development
+CONCEPT:AHE-3.0 — Spec-Driven Development
 
 This module provides high-level utilities for managing structured SDD artifacts
 (Specifications, Plans, Constitutions) and their relationship to tasks. It handles

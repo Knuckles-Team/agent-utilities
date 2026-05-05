@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Pluggable Secrets Manager.
 
-CONCEPT:AU-011 — Secrets & Authentication
+CONCEPT:OS-5.1 — Secrets & Authentication
 
 Provides encrypted secrets storage with three pluggable backends:
 
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 class SecretValue(BaseModel):
     """Typed wrapper for a secret value with optional metadata.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
 
     value: SecretStr
@@ -58,7 +58,7 @@ class SecretValue(BaseModel):
 class SecretsConfig(BaseModel):
     """Configuration for the secrets client factory.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
 
     backend: str = Field(
@@ -91,7 +91,7 @@ class SecretsConfig(BaseModel):
 class SecretsBackend(abc.ABC):
     """Abstract base class for secrets storage backends.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
 
     @abc.abstractmethod
@@ -122,7 +122,7 @@ class InMemoryBackend(SecretsBackend):
     Secrets are encrypted at rest in a Python dict and lost on process exit.
     Suitable for development, testing, and short-lived agent sessions.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
 
     def __init__(self, master_key: bytes | None = None) -> None:
@@ -168,7 +168,7 @@ class SQLiteBackend(SecretsBackend):
     plaintext for queryability.  The DB file itself should live in a
     user-private directory (e.g. ``~/.agent-utilities/secrets.db``).
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
 
     def __init__(
@@ -252,7 +252,7 @@ class VaultBackend(SecretsBackend):
 
     Requires the ``hvac`` package (``pip install agent-utilities[vault]``).
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
     """
 
     def __init__(
@@ -321,7 +321,7 @@ class VaultBackend(SecretsBackend):
 class SecretsClient:
     """High-level secrets client with URI resolution and env-var fallback.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
 
     Wraps any ``SecretsBackend`` and adds:
 
@@ -421,7 +421,7 @@ class SecretsClient:
 def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
     """Create a ``SecretsClient`` from configuration.
 
-    CONCEPT:AU-011 — Secrets & Authentication
+    CONCEPT:OS-5.1 — Secrets & Authentication
 
     The backend is selected by ``config.backend``:
 

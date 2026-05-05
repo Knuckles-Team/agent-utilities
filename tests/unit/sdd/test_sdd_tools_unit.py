@@ -1,6 +1,6 @@
 """Tests for SDD tools (setup, spec save, status).
 
-CONCEPT:AU-009 — Spec-Driven Development
+CONCEPT:AHE-3.0 — Spec-Driven Development
 """
 
 from unittest.mock import MagicMock, patch

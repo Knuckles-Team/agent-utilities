@@ -23,7 +23,9 @@ def engine(temp_db):
     nx_graph = nx.MultiDiGraph()
     backend = LadybugBackend(temp_db)
     backend.create_schema()
-    return IntelligenceGraphEngine(nx_graph, backend=backend)
+    eng = IntelligenceGraphEngine(nx_graph, backend=backend)
+    yield eng
+    backend.close()
 
 
 def test_schema_initialization(engine):
