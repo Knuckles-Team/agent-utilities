@@ -40,11 +40,14 @@ async def test_parallel_trajectory_distiller(mock_deps, monkeypatch):
     from pydantic_ai.models.test import TestModel
     mock_deps.agent_model = TestModel()
 
+    mock_upsert = MagicMock()
+    monkeypatch.setattr("agent_utilities.knowledge_graph.ogm.KGMapper.upsert", mock_upsert)
+
     await parallel_trajectory_distiller(mock_deps, trajectories, query=query)
 
-    # Assert add_node was called
-    mock_deps.knowledge_engine.add_node.assert_called_once()
-    added_node = mock_deps.knowledge_engine.add_node.call_args[0][0]
+    # Assert upsert was called
+    mock_upsert.assert_called_once()
+    added_node = mock_upsert.call_args[0][0]
 
     assert added_node.type == "experience"
     assert "Parallel Tactic" in added_node.name

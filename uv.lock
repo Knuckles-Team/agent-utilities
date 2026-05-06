@@ -4330,7 +4330,7 @@ wheels = [
 
 [[package]]
 name = "repository-manager"
-version = "1.9.0"
+version = "1.10.0"
 source = { directory = "../agents/repository-manager" }
 dependencies = [
     { name = "agent-utilities", extra = ["mcp"] },

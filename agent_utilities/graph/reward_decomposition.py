@@ -35,7 +35,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # ── Enumerations ─────────────────────────────────────────────────────
 
 
-class StepOutcome(str, Enum):
+class StepOutcome(StrEnum):
     """Outcome classification for a single step within a trajectory.
 
     Attributes:
@@ -62,7 +62,7 @@ class StepOutcome(str, Enum):
     NEUTRAL = "neutral"
 
 
-class TrajectoryOutcome(str, Enum):
+class TrajectoryOutcome(StrEnum):
     """Outcome classification for a full trajectory.
 
     Attributes:
@@ -254,7 +254,9 @@ class DecomposedRewardRecord(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Compute derived fields from step and trajectory rewards."""
         if __context is not None:
-            logger.debug("DecomposedRewardRecord initialized with context: %s", __context)
+            logger.debug(
+                "DecomposedRewardRecord initialized with context: %s", __context
+            )
         self._recompute()
 
     def _recompute(self) -> None:

@@ -631,7 +631,10 @@ async def _distill_experience_from_retry(
                 action=res.data.action,
                 source_run_id=ctx.state.session_id,
             )
-            ctx.deps.knowledge_engine.add_node(node)
+            from ..knowledge_graph.ogm import KGMapper
+
+            ogm = KGMapper(ctx.deps.knowledge_engine)
+            ogm.upsert(node)
             logger.info(f"Distilled Experience Node: {exp_id}")
     except Exception as e:
         logger.warning(f"Experience distillation failed: {e}")
@@ -717,7 +720,10 @@ async def parallel_trajectory_distiller(
             node.metadata["enc_pi"] = enc_pi
             node.metadata["source"] = "parallel_scaling_distillation"
 
-            deps.knowledge_engine.add_node(node)
+            from ..knowledge_graph.ogm import KGMapper
+
+            ogm = KGMapper(deps.knowledge_engine)
+            ogm.upsert(node)
             logger.info(
                 f"Distilled Parallel Experience Node (CONCEPT:AHE-3.5): {exp_id} with EncPI mapping."
             )
