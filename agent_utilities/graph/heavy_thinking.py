@@ -729,6 +729,7 @@ class HeavyThinkingOrchestrator:
                     metadata={"source": "heavy_thinking_distillation"},
                 )
                 from ..knowledge_graph.ogm import KGMapper
+
                 ogm = KGMapper(deps.knowledge_engine)
                 ogm.upsert(node)
                 logger.info(
