@@ -404,9 +404,9 @@ def test_init_lazy_create_model():
 
 def test_agent_utilities_facade_imports():
     # Importing the facade should not raise
-    import agent_utilities.agent_utilities as au_facade
+    import agent_utilities
 
-    assert au_facade.__version__ == "0.5.0"
+    assert agent_utilities.__version__ == "0.6.1"
 
 
 # ---------------------------------------------------------------------------

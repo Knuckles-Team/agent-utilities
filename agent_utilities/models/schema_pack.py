@@ -168,6 +168,15 @@ class SchemaPack(BaseModel):
         description="Additional .ttl files for OWL reasoner",
     )
 
+    # Retrieval Quality (CONCEPT:KG-2.8)
+    min_relevance_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum cosine similarity for retrieval results to be considered relevant. "
+        "Per-domain tuning: research packs may use 0.5, finance packs 0.7.",
+    )
+
     # Domain-specific inference
     inference_rules: list[str] = Field(
         default_factory=list,

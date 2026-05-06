@@ -115,6 +115,20 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
     "backtest_run",
     "backtest_metric",
+    # Prompt Injection Scanner (CONCEPT:OS-5.4)
+    "security_finding",
+    # Tool Repetition Guard (CONCEPT:OS-5.5)
+    "experience",
+    # MATE Integration — Token Analytics (CONCEPT:OS-5.6)
+    "token_usage_record",
+    # MATE Integration — Audit Logging (CONCEPT:OS-5.7)
+    "audit_log",
+    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.8)
+    "guardrail_trigger",
+    # MATE Integration — Config Versioning (CONCEPT:AHE-3.13)
+    "agent_config_version",
+    # MATE Integration — EvalRunner (CONCEPT:AHE-3.12)
+    "eval_run",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -196,6 +210,18 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "evaluated_strategy",
     "has_metric",
     "compared_to_benchmark",
+    # Prompt Injection Scanner (CONCEPT:OS-5.4)
+    "detected_threat",
+    # Structured Retry Manager (CONCEPT:AHE-3.11)
+    "triggered_retry",
+    # MATE Integration — Audit Logging (CONCEPT:OS-5.7)
+    "audited_by",
+    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.8)
+    "triggered_guardrail",
+    # MATE Integration — Config Versioning (CONCEPT:AHE-3.13)
+    "config_version_of",
+    # MATE Integration — EvalRunner (CONCEPT:AHE-3.12)
+    "evaluated_by",
 }
 
 

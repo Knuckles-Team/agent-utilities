@@ -990,3 +990,140 @@ class RegistryMixin(_Base):
                 {"aid": agent_id, "pid": prompt_id},
             )
         logger.info("Linked agent %s → prompt %s (USES_PROMPT)", agent_id, prompt_id)
+
+    # ─────────────────────────────────────────────────────────────────────
+    #  Self-Describing Function Registry (CONCEPT:ECO-4.6)
+    # ─────────────────────────────────────────────────────────────────────
+
+    def register_function(
+        self,
+        function_id: str,
+        name: str,
+        resource_type: str = "MCP_TOOL",
+        description: str = "",
+        input_schema: dict | None = None,
+        output_schema: dict | None = None,
+        trigger_bindings: list[dict] | None = None,
+        endpoint: str | None = None,
+        metadata_id: str = "",
+    ) -> dict[str, Any]:
+        """Register a self-describing function in the KG at runtime.
+
+        CONCEPT:ECO-4.6 — Self-Describing Function Registry
+
+        Creates a ``CallableResourceNode`` with input/output schemas and
+        optional trigger bindings. Enables AgentOS-style category collapse
+        where every capability is discoverable through the same graph query.
+
+        Args:
+            function_id: Unique identifier for the function.
+            name: Human-readable function name.
+            resource_type: Type (MCP_TOOL, A2A_AGENT, INTERNAL_SKILL, AGENT_SKILL).
+            description: What the function does.
+            input_schema: JSON Schema for input parameters.
+            output_schema: JSON Schema for return type.
+            trigger_bindings: List of trigger binding dicts.
+            endpoint: Optional endpoint URL.
+            metadata_id: Associated metadata node ID.
+
+        Returns:
+            The created function registration dict.
+        """
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        node_data = {
+            "type": "callable_resource",
+            "resource_type": resource_type,
+            "name": name,
+            "description": description,
+            "endpoint": endpoint,
+            "metadata_id": metadata_id or function_id,
+            "input_schema": input_schema or {},
+            "output_schema": output_schema or {},
+            "trigger_bindings": trigger_bindings or [],
+            "timestamp": ts,
+            "importance_score": 0.5,
+        }
+
+        self.graph.add_node(function_id, **node_data)
+
+        if self.backend:
+            self.backend.execute(
+                "MERGE (n:CallableResource {id: $id}) SET n += $props",
+                {"id": function_id, "props": node_data},
+            )
+
+        logger.info(
+            "[CONCEPT:ECO-4.6] Registered function '%s' (type=%s, triggers=%d)",
+            name,
+            resource_type,
+            len(trigger_bindings or []),
+        )
+        return {"id": function_id, **node_data}
+
+    def deregister_function(self, function_id: str) -> bool:
+        """Remove a function registration from the KG.
+
+        CONCEPT:ECO-4.6 — Self-Describing Function Registry
+
+        Args:
+            function_id: The function ID to remove.
+
+        Returns:
+            True if found and removed, False otherwise.
+        """
+        if function_id in self.graph:
+            self.graph.remove_node(function_id)
+            if self.backend:
+                self.backend.execute(
+                    "MATCH (n:CallableResource {id: $id}) DETACH DELETE n",
+                    {"id": function_id},
+                )
+            logger.info("[CONCEPT:ECO-4.6] Deregistered function '%s'", function_id)
+            return True
+        return False
+
+    def discover_functions(
+        self,
+        resource_type: str | None = None,
+        trigger_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Discover self-describing functions with optional filtering.
+
+        CONCEPT:ECO-4.6 — Self-Describing Function Registry
+
+        Returns function metadata including input/output schemas and
+        trigger bindings, enabling the caller to understand how to
+        invoke each function without external documentation.
+
+        Args:
+            resource_type: Filter by type (e.g., 'MCP_TOOL', 'A2A_AGENT').
+            trigger_type: Filter by trigger type (e.g., 'http', 'cron').
+
+        Returns:
+            List of function metadata dicts.
+        """
+        functions: list[dict[str, Any]] = []
+
+        for nid, data in self.graph.nodes(data=True):
+            if str(data.get("type", "")).lower() != "callable_resource":
+                continue
+
+            # Apply resource_type filter
+            if (
+                resource_type
+                and data.get("resource_type", "").upper() != resource_type.upper()
+            ):
+                continue
+
+            # Apply trigger_type filter
+            if trigger_type:
+                triggers = data.get("trigger_bindings", [])
+                if not any(
+                    t.get("trigger_type") == trigger_type
+                    for t in (triggers if isinstance(triggers, list) else [])
+                ):
+                    continue
+
+            functions.append({"id": nid, **data})
+
+        return sorted(functions, key=lambda x: x.get("name", "").lower())

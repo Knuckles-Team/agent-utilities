@@ -35,7 +35,16 @@
 <!-- CONCEPT:AHE-3.8 Backtest Evaluation Harness -->
 <!-- CONCEPT:AHE-3.9 Horizon-Aware Task Curriculum -->
 <!-- CONCEPT:AHE-3.10 Decomposed Reward Signals -->
+<!-- CONCEPT:AHE-3.11 Structured Retry Manager -->
 <!-- CONCEPT:OS-5.3 Session Concurrency -->
+<!-- CONCEPT:OS-5.4 Prompt Injection Scanner -->
+<!-- CONCEPT:OS-5.5 Tool Repetition Guard -->
+<!-- CONCEPT:KG-2.10 Token-Aware Context Compaction -->
+<!-- CONCEPT:AHE-3.12 Multi-Strategy EvalRunner -->
+<!-- CONCEPT:AHE-3.13 Agent Config Versioning -->
+<!-- CONCEPT:OS-5.6 Token Usage Tracker -->
+<!-- CONCEPT:OS-5.7 Audit Logger -->
+<!-- CONCEPT:OS-5.8 Guardrail Callback Engine -->
 
 **agent-utilities is a protocol-first, framework-light agent core library.**
 
@@ -195,6 +204,7 @@ agent-utilities/
 │   │   ├── config_helpers.py # Registry Hot Cache (CONCEPT:ORCH-1.2)
 │   │   ├── routing.py        # 3-stage hybrid routing (CONCEPT:AHE-3.3, CONCEPT:KG-2.1)
 │   │   ├── executor.py       # Capability auto-activation (CONCEPT:ORCH-1.2)
+│   │   ├── retry_manager.py  # Structured Retry Manager (CONCEPT:AHE-3.11)
 │   │   └── verification.py   # Self-Model + TeamConfig feedback loop
 │   ├── knowledge_graph/      # Unified Intelligence Graph (15-phase pipeline)
 │   │   ├── self_model.py     # Persistent Self-Model (CONCEPT:KG-2.1)
@@ -203,12 +213,21 @@ agent-utilities/
 │   │   ├── fingerprint.py    # Structural Fingerprint Engine (CONCEPT:KG-2.3)
 │   │   ├── graph_validator.py # Graph Integrity Validator (CONCEPT:KG-2.3)
 │   │   ├── hypergraph.py     # Inductive Knowledge Hypergraphs (CONCEPT:KG-2.4)
+│   │   ├── context_compactor.py # Token-Aware Context Compaction (CONCEPT:KG-2.10)
 │   │   └── kb/entity_claim_extractor.py # Entity-Claim Extraction (CONCEPT:KG-2.2)
 │   ├── protocols/            # Protocol adapters (ACP, A2A, AG-UI)
 │   │   ├── a2a_graph_skill.py # PlannerGraphSkill (CONCEPT:ECO-4.2)
 │   │   └── a2a_config.py     # A2A Config Loader (CONCEPT:ECO-4.2)
 │   ├── models/               # Pydantic models and schema definitions
-│   ├── security/             # JWT + API key auth, secrets client
+│   ├── security/             # Security: JWT auth, secrets, injection scanning, repetition guard
+│   │   ├── prompt_scanner.py # Prompt Injection Scanner (CONCEPT:OS-5.4)
+│   │   ├── repetition_guard.py # Tool Repetition Guard (CONCEPT:OS-5.5)
+│   │   └── guardrail_engine.py # Guardrail Callback Engine (CONCEPT:OS-5.8)
+│   ├── observability/        # Observability: evaluation, token tracking, audit, config versioning
+│   │   ├── evaluation.py     # EvalRunner — Multi-Strategy Scoring (CONCEPT:AHE-3.12)
+│   │   ├── token_tracker.py  # Token Usage Tracker — 4-Bucket Analytics (CONCEPT:OS-5.6)
+│   │   ├── audit_logger.py   # Audit Logger — Compliance Logging (CONCEPT:OS-5.7)
+│   │   └── config_versioning.py # Agent Config Versioning (CONCEPT:AHE-3.13)
 │   ├── prompts/              # Externalized JSON prompt blueprints (51 files)
 │   ├── policies/             # Engineering rule books (YAML frontmatter)
 │   ├── capabilities/         # Self-healing: checkpointing, circuit breakers, teams
@@ -257,16 +276,20 @@ Wide-Search Orchestration (Pydantic-native batch extraction and hybrid validatio
 Context-Aware Entity Representations (injects multi-hop structural logic and OWL relationships into vector embeddings).
 ### Continual Learning & Experience (CONCEPT:AHE-3.5 to CONCEPT:AHE-3.10, CONCEPT:KG-2.4)
 Experience Node Architecture (distills context-specific tactics), Cross-Rollout Critique (sequential contrastive failure analysis), Decomposed Context Retrieval (targeted multi-vector search), Memory-Aware Test-Time Scaling (batch-parallel experience distillation with zero-shot hypergraph generalization and topological feedback), Offline/Async Knowledge Compression (TraceDistiller for periodic episode-to-preference distillation), Topological Mincut Partitioning (emergent hierarchical waypoints with Label Propagation fallback), Temporal Drift & EWC Consolidation (Fisher-proxy mitigation of catastrophic forgetting), Heavy Thinking Orchestration (two-stage parallel-then-deliberate reasoning with tiered complexity gating, trajectory pruning/shuffling, iterative refinement, and KG-native trajectory persistence), Horizon-Aware Task Curriculum (progressive horizon scheduling with macro-action composition, subgoal checkpoints, and configurable promotion policies), and Decomposed Reward Signals (step-level vs trajectory-level reward separation for accurate credit assignment and experience distillation).
+### Security & Reliability (CONCEPT:OS-5.4, CONCEPT:OS-5.5, CONCEPT:AHE-3.11, CONCEPT:KG-2.10)
+Prompt Injection Scanner (pattern-based threat detection with 25+ vectors adapted from Goose), Tool Repetition Guard (infinite loop prevention with ExperienceNode distillation), Structured Retry Manager (shell-based success checks with TeamConfig reward integration), and Token-Aware Context Compaction (three-strategy intelligent window management with episodic KG persistence).
 ### Financial Intelligence (CONCEPT:KG-2.6, ECO-4.4, ORCH-1.4, KG-2.7, AHE-3.8)
 Financial Trading Pipeline (FIBO-aligned KG primitives for Signal→Order→Position→Portfolio→Strategy lifecycle), Market Data Connector Protocol (generic `DataConnectorProtocol` with auto-fallback chain and provenance tracking), Swarm Preset Template Engine (YAML-driven DAG workflow orchestration with variable substitution), Risk Scoring Ontology (domain-agnostic assessment with transitive OWL propagation), and Backtest Evaluation Harness (SQLite-backed strategy evaluation with walk-forward validation and benchmark comparison).
+### MATE Integration (CONCEPT:AHE-3.12, AHE-3.13, OS-5.6, OS-5.7, OS-5.8)
+Multi-Strategy EvalRunner (exact match, semantic similarity, LLM-as-Judge with composite scoring), Token Usage Tracker (4-bucket granular analytics with budget alerting), Audit Logger (append-only compliance trail with 30+ action constants and retention), Guardrail Callback Engine (push-based input/output interception with block/redact/warn), and Agent Config Versioning (immutable snapshots with forward-only rollback and structured diffs). All ported from the MATE framework with KG-native persistence and OWL-promoted types for transitive reasoning.
 
-→ See [docs/overview.md](docs/overview.md) for the full Concept Galaxy diagram and **Concept Map table** (all 58 AU-XXX concepts with descriptions and code paths).
+→ See [docs/overview.md](docs/overview.md) for the full Concept Galaxy diagram and **Concept Map table** (all 59 AU-XXX concepts with descriptions and code paths).
 
 ## Detailed Documentation
 
 For comprehensive documentation, see the `docs/` directory:
 
-- **[Overview Map](docs/overview.md)** — The Concept Galaxy connecting all 54 concepts, plus the **Concept Map table** (CONCEPT:ORCH-1.0 → CONCEPT:KG-2.2)
+- **[Overview Map](docs/overview.md)** — The Concept Galaxy connecting all 59 concepts, plus the **Concept Map table** (CONCEPT:ORCH-1.0 → CONCEPT:OS-5.8)
 - **[Conductor Orchestration](docs/conductor-orchestration.md)** — Refined subtasks, visibility graphs, model synergies, recursive scaling (CONCEPT:ORCH-1.1–CONCEPT:ORCH-1.1)
 - **[Architecture](docs/architecture.md)** — System architecture, protocol adapters, 3-stage hybrid routing
 - **[Knowledge Graph](docs/knowledge-graph.md)** — UIG, 15-phase pipeline, OWL reasoning, MAGMA views, graph integrity validation, entity-claim extraction

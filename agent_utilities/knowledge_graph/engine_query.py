@@ -199,45 +199,152 @@ class QueryMixin(_Base):
     def find_relevant_callable_resources(
         self, task_description: str, required_caps: list[str] | None = None
     ) -> list[dict[str, Any]]:
-        """Find the most relevant Tools, Agents, or Skills for a given task."""
+        """Find the most relevant Tools, Agents, or Skills for a given task.
+
+        CONCEPT:ECO-4.6 enhanced: searches ALL resource types (tools,
+        agents, skills, memory) in a single hybrid query for unified
+        capability discovery (AgentOS-style category collapse).
+        """
         if required_caps is None:
             required_caps = []
         # Hybrid search: semantic similarity + capability filtering
-        candidates = self.search_hybrid(task_description, top_k=20)
+        # Search across all node types, not just callable_resource
+        candidates = self.search_hybrid(task_description, top_k=30)
         filtered = []
+
+        # Resource types that constitute "callable" capabilities
+        _callable_types = {
+            "callable_resource",
+            "tool",
+            "skill",
+            "agent",
+            "mcp_tool",
+            "a2a_agent",
+            "internal_skill",
+            "agent_skill",
+        }
+
         for c in candidates:
             c_type = str(c.get("type", "")).lower()
-            if "callable_resource" in c_type:
-                # Check caps in linked metadata if backend available
-                if self.backend:
-                    res = self.query_cypher(
-                        "MATCH (r:CallableResource {id: $id})-[:HAS_METADATA]->(m) RETURN m.capabilities as caps",
-                        {"id": c["id"]},
-                    )
-                    if res and res[0].get("caps"):
-                        caps_raw = res[0]["caps"]
-                        # Robust parsing for list or string representation
-                        if isinstance(caps_raw, str):
-                            import ast
+            c_resource_type = str(c.get("resource_type", "")).lower()
 
-                            try:
-                                caps = ast.literal_eval(caps_raw)
-                            except Exception:
-                                caps = [caps_raw]
-                        else:
-                            caps = caps_raw
+            # Match callable resources AND their component types
+            if c_type not in _callable_types and c_resource_type not in _callable_types:
+                continue
 
-                        if not required_caps or all(
-                            cap in caps for cap in required_caps
-                        ):
-                            filtered.append(c)
+            # Check caps in linked metadata if backend available
+            if self.backend and required_caps:
+                res = self.query_cypher(
+                    "MATCH (r {id: $id})-[:HAS_METADATA]->(m) RETURN m.capabilities as caps",
+                    {"id": c["id"]},
+                )
+                if res and res[0].get("caps"):
+                    caps_raw = res[0]["caps"]
+                    # Robust parsing for list or string representation
+                    if isinstance(caps_raw, str):
+                        import ast
+
+                        try:
+                            caps = ast.literal_eval(caps_raw)
+                        except Exception:
+                            caps = [caps_raw]
                     else:
-                        # Fallback to model capabilities if available or if none required
-                        if not required_caps:
-                            filtered.append(c)
+                        caps = caps_raw
+
+                    if all(cap in caps for cap in required_caps):
+                        filtered.append(c)
                 else:
-                    filtered.append(c)
+                    # Fallback if no metadata
+                    if not required_caps:
+                        filtered.append(c)
+            else:
+                filtered.append(c)
         return filtered
+
+    def discover_all_capabilities(
+        self,
+        query: str | None = None,
+        resource_types: list[str] | None = None,
+        top_k: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Discover all capabilities across all resource types in a unified view.
+
+        CONCEPT:ECO-4.6 — Self-Describing Function Registry
+
+        Returns a unified function-level view of all discoverable
+        capabilities, inspired by AgentOS's category collapse pattern.
+        Each entry includes self-describing metadata (input/output
+        schemas, trigger bindings) when available.
+
+        Args:
+            query: Optional semantic query to filter by relevance.
+            resource_types: Optional filter by resource types.
+            top_k: Maximum results to return.
+
+        Returns:
+            List of unified capability dicts with ``fn_namespace`` field
+            matching AgentOS's ``fn namespace::action(args)`` pattern.
+        """
+        capabilities: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        # If query provided, use hybrid search for relevance ordering
+        if query:
+            results = self.search_hybrid(query, top_k=top_k * 2)
+        else:
+            results = [{"id": nid, **data} for nid, data in self.graph.nodes(data=True)]
+
+        for r in results:
+            rid = r.get("id", "")
+            if rid in seen_ids:
+                continue
+
+            r_type = str(r.get("type", "")).lower()
+            r_resource = str(r.get("resource_type", "")).lower()
+
+            # Filter to capability-bearing node types
+            _cap_types = {
+                "callable_resource",
+                "tool",
+                "skill",
+                "agent",
+                "tool_metadata",
+                "spawned_agent",
+            }
+            if r_type not in _cap_types and r_resource not in _cap_types:
+                continue
+
+            # Apply resource_type filter
+            if resource_types:
+                if r_resource not in [rt.lower() for rt in resource_types]:
+                    continue
+
+            seen_ids.add(rid)
+
+            # Build unified fn namespace (AgentOS pattern)
+            namespace = r_resource or r_type
+            action = r.get("name", rid).replace(" ", "_").lower()
+            fn_namespace = f"fn {namespace}::{action}"
+
+            capabilities.append(
+                {
+                    "id": rid,
+                    "fn_namespace": fn_namespace,
+                    "name": r.get("name", rid),
+                    "description": r.get("description", ""),
+                    "resource_type": r_resource or r_type,
+                    "input_schema": r.get("input_schema", {}),
+                    "output_schema": r.get("output_schema", {}),
+                    "trigger_bindings": r.get("trigger_bindings", []),
+                    "endpoint": r.get("endpoint"),
+                    "_score": r.get("_score", 0.0),
+                }
+            )
+
+            if len(capabilities) >= top_k:
+                break
+
+        return capabilities
 
     def list_callable_resources(self) -> list[dict[str, Any]]:
         """List all callable resources (MCP tools, A2A agents, skills)."""

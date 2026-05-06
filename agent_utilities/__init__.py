@@ -248,6 +248,46 @@ def __getattr__(name):
         from .sdd import SDDManager
 
         return SDDManager
+    elif name in ["EvalRunner", "EvalStrategy", "TestCase", "EvalResult"]:
+        from .observability.evaluation import (
+            EvalResult,
+            EvalRunner,
+            EvalStrategy,
+            TestCase,
+        )
+
+        return locals()[name]
+    elif name in ["TokenUsageTracker", "TokenUsageRecord", "TokenBucket"]:
+        from .observability.token_tracker import (
+            TokenBucket,
+            TokenUsageRecord,
+            TokenUsageTracker,
+        )
+
+        return locals()[name]
+    elif name in ["AuditLogger", "AuditRecord"]:
+        from .observability.audit_logger import AuditLogger, AuditRecord
+
+        return AuditLogger if name == "AuditLogger" else AuditRecord
+    elif name in ["GuardrailEngine", "GuardrailRule", "GuardrailAction"]:
+        from .security.guardrail_engine import (
+            GuardrailAction,
+            GuardrailEngine,
+            GuardrailRule,
+        )
+
+        return locals()[name]
+    elif name in ["AgentConfigVersionManager", "AgentConfigSnapshot"]:
+        from .observability.config_versioning import (
+            AgentConfigSnapshot,
+            AgentConfigVersionManager,
+        )
+
+        return (
+            AgentConfigVersionManager
+            if name == "AgentConfigVersionManager"
+            else AgentConfigSnapshot
+        )
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -262,7 +302,7 @@ if os.environ.get("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
 # Disabled by default to avoid import overhead during testing
 # Can be enabled by setting ENABLE_GRAPH_INTEGRATION=true and calling initialize_graph_integration() explicitly
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"
 
 __all__ = [
     # Agent creation
@@ -346,4 +386,23 @@ __all__ = [
     "SecretsClient",
     "create_secrets_client",
     "verify_credentials",
+    # MATE Integration — Evaluation (CONCEPT:AHE-3.12)
+    "EvalRunner",
+    "EvalStrategy",
+    "TestCase",
+    "EvalResult",
+    # MATE Integration — Token Tracking (CONCEPT:OS-5.6)
+    "TokenUsageTracker",
+    "TokenUsageRecord",
+    "TokenBucket",
+    # MATE Integration — Audit Logging (CONCEPT:OS-5.7)
+    "AuditLogger",
+    "AuditRecord",
+    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.8)
+    "GuardrailEngine",
+    "GuardrailRule",
+    "GuardrailAction",
+    # MATE Integration — Config Versioning (CONCEPT:AHE-3.13)
+    "AgentConfigVersionManager",
+    "AgentConfigSnapshot",
 ]

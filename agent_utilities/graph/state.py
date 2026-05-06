@@ -330,6 +330,19 @@ class GraphState:
     A thread-safe/merge-safe shared memory scratchpad for parallel workers
     during wide-search extraction tasks."""
 
+    context_provenance: list[dict[str, Any]] = field(default_factory=list)
+    """CONCEPT:KG-2.9 — Cross-Agent Context Provenance.
+    Tracks retrieval quality scores and failure modes across agent boundaries.
+    Each entry is a serialized ``ContextProvenanceRecord`` from
+    ``retrieval_quality.py``. Downstream agents inspect this to assess
+    the reliability of upstream context."""
+
+    subagent_pattern: str | None = None
+    """CONCEPT:ORCH-1.6 — Active Subagent Lifecycle Pattern.
+    Records which interaction pattern (inline_tool, fan_out, agent_pool,
+    teams) was selected for this execution. Used for telemetry and
+    pattern-outcome learning."""
+
     def merge_workboard_data(self, entity_id: str, row_data: dict[str, Any]):
         """Safely merge extracted data into the shared workboard."""
         if not self.workboard:
