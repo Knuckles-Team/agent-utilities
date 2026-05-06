@@ -51,7 +51,7 @@ class SchemaPackMode(StrEnum):
 
 
 class BacklinkBoostStrategy(StrEnum):
-    """Strategy for applying backlink-density retrieval weighting (AU-042).
+    """Strategy for applying backlink-density retrieval weighting (CONCEPT:KG-2.2).
 
     - GLOBAL: Boost is applied to all scored nodes during hybrid search.
     - CONTEXT_ONLY: Boost is applied only during context assembly (multi-hop).
@@ -84,7 +84,7 @@ class SchemaPack(BaseModel):
         retrieval_boosts: Per-edge-type scoring multipliers applied during
             hybrid retrieval. Values > 1.0 increase relevance; < 1.0 decrease.
         backlink_boost_strategy: How backlink-density scoring is applied
-            (AU-042). Defaults to ``GLOBAL``.
+            (CONCEPT:KG-2.2). Defaults to ``GLOBAL``.
         backlink_boost_factor: Logarithmic scaling coefficient for the
             backlink boost. Higher values amplify the effect of inbound edges.
         owl_extensions: Paths to additional ``.ttl`` files to load into the
@@ -146,7 +146,7 @@ class SchemaPack(BaseModel):
         description="Edge types this pack activates",
     )
 
-    # Retrieval configuration (AU-042)
+    # Retrieval configuration (CONCEPT:KG-2.2)
     retrieval_boosts: dict[str, float] = Field(
         default_factory=dict,
         description="Per-edge-type scoring multipliers for hybrid retrieval",

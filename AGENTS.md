@@ -27,6 +27,15 @@
 <!-- CONCEPT:OS-5.0 Agent OS Kernel -->
 <!-- CONCEPT:OS-5.1 Security & Auth -->
 <!-- CONCEPT:OS-5.2 Resource Scheduling -->
+<!-- CONCEPT:AHE-3.7 Heavy Thinking Orchestration -->
+<!-- CONCEPT:KG-2.6 Financial Trading Pipeline -->
+<!-- CONCEPT:ECO-4.4 Market Data Connector Protocol -->
+<!-- CONCEPT:ORCH-1.4 Swarm Preset Template Engine -->
+<!-- CONCEPT:KG-2.7 Risk Scoring Ontology -->
+<!-- CONCEPT:AHE-3.8 Backtest Evaluation Harness -->
+<!-- CONCEPT:AHE-3.9 Horizon-Aware Task Curriculum -->
+<!-- CONCEPT:AHE-3.10 Decomposed Reward Signals -->
+<!-- CONCEPT:OS-5.3 Session Concurrency -->
 
 **agent-utilities is a protocol-first, framework-light agent core library.**
 
@@ -183,20 +192,21 @@ agent-utilities/
 │   ├── acp_adapter.py        # ACP adapter (per-session agent_factory)
 │   ├── agui_emitter.py       # AG-UI wire format translator for direct graph execution
 │   ├── graph/                # Graph orchestration (builder, runner, iter, routing, executor, verification)
-│   │   ├── config_helpers.py # Registry Hot Cache (AU-024)
-│   │   ├── routing.py        # 3-stage hybrid routing (AU-025, AU-016)
-│   │   ├── executor.py       # Capability auto-activation (AU-026)
+│   │   ├── config_helpers.py # Registry Hot Cache (CONCEPT:ORCH-1.2)
+│   │   ├── routing.py        # 3-stage hybrid routing (CONCEPT:AHE-3.3, CONCEPT:KG-2.1)
+│   │   ├── executor.py       # Capability auto-activation (CONCEPT:ORCH-1.2)
 │   │   └── verification.py   # Self-Model + TeamConfig feedback loop
 │   ├── knowledge_graph/      # Unified Intelligence Graph (15-phase pipeline)
-│   │   ├── self_model.py     # Persistent Self-Model (AU-016)
-│   │   ├── engine_registry.py # TeamConfig promotion/reuse (AU-025)
-│   │   ├── ogm.py            # Object-Graph Mapper (AU-013)
-│   │   ├── fingerprint.py    # Structural Fingerprint Engine (AU-048)
-│   │   ├── graph_validator.py # Graph Integrity Validator (AU-053)
-│   │   └── kb/entity_claim_extractor.py # Entity-Claim Extraction (AU-054)
+│   │   ├── self_model.py     # Persistent Self-Model (CONCEPT:KG-2.1)
+│   │   ├── engine_registry.py # TeamConfig promotion/reuse (CONCEPT:AHE-3.3)
+│   │   ├── ogm.py            # Object-Graph Mapper (CONCEPT:KG-2.0)
+│   │   ├── fingerprint.py    # Structural Fingerprint Engine (CONCEPT:KG-2.3)
+│   │   ├── graph_validator.py # Graph Integrity Validator (CONCEPT:KG-2.3)
+│   │   ├── hypergraph.py     # Inductive Knowledge Hypergraphs (CONCEPT:KG-2.4)
+│   │   └── kb/entity_claim_extractor.py # Entity-Claim Extraction (CONCEPT:KG-2.2)
 │   ├── protocols/            # Protocol adapters (ACP, A2A, AG-UI)
-│   │   ├── a2a_graph_skill.py # PlannerGraphSkill (AU-027)
-│   │   └── a2a_config.py     # A2A Config Loader (AU-028)
+│   │   ├── a2a_graph_skill.py # PlannerGraphSkill (CONCEPT:ECO-4.2)
+│   │   └── a2a_config.py     # A2A Config Loader (CONCEPT:ECO-4.2)
 │   ├── models/               # Pydantic models and schema definitions
 │   ├── security/             # JWT + API key auth, secrets client
 │   ├── prompts/              # Externalized JSON prompt blueprints (51 files)
@@ -207,6 +217,7 @@ agent-utilities/
 │   ├── rlm/                  # Recursive Language Model environments
 │   ├── sdd/                  # Spec-Driven Development pipelines
 │   ├── harness/              # Agentic Harness Engineering toolkit
+│   │   └── backtest_harness.py # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
 │   └── patterns/             # Design patterns (prompt chaining, prioritization, exploration)
 ├── tests/                    # Test suite (1857 tests: unit, integration, knowledge_graph)
 ├── docs/                     # Comprehensive documentation (24 guides)
@@ -220,30 +231,34 @@ agent-utilities/
 
 The system is built on 27 foundational concepts organized into 5 layers:
 
-### Core Infrastructure (AU-001 to AU-011)
+### Core Infrastructure (CONCEPT:ORCH-1.0 to CONCEPT:OS-5.1)
 Agent creation, graph orchestration, workspace management, protocol adapters, serialization, structured prompts, RLM, capabilities, SDD, tools, and secrets.
 
-### Emergent Architecture (AU-013 to AU-017)
+### Emergent Architecture (CONCEPT:KG-2.0 to CONCEPT:ORCH-1.2)
 KG Object-Graph Mapper, Swarm Orchestration, Evolutionary Variants, Persistent Self-Model, Global Workspace Attention.
 
-### Design Patterns (AU-018 to AU-022)
+### Design Patterns (CONCEPT:ORCH-1.1 to CONCEPT:AHE-3.2)
 Prompt Chaining, Resource Optimization, Evaluation & Monitoring, Task Prioritization, Exploration & Discovery.
 
-### First Principles (AU-024 to AU-027)
+### First Principles (CONCEPT:ORCH-1.2 to CONCEPT:ECO-4.2)
 Registry Hot Cache, TeamConfig Promotion, AgentCapability Type System, A2A PlannerGraphSkill.
 
-### Unified Specialist & A2A Integration (AU-028 to AU-029)
+### Unified Specialist & A2A Integration (CONCEPT:ECO-4.2 to CONCEPT:ORCH-1.2)
 A2A Config File Loader, Unified Specialist Model (type collapse).
-### KG Intelligence (AU-041 to AU-043)
+### KG Intelligence (CONCEPT:KG-2.2 to CONCEPT:KG-2.2)
 Schema Packs (domain-configurable KG profiles), Backlink-Density Retrieval Boost, KG Eval Capture (regression testing).
-### Conductor Orchestration (AU-044 to AU-047)
-Conductor Workflow Specification, Execution Visibility Graph, Model Synergy Tracker, Recursive Graph Orchestration.
-### UA-Inspired Enhancements (AU-048, AU-053, AU-054)
+### Conductor Orchestration (CONCEPT:ORCH-1.1 to CONCEPT:ORCH-1.5)
+Conductor Workflow Specification, Execution Visibility Graph, Model Synergy Tracker, Recursive Graph Orchestration, Multi-Level Abstraction Layering (planners emit coarse abstraction steps, delegating fine-grained execution to specialists).
+### UA-Inspired Enhancements (CONCEPT:KG-2.3, CONCEPT:KG-2.3, CONCEPT:KG-2.2)
 Structural Fingerprint Engine (incremental KG updates), Graph Integrity Validator (4-tier auto-fix pipeline), Entity-Claim Extraction (MAGMA epistemic completion).
-### Wide-Search Extraction & Traceability (AU-056, AU-057)
+### Wide-Search Extraction & Traceability (CONCEPT:ORCH-1.1, CONCEPT:AHE-3.1)
 Wide-Search Orchestration (Pydantic-native batch extraction and hybrid validation), Trace Distillation Error Categorization (Orchestrator vs Worker failure modes).
-### Graph Topology Representation (AU-058)
+### Graph Topology Representation (CONCEPT:KG-2.2)
 Context-Aware Entity Representations (injects multi-hop structural logic and OWL relationships into vector embeddings).
+### Continual Learning & Experience (CONCEPT:AHE-3.5 to CONCEPT:AHE-3.10, CONCEPT:KG-2.4)
+Experience Node Architecture (distills context-specific tactics), Cross-Rollout Critique (sequential contrastive failure analysis), Decomposed Context Retrieval (targeted multi-vector search), Memory-Aware Test-Time Scaling (batch-parallel experience distillation with zero-shot hypergraph generalization and topological feedback), Offline/Async Knowledge Compression (TraceDistiller for periodic episode-to-preference distillation), Topological Mincut Partitioning (emergent hierarchical waypoints with Label Propagation fallback), Temporal Drift & EWC Consolidation (Fisher-proxy mitigation of catastrophic forgetting), Heavy Thinking Orchestration (two-stage parallel-then-deliberate reasoning with tiered complexity gating, trajectory pruning/shuffling, iterative refinement, and KG-native trajectory persistence), Horizon-Aware Task Curriculum (progressive horizon scheduling with macro-action composition, subgoal checkpoints, and configurable promotion policies), and Decomposed Reward Signals (step-level vs trajectory-level reward separation for accurate credit assignment and experience distillation).
+### Financial Intelligence (CONCEPT:KG-2.6, ECO-4.4, ORCH-1.4, KG-2.7, AHE-3.8)
+Financial Trading Pipeline (FIBO-aligned KG primitives for Signal→Order→Position→Portfolio→Strategy lifecycle), Market Data Connector Protocol (generic `DataConnectorProtocol` with auto-fallback chain and provenance tracking), Swarm Preset Template Engine (YAML-driven DAG workflow orchestration with variable substitution), Risk Scoring Ontology (domain-agnostic assessment with transitive OWL propagation), and Backtest Evaluation Harness (SQLite-backed strategy evaluation with walk-forward validation and benchmark comparison).
 
 → See [docs/overview.md](docs/overview.md) for the full Concept Galaxy diagram and **Concept Map table** (all 58 AU-XXX concepts with descriptions and code paths).
 
@@ -251,12 +266,12 @@ Context-Aware Entity Representations (injects multi-hop structural logic and OWL
 
 For comprehensive documentation, see the `docs/` directory:
 
-- **[Overview Map](docs/overview.md)** — The Concept Galaxy connecting all 54 concepts, plus the **Concept Map table** (AU-001 → AU-054)
-- **[Conductor Orchestration](docs/conductor-orchestration.md)** — Refined subtasks, visibility graphs, model synergies, recursive scaling (AU-044–AU-047)
+- **[Overview Map](docs/overview.md)** — The Concept Galaxy connecting all 54 concepts, plus the **Concept Map table** (CONCEPT:ORCH-1.0 → CONCEPT:KG-2.2)
+- **[Conductor Orchestration](docs/conductor-orchestration.md)** — Refined subtasks, visibility graphs, model synergies, recursive scaling (CONCEPT:ORCH-1.1–CONCEPT:ORCH-1.1)
 - **[Architecture](docs/architecture.md)** — System architecture, protocol adapters, 3-stage hybrid routing
 - **[Knowledge Graph](docs/knowledge-graph.md)** — UIG, 15-phase pipeline, OWL reasoning, MAGMA views, graph integrity validation, entity-claim extraction
-- **[First Principles](docs/first-principles.md)** — Registry Hot Cache, TeamConfig, AgentCapability, PlannerGraphSkill (AU-024–AU-027)
-- **[Emergent Architecture](docs/emergent-architecture.md)** — OGM, Swarm, Variant Selection, Self-Model, Attention (AU-013–AU-017)
+- **[First Principles](docs/first-principles.md)** — Registry Hot Cache, TeamConfig, AgentCapability, PlannerGraphSkill (CONCEPT:ORCH-1.2–CONCEPT:ECO-4.2)
+- **[Emergent Architecture](docs/emergent-architecture.md)** — OGM, Swarm, Variant Selection, Self-Model, Attention (CONCEPT:KG-2.0–CONCEPT:ORCH-1.2)
 - **[Agents & Orchestration](docs/agents.md)** — Specialist registry, MCP loading, event system, governance
 - **[Features](docs/features.md)** — Model registry, SDD lifecycle, human-in-the-loop, tool safety, agentic patterns, feedback loops
 - **[Configuration](docs/configuration.md)** — All environment variables, config files, and CLI flags

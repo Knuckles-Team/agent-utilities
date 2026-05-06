@@ -30,7 +30,7 @@ def engine():
     return e
 
 
-@pytest.mark.concept("AU-025")
+@pytest.mark.concept("CONCEPT:AHE-3.3")
 class TestTeamConfigNode:
     """Test suite for the TeamConfigNode model."""
 
@@ -80,7 +80,7 @@ class TestTeamConfigNode:
         assert restored.success_rate == 0.85
 
 
-@pytest.mark.concept("AU-025")
+@pytest.mark.concept("CONCEPT:AHE-3.3")
 class TestTeamConfigLookup:
     """Test suite for find_matching_team_config()."""
 
@@ -120,7 +120,7 @@ class TestTeamConfigLookup:
         assert len(results) <= 2
 
 
-@pytest.mark.concept("AU-025")
+@pytest.mark.concept("CONCEPT:AHE-3.3")
 class TestPromoteCoalition:
     """Test suite for promote_coalition_to_template()."""
 
@@ -163,7 +163,7 @@ class TestPromoteCoalition:
         assert engine.graph.has_edge(tc_id, coalition.id)
 
 
-@pytest.mark.concept("AU-025")
+@pytest.mark.concept("CONCEPT:AHE-3.3")
 class TestRecordTeamOutcome:
     """Test suite for record_team_outcome()."""
 
@@ -199,7 +199,7 @@ class TestRecordTeamOutcome:
         assert data["usage_count"] == 6
 
 
-@pytest.mark.concept("AU-025")
+@pytest.mark.concept("CONCEPT:AHE-3.3")
 class TestLinkPromptToAgent:
     """Test suite for link_prompt_to_agent()."""
 
@@ -217,7 +217,7 @@ class TestLinkPromptToAgent:
         )
 
 
-@pytest.mark.concept("AU-026")
+@pytest.mark.concept("CONCEPT:ORCH-1.2")
 class TestAgentCapabilityNode:
     """Test suite for the AgentCapabilityNode model."""
 

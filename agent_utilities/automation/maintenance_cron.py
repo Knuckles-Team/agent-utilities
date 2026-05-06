@@ -9,8 +9,8 @@ Architecture:
       frequency, token budget (0 = unlimited), and priority.
     - **MaintenanceTask**: Individual task definitions with queries
       for graph execution.
-    - Integrates with the ``CognitiveScheduler`` (AU-030) for priority
-      management and the ``ResourceOptimizer`` (AU-019) for budget caps.
+    - Integrates with the ``CognitiveScheduler`` (CONCEPT:OS-5.2) for priority
+      management and the ``ResourceOptimizer`` (CONCEPT:OS-5.2) for budget caps.
 
 Task Categories:
     - **Nightly**: Pre-commit analysis, stale import detection,
@@ -19,12 +19,12 @@ Task Categories:
     - **On-demand**: Documentation sync, dependency audit
 
 Integrates with:
-    - AU-030 (CognitiveScheduler): Priority-aware scheduling
-    - AU-019 (ResourceOptimizer): Token budget enforcement
-    - AU-032 (AgentRegistry): Package health monitoring
-    - AU-036 (FileWatcher): Can be triggered by file changes
+    - CONCEPT:OS-5.2 (CognitiveScheduler): Priority-aware scheduling
+    - CONCEPT:OS-5.2 (ResourceOptimizer): Token budget enforcement
+    - CONCEPT:OS-5.2 (AgentRegistry): Package health monitoring
+    - CONCEPT:OS-5.0 (FileWatcher): Can be triggered by file changes
 
-See docs/maintenance-cron.md §AU-038.
+See docs/maintenance-cron.md §CONCEPT:OS-5.2.
 """
 
 from __future__ import annotations
@@ -165,6 +165,17 @@ DEFAULT_TASKS: list[MaintenanceTask] = [
         priority="MEDIUM",
         tags=["research", "scholarx", "innovation"],
     ),
+    MaintenanceTask(
+        id="topological_community_partitioning",
+        name="Topological Community Partitioning",
+        query=(
+            "Execute detect_communities to find emergent topological clusters "
+            "in the Knowledge Graph and persist stable ones as COMMUNITY nodes."
+        ),
+        frequency=MaintenanceFrequency.DAILY,
+        priority="LOW",
+        tags=["knowledge_graph", "topology"],
+    ),
 ]
 
 
@@ -262,7 +273,7 @@ class MaintenanceCron:
 
         self.tokens_used += tokens_used
         logger.info(
-            "[AU-038] Maintenance task '%s' completed: %s (tokens: %d, total: %d/%s)",
+            "[CONCEPT:OS-5.2] Maintenance task '%s' completed: %s (tokens: %d, total: %d/%s)",
             task_id,
             status,
             tokens_used,
@@ -279,7 +290,9 @@ class MaintenanceCron:
         # Prevent duplicates
         existing_ids = {t.id for t in self.tasks}
         if task.id in existing_ids:
-            logger.warning(f"[AU-038] Task '{task.id}' already exists — skipping")
+            logger.warning(
+                f"[CONCEPT:OS-5.2] Task '{task.id}' already exists — skipping"
+            )
             return
         self.tasks.append(task)
 

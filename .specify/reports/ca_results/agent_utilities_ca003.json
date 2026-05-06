@@ -1,0 +1,63 @@
+{
+  "domain": "CA-003",
+  "domain_name": "Architecture",
+  "project": "/home/apps/workspace/agent-packages/agent-utilities",
+  "protocols": {
+    "mcp_config.json": true,
+    "MCP": true,
+    "A2A": true,
+    "ACP": true,
+    "REST": true,
+    "gRPC": true
+  },
+  "type_coverage": {
+    "total_functions": 4029,
+    "typed_functions": 2444,
+    "coverage_pct": 60.7
+  },
+  "module_structure": {
+    "package_count": 35,
+    "max_nesting_depth": 4,
+    "packages": [
+      "agent_utilities",
+      "agent_utilities/agent",
+      "agent_utilities/automation",
+      "agent_utilities/capabilities",
+      "agent_utilities/core",
+      "agent_utilities/graph",
+      "agent_utilities/harness",
+      "agent_utilities/knowledge_graph",
+      "agent_utilities/knowledge_graph/backends",
+      "agent_utilities/knowledge_graph/backends/owl",
+      "agent_utilities/knowledge_graph/id_management",
+      "agent_utilities/knowledge_graph/kb",
+      "agent_utilities/knowledge_graph/maintenance",
+      "agent_utilities/knowledge_graph/pipeline",
+      "agent_utilities/knowledge_graph/pipeline/phases",
+      "agent_utilities/mcp",
+      "agent_utilities/models",
+      "agent_utilities/models/schema_packs",
+      "agent_utilities/observability",
+      "agent_utilities/patterns"
+    ]
+  },
+  "config_patterns": {
+    "env_vars": true,
+    "config_files": true,
+    "dotenv": true,
+    "docker": false,
+    "port_binding": true,
+    "graceful_shutdown": true
+  },
+  "scoring": {
+    "score": 90,
+    "grade": "A",
+    "details": [
+      "Rich protocol support (6 protocols): +30",
+      "Good type coverage (60.7%): +15",
+      "Well-structured (35 packages): +15",
+      "Appropriate nesting depth (4): +10",
+      "12-Factor signals (5/6): +20"
+    ]
+  }
+}

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from .biomedical import BiomedicalSchemaPack
 from .core import CoreSchemaPack
+from .evolution import EvolutionSchemaPack
 from .finance import FinanceSchemaPack
 from .research import ResearchSchemaPack
 
@@ -21,12 +22,19 @@ _REGISTRY: dict[str, type] = {
     "research-state": ResearchSchemaPack,
     "biomedical": BiomedicalSchemaPack,
     "finance": FinanceSchemaPack,
+    "evolution": EvolutionSchemaPack,
 }
 
 
 def get_schema_pack(
     name: str,
-) -> CoreSchemaPack | ResearchSchemaPack | BiomedicalSchemaPack | FinanceSchemaPack:
+) -> (
+    CoreSchemaPack
+    | ResearchSchemaPack
+    | BiomedicalSchemaPack
+    | FinanceSchemaPack
+    | EvolutionSchemaPack
+):
     """Instantiate a named schema pack.
 
     Args:
@@ -72,6 +80,7 @@ __all__ = [
     "CoreSchemaPack",
     "FinanceSchemaPack",
     "ResearchSchemaPack",
+    "EvolutionSchemaPack",
     "get_schema_pack",
     "list_schema_packs",
     "register_schema_pack",

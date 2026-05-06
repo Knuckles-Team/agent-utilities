@@ -9,7 +9,7 @@ Architecture:
     - Specialists produce outputs normally
     - Each output is wrapped as a ``Proposal`` with tri-score:
       relevance (embedding similarity), confidence (self-reported),
-      and track record (from self-model AU-016)
+      and track record (from self-model CONCEPT:KG-2.1)
     - Top-K proposals are selected and broadcast to the KG
     - Low-scoring proposals are filtered out
 
@@ -17,11 +17,11 @@ Cost: ~50ms per query (embedding comparison + sort). No LLM round-trip.
 Always-on for consistent quality improvement.
 
 Integrates with:
-    - AU-013 (OGM): Proposal persistence via ``KGMapper``
-    - AU-016 (Self-Model): Track record scoring
+    - CONCEPT:KG-2.0 (OGM): Proposal persistence via ``KGMapper``
+    - CONCEPT:KG-2.1 (Self-Model): Track record scoring
     - Existing engine: ``cosine_similarity()`` for relevance scoring
 
-See docs/emergent-architecture.md §AU-017.
+See docs/emergent-architecture.md §CONCEPT:ORCH-1.2.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ class WorkspaceAttention:
         2. **Confidence**: Self-reported confidence from the specialist
            (parsed from output if available, otherwise 0.5)
         3. **Track record**: Historical success rate from the persistent
-           self-model (AU-016)
+           self-model (CONCEPT:KG-2.1)
 
     Composite score: ``0.5 * relevance + 0.3 * track_record + 0.2 * confidence``
 
@@ -214,7 +214,7 @@ class WorkspaceAttention:
         """Persist winning proposals to the KG for global visibility.
 
         Creates ``ProposalNode`` entries and links them to their specialists.
-        These serve as training signal for the self-model (AU-016).
+        These serve as training signal for the self-model (CONCEPT:KG-2.1).
 
         Args:
             winners: The selected winning proposals.
@@ -325,7 +325,7 @@ class WorkspaceAttention:
     ) -> float:
         """Score a specialist's historical track record.
 
-        Uses the persistent self-model (AU-016) if available.
+        Uses the persistent self-model (CONCEPT:KG-2.1) if available.
         Falls back to 0.5 (neutral) if no history exists.
         """
         if memory_retriever:
@@ -336,7 +336,7 @@ class WorkspaceAttention:
 
         return 0.5
 
-    # ── Group-Level Metrics (AU-040) ─────────────────────────────────
+    # ── Group-Level Metrics (CONCEPT:ORCH-1.2) ─────────────────────────────────
 
     def compute_group_confidence(self, proposals: list[Proposal]) -> float:
         """Mean confidence across a group of proposals (CONCEPT:AHE-3.2).
@@ -374,3 +374,63 @@ class WorkspaceAttention:
             return 0
         fingerprints = {p.output[:200].strip().lower() for p in proposals}
         return len(fingerprints)
+
+    def deliberation_score(self, proposals: list[Proposal]) -> dict[str, float]:
+        """Cross-trajectory critical analysis for heavy thinking integration.
+
+        CONCEPT:AHE-3.7 — Analyzes a group of proposals (representing
+        parallel reasoning trajectories) to determine whether they
+        warrant sequential deliberation.
+
+        Computes:
+            - ``consensus``: Fraction of proposals that agree on the answer
+            - ``diversity``: Normalized unique answer count
+            - ``confidence``: Mean confidence across proposals
+            - ``deliberation_needed``: Score indicating how much the
+              trajectories would benefit from deliberation (higher = more needed)
+
+        Deliberation is most beneficial when confidence is moderate but
+        diversity is high (trajectories disagree with uncertain reasoning).
+
+        Args:
+            proposals: Scored proposals representing parallel trajectories.
+
+        Returns:
+            Dict with ``consensus``, ``diversity``, ``confidence``,
+            and ``deliberation_needed`` scores.
+        """
+        if not proposals:
+            return {
+                "consensus": 0.0,
+                "diversity": 0.0,
+                "confidence": 0.0,
+                "deliberation_needed": 0.0,
+            }
+
+        # Compute consensus (fraction agreeing on majority answer)
+        fingerprints: dict[str, int] = {}
+        for p in proposals:
+            key = p.output[:200].strip().lower()
+            fingerprints[key] = fingerprints.get(key, 0) + 1
+
+        majority = max(fingerprints.values()) if fingerprints else 0
+        consensus = majority / len(proposals) if proposals else 0.0
+
+        # Compute diversity (normalized unique count)
+        diversity = len(fingerprints) / max(len(proposals), 1)
+
+        # Compute mean confidence
+        confidence = self.compute_group_confidence(proposals)
+
+        # Deliberation need: high when diversity is high + confidence is moderate
+        # Formula: deliberation_needed = diversity * (1 - |confidence - 0.5| * 2)
+        # Peaks when confidence ≈ 0.5 and diversity is high
+        confidence_uncertainty = 1.0 - abs(confidence - 0.5) * 2.0
+        deliberation_needed = min(1.0, diversity * max(0.0, confidence_uncertainty))
+
+        return {
+            "consensus": consensus,
+            "diversity": diversity,
+            "confidence": confidence,
+            "deliberation_needed": deliberation_needed,
+        }

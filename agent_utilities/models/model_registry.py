@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ModelTier = Literal["light", "medium", "heavy", "reasoning"]
 
-# Ordered tier list for AU-039 confidence-gated routing helpers.
+# Ordered tier list for CONCEPT:ORCH-1.2 confidence-gated routing helpers.
 _TIER_ORDER: list[ModelTier] = ["light", "medium", "heavy", "reasoning"]
 
 
@@ -186,7 +186,7 @@ class ModelRegistry(BaseModel):
             raise ValueError("Model registry is empty; configure at least one model.")
         return default
 
-    # ── AU-039 tier helpers ────────────────────────────────────────────
+    # ── CONCEPT:ORCH-1.2 tier helpers ────────────────────────────────────────────
 
     @staticmethod
     def _tier_down(tier: ModelTier) -> ModelTier:

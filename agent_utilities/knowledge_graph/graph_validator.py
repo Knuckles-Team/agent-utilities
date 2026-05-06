@@ -23,7 +23,7 @@ Usage::
     report = validator.validate()
     # report.tier1_fixes, report.tier2_violations, report.tier3_warnings
 
-See docs/emergent-architecture.md §AU-053.
+See docs/emergent-architecture.md §CONCEPT:KG-2.3.
 """
 
 from __future__ import annotations
@@ -266,20 +266,21 @@ class GraphValidator:
         # Log summary
         if report.tier1_fixes:
             logger.info(
-                "[AU-053] Auto-fixed %d issues in graph", len(report.tier1_fixes)
+                "[CONCEPT:KG-2.3] Auto-fixed %d issues in graph",
+                len(report.tier1_fixes),
             )
         if report.tier2_violations:
             logger.warning(
-                "[AU-053] Found %d integrity violations",
+                "[CONCEPT:KG-2.3] Found %d integrity violations",
                 len(report.tier2_violations),
             )
         if report.tier3_warnings:
             logger.info(
-                "[AU-053] Found %d quality warnings", len(report.tier3_warnings)
+                "[CONCEPT:KG-2.3] Found %d quality warnings", len(report.tier3_warnings)
             )
         if report.tier4_fatal:
             logger.error(
-                "[AU-053] FATAL: %d critical issues detected",
+                "[CONCEPT:KG-2.3] FATAL: %d critical issues detected",
                 len(report.tier4_fatal),
             )
 

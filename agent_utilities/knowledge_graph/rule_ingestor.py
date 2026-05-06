@@ -1,6 +1,6 @@
 """Engineering Rules Ingestor — Parses agent-rules-books into KG nodes.
 
-CONCEPT:AU-023 — Engineering Rules Engine
+CONCEPT:KG-2.2 — Engineering Rules Engine
 
 Parses structured markdown rule files (mini/nano tiers) from the
 agent-rules-books repository and creates versioned KG nodes for
@@ -278,7 +278,7 @@ def _extract_list_items(text: str) -> list[str]:
 class RuleIngestor:
     """Ingests agent-rules-books into the Knowledge Graph.
 
-    CONCEPT:AU-023 — Engineering Rules Engine
+    CONCEPT:KG-2.2 — Engineering Rules Engine
 
     Parses structured markdown files and creates versioned KG nodes
     with embeddings, SKOS taxonomy, and PROV-O provenance.

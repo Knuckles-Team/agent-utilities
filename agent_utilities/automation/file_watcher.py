@@ -14,12 +14,12 @@ Architecture:
       for dependency drift detection.
 
 Integrates with:
-    - AU-030 (CognitiveScheduler): Triggers run at LOW priority
-    - AU-019 (ResourceOptimizer): Budget-capped execution
-    - AU-032 (AgentRegistry): Monitors registry directory changes
+    - CONCEPT:OS-5.2 (CognitiveScheduler): Triggers run at LOW priority
+    - CONCEPT:OS-5.2 (ResourceOptimizer): Budget-capped execution
+    - CONCEPT:OS-5.2 (AgentRegistry): Monitors registry directory changes
     - ``systems-manager``: Package audit via pip inspection
 
-See docs/watchdog-triggers.md §AU-036.
+See docs/watchdog-triggers.md §CONCEPT:OS-5.0.
 """
 
 from __future__ import annotations
@@ -151,7 +151,7 @@ class FileWatcher:
                 last = self._last_triggered.get(rule.pattern, 0)
                 if now - last < rule.cooldown:
                     logger.debug(
-                        f"[AU-036] Trigger for '{rule.pattern}' on cooldown "
+                        f"[CONCEPT:OS-5.0] Trigger for '{rule.pattern}' on cooldown "
                         f"({int(rule.cooldown - (now - last))}s remaining)"
                     )
                     return None
@@ -166,7 +166,7 @@ class FileWatcher:
                 }
                 self._pending_queries.append(trigger)
                 logger.info(
-                    f"[AU-036] File trigger matched: '{rel_path}' → "
+                    f"[CONCEPT:OS-5.0] File trigger matched: '{rel_path}' → "
                     f"'{rule.pattern}' (priority: {rule.priority})"
                 )
                 return trigger
@@ -219,10 +219,10 @@ class FileWatcher:
             if proc.returncode == 0 and proc.stdout.strip():
                 result["outdated"] = json.loads(proc.stdout)[:20]  # Cap at 20
                 logger.info(
-                    f"[AU-036] Found {len(result['outdated'])} outdated packages"
+                    f"[CONCEPT:OS-5.0] Found {len(result['outdated'])} outdated packages"
                 )
         except Exception as e:
-            logger.debug(f"[AU-036] pip outdated check failed: {e}")
+            logger.debug(f"[CONCEPT:OS-5.0] pip outdated check failed: {e}")
 
         # Check for vulnerabilities (requires pip-audit)
         try:
@@ -238,9 +238,11 @@ class FileWatcher:
                 if isinstance(vulns, list):
                     result["vulnerabilities"] = vulns[:20]
         except FileNotFoundError:
-            logger.debug("[AU-036] pip-audit not installed — skipping vuln scan")
+            logger.debug(
+                "[CONCEPT:OS-5.0] pip-audit not installed — skipping vuln scan"
+            )
         except Exception as e:
-            logger.debug(f"[AU-036] pip-audit check failed: {e}")
+            logger.debug(f"[CONCEPT:OS-5.0] pip-audit check failed: {e}")
 
         return result
 
@@ -261,7 +263,7 @@ class FileWatcher:
             if proc.returncode == 0 and proc.stdout.strip():
                 return json.loads(proc.stdout)
         except Exception as e:
-            logger.debug(f"[AU-036] pip list failed: {e}")
+            logger.debug(f"[CONCEPT:OS-5.0] pip list failed: {e}")
         return []
 
     # ── Polling-based watcher (fallback when watchdog is unavailable) ─

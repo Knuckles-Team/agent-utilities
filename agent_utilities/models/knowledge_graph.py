@@ -56,6 +56,7 @@ class RegistryNodeType(StrEnum):
     SELF_EVALUATION = "self_evaluation"
     EXPERIMENT = "experiment"
     PROPOSED_SKILL = "proposed_skill"
+    EXPERIENCE = "experience"
     # Knowledge Base
     KNOWLEDGE_BASE = "knowledge_base"
     ARTICLE = "article"
@@ -102,11 +103,11 @@ class RegistryNodeType(StrEnum):
     COMPONENT_EDIT_RECORD = "component_edit_record"
     EVIDENCE_RECORD = "evidence_record"
     CONSTRAINT_STATE = "constraint_state"
-    # Emergent Architecture Node Types (CONCEPT:KG-2.0/AU-014/AU-016/AU-017)
+    # Emergent Architecture Node Types (CONCEPT:KG-2.0)
     SELF_MODEL = "memory_retriever"
     SWARM_COALITION = "swarm_coalition"
     PROPOSAL = "proposal"
-    # Agentic Design Patterns Gap Concepts (CONCEPT:ORCH-1.1 through AU-022)
+    # Agentic Design Patterns Gap Concepts (CONCEPT:ORCH-1.1 through CONCEPT:AHE-3.2)
     PROMPT_CHAIN = "prompt_chain"
     RESOURCE_USAGE = "resource_usage"
     EVALUATION_RECORD = "evaluation_record"
@@ -116,17 +117,17 @@ class RegistryNodeType(StrEnum):
     # Engineering Rules Engine (agent-rules-books integration)
     ENGINEERING_RULE = "engineering_rule"
     RULE_BOOK = "rule_book"
-    # First-Principles Architecture (CONCEPT:AHE-3.3/AU-026)
+    # First-Principles Architecture (CONCEPT:AHE-3.3)
     TEAM_CONFIG = "team_config"
     AGENT_CAPABILITY = "agent_capability"
-    # Agent OS Architecture (CONCEPT:OS-5.2/AU-031/AU-032)
+    # Agent OS Architecture (CONCEPT:OS-5.2)
     AGENT_PROCESS = "agent_process"
     AGENT_IDENTITY = "agent_identity"
     SPECIALIST_PACKAGE = "specialist_package"
     # Agent OS Infrastructure
     HOST = "host"
     INFRASTRUCTURE_TEMPLATE = "infrastructure_template"
-    # Squeeze Evolve Routing (CONCEPT:ORCH-1.2/AU-040)
+    # Squeeze Evolve Routing (CONCEPT:ORCH-1.2)
     ROUTING_DECISION = "routing_decision"
     # Schema Packs (CONCEPT:KG-2.2)
     SCHEMA_PACK = "schema_pack"
@@ -136,6 +137,31 @@ class RegistryNodeType(StrEnum):
     VIRTUAL_CONTEXT_BLOCK = "virtual_context_block"
     # Quiet-STaR rationale persistence (CONCEPT:KG-2.1)
     QUIET_STAR_RATIONALE = "quiet_star_rationale"
+    # Topological Mincut Partitioning (CONCEPT:KG-2.5)
+    COMMUNITY = "community"
+    # Heavy Thinking Orchestration (CONCEPT:AHE-3.7)
+    TRAJECTORY = "trajectory"
+    DELIBERATION = "deliberation"
+    # Financial Trading Pipeline (CONCEPT:KG-2.6)
+    TRADING_SIGNAL = "trading_signal"
+    ORDER = "order"
+    POSITION = "position"
+    PORTFOLIO = "portfolio"
+    STRATEGY = "strategy"
+    # Market Data Connector Protocol (CONCEPT:ECO-4.4)
+    DATA_CONNECTOR = "data_connector"
+    DATA_FETCH_RECORD = "data_fetch_record"
+    # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
+    SWARM_PRESET = "swarm_preset"
+    SWARM_RUN = "swarm_run"
+    SWARM_TASK_RECORD = "swarm_task_record"
+    # Risk Scoring Ontology (CONCEPT:KG-2.7)
+    RISK_ASSESSMENT = "risk_assessment"
+    RISK_FACTOR = "risk_factor"
+    RISK_MITIGATION = "risk_mitigation"
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+    BACKTEST_RUN = "backtest_run"
+    BACKTEST_METRIC = "backtest_metric"
 
 
 class RegistryEdgeType(StrEnum):
@@ -188,6 +214,7 @@ class RegistryEdgeType(StrEnum):
     PRODUCED_OUTCOME = "produced_outcome"
     SCORED_BY = "scored_by"
     GENERATED_CRITIQUE = "generated_critique"
+    EXPERIENCED_DURING = "experienced_during"
     LED_TO = "led_to"
     SUPERSEDES = "supersedes"
     # Knowledge Base Relationships
@@ -255,13 +282,13 @@ class RegistryEdgeType(StrEnum):
     CONFIRMED_FIX = "confirmed_fix"
     VERIFIED_BY = "verified_by"
     ESCALATED_TO = "escalated_to"
-    # Emergent Architecture Edges (CONCEPT:ORCH-1.0/AU-015/AU-016/AU-017)
+    # Emergent Architecture Edges (CONCEPT:ORCH-1.0)
     VARIANT_OF = "variant_of"
     CURRENT_SELF_MODEL = "current_memory_retriever"
     SPAWNED_BY = "spawned_by"
     COORDINATED_BY = "coordinated_by"
     PROPOSED_FOR = "proposed_for"
-    # Agentic Design Patterns Gap Edges (CONCEPT:ORCH-1.1 through AU-022)
+    # Agentic Design Patterns Gap Edges (CONCEPT:ORCH-1.1 through CONCEPT:AHE-3.2)
     CHAIN_STEP = "chain_step"
     BRANCHES_TO = "branches_to"
     CONSUMED_RESOURCE = "consumed_resource"
@@ -276,16 +303,16 @@ class RegistryEdgeType(StrEnum):
     CONFLICTS_WITH = "conflicts_with"
     CORRECTS_BIAS = "corrects_bias"
     APPLICABLE_WHEN = "applicable_when"
-    # First-Principles Architecture Edges (CONCEPT:AHE-3.3/AU-026)
+    # First-Principles Architecture Edges (CONCEPT:AHE-3.3)
     HAS_CAPABILITY = "has_capability"
     REUSED_TEAM = "reused_team"
-    # Agent OS Architecture Edges (CONCEPT:OS-5.2/AU-031/AU-032)
+    # Agent OS Architecture Edges (CONCEPT:OS-5.2)
     PREEMPTED_BY = "preempted_by"
     CHECKPOINTED_TO = "checkpointed_to"
     HAS_IDENTITY = "has_identity"
     AUTHORIZED_FOR = "authorized_for"
     INSTALLED_FROM = "installed_from"
-    # Squeeze Evolve Routing (CONCEPT:ORCH-1.2/AU-040)
+    # Squeeze Evolve Routing (CONCEPT:ORCH-1.2)
     ROUTED_BY = "routed_by"
     AGGREGATED_FROM = "aggregated_from"
     # Schema Packs (CONCEPT:KG-2.2)
@@ -294,6 +321,38 @@ class RegistryEdgeType(StrEnum):
     BUILDS_ON = "builds_on"
     EXEMPLIFIES = "exemplifies"
     AUTHORED_BY = "authored_by"
+    # Topological Mincut Partitioning (CONCEPT:KG-2.5)
+    PART_OF_COMMUNITY = "part_of_community"
+    # Temporal Drift (CONCEPT:AHE-3.6)
+    DRIFTED_TO = "drifted_to"
+    # Heavy Thinking Orchestration (CONCEPT:AHE-3.7)
+    TRAJECTORY_OF = "trajectory_of"
+    DELIBERATED_BY = "deliberated_by"
+    AGREES_WITH = "agrees_with"
+    DISAGREES_WITH = "disagrees_with"
+    # Financial Trading Pipeline (CONCEPT:KG-2.6)
+    GENERATED_SIGNAL = "generated_signal"
+    PLACED_ORDER = "placed_order"
+    OPENED_POSITION = "opened_position"
+    BELONGS_TO_PORTFOLIO = "belongs_to_portfolio"
+    EXECUTES_STRATEGY = "executes_strategy"
+    BACKTESTED_WITH = "backtested_with"
+    # Market Data Connector Protocol (CONCEPT:ECO-4.4)
+    FETCHED_FROM = "fetched_from"
+    FALLS_BACK_TO = "falls_back_to"
+    # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
+    PRESET_OF = "preset_of"
+    RAN_PRESET = "ran_preset"
+    TASK_DEPENDS_ON = "task_depends_on"
+    # Risk Scoring Ontology (CONCEPT:KG-2.7)
+    ASSESSED_RISK = "assessed_risk"
+    HAS_RISK_FACTOR = "has_risk_factor"
+    MITIGATED_BY = "mitigated_by"
+    PROPAGATES_RISK_TO = "propagates_risk_to"
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+    EVALUATED_STRATEGY = "evaluated_strategy"
+    HAS_METRIC = "has_metric"
+    COMPARED_TO_BENCHMARK = "compared_to_benchmark"
 
 
 class RegistryNode(BaseModel):
@@ -308,6 +367,79 @@ class RegistryNode(BaseModel):
     timestamp: str | None = None
     embedding: list[float] | None = None
     is_permanent: bool = False
+    ewc_fisher_diag: list[float] | None = None
+    temporal_drift_score: float = 0.0
+
+
+class CommunityNode(RegistryNode):
+    """Represents an emergent topological cluster of knowledge.
+
+    CONCEPT:KG-2.5 — Topological Mincut Partitioning
+    """
+
+    type: RegistryNodeType = RegistryNodeType.COMMUNITY
+    coherence_score: float = 1.0
+    member_count: int = 0
+    community_tags: list[str] = Field(default_factory=list)
+
+
+class TrajectoryNode(RegistryNode):
+    """A persisted reasoning trajectory from a parallel thinker agent.
+
+    CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+
+    Represents the output of a single parallel reasoning attempt during
+    the Heavy Thinking pipeline.  Multiple ``TrajectoryNode`` instances
+    are linked to a shared query via ``TRAJECTORY_OF`` edges and are
+    consumed by the deliberation phase.
+
+    Attributes:
+        thinker_id: Identifier of the parallel thinker that produced this trajectory.
+        query_hash: SHA-256 hash of the original query for deduplication.
+        answer: The final boxed or extracted answer from this trajectory.
+        reasoning_summary: Pruned summary of the reasoning chain (thinking tokens removed).
+        score: Evaluation score assigned during deliberation (0.0–1.0).
+        is_correct: Whether this trajectory's answer was confirmed correct.
+        model_id: The LLM model used by this thinker.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.TRAJECTORY
+    thinker_id: str = ""
+    query_hash: str = ""
+    answer: str = ""
+    reasoning_summary: str = ""
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+    is_correct: bool | None = None
+    model_id: str = ""
+
+
+class DeliberationNode(RegistryNode):
+    """A deliberation synthesis result from the sequential deliberation phase.
+
+    CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+
+    Represents the output of the deliberation agent that critically
+    analyzes multiple parallel trajectories and synthesizes a final
+    consensus answer.  Links to consumed trajectories via
+    ``DELIBERATED_BY`` edges and records agreement/disagreement via
+    ``AGREES_WITH`` / ``DISAGREES_WITH`` edges.
+
+    Attributes:
+        trajectories_analyzed: Number of trajectory nodes consumed.
+        consensus_answer: The final synthesized answer.
+        confidence: Deliberation confidence score (0.0–1.0).
+        critical_analysis: Free-text analysis of trajectory differences.
+        iteration: The refinement iteration that produced this node (0 = first pass).
+        model_id: The LLM model used for deliberation (may differ from thinkers).
+    """
+
+    type: RegistryNodeType = RegistryNodeType.DELIBERATION
+    trajectories_analyzed: int = 0
+    consensus_answer: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    critical_analysis: str = ""
+    iteration: int = 0
+    model_id: str = ""
 
 
 class AgentNode(RegistryNode):
@@ -736,6 +868,16 @@ class ProposedSkillNode(RegistryNode):
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
+class ExperienceNode(RegistryNode):
+    """Context-specific tactical guidance distilled from past successes/failures."""
+
+    type: RegistryNodeType = RegistryNodeType.EXPERIENCE
+    condition: str
+    action: str
+    success_rate: float = 1.0
+    source_run_id: str | None = None
+
+
 class PatternTemplateNode(RegistryNode):
     """Reusable code pattern or TDD cycle (Hoarding)."""
 
@@ -1156,7 +1298,7 @@ class EngineeringRuleNode(PrincipleNode):
     Stores structured rule metadata for context-budget-aware retrieval and
     AHE efficacy tracking.
 
-    CONCEPT:AU-023 — Engineering Rules Engine
+    CONCEPT:KG-2.2 — Engineering Rules Engine
     """
 
     type: RegistryNodeType = RegistryNodeType.ENGINEERING_RULE
@@ -1238,7 +1380,7 @@ class RuleBookNode(RegistryNode):
     Represents the upstream source (e.g., 'Clean Architecture', 'Domain-Driven Design')
     from which EngineeringRuleNode instances are derived.
 
-    CONCEPT:AU-023 — Engineering Rules Engine
+    CONCEPT:KG-2.2 — Engineering Rules Engine
     """
 
     type: RegistryNodeType = RegistryNodeType.RULE_BOOK
@@ -1469,7 +1611,7 @@ class AccountNode(RegistryNode):
     status: str = "active"  # active, closed, frozen
 
 
-# --- Emergent Architecture Nodes (CONCEPT:ORCH-1.0/AU-016/AU-017) ---
+# --- Emergent Architecture Nodes (CONCEPT:ORCH-1.0) ---
 
 
 class MemoryRetrieverNode(RegistryNode):
@@ -1481,7 +1623,7 @@ class MemoryRetrieverNode(RegistryNode):
     CURRENT_SELF_MODEL pointer for O(1) lookup. Integrates with OWL via
     ``memory_retriever.promote_to_owl()`` for reasoner-driven metacognition.
 
-    See docs/emergent-architecture.md §AU-016.
+    See docs/emergent-architecture.md §CONCEPT:KG-2.1.
     """
 
     type: RegistryNodeType = RegistryNodeType.SELF_MODEL
@@ -1528,6 +1670,12 @@ class MemoryRetrieverNode(RegistryNode):
     session_id: str = Field(default="", description="Session that created this version")
 
 
+# Backward-compatible alias — the class was renamed from SelfModelNode to
+# MemoryRetrieverNode during the CONCEPT:KG-2.0 migration. Tests and
+# external integrations may still reference the old name.
+SelfModelNode = MemoryRetrieverNode
+
+
 class SwarmCoalitionNode(RegistryNode):
     """A dynamically formed agent coalition for task execution.
 
@@ -1537,7 +1685,7 @@ class SwarmCoalitionNode(RegistryNode):
     participated, the task tree they were assigned, and the achieved
     parallelism ratio. Registered as transient KG nodes for observability.
 
-    See docs/emergent-architecture.md §AU-014.
+    See docs/emergent-architecture.md §CONCEPT:KG-2.0.
     """
 
     type: RegistryNodeType = RegistryNodeType.SWARM_COALITION
@@ -1559,7 +1707,7 @@ class ProposalNode(RegistryNode):
     Specialists submit proposals that are scored by relevance, confidence,
     and track record. Winners are broadcast to the KG for integration.
 
-    See docs/emergent-architecture.md §AU-017.
+    See docs/emergent-architecture.md §CONCEPT:ORCH-1.2.
     """
 
     type: RegistryNodeType = RegistryNodeType.PROPOSAL
@@ -1572,7 +1720,7 @@ class ProposalNode(RegistryNode):
     selected: bool = False
 
 
-# --- Agentic Design Patterns Gap Nodes (CONCEPT:ORCH-1.1 through AU-022) ---
+# --- Agentic Design Patterns Gap Nodes (CONCEPT:ORCH-1.1 through CONCEPT:AHE-3.2) ---
 
 
 class PromptChainNode(RegistryNode):
@@ -1585,7 +1733,7 @@ class PromptChainNode(RegistryNode):
     for discovery and reuse across sessions.
 
     BFO:Process (occurrent), aligned to :Procedure.
-    See docs/design-patterns-alignment.md §AU-018.
+    See docs/design-patterns-alignment.md §CONCEPT:ORCH-1.1.
     """
 
     type: RegistryNodeType = RegistryNodeType.PROMPT_CHAIN
@@ -1611,7 +1759,7 @@ class ResourceUsageNode(RegistryNode):
     the OWL reasoner for model selection optimization.
 
     BFO:Process (occurrent), aligned to :ResourceUsage.
-    See docs/design-patterns-alignment.md §AU-019.
+    See docs/design-patterns-alignment.md §CONCEPT:OS-5.2.
     """
 
     type: RegistryNodeType = RegistryNodeType.RESOURCE_USAGE
@@ -1639,7 +1787,7 @@ class EvaluationRecordNode(RegistryNode):
     existing verifier gate. Supports LLM-as-Judge and human calibration.
 
     BFO:SpecificallyDependentContinuant, aligned to :Observation.
-    See docs/design-patterns-alignment.md §AU-020.
+    See docs/design-patterns-alignment.md §CONCEPT:AHE-3.1.
     """
 
     type: RegistryNodeType = RegistryNodeType.EVALUATION_RECORD
@@ -1671,7 +1819,7 @@ class PrioritizedTaskNode(RegistryNode):
     from blocking tasks, and capability-based specialist assignment.
 
     BFO:Process (occurrent), aligned to :Action.
-    See docs/design-patterns-alignment.md §AU-021.
+    See docs/design-patterns-alignment.md §CONCEPT:ORCH-1.1.
     """
 
     type: RegistryNodeType = RegistryNodeType.PRIORITIZED_TASK
@@ -1707,7 +1855,7 @@ class KnowledgeGapNode(RegistryNode):
     designed to test those hypotheses.
 
     BFO:SpecificallyDependentContinuant, aligned to :Observation.
-    See docs/design-patterns-alignment.md §AU-022.
+    See docs/design-patterns-alignment.md §CONCEPT:AHE-3.2.
     """
 
     type: RegistryNodeType = RegistryNodeType.KNOWLEDGE_GAP
@@ -1734,7 +1882,7 @@ class ExplorationExperimentNode(RegistryNode):
     multi-reviewer evaluation with structured scoring.
 
     BFO:Process (occurrent), aligned to :Procedure.
-    See docs/design-patterns-alignment.md §AU-022.
+    See docs/design-patterns-alignment.md §CONCEPT:AHE-3.2.
     """
 
     type: RegistryNodeType = RegistryNodeType.EXPLORATION_EXPERIMENT
@@ -1754,7 +1902,7 @@ class ExplorationExperimentNode(RegistryNode):
     status: str = "designed"  # designed, running, completed, failed
 
 
-# --- First-Principles Architecture Nodes (CONCEPT:AHE-3.3/AU-026) ---
+# --- First-Principles Architecture Nodes (CONCEPT:AHE-3.3) ---
 
 
 class TeamConfigNode(RegistryNode):
@@ -1771,7 +1919,7 @@ class TeamConfigNode(RegistryNode):
     specialists that historically receive large data can have the ``rlm``
     capability auto-attached at reuse time.
 
-    See docs/emergent-architecture.md §AU-025.
+    See docs/emergent-architecture.md §CONCEPT:AHE-3.3.
     """
 
     type: RegistryNodeType = RegistryNodeType.TEAM_CONFIG
@@ -1824,7 +1972,7 @@ class AgentCapabilityNode(RegistryNode):
     trigger conditions are met at runtime, the executor dynamically
     invokes the capability handler.
 
-    See docs/emergent-architecture.md §AU-026.
+    See docs/emergent-architecture.md §CONCEPT:ORCH-1.2.
     """
 
     type: RegistryNodeType = RegistryNodeType.AGENT_CAPABILITY
@@ -1857,7 +2005,7 @@ class AgentCapabilityNode(RegistryNode):
     )
 
 
-# --- Agent OS Architecture Nodes (CONCEPT:OS-5.2/AU-031/AU-032) ---
+# --- Agent OS Architecture Nodes (CONCEPT:OS-5.2) ---
 
 
 class AgentProcessNode(RegistryNode):
@@ -1871,7 +2019,7 @@ class AgentProcessNode(RegistryNode):
     paging.  Linked to its parent agent via ``EXECUTED_BY`` edges
     and to checkpoints via ``CHECKPOINTED_TO`` edges.
 
-    See docs/cognitive-scheduler.md §AU-030.
+    See docs/cognitive-scheduler.md §CONCEPT:OS-5.2.
     """
 
     type: RegistryNodeType = RegistryNodeType.AGENT_PROCESS
@@ -1920,7 +2068,7 @@ class AgentIdentityNode(RegistryNode):
     Linked to agents via ``HAS_IDENTITY`` edges and to authorized
     tools via ``AUTHORIZED_FOR`` edges.
 
-    See docs/permissions-kernel.md §AU-031.
+    See docs/permissions-kernel.md §CONCEPT:OS-5.2.
     """
 
     type: RegistryNodeType = RegistryNodeType.AGENT_IDENTITY
@@ -1953,7 +2101,7 @@ class SpecialistPackageNode(RegistryNode):
     nodes.  Linked to the originating registry via ``INSTALLED_FROM``
     edges.
 
-    See docs/agent-registry.md §AU-032.
+    See docs/agent-registry.md §CONCEPT:OS-5.2.
     """
 
     type: RegistryNodeType = RegistryNodeType.SPECIALIST_PACKAGE
@@ -2166,3 +2314,458 @@ class RelDefinition(BaseModel):
 class GraphSchemaDefinition(BaseModel):
     nodes: list[TableDefinition]
     edges: list[RelDefinition]
+
+
+# --- Financial Trading Pipeline Nodes (CONCEPT:KG-2.6) ---
+
+
+class TradingSignalNode(RegistryNode):
+    """A buy/sell/hold signal with confidence and attribution.
+
+    CONCEPT:KG-2.6 — Financial Trading Pipeline
+
+    Captures actionable trading signals generated by strategies or
+    analysts. Links to the originating ``StrategyNode`` via
+    ``GENERATED_SIGNAL`` edges and to the target ``FinancialInstrument``.
+
+    Attributes:
+        signal_type: Direction of the signal (buy, sell, hold).
+        confidence: Signal strength from 0.0 (no confidence) to 1.0 (certain).
+        instrument_id: Identifier for the target financial instrument.
+        attribution: Source of the signal (e.g., 'technical', 'fundamental', 'sentiment').
+        price_at_signal: Market price when the signal was generated.
+        expiry: Optional ISO timestamp after which the signal is considered stale.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.TRADING_SIGNAL
+    signal_type: str = "hold"  # buy, sell, hold
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    instrument_id: str = ""
+    attribution: str = ""  # technical, fundamental, sentiment, composite
+    price_at_signal: float | None = None
+    expiry: str | None = None
+
+
+class OrderNode(RegistryNode):
+    """An order in the trading pipeline lifecycle.
+
+    CONCEPT:KG-2.6 — Financial Trading Pipeline
+
+    Models the full order lifecycle: pending → submitted → filled → cancelled.
+    Links to ``TradingSignalNode`` via ``PLACED_ORDER`` and to
+    ``PositionNode`` via ``OPENED_POSITION``.
+
+    Attributes:
+        order_type: Order type (market, limit, stop, stop_limit).
+        side: Order side (buy, sell).
+        quantity: Number of units.
+        price: Limit/stop price (None for market orders).
+        filled_price: Actual execution price.
+        status: Current lifecycle status.
+        instrument_id: Target instrument identifier.
+        exchange: Exchange or venue identifier.
+        submitted_at: ISO timestamp of order submission.
+        filled_at: ISO timestamp of order fill.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ORDER
+    order_type: str = "market"  # market, limit, stop, stop_limit
+    side: str = "buy"  # buy, sell
+    quantity: float = 0.0
+    price: float | None = None
+    filled_price: float | None = None
+    status: str = "pending"  # pending, submitted, partial, filled, cancelled, rejected
+    instrument_id: str = ""
+    exchange: str = ""
+    submitted_at: str | None = None
+    filled_at: str | None = None
+
+
+class PositionNode(RegistryNode):
+    """An open or closed position in a portfolio.
+
+    CONCEPT:KG-2.6 — Financial Trading Pipeline
+
+    Tracks position lifecycle with entry/exit prices, P&L, and risk
+    metrics. Links to ``PortfolioNode`` via ``BELONGS_TO_PORTFOLIO``.
+
+    Attributes:
+        instrument_id: Target instrument identifier.
+        side: Position direction (long, short).
+        quantity: Position size.
+        entry_price: Average entry price.
+        exit_price: Average exit price (None if still open).
+        current_price: Latest known market price.
+        realized_pnl: Closed P&L.
+        unrealized_pnl: Open P&L.
+        status: Position status (open, closed).
+        opened_at: ISO timestamp when position was opened.
+        closed_at: ISO timestamp when position was fully closed.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.POSITION
+    instrument_id: str = ""
+    side: str = "long"  # long, short
+    quantity: float = 0.0
+    entry_price: float = 0.0
+    exit_price: float | None = None
+    current_price: float | None = None
+    realized_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
+    status: str = "open"  # open, closed
+    opened_at: str | None = None
+    closed_at: str | None = None
+
+
+class PortfolioNode(RegistryNode):
+    """An aggregation of positions with allocation and performance tracking.
+
+    CONCEPT:KG-2.6 — Financial Trading Pipeline
+
+    Represents a named portfolio containing multiple positions.
+    Performance metrics are computed from constituent positions.
+
+    Attributes:
+        total_value: Total portfolio market value.
+        cash_balance: Uninvested cash.
+        position_count: Number of active positions.
+        total_pnl: Aggregate realized + unrealized P&L.
+        allocation_weights: Asset-to-weight mapping for rebalancing.
+        benchmark_id: Optional benchmark identifier for comparison.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.PORTFOLIO
+    total_value: float = 0.0
+    cash_balance: float = 0.0
+    position_count: int = 0
+    total_pnl: float = 0.0
+    allocation_weights: dict[str, float] = Field(default_factory=dict)
+    benchmark_id: str | None = None
+
+
+class StrategyNode(RegistryNode):
+    """A named trading strategy with parameters and performance lineage.
+
+    CONCEPT:KG-2.6 — Financial Trading Pipeline
+
+    Represents a reusable strategy definition. Links to ``BacktestRunNode``
+    via ``BACKTESTED_WITH`` and to ``PortfolioNode`` via
+    ``EXECUTES_STRATEGY`` for live execution tracking.
+
+    Attributes:
+        strategy_type: Category (momentum, mean_reversion, factor, ml, etc.).
+        parameters: Strategy-specific configuration parameters.
+        version: Strategy version for lineage tracking.
+        sharpe_ratio: Latest computed Sharpe ratio.
+        max_drawdown: Maximum observed drawdown (0.0 to 1.0).
+        win_rate: Historical win rate (0.0 to 1.0).
+        universes: List of instrument universes this strategy targets.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.STRATEGY
+    strategy_type: str = ""  # momentum, mean_reversion, factor, ml, hybrid
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    version: int = 1
+    sharpe_ratio: float | None = None
+    max_drawdown: float | None = None
+    win_rate: float | None = None
+    universes: list[str] = Field(default_factory=list)
+
+
+# --- Market Data Connector Nodes (CONCEPT:ECO-4.4) ---
+
+
+class DataConnectorNode(RegistryNode):
+    """A registered external data source with health and rate-limit metadata.
+
+    CONCEPT:ECO-4.4 — Market Data Connector Protocol
+
+    Represents an external data provider that can be queried by agents.
+    The ``FALLS_BACK_TO`` edge creates a prioritized fallback chain.
+
+    Attributes:
+        connector_type: Category (market_data, news, fundamental, alternative).
+        provider: Provider name (e.g., 'yahoo_finance', 'polygon', 'alpha_vantage').
+        base_url: API base URL.
+        is_healthy: Current health status.
+        rate_limit_rpm: Maximum requests per minute.
+        rate_limit_remaining: Remaining requests in current window.
+        supported_instruments: List of instrument types this connector supports.
+        priority: Fallback priority (lower = tried first).
+        last_health_check: ISO timestamp of last health ping.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.DATA_CONNECTOR
+    connector_type: str = "market_data"
+    provider: str = ""
+    base_url: str = ""
+    is_healthy: bool = True
+    rate_limit_rpm: int = 60
+    rate_limit_remaining: int = 60
+    supported_instruments: list[str] = Field(default_factory=list)
+    priority: int = 0
+    last_health_check: str | None = None
+
+
+class DataFetchRecordNode(RegistryNode):
+    """Immutable provenance record of a data fetch operation.
+
+    CONCEPT:ECO-4.4 — Market Data Connector Protocol
+
+    Records every data retrieval for audit, debugging, and cost tracking.
+    Links to the source ``DataConnectorNode`` via ``FETCHED_FROM``.
+
+    Attributes:
+        connector_id: The data connector that served this request.
+        query: The query or endpoint that was called.
+        row_count: Number of data rows returned.
+        latency_ms: Request latency in milliseconds.
+        status_code: HTTP status code or equivalent.
+        error: Error message if the fetch failed.
+        fetched_at: ISO timestamp of the fetch.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.DATA_FETCH_RECORD
+    connector_id: str = ""
+    query: str = ""
+    row_count: int = 0
+    latency_ms: float = 0.0
+    status_code: int = 200
+    error: str | None = None
+    fetched_at: str | None = None
+
+
+# --- Swarm Preset Template Nodes (CONCEPT:ORCH-1.4) ---
+
+
+class SwarmPresetNode(RegistryNode):
+    """A declarative multi-agent workflow preset stored in the KG.
+
+    CONCEPT:ORCH-1.4 — Swarm Preset Template Engine
+
+    Represents a reusable DAG-based swarm configuration with agent
+    specifications, task dependencies, and template variables.
+    Links to ``TeamConfigNode`` via ``PRESET_OF`` for evolutionary
+    recommendation.
+
+    Attributes:
+        preset_name: Unique preset identifier (e.g., 'investment_committee').
+        agent_specs: List of agent role specifications (id, role, tools).
+        task_graph: DAG of task definitions with dependency edges.
+        variables: Template variables available for substitution.
+        success_count: Number of successful executions.
+        total_runs: Total number of executions.
+        avg_duration_seconds: Average run duration.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SWARM_PRESET
+    preset_name: str = ""
+    agent_specs: list[dict[str, Any]] = Field(default_factory=list)
+    task_graph: list[dict[str, Any]] = Field(default_factory=list)
+    variables: dict[str, str] = Field(default_factory=dict)
+    success_count: int = 0
+    total_runs: int = 0
+    avg_duration_seconds: float = 0.0
+
+
+class SwarmRunNode(RegistryNode):
+    """Execution record of a swarm preset run.
+
+    CONCEPT:ORCH-1.4 — Swarm Preset Template Engine
+
+    Links to the originating ``SwarmPresetNode`` via ``RAN_PRESET``.
+
+    Attributes:
+        preset_id: Reference to the preset that was executed.
+        status: Run status (pending, running, completed, failed, cancelled).
+        user_vars: User-provided variable substitutions.
+        total_input_tokens: Cumulative input tokens.
+        total_output_tokens: Cumulative output tokens.
+        duration_seconds: Total run duration.
+        task_count: Number of tasks in the run.
+        started_at: ISO start timestamp.
+        completed_at: ISO completion timestamp.
+        final_report: Aggregated output summary.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SWARM_RUN
+    preset_id: str = ""
+    status: str = "pending"  # pending, running, completed, failed, cancelled
+    user_vars: dict[str, str] = Field(default_factory=dict)
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    duration_seconds: float = 0.0
+    task_count: int = 0
+    started_at: str | None = None
+    completed_at: str | None = None
+    final_report: str | None = None
+
+
+class SwarmTaskRecordNode(RegistryNode):
+    """Individual task execution record within a swarm run.
+
+    CONCEPT:ORCH-1.4 — Swarm Preset Template Engine
+
+    Attributes:
+        task_id: Task identifier within the preset DAG.
+        agent_id: Agent that executed this task.
+        status: Task status (pending, in_progress, completed, failed).
+        summary: Output summary from the task.
+        depends_on: Upstream task IDs in the DAG.
+        duration_seconds: Task execution duration.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SWARM_TASK_RECORD
+    task_id: str = ""
+    agent_id: str = ""
+    status: str = "pending"
+    summary: str = ""
+    depends_on: list[str] = Field(default_factory=list)
+    duration_seconds: float = 0.0
+
+
+# --- Risk Scoring Nodes (CONCEPT:KG-2.7) ---
+
+
+class RiskAssessmentNode(RegistryNode):
+    """Domain-agnostic risk evaluation with multi-dimensional scoring.
+
+    CONCEPT:KG-2.7 — Risk Scoring Ontology Extension
+
+    Represents a point-in-time risk assessment for any entity (financial
+    instrument, software component, project, etc.). Links to constituent
+    ``RiskFactorNode`` entries via ``HAS_RISK_FACTOR``.
+
+    Attributes:
+        entity_id: The ID of the entity being assessed.
+        overall_risk_score: Composite risk score (0.0 = safe, 1.0 = critical).
+        risk_level: Human-readable risk category.
+        assessment_type: Assessment methodology used.
+        assessed_at: ISO timestamp of the assessment.
+        assessor: Identifier of the agent/user performing the assessment.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.RISK_ASSESSMENT
+    entity_id: str = ""
+    overall_risk_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    risk_level: str = "low"  # low, medium, high, critical
+    assessment_type: str = ""  # var, drawdown, qualitative, composite
+    assessed_at: str | None = None
+    assessor: str = ""
+
+
+class RiskFactorNode(RegistryNode):
+    """An individual risk factor contributing to an assessment.
+
+    CONCEPT:KG-2.7 — Risk Scoring Ontology Extension
+
+    Represents a specific dimension of risk (market_risk, credit_risk,
+    operational_risk, code_quality_risk, etc.). Multiple risk factors
+    aggregate into a ``RiskAssessmentNode``.
+
+    The ``PROPAGATES_RISK_TO`` edge enables transitive risk propagation
+    via OWL reasoning: if A depends on B and B has high risk, A inherits
+    that risk automatically.
+
+    Attributes:
+        factor_type: Risk category (market, credit, operational, liquidity, etc.).
+        severity: Severity score (0.0 to 1.0).
+        probability: Likelihood of the risk materializing (0.0 to 1.0).
+        impact: Estimated impact magnitude (0.0 to 1.0).
+        mitigation_status: Current mitigation state.
+        details: Free-text explanation of the risk.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.RISK_FACTOR
+    factor_type: str = ""  # market, credit, operational, liquidity, concentration
+    severity: float = Field(default=0.0, ge=0.0, le=1.0)
+    probability: float = Field(default=0.5, ge=0.0, le=1.0)
+    impact: float = Field(default=0.5, ge=0.0, le=1.0)
+    mitigation_status: str = "unmitigated"  # unmitigated, partial, mitigated
+    details: str = ""
+
+
+class RiskMitigationNode(RegistryNode):
+    """A proposed or applied mitigation for a risk factor.
+
+    CONCEPT:KG-2.7 — Risk Scoring Ontology Extension
+
+    Links to the ``RiskFactorNode`` it addresses via ``MITIGATED_BY``.
+
+    Attributes:
+        mitigation_type: Category of mitigation (hedge, diversification, limit, insurance).
+        effectiveness: Estimated effectiveness (0.0 to 1.0).
+        cost: Estimated cost of implementing the mitigation.
+        status: Implementation status (proposed, active, expired).
+        applied_at: ISO timestamp when mitigation was activated.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.RISK_MITIGATION
+    mitigation_type: str = ""  # hedge, diversification, limit, insurance, process
+    effectiveness: float = Field(default=0.5, ge=0.0, le=1.0)
+    cost: float = 0.0
+    status: str = "proposed"  # proposed, active, expired
+    applied_at: str | None = None
+
+
+# --- Backtest / Evaluation Harness Nodes (CONCEPT:AHE-3.8) ---
+
+
+class BacktestRunNode(RegistryNode):
+    """A complete backtesting or evaluation run record.
+
+    CONCEPT:AHE-3.8 — Backtest Evaluation Harness
+
+    Records a full evaluation run including parameters, date range, and
+    aggregate results. Links to ``StrategyNode`` via ``EVALUATED_STRATEGY``
+    and to individual ``BacktestMetricNode`` entries via ``HAS_METRIC``.
+
+    Attributes:
+        strategy_id: Reference to the strategy being evaluated.
+        start_date: ISO date for the evaluation start.
+        end_date: ISO date for the evaluation end.
+        initial_capital: Starting capital for the backtest.
+        final_capital: Ending capital after the backtest.
+        total_trades: Number of trades executed.
+        parameters: Strategy parameters used in this run.
+        status: Run status (running, completed, failed).
+        walk_forward_windows: Number of walk-forward validation splits.
+        benchmark_id: Optional benchmark for comparison.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.BACKTEST_RUN
+    strategy_id: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    initial_capital: float = 100_000.0
+    final_capital: float = 0.0
+    total_trades: int = 0
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    status: str = "completed"  # running, completed, failed
+    walk_forward_windows: int = 0
+    benchmark_id: str | None = None
+
+
+class BacktestMetricNode(RegistryNode):
+    """An individual metric from a backtest or evaluation run.
+
+    CONCEPT:AHE-3.8 — Backtest Evaluation Harness
+
+    Represents a single named metric (Sharpe ratio, max drawdown, accuracy,
+    F1, etc.) for a specific evaluation window. Links to the parent
+    ``BacktestRunNode`` via ``HAS_METRIC``.
+
+    Attributes:
+        metric_name: Name of the metric (sharpe_ratio, max_drawdown, win_rate, etc.).
+        value: Numeric value of the metric.
+        window_index: Walk-forward window index (0 for aggregate).
+        benchmark_value: Benchmark comparison value (if applicable).
+        is_passing: Whether this metric meets the passing threshold.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.BACKTEST_METRIC
+    metric_name: str = ""
+    value: float = 0.0
+    window_index: int = 0  # 0 = aggregate, 1+ = per-window
+    benchmark_value: float | None = None
+    is_passing: bool = True

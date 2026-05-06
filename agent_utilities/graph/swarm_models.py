@@ -4,7 +4,7 @@
 Pydantic models for task decomposition, swarm hierarchy, and
 swarm execution results used by :class:`SwarmOrchestrator`.
 
-See docs/emergent-architecture.md §AU-014.
+See docs/emergent-architecture.md §CONCEPT:KG-2.0.
 """
 
 from __future__ import annotations

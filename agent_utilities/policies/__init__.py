@@ -1,6 +1,6 @@
 """Policies — Categorized policy data for KG ingestion.
 
-CONCEPT:AU-023 — Engineering Rules Engine
+CONCEPT:KG-2.2 — Engineering Rules Engine
 
 This package contains versioned policy data organized by category:
 

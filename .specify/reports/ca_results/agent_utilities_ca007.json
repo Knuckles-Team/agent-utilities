@@ -1,0 +1,54 @@
+{
+  "domain": "CA-007",
+  "domain_name": "Documentation",
+  "project": "/home/apps/workspace/agent-packages/agent-utilities",
+  "readme": {
+    "score": 105,
+    "found": true,
+    "word_count": 6083,
+    "details": [
+      "\u2705 title: +8",
+      "\u2705 badges: +5",
+      "\u2705 description: +8",
+      "\u2705 table_of_contents: +5",
+      "\u2705 installation: +10",
+      "\u2705 usage: +10",
+      "\u2705 api_docs: +8",
+      "\u2705 architecture: +8",
+      "\u2705 contributing: +5",
+      "\u2705 license: +5",
+      "\u2705 code_blocks: +8",
+      "\u2705 links: +5",
+      "\u2705 configuration: +5",
+      "\u2705 testing: +5",
+      "\u2705 changelog_ref: +5",
+      "Comprehensive length (6083 words): +5"
+    ]
+  },
+  "docstrings": {
+    "total_definitions": 4836,
+    "documented": 3170,
+    "coverage_pct": 65.6
+  },
+  "documentation_artifacts": {
+    "docs_directory": true,
+    "changelog": true,
+    "contributing": false,
+    "agents_md": true,
+    "adr_directory": false,
+    "examples_directory": true,
+    "api_docs": false
+  },
+  "scoring": {
+    "score": 83,
+    "grade": "B",
+    "details": [
+      "README quality (105/100 \u2192 37pts)",
+      "Good docstring coverage (65.6%): +18",
+      "docs_directory: +10",
+      "changelog: +8",
+      "examples_directory: +8",
+      "agents_md: +2"
+    ]
+  }
+}

@@ -326,7 +326,7 @@ class GraphState:
     (Nielsen et al., ICLR 2026)."""
 
     workboard: WideSearchWorkboard | None = None
-    """CONCEPT:AU-055 — Pydantic-Native Shared Workboard.
+    """CONCEPT:ORCH-1.1 — Pydantic-Native Shared Workboard.
     A thread-safe/merge-safe shared memory scratchpad for parallel workers
     during wide-search extraction tasks."""
 

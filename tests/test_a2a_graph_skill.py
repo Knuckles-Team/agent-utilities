@@ -11,7 +11,7 @@ import pytest
 from agent_utilities.protocols.a2a_graph_skill import PlannerGraphSkill
 
 
-@pytest.mark.concept("AU-027")
+@pytest.mark.concept("CONCEPT:ECO-4.2")
 class TestPlannerGraphSkill:
     """Test suite for the A2A graph-backed skill."""
 
@@ -42,7 +42,7 @@ class TestPlannerGraphSkill:
         assert skill.tags == ["custom", "graph"]
 
 
-@pytest.mark.concept("AU-027")
+@pytest.mark.concept("CONCEPT:ECO-4.2")
 class TestExtractQuery:
     """Test suite for message parsing."""
 

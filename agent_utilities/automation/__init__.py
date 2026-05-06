@@ -1,6 +1,6 @@
 """Automation module for autonomous agent operations.
 
 Provides:
-- AU-036: FileWatcher — watchdog-triggered graph execution
-- AU-038: MaintenanceCron — scheduled autonomous maintenance
+- CONCEPT:OS-5.0: FileWatcher — watchdog-triggered graph execution
+- CONCEPT:OS-5.2: MaintenanceCron — scheduled autonomous maintenance
 """

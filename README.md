@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 0.4.0*
+*Version: 0.5.0*
 
 ## Table of Contents
 
@@ -52,19 +52,19 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 
 - **Native Multi-Modal (Vision) Support**: Direct processing of image context within the graph orchestrator. Decodes base64 image data into `pydantic_ai.BinaryContent` for high-fidelity multi-modal reasoning.
 - **Dynamic MCP Tool Distribution**: Load an `mcp_config.json` and the system automatically connects to each MCP server, extracts and tags every tool, partitions them into focused specialist agents (~10-20 tools each), and registers them as graph nodes at runtime. This keeps context windows light — "GitLab Projects" specialist only sees 10 project tools.
-- **Registry Hot Cache (AU-024)**: Session-scoped O(1) specialist lookups with event-driven invalidation. Filters 50+ specialists down to the top-7 relevant per query, reducing prompt bloat by ~7x. Invalidates on MCP reload, pipeline completion, Self-Model updates, and TeamConfig promotions.
-- **TeamConfig Promotion (AU-025)**: Proven specialist coalitions are automatically persisted as reusable templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback. Includes RLM + TeamConfig synergy for automatic recursive decomposition on large inputs.
-- **AgentCapability Auto-Activation (AU-026)**: First-class KG capability nodes with trigger conditions and handler modules. Capabilities like RLM, critic, and summarizer auto-activate based on input constraints (e.g., input size, domain, tool count).
-- **A2A-Native Graph Execution (AU-027)**: `PlannerGraphSkill` provides a direct A2A entry point that bypasses LLM orchestration overhead. When a graph is present, A2A requests route directly through the graph planner.
-- **A2A Config File (AU-028)**: File-based external A2A agent discovery via `a2a_config.json`. Supports `secret://`, `env://`, and `vault://` auth token resolution. Includes soft-fail startup and periodic background re-fetch of remote agent cards.
-- **Unified Specialist Model (AU-029)**: Collapses the `prompt`/`mcp` agent type distinction into a single `specialist` type. Any specialist can host any combination of MCP tools and/or agent skills. A2A agents remain their own execution protocol.
+- **Registry Hot Cache (CONCEPT:ORCH-1.2)**: Session-scoped O(1) specialist lookups with event-driven invalidation. Filters 50+ specialists down to the top-7 relevant per query, reducing prompt bloat by ~7x. Invalidates on MCP reload, pipeline completion, Self-Model updates, and TeamConfig promotions.
+- **TeamConfig Promotion (CONCEPT:AHE-3.3)**: Proven specialist coalitions are automatically persisted as reusable templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback. Includes RLM + TeamConfig synergy for automatic recursive decomposition on large inputs.
+- **AgentCapability Auto-Activation (CONCEPT:ORCH-1.2)**: First-class KG capability nodes with trigger conditions and handler modules. Capabilities like RLM, critic, and summarizer auto-activate based on input constraints (e.g., input size, domain, tool count).
+- **A2A-Native Graph Execution (CONCEPT:ECO-4.2)**: `PlannerGraphSkill` provides a direct A2A entry point that bypasses LLM orchestration overhead. When a graph is present, A2A requests route directly through the graph planner.
+- **A2A Config File (CONCEPT:ECO-4.2)**: File-based external A2A agent discovery via `a2a_config.json`. Supports `secret://`, `env://`, and `vault://` auth token resolution. Includes soft-fail startup and periodic background re-fetch of remote agent cards.
+- **Unified Specialist Model (CONCEPT:ORCH-1.2)**: Collapses the `prompt`/`mcp` agent type distinction into a single `specialist` type. Any specialist can host any combination of MCP tools and/or agent skills. A2A agents remain their own execution protocol.
 - **Post-Execution Feedback Loop**: Verification outcomes feed back to both the Self-Model (domain success rates, tool proficiency) and TeamConfig (reward tracking), enabling continuous routing improvement.
 - **Process Lifecycle Management**: `atexit` and signal handlers ensure all child processes (MCP servers, TUI, background threads) are gracefully killed on server exit.
 - **Flexible Skill Loading**: Unified `skill_types` parameter to dynamically load `universal` skills, `graphs`, or custom workspace toolsets.
 - **Advanced Graph Orchestration**: Router → Planner → Dispatcher pipeline with parallel fan-out execution. Dynamic step registration for both hardcoded skill agents and MCP-discovered specialists.
 - **Self-Healing**: Circuit breaker for MCP Servers (closed/open/half-open), specialist fallback chain, tool-level retries with exponential backoff, per-node timeout, and automatic re-planning on failure.
 - **Self-Correcting**: Verifier feedback loop with structured `ValidationResult` scoring. Low-quality results trigger re-dispatch with feedback injection and preserved message history.
-- **Self-Improving**: Execution memory persisted natively to the Knowledge Graph after each run. Past failure patterns automatically inform future routing decisions via the Self-Model (AU-016).
+- **Self-Improving**: Execution memory persisted natively to the Knowledge Graph after each run. Past failure patterns automatically inform future routing decisions via the Self-Model (CONCEPT:KG-2.1).
 - **Agentic Engineering Patterns**: Out-of-the-box support for **TDD Cycles** (Red-Green-Refactor), **First Run Tests** (baseline establishment), **Agentic Manual Testing** (exploratory verification), **Code Walkthroughs** (linear documentation), and **Interactive Explanations** (HTML/JS artifacts).
 - **Resilience & Accuracy**: Error recovery with local retries, re-planning loops, and result verification via the Verifier quality gate.
 - **Observability**: Real-time **Graph Streaming** (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Early OTEL/logfire gate.
@@ -81,21 +81,33 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Graph-Native Ecosystem State**: Flat-file management (`MEMORY.md`, `USER.md`, `HEARTBEAT.md`, `CRON.md`) has been fully deprecated. Agent memory, execution logs, client profiles, and background scheduled tasks are now stored natively as highly-relational nodes within the Knowledge Graph.
 - **Automated Graph Maintenance**: Built-in Cypher-driven maintenance routines (`maintenance.py`) that handle vector embedding enrichment, scheduled cron log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
 - **Lightweight & Lazy**: Core utilities are lightweight. Heavy dependencies are lazy-loaded only when requested via optional extras.
-- **Confidence-Gated Model Routing (AU-039)**: Adaptive model tier selection using runtime confidence signals from specialist consensus. High-confidence groups route to cheaper models; low-confidence groups escalate to reasoning-tier models. Based on the Squeeze Evolve multi-model orchestration framework.
-- **Evolutionary Aggregation (AU-040)**: Group-level diversity scoring with three-tier aggregation (majority vote / light synthesis / deep aggregation). Convergence-aware early stopping prevents diversity collapse in multi-loop specialist tasks.
-- **Schema Packs (AU-041)**: Domain-configurable KG profiles with dual ADDITIVE/EXCLUSIVE modes. Scopes active node types, edge types, retrieval boosts, and OWL extensions to a specific domain. Pre-built packs: `core`, `research-state`, `biomedical`, `finance`.
-- **Backlink-Density Retrieval Boost (AU-042)**: Logarithmic in-degree retrieval weighting in `HybridRetriever`. Hub entities with many inbound edges are boosted proportionally. Pack-configurable strategy: `global`, `context_only`, or `disabled`.
-- **KG Eval Capture (AU-043)**: Lightweight regression testing harness recording query-result pairs to a separate SQLite database. Enables Jaccard@k replay and top-1 stability tracking after KG changes.
-- **Conductor Workflow Specification (AU-044)**: Refined natural-language subtask instructions per specialist step. The planner crafts focused sub-goals tailored to each specialist's strengths instead of forwarding the raw user query. Inspired by the RL Conductor (Nielsen et al., ICLR 2026).
-- **Execution Visibility Graph (AU-045)**: Per-step `access_list` controlling which prior step results are visible to each specialist. Enables tree-structured workflows with precise context isolation, reducing prompt bloat and preventing context pollution.
-- **Model Synergy Tracker (AU-046)**: Tracks per-model-combination success rates in the SelfModel via EMA. When a preferred model becomes unavailable, the system queries historical synergies to find the best alternative combination.
-- **Recursive Graph Orchestration (AU-047)**: Nested `run_graph()` calls for self-referential test-time scaling. When a plan fails, a recursive orchestrator spawns an inner graph with the parent's full error context to devise a corrected strategy. Controlled by `MAX_RECURSION_DEPTH` (default 2).
-- **Structural Fingerprint Engine (AU-048)**: AST-based signature extraction and three-level change classification (NONE/COSMETIC/STRUCTURAL) for incremental KG updates. Avoids costly full re-ingestion when only comments or formatting changed. Generic capability for any workspace.
-- **Graph Integrity Validator (AU-053)**: Non-blocking 4-tier graph validation inspired by Understand-Anything's graph-reviewer. Auto-fixes LLM type aliases (30+ mappings), clamps out-of-range scores, detects dangling edges, orphan nodes, and self-referencing loops. Runs as the 15th pipeline phase.
-- **Entity-Claim Extraction / MAGMA Completion (AU-054)**: Two-phase entity-claim extraction that fills the MAGMA epistemic view with real data. Deterministic regex extraction of citations, wikilinks, and assertions + `ClaimNode` model with confidence scoring. `retrieve_epistemic_view()` now fully implemented with Cypher queries.
-- **Wide-Search Orchestration (AU-056)**: Pydantic-native Graph node architecture for orchestrating large-scale extractions. Automates batch decomposition within the SDD pipeline and uses a hybrid validation strategy (fast-path schema validation + slow-path `wide_search_joiner` LLM repair node).
-- **Trace Distillation Error Categorization (AU-057)**: Categorizes orchestrator (`ORCHESTRATOR_SKILL`) vs worker (`WORKER_SKILL`) failure modes through AHE skill distillation to enable targeted self-evolving updates.
-- **Context-Aware Entity Representations (AU-058)**: Injects multi-hop topological structure (up to 2 levels of parents/children) and OWL-inferred relationships directly into node vector embeddings. Enables robust "topology-aware" semantic search and immediate re-embedding on inference downfeed.
+- **Confidence-Gated & Adaptive Model Routing (CONCEPT:ORCH-1.2)**: Adaptive model tier selection using runtime confidence signals from specialist consensus, plus fast-path model routing (`gpt-4o-mini`) for simple queries. High-confidence groups route to cheaper models; low-confidence groups escalate. Also leverages ACO pheromone trails to actively down-weight specialists with historically low success rates.
+- **Evolutionary Aggregation (CONCEPT:ORCH-1.2)**: Group-level diversity scoring with three-tier aggregation (majority vote / light synthesis / deep aggregation). Convergence-aware early stopping prevents diversity collapse in multi-loop specialist tasks.
+- **Schema Packs (CONCEPT:KG-2.2)**: Domain-configurable KG profiles with dual ADDITIVE/EXCLUSIVE modes. Scopes active node types, edge types, retrieval boosts, and OWL extensions to a specific domain. Pre-built packs: `core`, `research-state`, `biomedical`, `finance`.
+- **Backlink-Density Retrieval Boost (CONCEPT:KG-2.2)**: Logarithmic in-degree retrieval weighting in `HybridRetriever`. Hub entities with many inbound edges are boosted proportionally. Pack-configurable strategy: `global`, `context_only`, or `disabled`.
+- **KG Eval Capture (CONCEPT:KG-2.2)**: Lightweight regression testing harness recording query-result pairs to a separate SQLite database. Enables Jaccard@k replay and top-1 stability tracking after KG changes.
+- **Conductor Workflow Specification (CONCEPT:ORCH-1.1)**: Refined natural-language subtask instructions per specialist step. The planner crafts focused sub-goals tailored to each specialist's strengths instead of forwarding the raw user query. Inspired by the RL Conductor (Nielsen et al., ICLR 2026).
+- **Multi-Level Abstraction Layering (CONCEPT:ORCH-1.5)**: Planners emit coarse-grained abstraction steps and delegate fine-grained execution to specialist nodes, reducing upfront planning token overhead.
+- **Execution Visibility Graph (CONCEPT:ORCH-1.1)**: Per-step `access_list` controlling which prior step results are visible to each specialist. Enables tree-structured workflows with precise context isolation, reducing prompt bloat and preventing context pollution.
+- **Model Synergy Tracker (CONCEPT:AHE-3.3)**: Tracks per-model-combination success rates in the SelfModel via EMA. When a preferred model becomes unavailable, the system queries historical synergies to find the best alternative combination.
+- **Recursive Graph Orchestration (CONCEPT:ORCH-1.1)**: Nested `run_graph()` calls for self-referential test-time scaling. When a plan fails, a recursive orchestrator spawns an inner graph with the parent's full error context to devise a corrected strategy. Controlled by `MAX_RECURSION_DEPTH` (default 2).
+- **Structural Fingerprint Engine (CONCEPT:KG-2.3)**: AST-based signature extraction and three-level change classification (NONE/COSMETIC/STRUCTURAL) for incremental KG updates. Avoids costly full re-ingestion when only comments or formatting changed. Generic capability for any workspace.
+- **Graph Integrity Validator (CONCEPT:KG-2.3)**: Non-blocking 4-tier graph validation inspired by Understand-Anything's graph-reviewer. Auto-fixes LLM type aliases (30+ mappings), clamps out-of-range scores, detects dangling edges, orphan nodes, and self-referencing loops. Runs as the 15th pipeline phase.
+- **Entity-Claim Extraction / MAGMA Completion (CONCEPT:KG-2.2)**: Two-phase entity-claim extraction that fills the MAGMA epistemic view with real data. Deterministic regex extraction of citations, wikilinks, and assertions + `ClaimNode` model with confidence scoring. `retrieve_epistemic_view()` now fully implemented with Cypher queries.
+- **Wide-Search Orchestration (CONCEPT:ORCH-1.1)**: Pydantic-native Graph node architecture for orchestrating large-scale extractions. Automates batch decomposition within the SDD pipeline and uses a hybrid validation strategy (fast-path schema validation + slow-path `wide_search_joiner` LLM repair node).
+- **Trace Distillation Error Categorization (CONCEPT:AHE-3.1)**: Categorizes orchestrator (`ORCHESTRATOR_SKILL`) vs worker (`WORKER_SKILL`) failure modes through AHE skill distillation to enable targeted self-evolving updates.
+- **Context-Aware Entity Representations (CONCEPT:KG-2.2)**: Injects multi-hop topological structure (up to 2 levels of parents/children) and OWL-inferred relationships directly into node vector embeddings. Enables robust "topology-aware" semantic search and immediate re-embedding on inference downfeed.
+- **Experience Node Architecture (CONCEPT:AHE-3.5)**: Introduces `ExperienceNode` to natively store condition-action tactical rules inside the Knowledge Graph for continual learning.
+- **Cross-Rollout Critique (CONCEPT:AHE-3.5)**: Adds contrastive self-correction distillation. When a failure is followed by a successful retry, the system distills the action-level tactical fix and persists it as an `ExperienceNode`.
+- **Decomposed Context Retrieval (CONCEPT:AHE-3.5)**: Modifies `HybridRetriever` to decompose complex queries into abstract technical sub-queries for targeted multi-vector retrieval, expanding context precision.
+- **Inductive Knowledge Hypergraphs (CONCEPT:KG-2.4)**: Implements Positional Interaction Encodings (`EncPI`) to map true n-ary relationships (hyperedges) natively into the unified intelligence pipeline. By vectorizing relation intersections, the `HybridRetriever` achieves zero-shot generalization over entirely novel runtime topologies.
+- **Memory-Aware Test-Time Scaling (CONCEPT:AHE-3.5)**: Integrates batch-parallel trajectory generation into the HTN planner. Distills reasoning memory concurrently across multiple parallel attempts (successes and failures) yielding zero-shot hypergraph generalization and structural topological feedback.
+- **Offline/Async Knowledge Compression (CONCEPT:KG-2.4)**: Adds `TraceDistiller` to periodically run `ConsolidationEngine` background tasks, abstracting episode-level execution traces into generalized `PreferenceNode` and `PrincipleNode` knowledge points.
+- **Topological Mincut Partitioning (CONCEPT:KG-2.5)**: Uses NetworkX Louvain detection to dynamically partition the Knowledge Graph into emergent topological clusters. Includes Label Propagation fallback for failed partitioning loops. Stable communities are persisted back to the cypher backend, providing hierarchical waypoints for graph traversal.
+- **Temporal Drift & EWC Consolidation (CONCEPT:AHE-3.6)**: Tracks concept drift across node embeddings via coefficient of variation. Mitigates catastrophic forgetting by applying a lightweight Fisher-proxy Elastic Weight Consolidation (EWC++) when modifying established knowledge graph representations.
+- **Heavy Thinking Orchestration (CONCEPT:AHE-3.7)**: Two-stage parallel-then-deliberate reasoning pipeline adapted from HEAVYSKILL research. Spawns K parallel thinker agents (default 4), prunes thinking tokens, shuffles trajectory order to prevent position bias, and synthesizes a consensus answer via sequential deliberation. Features tiered hybrid complexity gating (heuristic → confidence → LLM fallback), iterative convergence refinement, KG-native `TrajectoryNode`/`DeliberationNode` persistence, and `WorkspaceAttention.deliberation_score()` for cross-trajectory consensus analysis.
+- **Horizon-Aware Task Curriculum (CONCEPT:AHE-3.9)**: Progressive horizon scheduling derived from Long-Horizon Training research (Kim et al., ICML 2026). Implements `MacroAction` composition to reduce effective interaction steps, `SubgoalCheckpoint` milestones for intermediate credit assignment, and configurable promotion policies (threshold/plateau/adaptive EMA) to advance through progressively longer horizons.
+- **Decomposed Reward Signals (CONCEPT:AHE-3.10)**: Separates step-level reward (local constraint satisfaction) from trajectory-level reward (goal achievement) using `R_total = R_trajectory + α·ΣR_step`. Prevents penalizing correct intermediate steps in failed trajectories. `RewardDecomposer` extracts distillation insights (correct-in-failures, incorrect-in-successes patterns) for experience pipeline integration.
 
 - **JSON-as-Code Prompting & Governance**: Standardized Pydantic models for structured prompting. Moves away from free-form Markdown to robust, versioned JSON blueprints for high-precision task specification. Engineering rule books have been migrated to the `agent_utilities/policies/` directory with versioned YAML frontmatter, and prompt-based governance uses an explicit `rules` key.
 - **Project-Aware Memory (AGENTS.md)**: Native support for Claude-style project rules and memory. Backend automatically loads and injects `AGENTS.md` (Project Rules) into the system prompt for high-fidelity codebase awareness.
@@ -122,7 +134,7 @@ Agent Utilities implements a sophisticated 15-phase pipeline to map and analyze 
 | **12** | **OWL Reasoning** | Promotes stable nodes to OWL, runs HermiT/Stardog inference, downfeeds inferred facts. |
 | **13** | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
 | **14** | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
-| **15** | **Validate** | Runs **AU-053 Graph Integrity Validator** — 4-tier non-blocking post-ingestion validation with auto-fix. |
+| **15** | **Validate** | Runs **CONCEPT:KG-2.3 Graph Integrity Validator** — 4-tier non-blocking post-ingestion validation with auto-fix. |
 
 ### Architecture
 
@@ -166,21 +178,21 @@ The graph engine supports policy-guided retrieval across four orthogonal views:
 - **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
 - **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
 - **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
-- **Epistemic View** (AU-054): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions. Powered by `retrieve_epistemic_view()`.
+- **Epistemic View** (CONCEPT:KG-2.2): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions. Powered by `retrieve_epistemic_view()`.
 - **Research Knowledge Base**: Grounded evidence and sources for domain-specific topics (e.g., Medical Journals).
 
 ## 🧬 First Principles Architecture
 
-The **First Principles Architecture** (AU-024 through AU-027) rewires the routing, dispatch, and feedback layers from basic primitives. These four concepts solve the key scalability and intelligence bottlenecks that emerge when managing dozens of specialists and hundreds of tools.
+The **First Principles Architecture** (CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.2) rewires the routing, dispatch, and feedback layers from basic primitives. These four concepts solve the key scalability and intelligence bottlenecks that emerge when managing dozens of specialists and hundreds of tools.
 
 | Concept | Problem Solved | Solution |
 |:--------|:--------------|:---------|
-| **AU-024: Registry Hot Cache** | O(N) specialist lookups on every routing call | Session-scoped cache with O(1) lookups, event-driven invalidation |
-| **AU-025: TeamConfig Promotion** | LLM re-discovers same specialist teams for recurring patterns | Persist proven coalitions as reusable templates in the KG |
-| **AU-026: AgentCapability System** | Static tool bindings; no dynamic capability activation | First-class KG capability nodes with trigger conditions |
-| **AU-027: PlannerGraphSkill** | A2A requests require full LLM round-trip | Direct graph-backed A2A routing, bypassing LLM overhead |
-| **AU-028: A2A Config File** | No mechanism to discover/register external A2A agents | File-based auto-discovery with `secret://` auth & periodic refresh |
-| **AU-029: Unified Specialist** | Artificial `prompt`/`mcp` type split complicates dispatch | Single `specialist` type hosting any tools/skills combination |
+| **CONCEPT:ORCH-1.2: Registry Hot Cache** | O(N) specialist lookups on every routing call | Session-scoped cache with O(1) lookups, event-driven invalidation |
+| **CONCEPT:AHE-3.3: TeamConfig Promotion** | LLM re-discovers same specialist teams for recurring patterns | Persist proven coalitions as reusable templates in the KG |
+| **CONCEPT:ORCH-1.2: AgentCapability System** | Static tool bindings; no dynamic capability activation | First-class KG capability nodes with trigger conditions |
+| **CONCEPT:ECO-4.2: PlannerGraphSkill** | A2A requests require full LLM round-trip | Direct graph-backed A2A routing, bypassing LLM overhead |
+| **CONCEPT:ECO-4.2: A2A Config File** | No mechanism to discover/register external A2A agents | File-based auto-discovery with `secret://` auth & periodic refresh |
+| **CONCEPT:ORCH-1.2: Unified Specialist** | Artificial `prompt`/`mcp` type split complicates dispatch | Single `specialist` type hosting any tools/skills combination |
 
 ```mermaid
 graph LR
@@ -210,11 +222,11 @@ The full architecture has been ontologically compressed from 60+ flat concepts i
 
 | Pillar | Sub-Concepts | Focus |
 |:------|:---------|:------|
-| **ORCH-1.0** Graph Orchestration | ORCH-1.1 to ORCH-1.3 | Hierarchical Task Network (HTN), Wide-Search, LATS, routing, execution budgets |
-| **KG-2.0** Knowledge Graph | KG-2.1 to KG-2.3 | Active Object-Graph Mapping, tiered memory, epistemology, structural fingerprinting |
-| **AHE-3.0** Agentic Harness | AHE-3.1 to AHE-3.3 | Prompt evolution, LLM-as-judge evaluation, trace distillation, synergy tracking |
-| **ECO-4.0** Ecosystem | ECO-4.1 to ECO-4.2 | Unified MCP tool interface, A2A network consensus, universal skills |
-| **OS-5.0** Agent OS Kernel | OS-5.1 to OS-5.2 | Workspace management, scheduling, JWT auth, resource optimization |
+| **ORCH-1.0** Graph Orchestration | ORCH-1.1 to ORCH-1.4 | Hierarchical Task Network (HTN), Wide-Search, LATS, routing, execution budgets, swarm preset engine |
+| **KG-2.0** Knowledge Graph | KG-2.1 to KG-2.7 | Active OGM, tiered memory, epistemology, structural fingerprinting, topological partitioning, trading pipeline, risk scoring ontology |
+| **AHE-3.0** Agentic Harness | AHE-3.1 to AHE-3.10 | Prompt evolution, LLM-as-judge evaluation, trace distillation, synergy tracking, heavy thinking, backtest/evaluation harness, horizon curriculum, decomposed rewards |
+| **ECO-4.0** Ecosystem | ECO-4.1 to ECO-4.4 | Unified MCP tool interface, A2A network consensus, universal skills, market data connector protocol |
+| **OS-5.0** Agent OS Kernel | OS-5.1 to OS-5.3 | Workspace management, scheduling, JWT auth, resource optimization, session concurrency (Double-Texting) |
 
 ## Architecture & Orchestration
 
@@ -849,7 +861,7 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 
 | Guide | Description |
 | :--- | :--- |
-| [Overview Map](docs/overview.md) | The Concept Galaxy connecting all 40 core concepts (AU-001 to AU-040), plus the **Concept Map table** |
+| [Overview Map](docs/overview.md) | The Concept Galaxy connecting all 40 core concepts (CONCEPT:ORCH-1.0 to CONCEPT:ORCH-1.2), plus the **Concept Map table** |
 | [Creating an Agent](docs/creating-an-agent.md) | Step-by-step guide to bootstrapping a new Pydantic AI agent |
 | [Building MCP Servers](docs/building-mcp-servers.md) | Guide for creating FastMCP servers, API wrappers, and context helpers |
 
@@ -867,8 +879,8 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 | Guide | Description |
 | :--- | :--- |
 | [Knowledge Graph](docs/knowledge-graph.md) | Unified Intelligence Graph, 14-phase pipeline, OWL Reasoning, MAGMA views, maintenance |
-| [Emergent Architecture](docs/emergent-architecture.md) | OGM, Swarm Orchestration, Variant Selection, Self-Model, Global Workspace Attention (AU-013–AU-017) |
-| [First Principles Architecture](docs/first-principles.md) | Registry Hot Cache, TeamConfig Promotion, AgentCapability System, A2A PlannerGraphSkill (AU-024–AU-027) |
+| [Emergent Architecture](docs/emergent-architecture.md) | OGM, Swarm Orchestration, Variant Selection, Self-Model, Global Workspace Attention (CONCEPT:KG-2.0–CONCEPT:ORCH-1.2) |
+| [First Principles Architecture](docs/first-principles.md) | Registry Hot Cache, TeamConfig Promotion, AgentCapability System, A2A PlannerGraphSkill (CONCEPT:ORCH-1.2–CONCEPT:ECO-4.2) |
 | [Registry Cache](docs/registry-cache.md) | Session-scoped O(1) specialist lookups, event-driven invalidation, performance analysis |
 
 ### Execution & Orchestration

@@ -4,7 +4,7 @@ Welcome to the `agent-utilities` documentation. This index organizes the guides 
 
 ## 🧭 Getting Started
 
-- [**Overview Map**](overview.md) — Start here! The Conceptual Map connecting the 27 core concepts (AU-001 to AU-027).
+- [**Overview Map**](overview.md) — Start here! The Conceptual Map connecting the 27 core concepts (CONCEPT:ORCH-1.0 to CONCEPT:ECO-4.2).
 - [**Creating an Agent**](creating-an-agent.md) — Guide to bootstrapping a new Pydantic AI agent.
 - [**Building MCP Servers**](building-mcp-servers.md) — Creating FastMCP servers and wrappers.
 
@@ -21,11 +21,11 @@ Welcome to the `agent-utilities` documentation. This index organizes the guides 
 - [**Spec-Driven Development (SDD)**](sdd.md) — Transform `.specify` definitions into parallel execution plans.
 - [**RLM / REPL**](rlm.md) — Recursive Language Model execution patterns and autonomous loops.
 - [**Agentic Harness Engineering (AHE)**](AHE_ARCHITECTURE.md) — Deep traceability and prompt evolution mechanisms.
-- [**Emergent Architecture**](emergent-architecture.md) — OGM, Swarm, Variant Selection, Self-Model, and Global Workspace Attention (AU-013 to AU-017).
+- [**Emergent Architecture**](emergent-architecture.md) — OGM, Swarm, Variant Selection, Self-Model, and Global Workspace Attention (CONCEPT:KG-2.0 to CONCEPT:ORCH-1.2).
 
 ## 🔬 First Principles Architecture
 
-- [**First Principles Overview**](first-principles.md) — Registry Hot Cache, TeamConfig Promotion, AgentCapability System, and A2A PlannerGraphSkill (AU-024 to AU-027).
+- [**First Principles Overview**](first-principles.md) — Registry Hot Cache, TeamConfig Promotion, AgentCapability System, and A2A PlannerGraphSkill (CONCEPT:ORCH-1.2 to CONCEPT:ECO-4.2).
 - [**Registry Cache Deep-Dive**](registry-cache.md) — Session-scoped O(1) specialist lookups with event-driven invalidation.
 - [**Process Lifecycle Management**](process-lifecycle.md) — Sidecar cleanup, signal handling, and child process management.
 

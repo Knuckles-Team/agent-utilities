@@ -1,0 +1,24 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "results": [
+    {
+      "source": "/home/apps/workspace/scholarx_papers/batch_30/paper_02.md",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [],
+        "innovation_claims": [
+          "This paper introduces a framework for the automated creation of multi-agent systems which replaces multiple manual steps with an automated framework",
+          "The proposed framework consists of software modules and a workflow to orchestrate the requisite task- specific application",
+          "We benchmarked this system end-to-end, evaluating the combination of planning, agent selection, and task completion, with our proposed approach",
+          "Our experimental results show that our approach outperforms the state-of-the- art in terms of the recall rate and is more robust and scalable compared to previous approaches"
+        ]
+      },
+      "synergies": [],
+      "new_capabilities": 0,
+      "enhancements": 0
+    }
+  ]
+}

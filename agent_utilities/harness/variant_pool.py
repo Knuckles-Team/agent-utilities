@@ -6,12 +6,12 @@ using a dual-strategy generation approach (LLM-driven + parametric mutations)
 and tournament-based fitness selection.
 
 Integrates with:
-    - AU-012 (AHE): ``EvolveAgent`` generates LLM-driven variants
-    - AU-013 (OGM): ``KGMapper`` for declarative persistence
+    - CONCEPT:ORCH-1.1 (AHE): ``EvolveAgent`` generates LLM-driven variants
+    - CONCEPT:KG-2.0 (OGM): ``KGMapper`` for declarative persistence
     - Existing KG: ``OutcomeEvaluationNode.reward`` for fitness signals
     - Existing edges: ``EVOLVED_FROM``, ``SUPERSEDES``, ``VARIANT_OF``
 
-See docs/emergent-architecture.md §AU-015.
+See docs/emergent-architecture.md §CONCEPT:ORCH-1.0.
 """
 
 from __future__ import annotations

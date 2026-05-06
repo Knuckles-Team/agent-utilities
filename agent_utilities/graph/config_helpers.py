@@ -7,7 +7,7 @@ This module provides utility functions for loading and saving graph-related
 configurations, managing dynamic agent registries, emitting sideband events
 for the WebUI, and resolving specialized prompts from the package resources.
 
-The ``_RegistryCache`` class (AU-024) provides zero-cost typed lookups for
+The ``_RegistryCache`` class (CONCEPT:ORCH-1.2) provides zero-cost typed lookups for
 registry data.  The cache is populated on first access and invalidated by
 explicit signals from ``sync_mcp_agents()``, pipeline completion,
 ``promote_coalition_to_template()``, and ``MemoryRetriever.update_after_session()``.
@@ -65,7 +65,7 @@ class _RegistryCache:
         cls._registry = None
         cls._prompts.clear()
         cls._tool_agent_map.clear()
-        logger.info("[CACHE] Registry cache invalidated (AU-024).")
+        logger.info("[CACHE] Registry cache invalidated (CONCEPT:ORCH-1.2).")
 
     @classmethod
     def get_registry(cls) -> MCPAgentRegistryModel:
@@ -160,7 +160,7 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
             "MATCH (a:Agent) RETURN a.name AS name, a.description AS description, a.agent_type AS agent_type, a.system_prompt AS system_prompt, a.tool_count AS tool_count, a.mcp_server AS mcp_server"
         )
         for row in agent_rows:
-            # AU-029: Normalize legacy prompt/mcp to unified specialist
+            # CONCEPT:ORCH-1.2: Normalize legacy prompt/mcp to unified specialist
             _raw_type = row.get("agent_type", "specialist")
             _agent_type = _raw_type if _raw_type == "a2a" else "specialist"
             agents.append(

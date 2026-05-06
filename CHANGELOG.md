@@ -8,49 +8,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **AU-064: Distributed Agentic Evolution** - Transitioned the harness into an open-source hive mind where autonomous agents evolve globally. Features include:
+- **CONCEPT:KG-2.6: Financial Trading Pipeline** — Added 5 new KG node types (`TradingSignalNode`, `OrderNode`, `PositionNode`, `PortfolioNode`, `StrategyNode`) and 6 edge types for modeling complete trading pipeline lifecycle. OWL-promoted with FIBO alignment for transitive provenance chains (e.g., Strategy → Signal → Order → Position → Portfolio).
+- **CONCEPT:ECO-4.4: Market Data Connector Protocol** — Generic `DataConnectorProtocol` with auto-fallback chain and provenance tracking. Includes `DataConnectorRegistry` with prioritized failover, rate-limit awareness, and `DataFetchRecordNode` for immutable audit trails. OWL `fallsBackTo` declared as transitive for automated connector chain inference.
+- **CONCEPT:ORCH-1.4: Swarm Preset Template Engine** — YAML-driven declarative multi-agent workflow engine with DAG-based dependency resolution, parallel dispatch identification, and variable substitution. Includes `SwarmPresetEngine` with topological sort, cycle detection, and layer-based execution ordering. KG-persisted via `SwarmPresetNode`, `SwarmRunNode`, `SwarmTaskRecordNode`.
+- **CONCEPT:ORCH-1.5: Multi-Level Abstraction Layering** — Planners emit coarse-grained abstraction steps and delegate fine-grained execution to specialist nodes, reducing upfront planning token overhead.
+- **Adaptive Model Routing & Reward-Driven Routing** — Included adaptive fast-path model selection (`gpt-4o-mini` fallback) for simple queries. Leverages ACO `pheromone_trails` to down-weight specialists with historically low success rates.
+- **CONCEPT:KG-2.7: Risk Scoring Ontology Extension** — Domain-agnostic risk assessment framework with `RiskAssessmentNode`, `RiskFactorNode`, `RiskMitigationNode`. OWL `propagatesRiskTo` declared as transitive property enabling automated upstream risk chain inference via the OWL reasoner.
+- **CONCEPT:AHE-3.8: Backtest Evaluation Harness** — Strategy evaluation harness with SQLite storage (separate from KG), walk-forward validation windows, benchmark comparison, and KG integration via `BacktestRunNode` and `BacktestMetricNode`. Connects to `StrategyNode` (KG-2.6) for full provenance chains.
+- **CONCEPT:AHE-3.9: Horizon-Aware Task Curriculum** — Progressive horizon scheduling derived from Long-Horizon Training research (Kim et al., ICML 2026). Implements macro-action composition to reduce effective interaction steps, subgoal checkpoints for intermediate credit assignment, and configurable promotion policies (threshold/plateau/adaptive EMA). Integrates with `CognitiveScheduler` and `SwarmManager` for automatic horizon reduction during swarm execution.
+- **CONCEPT:AHE-3.10: Decomposed Reward Signals** — Separates step-level reward (local constraint satisfaction) from trajectory-level reward (goal achievement) to prevent penalizing correct intermediate steps in failed trajectories. Implements `RewardDecomposer` engine with `R_total = R_trajectory + α·ΣR_step` formula, distillation insight extraction (correct-in-failures, incorrect-in-successes patterns), and integration with `ExperienceNode` pipeline.
+- **Finance Schema Pack Expansion** — Expanded `FinanceSchemaPack` with all trading pipeline, risk scoring, data connector, and backtest types. Added retrieval boosts for `propagates_risk_to` (1.6×), `generated_signal` (1.5×), and `evaluated_strategy` (1.5×).
+- **OWL Ontology Extension** — Added 18 new OWL classes and 17 new object/datatype properties to `ontology.ttl` including 3 transitive properties (`fallsBackTo`, `taskDependsOn`, `propagatesRiskTo`).
+- **Backward Compatibility** — Added `SelfModelNode` alias for renamed `MemoryRetrieverNode` and `self_model.py` shim module for import compatibility.
+- **CONCEPT:KG-2.5: Topological Mincut Partitioning** - Uses NetworkX Louvain detection to dynamically partition the Knowledge Graph into emergent topological clusters. Includes Label Propagation fallback for failed partitioning loops. Stable communities are persisted back to the Cypher backend via `maintenance_cron`, providing hierarchical waypoints for graph traversal.
+- **CONCEPT:AHE-3.6: Temporal Drift & EWC Consolidation** - Tracks concept drift across node embeddings via coefficient of variation and cosine distance. Mitigates catastrophic forgetting by applying a lightweight Fisher-proxy Elastic Weight Consolidation (EWC++) when modifying established knowledge graph representations.
+- **CONCEPT:AHE-3.7: Heavy Thinking Orchestration** - Two-stage parallel-then-deliberate reasoning pipeline adapted from HEAVYSKILL research. Features include: tiered hybrid complexity gating (heuristic → confidence → LLM fallback), configurable K parallel thinkers (default 4), a Serialized Memory Cache with thinking token pruning and trajectory shuffling, iterative convergence refinement, KG-native `TrajectoryNode` and `DeliberationNode` persistence, EncPI hyperedge mapping, and `WorkspaceAttention.deliberation_score()` for cross-trajectory consensus analysis.
+- **CONCEPT:AHE-3.4: Distributed Agentic Evolution** - Transitioned the harness into an open-source hive mind where autonomous agents evolve globally. Features include:
   - **Evolutionary Vector (`genius-agent`)**: A background daemon (`--evolve` flag) that runs `SelfImprovementCycle` indefinitely, creating synthetic tasks and writing new skills to close gaps.
   - **Autonomous PR Generator**: A central `autonomous-contribution` skill in `universal-skills` that formats local KG breakthroughs (TeamConfigs, Skills) into Git branches and upstream PRs.
   - **Community Telemetry & Identity**: `TeamConfigNode` and `CallableResourceNode` metadata now include `origin` (`local` | `community` | `upstream`), deterministic hash identifiers, precise timestamps, and author fields to prevent duplication and establish primacy.
   - **Human-in-the-loop Guardrails**: All autonomously generated skills are explicitly flagged with `Author: Autonomous` in the SKILL.md frontmatter, requiring maintainer approval before centralized CI merge and global distribution.
-- **AU-059: HTN & LATS** - Integrated Hierarchical Task Networks (`Task.subtasks`) and `LATSPlanner` (Monte Carlo Tree Search fallback) into the orchestration planner for recursive goal decomposition.
-- **AU-060: Tiered Virtual Context Blocks** - Introduced `VirtualContextBlockNode` for tiered working/episodic memory scaling.
-- **AU-061: Multi-Agent BFT Consensus** - Integrated `execute_bft_consensus` into `A2AClient` for Byzantine Fault Tolerance across agent peers.
-- **AU-062: Execution Budgets & Cost Governors** - Implemented `ExecutionBudget` and integrated enforcement inside `dispatcher_step` to prevent infinite LLM loops and cap USD costs.
-- **AU-063: Quiet-STaR Rationale Persistence** - Created `QuietStarRationaleNode` to persist internal chain-of-thought traces with reward gradients for self-improvement.
-- **Context-Aware Entity Representations (AU-058)** — Injects topological graph structure directly into node vector embeddings. Features include:
+- **CONCEPT:KG-2.4: Inductive Knowledge Hypergraphs** - Implemented Positional Interaction Encodings (`EncPI`) allowing the `HybridRetriever` to map n-ary hyperedges and perform zero-shot inductive reasoning across novel graph topologies by vectorizing relational intersections.
+- **CONCEPT:KG-2.4: Offline/Async Knowledge Compression** — Added `TraceDistiller` to periodically run `ConsolidationEngine` background tasks, abstracting episode-level execution traces into generalized `PreferenceNode` and `PrincipleNode` knowledge points.
+- **CONCEPT:AHE-3.5: Memory-Aware Test-Time Scaling** - Integrated batch-parallel trajectory generation into the orchestration planner. Rather than distilling memory from a single sequential failure, the system scales inference across parallel Siblings, extracts reasoning across all paths, and maps them to hyperedges for zero-shot generalization and graph-native topological feedback.
+- **CONCEPT:AHE-3.5: Decomposed Context Retrieval** - Modified HybridRetriever to decompose complex queries into abstract technical sub-queries for targeted multi-vector retrieval.
+- **CONCEPT:AHE-3.5: Cross-Rollout Critique** - Added contrastive self-correction distillation to the `verifier`. When a failure is followed by a successful retry, the system contrasts the states to distill an action-level tactical fix.
+- **CONCEPT:AHE-3.5: Experience Node Architecture** - Introduced `ExperienceNode` schema to store specific `Condition -> Action` tactical insights in the Knowledge Graph for continual learning.
+- **CONCEPT:AHE-3.5: HTN & LATS** - Integrated Hierarchical Task Networks (`Task.subtasks`) and `LATSPlanner` (Monte Carlo Tree Search fallback) into the orchestration planner for recursive goal decomposition.
+- **CONCEPT:AHE-3.5: Tiered Virtual Context Blocks** - Introduced `VirtualContextBlockNode` for tiered working/episodic memory scaling.
+- **CONCEPT:AHE-3.5: Multi-Agent BFT Consensus** - Integrated `execute_bft_consensus` into `A2AClient` for Byzantine Fault Tolerance across agent peers.
+- **CONCEPT:ORCH-1.3: Execution Budgets & Cost Governors** - Implemented `ExecutionBudget` and integrated enforcement inside `dispatcher_step` to prevent infinite LLM loops and cap USD costs.
+- **CONCEPT:KG-2.1: Quiet-STaR Rationale Persistence** - Created `QuietStarRationaleNode` to persist internal chain-of-thought traces with reward gradients for self-improvement.
+- **Context-Aware Entity Representations (CONCEPT:KG-2.2)** — Injects topological graph structure directly into node vector embeddings. Features include:
   - Expands Deep GraphRAG principles by appending multi-hop contexts (up to 2 levels of parents/children) directly into the stringified node description before embedding generation.
   - Automatically fetches and appends OWL-inferred relationships (e.g., transitive subclasses) into the node's context space.
   - Enables "topology-aware" vector semantic searches for free, drastically improving multi-hop accuracy.
   - `ContextualRepresentationBuilder` dynamically controls the depth and breadth of injected structural logic.
   - `re_embed_node` pipeline immediately re-embeds nodes when the OWL bridge downfeeds new inferred facts.
-- **Wide-Search Orchestration (AU-056)** — Pydantic-native Graph node architecture for orchestrating large-scale extractions. Features include:
+- **Wide-Search Orchestration (CONCEPT:ORCH-1.1)** — Pydantic-native Graph node architecture for orchestrating large-scale extractions. Features include:
   - Automates batch decomposition within the SDD pipeline by instructing orchestrators (planners/routers) to partition large extractions into parallel `ExecutionStep`s (`is_parallel=True`).
   - Implements a hybrid validation strategy inside `join_step` using `WideSearchWorkboard`.
   - Fast-path: Native Pydantic schema validation for expected row counts and schema conformity.
   - Slow-path: `wide_search_joiner` LLM repair node to standardization data, fix schema mismatches, or signal re-plans on fast-path failures.
-- **Trace Distillation Error Categorization (AU-057)** — Categorizes orchestrator (`ORCHESTRATOR_SKILL`) vs worker (`WORKER_SKILL`) failure modes through AHE skill distillation to enable self-evolving updates. RLM prompt updated to support proposing targeted ComponentEdits for orchestration logic vs worker tools.
-- **A2A Config File (AU-028)** — File-based external A2A agent discovery via `a2a_config.json`. Mirrors `mcp_config.json` symmetry. Features include:
+- **Trace Distillation Error Categorization (CONCEPT:AHE-3.1)** — Categorizes orchestrator (`ORCHESTRATOR_SKILL`) vs worker (`WORKER_SKILL`) failure modes through AHE skill distillation to enable self-evolving updates. RLM prompt updated to support proposing targeted ComponentEdits for orchestration logic vs worker tools.
+- **A2A Config File (CONCEPT:ECO-4.2)** — File-based external A2A agent discovery via `a2a_config.json`. Mirrors `mcp_config.json` symmetry. Features include:
   - `secret://`, `env://`, `vault://` URI-based auth token resolution via `SecretsClient.resolve_ref()`.
   - Soft-fail startup: unreachable `.well-known/agent-card.json` endpoints log a warning and skip, never blocking server startup.
   - Periodic background re-fetch (`A2A_REFRESH_INTERVAL`, default 300s) to detect capability changes from remote agents.
   - Full KG ingestion: agent cards are registered as `CallableResource` nodes with embeddings, making them eligible for affinity-based swarm selection.
-  - Cache invalidation: bulk ingestion triggers `invalidate_registry_cache()` (AU-024) to keep the hot cache synchronized.
-- **Unified Specialist Model (AU-029)** — Collapses the artificial `prompt` / `mcp` agent type distinction into a single `specialist` type. Any specialist can now host any combination of MCP tools and/or agent skills. A2A agents remain their own type (`a2a`) due to the fundamentally different remote execution protocol. Legacy `agent_type` values are normalized at read time for full backward compatibility.
+  - Cache invalidation: bulk ingestion triggers `invalidate_registry_cache()` (CONCEPT:ORCH-1.2) to keep the hot cache synchronized.
+- **Unified Specialist Model (CONCEPT:ORCH-1.2)** — Collapses the artificial `prompt` / `mcp` agent type distinction into a single `specialist` type. Any specialist can now host any combination of MCP tools and/or agent skills. A2A agents remain their own type (`a2a`) due to the fundamentally different remote execution protocol. Legacy `agent_type` values are normalized at read time for full backward compatibility.
 - New `A2A_CONFIG` and `A2A_REFRESH_INTERVAL` environment variables.
 - New module: `agent_utilities/protocols/a2a_config.py` (config loader, auto-discovery, periodic refresh).
 - Updated Concept Galaxy to 29 concepts (from 27).
-- **Confidence-Gated Model Router (AU-039)** — Adaptive model tier routing using runtime confidence signals from specialist consensus. When WorkspaceAttention scores indicate high agreement across specialist outputs, the model tier is automatically downgraded to reduce cost. Low confidence triggers escalation to heavier tiers. Based on the Squeeze Evolve multi-model orchestration framework (Maheswaran et al., 2026). Features include:
+- **Confidence-Gated Model Router (CONCEPT:ORCH-1.2)** — Adaptive model tier routing using runtime confidence signals from specialist consensus. When WorkspaceAttention scores indicate high agreement across specialist outputs, the model tier is automatically downgraded to reduce cost. Low confidence triggers escalation to heavier tiers. Based on the Squeeze Evolve multi-model orchestration framework (Maheswaran et al., 2026). Features include:
   - `ModelRegistry.pick_for_task_adaptive()` with `confidence_signal` and `routing_percentile` parameters.
   - Integration with `pick_specialist_model()` in the graph executor for automatic confidence-gated routing.
-  - Composition with AU-033 (Homeostatic Downgrade): budget pressure routes first, then confidence adjusts within the budget-allowed tier range.
+  - Composition with CONCEPT:OS-5.2 (Homeostatic Downgrade): budget pressure routes first, then confidence adjusts within the budget-allowed tier range.
   - `routing_confidence_log` on `GraphState` for per-specialist routing decision observability.
-  - Soft SelfModel (AU-016) integration: blends 70% runtime confidence + 30% historical proficiency when available; degrades gracefully when absent.
-- **Evolutionary Aggregation Engine (AU-040)** — Group-level diversity scoring and three-tier aggregation for specialist outputs. Extends WorkspaceAttention (AU-017) with group fitness computation (confidence and diversity signals) and routes aggregation to the most cost-effective strategy:
+  - Soft SelfModel (CONCEPT:KG-2.1) integration: blends 70% runtime confidence + 30% historical proficiency when available; degrades gracefully when absent.
+- **Evolutionary Aggregation Engine (CONCEPT:ORCH-1.2)** — Group-level diversity scoring and three-tier aggregation for specialist outputs. Extends WorkspaceAttention (CONCEPT:ORCH-1.2) with group fitness computation (confidence and diversity signals) and routes aggregation to the most cost-effective strategy:
   - `MAJORITY_VOTE`: Free — no LLM call when all specialists agree.
   - `LIGHT_MODEL`: Cheap model synthesis for moderate-confidence groups.
   - `HEAVY_MODEL`: Deep aggregation with reasoning-tier models for low-confidence, high-diversity groups.
-  - `ConvergenceMonitor` in the CognitiveScheduler (AU-030) detects diversity collapse and triggers early loop termination.
+  - `ConvergenceMonitor` in the CognitiveScheduler (CONCEPT:OS-5.2) detects diversity collapse and triggers early loop termination.
   - Configurable `population_size` (N=4) and `group_size` (K=2) for fully adjustable evolutionary loops.
 - New module: `agent_utilities/graph/evolutionary_aggregation.py`.
 - New documentation: `docs/squeeze-evolve-routing.md`.
@@ -58,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ROUTING_DECISION` node type and `ROUTED_BY`/`AGGREGATED_FROM` edge types in Knowledge Graph.
 - Updated Concept Galaxy to 40 concepts (from 38).
 - 46 new unit tests across `test_confidence_routing.py` and `test_evolutionary_aggregation.py`.
-- **Schema Packs (AU-041)** — Domain-configurable KG profiles that scope the active node types, edge types, retrieval boosts, and OWL extensions to a specific domain. Inspired by gbrain#587 schema-pack proposal. Features include:
+- **Schema Packs (CONCEPT:KG-2.2)** — Domain-configurable KG profiles that scope the active node types, edge types, retrieval boosts, and OWL extensions to a specific domain. Inspired by gbrain#587 schema-pack proposal. Features include:
   - `SchemaPack` base model with dual operating modes: `ADDITIVE` (layer on top of core) and `EXCLUSIVE` (only pack + protected core types).
   - Protected core types (memory, episode, person, concept, etc.) that are always active regardless of mode.
   - Per-pack retrieval boost multipliers for domain-specific edge weighting.
@@ -66,8 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Four pre-built packs: `core` (default), `research-state`, `biomedical`, `finance`.
   - `SchemaPackNode` for KG persistence of active pack configuration.
   - OWL Bridge integration: `PROMOTABLE_NODE_TYPES` and `PROMOTABLE_EDGE_TYPES` filtered through active pack.
-- **Backlink-Density Retrieval Boost (AU-042)** — Logarithmic in-degree-based scoring modifier in `HybridRetriever` that boosts hub entities with many inbound edges. Pack-configurable via `backlink_boost_strategy` (`global`, `context_only`, `disabled`) and `backlink_boost_factor` (default 0.1). Based on gbrain's observed +31% P@5 improvement.
-- **KG Eval Capture (AU-043)** — Lightweight regression testing harness for Knowledge Graph retrieval. Records query-result pairs to a separate SQLite database (`eval_log.db`) to prevent KG contamination. Features include:
+- **Backlink-Density Retrieval Boost (CONCEPT:KG-2.2)** — Logarithmic in-degree-based scoring modifier in `HybridRetriever` that boosts hub entities with many inbound edges. Pack-configurable via `backlink_boost_strategy` (`global`, `context_only`, `disabled`) and `backlink_boost_factor` (default 0.1). Based on gbrain's observed +31% P@5 improvement.
+- **KG Eval Capture (CONCEPT:KG-2.2)** — Lightweight regression testing harness for Knowledge Graph retrieval. Records query-result pairs to a separate SQLite database (`eval_log.db`) to prevent KG contamination. Features include:
   - `KGEvalCapture.capture()` — append-only recording of queries, results, scores, and latency.
   - `KGEvalCapture.replay()` — re-runs captured queries and reports Jaccard@k, top-1 stability, and latency delta.
   - `export()` / `purge()` for maintenance. Controlled by `KG_EVAL_CAPTURE` env var (disabled by default).
@@ -77,22 +98,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SCHEMA_PACK` node type and `USES_SCHEMA_PACK` edge type in Knowledge Graph.
 - Updated Concept Galaxy to 43 concepts (from 40).
 - 47 new unit tests across `test_schema_packs.py`, `test_backlink_boost.py`, and `test_eval_capture.py`.
-- **Conductor Workflow Specification (AU-044)** — Refined natural-language subtask instructions per specialist step. The router/planner now generates a focused `refined_subtask` field on each `ExecutionStep`, crafting targeted sub-goals instead of forwarding the raw user query. Inspired by the RL Conductor's per-step subtask specification (Nielsen et al., ICLR 2026).
-- **Execution Visibility Graph (AU-045)** — Per-step `access_list` controlling which prior step results are visible to each specialist. `_resolve_access_context()` helper filters `results_registry` before injection. Supports `["all"]`, specific node_ids, or empty for no context sharing.
-- **Model Synergy Tracker (AU-046)** — Per-model-combination EMA success tracking in SelfModel (AU-016). `model_synergies` dict on `SelfModelNode` tracks sorted pipe-delimited model combination keys. `SelfModel.get_best_synergies()` filters by available models for intelligent recombination.
-- **Recursive Graph Orchestration (AU-047)** — Nested `run_graph()` calls for self-referential test-time scaling. `recursive_orchestrator` specialist spawns inner graph executions with parent context. `RecursiveContext` dataclass and `MAX_RECURSION_DEPTH` env var (default 2) for depth control.
+- **Conductor Workflow Specification (CONCEPT:ORCH-1.1)** — Refined natural-language subtask instructions per specialist step. The router/planner now generates a focused `refined_subtask` field on each `ExecutionStep`, crafting targeted sub-goals instead of forwarding the raw user query. Inspired by the RL Conductor's per-step subtask specification (Nielsen et al., ICLR 2026).
+- **Execution Visibility Graph (CONCEPT:ORCH-1.1)** — Per-step `access_list` controlling which prior step results are visible to each specialist. `_resolve_access_context()` helper filters `results_registry` before injection. Supports `["all"]`, specific node_ids, or empty for no context sharing.
+- **Model Synergy Tracker (CONCEPT:AHE-3.3)** — Per-model-combination EMA success tracking in SelfModel (CONCEPT:KG-2.1). `model_synergies` dict on `SelfModelNode` tracks sorted pipe-delimited model combination keys. `SelfModel.get_best_synergies()` filters by available models for intelligent recombination.
+- **Recursive Graph Orchestration (CONCEPT:ORCH-1.1)** — Nested `run_graph()` calls for self-referential test-time scaling. `recursive_orchestrator` specialist spawns inner graph executions with parent context. `RecursiveContext` dataclass and `MAX_RECURSION_DEPTH` env var (default 2) for depth control.
 - New module: `agent_utilities/graph/recursive_executor.py`.
 - New documentation: `docs/conductor-orchestration.md`.
 - Updated Concept Galaxy to 47 concepts (from 43).
 - ~60 new unit tests across `test_conductor_workflow.py`, `test_visibility_graph.py`, `test_model_synergy.py`, and `test_recursive_orchestration.py`.
-- **Structural Fingerprint Engine (AU-048)** — AST-based signature extraction and three-level change classification (NONE/COSMETIC/STRUCTURAL) for incremental KG updates. Generic capability that avoids costly full re-ingestion when only cosmetic changes occur. Includes `FingerprintManager` for workspace-level scanning and `detect_stale_files()` for git-based staleness detection.
-- **Graph Integrity Validator (AU-053)** — Non-blocking 4-tier graph validation inspired by Understand-Anything's `graph-reviewer`. Features include:
+- **Structural Fingerprint Engine (CONCEPT:KG-2.3)** — AST-based signature extraction and three-level change classification (NONE/COSMETIC/STRUCTURAL) for incremental KG updates. Generic capability that avoids costly full re-ingestion when only cosmetic changes occur. Includes `FingerprintManager` for workspace-level scanning and `detect_stale_files()` for git-based staleness detection.
+- **Graph Integrity Validator (CONCEPT:KG-2.3)** — Non-blocking 4-tier graph validation inspired by Understand-Anything's `graph-reviewer`. Features include:
   - Tier 1 (Auto-fix): LLM type alias normalization (30+ node aliases, 30+ edge aliases), score clamping, missing name defaults.
   - Tier 2 (Integrity): Dangling edges, missing node types, untyped edges, duplicate IDs.
   - Tier 3 (Quality): Orphan nodes, self-referencing edges, generic descriptions, underscored hub detection.
   - Tier 4 (Fatal): Zero-node graphs, graph fragmentation below 50% threshold.
-  - Integrated as 15th pipeline phase (`validate`) with `KGEvalCapture` (AU-043) trend storage.
-- **Entity-Claim Extraction / MAGMA Completion (AU-054)** — Two-phase entity-claim extraction that fills the MAGMA epistemic view with real data. Features include:
+  - Integrated as 15th pipeline phase (`validate`) with `KGEvalCapture` (CONCEPT:KG-2.2) trend storage.
+- **Entity-Claim Extraction / MAGMA Completion (CONCEPT:KG-2.2)** — Two-phase entity-claim extraction that fills the MAGMA epistemic view with real data. Features include:
   - Deterministic Phase 1: Regex-based extraction of citations, wikilinks, and assertion patterns.
   - `ClaimNode` model with confidence scoring, claim types, and epistemic metadata.
   - New edge types: `BUILDS_ON`, `EXEMPLIFIES`, `AUTHORED_BY` (joining existing `CONTRADICTS` and `CITES`).
@@ -116,14 +137,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2026-05-02
 
 ### Added
-- **First Principles Architecture** — Four new foundational concepts (AU-024 through AU-027) that rewire the routing, dispatch, and feedback layers from first principles.
-- **Registry Hot Cache (AU-024)** — Session-scoped `_RegistryCache` singleton providing O(1) specialist lookups. Replaces full registry scans on every routing call, reducing prompt bloat by filtering to only the top-7 relevant specialists per query.
+- **First Principles Architecture** — Four new foundational concepts (CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.2) that rewire the routing, dispatch, and feedback layers from first principles.
+- **Registry Hot Cache (CONCEPT:ORCH-1.2)** — Session-scoped `_RegistryCache` singleton providing O(1) specialist lookups. Replaces full registry scans on every routing call, reducing prompt bloat by filtering to only the top-7 relevant specialists per query.
 - **Event-Driven Cache Invalidation** — Cache auto-invalidates on MCP reload (`/mcp/reload`), pipeline completion, Self-Model session updates, and TeamConfig promotions. No stale-cache risk.
-- **TeamConfig Promotion (AU-025)** — `promote_coalition_to_template()` persists successful specialist coalitions as reusable `TeamConfigNode` templates in the Knowledge Graph. `find_matching_team_config()` enables 3-stage hybrid routing: TeamConfig → Self-Model bias → LLM planning.
+- **TeamConfig Promotion (CONCEPT:AHE-3.3)** — `promote_coalition_to_template()` persists successful specialist coalitions as reusable `TeamConfigNode` templates in the Knowledge Graph. `find_matching_team_config()` enables 3-stage hybrid routing: TeamConfig → Self-Model bias → LLM planning.
 - **TeamConfig Reward Tracking** — `record_team_outcome()` records success/failure outcomes against team templates, enabling reward-weighted team selection over time.
 - **RLM + TeamConfig Synergy** — When a `TeamConfig` is selected and input exceeds size thresholds, RLM capability is auto-attached to specialists via `capability_overrides`.
-- **AgentCapability Type System (AU-026)** — `AgentCapabilityNode` formalized as a first-class KG node with `auto_activate`, `trigger_conditions`, and `handler_module` fields. Capabilities are auto-activated in the executor based on input constraints (e.g., RLM for large payloads, critic for code).
-- **PlannerGraphSkill (AU-027)** — A2A-native routing entry point via `PlannerGraphSkill` registered in `server/app.py`. When a `graph_bundle` is available, A2A requests bypass LLM orchestration and route directly through the graph planner.
+- **AgentCapability Type System (CONCEPT:ORCH-1.2)** — `AgentCapabilityNode` formalized as a first-class KG node with `auto_activate`, `trigger_conditions`, and `handler_module` fields. Capabilities are auto-activated in the executor based on input constraints (e.g., RLM for large payloads, critic for code).
+- **PlannerGraphSkill (CONCEPT:ECO-4.2)** — A2A-native routing entry point via `PlannerGraphSkill` registered in `server/app.py`. When a `graph_bundle` is available, A2A requests bypass LLM orchestration and route directly through the graph planner.
 - **Self-Model Feedback Loop** — Post-execution verification in `synthesizer_step` now feeds outcomes back to `SelfModel.update_after_session()` and `record_team_outcome()`, enabling recursive learning.
 - **WorkspaceAttention Scoring** — `WorkspaceAttention` (GWT) scores are computed and logged per-specialist during execution for data-driven specialist prioritization.
 - **Process Lifecycle Management** — `atexit` and `SIGTERM`/`SIGINT` handlers in `server/__init__.py` ensure all child processes (MCP servers, TUI, background threads) are gracefully killed on server exit. Uses child-only `pgrep` pattern instead of `killpg` to avoid self-termination.
@@ -158,7 +179,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SECRETS_BACKEND`, `SECRETS_SQLITE_PATH`, `SECRETS_VAULT_URL` configuration
 - `secrets_client` field on `GraphDeps` for graph execution credential resolution
 - `docs/secrets-auth.md` comprehensive documentation (CONCEPT:OS-5.1)
-- Concept marker backfill: AU-004, AU-007, AU-008, AU-009, AU-010, AU-011 across tests and source
+- Concept marker backfill: CONCEPT:OS-5.0, CONCEPT:ORCH-1.1, CONCEPT:OS-5.2, CONCEPT:AHE-3.0, CONCEPT:ECO-4.1, CONCEPT:OS-5.1 across tests and source
 - `auth.py` JWT Bearer token validation using `authlib` + JWKS caching (CONCEPT:OS-5.1)
 - Combined auth dependency: accepts API key OR JWT Bearer token (gradual migration)
 - `AUTH_JWT_JWKS_URI`, `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE` configuration

@@ -50,6 +50,7 @@ from agent_utilities.prompting.builder import load_identity
 from agent_utilities.tools.tool_filtering import load_skills_from_directory
 
 from ..base_utilities import __version__, to_boolean
+from .concurrency import AsyncioConcurrencyManager, RedisConcurrencyManager
 from .dependencies import inject_reload_app, resolve_model_registry, verify_api_key
 from .models import ReloadableApp
 from .routers import agent_ui, core, human, interop
@@ -173,7 +174,9 @@ def build_agent_app(
 
         if "universal" in _skill_types:
             try:
-                from universal_skills.skill_utilities import get_universal_skills_path
+                from universal_skills.skill_utilities import (
+                    get_universal_skills_path,  # type: ignore
+                )
 
                 skill_dirs.extend(get_universal_skills_path())
             except ImportError:
@@ -181,7 +184,9 @@ def build_agent_app(
 
         if "graphs" in _skill_types:
             try:
-                from skill_graphs.skill_graph_utilities import get_skill_graphs_path
+                from skill_graphs.skill_graph_utilities import (
+                    get_skill_graphs_path,  # type: ignore
+                )
 
                 skill_dirs.extend(get_skill_graphs_path())
             except ImportError:
@@ -221,7 +226,7 @@ def build_agent_app(
                     )
                     skills_list.append(planner_skill)
                     logger.info(
-                        "[AU-027] Registered PlannerGraphSkill as A2A-native skill"
+                        "[CONCEPT:ECO-4.2] Registered PlannerGraphSkill as A2A-native skill"
                     )
                 except Exception as e:
                     logger.warning(f"PlannerGraphSkill registration failed: {e}")
@@ -241,7 +246,7 @@ def build_agent_app(
         a2a_kwargs = {}
         if a2a_broker == "redis":
             try:
-                from a2a_redis import RedisBroker
+                from a2a_redis import RedisBroker  # type: ignore
 
                 a2a_kwargs["broker"] = RedisBroker(
                     url=a2a_broker_url or "redis://localhost:6379"
@@ -250,7 +255,7 @@ def build_agent_app(
                 pass
         elif a2a_broker == "postgres":
             try:
-                from a2a_postgres import PostgresBroker
+                from a2a_postgres import PostgresBroker  # type: ignore
 
                 a2a_kwargs["broker"] = PostgresBroker(
                     url=a2a_broker_url or "postgresql+asyncpg://localhost:5432/a2a"
@@ -260,7 +265,7 @@ def build_agent_app(
 
         if a2a_storage == "redis":
             try:
-                from a2a_redis import RedisStorage
+                from a2a_redis import RedisStorage  # type: ignore
 
                 a2a_kwargs["storage"] = RedisStorage(
                     url=a2a_storage_url or "redis://localhost:6379"
@@ -269,7 +274,7 @@ def build_agent_app(
                 pass
         elif a2a_storage == "postgres":
             try:
-                from a2a_postgres import PostgresStorage
+                from a2a_postgres import PostgresStorage  # type: ignore
 
                 a2a_kwargs["storage"] = PostgresStorage(
                     url=a2a_storage_url or "postgresql+asyncpg://localhost:5432/a2a"
@@ -303,7 +308,7 @@ def build_agent_app(
                     f"Automatic Knowledge Graph ingestion failed on startup: {e}"
                 )
 
-            # AU-028: A2A agent sync and periodic refresh
+            # CONCEPT:ECO-4.2: A2A agent sync and periodic refresh
             _a2a_cfg = a2a_config or os.getenv("A2A_CONFIG")
             if _a2a_cfg:
                 try:
@@ -414,6 +419,14 @@ def build_agent_app(
         app.state.agent_name = _name
         app.state.mcp_config = mcp_config
 
+        # OS-5.3 Session Concurrency Manager
+        if "broker" in a2a_kwargs and hasattr(a2a_kwargs["broker"], "redis"):
+            app.state.concurrency_manager = RedisConcurrencyManager(
+                a2a_kwargs["broker"].redis
+            )
+        else:
+            app.state.concurrency_manager = AsyncioConcurrencyManager()
+
         _default_model = _resolved_registry.get_default()
         logger.info(
             "Model registry bootstrapped with %d model(s); default=%s",
@@ -447,6 +460,7 @@ def build_agent_app(
                     acp_config,
                     graph_bundle=graph_bundle,
                     mcp_toolsets=_initialized_mcp_toolsets,
+                    concurrency_manager=app.state.concurrency_manager,
                 )
                 app.mount("/acp", acp_app)
             else:

@@ -1,0 +1,38 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "results": [
+    {
+      "source": "/home/apps/workspace/scholarx_papers/batch_30/paper_09.md",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [
+          {
+            "keyword": "join",
+            "count": 1,
+            "analogy": "cross-entity relationship resolution",
+            "target_domain": "entity_linking"
+          }
+        ],
+        "innovation_claims": [
+          "To address this, we propose iWorld-Bench, a comprehensive benchmark for training and testing world models on interaction-related abilities such as distance perception and memory",
+          "As existing world models differ in interaction modalities, we introduce an Action Generation Framework to unify evaluation and design six task types, generating 4.9k test samples"
+        ]
+      },
+      "synergies": [
+        {
+          "innovation": "cross-entity relationship resolution",
+          "source_keyword": "join",
+          "target_domain": "entity_linking",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 1
+    }
+  ]
+}

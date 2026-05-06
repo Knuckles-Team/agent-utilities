@@ -111,23 +111,23 @@ The fast path is gated on:
 The **ACP adapter** uses pydantic-acp's `agent_factory` callback for per-session agent creation, binding graph context directly to each session's closure.
 
 The **A2A path** now supports two modes:
-1. **Graph-native (AU-027)**: When a `graph_bundle` is present, `PlannerGraphSkill` is registered as an A2A skill, enabling direct graph-backed planning without LLM orchestration overhead.
+1. **Graph-native (CONCEPT:ECO-4.2)**: When a `graph_bundle` is present, `PlannerGraphSkill` is registered as an A2A skill, enabling direct graph-backed planning without LLM orchestration overhead.
 2. **LLM-mediated (fallback)**: For multi-agent negotiation scenarios, the legacy `run_graph_flow` tool call path is retained.
 
-### 3-Stage Hybrid Routing (AU-024, AU-025, AU-016)
+### 3-Stage Hybrid Routing (CONCEPT:ORCH-1.2, CONCEPT:AHE-3.3, CONCEPT:KG-2.1)
 
 The router implements a cascading 3-stage routing strategy that avoids unnecessary LLM inference:
 
 ```
-Stage 1: TeamConfig Match (AU-025)
+Stage 1: TeamConfig Match (CONCEPT:AHE-3.3)
   └─ Check KG for a proven specialist coalition matching the query pattern
   └─ If found → skip LLM, dispatch the team directly
 
-Stage 2: Self-Model Bias (AU-016)
+Stage 2: Self-Model Bias (CONCEPT:KG-2.1)
   └─ Inject domain proficiency scores into the specialist prompt
   └─ High-proficiency domains are weighted higher in LLM selection
 
-Stage 3: LLM Planning (filtered via AU-024)
+Stage 3: LLM Planning (filtered via CONCEPT:ORCH-1.2)
   └─ Registry Hot Cache provides only top-7 relevant specialists
   └─ LLM sees a focused prompt instead of 50+ specialist descriptions
 ```

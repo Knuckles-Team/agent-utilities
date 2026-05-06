@@ -10,7 +10,7 @@ Design-pattern source: Chapter 21 — Exploration and Discovery.
 OWL: :Experiment rdfs:subClassOf :Procedure
      :KnowledgeGap rdfs:subClassOf :Observation
      :testsHypothesis, :exploredGap, :resultedInDiscovery
-See docs/design-patterns-alignment.md §AU-022.
+See docs/design-patterns-alignment.md §CONCEPT:AHE-3.2.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 # First Principles Architecture
 
-> **Concepts:** AU-024, AU-025, AU-026, AU-027
+> **Concepts:** CONCEPT:ORCH-1.2, CONCEPT:AHE-3.3, CONCEPT:ORCH-1.2, CONCEPT:ECO-4.2
 
 This document describes the **First Principles Architecture** layer — a set of four foundational concepts that rewire the routing, dispatch, and feedback loops of `agent-utilities` from basic primitives. These concepts were designed to solve specific scalability, performance, and intelligence bottlenecks that emerge when the system manages dozens of specialists and hundreds of tools.
 
@@ -8,35 +8,35 @@ This document describes the **First Principles Architecture** layer — a set of
 
 | Problem | Root Cause | Solution |
 |---------|-----------|----------|
-| **Prompt bloat** | Every routing call serialized the full specialist registry into the LLM prompt | AU-024: Hot cache filters to top-7 relevant specialists per query |
-| **Redundant team discovery** | LLM re-discovers the same specialist combinations for recurring query patterns | AU-025: TeamConfig promotes proven coalitions as reusable templates |
-| **Static tool binding** | Specialists had fixed tool sets; capabilities like RLM or critic were never auto-attached | AU-026: AgentCapability nodes auto-activate based on input constraints |
-| **LLM orchestration overhead** | A2A requests required a full LLM planning round-trip even when the graph planner could handle them | AU-027: PlannerGraphSkill provides a direct graph-backed A2A entry point |
-| **No feedback loop** | Execution outcomes were never fed back to improve future routing | AU-025 + AU-016: Verification outcomes update Self-Model and TeamConfig rewards |
+| **Prompt bloat** | Every routing call serialized the full specialist registry into the LLM prompt | CONCEPT:ORCH-1.2: Hot cache filters to top-7 relevant specialists per query |
+| **Redundant team discovery** | LLM re-discovers the same specialist combinations for recurring query patterns | CONCEPT:AHE-3.3: TeamConfig promotes proven coalitions as reusable templates |
+| **Static tool binding** | Specialists had fixed tool sets; capabilities like RLM or critic were never auto-attached | CONCEPT:ORCH-1.2: AgentCapability nodes auto-activate based on input constraints |
+| **LLM orchestration overhead** | A2A requests required a full LLM planning round-trip even when the graph planner could handle them | CONCEPT:ECO-4.2: PlannerGraphSkill provides a direct graph-backed A2A entry point |
+| **No feedback loop** | Execution outcomes were never fed back to improve future routing | CONCEPT:AHE-3.3 + CONCEPT:KG-2.1: Verification outcomes update Self-Model and TeamConfig rewards |
 
 ## Architecture Overview
 
 ```mermaid
 graph LR
     subgraph Ingress ["Protocol Ingress"]
-        A2A[A2A] --> PGS["PlannerGraphSkill\n(AU-027)"]
+        A2A[A2A] --> PGS["PlannerGraphSkill\n(CONCEPT:ECO-4.2)"]
         ACP[ACP] --> Router
         AGUI[AG-UI] --> Router
     end
 
     subgraph Routing ["3-Stage Hybrid Routing"]
         PGS --> Router
-        Router --> TC{"TeamConfig\nMatch?\n(AU-025)"}
+        Router --> TC{"TeamConfig\nMatch?\n(CONCEPT:AHE-3.3)"}
         TC -- "Hit" --> Dispatch
-        TC -- "Miss" --> SM{"Self-Model\nBias?\n(AU-016)"}
+        TC -- "Miss" --> SM{"Self-Model\nBias?\n(CONCEPT:KG-2.1)"}
         SM --> LLM["LLM Planner\n(Filtered Prompt)"]
         LLM --> Dispatch
     end
 
     subgraph Execution ["Dispatch & Execute"]
-        Dispatch --> Cache["Registry Cache\n(AU-024)"]
+        Dispatch --> Cache["Registry Cache\n(CONCEPT:ORCH-1.2)"]
         Cache --> Specs["Top-7 Specialists"]
-        Specs --> Cap{"Capability\nAuto-Activate?\n(AU-026)"}
+        Specs --> Cap{"Capability\nAuto-Activate?\n(CONCEPT:ORCH-1.2)"}
         Cap --> Exec["Parallel Execution"]
     end
 
@@ -227,7 +227,7 @@ for specialist in specialists:
     )
     for cap in capabilities:
         if _check_trigger(cap.trigger_conditions, input_text):
-            logger.info("[AU-026] Auto-activating %s for %s", cap.capability_type, specialist.name)
+            logger.info("[CONCEPT:ORCH-1.2] Auto-activating %s for %s", cap.capability_type, specialist.name)
             # Activate the capability handler before execution
 ```
 
@@ -295,16 +295,16 @@ if graph_bundle:
 
 | Type | Concept | Description |
 |------|---------|-------------|
-| `TEAM_CONFIG` | AU-025 | Proven specialist coalition template |
-| `AGENT_CAPABILITY` | AU-026 | Dynamic capability with trigger conditions |
+| `TEAM_CONFIG` | CONCEPT:AHE-3.3 | Proven specialist coalition template |
+| `AGENT_CAPABILITY` | CONCEPT:ORCH-1.2 | Dynamic capability with trigger conditions |
 
 ### Edge Types
 
 | Type | Concept | Description |
 |------|---------|-------------|
-| `HAS_CAPABILITY` | AU-026 | Links specialist → capability |
-| `REUSED_TEAM` | AU-025 | Links session → TeamConfig (tracks reuse) |
-| `USES_PROMPT` | AU-025 | Links specialist → JSON prompt template |
+| `HAS_CAPABILITY` | CONCEPT:ORCH-1.2 | Links specialist → capability |
+| `REUSED_TEAM` | CONCEPT:AHE-3.3 | Links session → TeamConfig (tracks reuse) |
+| `USES_PROMPT` | CONCEPT:AHE-3.3 | Links specialist → JSON prompt template |
 
 ---
 
@@ -332,5 +332,5 @@ python -m pytest tests/unit/graph/test_config_helpers.py \
 
 - [Registry Cache Deep-Dive](registry-cache.md) — Focused cache architecture and performance analysis
 - [Process Lifecycle Management](process-lifecycle.md) — Sidecar cleanup and signal handling
-- [Emergent Architecture](emergent-architecture.md) — AU-013 through AU-017 (OGM, Swarm, Self-Model, Attention)
+- [Emergent Architecture](emergent-architecture.md) — CONCEPT:KG-2.0 through CONCEPT:ORCH-1.2 (OGM, Swarm, Self-Model, Attention)
 - [Architecture](architecture.md) — Full system architecture with routing diagrams

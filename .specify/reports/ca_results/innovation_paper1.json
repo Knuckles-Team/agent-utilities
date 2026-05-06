@@ -1,0 +1,54 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "results": [
+    {
+      "source": "/home/apps/workspace/scholarx_papers/paper_1.md",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [
+          {
+            "keyword": "inference",
+            "count": 3,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          },
+          {
+            "keyword": "zero-shot",
+            "count": 1,
+            "analogy": "inductive generalization",
+            "target_domain": "encpi"
+          }
+        ],
+        "innovation_claims": [
+          "We introduce SaFE-Scale, a framework for measuring how clinical LLM safety changes across model scale, evidence quality, retrieval strategy, context exposure, and inference-time compute",
+          "To instantiate this framework, we introduce RadSaFE-200, a Radiology Safety-Focused Evaluation benchmark of 200 multiple-choice questions with clinician-defined clean evidence, conflict evidence, and option-level labels for high-risk error, unsafe answer, and evidence contradiction",
+          "Clean evidence produced the strongest improvement, increasing mean accuracy from 73.5% to 94.1%, while reducing high-risk error from 12.0% to 2.6%, contradiction from 12.7% to 2.3%, and dangerous overconfidence from 8.0% to 1.6%",
+          "Standard RAG and agentic RAG did not reproduce this safety profile: agentic RAG improved accuracy over standard RAG and reduced contradiction, but high-risk error and dangerous overconfidence remained elevated"
+        ]
+      },
+      "synergies": [
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "inductive generalization",
+          "source_keyword": "zero-shot",
+          "target_domain": "encpi",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 2
+    }
+  ]
+}

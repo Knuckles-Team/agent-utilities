@@ -1,0 +1,39 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "results": [
+    {
+      "source": "/home/apps/workspace/scholarx_papers/batch_30/paper_14.md",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [
+          {
+            "keyword": "reinforcement",
+            "count": 1,
+            "analogy": "reward-driven routing optimization",
+            "target_domain": "confidence_gating"
+          }
+        ],
+        "innovation_claims": [
+          "To this end, we propose TraceLift, a planner-executor training framework that treats reasoning as a consumable intermediate artifact",
+          "To make reasoning quality directly learnable, we introduce TRACELIFT-GROUPS, a rubric-annotated reason-only dataset built from math and code seed problems",
+          "Extensive experiments on code and math benchmarks show that this executor-grounded reasoning reward improves the two-stage planner-executor system over execution-only training, suggesting that reasoning supervision should evaluate not only whether a trace looks good, but also whether it helps the model that consumes it"
+        ]
+      },
+      "synergies": [
+        {
+          "innovation": "reward-driven routing optimization",
+          "source_keyword": "reinforcement",
+          "target_domain": "confidence_gating",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 1
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-"""Tests for AU-047: Recursive Graph Orchestration."""
+"""Tests for CONCEPT:ORCH-1.1: Recursive Graph Orchestration."""
 
 from __future__ import annotations
 
@@ -85,4 +85,4 @@ class TestStepDescriptionsIncludesRecursive:
         from agent_utilities.graph.executor import get_step_descriptions
         desc = get_step_descriptions()
         assert "recursive_orchestrator" in desc
-        assert "AU-047" in desc
+        assert "CONCEPT:ORCH-1.1" in desc

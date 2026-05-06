@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for AU-054 — Entity-Claim Extraction and MAGMA Epistemic View."""
+"""Tests for CONCEPT:KG-2.2 — Entity-Claim Extraction and MAGMA Epistemic View."""
 
 import pytest
 import networkx as nx
@@ -174,7 +174,7 @@ class TestEntityClaimExtractor:
 
 
 class TestEdgeTypes:
-    """Test new AU-054 edge types exist in the registry."""
+    """Test new CONCEPT:KG-2.2 edge types exist in the registry."""
 
     def test_builds_on_exists(self):
         assert RegistryEdgeType.BUILDS_ON == "builds_on"

@@ -109,7 +109,7 @@ def flag_mcp_tool_definitions(
     return ``DeferredToolRequests`` instead of executing the tool.
 
     The ``approval_required_func`` checks:
-    1. **Identity-based policy** (AU-031): If a ``PermissionsKernel`` and
+    1. **Identity-based policy** (CONCEPT:OS-5.2): If a ``PermissionsKernel`` and
        ``AgentIdentity`` are provided, the kernel's role-based policy
        takes precedence.  DENY → raise, REQUIRE_APPROVAL → True.
     2. **Pattern-based fallback**: If no kernel is available or the

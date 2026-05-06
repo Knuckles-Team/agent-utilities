@@ -49,6 +49,7 @@ async def ag_ui_endpoint(request: Request) -> Response:
     logger.info(
         f"[LAYER:ACP] AG-UI Request Received. Assigned internal run_id: {run_id}"
     )
+    concurrency_strategy = "enqueue"
     with suppress(Exception):
         body = await request.json()
         if body:
@@ -56,6 +57,18 @@ async def ag_ui_endpoint(request: Request) -> Response:
             if session_id:
                 run_id = session_id
                 logger.info(f"[LAYER:ACP] AG-UI: Resuming session: {run_id}")
+            concurrency_strategy = body.get("concurrency_strategy", "enqueue")
+
+    cm = getattr(request.app.state, "concurrency_manager", None)
+    if cm:
+        try:
+            from fastapi import HTTPException
+
+            await cm.acquire(run_id, strategy=concurrency_strategy)
+        except HTTPException as e:
+            return JSONResponse(
+                {"status": "error", "message": e.detail}, status_code=e.status_code
+            )
 
     graph_event_queue: asyncio.Queue[Any] = asyncio.Queue()
     elicitation_queue: asyncio.Queue[Any] = asyncio.Queue()
@@ -270,8 +283,16 @@ async def ag_ui_endpoint(request: Request) -> Response:
             agent_task.cancel()
             sideband_task.cancel()
 
+    async def merged_stream_with_lock():
+        try:
+            async for chunk in merged_stream():
+                yield chunk
+        finally:
+            if cm:
+                await cm.release(run_id)
+
     return StreamingResponse(
-        merged_stream(),
+        merged_stream_with_lock(),
         media_type="text/plain; charset=utf-8",
         headers={
             "Cache-Control": "no-cache",
@@ -292,6 +313,22 @@ async def stream_endpoint(request: Request) -> Response:
     topology = data.get("topology", "basic")
     requested_model_id = getattr(request.state, "requested_model_id", None)
 
+    session_id = data.get("session_id") or data.get("run_id")
+    concurrency_strategy = data.get("concurrency_strategy", "enqueue")
+
+    cm = getattr(request.app.state, "concurrency_manager", None)
+    if cm and session_id:
+        try:
+            from fastapi import HTTPException
+
+            await cm.acquire(session_id, strategy=concurrency_strategy)
+        except HTTPException as e:
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(
+                {"status": "error", "message": e.detail}, status_code=e.status_code
+            )
+
     graph_bundle = getattr(request.app.state, "graph_bundle", None)
     _initialized_mcp_toolsets = getattr(request.app.state, "mcp_toolsets", [])
 
@@ -299,17 +336,26 @@ async def stream_endpoint(request: Request) -> Response:
         from ...graph_orchestration import run_graph_stream
 
         graph, config = graph_bundle
+
+        async def graph_stream_with_lock():
+            try:
+                async for chunk in run_graph_stream(
+                    graph,
+                    config,
+                    query,
+                    mode=mode,
+                    topology=topology,
+                    mcp_toolsets=_initialized_mcp_toolsets,
+                    query_parts=query_parts,
+                    requested_model_id=requested_model_id,
+                ):
+                    yield chunk
+            finally:
+                if cm and session_id:
+                    await cm.release(session_id)
+
         return StreamingResponse(
-            run_graph_stream(
-                graph,
-                config,
-                query,
-                mode=mode,
-                topology=topology,
-                mcp_toolsets=_initialized_mcp_toolsets,
-                query_parts=query_parts,
-                requested_model_id=requested_model_id,
-            ),
+            graph_stream_with_lock(),
             media_type="text/event-stream",
         )
     else:

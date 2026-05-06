@@ -18,12 +18,12 @@ Architecture:
       simultaneously. Excess processes are queued by priority.
 
 Integrates with:
-    - AU-019 (Resource Optimizer): Token budget tracking
-    - AU-008 (Checkpointing): Context snapshot/restore
-    - AU-008 (Eviction): Context paging under memory pressure
-    - AU-014 (Swarm): Concurrent agent pool management
+    - CONCEPT:OS-5.2 (Resource Optimizer): Token budget tracking
+    - CONCEPT:OS-5.2 (Checkpointing): Context snapshot/restore
+    - CONCEPT:OS-5.2 (Eviction): Context paging under memory pressure
+    - CONCEPT:KG-2.0 (Swarm): Concurrent agent pool management
 
-See docs/cognitive-scheduler.md §AU-030.
+See docs/cognitive-scheduler.md §CONCEPT:OS-5.2.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from ..knowledge_graph.engine import IntelligenceGraphEngine
 
-from ..graph.evolutionary_aggregation import ConvergenceMonitor
+from ..graph.hierarchical_planner import ConvergenceMonitor
 from ..models.knowledge_graph import (
     AgentProcessNode,
     RegistryEdgeType,

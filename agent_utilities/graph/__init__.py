@@ -27,6 +27,22 @@ from .graph_models import (
     MultiDomainChoice,
     ValidationResult,
 )
+from .heavy_thinking import (
+    # CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+    ComplexityEstimator,
+    HeavyThinkingConfig,
+    HeavyThinkingOrchestrator,
+    HeavyThinkingPlanner,
+)
+from .horizon_curriculum import (
+    # CONCEPT:AHE-3.9 — Horizon-Aware Task Curriculum
+    CurriculumStage,
+    HorizonCurriculum,
+    HorizonStageConfig,
+    MacroAction,
+    PromotionPolicy,
+    SubgoalCheckpoint,
+)
 from .hsm import (
     NodeResult,
     StateInvariantError,
@@ -40,9 +56,24 @@ from .hsm import (
     run_orthogonal_regions,
     static_route_query,
 )
+from .memory_cache import (
+    MemoryCache,
+    TrajectoryEntry,
+    TrajectoryPruner,
+    TrajectoryShuffler,
+)
 from .mermaid import (
     # Mermaid
     get_graph_mermaid,
+)
+from .reward_decomposition import (
+    # CONCEPT:AHE-3.10 — Decomposed Reward Signals
+    DecomposedRewardRecord,
+    RewardDecomposer,
+    StepOutcome,
+    StepReward,
+    TrajectoryOutcome,
+    TrajectoryReward,
 )
 from .runner import (
     # Runner
@@ -114,4 +145,27 @@ __all__ = [
     "ACPEventHandler",
     # Mermaid
     "get_graph_mermaid",
+    # CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+    "HeavyThinkingOrchestrator",
+    "HeavyThinkingConfig",
+    "HeavyThinkingPlanner",
+    "ComplexityEstimator",
+    "MemoryCache",
+    "TrajectoryEntry",
+    "TrajectoryPruner",
+    "TrajectoryShuffler",
+    # CONCEPT:AHE-3.9 — Horizon-Aware Task Curriculum
+    "HorizonCurriculum",
+    "HorizonStageConfig",
+    "CurriculumStage",
+    "PromotionPolicy",
+    "MacroAction",
+    "SubgoalCheckpoint",
+    # CONCEPT:AHE-3.10 — Decomposed Reward Signals
+    "RewardDecomposer",
+    "DecomposedRewardRecord",
+    "StepReward",
+    "TrajectoryReward",
+    "StepOutcome",
+    "TrajectoryOutcome",
 ]

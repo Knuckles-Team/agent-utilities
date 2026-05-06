@@ -195,6 +195,12 @@ class IntelligenceGraphEngine(
     ):
         """Create a relationship between two nodes in the graph."""
         props = properties or {}
+        # Inject lightweight provenance/confidence tags for structural memory
+        if "confidence" not in props:
+            props["confidence"] = 1.0
+        if "source" not in props:
+            props["source"] = "system"
+
         if source_id in self.graph and target_id in self.graph:
             self.graph.add_edge(source_id, target_id, type=rel_type, **props)
 
@@ -206,6 +212,38 @@ class IntelligenceGraphEngine(
             self.backend.execute(
                 query, {"sid": source_id, "tid": target_id, "props": props}
             )
+
+    def resolve_and_link(
+        self,
+        source_name: str,
+        target_name: str,
+        rel_type: str,
+        properties: dict[str, Any] | None = None,
+    ) -> bool:
+        """Lightweight cross-entity relationship resolution.
+
+        Attempts to resolve source and target names to existing node IDs using
+        simple string matching before linking them.
+        """
+        source_id = None
+        target_id = None
+
+        for node_id, data in self.graph.nodes(data=True):
+            name = str(data.get("name", "")).lower()
+            if not name:
+                continue
+            if source_name.lower() in name or name in source_name.lower():
+                source_id = node_id
+            if target_name.lower() in name or name in target_name.lower():
+                target_id = node_id
+
+            if source_id and target_id:
+                break
+
+        if source_id and target_id:
+            self.link_nodes(source_id, target_id, rel_type, properties)
+            return True
+        return False
 
     def add_node(
         self,

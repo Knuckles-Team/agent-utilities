@@ -1,0 +1,58 @@
+{
+  "domain": "CA-001",
+  "domain_name": "Governance",
+  "project": "/home/apps/workspace/agent-packages/agent-utilities",
+  "license": {
+    "file": "LICENSE",
+    "detected": "MIT",
+    "spdx": "MIT",
+    "osi": true,
+    "tier": "green"
+  },
+  "contributors": {
+    "total": 4,
+    "bus_factor": 1,
+    "top_contributors": [
+      {
+        "commits": 84,
+        "name": "KnucklesSG1"
+      },
+      {
+        "commits": 9,
+        "name": "knucklessg1"
+      },
+      {
+        "commits": 4,
+        "name": "Knucklessg1"
+      },
+      {
+        "commits": 1,
+        "name": "Audel Rouhi"
+      }
+    ],
+    "total_commits": 98
+  },
+  "governance_files": {
+    "GOVERNANCE.md": false,
+    "MAINTAINERS.md": false,
+    "CODEOWNERS": false,
+    ".github/CODEOWNERS": false,
+    "CODE_OF_CONDUCT.md": false,
+    ".github/CODE_OF_CONDUCT.md": false,
+    "SECURITY.md": false,
+    ".github/SECURITY.md": false,
+    "CONTRIBUTING.md": false,
+    ".github/CONTRIBUTING.md": false,
+    "CLA.md": false
+  },
+  "scoring": {
+    "score": 45,
+    "grade": "F",
+    "details": [
+      "Green license (MIT): +30",
+      "LICENSE file present: +5",
+      "2+ contributors (4): +5",
+      "Bus factor 1 (1): +5"
+    ]
+  }
+}

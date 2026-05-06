@@ -83,7 +83,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "knowledge_base",
     "knowledge_base_topic",
     "experiment",
-    # Engineering Rules Engine (CONCEPT:AU-023)
+    # Engineering Rules Engine (CONCEPT:KG-2.2)
     "engineering_rule",
     "rule_book",
     # External Integration & SDLC Entities (CONCEPT:ORCH-1.2)
@@ -95,6 +95,26 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "issue",
     "external_graph_reference",
     "external_entity",
+    # Financial Trading Pipeline (CONCEPT:KG-2.6)
+    "trading_signal",
+    "order",
+    "position",
+    "portfolio",
+    "strategy",
+    # Market Data Connector Protocol (CONCEPT:ECO-4.4)
+    "data_connector",
+    "data_fetch_record",
+    # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
+    "swarm_preset",
+    "swarm_run",
+    "swarm_task_record",
+    # Risk Scoring Ontology (CONCEPT:KG-2.7)
+    "risk_assessment",
+    "risk_factor",
+    "risk_mitigation",
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+    "backtest_run",
+    "backtest_metric",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -141,7 +161,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "escalated_to",
     "applied_edit",
     "has_edit_for",
-    # Engineering Rules Engine Edges (CONCEPT:AU-023)
+    # Engineering Rules Engine Edges (CONCEPT:KG-2.2)
     "conflicts_with",
     "corrects_bias",
     "applicable_when",
@@ -153,6 +173,29 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "triggered",
     "targets",
     "mapped_to_external",
+    # Financial Trading Pipeline (CONCEPT:KG-2.6)
+    "generated_signal",
+    "placed_order",
+    "opened_position",
+    "belongs_to_portfolio",
+    "executes_strategy",
+    "backtested_with",
+    # Market Data Connector Protocol (CONCEPT:ECO-4.4)
+    "fetched_from",
+    "falls_back_to",
+    # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
+    "preset_of",
+    "ran_preset",
+    "task_depends_on",
+    # Risk Scoring Ontology (CONCEPT:KG-2.7)
+    "assessed_risk",
+    "has_risk_factor",
+    "mitigated_by",
+    "propagates_risk_to",
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+    "evaluated_strategy",
+    "has_metric",
+    "compared_to_benchmark",
 }
 
 
@@ -189,7 +232,7 @@ class OWLBridge:
         self.recency_days = recency_days
         self._schema_pack = schema_pack
 
-        # Compute effective promotable types filtered by schema pack (AU-041)
+        # Compute effective promotable types filtered by schema pack (CONCEPT:KG-2.2)
         if schema_pack is not None:
             active_nodes = {str(t) for t in schema_pack.get_active_node_types()}
             active_edges = {str(t) for t in schema_pack.get_active_edge_types()}
@@ -199,13 +242,22 @@ class OWLBridge:
             self._effective_node_types = PROMOTABLE_NODE_TYPES
             self._effective_edge_types = PROMOTABLE_EDGE_TYPES
 
-    def run_cycle(self) -> dict[str, int]:
-        """Full promote → reason → downfeed cycle. Returns stats."""
+    def run_cycle(self, lightweight: bool = True) -> dict[str, Any]:
+        """Full promote → reason → downfeed cycle. Returns stats.
+
+        If lightweight=True, performs fast local RDFS+ closures.
+        If False, executes full Description Logic reasoning via the OWL backend.
+        """
         self.owl.clear()
 
         promoted_nodes = self._promote_stable_nodes()
         promoted_edges = self._promote_stable_edges()
-        inferences = self.owl.reason()
+
+        if lightweight:
+            inferences = self._lightweight_reasoning()
+        else:
+            inferences = self.owl.reason()
+
         downfed = self._downfeed_inferences(inferences)
 
         stats = {
@@ -213,9 +265,72 @@ class OWLBridge:
             "promoted_edges": promoted_edges,
             "inferred": len(inferences),
             "downfed": downfed,
+            "mode": "lightweight" if lightweight else "full_dl",
         }
         logger.info("OWL reasoning cycle complete: %s", stats)
         return stats
+
+    def _lightweight_reasoning(self) -> list[dict[str, Any]]:
+        """Lightweight RDFS+ reasoning on the in-memory graph.
+
+        Performs simple transitive closure (e.g. part_of, depends_on) and
+        symmetric closures (e.g. related_concept) without calling the heavy DL reasoner.
+        """
+        inferences = []
+        transitive_props = {
+            "part_of",
+            "depends_on",
+            "broader",
+            "narrower",
+            "inherits_from",
+        }
+        symmetric_props = {
+            "related_concept",
+            "exact_match",
+            "close_match",
+            "broad_match",
+        }
+
+        for u, v, data in self.graph.edges(data=True):
+            rel = data.get("type")
+            if not rel:
+                continue
+
+            # Symmetric closure
+            if rel in symmetric_props:
+                if not self.graph.has_edge(v, u) or not any(
+                    e.get("type") == rel
+                    for e in self.graph.get_edge_data(v, u, {}).values()
+                ):
+                    inferences.append(
+                        {
+                            "subject": v,
+                            "predicate": rel,
+                            "object": u,
+                            "inference_type": "symmetric_closure",
+                        }
+                    )
+
+            # Transitive closure (1-hop)
+            if rel in transitive_props:
+                for w in self.graph.successors(v):
+                    edge_data_dict = self.graph.get_edge_data(v, w, default={})
+                    for w_data in edge_data_dict.values():
+                        if w_data.get("type") == rel:
+                            if not self.graph.has_edge(u, w) or not any(
+                                e.get("type") == rel
+                                for e in self.graph.get_edge_data(u, w, {}).values()
+                            ):
+                                inferences.append(
+                                    {
+                                        "subject": u,
+                                        "predicate": rel,
+                                        "object": w,
+                                        "inference_type": "transitive_closure",
+                                    }
+                                )
+
+        return inferences
 
     def _is_eligible_node(self, node_id: str, attrs: dict[str, Any]) -> bool:
         """Check if a node meets promotion criteria."""

@@ -7,7 +7,7 @@ quality alerting, and human calibration support.
 Design-pattern source: Chapter 19 — Evaluation and Monitoring.
 
 OWL: :EvaluationRecord rdfs:subClassOf :Observation
-See docs/design-patterns-alignment.md §AU-020.
+See docs/design-patterns-alignment.md §CONCEPT:AHE-3.1.
 """
 
 from __future__ import annotations

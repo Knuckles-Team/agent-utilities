@@ -174,9 +174,9 @@ class AgentConfig(BaseSettings):
     a2a_storage: str = Field(default="in-memory", alias="A2A_STORAGE")
     a2a_storage_url: str | None = Field(default=None, alias="A2A_STORAGE_URL")
     a2a_config: str | None = Field(default=None, alias="A2A_CONFIG")
-    """Path to a2a_config.json for external A2A agent discovery (AU-028)."""
+    """Path to a2a_config.json for external A2A agent discovery (CONCEPT:ECO-4.2)."""
     a2a_refresh_interval: int = Field(default=300, alias="A2A_REFRESH_INTERVAL")
-    """Interval in seconds for periodic A2A agent card re-fetch (AU-028)."""
+    """Interval in seconds for periodic A2A agent card re-fetch (CONCEPT:ECO-4.2)."""
 
     max_tokens: int = Field(default=16384, alias="MAX_TOKENS")
     temperature: float = Field(default=0.7, alias="TEMPERATURE")
@@ -197,54 +197,54 @@ class AgentConfig(BaseSettings):
     validation_mode: bool = Field(default=False, alias="VALIDATION_MODE")
     approval_timeout: float = Field(default=0.0, alias="APPROVAL_TIMEOUT")
 
-    # --- Agent OS Architecture (CONCEPT:OS-5.2/AU-031/AU-032) ---
+    # --- Agent OS Architecture (CONCEPT:OS-5.2) ---
 
     cognitive_scheduler_enabled: bool = Field(
         default=True, alias="COGNITIVE_SCHEDULER_ENABLED"
     )
-    """Enable the Cognitive Scheduler for priority-aware agent management (AU-030)."""
+    """Enable the Cognitive Scheduler for priority-aware agent management (CONCEPT:OS-5.2)."""
 
     max_concurrent_agents: int = Field(default=5, alias="MAX_CONCURRENT_AGENTS")
-    """Maximum number of concurrently running specialist agents (AU-030)."""
+    """Maximum number of concurrently running specialist agents (CONCEPT:OS-5.2)."""
 
     agent_token_quota: int = Field(default=100_000, alias="AGENT_TOKEN_QUOTA")
-    """Default per-agent token budget before preemption (AU-030)."""
+    """Default per-agent token budget before preemption (CONCEPT:OS-5.2)."""
 
     preemption_threshold_pct: float = Field(
         default=0.85, alias="PREEMPTION_THRESHOLD_PCT"
     )
-    """Quota usage percentage that triggers preemption warning (AU-030)."""
+    """Quota usage percentage that triggers preemption warning (CONCEPT:OS-5.2)."""
 
     agent_policies_path: str | None = Field(default=None, alias="AGENT_POLICIES_PATH")
-    """Path to agent_policies.json for identity-based governance (AU-031)."""
+    """Path to agent_policies.json for identity-based governance (CONCEPT:OS-5.2)."""
 
     permissions_signing_key: str | None = Field(
         default=None, alias="PERMISSIONS_SIGNING_KEY"
     )
-    """HMAC signing key for agent identity tokens. Auto-generated if not set (AU-031)."""
+    """HMAC signing key for agent identity tokens. Auto-generated if not set (CONCEPT:OS-5.2)."""
 
     specialist_registry_path: str | None = Field(
         default=None, alias="SPECIALIST_REGISTRY_PATH"
     )
-    """Path to local specialist registry directory (AU-032)."""
+    """Path to local specialist registry directory (CONCEPT:OS-5.2)."""
 
-    # --- Innovation Framework (CONCEPT:OS-5.2 through AU-038) ---
+    # --- Innovation Framework (CONCEPT:OS-5.2 through CONCEPT:OS-5.2) ---
 
     homeostatic_downgrade_enabled: bool = Field(
         default=True, alias="HOMEOSTATIC_DOWNGRADE_ENABLED"
     )
-    """Enable automatic model tier downgrade when budget is under pressure (AU-033)."""
+    """Enable automatic model tier downgrade when budget is under pressure (CONCEPT:OS-5.2)."""
 
     adversarial_verification: bool = Field(
         default=False, alias="ADVERSARIAL_VERIFICATION"
     )
-    """Enable adversarial verification pass (opt-in only, doubles verification cost) (AU-034)."""
+    """Enable adversarial verification pass (opt-in only, doubles verification cost) (CONCEPT:AHE-3.1)."""
 
     maintenance_token_budget: int = Field(default=0, alias="MAINTENANCE_TOKEN_BUDGET")
-    """Token budget for autonomous maintenance cron (0 = unlimited) (AU-038)."""
+    """Token budget for autonomous maintenance cron (0 = unlimited) (CONCEPT:OS-5.2)."""
 
     maintenance_priority: str = Field(default="LOW", alias="MAINTENANCE_PRIORITY")
-    """Priority level for autonomous maintenance tasks (LOW/MEDIUM/HIGH) (AU-038)."""
+    """Priority level for autonomous maintenance tasks (LOW/MEDIUM/HIGH) (CONCEPT:OS-5.2)."""
 
     watchdog_patterns: list[str] = Field(
         default=[
@@ -254,7 +254,7 @@ class AgentConfig(BaseSettings):
         ],
         alias="WATCHDOG_PATTERNS",
     )
-    """File patterns to monitor for the file watcher trigger (AU-036)."""
+    """File patterns to monitor for the file watcher trigger (CONCEPT:OS-5.0)."""
 
     tool_guard_mode: str = Field(default="strict", alias="TOOL_GUARD_MODE")
     sensitive_tool_patterns: list[str] = Field(
@@ -457,7 +457,7 @@ AUTH_JWT_AUDIENCE = config.auth_jwt_audience
 ALLOWED_ORIGINS = config.allowed_origins
 ALLOWED_HOSTS = config.allowed_hosts
 
-# Agent OS Architecture defaults (CONCEPT:OS-5.2/AU-031/AU-032)
+# Agent OS Architecture defaults (CONCEPT:OS-5.2)
 DEFAULT_COGNITIVE_SCHEDULER_ENABLED = config.cognitive_scheduler_enabled
 DEFAULT_MAX_CONCURRENT_AGENTS = config.max_concurrent_agents
 DEFAULT_AGENT_TOKEN_QUOTA = config.agent_token_quota
@@ -466,7 +466,7 @@ DEFAULT_AGENT_POLICIES_PATH = config.agent_policies_path
 DEFAULT_PERMISSIONS_SIGNING_KEY = config.permissions_signing_key
 DEFAULT_SPECIALIST_REGISTRY_PATH = config.specialist_registry_path
 
-# Innovation Framework defaults (CONCEPT:OS-5.2 through AU-038)
+# Innovation Framework defaults (CONCEPT:OS-5.2 through CONCEPT:OS-5.2)
 DEFAULT_HOMEOSTATIC_DOWNGRADE = config.homeostatic_downgrade_enabled
 DEFAULT_ADVERSARIAL_VERIFICATION = config.adversarial_verification
 DEFAULT_MAINTENANCE_TOKEN_BUDGET = config.maintenance_token_budget

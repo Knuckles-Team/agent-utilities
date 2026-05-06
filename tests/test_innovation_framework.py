@@ -1,12 +1,12 @@
 #!/usr/bin/python
-"""Tests for Innovation Framework modules (AU-033 through AU-038).
+"""Tests for Innovation Framework modules (CONCEPT:OS-5.2 through CONCEPT:OS-5.2).
 
 Tests cover:
-- AU-033: Homeostatic model downgrade integration
-- AU-034: Adversarial verification models and logic
-- AU-035: Signal board state management
-- AU-036: File watcher trigger rules and package audit
-- AU-038: Maintenance cron scheduling and budget management
+- CONCEPT:OS-5.2: Homeostatic model downgrade integration
+- CONCEPT:AHE-3.1: Adversarial verification models and logic
+- CONCEPT:ORCH-1.2: Signal board state management
+- CONCEPT:OS-5.0: File watcher trigger rules and package audit
+- CONCEPT:OS-5.2: Maintenance cron scheduling and budget management
 """
 
 from __future__ import annotations
@@ -19,11 +19,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ── AU-033: Homeostatic Model Downgrade ──────────────────────────────
+# ── CONCEPT:OS-5.2: Homeostatic Model Downgrade ──────────────────────────────
 
 
 class TestHomeostaticDowngrade:
-    """AU-033: ResourceOptimizer-driven tier downgrade."""
+    """CONCEPT:OS-5.2: ResourceOptimizer-driven tier downgrade."""
 
     def test_resource_optimizer_budget_remaining(self):
         """ResourceBudget computes remaining correctly."""
@@ -71,11 +71,11 @@ class TestHomeostaticDowngrade:
         assert deps.resource_optimizer is not None
 
 
-# ── AU-034: Adversarial Verification ─────────────────────────────────
+# ── CONCEPT:AHE-3.1: Adversarial Verification ─────────────────────────────────
 
 
 class TestAdversarialVerification:
-    """AU-034: Adversarial verification models."""
+    """CONCEPT:AHE-3.1: Adversarial verification models."""
 
     def test_adversarial_result_model(self):
         """AdversarialResult should serialize correctly."""
@@ -119,11 +119,11 @@ class TestAdversarialVerification:
         assert not enabled or os.getenv("ADVERSARIAL_VERIFICATION") is not None
 
 
-# ── AU-035: Signal Board ─────────────────────────────────────────────
+# ── CONCEPT:ORCH-1.2: Signal Board ─────────────────────────────────────────────
 
 
 class TestSignalBoard:
-    """AU-035: Stigmergy signal board on GraphState."""
+    """CONCEPT:ORCH-1.2: Stigmergy signal board on GraphState."""
 
     def test_signal_board_default_empty(self):
         """Signal board should start empty."""
@@ -161,11 +161,11 @@ class TestSignalBoard:
         assert "quality_gap" in state.signal_board
 
 
-# ── AU-036: File Watcher ─────────────────────────────────────────────
+# ── CONCEPT:OS-5.0: File Watcher ─────────────────────────────────────────────
 
 
 class TestFileWatcher:
-    """AU-036: Watchdog file trigger system."""
+    """CONCEPT:OS-5.0: Watchdog file trigger system."""
 
     def test_trigger_rule_creation(self):
         """TriggerRule should create with defaults."""
@@ -252,11 +252,11 @@ class TestFileWatcher:
         assert "vulnerabilities" in result
 
 
-# ── AU-038: Maintenance Cron ─────────────────────────────────────────
+# ── CONCEPT:OS-5.2: Maintenance Cron ─────────────────────────────────────────
 
 
 class TestMaintenanceCron:
-    """AU-038: Maintenance cron scheduling."""
+    """CONCEPT:OS-5.2: Maintenance cron scheduling."""
 
     def test_default_tasks_loaded(self):
         """MaintenanceCron should have default tasks."""
@@ -372,7 +372,7 @@ class TestMaintenanceCron:
 
 
 class TestInnovationConfig:
-    """Config fields for AU-033 through AU-038."""
+    """Config fields for CONCEPT:OS-5.2 through CONCEPT:OS-5.2."""
 
     def test_homeostatic_downgrade_config_exists(self):
         """AgentConfig should have homeostatic_downgrade_enabled field."""

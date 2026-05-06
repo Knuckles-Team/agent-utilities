@@ -275,6 +275,10 @@ async def verifier_step(
                 return "dispatcher"
             logger.info(f"Verifier: Validation passed (score: {validation.score:.2f}).")
 
+            # CONCEPT:AHE-3.5: Cross-Rollout Critique (Distill Experience)
+            if ctx.state.verification_attempts > 0 or ctx.state.retry_count > 0:
+                await _distill_experience_from_retry(ctx, results_summary)
+
             # CONCEPT:AHE-3.1 — Adversarial Verification (opt-in)
             # If ADVERSARIAL_VERIFICATION=true, run a second "hacker agent"
             # pass to stress-test the implementation.  Only fires when the
@@ -302,13 +306,13 @@ async def verifier_step(
                                 + ". Fix these before re-submitting."
                             )
                             logger.warning(
-                                "[AU-034] Adversarial FAIL (severity: %s). Re-dispatching.",
+                                "[CONCEPT:AHE-3.1] Adversarial FAIL (severity: %s). Re-dispatching.",
                                 adversarial_result.severity,
                             )
                             ctx.state.step_cursor = 0
                             return "dispatcher"
                         logger.info(
-                            "[AU-034] Adversarial found %s issues (severity: %s) "
+                            "[CONCEPT:AHE-3.1] Adversarial found %s issues (severity: %s) "
                             "— proceeding to synthesis with advisory.",
                             len(adversarial_result.findings),
                             adversarial_result.severity,
@@ -448,7 +452,7 @@ async def synthesizer_step(
     except Exception as e:
         logger.debug(f"Failed to write execution memory: {e}")
 
-    # CONCEPT:KG-2.1/AU-025 — Post-execution feedback loop
+    # CONCEPT:KG-2.1 — Post-execution feedback loop
     # Record execution outcome into Self-Model and TeamConfig for learning.
     execution_success = bool(result_text and result_text.lower() != "none")
     if ctx.deps.knowledge_engine:
@@ -459,7 +463,7 @@ async def synthesizer_step(
             memory_retriever = MemoryRetriever(ctx.deps.knowledge_engine)
             memory_retriever.update_after_session(ctx.state)
             logger.info(
-                "[AU-016] Self-Model updated: domain=%s, success=%s",
+                "[CONCEPT:KG-2.1] Self-Model updated: domain=%s, success=%s",
                 ctx.state.routed_domain,
                 execution_success,
             )
@@ -479,7 +483,7 @@ async def synthesizer_step(
                         team_config_id, reward=reward
                     )
                     logger.info(
-                        "[AU-025] TeamConfig '%s' outcome recorded: reward=%.1f",
+                        "[CONCEPT:AHE-3.3] TeamConfig '%s' outcome recorded: reward=%.1f",
                         team_config_id,
                         reward,
                     )
@@ -572,3 +576,151 @@ async def error_recovery_step(
         next_node="end",
     )
     return End({"error": error_str, "results": ctx.state.results})
+
+
+async def _distill_experience_from_retry(
+    ctx: StepContext[GraphState, GraphDeps, Any], results_summary: str
+) -> None:
+    """CONCEPT:AHE-3.5: Contrastive self-correction distillation.
+
+    Extracts an ExperienceNode by contrasting a successful retry against
+    its previous failure feedback.
+    """
+    if not ctx.deps.knowledge_engine:
+        return
+
+    logger.info("Distilling Experience from successful retry...")
+    try:
+        from pydantic import BaseModel
+
+        class ExtractedExperience(BaseModel):
+            condition: str
+            action: str
+
+        distillation_agent = Agent(
+            model=ctx.deps.agent_model,
+            output_type=ExtractedExperience,
+            system_prompt=(
+                "You are an evolutionary critique engine. "
+                "The agent previously failed this task, but succeeded on retry. "
+                "Contrast the failure state with the success state to identify the specific "
+                "tactical action that fixed the problem. Extract this as a condition-action pair."
+            ),
+        )
+
+        prompt = (
+            f"Original Query: {ctx.state.query}\n"
+            f"Previous Feedback/Error: {ctx.state.validation_feedback or ctx.state.error}\n"
+            f"Current Success Results: {results_summary}\n"
+        )
+
+        res = await distillation_agent.run(prompt)
+
+        if res.data:
+            import uuid
+
+            from ..models.knowledge_graph import ExperienceNode, RegistryNodeType
+
+            exp_id = f"exp_{uuid.uuid4().hex[:8]}"
+            node = ExperienceNode(
+                id=exp_id,
+                name=f"Fix: {res.data.action[:40]}",
+                description=f"When {res.data.condition}",
+                type=RegistryNodeType.EXPERIENCE,
+                condition=res.data.condition,
+                action=res.data.action,
+                source_run_id=ctx.state.session_id,
+            )
+            ctx.deps.knowledge_engine.add_node(node)
+            logger.info(f"Distilled Experience Node: {exp_id}")
+    except Exception as e:
+        logger.warning(f"Experience distillation failed: {e}")
+
+
+async def parallel_trajectory_distiller(
+    deps: GraphDeps, trajectories: list[dict[str, Any]], query: str = ""
+) -> None:
+    """CONCEPT:AHE-3.5: Memory-Aware Test-Time Scaling (Parallel Experience Distillation).
+
+    Extracts an ExperienceNode by evaluating a batch of parallel trajectory attempts
+    (both successes and failures). Unlike sequential retry loops, this batch processing
+    distills a holistic reasoning memory that guides test-time scaling.
+
+    Leverages CONCEPT:KG-2.4 (Inductive Knowledge Hypergraphs) to map derived tactics to
+    hyperedges, enabling zero-shot structural generalization across novel topologies.
+    """
+    if not deps.knowledge_engine:
+        return
+    logger.info("Distilling Memory from Parallel Trajectories (CONCEPT:AHE-3.5)...")
+
+    try:
+        from pydantic import BaseModel, Field
+        from pydantic_ai import Agent
+
+        class BatchDistillation(BaseModel):
+            tactical_condition: str = Field(
+                description="The structural condition that requires this tactic."
+            )
+            tactical_action: str = Field(
+                description="The generalized action/heuristic derived from parallel attempts."
+            )
+            confidence: float = Field(
+                description="Confidence from 0.0 to 1.0 based on consensus across trials."
+            )
+
+        summary_blocks = []
+        for traj in trajectories:
+            status = "SUCCESS" if traj.get("success") else "FAILURE"
+            out_str = str(traj.get("output", ""))[:500]
+            summary_blocks.append(
+                f"Trial {traj.get('candidate_id')}: [{status}] - {out_str}"
+            )
+
+        combined_trajectories = "\n\n".join(summary_blocks)
+
+        distillation_agent = Agent(
+            model=deps.agent_model,
+            output_type=BatchDistillation,
+            system_prompt=(
+                "You are an evolutionary hypergraph orchestrator. "
+                "Analyze this batch of parallel trajectory attempts for a single query. "
+                "Identify the underlying structural/topological reason why some succeeded and others failed. "
+                "Extract a generalized condition-action heuristic that captures this insight."
+            ),
+        )
+
+        res = await distillation_agent.run(
+            f"Original Query: {query}\n\nParallel Trajectories:\n{combined_trajectories}"
+        )
+
+        if res.data and res.data.confidence >= 0.5:
+            import uuid
+
+            from ..knowledge_graph.hypergraph import PositionalInteractionEncoder
+            from ..models.knowledge_graph import ExperienceNode, RegistryNodeType
+
+            exp_id = f"exp_par_{uuid.uuid4().hex[:8]}"
+            node = ExperienceNode(
+                id=exp_id,
+                name=f"Parallel Tactic: {res.data.tactical_action[:30]}",
+                description=f"Derived from parallel test-time scaling. When: {res.data.tactical_condition}",
+                type=RegistryNodeType.EXPERIENCE,
+                condition=res.data.tactical_condition,
+                action=res.data.tactical_action,
+                success_rate=res.data.confidence,
+            )
+
+            # CONCEPT:KG-2.4: Compute positional interaction encoding for structural generalization
+            # We map the condition (position 1) to the action (position 2) in the hypergraph
+            encoder = PositionalInteractionEncoder()
+            enc_pi = encoder.encode_interaction(1, 2)
+            node.metadata["enc_pi"] = enc_pi
+            node.metadata["source"] = "parallel_scaling_distillation"
+
+            deps.knowledge_engine.add_node(node)
+            logger.info(
+                f"Distilled Parallel Experience Node (CONCEPT:AHE-3.5): {exp_id} with EncPI mapping."
+            )
+
+    except Exception as e:
+        logger.warning(f"Parallel experience distillation failed: {e}")

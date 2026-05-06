@@ -71,7 +71,7 @@ class EvolveAgent:
 
         When the evidence corpus is too large for a single LLM context
         window, automatically delegates to RLM for deep analysis
-        (CONCEPT:ORCH-1.1 × AU-012).
+        (CONCEPT:ORCH-1.1 × CONCEPT:ORCH-1.1).
 
         Args:
             evidence: The distilled evidence corpus for this round.
@@ -130,7 +130,7 @@ class EvolveAgent:
     ) -> list[ComponentEdit]:
         """RLM-powered deep analysis for large evidence corpora.
 
-        CONCEPT:ORCH-1.1 × AU-012 — RLM for AHE Evolution Loop
+        CONCEPT:ORCH-1.1 × CONCEPT:ORCH-1.1 — RLM for AHE Evolution Loop
 
         When the serialized evidence exceeds the context threshold,
         delegates to an RLM sub-agent that programmatically loops

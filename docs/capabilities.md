@@ -65,13 +65,13 @@ Multi-agent coordination patterns:
 - **Parallel dispatch**: Send tasks to multiple agents simultaneously
 - **Sequential pipeline**: Chain agent outputs as inputs to the next
 - **Voting/consensus**: Aggregate multiple agent responses
-- **TeamConfig Promotion (AU-025)**: Successful coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. See [first-principles.md](first-principles.md) for details on proven team reuse and reward tracking.
+- **TeamConfig Promotion (CONCEPT:AHE-3.3)**: Successful coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. See [first-principles.md](first-principles.md) for details on proven team reuse and reward tracking.
 
 ---
 
-## AgentCapability Type System (AU-026)
+## AgentCapability Type System (CONCEPT:ORCH-1.2)
 
-> See also: [First Principles Architecture](first-principles.md) for the complete AU-026 deep-dive.
+> See also: [First Principles Architecture](first-principles.md) for the complete CONCEPT:ORCH-1.2 deep-dive.
 
 The AgentCapability system extends the static tool-binding model with dynamic, condition-based capability activation. Capabilities are modeled as first-class Knowledge Graph nodes (`AgentCapabilityNode`) with trigger conditions that are evaluated at execution time.
 
@@ -91,7 +91,7 @@ The AgentCapability system extends the static tool-binding model with dynamic, c
 
 ---
 
-## Registry Hot Cache (AU-024)
+## Registry Hot Cache (CONCEPT:ORCH-1.2)
 
 > See also: [Registry Cache Deep-Dive](registry-cache.md) for the complete architecture.
 

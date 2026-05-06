@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for AU-048 — Structural Fingerprint Engine."""
+"""Tests for CONCEPT:KG-2.3 — Structural Fingerprint Engine."""
 
 import os
 import textwrap

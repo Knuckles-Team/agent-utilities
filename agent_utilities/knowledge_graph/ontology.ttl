@@ -326,7 +326,7 @@ bfo:0000008 a owl:Class ; rdfs:subClassOf bfo:0000003 ;
     rdfs:comment "A financial account. BFO:GenericallyDependentContinuant." .
 
 # =====================================================================
-# AHE Classes — Agentic Harness Engineering (CONCEPT:AU-012)
+# AHE Classes — Agentic Harness Engineering (CONCEPT:ORCH-1.1)
 # =====================================================================
 
 :ChangeManifest a owl:Class ;
@@ -592,7 +592,7 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:domain :Agent ; rdfs:range :FinancialTransaction ;
     rdfs:label "executed transaction" .
 
-# ── NEW: AHE Object Properties (CONCEPT:AU-012) ──
+# ── NEW: AHE Object Properties (CONCEPT:ORCH-1.1) ──
 :editedInRound a owl:ObjectProperty ;
     rdfs:domain :ComponentEditRecord ; rdfs:range :ChangeManifest ;
     rdfs:label "edited in round" ;
@@ -702,7 +702,7 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:label "notation" ;
     rdfs:comment "SKOS notation — a code or identifier for a concept in a classification scheme." .
 
-# ── NEW: AHE Datatype Properties (CONCEPT:AU-012) ──
+# ── NEW: AHE Datatype Properties (CONCEPT:ORCH-1.1) ──
 :baselineScore a owl:DatatypeProperty ;
     rdfs:domain :ChangeManifest ; rdfs:range xsd:float ;
     rdfs:label "baseline score" ;
@@ -729,10 +729,10 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:comment "Number of times this constraint has been violated." .
 
 # =====================================================================
-# Agentic Design Patterns Gap Classes (CONCEPT:AU-018 through AU-022)
+# Agentic Design Patterns Gap Classes (CONCEPT:ORCH-1.1 through CONCEPT:AHE-3.2)
 # =====================================================================
 
-# ── AU-018: Prompt Chaining ──
+# ── CONCEPT:ORCH-1.1: Prompt Chaining ──
 :PromptChain   a owl:Class ;
     rdfs:subClassOf :Procedure ;
     rdfs:label "Prompt Chain" ;
@@ -743,25 +743,25 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:label "Prompt Chain Step" ;
     rdfs:comment "A single step within a PromptChain. BFO:Process via Action." .
 
-# ── AU-019: Resource-Aware Optimization ──
+# ── CONCEPT:OS-5.2: Resource-Aware Optimization ──
 :ResourceUsage a owl:Class ;
     rdfs:subClassOf bfo:0000015 ;
     rdfs:label "Resource Usage Record" ;
     rdfs:comment "Per-session resource consumption tracking (tokens, cost, latency). BFO:Process." .
 
-# ── AU-020: Evaluation & Monitoring ──
+# ── CONCEPT:AHE-3.1: Evaluation & Monitoring ──
 :EvaluationRecord a owl:Class ;
     rdfs:subClassOf :Observation ;
     rdfs:label "Multi-Dimensional Evaluation Record" ;
     rdfs:comment "Multi-dimensional quality evaluation with per-dimension scoring. Subclass of Observation." .
 
-# ── AU-021: Task Prioritization ──
+# ── CONCEPT:ORCH-1.1: Task Prioritization ──
 :PrioritizedTask a owl:Class ;
     rdfs:subClassOf :Action ;
     rdfs:label "Prioritized Task" ;
     rdfs:comment "A task with multi-factor priority scoring (urgency, impact, effort, risk). BFO:Process via Action." .
 
-# ── AU-022: Exploration & Discovery ──
+# ── CONCEPT:AHE-3.2: Exploration & Discovery ──
 :KnowledgeGap  a owl:Class ;
     rdfs:subClassOf :Observation ;
     rdfs:label "Knowledge Gap" ;
@@ -773,10 +773,10 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:comment "A structured experiment to test a hypothesis. BFO:Process via Procedure." .
 
 # =====================================================================
-# Object Properties — AU-018 through AU-022
+# Object Properties — CONCEPT:ORCH-1.1 through CONCEPT:AHE-3.2
 # =====================================================================
 
-# ── AU-018 ──
+# ── CONCEPT:ORCH-1.1 ──
 :hasChainStep  a owl:ObjectProperty ;
     rdfs:domain :PromptChain ; rdfs:range :PromptChainStep ;
     rdfs:label "has chain step" .
@@ -785,12 +785,12 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:domain :PromptChainStep ; rdfs:range :PromptChainStep ;
     rdfs:label "branches to" .
 
-# ── AU-019 ──
+# ── CONCEPT:OS-5.2 ──
 :consumedResource a owl:ObjectProperty ;
     rdfs:domain :Episode ; rdfs:range :ResourceUsage ;
     rdfs:label "consumed resource" .
 
-# ── AU-020 ──
+# ── CONCEPT:AHE-3.1 ──
 :evaluatedWith a owl:ObjectProperty ;
     rdfs:domain :Episode ; rdfs:range :EvaluationRecord ;
     rdfs:label "evaluated with" .
@@ -800,7 +800,7 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:label "calibrated against" ;
     rdfs:comment "Links a machine evaluation to a human calibration baseline." .
 
-# ── AU-021 ──
+# ── CONCEPT:ORCH-1.1 ──
 :blocksProp    a owl:ObjectProperty, owl:TransitiveProperty ;
     rdfs:domain :PrioritizedTask ; rdfs:range :PrioritizedTask ;
     rdfs:label "blocks" ;
@@ -815,7 +815,7 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:label "has priority" ;
     rdfs:comment "Composite priority score (0.0–1.0)." .
 
-# ── AU-022 ──
+# ── CONCEPT:AHE-3.2 ──
 :testsHypothesis a owl:ObjectProperty ;
     rdfs:domain :ExplorationExperiment ; rdfs:range :Hypothesis ;
     rdfs:label "tests hypothesis" .
@@ -829,7 +829,7 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:label "resulted in discovery" .
 
 # =====================================================================
-# Datatype Properties — AU-019, AU-020
+# Datatype Properties — CONCEPT:OS-5.2, CONCEPT:AHE-3.1
 # =====================================================================
 
 :hasResourceEfficiency a owl:DatatypeProperty ;
@@ -854,11 +854,11 @@ bfo:0000002 owl:disjointWith bfo:0000003 .
     rdfs:label "safety score" .
 
 # =====================================================================
-# Engineering Rules Engine (CONCEPT:AU-023)
+# Engineering Rules Engine (CONCEPT:KG-2.2)
 # Agent-rules-books integration for context-sensitive rule retrieval
 # =====================================================================
 
-# ── AU-023: Core Classes ──
+# ── CONCEPT:KG-2.2: Core Classes ──
 :EngineeringRule a owl:Class ;
     rdfs:subClassOf :Principle ;
     rdfs:label "Engineering Rule" ;
@@ -874,7 +874,7 @@ and AHE efficacy scoring for evolutionary rule selection.""" .
 of engineering rules (e.g., 'Clean Architecture', 'Domain-Driven Design').
 Subclass of CreativeWork for Dublin Core / BIBO alignment.""" .
 
-# ── AU-023: Object Properties ──
+# ── CONCEPT:KG-2.2: Object Properties ──
 :correctsBias  a owl:ObjectProperty ;
     rdfs:domain :EngineeringRule ;
     rdfs:label "corrects bias" ;
@@ -901,7 +901,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "applied in task" ;
     rdfs:comment "Links a rule to tasks where it was active for AHE tracking." .
 
-# ── AU-023: Datatype Properties ──
+# ── CONCEPT:KG-2.2: Datatype Properties ──
 :ruleTier      a owl:DatatypeProperty ;
     rdfs:domain :EngineeringRule ; rdfs:range xsd:string ;
     rdfs:label "rule tier" ;
@@ -933,7 +933,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment "Number of times this rule was violated." .
 
 # =====================================================================
-# External Integration & SDLC Entities (CONCEPT:AU-024)
+# External Integration & SDLC Entities (CONCEPT:ORCH-1.2)
 # =====================================================================
 
 # ── SDLC Core Classes ──
@@ -1030,3 +1030,218 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
 :externalSystemId a owl:DatatypeProperty ;
     rdfs:range xsd:string ;
     rdfs:label "external system id" .
+
+# ══════════════════════════════════════════════════════════════════════
+# Financial Trading Pipeline (CONCEPT:KG-2.6)
+# ══════════════════════════════════════════════════════════════════════
+
+:TradingSignal a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "A buy/sell/hold signal with confidence and attribution." ;
+    rdfs:label "trading signal" .
+
+:Order a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "An order in the trading pipeline lifecycle." ;
+    rdfs:label "order" .
+
+:Position a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "An open or closed position in a portfolio." ;
+    rdfs:label "position" .
+
+:Portfolio a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "An aggregation of positions with allocation tracking." ;
+    rdfs:label "portfolio" .
+
+:Strategy a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "A named trading strategy with parameters and performance lineage." ;
+    rdfs:label "strategy" .
+
+:generatedSignal a owl:ObjectProperty ;
+    rdfs:domain :Strategy ;
+    rdfs:range :TradingSignal ;
+    rdfs:label "generated signal" .
+
+:placedOrder a owl:ObjectProperty ;
+    rdfs:domain :TradingSignal ;
+    rdfs:range :Order ;
+    rdfs:label "placed order" .
+
+:openedPosition a owl:ObjectProperty ;
+    rdfs:domain :Order ;
+    rdfs:range :Position ;
+    rdfs:label "opened position" .
+
+:belongsToPortfolio a owl:ObjectProperty ;
+    rdfs:domain :Position ;
+    rdfs:range :Portfolio ;
+    rdfs:label "belongs to portfolio" .
+
+:executesStrategy a owl:ObjectProperty ;
+    rdfs:domain :Portfolio ;
+    rdfs:range :Strategy ;
+    rdfs:label "executes strategy" .
+
+:backtestedWith a owl:ObjectProperty ;
+    rdfs:domain :Strategy ;
+    rdfs:range :BacktestRun ;
+    rdfs:label "backtested with" .
+
+# Trading pipeline datatype properties
+:signalType a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "signal type" .
+
+:entryPrice a owl:DatatypeProperty ;
+    rdfs:range xsd:float ;
+    rdfs:label "entry price" .
+
+:exitPrice a owl:DatatypeProperty ;
+    rdfs:range xsd:float ;
+    rdfs:label "exit price" .
+
+:pnl a owl:DatatypeProperty ;
+    rdfs:range xsd:float ;
+    rdfs:label "profit and loss" .
+
+:sharpeRatio a owl:DatatypeProperty ;
+    rdfs:range xsd:float ;
+    rdfs:label "sharpe ratio" .
+
+:maxDrawdown a owl:DatatypeProperty ;
+    rdfs:range xsd:float ;
+    rdfs:label "maximum drawdown" .
+
+# ══════════════════════════════════════════════════════════════════════
+# Market Data Connector Protocol (CONCEPT:ECO-4.4)
+# ══════════════════════════════════════════════════════════════════════
+
+:DataConnector a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "A registered external data source with health and rate-limit metadata." ;
+    rdfs:label "data connector" .
+
+:DataFetchRecord a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "Immutable provenance record of a data fetch operation." ;
+    rdfs:label "data fetch record" .
+
+:fetchedFrom a owl:ObjectProperty ;
+    rdfs:domain :DataFetchRecord ;
+    rdfs:range :DataConnector ;
+    rdfs:label "fetched from" .
+
+:fallsBackTo a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain :DataConnector ;
+    rdfs:range :DataConnector ;
+    rdfs:comment "Transitive fallback chain. If A fallsBackTo B and B fallsBackTo C, then A fallsBackTo C." ;
+    rdfs:label "falls back to" .
+
+# ══════════════════════════════════════════════════════════════════════
+# Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
+# ══════════════════════════════════════════════════════════════════════
+
+:SwarmPreset a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "A declarative multi-agent workflow preset stored in the KG." ;
+    rdfs:label "swarm preset" .
+
+:SwarmRun a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "Execution record of a swarm preset run." ;
+    rdfs:label "swarm run" .
+
+:SwarmTaskRecord a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "Individual task execution record within a swarm run." ;
+    rdfs:label "swarm task record" .
+
+:presetOf a owl:ObjectProperty ;
+    rdfs:domain :SwarmPreset ;
+    rdfs:range :TeamConfig ;
+    rdfs:label "preset of" .
+
+:ranPreset a owl:ObjectProperty ;
+    rdfs:domain :SwarmRun ;
+    rdfs:range :SwarmPreset ;
+    rdfs:label "ran preset" .
+
+:taskDependsOn a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain :SwarmTaskRecord ;
+    rdfs:range :SwarmTaskRecord ;
+    rdfs:comment "DAG dependency between tasks. Transitive for indirect dependencies." ;
+    rdfs:label "task depends on" .
+
+# ══════════════════════════════════════════════════════════════════════
+# Risk Scoring Ontology (CONCEPT:KG-2.7)
+# ══════════════════════════════════════════════════════════════════════
+
+:RiskAssessment a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "Domain-agnostic risk evaluation with multi-dimensional scoring." ;
+    rdfs:label "risk assessment" .
+
+:RiskFactor a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "An individual risk factor contributing to an assessment." ;
+    rdfs:label "risk factor" .
+
+:RiskMitigation a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "A proposed or applied mitigation for a risk factor." ;
+    rdfs:label "risk mitigation" .
+
+:assessedRisk a owl:ObjectProperty ;
+    rdfs:range :RiskAssessment ;
+    rdfs:comment "Links any entity to its risk assessment." ;
+    rdfs:label "assessed risk" .
+
+:hasRiskFactor a owl:ObjectProperty ;
+    rdfs:domain :RiskAssessment ;
+    rdfs:range :RiskFactor ;
+    rdfs:label "has risk factor" .
+
+:mitigatedBy a owl:ObjectProperty ;
+    rdfs:domain :RiskFactor ;
+    rdfs:range :RiskMitigation ;
+    rdfs:label "mitigated by" .
+
+:propagatesRiskTo a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:comment "Transitive risk propagation. If A propagatesRiskTo B and B propagatesRiskTo C, then A propagatesRiskTo C. Enables automated upstream risk chain inference via OWL reasoning." ;
+    rdfs:label "propagates risk to" .
+
+:hasSeverityScore a owl:DatatypeProperty ;
+    rdfs:range xsd:float ;
+    rdfs:label "severity score" .
+
+# ══════════════════════════════════════════════════════════════════════
+# Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+# ══════════════════════════════════════════════════════════════════════
+
+:BacktestRun a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "A complete backtesting or evaluation run record." ;
+    rdfs:label "backtest run" .
+
+:BacktestMetric a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "An individual metric from a backtest or evaluation run." ;
+    rdfs:label "backtest metric" .
+
+:evaluatedStrategy a owl:ObjectProperty ;
+    rdfs:domain :BacktestRun ;
+    rdfs:range :Strategy ;
+    rdfs:label "evaluated strategy" .
+
+:hasMetric a owl:ObjectProperty ;
+    rdfs:domain :BacktestRun ;
+    rdfs:range :BacktestMetric ;
+    rdfs:label "has metric" .
+
+:comparedToBenchmark a owl:ObjectProperty ;
+    rdfs:domain :BacktestRun ;
+    rdfs:comment "Benchmark comparison reference." ;
+    rdfs:label "compared to benchmark" .

@@ -305,7 +305,7 @@ Successful engineering cycles (e.g., a specific TDD solution for a recurring pro
 
 ---
 
-## Emergent Architecture (CONCEPT:KG-2.0 through AU-017)
+## Emergent Architecture (CONCEPT:KG-2.0 through CONCEPT:ORCH-1.2)
 
 The Emergent Architecture layer enables dynamic agent coalition formation, evolutionary variant selection, metacognitive self-modeling, and attention-based output quality filtering. See [emergent-architecture.md](emergent-architecture.md) for complete documentation.
 
@@ -336,7 +336,7 @@ Always-on attention mechanism that scores specialist outputs by relevance, confi
 
 ---
 
-## First Principles Architecture (CONCEPT:ORCH-1.2 through AU-027)
+## First Principles Architecture (CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.2)
 
 The First Principles Architecture rewires the routing, dispatch, and feedback layers from basic primitives to solve scalability and intelligence bottlenecks. See [first-principles.md](first-principles.md) for the complete deep-dive.
 
@@ -370,7 +370,7 @@ The verification synthesizer (`graph/verification.py`) now feeds execution outco
 1. **Self-Model Update**: `SelfModel.update_after_session(state)` aggregates domain success rates, tool proficiency, and failure patterns into the versioned metacognitive self-model.
 2. **TeamConfig Reward**: `record_team_outcome(config_id, success)` updates the success rate of the used team template via exponential moving average.
 
-Both updates trigger **registry cache invalidation** (AU-024), ensuring future routing decisions reflect the latest knowledge.
+Both updates trigger **registry cache invalidation** (CONCEPT:ORCH-1.2), ensuring future routing decisions reflect the latest knowledge.
 
 ---
 
@@ -402,7 +402,7 @@ The server ensures all child processes (MCP servers, TUI, background threads) ar
 
 ## Local Secret Storage (Vault & SQLite)
 
-The `agent-utilities` ecosystem provides a unified `SecretsClient` (AU-011) designed to replace static `.env` files. It supports three backends: `inmemory`, `sqlite` (persistent), and `vault` (hvac).
+The `agent-utilities` ecosystem provides a unified `SecretsClient` (CONCEPT:OS-5.1) designed to replace static `.env` files. It supports three backends: `inmemory`, `sqlite` (persistent), and `vault` (hvac).
 
 ### Setting Up the Backend
 

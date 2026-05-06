@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for AU-053 — Graph Integrity Validator."""
+"""Tests for CONCEPT:KG-2.3 — Graph Integrity Validator."""
 
 import networkx as nx
 import pytest

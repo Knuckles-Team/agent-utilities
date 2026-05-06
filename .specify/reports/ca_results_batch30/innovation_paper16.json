@@ -1,0 +1,68 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "results": [
+    {
+      "source": "/home/apps/workspace/scholarx_papers/batch_30/paper_16.md",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [
+          {
+            "keyword": "transformer",
+            "count": 3,
+            "analogy": "parallel sequence processing",
+            "target_domain": "batch_processing"
+          },
+          {
+            "keyword": "attention",
+            "count": 1,
+            "analogy": "context-aware retrieval weighting",
+            "target_domain": "hybrid_retriever"
+          },
+          {
+            "keyword": "zero-shot",
+            "count": 1,
+            "analogy": "inductive generalization",
+            "target_domain": "encpi"
+          }
+        ],
+        "innovation_claims": [
+          "Although base models achieve near-ceiling in-domain performance (up to 99.5% balanced accuracy), performance under shift is brittle and strongly model-dependent",
+          "Feature augmentation via attention-based linguistic feature fusion improves transfer, with our best model (DeBERTa-v3-base+FeatAttn) achieving 85.9% balanced accuracy on M4",
+          "Under the same fixed-threshold protocol, our model outperforms strong zero-shot baselines by up to +7.22 points",
+          "Overall, these results demonstrate that feature augmentation and a modern DeBERTa backbone significantly outperform earlier BERT/RoBERTa models, while the fixed-threshold protocol provides a more realistic and informative assessment of practical detector robustness"
+        ]
+      },
+      "synergies": [
+        {
+          "innovation": "parallel sequence processing",
+          "source_keyword": "transformer",
+          "target_domain": "batch_processing",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "context-aware retrieval weighting",
+          "source_keyword": "attention",
+          "target_domain": "hybrid_retriever",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "inductive generalization",
+          "source_keyword": "zero-shot",
+          "target_domain": "encpi",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 3
+    }
+  ]
+}

@@ -110,8 +110,17 @@ async def router_step(
         logger.info(
             f"Router: Fast-path — trivial query detected ('{ctx.state.query[:40]}'). Generating direct response."
         )
+        # CONCEPT:KG-2.1 — Adaptive Model Routing (Fast Path)
+        import os
+
+        from ..core.model_factory import create_model
+
+        lightweight_model = create_model(
+            model_id=os.environ.get("LIGHTWEIGHT_MODEL", "gpt-4o-mini")
+        )
+
         fast_agent = Agent(
-            model=deps.router_model,
+            model=lightweight_model,
             system_prompt="You are a helpful assistant. Respond naturally and concisely.",
         )
         try:
@@ -332,6 +341,31 @@ async def router_step(
         relevant = get_relevant_specialists(
             ctx.state.query, engine=deps.knowledge_engine, top_n=7
         )
+
+        # CONCEPT:KG-2.1 — Reward-Driven Routing Optimization
+        # Leverage existing ACO pheromone trails (hidden value-add) to filter out low-performing specialists
+        try:
+            from ..knowledge_graph.memory_retriever import MemoryRetriever
+
+            memory_retriever = MemoryRetriever(deps.knowledge_engine)
+            current = memory_retriever.get_current()
+            if current and current.pheromone_trails and relevant:
+                optimized_relevant = []
+                for a in relevant:
+                    trails = current.pheromone_trails.get(a.name, {})
+                    if trails:
+                        avg_affinity = sum(trails.values()) / len(trails)
+                        if (
+                            avg_affinity < 0.1
+                        ):  # Downweight historically poor performers
+                            logger.info(
+                                f"Router: Reward-Driven Optimization — Dropping '{a.name}' due to low historical affinity ({avg_affinity:.2f})"
+                            )
+                            continue
+                    optimized_relevant.append(a)
+                relevant = optimized_relevant
+        except Exception as e:
+            logger.debug(f"Reward-driven routing optimization failed: {e}")
         if relevant:
             step_info = "\n".join([f"- {a.name}: {a.description}" for a in relevant])
             # Append compact fallback list of OTHER specialists (name-only)
@@ -426,8 +460,29 @@ async def router_step(
                 res = await router_agent.run(f"Text to parse:\n{rlm_result}")
                 plan_output = res.output
         else:
+            # CONCEPT:KG-2.1 — Adaptive Model Routing (Planner Path)
+            import os
+
+            query_length = len(ctx.state.query.split())
+            is_complex = (
+                "complex" in ctx.state.query.lower()
+                or "architect" in ctx.state.query.lower()
+                or len(relevant) > 3
+            )
+            if query_length < 20 and not is_complex:
+                from ..core.model_factory import create_model
+
+                adaptive_model = create_model(
+                    model_id=os.environ.get("LIGHTWEIGHT_MODEL", "gpt-4o-mini")
+                )
+                logger.info(
+                    "[LAYER:GRAPH:ROUTER] Adaptive Routing: Selected lightweight model for simple task."
+                )
+            else:
+                adaptive_model = deps.router_model
+
             router_agent = Agent(
-                model=deps.router_model,
+                model=adaptive_model,
                 output_type=GraphPlan,
                 system_prompt=system_prompt_str,
             )

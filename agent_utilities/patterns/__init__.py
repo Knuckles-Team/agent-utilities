@@ -7,11 +7,11 @@ comparative review against *Agentic Design Patterns* (Antonio Gulli).
 
 Modules
 -------
-prompt_chain : AU-018
+prompt_chain : CONCEPT:ORCH-1.1
     Declarative multi-step prompt pipelines with branching.
-prioritization : AU-021
+prioritization : CONCEPT:ORCH-1.1
     Multi-factor task prioritization with dependency tracking.
-exploration : AU-022
+exploration : CONCEPT:AHE-3.2
     Autonomous exploration and discovery loop.
 """
 
@@ -38,17 +38,17 @@ from agent_utilities.patterns.prompt_chain import (
 )
 
 __all__ = [
-    # AU-018
+    # CONCEPT:ORCH-1.1
     "ChainResult",
     "PromptChain",
     "PromptChainExecutor",
     "PromptChainStep",
     "StepResult",
-    # AU-021
+    # CONCEPT:ORCH-1.1
     "PrioritizationEngine",
     "PrioritizedTask",
     "PriorityScore",
-    # AU-022
+    # CONCEPT:AHE-3.2
     "Discovery",
     "Experiment",
     "ExplorationEngine",

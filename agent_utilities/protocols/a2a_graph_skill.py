@@ -8,7 +8,7 @@ External A2A agents still see the same JSON-RPC interface
 (``message/send``, ``tasks/get``).  The only change is internal: we skip
 the LLM wrapper hop.  The agent card stays identical.
 
-See docs/emergent-architecture.md §AU-027.
+See docs/emergent-architecture.md §CONCEPT:ECO-4.2.
 """
 
 from __future__ import annotations

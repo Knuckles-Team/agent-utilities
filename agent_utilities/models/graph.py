@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class WideSearchWorkboard(BaseModel):
-    """CONCEPT:AU-055 — Pydantic-Native Shared Workboard.
+    """CONCEPT:ORCH-1.1 — Pydantic-Native Shared Workboard.
 
     A thread-safe/merge-safe shared memory scratchpad for parallel workers
     during wide-search extraction tasks.

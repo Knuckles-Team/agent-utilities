@@ -1,4 +1,4 @@
-"""Tests for AU-044: Conductor Workflow Specification.
+"""Tests for CONCEPT:ORCH-1.1: Conductor Workflow Specification.
 
 Validates that ExecutionStep.refined_subtask is correctly serialized,
 preferred over raw queries in the executor, and properly integrated
@@ -76,7 +76,7 @@ class TestRefinedSubtaskModel:
         schema = ExecutionStep.model_json_schema()
         assert "refined_subtask" in schema["properties"]
         desc = schema["properties"]["refined_subtask"]["description"]
-        assert "AU-044" in desc
+        assert "CONCEPT:ORCH-1.1" in desc
 
     def test_refined_subtask_coexists_with_input_data(self):
         """Both refined_subtask and input_data can be set."""
@@ -133,7 +133,7 @@ class TestRefinedSubtaskModel:
 
 
 class TestRefinedSubtaskRouting:
-    """Integration tests verifying the router prompt includes AU-044 instructions."""
+    """Integration tests verifying the router prompt includes CONCEPT:ORCH-1.1 instructions."""
 
     def test_step_descriptions_not_empty(self):
         """get_step_descriptions returns a non-empty catalog."""

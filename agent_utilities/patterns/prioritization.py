@@ -8,7 +8,7 @@ Design-pattern source: Chapter 20 — Prioritization.
 
 OWL: :PrioritizedTask rdfs:subClassOf :Action
      :blocks owl:TransitiveProperty
-See docs/design-patterns-alignment.md §AU-021.
+See docs/design-patterns-alignment.md §CONCEPT:ORCH-1.1.
 """
 
 from __future__ import annotations

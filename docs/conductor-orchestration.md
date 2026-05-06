@@ -1,10 +1,10 @@
-# Conductor Orchestration (AU-044 to AU-047)
+# Conductor Orchestration (CONCEPT:ORCH-1.1 to CONCEPT:ORCH-1.1)
 
 > **Source**: *"Learning to Orchestrate Agents in Natural Language with the Conductor"* — Nielsen et al., ICLR 2026, Sakana AI
 
 This document describes four architectural concepts inspired by the RL Conductor paper that enhance the agent-utilities orchestration pipeline with refined subtask decomposition, context isolation, model synergy tracking, and recursive self-referential graph execution.
 
-## AU-044: Conductor Workflow Specification
+## CONCEPT:ORCH-1.1: Conductor Workflow Specification
 
 **Module**: `agent_utilities/models/graph.py` — `ExecutionStep.refined_subtask`
 
@@ -20,7 +20,7 @@ The `refined_subtask` field on `ExecutionStep` carries a natural-language instru
 ExecutionStep(
     node_id="python_programmer",
     refined_subtask="Implement a FastAPI REST API with JWT authentication middleware",
-    access_list=["researcher"],  # AU-045: only sees researcher output
+    access_list=["researcher"],  # CONCEPT:ORCH-1.1: only sees researcher output
 )
 ```
 
@@ -28,14 +28,14 @@ ExecutionStep(
 
 ### Router Integration
 
-The router's system prompt now includes AU-044 instructions:
+The router's system prompt now includes CONCEPT:ORCH-1.1 instructions:
 
 > For EACH step in your plan, include a `refined_subtask` — a focused,
 > specific instruction tailored for that specialist.
 
 ---
 
-## AU-045: Execution Visibility Graph
+## CONCEPT:ORCH-1.1: Execution Visibility Graph
 
 **Module**: `agent_utilities/graph/executor.py` — `_resolve_access_context()`
 
@@ -76,7 +76,7 @@ def _resolve_access_context(
 
 ---
 
-## AU-046: Model Synergy Tracker
+## CONCEPT:AHE-3.3: Model Synergy Tracker
 
 **Module**: `agent_utilities/knowledge_graph/self_model.py`
 
@@ -115,7 +115,7 @@ synergies = self_model.get_best_synergies(
 
 ---
 
-## AU-047: Recursive Graph Orchestration
+## CONCEPT:ORCH-1.1: Recursive Graph Orchestration
 
 **Module**: `agent_utilities/graph/recursive_executor.py`
 
@@ -153,12 +153,12 @@ class RecursiveContext:
     recursion_depth: int = 1
 ```
 
-### Composition with AU-007 (RLM)
+### Composition with CONCEPT:ORCH-1.1 (RLM)
 
-Both AU-007 (RLM) and AU-047 provide recursive execution, but at different levels:
+Both CONCEPT:ORCH-1.1 (RLM) and CONCEPT:ORCH-1.1 provide recursive execution, but at different levels:
 
-- **RLM (AU-007)**: Sub-shell-level recursion within a single specialist
-- **Recursive Orchestration (AU-047)**: Graph-level recursion that re-plans the entire specialist topology
+- **RLM (CONCEPT:ORCH-1.1)**: Sub-shell-level recursion within a single specialist
+- **Recursive Orchestration (CONCEPT:ORCH-1.1)**: Graph-level recursion that re-plans the entire specialist topology
 
 These compose naturally — an inner recursive graph can still use RLM within its specialists.
 
@@ -168,14 +168,14 @@ These compose naturally — an inner recursive graph can still use RLM within it
 
 | Variable | Default | Description |
 |:---|:---|:---|
-| `MAX_RECURSION_DEPTH` | `2` | Maximum nesting depth for recursive orchestration (AU-047) |
+| `MAX_RECURSION_DEPTH` | `2` | Maximum nesting depth for recursive orchestration (CONCEPT:ORCH-1.1) |
 
 ## Related Concepts
 
 | Concept | Relationship |
 |:---|:---|
-| AU-002 (Graph Orchestration) | AU-044/AU-045 extend the graph plan model |
-| AU-007 (RLM) | AU-047 composes with RLM at different recursion levels |
-| AU-016 (Self-Model) | AU-046 extends SelfModel with synergy tracking |
-| AU-039 (Confidence-Gated Router) | AU-046 feeds synergy data into routing decisions |
-| AU-043 (KG Eval Capture) | Future: reward tuples from AU-043 will train the Conductor policy |
+| CONCEPT:ORCH-1.0 (Graph Orchestration) | CONCEPT:ORCH-1.1 extend the graph plan model |
+| CONCEPT:ORCH-1.1 (RLM) | CONCEPT:ORCH-1.1 composes with RLM at different recursion levels |
+| CONCEPT:KG-2.1 (Self-Model) | CONCEPT:AHE-3.3 extends SelfModel with synergy tracking |
+| CONCEPT:ORCH-1.2 (Confidence-Gated Router) | CONCEPT:AHE-3.3 feeds synergy data into routing decisions |
+| CONCEPT:KG-2.2 (KG Eval Capture) | Future: reward tuples from CONCEPT:KG-2.2 will train the Conductor policy |

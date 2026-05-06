@@ -6,7 +6,7 @@ This document provides a focused deep-dive into the Registry Hot Cache layer, th
 
 ## Motivation
 
-In a system with 30+ MCP servers, each contributing 5-15 tools, the specialist registry can contain 50+ entries. Before AU-024, **every routing call** performed:
+In a system with 30+ MCP servers, each contributing 5-15 tools, the specialist registry can contain 50+ entries. Before CONCEPT:ORCH-1.2, **every routing call** performed:
 
 1. A full Cypher query against the Knowledge Graph to fetch all specialists
 2. Serialization of all specialist descriptions into the LLM prompt
@@ -125,6 +125,6 @@ The cache integrates at these specific locations in the codebase:
 
 ## Related Documentation
 
-- [First Principles Architecture](first-principles.md) — Complete AU-024 through AU-027 overview
+- [First Principles Architecture](first-principles.md) — Complete CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.2 overview
 - [Architecture](architecture.md) — Full system architecture
 - [Emergent Architecture](emergent-architecture.md) — Self-Model and Workspace Attention

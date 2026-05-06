@@ -25,7 +25,7 @@ Usage::
     change = classify_change(old_fp, new_fp)
     # change == ChangeLevel.COSMETIC  # Only formatting changed
 
-See docs/emergent-architecture.md §AU-048.
+See docs/emergent-architecture.md §CONCEPT:KG-2.3.
 """
 
 from __future__ import annotations
@@ -394,7 +394,7 @@ class FingerprintManager:
                     self._fingerprints[str(file_path)] = fp
 
         logger.info(
-            "[AU-048] Fingerprinted %d files in %s",
+            "[CONCEPT:KG-2.3] Fingerprinted %d files in %s",
             len(self._fingerprints),
             self.workspace_path,
         )

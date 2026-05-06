@@ -171,7 +171,7 @@ graph TB
 | 12 | **OWL Reasoning** | Promotes stable nodes to OWL, runs HermiT/Stardog inference, downfeeds inferred facts. |
 | 13 | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
 | 14 | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
-| 15 | **Validate** | Runs **AU-053 Graph Integrity Validator** — 4-tier non-blocking post-ingestion validation with auto-fix. |
+| 15 | **Validate** | Runs **CONCEPT:KG-2.3 Graph Integrity Validator** — 4-tier non-blocking post-ingestion validation with auto-fix. |
 
 ## MAGMA-Inspired Orthogonal Reasoning Views
 
@@ -180,7 +180,7 @@ The graph engine supports policy-guided retrieval across five orthogonal views, 
 - **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
 - **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
 - **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
-- **Epistemic View** (AU-054): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions (CONTRADICTS). Powered by `retrieve_epistemic_view()`.
+- **Epistemic View** (CONCEPT:KG-2.2): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions (CONTRADICTS). Powered by `retrieve_epistemic_view()`.
 
 ## Autonomous Self-Improvement Loop
 
@@ -574,7 +574,7 @@ To add a new domain ontology (e.g., SNOMED-CT for medical, ISO 27001 for securit
 
 ---
 
-## Schema Packs (AU-041)
+## Schema Packs (CONCEPT:KG-2.2)
 
 Schema Packs are domain-configurable KG profiles that scope the active node types, edge types, retrieval boosts, and OWL extensions to a specific domain.
 
@@ -629,7 +629,7 @@ register_schema_pack("legal", LegalSchemaPack)
 
 ---
 
-## Backlink-Density Retrieval Boost (AU-042)
+## Backlink-Density Retrieval Boost (CONCEPT:KG-2.2)
 
 The `HybridRetriever` supports optional backlink-density retrieval weighting that boosts the relevance score of hub entities (nodes with many inbound edges).
 
@@ -658,7 +658,7 @@ Strategy and factor are configured per `SchemaPack`. The research pack defaults 
 
 ---
 
-## KG Eval Capture (AU-043)
+## KG Eval Capture (CONCEPT:KG-2.2)
 
 The KG Eval Capture harness records real queries and their retrieval results to a **separate SQLite database** (never in the KG itself), enabling replay-based regression testing when KG configuration changes.
 
@@ -708,7 +708,7 @@ if result.regressions:
 
 ---
 
-## Structural Fingerprint Engine (AU-048)
+## Structural Fingerprint Engine (CONCEPT:KG-2.3)
 
 The fingerprint engine enables incremental KG updates by classifying file changes into three levels, avoiding costly full re-ingestion when only cosmetic changes (comments, formatting) have occurred.
 
@@ -756,7 +756,7 @@ structural_only = manager.get_structural_changes(previous_snapshot)
 
 ---
 
-## Graph Integrity Validator (AU-053)
+## Graph Integrity Validator (CONCEPT:KG-2.3)
 
 Non-blocking, tiered validation for the Unified Intelligence Graph. Inspired by Understand-Anything's `graph-reviewer` agent with a 4-tier auto-fix pipeline.
 
@@ -775,7 +775,7 @@ The validator includes comprehensive alias maps for both node types (30+ aliases
 
 ### Pipeline Integration
 
-The validator runs as the **15th pipeline phase** (`validate`), executing after `knowledge_base` ingestion. Results are stored via `KGEvalCapture` (AU-043) for trend analysis.
+The validator runs as the **15th pipeline phase** (`validate`), executing after `knowledge_base` ingestion. Results are stored via `KGEvalCapture` (CONCEPT:KG-2.2) for trend analysis.
 
 ```python
 from agent_utilities.knowledge_graph.graph_validator import GraphValidator
@@ -794,7 +794,7 @@ print(report.summary())
 
 ---
 
-## Entity-Claim Extraction — MAGMA Completion (AU-054)
+## Entity-Claim Extraction — MAGMA Completion (CONCEPT:KG-2.2)
 
 Completes the MAGMA epistemic view system by implementing real entity-claim extraction from ingested documents. Claims participate in `BUILDS_ON`, `CONTRADICTS`, and `EXEMPLIFIES` relationships for epistemic reasoning.
 
@@ -835,7 +835,7 @@ view = engine.retrieve_epistemic_view("graph validation")
 
 ---
 
-## Context-Aware Entity Representations (AU-058)
+## Context-Aware Entity Representations (CONCEPT:KG-2.2)
 
 Injects multi-hop structural logic and OWL relationships directly into node vector embeddings to enable "topology-aware" semantic search.
 
@@ -855,3 +855,24 @@ To prevent the vector space from drifting out of sync with the topological space
 2. The bridge tracks every LPG node that received a new edge.
 3. It immediately triggers `re_embed_node()` on those specific nodes.
 4. The `ContextualRepresentationBuilder` rebuilds the description (now including the new OWL inferences) and generates a fresh embedding.
+
+---
+
+## Inductive Knowledge Hypergraphs (CONCEPT:KG-2.4)
+
+The `agent-utilities` ecosystem supports hypergraph capabilities via **Positional Interaction Encodings (EncPI)**, breaking beyond the limitations of standard binary Labeled Property Graphs (LPGs). This enables the system to model n-ary relations (Hyperedges) and achieve zero-shot inductive generalization for novel relationships.
+
+### Positional Intersections & EncPI
+
+Instead of just embedding node text or binary edge labels, the knowledge graph computes embeddings for the *structural intersections* between relationships.
+If an entity acts as the `head` (Position 1) in Relation X, and the `tail` (Position 2) in Relation Y, that is a `(1, 2)` interaction.
+
+The `PositionalInteractionEncoder` computes these intersections using a 2-layer Multilayer Perceptron (MLP) over concatenated sinusoidal encodings of the input positions.
+
+### Vectorizing Positional Interactions
+
+This interaction logic is fully integrated with the 15-Phase Ingestion Pipeline (specifically Phase 10: Embedding) and the OWL ontology sync (CONCEPT:KG-2.2):
+
+1. **Topology & OWL Convergence**: As the OWL reasoning bridge infers new implicit facts (e.g., `subClassOf`), these new edges create additional positional intersections.
+2. **Native Vectorization**: The `EncPI` engine natively computes the dense vector embeddings for these positional interactions.
+3. **Retrieval Application**: During test-time, the `HybridRetriever` uses `cosine_similarity` across the vectorized `EncPI` embeddings stored in `LadybugDB`. This allows the retriever to infer that a completely novel relation topologically behaves like a known relation, enabling true zero-shot reasoning over dynamic autonomous data.
