@@ -805,6 +805,26 @@ class ToolMetadataNode(RegistryNode):
     source: str  # MCP, A2A, INTERNAL, AGENT_SKILL
 
 
+class TriggerBinding(BaseModel):
+    """CONCEPT:ECO-4.6 — Declarative trigger binding for callable resources.
+
+    Maps a function/tool to an activation trigger (HTTP route, cron
+    schedule, or event topic). Enables AgentOS-style category collapse
+    where every capability is a self-describing function with trigger
+    metadata.
+    """
+
+    trigger_type: Literal["http", "cron", "event", "manual"] = "manual"
+    binding: str = Field(
+        default="",
+        description="Route path, cron expression, or event topic name",
+    )
+    conditions: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Activation conditions (e.g., {'method': 'POST', 'auth': true})",
+    )
+
+
 class CallableResourceNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.CALLABLE_RESOURCE
     resource_type: str  # MCP_TOOL, A2A_AGENT, INTERNAL_SKILL, AGENT_SKILL
@@ -816,6 +836,19 @@ class CallableResourceNode(RegistryNode):
     origin: Literal["local", "community", "upstream"] = "local"
     timestamp: str | None = None
     author: str | None = None
+    # CONCEPT:ECO-4.6 — Self-Describing Function Registry
+    input_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON Schema describing the function's input parameters",
+    )
+    output_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON Schema describing the function's return type",
+    )
+    trigger_bindings: list[TriggerBinding] = Field(
+        default_factory=list,
+        description="Declarative trigger bindings (http, cron, event)",
+    )
 
 
 class SpawnedAgentNode(RegistryNode):

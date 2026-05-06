@@ -30,12 +30,13 @@ class HybridRetriever:
     """Retrieves relevant subgraph context using Hybrid GraphRAG.
 
     Combines semantic vector similarity, topological graph traversal,
-    backlink-density retrieval weighting (CONCEPT:KG-2.2), and positional interaction
-    encodings (CONCEPT:KG-2.4) for inductive hypergraph reasoning.
+    backlink-density retrieval weighting (CONCEPT:KG-2.2), positional interaction
+    encodings (CONCEPT:KG-2.4) for inductive hypergraph reasoning, and
+    retrieval quality gating (CONCEPT:KG-2.8) for faithfulness scoring.
 
-    When a pack is configured, its ``backlink_boost_strategy`` and
-    ``backlink_boost_factor`` govern whether and how in-degree density
-    influences scoring.
+    When a pack is configured, its ``backlink_boost_strategy``,
+    ``backlink_boost_factor``, and ``min_relevance_threshold`` govern
+    retrieval behaviour.
 
     Args:
         engine: The ``IntelligenceGraphEngine`` instance.
@@ -54,15 +55,21 @@ class HybridRetriever:
         if schema_pack:
             self._boost_strategy = schema_pack.backlink_boost_strategy
             self._boost_factor = schema_pack.backlink_boost_factor
+            self._relevance_threshold = schema_pack.min_relevance_threshold
         else:
             # Default: global boost with standard coefficient
             from agent_utilities.models.schema_pack import BacklinkBoostStrategy
 
             self._boost_strategy = BacklinkBoostStrategy.GLOBAL
             self._boost_factor = 0.1
+            self._relevance_threshold = 0.6
 
         # CONCEPT:KG-2.4: Inductive Knowledge Hypergraphs
         self._enc_pi = PositionalInteractionEncoder()
+
+        # CONCEPT:KG-2.8: Retrieval Quality Gate
+        self._quality_gate = None  # Lazy-initialized
+        self._last_quality_report = None
 
         try:
             self.embed_model = create_embedding_model()
@@ -139,7 +146,9 @@ class HybridRetriever:
                     node_emb = row.get("emb")
                     if node_emb:
                         sim = cosine_similarity(query_emb, node_emb)
-                        if sim > 0.6:  # Threshold
+                        if (
+                            sim > self._relevance_threshold
+                        ):  # CONCEPT:KG-2.8 configurable threshold
                             node_data = row.get("data", {})
                             node_data["id"] = row.get("id")
                             node_data["_score"] = sim * self._compute_query_weight(
@@ -221,7 +230,34 @@ class HybridRetriever:
                         visited.add(node_id)
                         assembled_subgraph.append(node)
 
-        return assembled_subgraph
+        # CONCEPT:KG-2.8 — Assess retrieval quality
+        self._last_quality_report = None
+        try:
+            from .retrieval_quality import RetrievalQualityGate
+
+            if self._quality_gate is None:
+                self._quality_gate = RetrievalQualityGate(
+                    self.engine,
+                    min_relevance_threshold=self._relevance_threshold,
+                )
+            filtered, report = self._quality_gate.gate_results(
+                assembled_subgraph, query
+            )
+            self._last_quality_report = report
+            if not report.gate_passed:
+                logger.warning(
+                    "[CONCEPT:KG-2.8] Retrieval quality gate failed: %s",
+                    [m.value for m in report.failure_modes_detected],
+                )
+            return filtered if report.gate_passed else assembled_subgraph
+        except Exception as e:
+            logger.debug("Quality gate assessment skipped: %s", e)
+            return assembled_subgraph
+
+    @property
+    def last_quality_report(self):
+        """The quality report from the most recent retrieval, if available."""
+        return self._last_quality_report
 
     def retrieve_decomposed(
         self,

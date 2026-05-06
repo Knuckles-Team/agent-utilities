@@ -14,6 +14,7 @@ graph TD
         ORCH13["<b>ORCH-1.3: Execution & State Safety</b>"]
         ORCH14["<b>ORCH-1.4: Swarm Preset Template Engine</b>"]
         ORCH15["<b>ORCH-1.5: Multi-Level Abstraction Layering</b>"]
+        ORCH16["<b>ORCH-1.6: Subagent Lifecycle Patterns</b>"]
     end
 
     %% Pillar 2: Epistemic Knowledge Graph
@@ -26,6 +27,9 @@ graph TD
         KG25["<b>KG-2.5: Topological Partitioning</b>"]
         KG26["<b>KG-2.6: Financial Trading Pipeline</b>"]
         KG27["<b>KG-2.7: Risk Scoring Ontology</b>"]
+        KG28["<b>KG-2.8: Retrieval Quality Gate</b>"]
+        KG29["<b>KG-2.9: Cross-Agent Context Provenance</b>"]
+        KG210["<b>KG-2.10: Token-Aware Context Compaction</b>"]
     end
 
     %% Pillar 3: Agentic Harness Engineering
@@ -41,6 +45,9 @@ graph TD
         AHE38["<b>AHE-3.8: Backtest Evaluation Harness</b>"]
         AHE39["<b>AHE-3.9: Horizon-Aware Task Curriculum</b>"]
         AHE310["<b>AHE-3.10: Decomposed Reward Signals</b>"]
+        AHE311["<b>AHE-3.11: Structured Retry Manager</b>"]
+        AHE312["<b>AHE-3.12: Multi-Strategy EvalRunner</b>"]
+        AHE313["<b>AHE-3.13: Agent Config Versioning</b>"]
     end
 
     %% Pillar 4: Ecosystem & Peripherals
@@ -50,6 +57,8 @@ graph TD
         ECO42["<b>ECO-4.2: A2A Network & Consensus</b>"]
         ECO43["<b>ECO-4.3: Community Telemetry</b>"]
         ECO44["<b>ECO-4.4: Market Data Connector Protocol</b>"]
+        ECO45["<b>ECO-4.5: Provider Prompt Adaptation</b>"]
+        ECO46["<b>ECO-4.6: Self-Describing Function Registry</b>"]
     end
 
     %% Pillar 5: Agent OS Infrastructure
@@ -58,6 +67,11 @@ graph TD
         OS51["<b>OS-5.1: Security & Auth</b>"]
         OS52["<b>OS-5.2: Resource Scheduling</b>"]
         OS53["<b>OS-5.3: Session Concurrency Mgmt</b>"]
+        OS54["<b>OS-5.4: Prompt Injection Scanner</b>"]
+        OS55["<b>OS-5.5: Tool Repetition Guard</b>"]
+        OS56["<b>OS-5.6: Token Usage Tracker</b>"]
+        OS57["<b>OS-5.7: Audit Logger</b>"]
+        OS58["<b>OS-5.8: Guardrail Callback Engine</b>"]
     end
 
     %% Relationships
@@ -111,6 +125,20 @@ graph TD
 | **AHE-3.8** | **Backtest Evaluation Harness** | Strategy evaluation harness with SQLite storage, walk-forward validation windows, benchmark comparison, and KG integration via `BacktestRunNode`/`BacktestMetricNode`. | `agent_utilities/harness/backtest_harness.py` |
 | **AHE-3.9** | **Horizon-Aware Task Curriculum** | Progressive horizon scheduling with macro-action composition, subgoal checkpoints, and configurable promotion policies (threshold/plateau/adaptive). Based on Long-Horizon Training research (CONCEPT:AHE-3.9). | `agent_utilities/graph/horizon_curriculum.py` |
 | **AHE-3.10** | **Decomposed Reward Signals** | Separates step-level reward (local constraint satisfaction) from trajectory-level reward (goal achievement) for accurate credit assignment. Feeds into ExperienceNode distillation (CONCEPT:AHE-3.10). | `agent_utilities/graph/reward_decomposition.py` |
+| **KG-2.8** | **Retrieval Quality Gate** | Systematic retrieval quality measurement with 5-mode failure taxonomy (drift, truncation, staleness, low-relevance, inter-agent), configurable per-SchemaPack relevance thresholds, and temporal freshness scoring. Based on Ambekar (2026) research. | `agent_utilities/knowledge_graph/retrieval_quality.py` |
+| **KG-2.9** | **Cross-Agent Context Provenance** | Tracks retrieval quality scores and failure modes across agent boundaries via `ContextProvenanceRecord`. Detects cascading retrieval degradation in multi-agent pipelines. | `agent_utilities/knowledge_graph/retrieval_quality.py` |
+| **ORCH-1.6** | **Subagent Lifecycle Patterns** | Formalizes 4-tier subagent interaction taxonomy (inline_tool, fan_out, agent_pool, teams) with complexity-based pattern routing, KG-persisted decisions, and outcome-based learning. Based on Schmid (2026). | `agent_utilities/graph/subagent_patterns.py` |
+| **ECO-4.5** | **Provider Prompt Adaptation** | Abstracted-backend provider-aware prompt optimization with static and KG-backed rule storage. Built-in rules for OpenAI, Anthropic, Google with contextual activation. Based on Rosetta Prompt research. | `agent_utilities/prompting/provider_adapter.py` |
+| **ECO-4.6** | **Self-Describing Function Registry** | Runtime function registration with input/output JSON schemas and declarative trigger bindings (http/cron/event). Unified `discover_all_capabilities()` for AgentOS-style category collapse via KG. | `agent_utilities/knowledge_graph/engine_registry.py` |
+| **OS-5.4** | **Prompt Injection Scanner** | Pattern-based prompt injection and command injection scanner with 25+ threat vectors ported from Goose. Integrates with PolicyEngine and persists findings as `SecurityFindingNode` in the KG for OWL transitive risk propagation. | `agent_utilities/security/prompt_scanner.py` |
+| **OS-5.5** | **Tool Repetition Guard** | Detects infinite tool call loops via consecutive call tracking and per-session budgets. Denied repetitions distill into `ExperienceNode` tactical rules (AHE-3.5) for cross-session loop avoidance. | `agent_utilities/security/repetition_guard.py` |
+| **KG-2.10** | **Token-Aware Context Compaction** | Intelligent context window management with three strategies (summarize_tools, drop_middle, progressive). Compaction summaries persist as `EpisodeNode` snapshots for cross-session context recall. Adapted from Goose's context_mgmt. | `agent_utilities/knowledge_graph/context_compactor.py` |
+| **AHE-3.11** | **Structured Retry Manager** | Shell-based success checks, on-failure hooks, and configurable timeouts for structured retry logic. Retry outcomes feed into TeamConfig reward signaling (AHE-3.3) for routing improvement. Adapted from Goose's retry.rs. | `agent_utilities/graph/retry_manager.py` |
+| **AHE-3.12** | **Multi-Strategy EvalRunner** | Multi-strategy evaluation runner (exact match, semantic similarity, LLM-as-Judge) with composite scoring and EvaluationMonitor integration. Ported from MATE's eval_runner.py. OWL-enabled `degradedPerformance` inference across sessions. | `agent_utilities/observability/evaluation.py` |
+| **AHE-3.13** | **Agent Config Versioning** | Immutable config snapshots with forward-only rollback, structured diffs, and SUPERSEDES edge chains. Ported from MATE's AgentConfigVersion pattern. OWL-inferred `configDrift` and `stableConfig`. | `agent_utilities/observability/config_versioning.py` |
+| **OS-5.6** | **Token Usage Tracker** | 4-bucket granular token analytics (prompt/response/thoughts/tool_use) with session aggregation, agent breakdown, and budget alerting. Ported from MATE's token_usage_service.py. OWL-inferred `highCostAgent` classification. | `agent_utilities/observability/token_tracker.py` |
+| **OS-5.7** | **Audit Logger** | Append-only compliance audit trail with 30+ action constants, never-raise semantics, configurable retention, and query filtering. Ported from MATE's audit_service.py. OWL-inferred `escalationChain` temporal reasoning. | `agent_utilities/observability/audit_logger.py` |
+| **OS-5.8** | **Guardrail Callback Engine** | Push-based input/output guardrail interception with block/redact/warn actions, regex/keyword matching, and PolicyEngine adapter. Ported from MATE's guardrail_callback.py. OWL-inferred `correlatedThreat` detection. | `agent_utilities/security/guardrail_engine.py` |
 
 ## Agent OS Architecture
 

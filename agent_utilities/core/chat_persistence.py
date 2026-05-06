@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     pass
 
-
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
 
 from .config import *  # noqa: F403
@@ -210,6 +210,219 @@ def prune_large_messages(messages: list[Any], max_length: int = 5000) -> list[An
             pruned_messages.append(msg)
 
     return pruned_messages
+
+
+def compact_messages(
+    messages: list[Any],
+    max_tokens: int = 8000,
+    strategy: str = "summarize_tools",
+) -> list[Any]:
+    """Token-aware context compaction (backward-compatible wrapper).
+
+    Delegates to :class:`ContextCompactor` for intelligent compaction.
+    Falls back to :func:`prune_large_messages` if the compactor is
+    unavailable.
+
+    CONCEPT:KG-2.10 — Token-Aware Context Compaction
+
+    Args:
+        messages: List of message dicts.
+        max_tokens: Target token budget.
+        strategy: Compaction strategy (``summarize_tools``, ``drop_middle``,
+            ``progressive``).
+
+    Returns:
+        Compacted message list.
+    """
+    try:
+        from agent_utilities.knowledge_graph.context_compactor import (
+            ContextCompactor,
+        )
+
+        compactor = ContextCompactor(max_tokens=max_tokens)
+        result = compactor.compact(messages, strategy=strategy)
+        return result.messages
+    except Exception:
+        logger.debug(
+            "ContextCompactor unavailable, falling back to prune_large_messages"
+        )
+        return prune_large_messages(messages)
+
+
+# ---------------------------------------------------------------------------
+# Cross-Session Chat Recall (adapted from Goose's ChatHistorySearch)
+# ---------------------------------------------------------------------------
+
+
+class ChatRecallMessage(BaseModel):
+    """A single message from a recalled chat session."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    role: str = ""
+    content: str = ""
+    timestamp: str = ""
+
+
+class ChatRecallResult(BaseModel):
+    """A recalled chat session with matching messages.
+
+    Attributes:
+        session_id: The chat session identifier.
+        session_title: Title or first message of the session.
+        last_activity: ISO timestamp of the most recent message.
+        total_messages_in_session: Total messages in the full session.
+        messages: Matched messages from this session.
+        relevance_score: Relevance score from the retriever (0.0–1.0).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    session_id: str = ""
+    session_title: str = ""
+    last_activity: str = ""
+    total_messages_in_session: int = 0
+    messages: list[ChatRecallMessage] = Field(default_factory=list)
+    relevance_score: float = 0.0
+
+
+class ChatRecallResults(BaseModel):
+    """Aggregate results from a cross-session chat recall search.
+
+    Attributes:
+        results: List of recalled sessions with matching messages.
+        total_matches: Total number of matching messages across all sessions.
+        query: The original search query.
+    """
+
+    results: list[ChatRecallResult] = Field(default_factory=list)
+    total_matches: int = 0
+    query: str = ""
+
+
+def search_chat_history(
+    query: str,
+    limit: int = 10,
+    after_date: str | None = None,
+    before_date: str | None = None,
+    exclude_session_id: str | None = None,
+) -> ChatRecallResults:
+    """Search across stored chat sessions for matching messages.
+
+    CONCEPT:KG-2.0 — Knowledge Graph
+
+    Adapted from Goose's ``ChatHistorySearch`` (Rust/SQLite). Uses
+    the Knowledge Graph's Cypher backend for keyword-based search
+    across ``Thread`` and ``Message`` nodes.
+
+    Args:
+        query: Search query (keywords separated by spaces).
+        limit: Maximum number of matching messages to return.
+        after_date: ISO date string — only return messages after this date.
+        before_date: ISO date string — only return messages before this date.
+        exclude_session_id: Session ID to exclude from results.
+
+    Returns:
+        ChatRecallResults with matching sessions and messages.
+
+    Example::
+
+        results = search_chat_history("kubernetes deployment error")
+        for r in results.results:
+            print(f"Session {r.session_id}: {len(r.messages)} matches")
+    """
+    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine.get_active()
+    if not engine or not engine.backend:
+        return ChatRecallResults(query=query)
+
+    keywords = [w.strip() for w in query.lower().split() if w.strip()]
+    if not keywords:
+        return ChatRecallResults(query=query)
+
+    try:
+        # Build Cypher query for keyword matching
+        keyword_conditions = " OR ".join(
+            f"toLower(m.content) CONTAINS '{kw}'" for kw in keywords
+        )
+
+        cypher = (
+            f"MATCH (t:Thread)-[:CONTAINS]->(m:Message) WHERE ({keyword_conditions})"
+        )
+
+        if exclude_session_id:
+            cypher += f" AND t.id <> '{exclude_session_id}'"
+        if after_date:
+            cypher += f" AND m.timestamp >= '{after_date}'"
+        if before_date:
+            cypher += f" AND m.timestamp <= '{before_date}'"
+
+        cypher += (
+            " RETURN t.id AS session_id, t.title AS session_title, "
+            "t.created_at AS created_at, "
+            "m.role AS role, m.content AS content, m.timestamp AS timestamp "
+            f"ORDER BY m.timestamp DESC LIMIT {limit}"
+        )
+
+        rows = engine.backend.execute(cypher)
+
+        # Group messages by session
+        sessions: dict[str, ChatRecallResult] = {}
+        for row in rows:
+            sid = row.get("session_id", "")
+            if not sid:
+                continue
+
+            if sid not in sessions:
+                sessions[sid] = ChatRecallResult(
+                    session_id=sid,
+                    session_title=row.get("session_title", ""),
+                    last_activity=row.get("timestamp", ""),
+                )
+
+            sessions[sid].messages.append(
+                ChatRecallMessage(
+                    role=row.get("role", ""),
+                    content=row.get("content", ""),
+                    timestamp=row.get("timestamp", ""),
+                )
+            )
+
+            # Update last_activity to most recent
+            ts = row.get("timestamp", "")
+            if ts > sessions[sid].last_activity:
+                sessions[sid].last_activity = ts
+
+        # Calculate relevance scores based on keyword hit density
+        for result in sessions.values():
+            total_hits = 0
+            total_words = 0
+            for msg in result.messages:
+                words = msg.content.lower().split()
+                total_words += len(words) if words else 1
+                total_hits += sum(1 for w in words for kw in keywords if kw in w)
+            result.relevance_score = min(1.0, total_hits / max(total_words, 1) * 10)
+            result.total_messages_in_session = len(result.messages)
+
+        # Sort by relevance
+        sorted_results = sorted(
+            sessions.values(),
+            key=lambda r: r.relevance_score,
+            reverse=True,
+        )
+
+        total_matches = sum(len(r.messages) for r in sorted_results)
+
+        return ChatRecallResults(
+            results=sorted_results,
+            total_matches=total_matches,
+            query=query,
+        )
+
+    except Exception as exc:
+        logger.debug("Chat history search failed: %s", exc)
+        return ChatRecallResults(query=query)
 
 
 async def chat(agent: Agent, prompt: str):
