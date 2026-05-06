@@ -12,12 +12,12 @@ Architecture:
     5. **Recurse**: Nested spawning for complex subtasks (up to ``max_depth``)
 
 Integrates with:
-    - AU-013 (OGM): Coalition tracking nodes via ``KGMapper``
+    - CONCEPT:KG-2.0 (OGM): Coalition tracking nodes via ``KGMapper``
     - Existing HSM: ``run_orthogonal_regions()`` for parallel fan-out
     - Existing engine: ``spawn_specialized_agent()`` for agent creation
     - Existing builder: ``discover_agents()`` for specialist registry
 
-See docs/emergent-architecture.md §AU-014.
+See docs/emergent-architecture.md §CONCEPT:KG-2.0.
 """
 
 from __future__ import annotations

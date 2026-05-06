@@ -1,7 +1,13 @@
 """Finance Schema Pack — financial services domain profile.
 
+CONCEPT:KG-2.6, KG-2.7, AHE-3.8
+
 Optimized for financial agents managing instruments, transactions,
-accounts, regulations, and compliance. Aligned with FIBO ontology.
+accounts, regulations, trading pipelines, risk assessment, and
+backtesting. Aligned with FIBO ontology.
+
+Expanded with trading pipeline primitives (KG-2.6), risk scoring
+ontology (KG-2.7), and backtest evaluation nodes (AHE-3.8).
 """
 
 from __future__ import annotations
@@ -11,16 +17,27 @@ from ..schema_pack import BacklinkBoostStrategy, SchemaPack, SchemaPackMode
 
 
 class FinanceSchemaPack(SchemaPack):
-    """Finance domain pack: instruments, transactions, accounts, regulations."""
+    """Finance domain pack: instruments, trading, risk, and backtesting.
+
+    CONCEPT:KG-2.6, KG-2.7, AHE-3.8
+
+    Activates the full financial domain including:
+    - Core financial entities (instruments, transactions, accounts)
+    - Trading pipeline (signals, orders, positions, portfolios, strategies)
+    - Risk scoring (assessments, factors, mitigations)
+    - Backtest evaluation (runs, metrics)
+    """
 
     name: str = "finance"
     description: str = (
         "Financial services profile. Activates financial instrument, "
-        "transaction, account, and regulation types. Aligned with FIBO "
-        "ontology for securities, compliance, and regulatory tracking."
+        "transaction, account, regulation, trading pipeline, risk scoring, "
+        "and backtesting types. Aligned with FIBO ontology for securities, "
+        "compliance, regulatory tracking, and quantitative analysis."
     )
     mode: SchemaPackMode = SchemaPackMode.ADDITIVE
     node_types: set[RegistryNodeType] = {
+        # Core financial entities
         RegistryNodeType.FINANCIAL_INSTRUMENT,
         RegistryNodeType.FINANCIAL_TRANSACTION,
         RegistryNodeType.ACCOUNT,
@@ -31,8 +48,25 @@ class FinanceSchemaPack(SchemaPack):
         RegistryNodeType.DECISION,
         RegistryNodeType.EVIDENCE,
         RegistryNodeType.SYSTEM,
+        # Trading pipeline (CONCEPT:KG-2.6)
+        RegistryNodeType.TRADING_SIGNAL,
+        RegistryNodeType.ORDER,
+        RegistryNodeType.POSITION,
+        RegistryNodeType.PORTFOLIO,
+        RegistryNodeType.STRATEGY,
+        # Data connectors (CONCEPT:ECO-4.4)
+        RegistryNodeType.DATA_CONNECTOR,
+        RegistryNodeType.DATA_FETCH_RECORD,
+        # Risk scoring (CONCEPT:KG-2.7)
+        RegistryNodeType.RISK_ASSESSMENT,
+        RegistryNodeType.RISK_FACTOR,
+        RegistryNodeType.RISK_MITIGATION,
+        # Backtest evaluation (CONCEPT:AHE-3.8)
+        RegistryNodeType.BACKTEST_RUN,
+        RegistryNodeType.BACKTEST_METRIC,
     }
     edge_types: set[RegistryEdgeType] = {
+        # Core edges
         RegistryEdgeType.HAS_FINANCIAL_INSTRUMENT,
         RegistryEdgeType.EXECUTED_TRANSACTION,
         RegistryEdgeType.BELONGS_TO_ORGANIZATION,
@@ -42,12 +76,45 @@ class FinanceSchemaPack(SchemaPack):
         RegistryEdgeType.DEPENDS_ON_SYSTEM,
         RegistryEdgeType.WAS_ATTRIBUTED_TO,
         RegistryEdgeType.CITES_SOURCE,
+        # Trading pipeline edges (CONCEPT:KG-2.6)
+        RegistryEdgeType.GENERATED_SIGNAL,
+        RegistryEdgeType.PLACED_ORDER,
+        RegistryEdgeType.OPENED_POSITION,
+        RegistryEdgeType.BELONGS_TO_PORTFOLIO,
+        RegistryEdgeType.EXECUTES_STRATEGY,
+        RegistryEdgeType.BACKTESTED_WITH,
+        # Data connector edges (CONCEPT:ECO-4.4)
+        RegistryEdgeType.FETCHED_FROM,
+        RegistryEdgeType.FALLS_BACK_TO,
+        # Risk scoring edges (CONCEPT:KG-2.7)
+        RegistryEdgeType.ASSESSED_RISK,
+        RegistryEdgeType.HAS_RISK_FACTOR,
+        RegistryEdgeType.MITIGATED_BY,
+        RegistryEdgeType.PROPAGATES_RISK_TO,
+        # Backtest evaluation edges (CONCEPT:AHE-3.8)
+        RegistryEdgeType.EVALUATED_STRATEGY,
+        RegistryEdgeType.HAS_METRIC,
+        RegistryEdgeType.COMPARED_TO_BENCHMARK,
     }
     retrieval_boosts: dict[str, float] = {
+        # Core boosts
         "has_financial_instrument": 1.4,
         "executed_transaction": 1.3,
         "belongs_to_organization": 1.2,
         "decided_by": 1.3,
+        # Trading pipeline boosts — high value for provenance
+        "generated_signal": 1.5,
+        "executes_strategy": 1.5,
+        "belongs_to_portfolio": 1.4,
+        "opened_position": 1.3,
+        # Risk propagation — highest boost for transitive chains
+        "propagates_risk_to": 1.6,
+        "has_risk_factor": 1.4,
+        # Backtest evaluation — important for strategy lineage
+        "evaluated_strategy": 1.5,
+        "backtested_with": 1.4,
+        # Data connector fallback chains
+        "falls_back_to": 1.2,
     }
     backlink_boost_strategy: BacklinkBoostStrategy = BacklinkBoostStrategy.GLOBAL
     backlink_boost_factor: float = 0.12

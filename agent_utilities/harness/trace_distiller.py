@@ -178,7 +178,7 @@ class TraceDistiller:
         """Stage 3: Group failures by root cause.
 
         Uses RLM for deep semantic clustering when trace count exceeds
-        the configured ``ahe_trace_threshold`` (CONCEPT:ORCH-1.1 × AU-012).
+        the configured ``ahe_trace_threshold`` (CONCEPT:ORCH-1.1 × CONCEPT:ORCH-1.1).
         Falls back to keyword-based grouping otherwise.
 
         Args:
@@ -216,7 +216,7 @@ class TraceDistiller:
     ) -> list[FailureCluster]:
         """RLM-powered failure clustering for large trace sets.
 
-        CONCEPT:ORCH-1.1 × AU-012 — RLM for AHE Experience Observability
+        CONCEPT:ORCH-1.1 × CONCEPT:ORCH-1.1 — RLM for AHE Experience Observability
 
         Delegates to an RLM sub-agent that programmatically loops over
         all failure entries, applies semantic grouping using the KG,

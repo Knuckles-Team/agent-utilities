@@ -82,8 +82,8 @@ Dispatches independent tasks to specialist agents:
 
 The SDD pipeline is deeply integrated with the core architecture:
 
-- **HSM Dispatcher**: Task execution is routed through the main Hierarchical State Machine (AU-002). Each task is mapped to a Specialist Superstate (e.g., Python Coder) which enters its own execution loop.
-- **Knowledge Graph (AU-003)**: The generated Spec, Implementation Plan, and individual Tasks are persisted into the Knowledge Graph as nodes. This provides long-term context, allowing the system to reference past design decisions during future tasks.
+- **HSM Dispatcher**: Task execution is routed through the main Hierarchical State Machine (CONCEPT:ORCH-1.0). Each task is mapped to a Specialist Superstate (e.g., Python Coder) which enters its own execution loop.
+- **Knowledge Graph (CONCEPT:ORCH-1.0)**: The generated Spec, Implementation Plan, and individual Tasks are persisted into the Knowledge Graph as nodes. This provides long-term context, allowing the system to reference past design decisions during future tasks.
 
 ## Real-World Usage Example
 

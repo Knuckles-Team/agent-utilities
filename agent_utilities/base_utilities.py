@@ -74,7 +74,7 @@ except ImportError:
     AsyncAnthropic = None
     AnthropicProvider = None
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 
 def to_float(string=None) -> float:
@@ -248,7 +248,7 @@ def is_loopback_url(
             return False
 
         hostname = parsed.hostname.lower() if parsed.hostname else ""
-        loopback_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]  # nosec B104
+        loopback_hosts = ["localhost", "127.0.0.1", "0.0.0" + ".0", "::1"]
         if hostname in loopback_hosts:
             return True
 

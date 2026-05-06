@@ -7,31 +7,31 @@
 
 | # | Design Pattern | agent-utilities Concept(s) | Status |
 |---|---|---|---|
-| 1 | **Prompt Chaining** | AU-018 (Prompt Chain Executor) | ✅ |
-| 2 | **Routing** | AU-002 (Graph Orchestration / Router) | ✅ |
-| 3 | **Parallelization** | AU-002 (parallel_batch_processor, fan-out/fan-in) | ✅ |
-| 4 | **Reflection** | AU-012 (AHE critique), AU-016 (Self-Model) | ✅ |
-| 5 | **Tool Use** | AU-010 (Tool/MCP Registry) | ✅ |
-| 6 | **Planning** | AU-009 (SDD pipeline), Planner node | ✅ |
-| 7 | **Multi-Agent** | AU-014 (Swarm), Council, Teams | ✅ |
+| 1 | **Prompt Chaining** | CONCEPT:ORCH-1.1 (Prompt Chain Executor) | ✅ |
+| 2 | **Routing** | CONCEPT:ORCH-1.0 (Graph Orchestration / Router) | ✅ |
+| 3 | **Parallelization** | CONCEPT:ORCH-1.0 (parallel_batch_processor, fan-out/fan-in) | ✅ |
+| 4 | **Reflection** | CONCEPT:ORCH-1.1 (AHE critique), CONCEPT:KG-2.1 (Self-Model) | ✅ |
+| 5 | **Tool Use** | CONCEPT:ECO-4.1 (Tool/MCP Registry) | ✅ |
+| 6 | **Planning** | CONCEPT:AHE-3.0 (SDD pipeline), Planner node | ✅ |
+| 7 | **Multi-Agent** | CONCEPT:KG-2.0 (Swarm), Council, Teams | ✅ |
 | 8 | **Memory Management** | KG engine, MAGMA views, episodic memory | ✅ |
-| 9 | **Learning & Adaptation** | AU-015 (Evolutionary Variants), AU-012 (AHE) | ✅ |
-| 10 | **MCP** | AU-010, `mcp/` module | ✅ |
-| 11 | **Goal Setting** | AU-009 (SDD spec/verify), Verifier node | ✅ |
-| 12 | **Exception Handling** | AU-008 (stuck-loop, circuit-breaker) | ✅ |
+| 9 | **Learning & Adaptation** | CONCEPT:ORCH-1.0 (Evolutionary Variants), CONCEPT:ORCH-1.1 (AHE) | ✅ |
+| 10 | **MCP** | CONCEPT:ECO-4.1, `mcp/` module | ✅ |
+| 11 | **Goal Setting** | CONCEPT:AHE-3.0 (SDD spec/verify), Verifier node | ✅ |
+| 12 | **Exception Handling** | CONCEPT:OS-5.2 (stuck-loop, circuit-breaker) | ✅ |
 | 13 | **Human-in-the-Loop** | ApprovalManager, tool_guard, elicitation | ✅ |
 | 14 | **Knowledge Retrieval** | HybridRetriever, KB layer, MAGMA | ✅ |
-| 15 | **Inter-Agent Comm** | AU-004 (A2A adapter) | ✅ |
-| 16 | **Resource Optimization** | AU-019 (ResourceOptimizer) | ✅ |
-| 17 | **Reasoning** | AU-007 (RLM), Council deliberation | ✅ |
+| 15 | **Inter-Agent Comm** | CONCEPT:OS-5.0 (A2A adapter) | ✅ |
+| 16 | **Resource Optimization** | CONCEPT:OS-5.2 (ResourceOptimizer) | ✅ |
+| 17 | **Reasoning** | CONCEPT:ORCH-1.1 (RLM), Council deliberation | ✅ |
 | 18 | **Guardrails/Safety** | `security/guardrails.py`, tool_guard | ✅ |
-| 19 | **Evaluation & Monitoring** | AU-020 (EvaluationMonitor) | ✅ |
-| 20 | **Prioritization** | AU-021 (PrioritizationEngine) | ✅ |
-| 21 | **Exploration & Discovery** | AU-022 (ExplorationEngine) | ✅ |
+| 19 | **Evaluation & Monitoring** | CONCEPT:AHE-3.1 (EvaluationMonitor) | ✅ |
+| 20 | **Prioritization** | CONCEPT:ORCH-1.1 (PrioritizationEngine) | ✅ |
+| 21 | **Exploration & Discovery** | CONCEPT:AHE-3.2 (ExplorationEngine) | ✅ |
 
-## New Concepts (AU-018 through AU-022)
+## New Concepts (CONCEPT:ORCH-1.1 through CONCEPT:AHE-3.2)
 
-### AU-018: Prompt Chaining Pattern
+### CONCEPT:ORCH-1.1: Prompt Chaining Pattern
 
 **Module**: `agent_utilities/patterns/prompt_chain.py`
 
@@ -48,7 +48,7 @@ its predecessor's output and optionally validates against a Pydantic model.
 
 ---
 
-### AU-019: Resource-Aware Optimization
+### CONCEPT:OS-5.2: Resource-Aware Optimization
 
 **Module**: `agent_utilities/core/resource_optimizer.py`
 
@@ -68,7 +68,7 @@ routing with configurable industry-standard defaults.
 
 ---
 
-### AU-020: Evaluation & Monitoring
+### CONCEPT:AHE-3.1: Evaluation & Monitoring
 
 **Module**: `agent_utilities/observability/evaluation.py`
 
@@ -87,7 +87,7 @@ through composite score.
 
 ---
 
-### AU-021: Task Prioritization
+### CONCEPT:ORCH-1.1: Task Prioritization
 
 **Module**: `agent_utilities/patterns/prioritization.py`
 
@@ -105,7 +105,7 @@ inheritance, and capability-based specialist assignment.
 
 ---
 
-### AU-022: Exploration & Discovery
+### CONCEPT:AHE-3.2: Exploration & Discovery
 
 **Module**: `agent_utilities/patterns/exploration.py`
 
@@ -128,23 +128,23 @@ multi-reviewer evaluation.
 ### Node Types
 | Type | Concept | Description |
 |---|---|---|
-| `PROMPT_CHAIN` | AU-018 | Prompt pipeline definition with steps |
-| `RESOURCE_USAGE` | AU-019 | Per-session resource consumption record |
-| `EVALUATION_RECORD` | AU-020 | Multi-dimensional evaluation result |
-| `PRIORITIZED_TASK` | AU-021 | Task with multi-factor priority scoring |
-| `KNOWLEDGE_GAP` | AU-022 | Identified knowledge deficit |
-| `EXPLORATION_EXPERIMENT` | AU-022 | Experiment testing a hypothesis |
+| `PROMPT_CHAIN` | CONCEPT:ORCH-1.1 | Prompt pipeline definition with steps |
+| `RESOURCE_USAGE` | CONCEPT:OS-5.2 | Per-session resource consumption record |
+| `EVALUATION_RECORD` | CONCEPT:AHE-3.1 | Multi-dimensional evaluation result |
+| `PRIORITIZED_TASK` | CONCEPT:ORCH-1.1 | Task with multi-factor priority scoring |
+| `KNOWLEDGE_GAP` | CONCEPT:AHE-3.2 | Identified knowledge deficit |
+| `EXPLORATION_EXPERIMENT` | CONCEPT:AHE-3.2 | Experiment testing a hypothesis |
 
 ### Edge Types
 | Type | Concept | Description |
 |---|---|---|
-| `CHAIN_STEP` | AU-018 | Ordered step within a prompt chain |
-| `BRANCHES_TO` | AU-018 | Conditional branch between steps |
-| `CONSUMED_RESOURCE` | AU-019 | Episode → resource usage link |
-| `EVALUATED_WITH` | AU-020 | Episode → evaluation record link |
-| `CALIBRATED_AGAINST` | AU-020 | Machine vs human evaluation link |
-| `BLOCKS` | AU-021 | Task blocking relationship |
-| `ASSIGNED_TO_SPECIALIST` | AU-021 | Task → specialist assignment |
-| `TESTS_HYPOTHESIS` | AU-022 | Experiment → hypothesis link |
-| `EXPLORED_GAP` | AU-022 | Hypothesis → knowledge gap link |
-| `RESULTED_IN_DISCOVERY` | AU-022 | Experiment → fact/discovery link |
+| `CHAIN_STEP` | CONCEPT:ORCH-1.1 | Ordered step within a prompt chain |
+| `BRANCHES_TO` | CONCEPT:ORCH-1.1 | Conditional branch between steps |
+| `CONSUMED_RESOURCE` | CONCEPT:OS-5.2 | Episode → resource usage link |
+| `EVALUATED_WITH` | CONCEPT:AHE-3.1 | Episode → evaluation record link |
+| `CALIBRATED_AGAINST` | CONCEPT:AHE-3.1 | Machine vs human evaluation link |
+| `BLOCKS` | CONCEPT:ORCH-1.1 | Task blocking relationship |
+| `ASSIGNED_TO_SPECIALIST` | CONCEPT:ORCH-1.1 | Task → specialist assignment |
+| `TESTS_HYPOTHESIS` | CONCEPT:AHE-3.2 | Experiment → hypothesis link |
+| `EXPLORED_GAP` | CONCEPT:AHE-3.2 | Hypothesis → knowledge gap link |
+| `RESULTED_IN_DISCOVERY` | CONCEPT:AHE-3.2 | Experiment → fact/discovery link |

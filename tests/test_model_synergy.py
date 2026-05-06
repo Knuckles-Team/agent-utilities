@@ -1,4 +1,4 @@
-"""Tests for AU-046: Model Synergy Tracker."""
+"""Tests for CONCEPT:AHE-3.3: Model Synergy Tracker."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class TestSelfModelNodeSynergies:
     def test_model_synergies_json_schema(self):
         schema = SelfModelNode.model_json_schema()
         assert "model_synergies" in schema["properties"]
-        assert "AU-046" in schema["properties"]["model_synergies"]["description"]
+        assert "CONCEPT:AHE-3.3" in schema["properties"]["model_synergies"]["description"]
 
     def test_synergy_key_format(self):
         models = ["claude-sonnet", "gpt-4o", "gemini-2.5"]
@@ -69,6 +69,7 @@ class TestSelfModelSynergyTracking:
             {"specialist_id": "p", "routed_tier": "heavy"},
         ]))
         updated = sm.get_current()
+        assert updated is not None
         assert "heavy|light" in updated.model_synergies
 
     def test_no_synergy_single_model(self):
@@ -80,6 +81,7 @@ class TestSelfModelSynergyTracking:
             {"specialist_id": "p", "routed_tier": "medium"},
         ]))
         updated = sm.get_current()
+        assert updated is not None
         assert len(updated.model_synergies) == 0
 
     def test_synergies_carried_forward(self):

@@ -108,15 +108,15 @@ Pure Python library. Owns all models, logic, graph orchestration, and KG. **Neve
 
 | Responsibility | Module | Concept |
 |:---|:---|:---|
-| Scheduler logic | `core/cognitive_scheduler.py` | AU-030 |
-| Identity & policy logic | `security/permissions_kernel.py` | AU-031 |
-| Registry logic + default catalog | `core/registry_cli.py` + `core/default_catalog.py` | AU-032 |
-| File watcher | `automation/file_watcher.py` | AU-036 |
-| Maintenance cron | `automation/maintenance_cron.py` | AU-038 |
-| KG models (incl. HostNode) | `models/knowledge_graph.py` | AU-013 |
+| Scheduler logic | `core/cognitive_scheduler.py` | CONCEPT:OS-5.2 |
+| Identity & policy logic | `security/permissions_kernel.py` | CONCEPT:OS-5.2 |
+| Registry logic + default catalog | `core/registry_cli.py` + `core/default_catalog.py` | CONCEPT:OS-5.2 |
+| File watcher | `automation/file_watcher.py` | CONCEPT:OS-5.0 |
+| Maintenance cron | `automation/maintenance_cron.py` | CONCEPT:OS-5.2 |
+| KG models (incl. HostNode) | `models/knowledge_graph.py` | CONCEPT:KG-2.0 |
 | Infrastructure templates | `core/infrastructure_templates.py` | NEW |
-| Tool guard | `security/tool_guard.py` | AU-006 |
-| Self-model + ACO | `knowledge_graph/self_model.py` | AU-016 |
+| Tool guard | `security/tool_guard.py` | CONCEPT:ORCH-1.0 |
+| Self-model + ACO | `knowledge_graph/self_model.py` | CONCEPT:KG-2.1 |
 
 ### Layer 2: `systems-manager` — The OS Layer
 
@@ -273,7 +273,7 @@ After installation, the new specialist's tools are **immediately discoverable** 
 
 ## Identity-Based Authorization Flow
 
-How the Permissions Kernel (AU-031) enforces role-based access across the OS layer:
+How the Permissions Kernel (CONCEPT:OS-5.2) enforces role-based access across the OS layer:
 
 ```mermaid
 sequenceDiagram
@@ -324,11 +324,11 @@ Use `reseed_defaults()` to refresh the available catalog (like `apt update`).
 | Capability | agent-utilities | systems-manager | container-manager-mcp | tunnel-manager | repository-manager |
 |:---|:---:|:---:|:---:|:---:|:---:|
 | **KG routing fabric** | ✅ Owner | — | — | — | — |
-| **Scheduler logic** (AU-030) | ✅ Owner | — | — | — | — |
+| **Scheduler logic** (CONCEPT:OS-5.2) | ✅ Owner | — | — | — | — |
 | **Scheduler MCP tools** | — | ✅ Owner | — | — | — |
-| **Identity/Policy logic** (AU-031) | ✅ Owner | — | — | — | — |
+| **Identity/Policy logic** (CONCEPT:OS-5.2) | ✅ Owner | — | — | — | — |
 | **Identity/Policy MCP tools** | — | ✅ Owner | — | — | — |
-| **Registry logic + catalog** (AU-032) | ✅ Owner | — | — | — | — |
+| **Registry logic + catalog** (CONCEPT:OS-5.2) | ✅ Owner | — | — | — | — |
 | **Registry MCP tools** | — | ✅ Owner | — | — | — |
 | **Container lifecycle** | — | — | ✅ Owner | — | — |
 | **Compose/Swarm orchestration** | — | — | ✅ Owner | — | — |
@@ -360,7 +360,7 @@ Each MCP repo could ship a `kg_extension/` module with domain ontology (OWL/Pyda
 
 ## Related Documentation
 
-- [Cognitive Scheduler (AU-030)](cognitive-scheduler.md)
-- [Permissions Kernel (AU-031)](permissions-kernel.md)
-- [Agent Registry (AU-032)](agent-registry.md)
+- [Cognitive Scheduler (CONCEPT:OS-5.2)](cognitive-scheduler.md)
+- [Permissions Kernel (CONCEPT:OS-5.2)](permissions-kernel.md)
+- [Agent Registry (CONCEPT:OS-5.2)](agent-registry.md)
 - [Overview & Concept Galaxy](overview.md)

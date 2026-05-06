@@ -406,7 +406,7 @@ def test_agent_utilities_facade_imports():
     # Importing the facade should not raise
     import agent_utilities.agent_utilities as au_facade
 
-    assert au_facade.__version__ == "0.3.0"
+    assert au_facade.__version__ == "0.4.0"
 
 
 # ---------------------------------------------------------------------------

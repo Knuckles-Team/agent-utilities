@@ -19,7 +19,7 @@ Usage::
     result = await extractor.extract_from_article(article_node)
     # result.entities, result.claims, result.relationships
 
-See docs/emergent-architecture.md §AU-054.
+See docs/emergent-architecture.md §CONCEPT:KG-2.2.
 """
 
 from __future__ import annotations
@@ -312,7 +312,7 @@ class EntityClaimExtractor:
                 )
 
         logger.info(
-            "[AU-054] Extracted %d entities, %d claims, %d relationships from %s",
+            "[CONCEPT:KG-2.2] Extracted %d entities, %d claims, %d relationships from %s",
             len(result.entities),
             len(result.claims),
             len(result.relationships),

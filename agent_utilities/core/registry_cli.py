@@ -17,12 +17,12 @@ Architecture:
       and graph steps.
 
 Integrates with:
-    - AU-010 (Agent Tool System): MCP config merging
-    - AU-013 (KG OGM): Specialist node hydration
-    - AU-024 (Registry Cache): Cache invalidation on install/uninstall
+    - CONCEPT:ECO-4.1 (Agent Tool System): MCP config merging
+    - CONCEPT:KG-2.0 (KG OGM): Specialist node hydration
+    - CONCEPT:ORCH-1.2 (Registry Cache): Cache invalidation on install/uninstall
     - ``systems-manager``: Privileged install operations
 
-See docs/agent-registry.md §AU-032.
+See docs/agent-registry.md §CONCEPT:OS-5.2.
 """
 
 from __future__ import annotations

@@ -215,6 +215,10 @@ async def planner_step(
             f"multiple parallel ExecutionSteps assigned to an extraction specialist, each targeting "
             f"a specific partition of the data in its 'refined_subtask'. Set 'is_parallel=True' "
             f"and configure 'access_list' to share the shared workboard context.\n\n"
+            f"### MULTI-LEVEL ABSTRACTION LAYERING (CONCEPT:ORCH-1.5)\n"
+            f"Do not attempt to plan every micro-step. Instead, emit coarse, high-level steps "
+            f"and delegate the detailed refinement to the executing specialists. This saves "
+            f"upfront planning tokens and allows specialists to adapt dynamically.\n\n"
             f"{feedback_section}"
             f"{error_section}"
             f"{results_section}"
@@ -231,8 +235,42 @@ async def planner_step(
     rlm_config = RLMConfig()
 
     try:
+        # CONCEPT:AHE-3.7 — Heavy Thinking activation gate
+        # When the complexity estimator determines the query warrants
+        # deep multi-trajectory reasoning, use the Heavy Thinking pipeline
+        # instead of standard LATS or single-shot planning.
+        use_heavy_thinking = getattr(ctx.state, "use_heavy_thinking", False)
+        if not use_heavy_thinking and ctx.state.verification_attempts > 2:
+            # Auto-escalate to heavy thinking after multiple failures
+            try:
+                from .heavy_thinking import ComplexityEstimator
+
+                complexity = ComplexityEstimator.estimate(ctx.state.query)
+                if complexity >= 0.6:
+                    use_heavy_thinking = True
+                    logger.info(
+                        "Planner: Auto-escalating to Heavy Thinking "
+                        "(complexity=%.2f, attempts=%d)",
+                        complexity,
+                        ctx.state.verification_attempts,
+                    )
+            except Exception as e:
+                logger.debug("Complexity estimation failed: %s", e)
+
+        if use_heavy_thinking:
+            logger.info("Planner: Running in Heavy Thinking (CONCEPT:AHE-3.7) mode.")
+            from .heavy_thinking import HeavyThinkingPlanner as HTP
+
+            ht_planner = HTP(
+                context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{unified_context}",
+                deps=ctx.deps,
+                model=ctx.deps.agent_model,
+            )
+            ctx.state.plan = await ht_planner.search(ctx.state.query)
         # CONCEPT:ORCH-1.1 — LATS implementation fallback for complex failures
-        if getattr(ctx.state, "use_lats", False) or ctx.state.verification_attempts > 1:
+        elif (
+            getattr(ctx.state, "use_lats", False) or ctx.state.verification_attempts > 1
+        ):
             logger.info("Planner: Running in LATS (Language Agent Tree Search) mode.")
             lats_env = LATSPlanner(
                 context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{unified_context}",
@@ -595,6 +633,30 @@ class LATSPlanner:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
+        # CONCEPT:AHE-3.5: Memory-Aware Test-Time Scaling
+        # Distill memory from parallel scaling trajectories before evaluation
+        try:
+            from .verification import parallel_trajectory_distiller
+
+            trajectories = []
+            for i, res in enumerate(results):
+                success = not isinstance(res, Exception)
+                output_data = (
+                    res.output.model_dump()
+                    if success
+                    and hasattr(res, "output")
+                    and hasattr(res.output, "model_dump")
+                    else str(res)
+                )
+                trajectories.append(
+                    {"candidate_id": i, "success": success, "output": output_data}
+                )
+
+            # Fire-and-forget or await parallel distillation
+            await parallel_trajectory_distiller(self.deps, trajectories, query=query)
+        except Exception as e:
+            logger.warning(f"LATSPlanner: Parallel trajectory distillation failed: {e}")
+
         best_plan = None
         best_score = -1
 
@@ -642,10 +704,10 @@ Inspired by the RL Conductor's self-referential recursive topologies
 a worker LLM and adaptively revise its coordination strategy at test-time.
 
 This composes naturally with:
-    - AU-007 (RLM): Both provide recursive execution, but RLM is
+    - CONCEPT:ORCH-1.1 (RLM): Both provide recursive execution, but RLM is
       sub-shell-level while this is graph-level.
-    - AU-002 (Graph Orchestration): Reuses the existing ``run_graph`` pipeline.
-    - AU-044 (Conductor Workflow): The recursive call gets a refined
+    - CONCEPT:ORCH-1.0 (Graph Orchestration): Reuses the existing ``run_graph`` pipeline.
+    - CONCEPT:ORCH-1.1 (Conductor Workflow): The recursive call gets a refined
       subtask explaining what the parent tried and what needs correction.
 
 Controlled by:
@@ -668,7 +730,7 @@ Usage::
     )
     result = await execute_recursive_graph(ctx, graph_deps)
 
-See docs/conductor-orchestration.md §AU-047.
+See docs/conductor-orchestration.md §CONCEPT:ORCH-1.1.
 """
 
 
@@ -744,7 +806,7 @@ async def execute_recursive_graph(
         )
 
     logger.info(
-        "[AU-047] Spawning recursive graph execution (depth=%d/%d)",
+        "[CONCEPT:ORCH-1.1] Spawning recursive graph execution (depth=%d/%d)",
         context.recursion_depth,
         MAX_RECURSION_DEPTH,
     )
@@ -795,7 +857,7 @@ async def execute_recursive_graph(
         output = str(result)
 
     logger.info(
-        "[AU-047] Recursive graph execution completed (depth=%d). Output length: %d",
+        "[CONCEPT:ORCH-1.1] Recursive graph execution completed (depth=%d). Output length: %d",
         context.recursion_depth,
         len(output),
     )
@@ -825,12 +887,12 @@ Three-tier aggregation strategy:
                           diversity groups requiring reasoning.
 
 Integrates with:
-    - AU-017 (Global Workspace Attention): Proposals and confidence scores.
-    - AU-030 (Cognitive Scheduler): ConvergenceMonitor for early stopping.
-    - AU-039 (Confidence-Gated Router): Feeds group confidence back as a
+    - CONCEPT:ORCH-1.2 (Global Workspace Attention): Proposals and confidence scores.
+    - CONCEPT:OS-5.2 (Cognitive Scheduler): ConvergenceMonitor for early stopping.
+    - CONCEPT:ORCH-1.2 (Confidence-Gated Router): Feeds group confidence back as a
       routing signal.
 
-See docs/squeeze-evolve-routing.md §AU-040.
+See docs/squeeze-evolve-routing.md §CONCEPT:ORCH-1.2.
 """
 
 
@@ -954,7 +1016,7 @@ class ConvergenceMonitor:
         converged = self._consecutive_low >= self.patience
         if converged:
             logger.info(
-                "[AU-040] Convergence detected: diversity %.3f < %.3f "
+                "[CONCEPT:ORCH-1.2] Convergence detected: diversity %.3f < %.3f "
                 "for %d consecutive iterations — recommending early stop.",
                 diversity_score,
                 self.convergence_threshold,
@@ -984,7 +1046,7 @@ class EvolutionaryAggregator:
     Implements the core Squeeze Evolve evolutionary loop adapted for
     agent orchestration:
 
-    1. Collects scored proposals from WorkspaceAttention (AU-017).
+    1. Collects scored proposals from WorkspaceAttention (CONCEPT:ORCH-1.2).
     2. Groups proposals and computes group fitness (GC, D).
     3. Routes each group to the appropriate aggregation strategy.
     4. Detects convergence (diversity collapse) for early stopping.

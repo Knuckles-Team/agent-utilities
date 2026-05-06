@@ -20,7 +20,7 @@ flowchart LR
     subgraph Install Flow
         PKG[Package JSON] --> MCP[Merge MCP Config]
         MCP --> KG[Hydrate KG Nodes]
-        KG --> CACHE[Invalidate Cache AU-024]
+        KG --> CACHE[Invalidate Cache CONCEPT:ORCH-1.2]
         CACHE --> RELOAD[Hot Reload /mcp/reload]
     end
 
@@ -106,7 +106,7 @@ For packages requiring system-level installation (e.g., Docker containers, syste
 
 1. Package definition includes `"install_via": "systems-manager"`
 2. Registry sends install request to `systems-manager` MCP server
-3. `systems-manager` validates caller identity (AU-031) and executes
+3. `systems-manager` validates caller identity (CONCEPT:OS-5.2) and executes
 4. Registry updates KG and cache upon completion
 
 ## KG Persistence

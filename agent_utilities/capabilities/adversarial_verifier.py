@@ -15,12 +15,12 @@ hacker agent finds a flaw, the verification fails with specific
 feedback, triggering a re-dispatch.
 
 Integrates with:
-    - AU-035 (Signal Board): Adversarial findings are emitted as
+    - CONCEPT:ORCH-1.2 (Signal Board): Adversarial findings are emitted as
       ``security_concern`` or ``quality_gap`` signals.
     - Verifier prompt: Extends the existing adversarial probes section.
     - ``GraphState``: Uses standard feedback/re-dispatch flow.
 
-See docs/adversarial-verification.md §AU-034.
+See docs/adversarial-verification.md §CONCEPT:AHE-3.1.
 """
 
 from __future__ import annotations
@@ -134,7 +134,7 @@ async def run_adversarial_pass(
 
         if adversarial.vulnerabilities_found:
             logger.warning(
-                "[AU-034] Adversarial verification found %d issue(s) "
+                "[CONCEPT:AHE-3.1] Adversarial verification found %d issue(s) "
                 "(severity: %s, confidence: %.0f%%)",
                 len(adversarial.findings),
                 adversarial.severity,
@@ -166,9 +166,11 @@ async def run_adversarial_pass(
 
             return adversarial
 
-        logger.info("[AU-034] Adversarial verification passed — no issues found")
+        logger.info(
+            "[CONCEPT:AHE-3.1] Adversarial verification passed — no issues found"
+        )
         return None
 
     except Exception as e:
-        logger.warning(f"[AU-034] Adversarial pass failed (non-fatal): {e}")
+        logger.warning(f"[CONCEPT:AHE-3.1] Adversarial pass failed (non-fatal): {e}")
         return None

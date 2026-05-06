@@ -19,12 +19,12 @@ Architecture:
       3. Falls back to pattern-based ``tool_guard.py`` for unmatched tools
 
 Integrates with:
-    - AU-011 (Secrets & Auth): HMAC key from Secrets Engine
-    - AU-010 (Agent Tool System): Tool Guard pipeline integration
-    - AU-030 (Cognitive Scheduler): Priority escalation for CRITICAL roles
+    - CONCEPT:OS-5.1 (Secrets & Auth): HMAC key from Secrets Engine
+    - CONCEPT:ECO-4.1 (Agent Tool System): Tool Guard pipeline integration
+    - CONCEPT:OS-5.2 (Cognitive Scheduler): Priority escalation for CRITICAL roles
     - ``systems-manager``: Eunomia RBAC enforcement
 
-See docs/permissions-kernel.md §AU-031.
+See docs/permissions-kernel.md §CONCEPT:OS-5.2.
 """
 
 from __future__ import annotations

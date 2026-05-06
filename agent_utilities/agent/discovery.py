@@ -33,7 +33,7 @@ def discover_agents(
         if exclude_packages and agent.name in exclude_packages:
             continue
 
-        # AU-029: Two execution models — remote A2A vs. unified specialist
+        # CONCEPT:ORCH-1.2: Two execution models — remote A2A vs. unified specialist
         if agent.agent_type == "a2a":
             agent_descriptions[agent.name.lower()] = {
                 "url": agent.endpoint_url,

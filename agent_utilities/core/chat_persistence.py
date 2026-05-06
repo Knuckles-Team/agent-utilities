@@ -50,6 +50,14 @@ def save_chat_to_disk(chat_id: str, messages: list[dict[str, Any]]):
         {"id": chat_id, "title": first_msg or "Untitled Chat", "ts": ts},
     )
 
+    # Clean up orphan messages (for rollback strategy)
+    engine.backend.execute(
+        "MATCH (t:Thread {id: $id})-[:CONTAINS]->(m:Message) "
+        "WHERE toInteger(split(m.id, ':')[2]) >= $max_len "
+        "DETACH DELETE m",
+        {"id": chat_id, "max_len": len(messages)},
+    )
+
     # Create MessageNodes and link to Thread
     for i, msg in enumerate(messages):
         msg_id = f"msg:{chat_id}:{i}"

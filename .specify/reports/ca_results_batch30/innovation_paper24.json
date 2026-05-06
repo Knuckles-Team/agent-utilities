@@ -1,0 +1,21 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "results": [
+    {
+      "source": "/home/apps/workspace/scholarx_papers/batch_30/paper_24.md",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [],
+        "innovation_claims": [
+          "In this paper, we contribute to this domain by establishing a new connection when integrity constraints (ICs) include denial constraints and local-as-view tuple-generating dependencies"
+        ]
+      },
+      "synergies": [],
+      "new_capabilities": 0,
+      "enhancements": 0
+    }
+  ]
+}

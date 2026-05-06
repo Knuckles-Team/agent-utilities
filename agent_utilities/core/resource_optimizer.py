@@ -7,7 +7,7 @@ latency-aware routing, and resource usage tracking with KG persistence.
 Design-pattern source: Chapter 16 — Resource-Aware Optimization.
 
 OWL: :ResourceUsage rdfs:subClassOf bfo:Process
-See docs/design-patterns-alignment.md §AU-019.
+See docs/design-patterns-alignment.md §CONCEPT:OS-5.2.
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ class ResourceOptimizer:
 
         When a ``confidence_signal`` is provided and the registry supports
         :meth:`pick_for_task_adaptive`, the confidence signal is forwarded
-        for AU-039 confidence-gated routing.  Otherwise falls back to the
+        for CONCEPT:ORCH-1.2 confidence-gated routing.  Otherwise falls back to the
         standard tier-based selection.
 
         Args:

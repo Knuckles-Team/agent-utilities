@@ -57,7 +57,7 @@ def test_bridge_run_cycle(mock_engine, ontology_path, monkeypatch):
     bridge = OWLBridge(
         graph=mock_engine.graph, owl_backend=backend, backend=mock_engine.backend
     )
-    stats = bridge.run_cycle()
+    stats = bridge.run_cycle(lightweight=False)
 
     assert stats["promoted_nodes"] == 3
     assert stats["promoted_edges"] == 2

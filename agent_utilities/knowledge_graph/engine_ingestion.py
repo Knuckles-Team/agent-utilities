@@ -304,7 +304,7 @@ class IngestionMixin(_Base):
             logger.warning(f"Failed to re-embed node {node_id}: {e}")
             return False
 
-    # --- Engineering Rules Ingestion (CONCEPT:AU-023) ---
+    # --- Engineering Rules Ingestion (CONCEPT:KG-2.2) ---
 
     def ingest_engineering_rules(
         self,
@@ -314,7 +314,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Ingest engineering rules into the Knowledge Graph.
 
-        CONCEPT:AU-023 — Engineering Rules Engine
+        CONCEPT:KG-2.2 — Engineering Rules Engine
 
         Parses structured markdown rule files and creates versioned KG
         nodes for context-sensitive retrieval, OWL reasoning, and AHE
@@ -341,7 +341,7 @@ class IngestionMixin(_Base):
             version=version,
         )
 
-    # --- Constitution & Policy Ingestion (CONCEPT:AU-023 Extension) ---
+    # --- Constitution & Policy Ingestion (CONCEPT:KG-2.2 Extension) ---
 
     def ingest_constitution(
         self,
@@ -350,7 +350,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Ingest a project constitution into the KG as PolicyNodes.
 
-        CONCEPT:AU-023 — Engineering Rules Engine (Constitution Extension)
+        CONCEPT:KG-2.2 — Engineering Rules Engine (Constitution Extension)
 
         Searches for constitution files in standard SDD locations
         (``.specify/memory/constitution.md``, ``CONSTITUTION.md``, etc.)
@@ -380,7 +380,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Ingest all policy sources into the KG in one call.
 
-        CONCEPT:AU-023 — Unified Policy Ingestion
+        CONCEPT:KG-2.2 — Unified Policy Ingestion
 
         Combines:
             1. Constitution policies (from workspace SDD governance)

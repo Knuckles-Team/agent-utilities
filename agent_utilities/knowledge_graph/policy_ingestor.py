@@ -1,6 +1,6 @@
 """Constitution & Prompt Policy Ingestor — SDD governance into KG policies.
 
-CONCEPT:AU-023 — Engineering Rules Engine (Constitution Extension)
+CONCEPT:KG-2.2 — Engineering Rules Engine (Constitution Extension)
 
 Parses project constitutions (``.specify/memory/constitution.md``) and
 prompt JSON files to extract governance rules, normative statements,
@@ -243,7 +243,7 @@ def _extract_prompt_rules(prompt_data: dict[str, Any]) -> list[dict[str, str]]:
 class PolicyIngestor:
     """Ingests constitutions and prompt rules into the KG as PolicyNodes.
 
-    CONCEPT:AU-023 — Engineering Rules Engine (Constitution Extension)
+    CONCEPT:KG-2.2 — Engineering Rules Engine (Constitution Extension)
 
     Unifies three policy sources into the KG's governance layer:
       1. Constitution files (SDD governance)

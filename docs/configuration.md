@@ -41,7 +41,7 @@ This document provides a unified reference for all environment variables, config
 | `DOC_BACKEND` | `sqlite` | Backend for document pipeline (`sqlite`, `mongodb`, `postgresql`) |
 | `DOC_DB_URI` | *None* | Connection string for MongoDB/Postgres document stores |
 
-### Secrets & Auth (AU-011)
+### Secrets & Auth (CONCEPT:OS-5.1)
 | Variable | Default | Description |
 |---|---|---|
 | `SECRETS_BACKEND` | `inmemory` | Storage for secrets (`inmemory`, `sqlite`, `vault`). See [secrets-auth.md](secrets-auth.md) |
@@ -97,7 +97,7 @@ This document provides a unified reference for all environment variables, config
 | `TOOL_GUARD_MODE` | `on` | Strictness of the tool execution guard (`on`, `off`, `custom`) |
 | `DISABLE_TOOL_GUARD` | `False` | Completely bypass tool elicitation and safety checks |
 
-### A2A Agent Discovery (AU-028)
+### A2A Agent Discovery (CONCEPT:ECO-4.2)
 | Variable | Default | Description |
 |---|---|---|
 | `A2A_CONFIG` | *None* | Path to `a2a_config.json` for external A2A agent discovery |

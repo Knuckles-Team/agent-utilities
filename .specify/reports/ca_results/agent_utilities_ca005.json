@@ -1,0 +1,63 @@
+{
+  "domain": "CA-005",
+  "domain_name": "Security",
+  "project": "/home/apps/workspace/agent-packages/agent-utilities",
+  "scan_results": {
+    "files_scanned": 259,
+    "findings": [
+      {
+        "file": "agent_utilities/rlm/repl.py",
+        "line": 288,
+        "name": "exec_usage",
+        "severity": "critical",
+        "cwe": "CWE-95"
+      },
+      {
+        "file": "agent_utilities/rlm/repl.py",
+        "line": 308,
+        "name": "exec_usage",
+        "severity": "critical",
+        "cwe": "CWE-95"
+      },
+      {
+        "file": "agent_utilities/rlm/config.py",
+        "line": 66,
+        "name": "exec_usage",
+        "severity": "critical",
+        "cwe": "CWE-95"
+      },
+      {
+        "file": "agent_utilities/patterns/prompt_chain.py",
+        "line": 205,
+        "name": "eval_usage",
+        "severity": "critical",
+        "cwe": "CWE-95"
+      },
+      {
+        "file": "agent_utilities/server/routers/agent_ui.py",
+        "line": 127,
+        "name": "assert_validation",
+        "severity": "low",
+        "cwe": "CWE-617"
+      }
+    ],
+    "finding_count": 5,
+    "secrets_detected": 0
+  },
+  "security_posture": {
+    "security_md": false,
+    "input_validation": true,
+    "auth_framework": true,
+    "security_linter": true,
+    "dep_scanning": false
+  },
+  "scoring": {
+    "score": 100,
+    "grade": "A+",
+    "details": [
+      "Input validation (Pydantic): +5",
+      "Auth framework detected: +5",
+      "Security linter in pipeline: +5"
+    ]
+  }
+}

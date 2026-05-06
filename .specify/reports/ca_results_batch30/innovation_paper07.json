@@ -1,0 +1,35 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "results": [
+    {
+      "source": "/home/apps/workspace/scholarx_papers/batch_30/paper_07.md",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [
+          {
+            "keyword": "hierarchical",
+            "count": 1,
+            "analogy": "multi-level abstraction layering",
+            "target_domain": "hierarchical_planning"
+          }
+        ],
+        "innovation_claims": []
+      },
+      "synergies": [
+        {
+          "innovation": "multi-level abstraction layering",
+          "source_keyword": "hierarchical",
+          "target_domain": "hierarchical_planning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 1
+    }
+  ]
+}

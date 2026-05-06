@@ -1,6 +1,6 @@
 """Tests for RLM × AHE integration.
 
-CONCEPT:ORCH-1.1 × AU-012 — RLM for AHE Evolution
+CONCEPT:ORCH-1.1 × CONCEPT:ORCH-1.1 — RLM for AHE Evolution
 
 Tests that the TraceDistiller and EvolveAgent correctly trigger RLM
 for large trace sets and evidence corpora.

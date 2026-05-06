@@ -55,7 +55,7 @@ class TestResolveLabel:
         assert resolve_label("self_model") == "SelfModel"
 
     def test_enum_member(self):
-        assert resolve_label(RegistryNodeType.SELF_MODEL) == "SelfModel"
+        assert resolve_label(RegistryNodeType.SELF_MODEL) == "MemoryRetriever"
 
     def test_single_word(self):
         assert resolve_label("agent") == "Agent"

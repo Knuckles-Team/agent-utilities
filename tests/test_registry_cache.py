@@ -24,7 +24,7 @@ def _reset_cache():
     _RegistryCache.invalidate()
 
 
-@pytest.mark.concept("AU-024")
+@pytest.mark.concept("CONCEPT:ORCH-1.2")
 class TestRegistryCache:
     """Test suite for the session-scoped registry cache."""
 
@@ -76,7 +76,7 @@ class TestRegistryCache:
         assert result.agents[0].name == "new"
 
 
-@pytest.mark.concept("AU-024")
+@pytest.mark.concept("CONCEPT:ORCH-1.2")
 class TestGetRelevantSpecialists:
     """Test suite for the top-N specialist filtering function."""
 
@@ -118,7 +118,7 @@ class TestGetRelevantSpecialists:
         assert len(result) == 1
 
 
-@pytest.mark.concept("AU-024")
+@pytest.mark.concept("CONCEPT:ORCH-1.2")
 class TestCacheInvalidationIntegration:
     """Test invalidation signals fire correctly from callsites."""
 

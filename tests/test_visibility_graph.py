@@ -1,4 +1,4 @@
-"""Tests for AU-045: Execution Visibility Graph.
+"""Tests for CONCEPT:ORCH-1.1: Execution Visibility Graph.
 
 Validates the access_list field on ExecutionStep and the
 _resolve_access_context() helper that filters results_registry
@@ -47,11 +47,11 @@ class TestAccessListModel:
         assert restored.access_list == step.access_list
 
     def test_access_list_json_schema(self):
-        """access_list appears in the JSON schema with AU-045 reference."""
+        """access_list appears in the JSON schema with CONCEPT:ORCH-1.1 reference."""
         schema = ExecutionStep.model_json_schema()
         assert "access_list" in schema["properties"]
         desc = schema["properties"]["access_list"]["description"]
-        assert "AU-045" in desc
+        assert "CONCEPT:ORCH-1.1" in desc
 
     def test_access_list_in_graphplan(self):
         """GraphPlan with mixed access_list configurations."""

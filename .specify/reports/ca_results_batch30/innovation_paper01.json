@@ -1,0 +1,66 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "results": [
+    {
+      "source": "/home/apps/workspace/scholarx_papers/batch_30/paper_01.md",
+      "signals": {
+        "biomimicry_signals": [
+          {
+            "keyword": "evolution",
+            "count": 1,
+            "analogy": "genetic algorithm optimization",
+            "target_domain": "prompt_evolution"
+          }
+        ],
+        "tech_signals": [
+          {
+            "keyword": "owl",
+            "count": 7,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          },
+          {
+            "keyword": "knowledge graph",
+            "count": 2,
+            "analogy": "structured relational memory",
+            "target_domain": "kg"
+          }
+        ],
+        "innovation_claims": [
+          "In a three-level tool-orchestration benchmark (single-step through $\\geq$3-step stateful sequences), MAKE improves successful tool execution by up to 87.5 percentage points relative to an unstructured single-model interaction pattern with identical tool access"
+        ]
+      },
+      "synergies": [
+        {
+          "innovation": "genetic algorithm optimization",
+          "source_keyword": "evolution",
+          "target_domain": "prompt_evolution",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "structured relational memory",
+          "source_keyword": "knowledge graph",
+          "target_domain": "kg",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 3
+    }
+  ]
+}

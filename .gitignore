@@ -214,6 +214,7 @@ knowledge_graph.db.wal
 knowledge_graph.db-shm
 *.lbug/
 .lbug/
+.repo_graph/
 
 # Database files
 *.db

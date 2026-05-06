@@ -1,4 +1,4 @@
-"""Unit tests for the Constitution & Prompt Policy Ingestor (CONCEPT:AU-023).
+"""Unit tests for the Constitution & Prompt Policy Ingestor (CONCEPT:KG-2.2).
 
 Tests the policy ingestion pipeline from constitutions, prompt JSONs,
 unified ingestion, policy querying, and prompt rendering.

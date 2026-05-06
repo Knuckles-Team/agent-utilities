@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.4.0"
+version = "0.5.0"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -44,9 +44,9 @@ mcp = [
     "httpx>=0.28.1"
 ]
 agent = [
-    "agent-utilities[mcp,ag-ui,terminal]>=0.4.0",
-    "universal-skills>=0.1.60",
-    "skill-graphs>=0.1.41",
+    "agent-utilities[mcp,ag-ui,terminal]>=0.5.0",
+    "universal-skills>=0.6.0",
+    "skill-graphs>=0.6.0",
     "pydantic-ai-skills>=0.4.1",
     "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.73.0,<2.0.0",
     "pydantic-graph>=1.0.0"
@@ -67,9 +67,9 @@ agent-huggingface = [
     "pydantic-ai-slim[huggingface]>=1.73.0,<2.0.0"
 ]
 ag-ui = [
-    "agent-webui>=0.1.32"]
+    "agent-webui>=0.7.0"]
 terminal = [
-    "agent-terminal-ui>=0.1.38"]
+    "agent-terminal-ui>=0.9.0"]
 browser = [
     "playwright>=1.49.1"]
 acp = [
@@ -79,16 +79,16 @@ acp = [
 embeddings = [
     "llama-index-core>=0.14.15"]
 embeddings-openai = [
-    "agent-utilities[embeddings]>=0.4.0",
+    "agent-utilities[embeddings]>=0.5.0",
     "llama-index-embeddings-openai>=0.5.1"]
 embeddings-huggingface = [
-    "agent-utilities[embeddings]>=0.4.0",
+    "agent-utilities[embeddings]>=0.5.0",
     "llama-index-embeddings-huggingface>=0.6.1"]
 embeddings-ollama = [
-    "agent-utilities[embeddings]>=0.4.0",
+    "agent-utilities[embeddings]>=0.5.0",
     "llama-index-embeddings-ollama>=0.8.6"]
 logfire = [
-    "agent-utilities[agent]>=0.4.0",
+    "agent-utilities[agent]>=0.5.0",
     "pydantic-ai-slim[logfire]>=1.73.0,<2.0.0"
 ]
 graph = [
@@ -134,7 +134,7 @@ test = [
     "agent-utilities[agent,graph,acp,owl]"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,graph,browser,test,owl,stardog,vault,auth]>=0.4.0"]
+    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,graph,browser,test,owl,stardog,vault,auth]>=0.5.0"]
 
 [tool.setuptools]
 include-package-data = true

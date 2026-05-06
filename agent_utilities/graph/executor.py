@@ -189,7 +189,7 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
                 effective_tier = optimized.get("tier", tier)
                 if effective_tier != tier:
                     logger.info(
-                        "[AU-033] Homeostatic downgrade: '%s' tier %s → %s "
+                        "[CONCEPT:OS-5.2] Homeostatic downgrade: '%s' tier %s → %s "
                         "(budget %.0f%% remaining)",
                         node_id,
                         tier,
@@ -200,11 +200,11 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
                     )
                     tier = effective_tier
         except Exception as e:
-            logger.debug(f"AU-033 homeostatic check skipped: {e}")
+            logger.debug(f"CONCEPT:OS-5.2 homeostatic check skipped: {e}")
 
     # CONCEPT:ORCH-1.2 — Confidence-Gated Model Router
     # Compute a confidence signal from upstream scoring to adaptively
-    # select cheaper or more expensive models.  Composes with AU-033:
+    # select cheaper or more expensive models.  Composes with CONCEPT:OS-5.2:
     # budget pressure adjusts the tier first, then confidence further
     # refines within the budget-allowed range.
     confidence_signal: float | None = None
@@ -224,7 +224,7 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
         except Exception:
             pass  # nosec B110
 
-    # Source 2: MemoryRetriever historical proficiency (soft dependency on AU-016)
+    # Source 2: MemoryRetriever historical proficiency (soft dependency on CONCEPT:KG-2.1)
     historical_confidence = 0.5
     if knowledge_engine is not None:
         try:
@@ -255,7 +255,7 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
 
         if effective_tier != original_tier:
             logger.info(
-                "[AU-039] Confidence-gated routing: '%s' tier %s → %s "
+                "[CONCEPT:ORCH-1.2] Confidence-gated routing: '%s' tier %s → %s "
                 "(confidence=%.2f, percentile=%.0f)",
                 node_id,
                 original_tier,
@@ -608,7 +608,7 @@ async def _execute_dynamic_mcp_agent(
                 f"Use these results as context for your task."
             )
             logger.info(
-                "[AU-045] Injected %d access-list results for '%s'",
+                "[CONCEPT:ORCH-1.1] Injected %d access-list results for '%s'",
                 len(step_input_for_access.access_list),
                 agent_name,
             )
@@ -655,7 +655,7 @@ async def _execute_dynamic_mcp_agent(
                     if should_activate:
                         activated_capabilities.append(cap_type)
                         logger.info(
-                            f"[AU-026] Auto-activated capability '{cap_type}' for specialist '{agent_name}' "
+                            f"[CONCEPT:ORCH-1.2] Auto-activated capability '{cap_type}' for specialist '{agent_name}' "
                             f"(handler={handler_module}.{handler_fn})"
                         )
                         emit_graph_event(
@@ -827,7 +827,7 @@ async def _execute_dynamic_mcp_agent(
         if isinstance(step_input, ExecutionStep) and step_input.refined_subtask:
             sub_query = step_input.refined_subtask
             logger.info(
-                "[AU-044] Using refined subtask for '%s': '%s'",
+                "[CONCEPT:ORCH-1.1] Using refined subtask for '%s': '%s'",
                 agent_info.name,
                 sub_query[:100],
             )
@@ -1193,7 +1193,7 @@ async def _execute_agent_package_logic(
         ctx.state.results_registry[node_uid] = result_str
         ctx.state.results[node_id] = result_str
     else:
-        # AU-029: Unified specialist execution
+        # CONCEPT:ORCH-1.2: Unified specialist execution
         # Try specialized prompt-based execution first (loads persona, injects tools + skills)
         registry = load_node_agents_registry()
         mcp_agent = next(

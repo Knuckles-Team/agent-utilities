@@ -17,7 +17,7 @@ Usage::
     node = mapper.load("id", NodeCls)   # KG → Pydantic
     mapper.delete("id")                 # Remove from both layers
 
-See docs/emergent-architecture.md §AU-013.
+See docs/emergent-architecture.md §CONCEPT:KG-2.0.
 """
 
 from __future__ import annotations

@@ -13,7 +13,7 @@ import pytest
 
 
 # CONCEPT:ORCH-1.3 Serialization Safety
-@pytest.mark.concept("AU-005")
+@pytest.mark.concept("CONCEPT:OS-5.0")
 class TestSafeSerialization:
     """Test suite for the safe serialization API."""
 
@@ -80,7 +80,7 @@ class TestSafeSerialization:
 
 
 # CONCEPT:OS-5.0 Workspace Management
-@pytest.mark.concept("AU-003")
+@pytest.mark.concept("CONCEPT:ORCH-1.0")
 class TestWorkspaceTraversalGuard:
     """Verify workspace path traversal protection."""
 

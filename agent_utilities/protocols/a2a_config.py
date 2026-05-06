@@ -242,7 +242,7 @@ async def sync_a2a_agents(
             logger.error(f"A2A sync: Failed to register '{name}': {e}")
             stats["failed"] += 1
 
-    # Invalidate registry cache after bulk ingestion (AU-024)
+    # Invalidate registry cache after bulk ingestion (CONCEPT:ORCH-1.2)
     try:
         from agent_utilities.graph.config_helpers import invalidate_registry_cache
 

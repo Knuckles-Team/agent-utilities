@@ -1,0 +1,40 @@
+{
+  "domain": "CA-008",
+  "domain_name": "Performance",
+  "project": "/home/apps/workspace/agent-packages/agent-utilities",
+  "benchmarks": {
+    "benchmark_dir": false,
+    "pytest_benchmark": true,
+    "criterion": false,
+    "k6": false
+  },
+  "dependency_weight": {
+    "dependency_count": 174,
+    "heavy_dependencies": [],
+    "estimated_install_mb": 0
+  },
+  "async_patterns": {
+    "asyncio": true,
+    "threading": true,
+    "multiprocessing": true,
+    "concurrent_futures": false,
+    "async_def_count": 1137,
+    "sync_def_count": 2963,
+    "async_ratio": 27.7
+  },
+  "container": {
+    "dockerfile": false,
+    "compose": false,
+    "multi_stage": false,
+    "health_check": false
+  },
+  "scoring": {
+    "score": 45,
+    "grade": "F",
+    "details": [
+      "Benchmark suite present: +25",
+      "Very heavy deps (174): +5",
+      "Partial async (27.7%): +15"
+    ]
+  }
+}

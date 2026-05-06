@@ -1,0 +1,21 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "results": [
+    {
+      "source": "/home/apps/workspace/scholarx_papers/batch_30/paper_20.md",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [],
+        "innovation_claims": [
+          "While limited by self-reported ground truth, these results demonstrate the benefits of a dedicated and complete symptom interview compared to a user-guided symptom discussion, which is the default of most consumer LLMs"
+        ]
+      },
+      "synergies": [],
+      "new_capabilities": 0,
+      "enhancements": 0
+    }
+  ]
+}

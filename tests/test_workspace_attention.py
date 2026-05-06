@@ -164,7 +164,7 @@ class TestTrackRecordScoring:
     def test_default_track_record(self):
         gwt = WorkspaceAttention()
 
-        score = gwt._score_track_record("spec:unknown", self_model=None)  # type: ignore[call-arg]
+        score = gwt._score_track_record("spec:unknown", memory_retriever=None)  # type: ignore[call-arg]
         assert score == 0.5  # Neutral default
 
 

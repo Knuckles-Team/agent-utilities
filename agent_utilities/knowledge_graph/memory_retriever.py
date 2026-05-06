@@ -15,11 +15,11 @@ Architecture:
       domains am I improving in?").
 
 Integrates with:
-    - AU-013 (OGM): Declarative KG persistence
+    - CONCEPT:KG-2.0 (OGM): Declarative KG persistence
     - Existing OWL bridge: ``promote_to_owl()`` / ``reason_about_self()``
     - ``GraphState``: Session outcome aggregation
 
-See docs/emergent-architecture.md §AU-016.
+See docs/emergent-architecture.md §CONCEPT:KG-2.1.
 """
 
 from __future__ import annotations
@@ -314,7 +314,7 @@ class MemoryRetriever:
             )
             self.ogm.upsert(new_model)
             logger.info(
-                "[AU-046] Model synergy updated: %s → %.2f",
+                "[CONCEPT:AHE-3.3] Model synergy updated: %s → %.2f",
                 synergy_key,
                 new_model.model_synergies[synergy_key],
             )

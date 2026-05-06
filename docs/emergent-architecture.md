@@ -1,8 +1,8 @@
 # Emergent Architecture
 
-> **Concepts:** AU-013, AU-014, AU-015, AU-016, AU-017
+> **Concepts:** CONCEPT:KG-2.0, CONCEPT:KG-2.0, CONCEPT:ORCH-1.0, CONCEPT:KG-2.1, CONCEPT:ORCH-1.2
 >
-> See also: [First Principles Architecture](first-principles.md) for AU-024 through AU-027 (Registry Cache, TeamConfig, AgentCapability, PlannerGraphSkill).
+> See also: [First Principles Architecture](first-principles.md) for CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.2 (Registry Cache, TeamConfig, AgentCapability, PlannerGraphSkill).
 
 This document describes the Emergent Architecture layer of `agent-utilities` — a suite of five interconnected modules that enable dynamic agent coalition formation, evolutionary variant selection, metacognitive self-modeling, and attention-based output quality filtering.
 
@@ -17,23 +17,23 @@ The Emergent Architecture builds on top of the existing infrastructure:
 
 ```mermaid
 graph TD
-    subgraph "Foundation (AU-013)"
+    subgraph "Foundation (CONCEPT:KG-2.0)"
         OGM["KG Object-Graph Mapper<br/>knowledge_graph/ogm.py"]
     end
 
-    subgraph "Evolution (AU-015)"
+    subgraph "Evolution (CONCEPT:ORCH-1.0)"
         VP["Variant Pool<br/>harness/variant_pool.py"]
     end
 
-    subgraph "Metacognition (AU-016)"
+    subgraph "Metacognition (CONCEPT:KG-2.1)"
         SM["Self-Model<br/>knowledge_graph/self_model.py"]
     end
 
-    subgraph "Orchestration (AU-014)"
+    subgraph "Orchestration (CONCEPT:KG-2.0)"
         SW["Swarm Orchestrator<br/>graph/swarm.py"]
     end
 
-    subgraph "Quality (AU-017)"
+    subgraph "Quality (CONCEPT:ORCH-1.2)"
         GWT["Workspace Attention<br/>graph/workspace_attention.py"]
     end
 
@@ -280,7 +280,7 @@ Always-on attention mechanism for specialist output quality filtering. Inspired 
 | Signal | Weight | Source |
 |--------|--------|--------|
 | **Relevance** | 50% | Embedding cosine similarity to query |
-| **Track record** | 30% | Historical success from self-model (AU-016) |
+| **Track record** | 30% | Historical success from self-model (CONCEPT:KG-2.1) |
 | **Confidence** | 20% | Self-reported via parsed patterns |
 
 Composite: `0.5 × relevance + 0.3 × track_record + 0.2 × confidence`
@@ -331,24 +331,24 @@ gwt.broadcast_to_kg(winners, engine, task_id="task:123")
 
 | Type | Concept | Description |
 |------|---------|-------------|
-| `SELF_MODEL` | AU-016 | Versioned metacognitive self-model |
-| `SWARM_COALITION` | AU-014 | Dynamic agent coalition record |
-| `PROPOSAL` | AU-017 | GWT specialist output proposal |
-| `TEAM_CONFIG` | AU-025 | Proven specialist coalition template (see [first-principles.md](first-principles.md)) |
-| `AGENT_CAPABILITY` | AU-026 | Dynamic capability with trigger conditions (see [first-principles.md](first-principles.md)) |
+| `SELF_MODEL` | CONCEPT:KG-2.1 | Versioned metacognitive self-model |
+| `SWARM_COALITION` | CONCEPT:KG-2.0 | Dynamic agent coalition record |
+| `PROPOSAL` | CONCEPT:ORCH-1.2 | GWT specialist output proposal |
+| `TEAM_CONFIG` | CONCEPT:AHE-3.3 | Proven specialist coalition template (see [first-principles.md](first-principles.md)) |
+| `AGENT_CAPABILITY` | CONCEPT:ORCH-1.2 | Dynamic capability with trigger conditions (see [first-principles.md](first-principles.md)) |
 
 ### Edge Types (RegistryEdgeType)
 
 | Type | Concept | Description |
 |------|---------|-------------|
-| `VARIANT_OF` | AU-015 | Links variant to base component |
-| `CURRENT_SELF_MODEL` | AU-016 | Pointer to latest self-model version |
-| `SPAWNED_BY` | AU-014 | Tracks swarm agent parentage |
-| `COORDINATED_BY` | AU-014 | Links specialist to coordinator |
-| `PROPOSED_FOR` | AU-017 | Links proposal to its specialist |
-| `HAS_CAPABILITY` | AU-026 | Links specialist → capability node (see [first-principles.md](first-principles.md)) |
-| `REUSED_TEAM` | AU-025 | Links session → TeamConfig for reuse tracking (see [first-principles.md](first-principles.md)) |
-| `USES_PROMPT` | AU-025 | Links specialist → JSON prompt template (see [first-principles.md](first-principles.md)) |
+| `VARIANT_OF` | CONCEPT:ORCH-1.0 | Links variant to base component |
+| `CURRENT_SELF_MODEL` | CONCEPT:KG-2.1 | Pointer to latest self-model version |
+| `SPAWNED_BY` | CONCEPT:KG-2.0 | Tracks swarm agent parentage |
+| `COORDINATED_BY` | CONCEPT:KG-2.0 | Links specialist to coordinator |
+| `PROPOSED_FOR` | CONCEPT:ORCH-1.2 | Links proposal to its specialist |
+| `HAS_CAPABILITY` | CONCEPT:ORCH-1.2 | Links specialist → capability node (see [first-principles.md](first-principles.md)) |
+| `REUSED_TEAM` | CONCEPT:AHE-3.3 | Links session → TeamConfig for reuse tracking (see [first-principles.md](first-principles.md)) |
+| `USES_PROMPT` | CONCEPT:AHE-3.3 | Links specialist → JSON prompt template (see [first-principles.md](first-principles.md)) |
 
 ---
 
@@ -358,15 +358,15 @@ All modules have comprehensive test suites:
 
 ```bash
 # Individual modules
-python -m pytest tests/test_kg_ogm.py -v             # AU-013
-python -m pytest tests/test_variant_pool.py -v        # AU-015
-python -m pytest tests/test_self_model.py -v           # AU-016
-python -m pytest tests/test_workspace_attention.py -v  # AU-017
+python -m pytest tests/test_kg_ogm.py -v             # CONCEPT:KG-2.0
+python -m pytest tests/test_variant_pool.py -v        # CONCEPT:ORCH-1.0
+python -m pytest tests/test_self_model.py -v           # CONCEPT:KG-2.1
+python -m pytest tests/test_workspace_attention.py -v  # CONCEPT:ORCH-1.2
 
 # First Principles Architecture tests
-python -m pytest tests/unit/graph/test_config_helpers.py -v          # AU-024
-python -m pytest tests/unit/knowledge_graph/test_team_config.py -v   # AU-025
-python -m pytest tests/unit/knowledge_graph/test_capability_nodes.py -v # AU-026
+python -m pytest tests/unit/graph/test_config_helpers.py -v          # CONCEPT:ORCH-1.2
+python -m pytest tests/unit/knowledge_graph/test_team_config.py -v   # CONCEPT:AHE-3.3
+python -m pytest tests/unit/knowledge_graph/test_capability_nodes.py -v # CONCEPT:ORCH-1.2
 
 # All emergent + first-principles tests
 python -m pytest tests/test_kg_ogm.py tests/test_variant_pool.py \

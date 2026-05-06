@@ -13,7 +13,7 @@ OWL alignment:
     :PromptChain rdfs:subClassOf :Procedure  (BFO:Process)
     :PromptChainStep rdfs:subClassOf :Action  (BFO:Process)
 
-See docs/design-patterns-alignment.md §AU-018.
+See docs/design-patterns-alignment.md §CONCEPT:ORCH-1.1.
 """
 
 from __future__ import annotations

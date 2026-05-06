@@ -158,7 +158,7 @@ class NestedStructure(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Engineering Rules Engine (CONCEPT:AU-023)
+# Engineering Rules Engine (CONCEPT:KG-2.2)
 # ---------------------------------------------------------------------------
 
 
@@ -178,7 +178,7 @@ class TriggerRule(BaseModel):
 class EngineeringRulesSection(BaseModel):
     """Task-scoped engineering rules from agent-rules-books.
 
-    CONCEPT:AU-023 — Engineering Rules Engine
+    CONCEPT:KG-2.2 — Engineering Rules Engine
 
     Defines which engineering rules are injected into the agent's prompt
     based on task context. Supports three loading patterns:
@@ -302,7 +302,7 @@ class StructuredPrompt(BaseModel):
     tools: list[str] | None = Field(
         default=None, description="List of tool/skill names"
     )
-    # Engineering Rules Engine (CONCEPT:AU-023)
+    # Engineering Rules Engine (CONCEPT:KG-2.2)
     engineering_rules: EngineeringRulesSection | None = Field(
         default=None,
         description="Task-scoped engineering rules from agent-rules-books",

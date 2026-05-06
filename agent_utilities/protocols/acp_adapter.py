@@ -158,6 +158,7 @@ def create_graph_acp_app(
     config: AdapterConfig,
     graph_bundle: tuple[Any, Any] | None = None,
     mcp_toolsets: list[Any] | None = None,
+    concurrency_manager: Any = None,
 ) -> Any:
     """Create an ACP app that routes execution through the graph pipeline.
 
@@ -226,16 +227,30 @@ def create_graph_acp_app(
 
             # Session context is captured from the factory closure.
             # No REQUESTED_MODEL_ID_CTX workaround needed.
-            result = await execute_graph(
-                graph=graph,
-                config=graph_config,
-                query=query,
-                mode=mode,
-                mcp_toolsets=mcp_toolsets or graph_config.get("mcp_toolsets", []),
-            )
-            return result.get("results", {}).get(
-                "output", str(result.get("results", {}))
-            )
+            session_id = session.session_id if hasattr(session, "session_id") else None
+
+            # Use interrupt for ACP chat by default, configurable later via config
+            concurrency_strategy = "interrupt"
+
+            if concurrency_manager and session_id:
+                await concurrency_manager.acquire(
+                    session_id, strategy=concurrency_strategy
+                )
+
+            try:
+                result = await execute_graph(
+                    graph=graph,
+                    config=graph_config,
+                    query=query,
+                    mode=mode,
+                    mcp_toolsets=mcp_toolsets or graph_config.get("mcp_toolsets", []),
+                )
+                return result.get("results", {}).get(
+                    "output", str(result.get("results", {}))
+                )
+            finally:
+                if concurrency_manager and session_id:
+                    await concurrency_manager.release(session_id)
 
         graph_agent = Agent(
             model=agent.model,
