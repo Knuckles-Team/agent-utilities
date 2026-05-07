@@ -45,6 +45,19 @@
 <!-- CONCEPT:OS-5.6 Token Usage Tracker -->
 <!-- CONCEPT:OS-5.7 Audit Logger -->
 <!-- CONCEPT:OS-5.8 Guardrail Callback Engine -->
+<!-- CONCEPT:KG-2.11 Research Intelligence Pipeline -->
+<!-- CONCEPT:KG-2.12 KG Source Resolver -->
+<!-- CONCEPT:ORCH-1.7 SDD Pipeline -->
+<!-- CONCEPT:KG-2.13 Cross-Session Chat Recall -->
+<!-- CONCEPT:KG-2.14 Project-Aware Context -->
+<!-- CONCEPT:KG-2.15 Topological Analogy Engine -->
+<!-- CONCEPT:KG-2.16 Semantic Subsumption -->
+<!-- CONCEPT:AHE-3.14 Agentic Engineering Patterns -->
+<!-- CONCEPT:OS-5.9 Telemetry & Observability -->
+<!-- CONCEPT:OS-5.10 Policy & Prompt Governance -->
+<!-- CONCEPT:OS-5.11 Topological Vulnerability Scanner -->
+<!-- CONCEPT:ECO-4.7 Ecosystem Topology Map -->
+<!-- CONCEPT:KG-2.19 Cross-Pillar Synergy Engine -->
 
 **agent-utilities is a protocol-first, framework-light agent core library.**
 
@@ -214,6 +227,8 @@ agent-utilities/
 │   │   ├── graph_validator.py # Graph Integrity Validator (CONCEPT:KG-2.3)
 │   │   ├── hypergraph.py     # Inductive Knowledge Hypergraphs (CONCEPT:KG-2.4)
 │   │   ├── context_compactor.py # Token-Aware Context Compaction (CONCEPT:KG-2.10)
+│   │   ├── source_resolver.py # KG Source Resolver (CONCEPT:KG-2.12)
+│   │   ├── research_artifacts.py # Research Artifact Generator (CONCEPT:KG-2.11)
 │   │   └── kb/entity_claim_extractor.py # Entity-Claim Extraction (CONCEPT:KG-2.2)
 │   ├── protocols/            # Protocol adapters (ACP, A2A, AG-UI)
 │   │   ├── a2a_graph_skill.py # PlannerGraphSkill (CONCEPT:ECO-4.2)
@@ -236,9 +251,10 @@ agent-utilities/
 │   ├── rlm/                  # Recursive Language Model environments
 │   ├── sdd/                  # Spec-Driven Development pipelines
 │   ├── harness/              # Agentic Harness Engineering toolkit
-│   │   └── backtest_harness.py # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+│   │   ├── backtest_harness.py # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+│   │   └── engineering.py    # Engineering Pattern Orchestrator (CONCEPT:AHE-3.14)
 │   └── patterns/             # Design patterns (prompt chaining, prioritization, exploration)
-├── tests/                    # Test suite (1857 tests: unit, integration, knowledge_graph)
+├── tests/                    # Test suite (2060+ tests: unit, integration, knowledge_graph)
 ├── docs/                     # Comprehensive documentation (24 guides)
 ├── .specify/                 # SDD specs, tasks, and constitution
 ├── pyproject.toml            # PEP 621 project metadata
@@ -248,7 +264,7 @@ agent-utilities/
 
 ## Architectural Concepts
 
-The system is built on 27 foundational concepts organized into 5 layers:
+The system is built on 70 foundational concepts organized into 5 layers:
 
 ### Core Infrastructure (CONCEPT:ORCH-1.0 to CONCEPT:OS-5.1)
 Agent creation, graph orchestration, workspace management, protocol adapters, serialization, structured prompts, RLM, capabilities, SDD, tools, and secrets.
@@ -282,14 +298,32 @@ Prompt Injection Scanner (pattern-based threat detection with 25+ vectors adapte
 Financial Trading Pipeline (FIBO-aligned KG primitives for Signal→Order→Position→Portfolio→Strategy lifecycle), Market Data Connector Protocol (generic `DataConnectorProtocol` with auto-fallback chain and provenance tracking), Swarm Preset Template Engine (YAML-driven DAG workflow orchestration with variable substitution), Risk Scoring Ontology (domain-agnostic assessment with transitive OWL propagation), and Backtest Evaluation Harness (SQLite-backed strategy evaluation with walk-forward validation and benchmark comparison).
 ### MATE Integration (CONCEPT:AHE-3.12, AHE-3.13, OS-5.6, OS-5.7, OS-5.8)
 Multi-Strategy EvalRunner (exact match, semantic similarity, LLM-as-Judge with composite scoring), Token Usage Tracker (4-bucket granular analytics with budget alerting), Audit Logger (append-only compliance trail with 30+ action constants and retention), Guardrail Callback Engine (push-based input/output interception with block/redact/warn), and Agent Config Versioning (immutable snapshots with forward-only rollback and structured diffs). All ported from the MATE framework with KG-native persistence and OWL-promoted types for transitive reasoning.
+### Research Intelligence (CONCEPT:KG-2.11, KG-2.12)
+Research Intelligence Pipeline (automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion → OWL Enrichment → Digest Generation), KG Source Resolver (bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment). Supports arXiv papers via ScholarX, local files (PDF/HTML/Markdown), and web URLs.
+### Topological Reasoning (CONCEPT:KG-2.15, KG-2.16, OS-5.11)
+Topological Analogy Engine (leverages EncPI embeddings and networkx for cross-domain subgraph analogy matching), OWL-Driven Semantic Subsumption (zero-shot ontology alignment mapping vectorized topological topologies to OWL class prototypes), and Topological Vulnerability Scanner (scans execution graphs for structural vulnerabilities using analogy matches to known risk subgraphs).
 
-→ See [docs/overview.md](docs/overview.md) for the full Concept Galaxy diagram and **Concept Map table** (all 59 AU-XXX concepts with descriptions and code paths).
+### Agentic-iModels Integration (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+Agent-Interpretable Model Evolver (autoresearch loop evolving sklearn-compatible models for dual-objective accuracy + LLM readability, Pareto frontier tracking, MCP-delegated fitting via `data-science-mcp`), LLM-Graded Interpretability Tests (6-category 200-test protocol with reward hacking detection), and Model Display Optimization (display-predict decoupling with 5 strategies: linear_collapse, piecewise_table, symbolic_equation, coefficient_summary, adaptive/SmartAdditive). Based on Microsoft Research arXiv:2605.03808.
+### Ecosystem Intelligence (CONCEPT:ECO-4.7, KG-2.19)
+Ecosystem Topology Map (materializes the 40-repository ecosystem as first-class KG nodes with transitive dependency graphs, impact radius computation, and intelligent MCP server categorization via OWL classes: EcosystemPackage → FrontendPackage / MCPServerPackage / SkillPackage), Cross-Pillar Synergy Engine (discovers non-obvious functional synergies between the 5 Pillars via concept bridge analysis, pillar coupling metrics, and missing edge suggestions — leverages Analogy Engine KG-2.15 and SKOS taxonomy).
+
+### Research-Driven Enhancements (CONCEPT:ORCH-1.8, KG-2.20, KG-2.21, KG-2.22, ECO-4.8, OS-5.12)
+Derived from ScholarX May 7, 2026 scan of 50 arXiv papers (37 relevant, cross-matched against 42 ecosystem CONCEPT:IDs):
+- **Learned Agent Routing (ORCH-1.8)**: Jointly optimizes decomposition depth, worker choice, and inference budget from execution traces. Three policies: RuleBasedPolicy, TraceLearnedPolicy (softmax scoring from historical traces with EMA quality tracking), CostAwareRouter (Pareto-optimal cost/accuracy filtering). Derived from Uno-Orchestra (arXiv:2605.05007v1, Score 31.2). New module: `agent_utilities/graph/routing_policy.py`.
+- **Elastic Context Operators (KG-2.20)**: 5 atomic operators for elastic context orchestration (Skip, Compress, Rollback, Snippet, Delete). Compress is expressively complete while specialized operators reduce hallucination risk. Extends ContextCompactor (KG-2.10) with checkpoint/rollback support. Derived from LongSeeker (arXiv:2605.05191v1, Score 25.5). Extended module: `agent_utilities/knowledge_graph/context_compactor.py`.
+- **Multi-Timescale Memory Dynamics (KG-2.21)**: Three-tier memory with exponential decay: Working (5min half-life), Episodic (4hr), Semantic (30-day). Consolidation promotes high-activation memories: Working→Episodic at 3+ accesses, Episodic→Semantic at 5+. Relevance-weighted keyword retrieval. Derived from Continual Knowledge Updating (arXiv:2605.05097v1, Score 11.2). New module: `agent_utilities/knowledge_graph/timescale_memory.py`.
+- **Versioned KG Mutations (KG-2.22)**: Git-like transactional mutation semantics: KGTransaction (batched mutations), KGCommit (atomic application with rollback data), KGVersionEngine (commit/rollback/diff), KGDiff (structural diff between graph versions). Derived from Evolving Idea Graphs (arXiv:2605.04922v1, Score 11.2). New module: `agent_utilities/knowledge_graph/kg_versioning.py`.
+- **Dynamic Skill Evolution (ECO-4.8)**: On-the-fly skill creation from execution traces. SkillNeologismDetector (identifies uncovered capabilities), SkillFactory (creates skill nodes from gaps), SkillMerger (Jaccard overlap consolidation). Derived from Skill Neologisms (arXiv:2605.04970v1, Score 11.9). New module: `agent_utilities/knowledge_graph/skill_evolver.py`.
+- **Jailbreak Robustness Hardening (OS-5.12)**: Extends Prompt Injection Scanner (OS-5.4) with 4-category SoK taxonomy: template-based (DAN, AIM, UCAR, Grandma), optimization-based (GCG suffix, token smuggling), LLM-based (context confusion, multi-turn escalation), manual (role-play, authority override). 12 new threat patterns. Derived from SoK: Robustness against Jailbreak (arXiv:2605.05058v1, Score 16.2). Extended module: `agent_utilities/security/prompt_scanner.py`.
+
+→ See [docs/overview.md](docs/overview.md) for the full Concept Galaxy diagram and **Concept Map table** (all 79 concepts with descriptions and code paths).
 
 ## Detailed Documentation
 
 For comprehensive documentation, see the `docs/` directory:
 
-- **[Overview Map](docs/overview.md)** — The Concept Galaxy connecting all 59 concepts, plus the **Concept Map table** (CONCEPT:ORCH-1.0 → CONCEPT:OS-5.8)
+- **[Overview Map](docs/overview.md)** — The Concept Galaxy connecting all 79 concepts, plus the **Concept Map table** (CONCEPT:ORCH-1.0 → CONCEPT:OS-5.12)
 - **[Conductor Orchestration](docs/conductor-orchestration.md)** — Refined subtasks, visibility graphs, model synergies, recursive scaling (CONCEPT:ORCH-1.1–CONCEPT:ORCH-1.1)
 - **[Architecture](docs/architecture.md)** — System architecture, protocol adapters, 3-stage hybrid routing
 - **[Knowledge Graph](docs/knowledge-graph.md)** — UIG, 15-phase pipeline, OWL reasoning, MAGMA views, graph integrity validation, entity-claim extraction

@@ -279,6 +279,133 @@ _INJECTION_PATTERNS: list[ThreatPattern] = [
     ),
 ]
 
+# -- Jailbreak attack patterns (SoK-derived, CONCEPT:OS-5.4) ---------------
+# Derived from: SoK: Robustness in LLMs against Jailbreak Attacks
+# (arXiv:2605.05058v1, Score 16.2)
+#
+# Four-category taxonomy:
+# 1. Template-based: DAN, AIM, STAN, Grandma, UCAR
+# 2. Optimization-based: GCG suffix, token perturbation
+# 3. LLM-based: multi-turn escalation, context confusion
+# 4. Manual: role-play, hypothetical, authority
+
+
+class JailbreakCategory(str, Enum):
+    """Jailbreak attack categories from SoK taxonomy (CONCEPT:OS-5.4)."""
+
+    TEMPLATE_BASED = "template_based"
+    OPTIMIZATION_BASED = "optimization_based"
+    LLM_BASED = "llm_based"
+    MANUAL = "manual"
+
+
+_JAILBREAK_TEMPLATE_PATTERNS: list[ThreatPattern] = [
+    ThreatPattern(
+        name="dan_jailbreak",
+        regex=re.compile(
+            r"(DAN|do\s+anything\s+now|developer\s+mode|jailbreak\s+mode)",
+            re.IGNORECASE,
+        ),
+        risk_level=RiskLevel.HIGH,
+        description="Template-based jailbreak: DAN/Developer Mode prompt",
+    ),
+    ThreatPattern(
+        name="aim_jailbreak",
+        regex=re.compile(
+            r"(AIM|always\s+intelligent\s+and\s+machiavellian)",
+            re.IGNORECASE,
+        ),
+        risk_level=RiskLevel.HIGH,
+        description="Template-based jailbreak: AIM persona",
+    ),
+    ThreatPattern(
+        name="ucar_jailbreak",
+        regex=re.compile(
+            r"(UCAR|uncondition|no\s+filter|without\s+restrictions|no\s+ethical)",
+            re.IGNORECASE,
+        ),
+        risk_level=RiskLevel.HIGH,
+        description="Template-based jailbreak: unrestricted mode",
+    ),
+    ThreatPattern(
+        name="grandma_jailbreak",
+        regex=re.compile(
+            r"(my\s+(late\s+)?grandmother|deceased\s+relative).*used\s+to\s+(tell|read|say)",
+            re.IGNORECASE,
+        ),
+        risk_level=RiskLevel.MEDIUM,
+        description="Template-based jailbreak: Grandma exploit",
+    ),
+]
+
+_JAILBREAK_OPTIMIZATION_PATTERNS: list[ThreatPattern] = [
+    ThreatPattern(
+        name="gcg_suffix",
+        regex=re.compile(
+            r"[!@#$%^&*]{5,}|[\x80-\xff]{10,}|"
+            r"(?:[A-Z]{2,3}\s+){5,}",
+        ),
+        risk_level=RiskLevel.MEDIUM,
+        description="Optimization-based jailbreak: potential GCG adversarial suffix",
+    ),
+    ThreatPattern(
+        name="token_smuggling",
+        regex=re.compile(
+            r"(?:&#\d{2,4};){3,}|(?:\\u[0-9a-fA-F]{4}){3,}|"
+            r"(?:%[0-9a-fA-F]{2}){5,}",
+        ),
+        risk_level=RiskLevel.HIGH,
+        description="Optimization-based jailbreak: token smuggling via encoding",
+    ),
+]
+
+_JAILBREAK_LLM_PATTERNS: list[ThreatPattern] = [
+    ThreatPattern(
+        name="context_confusion",
+        regex=re.compile(
+            r"(end\s+of\s+system\s+prompt|system\s+message\s+ends|"
+            r"\[/INST\]|\[/SYS\]|<</SYS>>)",
+            re.IGNORECASE,
+        ),
+        risk_level=RiskLevel.HIGH,
+        description="LLM-based jailbreak: context boundary confusion",
+    ),
+    ThreatPattern(
+        name="multi_turn_escalation",
+        regex=re.compile(
+            r"(now\s+that\s+we\'ve\s+established|building\s+on\s+your\s+previous|"
+            r"since\s+you\s+already\s+agreed|you\s+said\s+earlier\s+that)",
+            re.IGNORECASE,
+        ),
+        risk_level=RiskLevel.MEDIUM,
+        description="LLM-based jailbreak: multi-turn escalation",
+    ),
+]
+
+_JAILBREAK_MANUAL_PATTERNS: list[ThreatPattern] = [
+    ThreatPattern(
+        name="roleplay_jailbreak",
+        regex=re.compile(
+            r"(pretend\s+you\s+are|let\'s\s+play\s+a\s+game|imagine\s+you\s+are|"
+            r"for\s+educational\s+purposes|in\s+a\s+hypothetical\s+scenario|"
+            r"write\s+a\s+story\s+where\s+you)",
+            re.IGNORECASE,
+        ),
+        risk_level=RiskLevel.MEDIUM,
+        description="Manual jailbreak: role-play/hypothetical framing",
+    ),
+    ThreatPattern(
+        name="authority_override",
+        regex=re.compile(
+            r"(as\s+your\s+creator|i\s+am\s+your\s+developer|"
+            r"openai\s+internal|admin\s+override|sudo\s+mode)",
+            re.IGNORECASE,
+        ),
+        risk_level=RiskLevel.HIGH,
+        description="Manual jailbreak: false authority claim",
+    ),
+]
+
 # Composite pattern list
 ALL_PATTERNS: list[ThreatPattern] = (
     _REVERSE_SHELL_PATTERNS
@@ -288,6 +415,10 @@ ALL_PATTERNS: list[ThreatPattern] = (
     + _CREDENTIAL_PATTERNS
     + _RECON_PATTERNS
     + _INJECTION_PATTERNS
+    + _JAILBREAK_TEMPLATE_PATTERNS
+    + _JAILBREAK_OPTIMIZATION_PATTERNS
+    + _JAILBREAK_LLM_PATTERNS
+    + _JAILBREAK_MANUAL_PATTERNS
 )
 
 # -- Shell tool detection (aligned with Goose's is_shell_tool_name) ----------

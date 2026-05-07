@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Custom Observability Module.
 
+CONCEPT:OS-5.9 — Telemetry & Observability
+
 This module provides instrumentation for OpenTelemetry (OTel) using Logfire.
 It handles the generation of OTLP headers from credentials, service-level
 configuration, and automatic instrumentation of pydantic-ai agents for

@@ -445,3 +445,343 @@ class ContextCompactor:
             "session_id": session_id,
             "timestamp": datetime.now(UTC).isoformat(),
         }
+
+
+# ---------------------------------------------------------------------------
+# Elastic Context Operators (LongSeeker-inspired)
+# ---------------------------------------------------------------------------
+
+
+class ContextOperator(str, Enum):
+    """Atomic context operations for elastic context orchestration.
+
+    CONCEPT:KG-2.10 — Derived from LongSeeker (arXiv:2605.05191v1).
+
+    Five atomic operators for reshaping working context:
+    - SKIP: Mark a message as irrelevant, exclude from future processing
+    - COMPRESS: Replace message(s) with a compact summary
+    - ROLLBACK: Revert to a previous context checkpoint
+    - SNIPPET: Extract focused evidence from verbose content
+    - DELETE: Permanently remove a message from context
+
+    Compress is expressively complete (any operation can be expressed as
+    a compression), but specialized operators reduce generation cost and
+    hallucination risk.
+    """
+
+    SKIP = "skip"
+    COMPRESS = "compress"
+    ROLLBACK = "rollback"
+    SNIPPET = "snippet"
+    DELETE = "delete"
+
+
+class ContextCheckpoint(BaseModel):
+    """A snapshot of context state for rollback support.
+
+    Attributes:
+        checkpoint_id: Unique identifier for this checkpoint.
+        messages: Deep copy of messages at checkpoint time.
+        token_count: Token count at checkpoint time.
+        timestamp: When the checkpoint was created.
+    """
+
+    checkpoint_id: str = Field(default_factory=lambda: f"ckpt:{uuid.uuid4().hex[:8]}")
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    token_count: int = 0
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+
+class OperatorResult(BaseModel):
+    """Result of applying a context operator.
+
+    Attributes:
+        operator: Which operator was applied.
+        messages: The resulting message list.
+        tokens_before: Token count before the operation.
+        tokens_after: Token count after the operation.
+        affected_indices: Which message indices were affected.
+        metadata: Additional operator-specific metadata.
+    """
+
+    operator: ContextOperator
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    tokens_before: int = 0
+    tokens_after: int = 0
+    affected_indices: list[int] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ElasticContextManager:
+    """Elastic context orchestration with 5 atomic operators.
+
+    CONCEPT:KG-2.10 — Derived from LongSeeker's Context-ReAct paradigm.
+
+    Provides fine-grained control over working context using atomic
+    operations that preserve important evidence, summarize resolved
+    information, discard unhelpful branches, and control context size.
+
+    Example::
+
+        ecm = ElasticContextManager(max_tokens=8000)
+        messages = [...]
+
+        # Create a checkpoint before risky operations
+        ecm.checkpoint(messages)
+
+        # Skip irrelevant messages
+        result = ecm.apply(ContextOperator.SKIP, messages, indices=[3, 5])
+
+        # Extract a snippet from a verbose message
+        result = ecm.apply(ContextOperator.SNIPPET, messages,
+                          indices=[7], snippet_query="key findings")
+
+        # Rollback if the approach didn't work
+        result = ecm.rollback()
+    """
+
+    def __init__(self, max_tokens: int = 8000) -> None:
+        """Initialize the elastic context manager.
+
+        Args:
+            max_tokens: Target maximum token count.
+        """
+        self.max_tokens = max_tokens
+        self._checkpoints: list[ContextCheckpoint] = []
+        self._skip_set: set[int] = set()
+
+    def checkpoint(self, messages: list[dict[str, Any]]) -> ContextCheckpoint:
+        """Create a context checkpoint for potential rollback.
+
+        Args:
+            messages: Current message list to snapshot.
+
+        Returns:
+            The created checkpoint.
+        """
+        ckpt = ContextCheckpoint(
+            messages=deepcopy(messages),
+            token_count=estimate_message_tokens(messages),
+        )
+        self._checkpoints.append(ckpt)
+        logger.debug(
+            "Created checkpoint %s (%d tokens)", ckpt.checkpoint_id, ckpt.token_count
+        )
+        return ckpt
+
+    def apply(
+        self,
+        operator: ContextOperator,
+        messages: list[dict[str, Any]],
+        *,
+        indices: list[int] | None = None,
+        snippet_query: str = "",
+        snippet_max_length: int = 200,
+    ) -> OperatorResult:
+        """Apply a context operator to the message list.
+
+        Args:
+            operator: The operator to apply.
+            messages: Current message list.
+            indices: Message indices to operate on (required for SKIP,
+                COMPRESS, SNIPPET, DELETE).
+            snippet_query: Query string for SNIPPET operator.
+            snippet_max_length: Max length for extracted snippets.
+
+        Returns:
+            OperatorResult with the transformed messages.
+        """
+        tokens_before = estimate_message_tokens(messages)
+
+        if operator == ContextOperator.SKIP:
+            return self._apply_skip(messages, indices or [], tokens_before)
+        elif operator == ContextOperator.COMPRESS:
+            return self._apply_compress(messages, indices or [], tokens_before)
+        elif operator == ContextOperator.ROLLBACK:
+            return self._apply_rollback(tokens_before)
+        elif operator == ContextOperator.SNIPPET:
+            return self._apply_snippet(
+                messages,
+                indices or [],
+                snippet_query,
+                snippet_max_length,
+                tokens_before,
+            )
+        elif operator == ContextOperator.DELETE:
+            return self._apply_delete(messages, indices or [], tokens_before)
+        else:
+            raise ValueError(f"Unknown operator: {operator}")
+
+    def rollback(self) -> OperatorResult:
+        """Rollback to the most recent checkpoint.
+
+        Returns:
+            OperatorResult with the restored messages.
+
+        Raises:
+            ValueError: If no checkpoints exist.
+        """
+        return self._apply_rollback(0)
+
+    # ── Operator implementations ──────────────────────────────────────────
+
+    def _apply_skip(
+        self,
+        messages: list[dict[str, Any]],
+        indices: list[int],
+        tokens_before: int,
+    ) -> OperatorResult:
+        """Mark messages as skipped — excluded from future processing."""
+        self._skip_set.update(indices)
+        result = [msg for i, msg in enumerate(messages) if i not in self._skip_set]
+        return OperatorResult(
+            operator=ContextOperator.SKIP,
+            messages=result,
+            tokens_before=tokens_before,
+            tokens_after=estimate_message_tokens(result),
+            affected_indices=indices,
+            metadata={"total_skipped": len(self._skip_set)},
+        )
+
+    def _apply_compress(
+        self,
+        messages: list[dict[str, Any]],
+        indices: list[int],
+        tokens_before: int,
+    ) -> OperatorResult:
+        """Compress specified messages into a single summary message."""
+        if not indices:
+            indices = list(range(len(messages)))
+
+        to_compress = [messages[i] for i in indices if i < len(messages)]
+        if not to_compress:
+            return OperatorResult(
+                operator=ContextOperator.COMPRESS,
+                messages=list(messages),
+                tokens_before=tokens_before,
+                tokens_after=tokens_before,
+                affected_indices=[],
+            )
+
+        # Build summary from compressed messages
+        summaries = []
+        for msg in to_compress:
+            role = msg.get("role", "unknown")
+            content = str(msg.get("content", ""))[:150]
+            summaries.append(f"[{role}]: {content}")
+
+        compressed_content = f"[Compressed {len(to_compress)} messages]\n" + "\n".join(
+            summaries
+        )
+
+        # Replace the range with the compressed message
+        result = []
+        indices_set = set(indices)
+        inserted = False
+        for i, msg in enumerate(messages):
+            if i in indices_set:
+                if not inserted:
+                    result.append(
+                        {
+                            "role": "system",
+                            "content": compressed_content,
+                        }
+                    )
+                    inserted = True
+                # Skip original message
+            else:
+                result.append(msg)
+
+        return OperatorResult(
+            operator=ContextOperator.COMPRESS,
+            messages=result,
+            tokens_before=tokens_before,
+            tokens_after=estimate_message_tokens(result),
+            affected_indices=indices,
+            metadata={"messages_compressed": len(to_compress)},
+        )
+
+    def _apply_rollback(self, tokens_before: int) -> OperatorResult:
+        """Restore messages from the most recent checkpoint."""
+        if not self._checkpoints:
+            raise ValueError("No checkpoints available for rollback")
+
+        ckpt = self._checkpoints.pop()
+        restored = deepcopy(ckpt.messages)
+        self._skip_set.clear()
+
+        return OperatorResult(
+            operator=ContextOperator.ROLLBACK,
+            messages=restored,
+            tokens_before=tokens_before,
+            tokens_after=estimate_message_tokens(restored),
+            affected_indices=[],
+            metadata={
+                "checkpoint_id": ckpt.checkpoint_id,
+                "checkpoint_tokens": ckpt.token_count,
+            },
+        )
+
+    def _apply_snippet(
+        self,
+        messages: list[dict[str, Any]],
+        indices: list[int],
+        query: str,
+        max_length: int,
+        tokens_before: int,
+    ) -> OperatorResult:
+        """Extract focused evidence snippets from verbose messages."""
+        result = deepcopy(messages)
+        query_lower = query.lower()
+
+        for idx in indices:
+            if idx >= len(result):
+                continue
+            content = str(result[idx].get("content", ""))
+            if len(content) <= max_length:
+                continue
+
+            # Find the most relevant passage containing query terms
+            sentences = content.replace("\n", ". ").split(". ")
+            scored = []
+            for sent in sentences:
+                relevance = sum(
+                    1 for term in query_lower.split() if term in sent.lower()
+                )
+                scored.append((relevance, sent))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            snippet = ". ".join(s for _, s in scored[:3])[:max_length]
+
+            result[idx] = {
+                **result[idx],
+                "content": (f"[Snippet extracted for: '{query}']\n{snippet}"),
+            }
+
+        return OperatorResult(
+            operator=ContextOperator.SNIPPET,
+            messages=result,
+            tokens_before=tokens_before,
+            tokens_after=estimate_message_tokens(result),
+            affected_indices=indices,
+            metadata={"query": query},
+        )
+
+    def _apply_delete(
+        self,
+        messages: list[dict[str, Any]],
+        indices: list[int],
+        tokens_before: int,
+    ) -> OperatorResult:
+        """Permanently remove messages from context."""
+        indices_set = set(indices)
+        result = [msg for i, msg in enumerate(messages) if i not in indices_set]
+
+        return OperatorResult(
+            operator=ContextOperator.DELETE,
+            messages=result,
+            tokens_before=tokens_before,
+            tokens_after=estimate_message_tokens(result),
+            affected_indices=indices,
+            metadata={"messages_deleted": len(indices_set)},
+        )

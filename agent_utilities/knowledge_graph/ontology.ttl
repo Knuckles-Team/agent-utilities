@@ -1245,3 +1245,168 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:domain :BacktestRun ;
     rdfs:comment "Benchmark comparison reference." ;
     rdfs:label "compared to benchmark" .
+
+# ══════════════════════════════════════════════════════════════════════
+# Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+# arXiv:2605.03808 — Agent-interpretable ML model evolution
+# ══════════════════════════════════════════════════════════════════════
+
+:IModel a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "An evolved agent-interpretable ML model class with dual-axis fitness (accuracy + LLM readability). Based on arXiv:2605.03808." ;
+    rdfs:label "interpretable model" .
+
+:InterpretabilityTest a owl:Class ;
+    rdfs:subClassOf :EvaluationRecord ;
+    rdfs:comment "A quantitative test result measuring whether an LLM can simulate model predictions from __str__() output alone." ;
+    rdfs:label "interpretability test" .
+
+:ModelDisplay a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "An optimized display representation of a model's __str__() output, decoupled from predict() logic." ;
+    rdfs:label "model display" .
+
+:ParetoFrontierEntry a owl:Class ;
+    rdfs:subClassOf :RegistryNode ;
+    rdfs:comment "A model on the Pareto frontier of accuracy vs interpretability." ;
+    rdfs:label "pareto frontier entry" .
+
+:evolvedModel a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain :IModel ;
+    rdfs:range :IModel ;
+    rdfs:comment "Transitive evolutionary lineage. If model A evolvedModel B and B evolvedModel C, then A evolvedModel C." ;
+    rdfs:label "evolved model" .
+
+:testedInterpretability a owl:ObjectProperty ;
+    rdfs:domain :IModel ;
+    rdfs:range :InterpretabilityTest ;
+    rdfs:label "tested interpretability" .
+
+:displayOf a owl:ObjectProperty ;
+    rdfs:domain :ModelDisplay ;
+    rdfs:range :IModel ;
+    rdfs:label "display of" .
+
+:paretoDominates a owl:ObjectProperty ;
+    rdfs:domain :IModel ;
+    rdfs:range :IModel ;
+    rdfs:comment "Links a dominating model to a dominated model on both accuracy and interpretability axes." ;
+    rdfs:label "pareto dominates" .
+
+:interpretabilityScore a owl:DatatypeProperty ;
+    rdfs:domain :IModel ;
+    rdfs:range xsd:float ;
+    rdfs:comment "Agent interpretability pass rate (0.0-1.0) from LLM-graded tests." ;
+    rdfs:label "interpretability score" .
+
+:predictiveRank a owl:DatatypeProperty ;
+    rdfs:domain :IModel ;
+    rdfs:range xsd:float ;
+    rdfs:comment "Normalized RMSE rank across datasets (0.0=best, 1.0=worst)." ;
+    rdfs:label "predictive rank" .
+
+:displayStrategy a owl:DatatypeProperty ;
+    rdfs:domain :ModelDisplay ;
+    rdfs:range xsd:string ;
+    rdfs:comment "Display optimization strategy: linear_collapse, piecewise_table, symbolic_equation, coefficient_summary, adaptive." ;
+    rdfs:label "display strategy" .
+
+# ============================================================================
+# Ecosystem Topology Map (CONCEPT:ECO-4.7)
+# ============================================================================
+
+# --- Ecosystem Package Hierarchy ---
+
+:EcosystemPackage a owl:Class ;
+    rdfs:subClassOf bfo:0000004 ;
+    rdfs:comment "A software package within the agent-utilities ecosystem." ;
+    rdfs:label "Ecosystem Package" .
+
+:KernelPackage a owl:Class ;
+    rdfs:subClassOf :EcosystemPackage ;
+    rdfs:comment "The core agent-utilities kernel package." ;
+    rdfs:label "Kernel Package" .
+
+:FrontendPackage a owl:Class ;
+    rdfs:subClassOf :EcosystemPackage ;
+    rdfs:comment "A user-facing frontend (TUI or WebUI) package." ;
+    rdfs:label "Frontend Package" .
+
+:MCPServerPackage a owl:Class ;
+    rdfs:subClassOf :EcosystemPackage ;
+    rdfs:comment "An MCP server package providing tool integrations." ;
+    rdfs:label "MCP Server Package" .
+
+:SkillPackage a owl:Class ;
+    rdfs:subClassOf :EcosystemPackage ;
+    rdfs:comment "A package providing skill definitions or skill graphs." ;
+    rdfs:label "Skill Package" .
+
+# --- MCP Server Category Subclasses ---
+
+:InfrastructureMCP a owl:Class ;
+    rdfs:subClassOf :MCPServerPackage ;
+    rdfs:comment "MCP server for infrastructure management (containers, tunnels, etc.)." ;
+    rdfs:label "Infrastructure MCP" .
+
+:MediaMCP a owl:Class ;
+    rdfs:subClassOf :MCPServerPackage ;
+    rdfs:comment "MCP server for media services (Jellyfin, audio, etc.)." ;
+    rdfs:label "Media MCP" .
+
+:ProductivityMCP a owl:Class ;
+    rdfs:subClassOf :MCPServerPackage ;
+    rdfs:comment "MCP server for productivity tools (Atlassian, Nextcloud, etc.)." ;
+    rdfs:label "Productivity MCP" .
+
+:DataScienceMCP a owl:Class ;
+    rdfs:subClassOf :MCPServerPackage ;
+    rdfs:comment "MCP server for data science workflows." ;
+    rdfs:label "Data Science MCP" .
+
+:DevOpsMCP a owl:Class ;
+    rdfs:subClassOf :MCPServerPackage ;
+    rdfs:comment "MCP server for DevOps tooling (GitHub, GitLab, CI/CD)." ;
+    rdfs:label "DevOps MCP" .
+
+:CommunicationMCP a owl:Class ;
+    rdfs:subClassOf :MCPServerPackage ;
+    rdfs:comment "MCP server for communication platforms (Microsoft, etc.)." ;
+    rdfs:label "Communication MCP" .
+
+# --- Ecosystem Properties ---
+
+:providesCapabilityTo a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain :EcosystemPackage ;
+    rdfs:range :EcosystemPackage ;
+    rdfs:comment "A package provides capability to another package (transitive)." ;
+    rdfs:label "provides capability to" .
+
+:consumesFromKernel a owl:ObjectProperty ;
+    rdfs:domain :EcosystemPackage ;
+    rdfs:range :KernelPackage ;
+    rdfs:comment "A package consumes services from the kernel package." ;
+    rdfs:label "consumes from kernel" .
+
+:visualizes a owl:ObjectProperty ;
+    rdfs:domain :FrontendPackage ;
+    rdfs:range owl:Thing ;
+    rdfs:comment "A frontend package visualizes data from another entity." ;
+    rdfs:label "visualizes" .
+
+:hasSynergyWith a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:domain :EcosystemPackage ;
+    rdfs:range :EcosystemPackage ;
+    rdfs:comment "CONCEPT:KG-2.19 — Two packages have a discovered functional synergy." ;
+    rdfs:label "has synergy with" .
+
+:packageCategory a owl:DatatypeProperty ;
+    rdfs:domain :EcosystemPackage ;
+    rdfs:range xsd:string ;
+    rdfs:comment "Intelligent category classification: infrastructure, media, productivity, data_science, devops, communication." ;
+    rdfs:label "package category" .
+
+:packageVersion a owl:DatatypeProperty ;
+    rdfs:domain :EcosystemPackage ;
+    rdfs:range xsd:string ;
+    rdfs:label "package version" .

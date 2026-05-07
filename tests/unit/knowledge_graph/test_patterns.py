@@ -1,3 +1,8 @@
+"""Tests for Agentic Engineering Patterns.
+
+CONCEPT:AHE-3.14 — Agentic Engineering Patterns
+"""
+
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 

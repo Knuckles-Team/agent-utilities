@@ -288,6 +288,79 @@ def __getattr__(name):
             if name == "AgentConfigVersionManager"
             else AgentConfigSnapshot
         )
+    elif name in [
+        "IModelEvolver",
+        "ParetoFrontier",
+        "InterpretabilityTestSuite",
+        "InterpretabilityGrader",
+        "ModelDisplayOptimizer",
+        "DisplayComplexityBudget",
+    ]:
+        if name in ["IModelEvolver", "ParetoFrontier"]:
+            from .harness.imodel_evolver import IModelEvolver, ParetoFrontier
+
+            return locals()[name]
+        elif name in ["InterpretabilityTestSuite", "InterpretabilityGrader"]:
+            from .harness.interpretability_tests import (
+                InterpretabilityGrader,
+                InterpretabilityTestSuite,
+            )
+
+            return locals()[name]
+        else:
+            from .knowledge_graph.model_display import ModelDisplayOptimizer
+            from .models.imodel import DisplayComplexityBudget
+
+            return (
+                ModelDisplayOptimizer
+                if name == "ModelDisplayOptimizer"
+                else DisplayComplexityBudget
+            )
+    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    elif name in ["EcosystemTopologyBuilder", "PackageCategory", "PackageInfo"]:
+        from .knowledge_graph.ecosystem_topology import (
+            EcosystemTopologyBuilder,
+            PackageCategory,
+            PackageInfo,
+        )
+
+        return locals()[name]
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    elif name in ["SynergyEngine", "ConceptBridge", "PillarCoupling", "SynergyInsight"]:
+        from .knowledge_graph.synergy_engine import (
+            ConceptBridge,
+            PillarCoupling,
+            SynergyEngine,
+            SynergyInsight,
+        )
+
+        return locals()[name]
+    # Chat Search Facade (CONCEPT:KG-2.13)
+    elif name in ["ChatSearchResult", "search_sessions"]:
+        from .knowledge_graph.chat_search import (
+            ChatSearchResult,
+            search_sessions,
+        )
+
+        return locals()[name]
+    # Agents MD Facade (CONCEPT:KG-2.14)
+    elif name in ["load_agents_md", "inject_project_context", "find_agents_md"]:
+        from .knowledge_graph.agents_md import (
+            find_agents_md,
+            inject_project_context,
+            load_agents_md,
+        )
+
+        return locals()[name]
+    # Engineering Patterns Facade (CONCEPT:AHE-3.14)
+    elif name in ["EngineeringPatternOrchestrator", "PatternType", "PatternResult"]:
+        from .harness.engineering import (
+            EngineeringPatternOrchestrator,
+            PatternResult,
+            PatternType,
+        )
+
+        return locals()[name]
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -302,7 +375,7 @@ if os.environ.get("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
 # Disabled by default to avoid import overhead during testing
 # Can be enabled by setting ENABLE_GRAPH_INTEGRATION=true and calling initialize_graph_integration() explicitly
 
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 
 __all__ = [
     # Agent creation
@@ -405,4 +478,24 @@ __all__ = [
     # MATE Integration — Config Versioning (CONCEPT:AHE-3.13)
     "AgentConfigVersionManager",
     "AgentConfigSnapshot",
+    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    "EcosystemTopologyBuilder",
+    "PackageCategory",
+    "PackageInfo",
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    "SynergyEngine",
+    "ConceptBridge",
+    "PillarCoupling",
+    "SynergyInsight",
+    # Chat Search Facade (CONCEPT:KG-2.13)
+    "ChatSearchResult",
+    "search_sessions",
+    # Agents MD Facade (CONCEPT:KG-2.14)
+    "load_agents_md",
+    "inject_project_context",
+    "find_agents_md",
+    # Engineering Patterns Facade (CONCEPT:AHE-3.14)
+    "EngineeringPatternOrchestrator",
+    "PatternType",
+    "PatternResult",
 ]

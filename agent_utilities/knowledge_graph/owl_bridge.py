@@ -129,6 +129,18 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "agent_config_version",
     # MATE Integration — EvalRunner (CONCEPT:AHE-3.12)
     "eval_run",
+    # Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+    "imodel",
+    "interpretability_test",
+    "model_display",
+    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    "ecosystem_package",
+    "frontend_package",
+    "kernel_package",
+    "mcp_server_package",
+    "skill_package",
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    "synergy_insight",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -222,6 +234,17 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "config_version_of",
     # MATE Integration — EvalRunner (CONCEPT:AHE-3.12)
     "evaluated_by",
+    # Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+    "evolved_model",
+    "tested_interpretability",
+    "display_of",
+    "pareto_dominates",
+    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    "provides_capability_to",
+    "consumes_from_kernel",
+    "visualizes",
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    "has_synergy_with",
 }
 
 

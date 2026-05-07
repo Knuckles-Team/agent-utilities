@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Prompt Builder Module.
 
+CONCEPT:KG-2.14 — Project-Aware Context
+
 This module provides utilities for constructing and resolving agent system
 prompts. It handles loading structured JSON prompt blueprints (with a
 ``content`` key) from both the workspace and the package ``prompts/``

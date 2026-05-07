@@ -1,6 +1,7 @@
 """Policies — Categorized policy data for KG ingestion.
 
 CONCEPT:KG-2.2 — Engineering Rules Engine
+CONCEPT:OS-5.10 — Policy & Prompt Governance
 
 This package contains versioned policy data organized by category:
 

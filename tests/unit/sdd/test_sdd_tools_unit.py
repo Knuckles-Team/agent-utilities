@@ -1,6 +1,6 @@
 """Tests for SDD tools (setup, spec save, status).
 
-CONCEPT:AHE-3.0 — Spec-Driven Development
+CONCEPT:ORCH-1.7 — Spec-Driven Development Pipeline
 """
 
 from unittest.mock import MagicMock, patch
