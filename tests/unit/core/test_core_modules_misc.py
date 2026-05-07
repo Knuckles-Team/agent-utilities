@@ -406,7 +406,7 @@ def test_agent_utilities_facade_imports():
     # Importing the facade should not raise
     import agent_utilities
 
-    assert agent_utilities.__version__ == "0.6.1"
+    assert agent_utilities.__version__ == "0.6.2"
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +530,7 @@ def test_discover_all_specialists(monkeypatch):
 
 # ---------------------------------------------------------------------------
 # chat_persistence.py - knowledge-graph backed (no engine)
+# CONCEPT:KG-2.13 — Cross-Session Chat Recall
 # ---------------------------------------------------------------------------
 
 

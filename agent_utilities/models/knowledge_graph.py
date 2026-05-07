@@ -162,6 +162,24 @@ class RegistryNodeType(StrEnum):
     # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
     BACKTEST_RUN = "backtest_run"
     BACKTEST_METRIC = "backtest_metric"
+    # Topological Analogy Engine (CONCEPT:KG-2.15)
+    ANALOGY_MATCH = "analogy_match"
+    # OWL-Driven Semantic Subsumption (CONCEPT:KG-2.16)
+    SUBSUMPTION_ALIGNMENT = "subsumption_alignment"
+    # Topological Vulnerability Scanner (CONCEPT:OS-5.11)
+    TOPOLOGICAL_VULNERABILITY = "topological_vulnerability"
+    # Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+    IMODEL = "imodel"
+    INTERPRETABILITY_TEST = "interpretability_test"
+    MODEL_DISPLAY = "model_display"
+    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    ECOSYSTEM_PACKAGE = "ecosystem_package"
+    FRONTEND_PACKAGE = "frontend_package"
+    KERNEL_PACKAGE = "kernel_package"
+    MCP_SERVER_PACKAGE = "mcp_server_package"
+    SKILL_PACKAGE = "skill_package"
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    SYNERGY_INSIGHT = "synergy_insight"
 
 
 class RegistryEdgeType(StrEnum):
@@ -353,6 +371,23 @@ class RegistryEdgeType(StrEnum):
     EVALUATED_STRATEGY = "evaluated_strategy"
     HAS_METRIC = "has_metric"
     COMPARED_TO_BENCHMARK = "compared_to_benchmark"
+    # Topological Analogy Engine (CONCEPT:KG-2.15)
+    ANALOGOUS_TO = "analogous_to"
+    # OWL-Driven Semantic Subsumption (CONCEPT:KG-2.16)
+    SUBSUMED_BY = "subsumed_by"
+    # Topological Vulnerability Scanner (CONCEPT:OS-5.11)
+    EXPOSES_VULNERABILITY = "exposes_vulnerability"
+    # Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+    EVOLVED_MODEL = "evolved_model"
+    TESTED_INTERPRETABILITY = "tested_interpretability"
+    DISPLAY_OF = "display_of"
+    PARETO_DOMINATES = "pareto_dominates"
+    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    PROVIDES_CAPABILITY_TO = "provides_capability_to"
+    CONSUMES_FROM_KERNEL = "consumes_from_kernel"
+    VISUALIZES = "visualizes"
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    HAS_SYNERGY_WITH = "has_synergy_with"
 
 
 class RegistryNode(BaseModel):
@@ -791,6 +826,68 @@ class CapabilityNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.CAPABILITY
 
 
+# --- Ecosystem Topology Nodes (CONCEPT:ECO-4.7) ---
+
+
+class EcosystemPackageNode(RegistryNode):
+    """Represents a package within the agent-utilities ecosystem.
+
+    CONCEPT:ECO-4.7 — Ecosystem Topology Map
+
+    Models kernel, frontend, MCP server, and skill packages as
+    first-class Knowledge Graph nodes for dependency analysis,
+    impact radius computation, and OWL reasoning.
+
+    Attributes:
+        type: Node type (ecosystem_package, frontend_package, etc.).
+        package_name: The PyPI/package name.
+        version: Semantic version string.
+        category: Intelligent category classification.
+        package_path: Filesystem path to the package root.
+        is_kernel: True for the agent-utilities kernel.
+        is_frontend: True for TUI/WebUI packages.
+        is_mcp_server: True for MCP server packages.
+        is_skill_package: True for universal-skills/skill-graphs.
+        dependency_names: List of ecosystem-internal dependency names.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ECOSYSTEM_PACKAGE
+    package_name: str = ""
+    version: str = ""
+    category: str = "general"
+    package_path: str = ""
+    is_kernel: bool = False
+    is_frontend: bool = False
+    is_mcp_server: bool = False
+    is_skill_package: bool = False
+    dependency_names: list[str] = Field(default_factory=list)
+
+
+class SynergyInsightNode(RegistryNode):
+    """A discovered cross-pillar synergy persisted in the KG.
+
+    CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+
+    Attributes:
+        source_concept: Source concept ID (e.g., ``AHE-3.5``).
+        target_concept: Target concept ID (e.g., ``KG-2.0``).
+        relationship_type: The suggested or existing relationship.
+        confidence: Synergy confidence score (0.0–1.0).
+        rationale: Explanation of the synergy.
+        pillar_a: Primary pillar of the source concept.
+        pillar_b: Primary pillar of the target concept.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SYNERGY_INSIGHT
+    source_concept: str = ""
+    target_concept: str = ""
+    relationship_type: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    rationale: str = ""
+    pillar_a: str = ""
+    pillar_b: str = ""
+
+
 # --- Callable Resources & Agent Nodes ---
 
 
@@ -798,11 +895,44 @@ class ToolMetadataNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.TOOL_METADATA
     tags: list[str] = Field(default_factory=list)
     prompt_template: str | None = None
-    resources: dict[str, Any] = Field(default_factory=dict)
-    capabilities: list[str] = Field(default_factory=list)
-    auth_requirements: dict[str, Any] | None = None
-    version: str | None = None
-    source: str  # MCP, A2A, INTERNAL, AGENT_SKILL
+
+
+class AnalogyMatchNode(RegistryNode):
+    """Represents a topological analogy found across domains.
+
+    CONCEPT:KG-2.15 — Topological Analogy Engine
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ANALOGY_MATCH
+    target_domain: str
+    similarity_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    matched_nodes: int = 0
+    analogy_rationale: str = ""
+
+
+class SubsumptionAlignmentNode(RegistryNode):
+    """Represents a zero-shot semantic subsumption alignment.
+
+    CONCEPT:KG-2.16 — OWL-Driven Semantic Subsumption
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SUBSUMPTION_ALIGNMENT
+    source_entity_id: str
+    inferred_parent_class: str
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class TopologicalVulnerabilityNode(RegistryNode):
+    """Represents a structural vulnerability found in the execution graph.
+
+    CONCEPT:OS-5.11 — Topological Vulnerability Scanner
+    """
+
+    type: RegistryNodeType = RegistryNodeType.TOPOLOGICAL_VULNERABILITY
+    vulnerability_type: str
+    severity: str = "medium"
+    detected_pattern: str = ""
+    mitigation_strategy: str = ""
 
 
 class TriggerBinding(BaseModel):

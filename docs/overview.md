@@ -1,6 +1,6 @@
 # Agent Utilities Concept Overview
 
-> The **Concept Galaxy** — A high-level orientation of the `agent-utilities` ecosystem. The ecosystem has been ontologically compressed from 60+ flat concepts into **5 Unified Pillars** to reduce cognitive load and enhance native synergies.
+> The **Concept Galaxy** — A high-level orientation of the `agent-utilities` ecosystem (79 concepts). The ecosystem has been ontologically compressed from 60+ flat concepts into **5 Unified Pillars** to reduce cognitive load and enhance native synergies.
 
 ## The 5 Unified Pillars Architecture
 
@@ -15,6 +15,8 @@ graph TD
         ORCH14["<b>ORCH-1.4: Swarm Preset Template Engine</b>"]
         ORCH15["<b>ORCH-1.5: Multi-Level Abstraction Layering</b>"]
         ORCH16["<b>ORCH-1.6: Subagent Lifecycle Patterns</b>"]
+        ORCH17["<b>ORCH-1.7: Spec-Driven Development</b>"]
+        ORCH18["<b>ORCH-1.8: Learned Agent Routing</b>"]
     end
 
     %% Pillar 2: Epistemic Knowledge Graph
@@ -30,6 +32,15 @@ graph TD
         KG28["<b>KG-2.8: Retrieval Quality Gate</b>"]
         KG29["<b>KG-2.9: Cross-Agent Context Provenance</b>"]
         KG210["<b>KG-2.10: Token-Aware Context Compaction</b>"]
+        KG211["<b>KG-2.11: Research Intelligence Pipeline</b>"]
+        KG212["<b>KG-2.12: KG Source Resolver</b>"]
+        KG213["<b>KG-2.13: Cross-Session Chat Recall</b>"]
+        KG214["<b>KG-2.14: Project-Aware Context</b>"]
+        KG215["<b>KG-2.15: Topological Analogy Engine</b>"]
+        KG216["<b>KG-2.16: Semantic Subsumption</b>"]
+        KG220["<b>KG-2.20: Elastic Context Operators</b>"]
+        KG221["<b>KG-2.21: Multi-Timescale Memory</b>"]
+        KG222["<b>KG-2.22: Versioned KG Mutations</b>"]
     end
 
     %% Pillar 3: Agentic Harness Engineering
@@ -48,6 +59,7 @@ graph TD
         AHE311["<b>AHE-3.11: Structured Retry Manager</b>"]
         AHE312["<b>AHE-3.12: Multi-Strategy EvalRunner</b>"]
         AHE313["<b>AHE-3.13: Agent Config Versioning</b>"]
+        AHE314["<b>AHE-3.14: Agentic Engineering Patterns</b>"]
     end
 
     %% Pillar 4: Ecosystem & Peripherals
@@ -58,6 +70,7 @@ graph TD
         ECO43["<b>ECO-4.3: Community Telemetry</b>"]
         ECO44["<b>ECO-4.4: Market Data Connector Protocol</b>"]
         ECO45["<b>ECO-4.5: Provider Prompt Adaptation</b>"]
+        ECO48["<b>ECO-4.8: Dynamic Skill Evolution</b>"]
         ECO46["<b>ECO-4.6: Self-Describing Function Registry</b>"]
     end
 
@@ -72,6 +85,10 @@ graph TD
         OS56["<b>OS-5.6: Token Usage Tracker</b>"]
         OS57["<b>OS-5.7: Audit Logger</b>"]
         OS58["<b>OS-5.8: Guardrail Callback Engine</b>"]
+        OS59["<b>OS-5.9: Telemetry & Observability</b>"]
+        OS510["<b>OS-5.10: Policy & Prompt Governance</b>"]
+        OS511["<b>OS-5.11: Topological Vulnerability Scanner</b>"]
+        OS512["<b>OS-5.12: Jailbreak Robustness Hardening</b>"]
     end
 
     %% Relationships
@@ -133,12 +150,35 @@ graph TD
 | **OS-5.4** | **Prompt Injection Scanner** | Pattern-based prompt injection and command injection scanner with 25+ threat vectors ported from Goose. Integrates with PolicyEngine and persists findings as `SecurityFindingNode` in the KG for OWL transitive risk propagation. | `agent_utilities/security/prompt_scanner.py` |
 | **OS-5.5** | **Tool Repetition Guard** | Detects infinite tool call loops via consecutive call tracking and per-session budgets. Denied repetitions distill into `ExperienceNode` tactical rules (AHE-3.5) for cross-session loop avoidance. | `agent_utilities/security/repetition_guard.py` |
 | **KG-2.10** | **Token-Aware Context Compaction** | Intelligent context window management with three strategies (summarize_tools, drop_middle, progressive). Compaction summaries persist as `EpisodeNode` snapshots for cross-session context recall. Adapted from Goose's context_mgmt. | `agent_utilities/knowledge_graph/context_compactor.py` |
+| **KG-2.11** | **Research Intelligence Pipeline** | Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion (full for ≥3.0, abstract-only for ≥1.0) → OWL Enrichment → Digest Generation. Supports arXiv, local files, and web URLs. | `agent_utilities/automation/research_pipeline.py` |
+| **KG-2.12** | **KG Source Resolver** | Bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment. Optional — gracefully returns empty when no KG is available. | `agent_utilities/knowledge_graph/source_resolver.py` |
 | **AHE-3.11** | **Structured Retry Manager** | Shell-based success checks, on-failure hooks, and configurable timeouts for structured retry logic. Retry outcomes feed into TeamConfig reward signaling (AHE-3.3) for routing improvement. Adapted from Goose's retry.rs. | `agent_utilities/graph/retry_manager.py` |
 | **AHE-3.12** | **Multi-Strategy EvalRunner** | Multi-strategy evaluation runner (exact match, semantic similarity, LLM-as-Judge) with composite scoring and EvaluationMonitor integration. Ported from MATE's eval_runner.py. OWL-enabled `degradedPerformance` inference across sessions. | `agent_utilities/observability/evaluation.py` |
 | **AHE-3.13** | **Agent Config Versioning** | Immutable config snapshots with forward-only rollback, structured diffs, and SUPERSEDES edge chains. Ported from MATE's AgentConfigVersion pattern. OWL-inferred `configDrift` and `stableConfig`. | `agent_utilities/observability/config_versioning.py` |
 | **OS-5.6** | **Token Usage Tracker** | 4-bucket granular token analytics (prompt/response/thoughts/tool_use) with session aggregation, agent breakdown, and budget alerting. Ported from MATE's token_usage_service.py. OWL-inferred `highCostAgent` classification. | `agent_utilities/observability/token_tracker.py` |
 | **OS-5.7** | **Audit Logger** | Append-only compliance audit trail with 30+ action constants, never-raise semantics, configurable retention, and query filtering. Ported from MATE's audit_service.py. OWL-inferred `escalationChain` temporal reasoning. | `agent_utilities/observability/audit_logger.py` |
 | **OS-5.8** | **Guardrail Callback Engine** | Push-based input/output guardrail interception with block/redact/warn actions, regex/keyword matching, and PolicyEngine adapter. Ported from MATE's guardrail_callback.py. OWL-inferred `correlatedThreat` detection. | `agent_utilities/security/guardrail_engine.py` |
+| **ORCH-1.7** | **Spec-Driven Development Pipeline** | High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`Spec`), Implementation Plans, and dependency-aware Tasks. | `agent_utilities/graph/sdd.py` |
+| **KG-2.13** | **Cross-Session Chat Recall** | Keyword-based search across stored chat sessions using the KG Cypher backend. Adapted from Goose. | `agent_utilities/knowledge_graph/chat_search.py` |
+| **KG-2.14** | **Project-Aware Context** | Native support for Claude-style project rules. Backend automatically loads and injects `AGENTS.md` (Project Rules) into the system prompt for high-fidelity codebase awareness. | `agent_utilities/knowledge_graph/agents_md.py` |
+| **KG-2.15** | **Topological Analogy Engine** | Leverages networkx and vectorized embeddings (EncPI) to find analogous subgraphs across different domains (cross-domain innovation extraction). | `agent_utilities/knowledge_graph/analogy_engine.py` |
+| **KG-2.16** | **OWL-Driven Semantic Subsumption** | Enables zero-shot ontology alignment by comparing new topological embeddings against OWL class prototypes to automatically inject into class hierarchies. | `agent_utilities/knowledge_graph/semantic_subsumption.py` |
+| **AHE-3.14** | **Agentic Engineering Patterns** | Out-of-the-box support for TDD Cycles (Red-Green-Refactor), First Run Tests, Agentic Manual Testing, Code Walkthroughs, and Interactive Explanations. | `agent_utilities/harness/engineering.py` |
+| **OS-5.9** | **Telemetry & Observability** | Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Early OTEL/logfire gate. | `agent_utilities/observability/telemetry.py` |
+| **OS-5.10** | **Policy & Prompt Governance** | Standardized Pydantic models for structured prompting. Moves away from free-form Markdown to robust, versioned JSON blueprints for high-precision task specification. | `agent_utilities/policies/` |
+| **OS-5.11** | **Topological Vulnerability Scanner** | Enhances security by scanning execution graphs for structural vulnerabilities (e.g., untrusted data flows, dependency deadlocks) by matching against known risk subgraphs using the Analogy Engine. | `agent_utilities/security/topological_scanner.py` |
+| **AHE-3.15** | **Agent-Interpretable Model Evolver** | Autoresearch loop that evolves scikit-learn-compatible model classes optimized for dual objectives: predictive accuracy and LLM readability via `__str__()`. Pareto frontier tracking, reward decomposition (AHE-3.10), and KG-native evolutionary lineage. Based on arXiv:2605.03808. MCP-delegated model fitting via `data-science-mcp`. | `agent_utilities/harness/imodel_evolver.py` |
+| **AHE-3.16** | **LLM-Graded Interpretability Tests** | 6-category, 200-test protocol measuring whether an LLM can simulate model predictions, feature effects, and counterfactuals from `__str__()` alone. Reward hacking detection, numerical tolerance grading, and EvalRunner (AHE-3.12) integration. Based on arXiv:2605.03808. | `agent_utilities/harness/interpretability_tests.py` |
+| **KG-2.17** | **Model Display Optimization** | Display-predict decoupling engine: optimizes model `__str__()` for LLM consumption independently of `predict()` logic. 5 strategies (linear_collapse, piecewise_table, symbolic_equation, coefficient_summary, adaptive/SmartAdditive). Bounded complexity budgets. Based on arXiv:2605.03808. | `agent_utilities/knowledge_graph/model_display.py` |
+| **KG-2.18** | **Topological Graph Visualization** | Scalable WebGL-based Knowledge Graph visualization engine using Sigma.js and ForceAtlas2 physics for the `agent-webui`. Implements intelligent mass assignment and radial clustering for 100K+ scale. | `agent-webui/src/components/knowledge-graph/` |
+| **ECO-4.7** | **Ecosystem Topology Map** | Materializes the 40-repository ecosystem as first-class Knowledge Graph nodes. Scans `pyproject.toml` files, builds transitive dependency graphs, computes impact radius, and groups MCP servers into intelligent categories (Infrastructure, Media, Productivity, Data Science, DevOps, Communication). OWL classes: `EcosystemPackage`, `FrontendPackage`, `MCPServerPackage`, `SkillPackage` with `providesCapabilityTo` (transitive). | `agent_utilities/knowledge_graph/ecosystem_topology.py` |
+| **KG-2.19** | **Cross-Pillar Synergy Engine** | Discovers non-obvious functional synergies between the 5 Unified Pillars by analyzing concept bridges, computing pillar coupling metrics, and suggesting missing relationships. Leverages the Analogy Engine (KG-2.15), SKOS taxonomy, and transitive OWL properties. OWL property: `hasSynergyWith` (symmetric). | `agent_utilities/knowledge_graph/synergy_engine.py` |
+| **ORCH-1.8** | **Learned Agent Routing** | Jointly optimizes decomposition depth, worker choice, and inference budget from execution traces. Three policies: RuleBasedPolicy (keyword pattern matching), TraceLearnedPolicy (softmax scoring from historical traces with EMA quality tracking), CostAwareRouter (Pareto-optimal cost/accuracy filtering). Derived from Uno-Orchestra (arXiv:2605.05007v1). | `agent_utilities/graph/routing_policy.py` |
+| **KG-2.20** | **Elastic Context Operators** | 5 atomic operators for elastic context orchestration: Skip, Compress, Rollback, Snippet, Delete. Compress is expressively complete while specialized operators reduce hallucination risk. Includes checkpoint/rollback support for speculative context operations. Derived from LongSeeker (arXiv:2605.05191v1). | `agent_utilities/knowledge_graph/context_compactor.py` |
+| **KG-2.21** | **Multi-Timescale Memory Dynamics** | Three-tier memory with timescale-aware exponential decay: Working (5min half-life), Episodic (4hr), Semantic (30-day). High-activation memories consolidate from Working→Episodic→Semantic via access-count thresholds. Relevance-weighted retrieval with keyword scoring. Derived from Continual Knowledge Updating (arXiv:2605.05097v1). | `agent_utilities/knowledge_graph/timescale_memory.py` |
+| **KG-2.22** | **Versioned KG Mutations** | Git-like transactional mutation semantics for Knowledge Graph evolution: KGTransaction (batched mutations), KGCommit (atomic application with rollback data), KGVersionEngine (commit/rollback/diff), KGDiff (structural diff between graph versions). Derived from Evolving Idea Graphs (arXiv:2605.04922v1). | `agent_utilities/knowledge_graph/kg_versioning.py` |
+| **ECO-4.8** | **Dynamic Skill Evolution** | On-the-fly skill creation and consolidation to avoid catastrophic forgetting during continual learning. SkillNeologismDetector (identifies when existing skills don't cover a task), SkillFactory (creates new skills from execution traces), SkillMerger (detects overlapping skills via Jaccard similarity and consolidates). Derived from Skill Neologisms (arXiv:2605.04970v1). | `agent_utilities/knowledge_graph/skill_evolver.py` |
+| **OS-5.12** | **Jailbreak Robustness Hardening** | Extends Prompt Injection Scanner (OS-5.4) with 4-category jailbreak attack taxonomy from SoK research: template-based (DAN, AIM, UCAR, Grandma), optimization-based (GCG suffix, token smuggling), LLM-based (context confusion, multi-turn escalation), manual (role-play, authority override). 12 new threat patterns. Derived from SoK: Robustness against Jailbreak (arXiv:2605.05058v1). | `agent_utilities/security/prompt_scanner.py` |
 
 ## Agent OS Architecture
 

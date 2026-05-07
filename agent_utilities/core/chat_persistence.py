@@ -309,7 +309,7 @@ def search_chat_history(
 ) -> ChatRecallResults:
     """Search across stored chat sessions for matching messages.
 
-    CONCEPT:KG-2.0 — Knowledge Graph
+    CONCEPT:KG-2.13 — Cross-Session Chat Recall
 
     Adapted from Goose's ``ChatHistorySearch`` (Rust/SQLite). Uses
     the Knowledge Graph's Cypher backend for keyword-based search

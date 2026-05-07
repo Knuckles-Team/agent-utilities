@@ -1,3 +1,8 @@
+"""Tests for Prompt Builder.
+
+CONCEPT:KG-2.14 — Project-Aware Context
+"""
+
 import json
 from unittest.mock import patch
 

@@ -538,4 +538,4 @@ def test_agent_utilities_reloadable_after_init(monkeypatch):
     import agent_utilities
 
     importlib.reload(agent_utilities)
-    assert agent_utilities.__version__ == "0.6.1"
+    assert agent_utilities.__version__ == "0.6.2"
