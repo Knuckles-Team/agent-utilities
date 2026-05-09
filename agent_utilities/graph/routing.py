@@ -230,7 +230,7 @@ async def router_step(
         # CONCEPT:AHE-3.3 — Check for matching TeamConfig before LLM planning
         if deps.knowledge_engine:
             try:
-                from ..knowledge_graph.engine_registry import RegistryMixin
+                from ..knowledge_graph.core.engine_registry import RegistryMixin
 
                 if isinstance(deps.knowledge_engine, RegistryMixin) and hasattr(
                     deps.knowledge_engine, "find_matching_team_config"
@@ -278,7 +278,7 @@ async def router_step(
         # CONCEPT:KG-2.1 — Inject Self-Model proficiency into discovery context
         if deps.knowledge_engine:
             try:
-                from ..knowledge_graph.memory_retriever import MemoryRetriever
+                from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
                 memory_retriever = MemoryRetriever(deps.knowledge_engine)
                 current = memory_retriever.get_current()
@@ -345,7 +345,7 @@ async def router_step(
         # CONCEPT:KG-2.1 — Reward-Driven Routing Optimization
         # Leverage existing ACO pheromone trails (hidden value-add) to filter out low-performing specialists
         try:
-            from ..knowledge_graph.memory_retriever import MemoryRetriever
+            from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
             memory_retriever = MemoryRetriever(deps.knowledge_engine)
             current = memory_retriever.get_current()
@@ -461,15 +461,82 @@ async def router_step(
                 plan_output = res.output
         else:
             # CONCEPT:KG-2.1 — Adaptive Model Routing (Planner Path)
+            # CONCEPT:AHE-3.24 — KG-Native Agentic Task Detection
+            # CONCEPT:AHE-3.25 — Topological Reasoning Detection
             import os
 
             query_length = len(ctx.state.query.split())
-            is_complex = (
+            is_complex = False
+            requires_reasoning = False
+
+            # Text heuristics (fallback)
+            if (
                 "complex" in ctx.state.query.lower()
                 or "architect" in ctx.state.query.lower()
                 or len(relevant) > 3
-            )
-            if query_length < 20 and not is_complex:
+            ):
+                is_complex = True
+
+            if (
+                "step by step" in ctx.state.query.lower()
+                or "think through" in ctx.state.query.lower()
+            ):
+                requires_reasoning = True
+
+            # KG-Native Topological overrides
+            if deps.knowledge_engine:
+                try:
+                    # CONCEPT:AHE-3.24 Agentic detection
+                    task_topologies = deps.knowledge_engine.search_hybrid(
+                        ctx.state.query + " TradingPipeline RiskScoringOntology",
+                        top_k=2,
+                    )
+                    if any(
+                        "Trading" in t.get("name", "") or "Risk" in t.get("name", "")
+                        for t in task_topologies
+                    ):
+                        is_complex = True
+                        logger.info(
+                            "Router: CONCEPT:AHE-3.24 — Detected complex topological subgraphs. Escalate to complex model."
+                        )
+
+                    # CONCEPT:AHE-3.25 Reasoning detection
+                    math_topologies = deps.knowledge_engine.search_hybrid(
+                        ctx.state.query
+                        + " MathematicalFoundationNode vectorized topologies OWL Almgren-Chriss",
+                        top_k=2,
+                    )
+                    if any(
+                        "Math" in t.get("name", "")
+                        or "Quant" in t.get("name", "")
+                        or "Almgren" in t.get("name", "")
+                        for t in math_topologies
+                    ):
+                        requires_reasoning = True
+                        logger.info(
+                            "Router: CONCEPT:AHE-3.25 — Detected mathematical/quantitative topology. Escalate to reasoning model."
+                        )
+                except Exception as e:
+                    logger.warning(f"Topological routing detection failed: {e}")
+
+            # CONCEPT:OS-5.19 — Topological Session Persistence
+            if ctx.state.pinned_model_id:
+                from ..core.model_factory import create_model
+
+                adaptive_model = create_model(model_id=ctx.state.pinned_model_id)
+                logger.info(
+                    f"[LAYER:GRAPH:ROUTER] OS-5.19: Reusing pinned session model: {ctx.state.pinned_model_id}"
+                )
+            elif requires_reasoning:
+                from ..core.model_factory import create_model
+
+                reasoning_model_id = os.environ.get("REASONING_MODEL", "o3-mini")
+                adaptive_model = create_model(model_id=reasoning_model_id)
+                ctx.state.pinned_model_id = reasoning_model_id
+                logger.info(
+                    f"[LAYER:GRAPH:ROUTER] Selected Reasoning Model: {reasoning_model_id}"
+                )
+            elif query_length < 20 and not is_complex:
                 from ..core.model_factory import create_model
 
                 adaptive_model = create_model(
@@ -480,6 +547,9 @@ async def router_step(
                 )
             else:
                 adaptive_model = deps.router_model
+                # Only pin if it has a string name we can recover later
+                if hasattr(deps.router_model, "model_name"):
+                    ctx.state.pinned_model_id = deps.router_model.model_name
 
             router_agent = Agent(
                 model=adaptive_model,
@@ -644,6 +714,37 @@ async def dispatcher_step(
         logger.error(f"State invariant violation: {e}")
         ctx.state.error = str(e)
         return "error_recovery"
+
+    # CONCEPT:OS-5.18 — Doom Loop Detection at transition boundary
+    try:
+        from ..security.doom_loop_detector import DoomLoopDetector
+
+        detector = DoomLoopDetector(session_id=ctx.state.session_id)
+        # Feed node history as tool calls for pattern detection
+        history = ctx.state.node_history[-20:] if ctx.state.node_history else []
+        for node_name in history:
+            detector.record_call(node_name)
+        incident = detector.check()
+        if incident is not None:
+            logger.error("Dispatcher: Doom loop detected: %s", incident.name)
+            ctx.state.error = f"Doom loop detected: {incident.name}"
+            return "error_recovery"
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug("Doom loop detection skipped: %s", e)
+
+    # CONCEPT:ORCH-1.16 — State checkpoint at transition boundary
+    try:
+        from .state_checkpoint import StateCheckpointer
+
+        if hasattr(ctx.deps, "knowledge_engine") and ctx.deps.knowledge_engine:
+            checkpointer = StateCheckpointer(engine=ctx.deps.knowledge_engine)
+            checkpointer.checkpoint(ctx.state, session_id=ctx.state.session_id)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug("State checkpointing skipped: %s", e)
 
     # HSM: Process deferred events (user follows-up received mid-execution)
     if ctx.state.deferred_events:

@@ -5,7 +5,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from agent_utilities.knowledge_graph.memory_retriever import SELF_MODEL_ANCHOR, MemoryRetriever
+from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+    SELF_MODEL_ANCHOR,
+    MemoryRetriever,
+)
 from agent_utilities.models.knowledge_graph import (
     RegistryNodeType,
 )

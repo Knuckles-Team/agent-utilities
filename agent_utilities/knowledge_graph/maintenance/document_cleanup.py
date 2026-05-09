@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from ..engine import IntelligenceGraphEngine
+from ..core.engine import IntelligenceGraphEngine
 from ..id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
 
 logger = logging.getLogger(__name__)

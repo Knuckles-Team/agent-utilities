@@ -79,7 +79,9 @@ class TestNeverRaise:
     def test_log_never_raises(self, audit_logger):
         """Even with bad data, log should not raise."""
         result = audit_logger.log(
-            actor=None, action="test", resource_type="test",
+            actor=None,
+            action="test",
+            resource_type="test",
         )
         assert result is not None
 
@@ -115,7 +117,8 @@ class TestRetention:
     def test_retention_deletes_old(self, audit_logger):
         # Create a record with old timestamp
         old_record = AuditRecord(
-            action=ACTION_AGENT_CREATE, resource_type=RESOURCE_AGENT,
+            action=ACTION_AGENT_CREATE,
+            resource_type=RESOURCE_AGENT,
             timestamp=time.time() - 86400 * 10,  # 10 days ago
         )
         audit_logger._records.append(old_record)
@@ -212,8 +215,10 @@ class TestActionConstants:
     def test_all_actions_are_strings(self):
         """All ACTION_* constants should be dotted strings."""
         import agent_utilities.observability.audit_logger as mod
+
         actions = [
-            v for k, v in vars(mod).items()
+            v
+            for k, v in vars(mod).items()
             if k.startswith("ACTION_") and isinstance(v, str)
         ]
         assert len(actions) >= 30

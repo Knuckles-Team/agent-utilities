@@ -148,6 +148,10 @@ class RegistryNodeType(StrEnum):
     POSITION = "position"
     PORTFOLIO = "portfolio"
     STRATEGY = "strategy"
+    TIME_SERIES_FORECAST = "time_series_forecast"
+    VERSIONED_TRADE_COMMIT = "versioned_trade_commit"
+    EXECUTION_GUARD = "execution_guard"
+    UNIFIED_TRADING_ACCOUNT = "unified_trading_account"
     # Market Data Connector Protocol (CONCEPT:ECO-4.4)
     DATA_CONNECTOR = "data_connector"
     DATA_FETCH_RECORD = "data_fetch_record"
@@ -180,6 +184,92 @@ class RegistryNodeType(StrEnum):
     SKILL_PACKAGE = "skill_package"
     # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
     SYNERGY_INSIGHT = "synergy_insight"
+    # Knowledge Distillation Engine (CONCEPT:KG-2.23)
+    IDEA_BLOCK = "idea_block"
+    DISTILLATION_ROUND = "distillation_round"
+    # Research Intelligence Sub-Agent (CONCEPT:KG-2.33)
+    RESEARCH_SESSION = "research_session"
+    CITATION_EDGE = "citation_edge"
+    # Spectral Cluster Navigator (CONCEPT:KG-2.34)
+    SPECTRAL_CLUSTER = "spectral_cluster"
+    # Symbol Blast Radius Analyzer (CONCEPT:KG-2.35)
+    BLAST_RADIUS_REPORT = "blast_radius_report"
+    # Auto-Similarity Memory Graph (CONCEPT:KG-2.36)
+    SIMILARITY_EDGE = "similarity_edge"
+    # Hybrid Search Index (CONCEPT:KG-2.37)
+    HYBRID_SEARCH_CONFIG = "hybrid_search_config"
+    # Enhanced Doom-Loop Detector (CONCEPT:OS-5.18)
+    DOOM_LOOP_INCIDENT = "doom_loop_incident"
+    # RAG-KG Unification (CONCEPT:KG-2.38)
+    UNIFIED_RAG_CONFIG = "unified_rag_config"
+    # Research Orchestration (CONCEPT:KG-2.39)
+    ORCHESTRATION_CYCLE = "orchestration_cycle"
+    # Graph Distillation Migration (CONCEPT:KG-2.40)
+    DISTILLATION_INDEX = "distillation_index"
+    # Formal Graph Theory Primitives (CONCEPT:KG-2.41)
+    MATH_FOUNDATION = "math_foundation"
+    CRITICAL_PATH_RESULT = "critical_path_result"
+    # Structural Causal Reasoning (CONCEPT:KG-2.43)
+    CAUSAL_FACTOR = "causal_factor"
+    CAUSAL_MODEL = "causal_model"
+    # Optimal Execution Engine (CONCEPT:KG-2.46)
+    EXECUTION_PLAN = "execution_plan"
+    MARKET_MAKING_QUOTE = "market_making_quote"
+    PAIRS_TRADE_SIGNAL = "pairs_trade_signal"
+    # KG-Native Orchestration (CONCEPT:ORCH-1.15 through CONCEPT:ORCH-1.19)
+    TOPOLOGY_TEMPLATE = "topology_template"
+    SESSION_CHECKPOINT = "session_checkpoint"
+    PERSISTENT_AGENT = "persistent_agent"
+    TOPOLOGY_TRANSITION = "topology_transition"
+    # Phase 2-5: Operationalized missing ontology nodes
+    AGENT_SWARM = "agent_swarm"
+    BUSINESS_UNIT = "business_unit"
+    CHART_PATTERN = "chart_pattern"
+    COMMUNICATION_MCP = "communication_mcp"
+    COMPLIANCE_CONTROL = "compliance_control"
+    CROSS_TENANT_INSIGHT = "cross_tenant_insight"
+    DATA_SCIENCE_MCP = "data_science_mcp"
+    DELEGATED_AUTHORITY = "delegated_authority"
+    DEV_OPS_MCP = "dev_ops_mcp"
+    ENTERPRISE_RESOURCE = "enterprise_resource"
+    EQUIVALENCE_CLASS = "equivalence_class"
+    EXECUTION_SIGNAL = "execution_signal"
+    EXTERNAL_GRAPH_REFERENCE = "external_graph_reference"
+    INFRASTRUCTURE_MCP = "infrastructure_mcp"
+    KELLY_SIZING = "kelly_sizing"
+    KRONOS_MODEL = "kronos_model"
+    LSTM_NETWORK = "lstm_network"
+    LEGAL_ENTITY = "legal_entity"
+    MARKET_DATA_SOURCE = "market_data_source"
+    MARKET_REGIME = "market_regime"
+    MEDIA_MCP = "media_mcp"
+    MERGE_REQUEST = "merge_request"
+    NEURAL_NETWORK_MODEL = "neural_network_model"
+    OPTIMIZATION_GOAL = "optimization_goal"
+    ORDER_COMMIT_RECORD = "order_commit_record"
+    ORDER_VERSION = "order_version"
+    PARETO_FRONTIER_ENTRY = "pareto_frontier_entry"
+    PARTIAL_ORDER = "partial_order"
+    PAYMENT_BUDGET = "payment_budget"
+    PAYMENT_PROOF_ENTITY = "payment_proof_entity"
+    PORTFOLIO_ALLOCATION = "portfolio_allocation"
+    PRODUCTIVITY_MCP = "productivity_mcp"
+    PULL_REQUEST = "pull_request"
+    RLM_ACTOR = "rlm_actor"
+    REGULATORY_FRAMEWORK = "regulatory_framework"
+    RESEARCH_HYPOTHESIS = "research_hypothesis"
+    RISK_PROFILE = "risk_profile"
+    SCIENTIFIC_ENTITY = "scientific_entity"
+    SECURITY_CLEARANCE = "security_clearance"
+    STATE_TRANSITION = "state_transition"
+    STOCHASTIC_PROCESS = "stochastic_process"
+    STRATEGY_CARD_ENTITY = "strategy_card_entity"
+    STREAM_CHANNEL = "stream_channel"
+    TRADING_STRATEGY = "trading_strategy"
+    TRADING_SWARM_ENTITY = "trading_swarm_entity"
+    TRANSITION_MATRIX = "transition_matrix"
+    VAR_ESTIMATE = "var_estimate"
+    VALUE_STREAM = "value_stream"
 
 
 class RegistryEdgeType(StrEnum):
@@ -355,6 +445,9 @@ class RegistryEdgeType(StrEnum):
     BELONGS_TO_PORTFOLIO = "belongs_to_portfolio"
     EXECUTES_STRATEGY = "executes_strategy"
     BACKTESTED_WITH = "backtested_with"
+    FORECASTED = "forecasted"
+    VERSIONED_IN = "versioned_in"
+    GUARDED_BY = "guarded_by"
     # Market Data Connector Protocol (CONCEPT:ECO-4.4)
     FETCHED_FROM = "fetched_from"
     FALLS_BACK_TO = "falls_back_to"
@@ -388,6 +481,129 @@ class RegistryEdgeType(StrEnum):
     VISUALIZES = "visualizes"
     # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
     HAS_SYNERGY_WITH = "has_synergy_with"
+    # Knowledge Distillation Engine (CONCEPT:KG-2.23)
+    DISTILLED_FROM = "distilled_from"
+    PRODUCED_IN_ROUND = "produced_in_round"
+    # Research Intelligence Sub-Agent (CONCEPT:KG-2.33)
+    CITES_PAPER = "cites_paper"
+    CITED_BY_PAPER = "cited_by_paper"
+    DISCOVERED_IN_SESSION = "discovered_in_session"
+    # Spectral Cluster Navigator (CONCEPT:KG-2.34)
+    MEMBER_OF_CLUSTER = "member_of_cluster"
+    CLUSTER_PARENT = "cluster_parent"
+    # Symbol Blast Radius Analyzer (CONCEPT:KG-2.35)
+    SYMBOL_USED_IN = "symbol_used_in"
+    SYMBOL_DEFINED_IN = "symbol_defined_in"
+    # Auto-Similarity Memory Graph (CONCEPT:KG-2.36)
+    SIMILAR_TO = "similar_to"
+    # Enhanced Doom-Loop Detector (CONCEPT:OS-5.18)
+    TRIGGERED_DOOM_LOOP = "triggered_doom_loop"
+    # RAG-KG Unification (CONCEPT:KG-2.38)
+    SHORTCUT_RETRIEVAL = "shortcut_retrieval"
+    # Research Orchestration (CONCEPT:KG-2.39)
+    ORCHESTRATED_BY = "orchestrated_by"
+    # KG-Native Orchestration (CONCEPT:ORCH-1.15 through CONCEPT:ORCH-1.19)
+    TRANSITIONS_TO = "transitions_to"
+    CHECKPOINTED_STATE = "checkpointed_state"
+    SUBSCRIBED_TO = "subscribed_to"
+    MATERIALIZED_FROM = "materialized_from"
+    COMPOSED_TEAM = "composed_team"
+    # Formal Graph Theory Primitives (CONCEPT:KG-2.41)
+    CRITICAL_PATH_OF = "critical_path_of"
+    COLORED_WITH = "colored_with"
+    # Structural Causal Reasoning (CONCEPT:KG-2.43)
+    CAUSES = "causes"
+    CAUSAL_MECHANISM = "causal_mechanism"
+    COUNTERFACTUAL_OF = "counterfactual_of"
+    # Probabilistic Reasoning (CONCEPT:KG-2.45)
+    BELIEF_UPDATE = "belief_update"
+    # Optimal Execution (CONCEPT:KG-2.46)
+    EXECUTED_VIA = "executed_via"
+    PAIRS_WITH = "pairs_with"
+    MAKES_MARKET_IN = "makes_market_in"
+    # Phase 2-5: Operationalized missing ontology properties
+    ABSORBED_INTO = "absorbed_into"
+    ACTUAL_SCORE = "actual_score"
+    ALT_LABEL = "alt_label"
+    ANSWERS_QUESTION = "answers_question"
+    APPLICATION_COUNT = "application_count"
+    APPLIED_IN_TASK = "applied_in_task"
+    ATTRIBUTED_BY = "attributed_by"
+    BASELINE_SCORE = "baseline_score"
+    BLAST_RADIUS_COUNT = "blast_radius_count"
+    BLOCKS_AFTER_DISTILLATION = "blocks_after_distillation"
+    BLOCKS_BEFORE_DISTILLATION = "blocks_before_distillation"
+    BLOCKS_PROP = "blocks_prop"
+    CITATION_DEPTH = "citation_depth"
+    CLUSTER_COHERENCE = "cluster_coherence"
+    CLUSTER_SCOPE_COUNT = "cluster_scope_count"
+    COMPLETENESS_SCORE = "completeness_score"
+    CONFLICT_WEIGHT = "conflict_weight"
+    CORRECTIVE_PROMPT = "corrective_prompt"
+    CORRECTNESS_SCORE = "correctness_score"
+    COSINE_SIMILARITY = "cosine_similarity"
+    COVERAGE_RATIO = "coverage_ratio"
+    CURRENT_LEVEL = "current_level"
+    CYCLE_INTERVAL_HOURS = "cycle_interval_hours"
+    DECAY_LAMBDA = "decay_lambda"
+    DERIVED_FROM_BOOK = "derived_from_book"
+    DETECTED_PATTERN = "detected_pattern"
+    DISPLAY_STRATEGY = "display_strategy"
+    DISTILLATION_RECOMMENDATION = "distillation_recommendation"
+    DISTILLATION_THRESHOLD = "distillation_threshold"
+    EFFICACY_SCORE = "efficacy_score"
+    EIGENGAP_VALUE = "eigengap_value"
+    ENDED_AT_TIME = "ended_at_time"
+    ENTRY_PRICE = "entry_price"
+    EXIT_PRICE = "exit_price"
+    EXPORTED_AS = "exported_as"
+    FORECASTS = "forecasts"
+    GENERATES_SIGNAL = "generates_signal"
+    HAS_ALLOCATION = "has_allocation"
+    HAS_ALPHA_FACTOR = "has_alpha_factor"
+    HAS_CHAIN_STEP = "has_chain_step"
+    HAS_CLEARANCE = "has_clearance"
+    HAS_DELEGATED_AUTHORITY_FROM = "has_delegated_authority_from"
+    HAS_ORDER_VERSION = "has_order_version"
+    HAS_PRIORITY = "has_priority"
+    HAS_RESOURCE_EFFICIENCY = "has_resource_efficiency"
+    HAS_RISK_LIMIT = "has_risk_limit"
+    HAS_SEVERITY_SCORE = "has_severity_score"
+    IMPACT_SCORE = "impact_score"
+    INTERPRETABILITY_SCORE = "interpretability_score"
+    MAPPED_TO_EXTERNAL = "mapped_to_external"
+    MAX_DRAWDOWN = "max_drawdown"
+    MENTIONED_IN = "mentioned_in"
+    MITIGATES_RISK = "mitigates_risk"
+    MODELS_REGIME = "models_regime"
+    MODIFIED_IN = "modified_in"
+    PACKAGE_CATEGORY = "package_category"
+    PACKAGE_VERSION = "package_version"
+    PAID_VIA = "paid_via"
+    PAPERS_INGESTED = "papers_ingested"
+    PREDICTED_SCORE = "predicted_score"
+    PREDICTIVE_RANK = "predictive_rank"
+    PREF_LABEL = "pref_label"
+    PROVIDED_BY = "provided_by"
+    RELEVANCE_SCORE = "relevance_score"
+    REPETITION_COUNT = "repetition_count"
+    RULE_CLASS = "rule_class"
+    RULE_TIER = "rule_tier"
+    SAFETY_SCORE = "safety_score"
+    SHARED_AS = "shared_as"
+    SHARPE_RATIO = "sharpe_ratio"
+    SHORTCUT_HIT_COUNT = "shortcut_hit_count"
+    SHORTCUT_RETRIEVAL_FROM = "shortcut_retrieval_from"
+    SIGNAL_TYPE = "signal_type"
+    SIZED_BY = "sized_by"
+    STALE_EDGE_COUNT = "stale_edge_count"
+    STARTED_AT_TIME = "started_at_time"
+    STREAMS_TO = "streams_to"
+    SWARM_DECIDED_BY = "swarm_decided_by"
+    TESTED_HYPOTHESIS = "tested_hypothesis"
+    TOKEN_BUDGET_MAX = "token_budget_max"  # nosec
+    TRUSTED_ANSWER = "trusted_answer"
+    VIOLATION_COUNT = "violation_count"
 
 
 class RegistryNode(BaseModel):
@@ -895,6 +1111,9 @@ class ToolMetadataNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.TOOL_METADATA
     tags: list[str] = Field(default_factory=list)
     prompt_template: str | None = None
+    source: str = ""
+    capabilities: list[str] = Field(default_factory=list)
+    resources: dict[str, Any] = Field(default_factory=dict)
 
 
 class AnalogyMatchNode(RegistryNode):
@@ -919,6 +1138,7 @@ class SubsumptionAlignmentNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.SUBSUMPTION_ALIGNMENT
     source_entity_id: str
     inferred_parent_class: str
+    inferred_lineage: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
@@ -2168,6 +2388,235 @@ class AgentCapabilityNode(RegistryNode):
     )
 
 
+# --- KG-Native Orchestration Nodes (CONCEPT:ORCH-1.15 through CONCEPT:ORCH-1.19) ---
+
+
+class TopologyTemplateNode(RegistryNode):
+    """KG-stored graph execution topology template.
+
+    CONCEPT:ORCH-1.17 — Dynamic Topology Materialization
+
+    Defines a reusable execution pattern: which specialist types participate,
+    how they are connected (transitions), and what execution mode they use.
+    At runtime, the TopologyEngine selects the best template based on domain
+    and complexity, then materializes it into a live ``pydantic-graph``.
+
+    Templates are authored as YAML and ingested into the KG.  Successful
+    executions increase ``success_rate``; poor ones decrease it, enabling
+    evolutionary selection over time.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.TOPOLOGY_TEMPLATE
+    domain: str = Field(
+        default="general",
+        description="Domain this topology applies to (general, finance, medical, etc.)",
+    )
+    complexity_min: int = Field(
+        default=1,
+        ge=1,
+        le=5,
+        description="Minimum task complexity this template handles",
+    )
+    complexity_max: int = Field(
+        default=5,
+        ge=1,
+        le=5,
+        description="Maximum task complexity this template handles",
+    )
+    node_roles: list[str] = Field(
+        default_factory=list,
+        description="Ordered list of specialist roles in this topology",
+    )
+    transitions: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Mapping of role -> list of possible next roles",
+    )
+    execution_mode: str = Field(
+        default="sequential",
+        description="Execution mode: sequential, parallel, fan_out, fan_in, mixed",
+    )
+    parallel_groups: list[list[str]] = Field(
+        default_factory=list,
+        description="Groups of roles that execute in parallel (for mixed mode)",
+    )
+    tool_assignments: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Mapping of role -> required tool names",
+    )
+    model_preferences: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of role -> preferred model_id",
+    )
+    system_prompt_ids: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of role -> PromptNode ID for system prompt",
+    )
+    memory_channels: list[str] = Field(
+        default_factory=list,
+        description="KG memory channels this topology reads/writes",
+    )
+    success_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Rolling success rate from outcome evaluations",
+    )
+    usage_count: int = Field(default=0, description="Number of times materialized")
+    origin: Literal["local", "community", "upstream"] = "local"
+
+
+class SessionCheckpointNode(RegistryNode):
+    """Persisted execution state checkpoint in the Knowledge Graph.
+
+    CONCEPT:ORCH-1.16 — Execution State Persistence
+
+    Bridges the ephemeral ``GraphState`` and the persistent KG.
+    Created at HSM transition boundaries and on session completion.
+    Enables session resume, cross-session learning, and active
+    state queries from other agents.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SESSION_CHECKPOINT
+    session_id: str = Field(description="Unique session identifier")
+    query: str = Field(default="", description="Original user query")
+    plan: str = Field(default="", description="Serialized execution plan")
+    specialist_results: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of specialist_id -> result summary",
+    )
+    node_history: list[str] = Field(
+        default_factory=list,
+        description="Ordered list of graph nodes visited",
+    )
+    current_node: str = Field(default="", description="Current/last graph node")
+    total_usage_tokens: int = Field(default=0, description="Cumulative token usage")
+    state_data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arbitrary state data for full reconstruction",
+    )
+    status: str = Field(
+        default="active",
+        description="Checkpoint status: active, completed, failed, suspended",
+    )
+    topology_template_id: str = Field(
+        default="",
+        description="ID of the TopologyTemplate that was materialized for this session",
+    )
+
+
+class PersistentAgentNode(RegistryNode):
+    """Long-running background agent coordinated via the Knowledge Graph.
+
+    CONCEPT:ORCH-1.19 — Persistent Background Agents
+
+    Unlike ephemeral request agents, persistent agents maintain state
+    across sessions.  They register in the KG with subscription filters
+    and are awakened by the EventStreamIngester when matching events occur.
+
+    Lifecycle: registered → idle → running → idle → ... → terminated
+
+    Uses the unified CognitiveScheduler (OS-5.2) for scheduling.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.PERSISTENT_AGENT
+    agent_type: str = Field(
+        default="background",
+        description="Agent classification: background, monitor, scheduler, rebalancer",
+    )
+    subscriptions: list[str] = Field(
+        default_factory=list,
+        description="Event types this agent reacts to (e.g., 'data.new', 'policy.changed')",
+    )
+    schedule_cron: str = Field(
+        default="",
+        description="Cron expression for periodic execution (empty = event-driven only)",
+    )
+    heartbeat_ts: str = Field(
+        default="",
+        description="ISO-8601 timestamp of last heartbeat",
+    )
+    state_snapshot: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Serialized agent context for session continuity",
+    )
+    status: str = Field(
+        default="idle",
+        description="Lifecycle status: idle, running, paused, terminated",
+    )
+    specialist_ids: list[str] = Field(
+        default_factory=list,
+        description="Agent IDs this persistent agent can spawn",
+    )
+    tool_ids: list[str] = Field(
+        default_factory=list,
+        description="Tools available to this persistent agent",
+    )
+    model_id: str = Field(
+        default="",
+        description="Preferred model for this agent's inference calls",
+    )
+    max_concurrent: int = Field(
+        default=1,
+        description="Maximum concurrent executions allowed",
+    )
+
+
+class TeamComposition(BaseModel):
+    """Result of KG-driven team composition.
+
+    CONCEPT:ORCH-1.15 — KG-Driven Team Composition
+
+    Returned by KGTeamComposer.compose_team(). Contains everything
+    needed to materialize and execute a specialist team:
+    - Which specialists to spawn (with their roles)
+    - What tools each specialist gets
+    - What model each specialist uses
+    - What system prompts to inject
+    - How they are connected (topology)
+    - Whether they run in parallel or sequentially
+    """
+
+    team_id: str = Field(description="Unique team instance identifier")
+    source: str = Field(
+        default="composed",
+        description="How this team was created: 'reused' (from TeamConfigNode) or 'composed' (from topology)",
+    )
+    team_config_id: str = Field(
+        default="",
+        description="If reused, the ID of the TeamConfigNode",
+    )
+    topology_template_id: str = Field(
+        default="",
+        description="ID of the TopologyTemplate used",
+    )
+    specialists: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of specialist configurations: [{role, agent_id, model_id, tools, system_prompt, ...}]",
+    )
+    execution_mode: str = Field(
+        default="sequential",
+        description="How specialists execute: sequential, parallel, fan_out, fan_in, mixed",
+    )
+    parallel_groups: list[list[str]] = Field(
+        default_factory=list,
+        description="For mixed mode: groups of roles that execute in parallel",
+    )
+    memory_channels: list[str] = Field(
+        default_factory=list,
+        description="KG memory channels shared across the team",
+    )
+    confidence: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Confidence in this composition (from historical success or topology scoring)",
+    )
+    reasoning: str = Field(
+        default="",
+        description="Human-readable explanation of composition decisions",
+    )
+
+
 # --- Agent OS Architecture Nodes (CONCEPT:OS-5.2) ---
 
 
@@ -2932,3 +3381,444 @@ class BacktestMetricNode(RegistryNode):
     window_index: int = 0  # 0 = aggregate, 1+ = per-window
     benchmark_value: float | None = None
     is_passing: bool = True
+
+
+# --- Knowledge Distillation Nodes (CONCEPT:KG-2.23) ---
+
+
+class EntityReference(BaseModel):
+    """A named entity reference within an IdeaBlock.
+
+    CONCEPT:KG-2.23 — Knowledge Distillation Engine
+
+    Attributes:
+        entity_name: The entity name (e.g., 'CLAUDE CODE').
+        entity_type: The entity type (e.g., 'PRODUCT', 'ORGANIZATION').
+    """
+
+    entity_name: str
+    entity_type: str = "CONCEPT"
+
+
+class IdeaBlockNode(RegistryNode):
+    """An atomic, structured knowledge unit.
+
+    CONCEPT:KG-2.23 — Knowledge Distillation Engine
+
+    Represents a single piece of knowledge as a question-answer pair with
+    governance metadata, entity references, and retrieval keywords.
+    Derived from Blockify's IdeaBlock specification but implemented as
+    a pure Pydantic model.
+
+    OWL: ``:IdeaBlock rdfs:subClassOf :Concept, bfo:0000031``
+
+    Attributes:
+        critical_question: The question this knowledge answers.
+        trusted_answer: The validated, factual response.
+        tags: Governance/classification tags (e.g., IMPORTANT, TECHNOLOGY).
+        keywords: BM25-optimized retrieval terms.
+        entities: Named entity references extracted from the content.
+        source_document_id: Provenance link to the source document.
+        distillation_round: Which iteration produced this block (0=original).
+        merged_from: IDs of blocks merged to create this one.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.IDEA_BLOCK
+    critical_question: str = ""
+    trusted_answer: str = ""
+    tags: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    entities: list[EntityReference] = Field(default_factory=list)
+    source_document_id: str | None = None
+    distillation_round: int = 0
+    merged_from: list[str] = Field(default_factory=list)
+
+
+class DistillationRoundNode(RegistryNode):
+    """A single iteration of the knowledge deduplication process.
+
+    CONCEPT:KG-2.23 — Knowledge Distillation Engine
+
+    Records metrics for one distillation round including the similarity
+    threshold, block counts before and after, and the number of merges
+    performed.
+
+    OWL: ``:DistillationRound rdfs:subClassOf bfo:0000015``
+
+    Attributes:
+        iteration: Round number (1-indexed).
+        similarity_threshold: Cosine similarity threshold used.
+        blocks_before: Number of blocks entering this round.
+        blocks_after: Number of blocks after deduplication.
+        pairs_found: Number of similar pairs discovered.
+        clusters_merged: Number of clusters that were merged.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.DISTILLATION_ROUND
+    iteration: int = 1
+    similarity_threshold: float = 0.65
+    blocks_before: int = 0
+    blocks_after: int = 0
+    pairs_found: int = 0
+    clusters_merged: int = 0
+
+
+# --- Research Intelligence Sub-Agent Nodes (CONCEPT:KG-2.33) ---
+
+
+class ResearchSessionNode(RegistryNode):
+    """A research sub-agent execution session.
+
+    CONCEPT:KG-2.33 — Research Intelligence Sub-Agent
+
+    Tracks an isolated research context window with its own token budget,
+    tool whitelist, and findings. Adapted from ml-intern's research_tool.py
+    sub-agent pattern with KG persistence.
+
+    OWL: ``:ResearchSession rdfs:subClassOf :Episode``
+
+    Attributes:
+        query: The original research query.
+        token_budget_warn: Token count at which warnings trigger.
+        token_budget_max: Hard token ceiling for the session.
+        tokens_used: Current token consumption.
+        tools_allowed: Whitelist of read-only tools for this session.
+        papers_discovered: Number of papers found during the session.
+        citations_traversed: Depth of citation graph traversal.
+        findings_count: Number of Evidence nodes created.
+        status: Session state (active, completed, budget_exceeded, doom_looped).
+    """
+
+    type: RegistryNodeType = RegistryNodeType.RESEARCH_SESSION
+    query: str = ""
+    token_budget_warn: int = 170_000
+    token_budget_max: int = 190_000
+    tokens_used: int = 0
+    tools_allowed: list[str] = Field(
+        default_factory=lambda: ["search_papers", "read_paper", "search_datasets"]
+    )
+    papers_discovered: int = 0
+    citations_traversed: int = 0
+    findings_count: int = 0
+    status: str = "active"  # active, completed, budget_exceeded, doom_looped
+
+
+class CitationEdgeNode(RegistryNode):
+    """A citation relationship between two research papers.
+
+    CONCEPT:KG-2.33 — Research Intelligence Sub-Agent
+
+    Represents directional citation edges with semantic metadata.
+    Enables transitive citation graph traversal via ``wasDerivedFrom``
+    OWL property chains.
+
+    OWL: ``:CitationEdge rdfs:subClassOf :Evidence``
+
+    Attributes:
+        citing_paper_id: The paper that contains the citation.
+        cited_paper_id: The paper being cited.
+        citation_context: Text surrounding the citation in the citing paper.
+        is_influential: Whether this citation is marked as influential (S2 flag).
+        citation_intent: Purpose of citation (background, method, result, comparison).
+        depth: Hop distance from the original search query paper.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.CITATION_EDGE
+    citing_paper_id: str = ""
+    cited_paper_id: str = ""
+    citation_context: str = ""
+    is_influential: bool = False
+    citation_intent: str = "background"  # background, method, result, comparison
+    depth: int = 0
+
+
+# --- Spectral Cluster Navigator Nodes (CONCEPT:KG-2.34) ---
+
+
+class SpectralClusterNode(RegistryNode):
+    """A semantically coherent cluster discovered via spectral decomposition.
+
+    CONCEPT:KG-2.34 — Spectral Cluster Navigator
+
+    Represents an auto-discovered group of semantically related entities
+    using normalized Laplacian eigengap heuristics for tuning-free
+    k-selection. Integrates with OWL via ``skos:Concept`` alignment.
+
+    OWL: ``:SpectralCluster rdfs:subClassOf skos:Concept``
+
+    Attributes:
+        cluster_label: LLM-generated or heuristic label for this cluster.
+        member_count: Number of entities in this cluster.
+        eigengap_value: The eigengap that determined this cluster count.
+        coherence_score: Intra-cluster cosine similarity average.
+        centroid_embedding: Mean embedding vector of cluster members.
+        parent_cluster_id: ID of parent cluster in hierarchical clustering.
+        depth: Hierarchy depth (0 = root).
+        domain: Domain context (codebase, research, financial, general).
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SPECTRAL_CLUSTER
+    cluster_label: str = ""
+    member_count: int = 0
+    eigengap_value: float = 0.0
+    coherence_score: float = 0.0
+    centroid_embedding: list[float] | None = None
+    parent_cluster_id: str | None = None
+    depth: int = 0
+    domain: str = "general"  # codebase, research, financial, general
+
+
+# --- Symbol Blast Radius Analyzer Nodes (CONCEPT:KG-2.35) ---
+
+
+class BlastRadiusNode(RegistryNode):
+    """A symbol-level impact analysis report.
+
+    CONCEPT:KG-2.35 — Symbol Blast Radius Analyzer
+
+    Tracks how widely a code symbol (function, class, variable) is used
+    across the codebase. Adapted from contextplus's blast-radius.ts
+    with KG integration for structural impact scoring.
+
+    OWL: ``:BlastRadiusReport rdfs:subClassOf :Observation``
+
+    Attributes:
+        symbol_name: The symbol being analyzed.
+        symbol_type: Type of symbol (function, class, variable, constant).
+        definition_file: File where the symbol is defined.
+        definition_line: Line number of the definition.
+        usage_count: Total number of usages across the codebase.
+        file_count: Number of distinct files using this symbol.
+        impact_score: Normalized impact score (0.0-1.0).
+        is_low_usage: Whether this symbol has suspiciously low usage.
+        usages: List of usage locations as dicts with file, line, context.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.BLAST_RADIUS_REPORT
+    symbol_name: str = ""
+    symbol_type: str = "function"  # function, class, variable, constant
+    definition_file: str = ""
+    definition_line: int = 0
+    usage_count: int = 0
+    file_count: int = 0
+    impact_score: float = 0.0
+    is_low_usage: bool = False
+    usages: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# --- Auto-Similarity Memory Graph Nodes (CONCEPT:KG-2.36) ---
+
+
+class SimilarityEdgeNode(RegistryNode):
+    """An auto-created similarity link between memory nodes.
+
+    CONCEPT:KG-2.36 — Auto-Similarity Memory Graph
+
+    Represents a similarity relationship discovered during memory
+    node insertion. Uses cosine similarity thresholding with exponential
+    decay scoring. Adapted from contextplus's memory-graph.ts auto-linking.
+
+    OWL: ``:SimilarityEdge rdfs:subClassOf :Evidence``
+
+    Attributes:
+        source_node_id: The node that triggered the similarity check.
+        target_node_id: The node found to be similar.
+        cosine_similarity: Raw cosine similarity score at creation time.
+        decay_lambda: Exponential decay rate (higher = faster decay).
+        current_weight: Decayed weight (updated on access).
+        creation_epoch: Unix timestamp of edge creation.
+        last_accessed_epoch: Unix timestamp of last access.
+        access_count: Number of times this edge was traversed.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SIMILARITY_EDGE
+    source_node_id: str = ""
+    target_node_id: str = ""
+    cosine_similarity: float = 0.0
+    decay_lambda: float = 0.01  # ~70-day half-life
+    current_weight: float = 1.0
+    creation_epoch: float = 0.0
+    last_accessed_epoch: float = 0.0
+    access_count: int = 0
+
+
+class MemoryDecayConfig(BaseModel):
+    """Configuration for auto-similarity and decay parameters.
+
+    CONCEPT:KG-2.36 — Auto-Similarity Memory Graph
+
+    Attributes:
+        similarity_threshold: Minimum cosine similarity to create an edge (default 0.72).
+        decay_lambda: Default decay rate for new similarity edges.
+        prune_threshold: Minimum weight before an edge is pruned.
+        max_edges_per_node: Maximum similarity edges per node (prevents hub explosion).
+        batch_window: Number of recent nodes to compare against during insertion.
+    """
+
+    similarity_threshold: float = 0.72
+    decay_lambda: float = 0.01
+    prune_threshold: float = 0.05
+    max_edges_per_node: int = 20
+    batch_window: int = 100
+
+
+# --- Hybrid Search Index Configuration (CONCEPT:KG-2.37) ---
+
+
+class HybridSearchConfig(BaseModel):
+    """Configuration for hybrid semantic+keyword search scoring.
+
+    CONCEPT:KG-2.37 — Hybrid Search Index
+
+    Adapted from contextplus's embedding.ts hybrid scoring with
+    configurable weight/threshold parameters.
+
+    Attributes:
+        semantic_weight: Weight for semantic (vector) similarity (default 0.72).
+        keyword_weight: Weight for keyword (BM25-style) matching (default 0.28).
+        min_semantic_score: Minimum semantic score to include a result.
+        min_keyword_score: Minimum keyword score to include a result.
+        min_combined_score: Minimum combined score to include a result.
+        phrase_boost: Boost factor for exact phrase matches.
+        top_k: Maximum number of results to return.
+    """
+
+    semantic_weight: float = 0.72
+    keyword_weight: float = 0.28
+    min_semantic_score: float = 0.0
+    min_keyword_score: float = 0.0
+    min_combined_score: float = 0.1
+    phrase_boost: float = 0.15
+    top_k: int = 10
+
+
+# --- Enhanced Doom-Loop Detector Nodes (CONCEPT:OS-5.18) ---
+
+
+class DoomLoopIncidentNode(RegistryNode):
+    """A detected tool-call repetition pattern.
+
+    CONCEPT:OS-5.18 — Enhanced Doom-Loop Detector
+
+    Records pattern-aware doom-loop detection incidents including
+    consecutive identical calls and repeating multi-tool sequences.
+    Adapted from ml-intern's doom_loop.py with KG persistence and
+    corrective prompt generation.
+
+    OWL: ``:DoomLoopIncident rdfs:subClassOf :Incident``
+
+    Attributes:
+        pattern_type: Type of pattern detected (consecutive, sequence).
+        tool_names: Tools involved in the loop.
+        signature_hashes: Hashed tool-call signatures that triggered detection.
+        repetition_count: Number of times the pattern repeated.
+        corrective_prompt: Generated prompt to break the loop.
+        session_id: Session where the loop was detected.
+        was_broken: Whether the loop was successfully broken.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.DOOM_LOOP_INCIDENT
+    pattern_type: str = "consecutive"  # consecutive, sequence
+    tool_names: list[str] = Field(default_factory=list)
+    signature_hashes: list[str] = Field(default_factory=list)
+    repetition_count: int = 0
+    corrective_prompt: str = ""
+    session_id: str = ""
+    was_broken: bool = False
+
+
+# --- RAG-KG Unification Node (CONCEPT:KG-2.38) ---
+
+
+class UnifiedRAGConfigNode(RegistryNode):
+    """Configuration snapshot for a unified RAG-KG retrieval session.
+
+    CONCEPT:KG-2.38 — RAG-KG Unification
+
+    Tracks the configuration and performance metrics for unified
+    retrieval sessions that combine similarity shortcuts, spectral
+    cluster scoping, and hybrid scoring.
+
+    Attributes:
+        enable_similarity_shortcuts: Whether shortcut edges were used.
+        enable_cluster_scoping: Whether spectral cluster scoping was used.
+        enable_hybrid_scoring: Whether hybrid scoring was used.
+        shortcut_hits: Number of nodes found via shortcut edges.
+        cluster_scoped: Number of queries scoped to clusters.
+        full_scans: Number of fallback full-index scans.
+        avg_latency_ms: Average retrieval latency in milliseconds.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.UNIFIED_RAG_CONFIG
+    enable_similarity_shortcuts: bool = True
+    enable_cluster_scoping: bool = True
+    enable_hybrid_scoring: bool = True
+    shortcut_hits: int = 0
+    cluster_scoped: int = 0
+    full_scans: int = 0
+    avg_latency_ms: float = 0.0
+
+
+# --- Research Orchestration Node (CONCEPT:KG-2.39) ---
+
+
+class OrchestrationCycleNode(RegistryNode):
+    """Record of a research orchestration cycle execution.
+
+    CONCEPT:KG-2.39 — Research Orchestration Integration
+
+    Tracks the results of an automated research-to-KG cycle including
+    discovery, citation traversal, similarity linking, and cluster
+    refresh phases.
+
+    Attributes:
+        cycle_id: Unique cycle identifier.
+        papers_discovered: Number of papers found.
+        papers_ingested: Number of papers ingested.
+        citations_traversed: Total citation edges traversed.
+        similarity_edges_created: Auto-similarity edges created.
+        clusters_built: Spectral clusters built/refreshed.
+        duration_seconds: Total cycle duration.
+        query: Focus query if provided.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ORCHESTRATION_CYCLE
+    cycle_id: str = ""
+    papers_discovered: int = 0
+    papers_ingested: int = 0
+    citations_traversed: int = 0
+    similarity_edges_created: int = 0
+    clusters_built: int = 0
+    duration_seconds: float = 0.0
+    query: str = ""
+
+
+# --- Graph Distillation Node (CONCEPT:KG-2.40) ---
+
+
+class DistillationIndexNode(RegistryNode):
+    """Snapshot of the graph distillation index health.
+
+    CONCEPT:KG-2.40 — Graph Distillation Migration
+
+    Records the state of the pre-computed similarity edge index
+    for monitoring and operational awareness.
+
+    Attributes:
+        total_nodes: Total nodes with embeddings.
+        nodes_with_shortcuts: Nodes with at least one shortcut edge.
+        total_edges: Total similarity edges.
+        coverage_ratio: Fraction of nodes with shortcuts.
+        avg_edge_weight: Mean decayed edge weight.
+        stale_edge_count: Edges below prune threshold.
+        recommendation: System-generated health recommendation.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.DISTILLATION_INDEX
+    total_nodes: int = 0
+    nodes_with_shortcuts: int = 0
+    total_edges: int = 0
+    coverage_ratio: float = 0.0
+    avg_edge_weight: float = 0.0
+    stale_edge_count: int = 0
+    recommendation: str = ""

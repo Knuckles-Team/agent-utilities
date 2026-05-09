@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Try importing the engine
 try:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
     HAS_GRAPH_ENGINE = True
 except ImportError:

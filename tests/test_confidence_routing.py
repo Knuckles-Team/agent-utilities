@@ -256,7 +256,9 @@ class TestResourceOptimizerConfidence:
             confidence_signal=0.1,
         )
         assert result is not None
-        assert getattr(result, "tier", None) == "medium"  # Budget forced light, confidence escalated once
+        assert (
+            getattr(result, "tier", None) == "medium"
+        )  # Budget forced light, confidence escalated once
 
 
 # ── GraphState Observability ──────────────────────────────────────────

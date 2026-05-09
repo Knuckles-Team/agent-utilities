@@ -1,6 +1,6 @@
 import re
 
-from ..knowledge_graph.engine import IntelligenceGraphEngine
+from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 from ..models.codemap import CodemapArtifact
 
 CODMAP_PATTERN = re.compile(r"@codemap\{([^}]+)\}")

@@ -258,7 +258,7 @@ def test_get_discovery_registry_no_engine_active(
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = ch.get_discovery_registry()
@@ -277,7 +277,7 @@ def test_get_discovery_registry_with_engine_no_backend(
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = ch.get_discovery_registry()
@@ -319,7 +319,7 @@ def test_get_discovery_registry_with_prompts(
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = ch.get_discovery_registry()
@@ -356,7 +356,7 @@ def test_get_discovery_registry_blueprint_json_string(
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = ch.get_discovery_registry()
@@ -392,7 +392,7 @@ def test_get_discovery_registry_blueprint_literal_eval_fallback(
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = ch.get_discovery_registry()
@@ -427,7 +427,7 @@ def test_get_discovery_registry_blueprint_unparseable_string(
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = ch.get_discovery_registry()
@@ -454,7 +454,7 @@ def test_get_discovery_registry_prompt_query_error(
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = ch.get_discovery_registry()
@@ -477,7 +477,7 @@ def test_get_discovery_registry_tool_query_error(
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = ch.get_discovery_registry()

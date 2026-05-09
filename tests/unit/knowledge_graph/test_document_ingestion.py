@@ -2,7 +2,7 @@
 Tests for Document Ingestion Pipeline.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -49,7 +49,8 @@ class TestDocumentIngestionPipeline:
         assert pipeline.id_manager == id_manager
         assert pipeline.id_registry == id_registry
 
-    def test_chunk_document(self):
+    @patch("agent_utilities.knowledge_graph.distillation.distillation_engine.chunk_text")
+    def test_chunk_document(self, mock_chunk_text):
         """Test document chunking."""
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
@@ -58,6 +59,7 @@ class TestDocumentIngestionPipeline:
 
         # Test with paragraphs
         content = "Paragraph 1\n\nParagraph 2\n\nParagraph 3"
+        mock_chunk_text.return_value = ["Paragraph 1", "Paragraph 2", "Paragraph 3"]
         chunks = pipeline._chunk_document(content)
         assert len(chunks) == 3
         assert chunks[0] == "Paragraph 1"
@@ -66,12 +68,14 @@ class TestDocumentIngestionPipeline:
 
         # Test with single paragraph
         content = "Single paragraph"
+        mock_chunk_text.return_value = ["Single paragraph"]
         chunks = pipeline._chunk_document(content)
         assert len(chunks) == 1
         assert chunks[0] == "Single paragraph"
 
         # Test with empty content
         content = ""
+        mock_chunk_text.return_value = [""]
         chunks = pipeline._chunk_document(content)
         assert len(chunks) == 1
         assert chunks[0] == ""
@@ -112,8 +116,10 @@ class TestDocumentIngestionPipeline:
         assert stats["total_documents"] == 0
 
     @pytest.mark.asyncio
-    async def test_generate_embeddings(self):
+    @patch("agent_utilities.core.embedding_utilities.create_embedding_model")
+    async def test_generate_embeddings(self, mock_create):
         """Test embedding generation (currently uses dummy embeddings)."""
+        mock_create.side_effect = Exception("Not available")
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
 

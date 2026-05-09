@@ -12,8 +12,8 @@ from pathlib import Path
 
 from agent_utilities.core.workspace import get_agent_workspace
 
+from ..core.engine import IntelligenceGraphEngine
 from ..models.knowledge_graph import PipelineConfig
-from .engine import IntelligenceGraphEngine
 from .pipeline import IntelligencePipeline
 
 

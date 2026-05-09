@@ -458,7 +458,7 @@ async def synthesizer_step(
     if ctx.deps.knowledge_engine:
         # Self-Model session feedback
         try:
-            from ..knowledge_graph.memory_retriever import MemoryRetriever
+            from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
             memory_retriever = MemoryRetriever(ctx.deps.knowledge_engine)
             memory_retriever.update_after_session(ctx.state)
@@ -475,7 +475,7 @@ async def synthesizer_step(
             plan_meta = ctx.state.plan.metadata if ctx.state.plan else {}
             team_config_id = plan_meta.get("team_config_id")
             if team_config_id:
-                from ..knowledge_graph.engine_registry import RegistryMixin
+                from ..knowledge_graph.core.engine_registry import RegistryMixin
 
                 if isinstance(ctx.deps.knowledge_engine, RegistryMixin):
                     reward = 1.0 if execution_success else 0.0
@@ -631,7 +631,7 @@ async def _distill_experience_from_retry(
                 action=res.data.action,
                 source_run_id=ctx.state.session_id,
             )
-            from ..knowledge_graph.ogm import KGMapper
+            from ..knowledge_graph.core.ogm import KGMapper
 
             ogm = KGMapper(ctx.deps.knowledge_engine)
             ogm.upsert(node)
@@ -699,7 +699,7 @@ async def parallel_trajectory_distiller(
         if res.data and res.data.confidence >= 0.5:
             import uuid
 
-            from ..knowledge_graph.hypergraph import PositionalInteractionEncoder
+            from ..knowledge_graph.core.hypergraph import PositionalInteractionEncoder
             from ..models.knowledge_graph import ExperienceNode, RegistryNodeType
 
             exp_id = f"exp_par_{uuid.uuid4().hex[:8]}"
@@ -720,7 +720,7 @@ async def parallel_trajectory_distiller(
             node.metadata["enc_pi"] = enc_pi
             node.metadata["source"] = "parallel_scaling_distillation"
 
-            from ..knowledge_graph.ogm import KGMapper
+            from ..knowledge_graph.core.ogm import KGMapper
 
             ogm = KGMapper(deps.knowledge_engine)
             ogm.upsert(node)

@@ -136,9 +136,7 @@ class TestInstallation:
         assert len(registry.list_installed()) == 0
 
     @pytest.mark.asyncio
-    async def test_uninstall_not_installed(
-        self, registry: AgentRegistry
-    ) -> None:
+    async def test_uninstall_not_installed(self, registry: AgentRegistry) -> None:
         result = await registry.uninstall("nonexistent")
         assert "not installed" in result
 
@@ -198,9 +196,7 @@ class TestDependencies:
             version="0.1.0",
             dependencies=["test-specialist"],
         )
-        path = os.path.join(
-            registry_path, "available", "dependent-pkg.json"
-        )
+        path = os.path.join(registry_path, "available", "dependent-pkg.json")
         with open(path, "w") as f:
             f.write(dep_pkg.model_dump_json(indent=2))
         await registry.install("dependent-pkg")

@@ -4,9 +4,9 @@ import networkx as nx
 import pytest
 
 from agent_utilities.knowledge_graph.backends import set_active_backend
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
-from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRetriever
+from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +59,7 @@ def test_inference_engine_fallback(memory_engine):
     assert edge_data["inferred"] is True
 
 
-@patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
+@patch("agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model")
 def test_hybrid_retriever_fallback(mock_create_model, memory_engine):
     """Test HybridRetriever fallback when vector backend isn't available."""
     # Setup mock to avoid hitting real APIs

@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 
@@ -208,8 +208,8 @@ class MemoryCache(BaseModel):
         Returns:
             List of persisted node IDs.
         """
-        from ..knowledge_graph.hypergraph import PositionalInteractionEncoder
-        from ..knowledge_graph.ogm import KGMapper
+        from ..knowledge_graph.core.hypergraph import PositionalInteractionEncoder
+        from ..knowledge_graph.core.ogm import KGMapper
         from ..models.knowledge_graph import (
             RegistryEdgeType,
             TrajectoryNode,

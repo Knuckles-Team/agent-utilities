@@ -36,28 +36,40 @@ class TestBacklinkBoost:
     @patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
     def test_boost_not_in_graph(self, m):
         m.side_effect = Exception()
-        from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+        from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+            HybridRetriever,
+        )
+
         r = HybridRetriever(_make_engine())
         assert r._backlink_boost("missing") == 1.0
 
     @patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
     def test_boost_isolated(self, m):
         m.side_effect = Exception()
-        from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+        from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+            HybridRetriever,
+        )
+
         r = HybridRetriever(_make_engine())
         assert r._backlink_boost("isolated") == 1.0
 
     @patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
     def test_boost_hub_gt_leaf(self, m):
         m.side_effect = Exception()
-        from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+        from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+            HybridRetriever,
+        )
+
         r = HybridRetriever(_make_engine())
         assert r._backlink_boost("hub") > r._backlink_boost("leaf")
 
     @patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
     def test_log_scaling(self, m):
         m.side_effect = Exception()
-        from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+        from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+            HybridRetriever,
+        )
+
         r = HybridRetriever(_make_engine())
         expected = 1.0 + 0.1 * math.log1p(10)
         assert abs(r._backlink_boost("hub") - expected) < 1e-10
@@ -66,7 +78,10 @@ class TestBacklinkBoost:
     def test_custom_factor(self, m):
         m.side_effect = Exception()
         pack = SchemaPack(name="t", backlink_boost_factor=0.5)
-        from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+        from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+            HybridRetriever,
+        )
+
         r = HybridRetriever(_make_engine(), schema_pack=pack)
         assert r._boost_factor == 0.5
 
@@ -75,31 +90,49 @@ class TestBoostStrategy:
     @patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
     def test_default_global(self, m):
         m.side_effect = Exception()
-        from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+        from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+            HybridRetriever,
+        )
+
         r = HybridRetriever(_make_engine())
         assert r._boost_strategy == BacklinkBoostStrategy.GLOBAL
 
     @patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
     def test_context_only(self, m):
         m.side_effect = Exception()
-        pack = SchemaPack(name="t", backlink_boost_strategy=BacklinkBoostStrategy.CONTEXT_ONLY)
-        from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+        pack = SchemaPack(
+            name="t", backlink_boost_strategy=BacklinkBoostStrategy.CONTEXT_ONLY
+        )
+        from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+            HybridRetriever,
+        )
+
         r = HybridRetriever(_make_engine(), schema_pack=pack)
         assert r._boost_strategy == BacklinkBoostStrategy.CONTEXT_ONLY
 
     @patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
     def test_disabled(self, m):
         m.side_effect = Exception()
-        pack = SchemaPack(name="t", backlink_boost_strategy=BacklinkBoostStrategy.DISABLED)
-        from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+        pack = SchemaPack(
+            name="t", backlink_boost_strategy=BacklinkBoostStrategy.DISABLED
+        )
+        from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+            HybridRetriever,
+        )
+
         r = HybridRetriever(_make_engine(), schema_pack=pack)
         assert r._boost_strategy == BacklinkBoostStrategy.DISABLED
 
     @patch("agent_utilities.knowledge_graph.hybrid_retriever.create_embedding_model")
     def test_pack_passed(self, m):
         m.side_effect = Exception()
-        pack = SchemaPack(name="r", mode=SchemaPackMode.ADDITIVE, backlink_boost_factor=0.15)
-        from agent_utilities.knowledge_graph.hybrid_retriever import HybridRetriever
+        pack = SchemaPack(
+            name="r", mode=SchemaPackMode.ADDITIVE, backlink_boost_factor=0.15
+        )
+        from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
+            HybridRetriever,
+        )
+
         r = HybridRetriever(_make_engine(), schema_pack=pack)
         assert r._schema_pack is pack
         assert r._boost_factor == 0.15

@@ -10,7 +10,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from ..engine import IntelligenceGraphEngine
+from ..core.engine import IntelligenceGraphEngine
 from ..id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
 
 logger = logging.getLogger(__name__)
@@ -154,7 +154,10 @@ class DocumentIngestionPipeline:
 
     def _chunk_document(self, content: str) -> list[str]:
         """
-        Chunk document into manageable pieces.
+        Chunk document into manageable pieces using sentence-boundary-aware splitting.
+
+        Uses the distillation engine's chunking utility for intelligent
+        sentence-boundary-aware splitting with 10% overlap.
 
         Args:
             content: Document content
@@ -162,18 +165,17 @@ class DocumentIngestionPipeline:
         Returns:
             List[str]: List of chunks
         """
-        # Simple chunking by paragraphs for now
-        # Can be enhanced with more sophisticated chunking strategies
-        paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
+        from ..distillation.distillation_engine import chunk_text
 
-        if not paragraphs:
-            return [content]
-
-        return paragraphs
+        chunks = chunk_text(content, chunk_size=2000, overlap=200)
+        return chunks if chunks else [content]
 
     async def _generate_embeddings(self, chunks: list[str]) -> list[list[float]]:
         """
-        Generate embeddings for chunks.
+        Generate embeddings for chunks using the configured embedding model.
+
+        Uses ``create_embedding_model()`` from ``agent_utilities.core.embedding_utilities``.
+        Falls back to zero-vector placeholders if no model is available.
 
         Args:
             chunks: List of text chunks
@@ -181,15 +183,19 @@ class DocumentIngestionPipeline:
         Returns:
             List[List[float]]: List of embeddings
         """
-        # Placeholder for embedding generation
-        # This should integrate with LM Studio or the existing embedding utilities
-        # For now, return dummy embeddings
+        try:
+            from agent_utilities.core.embedding_utilities import create_embedding_model
 
-        logger.warning("Using dummy embeddings - integrate with LM Studio")
-
-        # Return dummy embeddings (768-dimensional)
-        dummy_embedding = [0.0] * 768
-        return [dummy_embedding.copy() for _ in chunks]
+            embed_model = create_embedding_model()
+            embeddings = []
+            for chunk in chunks:
+                emb = embed_model.get_text_embedding(chunk)
+                embeddings.append(emb)
+            return embeddings
+        except Exception as e:
+            logger.warning("Embedding model unavailable, using zero vectors: %s", e)
+            dim = 768
+            return [[0.0] * dim for _ in chunks]
 
     async def _create_graph_nodes(
         self,

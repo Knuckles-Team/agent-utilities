@@ -54,6 +54,10 @@ class FinanceSchemaPack(SchemaPack):
         RegistryNodeType.POSITION,
         RegistryNodeType.PORTFOLIO,
         RegistryNodeType.STRATEGY,
+        RegistryNodeType.TIME_SERIES_FORECAST,
+        RegistryNodeType.VERSIONED_TRADE_COMMIT,
+        RegistryNodeType.EXECUTION_GUARD,
+        RegistryNodeType.UNIFIED_TRADING_ACCOUNT,
         # Data connectors (CONCEPT:ECO-4.4)
         RegistryNodeType.DATA_CONNECTOR,
         RegistryNodeType.DATA_FETCH_RECORD,
@@ -83,6 +87,9 @@ class FinanceSchemaPack(SchemaPack):
         RegistryEdgeType.BELONGS_TO_PORTFOLIO,
         RegistryEdgeType.EXECUTES_STRATEGY,
         RegistryEdgeType.BACKTESTED_WITH,
+        RegistryEdgeType.FORECASTED,
+        RegistryEdgeType.VERSIONED_IN,
+        RegistryEdgeType.GUARDED_BY,
         # Data connector edges (CONCEPT:ECO-4.4)
         RegistryEdgeType.FETCHED_FROM,
         RegistryEdgeType.FALLS_BACK_TO,
@@ -107,6 +114,9 @@ class FinanceSchemaPack(SchemaPack):
         "executes_strategy": 1.5,
         "belongs_to_portfolio": 1.4,
         "opened_position": 1.3,
+        "forecasted": 1.4,
+        "versioned_in": 1.6,
+        "guarded_by": 1.5,
         # Risk propagation — highest boost for transitive chains
         "propagates_risk_to": 1.6,
         "has_risk_factor": 1.4,

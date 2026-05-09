@@ -33,13 +33,13 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from ..knowledge_graph.engine import cosine_similarity
-from ..knowledge_graph.ogm import KGMapper
+from ..knowledge_graph.core.engine import cosine_similarity
+from ..knowledge_graph.core.ogm import KGMapper
 from ..models.knowledge_graph import ProposalNode, RegistryEdgeType
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
-    from ..knowledge_graph.memory_retriever import MemoryRetriever
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
 logger = logging.getLogger(__name__)
 

@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import networkx as nx
 import pytest
 
-from agent_utilities.knowledge_graph.research_artifacts import (
+from agent_utilities.knowledge_graph.adaptation.research_artifacts import (
     DigestArtifact,
     ResearchArtifact,
     ResearchArtifactGenerator,
@@ -81,15 +81,19 @@ class TestArtifactGeneratorWithEngine:
 
     def _add_article(self, article_id, title, content, tags=None):
         from agent_utilities.models.knowledge_graph import RegistryNodeType
-        self.graph.add_node(article_id, **{
-            "type": RegistryNodeType.ARTICLE,
-            "name": title,
-            "description": content[:200],
-            "content": content,
-            "tags": tags or [],
-            "importance_score": 0.8,
-            "timestamp": "2026-05-07T00:00:00Z",
-        })
+
+        self.graph.add_node(
+            article_id,
+            **{
+                "type": RegistryNodeType.ARTICLE,
+                "name": title,
+                "description": content[:200],
+                "content": content,
+                "tags": tags or [],
+                "importance_score": 0.8,
+                "timestamp": "2026-05-07T00:00:00Z",
+            },
+        )
 
     def test_generate_paper_artifact(self):
         self._add_article(
@@ -127,12 +131,18 @@ class TestArtifactGeneratorWithEngine:
         )
 
     def test_generate_digest(self):
-        self._add_article("article:d1", "Paper Alpha",
-                         "Research on multi-agent planning systems.",
-                         tags=["orchestration"])
-        self._add_article("article:d2", "Paper Beta",
-                         "Study on memory retrieval and knowledge graphs.",
-                         tags=["memory", "orchestration"])
+        self._add_article(
+            "article:d1",
+            "Paper Alpha",
+            "Research on multi-agent planning systems.",
+            tags=["orchestration"],
+        )
+        self._add_article(
+            "article:d2",
+            "Paper Beta",
+            "Study on memory retrieval and knowledge graphs.",
+            tags=["memory", "orchestration"],
+        )
 
         digest = self.gen.generate_digest(
             paper_ids=["article:d1", "article:d2"],
@@ -146,12 +156,15 @@ class TestArtifactGeneratorWithEngine:
         assert "Research Digest" in digest.markdown
 
     def test_digest_emerging_themes(self):
-        self._add_article("article:t1", "Paper 1",
-                         "Content about transformers.", tags=["reasoning"])
-        self._add_article("article:t2", "Paper 2",
-                         "More reasoning content.", tags=["reasoning"])
-        self._add_article("article:t3", "Paper 3",
-                         "Unrelated biology paper.", tags=["biology"])
+        self._add_article(
+            "article:t1", "Paper 1", "Content about transformers.", tags=["reasoning"]
+        )
+        self._add_article(
+            "article:t2", "Paper 2", "More reasoning content.", tags=["reasoning"]
+        )
+        self._add_article(
+            "article:t3", "Paper 3", "Unrelated biology paper.", tags=["biology"]
+        )
 
         digest = self.gen.generate_digest(
             paper_ids=["article:t1", "article:t2", "article:t3"],

@@ -193,7 +193,7 @@ class EngineeringPatternOrchestrator:
 
         result = await run_tdd_cycle(
             feature_id=spec_id,
-            deps=deps,
+            deps=deps,  # type: ignore
             **kwargs,
         )
         return PatternResult(
@@ -209,21 +209,22 @@ class EngineeringPatternOrchestrator:
         **kwargs: Any,
     ) -> PatternResult:
         """Execute a first-run test baseline."""
+        from pathlib import Path
+
         from agent_utilities.patterns.first_run_tests import (
             TestResult,
             run_first_tests,
         )
 
         path = target_path or self.workspace_path
-        result: TestResult = run_first_tests(path, **kwargs)
+        result: TestResult = await run_first_tests(Path(path), **kwargs)
         return PatternResult(
             pattern=PatternType.FIRST_RUN_TESTS,
-            success=result.passed,
+            success=result.success,
             output=result.output,
             metadata={
-                "tests_discovered": result.tests_discovered,
-                "tests_passed": result.tests_passed,
-                "tests_failed": result.tests_failed,
+                "exit_code": result.exit_code,
+                "command": result.command,
             },
         )
 
@@ -234,14 +235,12 @@ class EngineeringPatternOrchestrator:
     ) -> PatternResult:
         """Execute a manual testing session."""
         from agent_utilities.patterns.manual_testing import (
-            ManualTestSession,
+            run_manual_test_cycle,
         )
 
-        session = ManualTestSession(
-            workspace_path=self.workspace_path,
-            target_path=target_path,
-        )
-        result = session.run(**kwargs)
+        goal = kwargs.get("goal", f"Test {target_path}")
+        deps = kwargs.get("deps")
+        result = await run_manual_test_cycle(goal, deps)
         return PatternResult(
             pattern=PatternType.MANUAL_TESTING,
             success=True,
@@ -255,10 +254,11 @@ class EngineeringPatternOrchestrator:
         **kwargs: Any,
     ) -> PatternResult:
         """Generate a code walkthrough."""
-        from agent_utilities.patterns.walkthroughs import generate_walkthrough
+        from agent_utilities.patterns.walkthroughs import generate_linear_walkthrough
 
         path = target_path or self.workspace_path
-        output = generate_walkthrough(path, **kwargs)
+        deps = kwargs.get("deps")
+        output = await generate_linear_walkthrough(path, deps)
         return PatternResult(
             pattern=PatternType.CODE_WALKTHROUGH,
             success=True,
@@ -273,11 +273,15 @@ class EngineeringPatternOrchestrator:
     ) -> PatternResult:
         """Generate an interactive explanation artifact."""
         from agent_utilities.patterns.interactive_explanations import (
-            generate_explanation,
+            generate_interactive_explanation,
         )
 
         path = target_path or self.workspace_path
-        output = generate_explanation(path, **kwargs)
+        goal = kwargs.get("goal", f"Explain {path}")
+        deps = kwargs.get("deps")
+        output = await generate_interactive_explanation(
+            explanation_goal=goal, content_to_explain=path, deps=deps
+        )
         return PatternResult(
             pattern=PatternType.INTERACTIVE_EXPLANATION,
             success=True,

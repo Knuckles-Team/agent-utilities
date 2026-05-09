@@ -42,6 +42,14 @@ class _EngineProtocol(Protocol):
         properties: dict[str, Any] | None = None,
     ) -> None: ...
 
+    def add_node(
+        self,
+        node_id: str,
+        node_type: str,
+        properties: dict[str, Any] | None = None,
+        ephemeral: bool = False,
+    ) -> Any: ...
+
     # Query mixin methods (used by AHE and Registry)
     def query_cypher(
         self, query: str, params: dict[str, Any] | None = None

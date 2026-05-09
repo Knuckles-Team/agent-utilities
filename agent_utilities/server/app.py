@@ -477,6 +477,10 @@ def build_agent_app(
             logger.info(f"Mounted custom web UI at {custom_web_mount_path}")
         elif enable_web_ui:
             try:
+                from .routers import enhanced
+
+                app.include_router(enhanced.router)
+
                 from agent_webui.server import create_agent_web_app
 
                 from agent_utilities.core.chat_persistence import (

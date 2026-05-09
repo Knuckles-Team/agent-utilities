@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -85,7 +85,7 @@ class RetryConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class RetryResult(str, Enum):
+class RetryResult(StrEnum):
     """Outcome of a retry evaluation."""
 
     SKIPPED = "skipped"

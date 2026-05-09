@@ -30,15 +30,15 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent
 
-from ..knowledge_graph.engine import cosine_similarity
-from ..knowledge_graph.ogm import KGMapper
+from ..knowledge_graph.core.engine import cosine_similarity
+from ..knowledge_graph.core.ogm import KGMapper
 from ..models.knowledge_graph import (
     SwarmCoalitionNode,
 )
 from .swarm_models import SwarmResult, TaskTree
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
     from .state import GraphDeps
 
 logger = logging.getLogger(__name__)

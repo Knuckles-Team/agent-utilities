@@ -41,7 +41,7 @@ from ...models.knowledge_graph import (
 )
 
 if TYPE_CHECKING:
-    from ..engine import IntelligenceGraphEngine
+    from ..core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 

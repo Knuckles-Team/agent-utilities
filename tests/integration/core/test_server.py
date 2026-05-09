@@ -129,7 +129,7 @@ async def test_reload_mcp_config(client):
 
 def test_generate_codemap_not_initialized(client):
     with patch(
-        "agent_utilities.knowledge_graph.engine.IntelligenceGraphEngine.get_active",
+        "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine.get_active",
         return_value=None,
     ):
         response = client.post("/api/codemap", json={"prompt": "test"})
@@ -146,11 +146,11 @@ async def test_generate_codemap_success(client):
 
     with (
         patch(
-            "agent_utilities.knowledge_graph.engine.IntelligenceGraphEngine.get_active",
+            "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine.get_active",
             return_value=mock_kg,
         ),
         patch(
-            "agent_utilities.knowledge_graph.codemaps.CodemapGenerator"
+            "agent_utilities.knowledge_graph.core.codemaps.CodemapGenerator"
         ) as mock_gen_class,
     ):
         mock_gen = mock_gen_class.return_value

@@ -15,12 +15,17 @@ class TestSelfModelNodeSynergies:
         assert node.model_synergies == {}
 
     def test_model_synergies_set(self):
-        node = SelfModelNode(id="sm:test", name="Test",
-            model_synergies={"gpt-4o|claude-sonnet": 0.85, "gemini-2.5|llama-3": 0.72})
+        node = SelfModelNode(
+            id="sm:test",
+            name="Test",
+            model_synergies={"gpt-4o|claude-sonnet": 0.85, "gemini-2.5|llama-3": 0.72},
+        )
         assert len(node.model_synergies) == 2
 
     def test_model_synergies_serialization(self):
-        node = SelfModelNode(id="sm:test", name="Test", model_synergies={"heavy|light": 0.9})
+        node = SelfModelNode(
+            id="sm:test", name="Test", model_synergies={"heavy|light": 0.9}
+        )
         data = node.model_dump()
         assert "model_synergies" in data
         restored = SelfModelNode.model_validate(data)
@@ -29,7 +34,9 @@ class TestSelfModelNodeSynergies:
     def test_model_synergies_json_schema(self):
         schema = SelfModelNode.model_json_schema()
         assert "model_synergies" in schema["properties"]
-        assert "CONCEPT:AHE-3.3" in schema["properties"]["model_synergies"]["description"]
+        assert (
+            "CONCEPT:AHE-3.3" in schema["properties"]["model_synergies"]["description"]
+        )
 
     def test_synergy_key_format(self):
         models = ["claude-sonnet", "gpt-4o", "gemini-2.5"]
@@ -62,30 +69,41 @@ class TestSelfModelSynergyTracking:
 
     def test_synergy_recorded_multi_model(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         sm = SelfModel(self._engine())
         sm.get_or_create()
-        sm.update_after_session(self._session(routing_log=[
-            {"specialist_id": "r", "routed_tier": "light"},
-            {"specialist_id": "p", "routed_tier": "heavy"},
-        ]))
+        sm.update_after_session(
+            self._session(
+                routing_log=[
+                    {"specialist_id": "r", "routed_tier": "light"},
+                    {"specialist_id": "p", "routed_tier": "heavy"},
+                ]
+            )
+        )
         updated = sm.get_current()
         assert updated is not None
         assert "heavy|light" in updated.model_synergies
 
     def test_no_synergy_single_model(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         sm = SelfModel(self._engine())
         sm.get_or_create()
-        sm.update_after_session(self._session(routing_log=[
-            {"specialist_id": "r", "routed_tier": "medium"},
-            {"specialist_id": "p", "routed_tier": "medium"},
-        ]))
+        sm.update_after_session(
+            self._session(
+                routing_log=[
+                    {"specialist_id": "r", "routed_tier": "medium"},
+                    {"specialist_id": "p", "routed_tier": "medium"},
+                ]
+            )
+        )
         updated = sm.get_current()
         assert updated is not None
         assert len(updated.model_synergies) == 0
 
     def test_synergies_carried_forward(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         sm = SelfModel(self._engine())
         initial = sm.get_or_create()
         initial.model_synergies = {"heavy|light": 0.8}
@@ -103,12 +121,14 @@ class TestGetBestSynergies:
 
     def test_empty_synergies(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         sm = SelfModel(self._engine())
         sm.get_or_create()
         assert sm.get_best_synergies(["gpt-4o"]) == []
 
     def test_filters_by_available(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         sm = SelfModel(self._engine())
         initial = sm.get_or_create()
         initial.model_synergies = {"gpt-4o|claude": 0.9, "gemini|llama": 0.8}
@@ -119,6 +139,7 @@ class TestGetBestSynergies:
 
     def test_sorted_descending(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         sm = SelfModel(self._engine())
         initial = sm.get_or_create()
         initial.model_synergies = {"a|b": 0.6, "a|c": 0.9, "b|c": 0.75}
@@ -128,6 +149,7 @@ class TestGetBestSynergies:
 
     def test_top_k_limits(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         sm = SelfModel(self._engine())
         initial = sm.get_or_create()
         initial.model_synergies = {"a|b": 0.9, "a|c": 0.8, "b|c": 0.7}
@@ -136,6 +158,7 @@ class TestGetBestSynergies:
 
     def test_no_self_model(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         sm = SelfModel(self._engine())
         assert sm.get_best_synergies(["gpt-4o"]) == []
 
@@ -143,6 +166,7 @@ class TestGetBestSynergies:
 class TestExplainSelfSynergies:
     def test_includes_synergies(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         e = MagicMock()
         e.graph = nx.MultiDiGraph()
         e.backend = None
@@ -154,6 +178,7 @@ class TestExplainSelfSynergies:
 
     def test_no_synergies_no_section(self):
         from agent_utilities.knowledge_graph.self_model import SelfModel
+
         e = MagicMock()
         e.graph = nx.MultiDiGraph()
         e.backend = None

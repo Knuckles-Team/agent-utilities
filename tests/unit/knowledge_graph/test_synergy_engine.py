@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.knowledge_graph.synergy_engine import (
+from agent_utilities.knowledge_graph.core.synergy_engine import (
     ConceptBridge,
     PILLAR_NAMES,
     PillarCoupling,
@@ -121,22 +121,16 @@ class TestConceptBridges:
         assert "AHE-3.3" in bridge_ids
         assert "OS-5.4" in bridge_ids
 
-    def test_bridge_has_correct_primary_pillar(
-        self, engine: SynergyEngine
-    ) -> None:
+    def test_bridge_has_correct_primary_pillar(self, engine: SynergyEngine) -> None:
         bridges = engine.discover_concept_bridges()
         ahe_35 = next(b for b in bridges if b.concept_id == "AHE-3.5")
         assert ahe_35.primary_pillar == "AHE-3"
         assert "KG-2" in ahe_35.bridged_pillars
 
-    def test_dependency_bridges_discovered(
-        self, engine: SynergyEngine
-    ) -> None:
+    def test_dependency_bridges_discovered(self, engine: SynergyEngine) -> None:
         bridges = engine.discover_concept_bridges()
         # ORCH-1.2 depends on KG-2.1, so it should bridge ORCH→KG
-        orch_12 = next(
-            (b for b in bridges if b.concept_id == "ORCH-1.2"), None
-        )
+        orch_12 = next((b for b in bridges if b.concept_id == "ORCH-1.2"), None)
         assert orch_12 is not None
         # It's in _KNOWN_BRIDGES, so check bridged pillars
         assert "KG-2" in orch_12.bridged_pillars
@@ -180,9 +174,7 @@ class TestPillarCoupling:
     def test_ahe_kg_highly_coupled(self, engine: SynergyEngine) -> None:
         couplings = engine.compute_pillar_coupling()
         ahe_kg = next(
-            c
-            for c in couplings
-            if {c.pillar_a, c.pillar_b} == {"AHE-3", "KG-2"}
+            c for c in couplings if {c.pillar_a, c.pillar_b} == {"AHE-3", "KG-2"}
         )
         assert ahe_kg.coupling_score > 0.0
         assert len(ahe_kg.shared_edge_types) > 0
@@ -204,7 +196,9 @@ class TestMissingEdges:
     def test_suggestions_have_rationale(self, engine: SynergyEngine) -> None:
         suggestions = engine.suggest_missing_edges()
         for s in suggestions:
-            assert s.rationale, f"Suggestion {s.source_concept}→{s.target_concept} has no rationale"
+            assert s.rationale, (
+                f"Suggestion {s.source_concept}→{s.target_concept} has no rationale"
+            )
             assert 0.0 <= s.confidence <= 1.0
 
     def test_no_existing_edges_suggested(self, engine: SynergyEngine) -> None:

@@ -1,10 +1,11 @@
 import pytest
 import networkx as nx
-from agent_utilities.knowledge_graph.context_builder import (
+from agent_utilities.knowledge_graph.core.context_builder import (
     get_owl_context,
     get_hierarchical_context,
     build_contextual_description,
 )
+
 
 @pytest.mark.timeout(5)
 def test_owl_context():
@@ -15,6 +16,7 @@ def test_owl_context():
 
     ctx = get_owl_context("n1", graph)
     assert "OWL Inferred Facts: is_a: n2" in ctx
+
 
 @pytest.mark.timeout(5)
 def test_hierarchical_context():
@@ -39,6 +41,7 @@ def test_hierarchical_context():
     assert "Parents: [A]" in ctx
     assert "Children: [C, E]" in ctx or "Children: [E, C]" in ctx
     assert "Grandchildren: [D, F]" in ctx or "Grandchildren: [F, D]" in ctx
+
 
 @pytest.mark.timeout(5)
 def test_build_contextual_description():

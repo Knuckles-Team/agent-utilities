@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +212,39 @@ class SubagentPatternRouter:
 
         return decision
 
+    def estimate_specialist_count(self, query: str) -> int:
+        """Estimate specialist count using KG topology.
+
+        CONCEPT:ORCH-1.15 — KG-Driven Specialist Estimation
+
+        Instead of the caller guessing specialist_count, query the KG
+        for agents/tools topologically proximate to the task.
+        """
+        if self.engine is None:
+            return 1
+
+        count = 1
+        try:
+            if self.engine.backend:
+                # Use backend for O(1) lookup instead of O(N) scan
+                results = self.engine.backend.execute(
+                    "MATCH (a:Agent)-[:PROVIDES|HAS_CAPABILITY]->() "
+                    "RETURN count(DISTINCT a) AS agent_count",
+                    {},
+                )
+                if results:
+                    count = max(1, min(results[0].get("agent_count", 1), 10))
+            else:
+                # Fallback: count agent nodes in NX
+                for _, data in self.engine.graph.nodes(data=True):
+                    if data.get("type") == "agent":
+                        count += 1
+                count = min(count, 10)
+        except Exception:  # nosec B110
+            pass
+
+        return count
+
     def _adjust_from_history(
         self, pattern: SubagentPattern, base_confidence: float
     ) -> float:
@@ -224,7 +257,37 @@ class SubagentPatternRouter:
             return base_confidence
 
         try:
-            # Look for past decisions with this pattern
+            # Prefer backend (Tier 1) for O(1) lookups
+            if self.engine.backend:
+                try:
+                    results = self.engine.backend.execute(
+                        "MATCH (d:SubagentPatternDecision) "
+                        "WHERE d.pattern = $pattern AND d.outcome_success IS NOT NULL "
+                        "RETURN d.outcome_success AS success",
+                        {"pattern": pattern.value},
+                    )
+                    if results and len(results) >= 3:
+                        total_count = len(results)
+                        success_count = sum(
+                            1 for r in results if r.get("success") is True
+                        )
+                        historical_rate = success_count / total_count
+                        adjusted = 0.7 * base_confidence + 0.3 * historical_rate
+                        logger.debug(
+                            "[CONCEPT:ORCH-1.6] Adjusted confidence for %s: %.2f → %.2f "
+                            "(historical: %d/%d = %.2f, source=backend)",
+                            pattern.value,
+                            base_confidence,
+                            adjusted,
+                            success_count,
+                            total_count,
+                            historical_rate,
+                        )
+                        return adjusted
+                except Exception:  # nosec B110
+                    pass  # Fall through to NX fallback
+
+            # Fallback: O(N) NX graph scan
             success_count = 0
             total_count = 0
             for nid, data in self.engine.graph.nodes(data=True):
@@ -257,7 +320,10 @@ class SubagentPatternRouter:
         return base_confidence
 
     def _persist_decision(self, decision: SubagentPatternDecision) -> None:
-        """Store a pattern decision in the Knowledge Graph."""
+        """Store a pattern decision in the Knowledge Graph.
+
+        Tiered write path: backend (Tier 1) when available, NX fallback.
+        """
         if self.engine is None:
             return
 
@@ -265,20 +331,27 @@ class SubagentPatternRouter:
             import uuid
 
             node_id = f"spd:{uuid.uuid4().hex[:8]}"
-            self.engine.graph.add_node(
-                node_id,
-                type="subagent_pattern_decision",
-                pattern=decision.pattern.value,
-                task_complexity=decision.task_complexity.value,
-                parallelizable=decision.parallelizable,
-                needs_collaboration=decision.needs_collaboration,
-                specialist_count=decision.specialist_count,
-                confidence=decision.confidence,
-                reasoning=decision.reasoning,
-                timestamp=decision.timestamp,
-                outcome_success=None,
-                importance_score=0.3,
-            )
+            node_data = {
+                "id": node_id,
+                "type": "subagent_pattern_decision",
+                "pattern": decision.pattern.value,
+                "task_complexity": decision.task_complexity.value,
+                "parallelizable": decision.parallelizable,
+                "needs_collaboration": decision.needs_collaboration,
+                "specialist_count": decision.specialist_count,
+                "confidence": decision.confidence,
+                "reasoning": decision.reasoning,
+                "timestamp": decision.timestamp,
+                "outcome_success": None,
+                "importance_score": 0.3,
+            }
+
+            # Tier 1: Backend is source of truth
+            if hasattr(self.engine, "backend") and self.engine.backend:
+                self.engine._upsert_node("SubagentPatternDecision", node_id, node_data)
+            else:
+                # Tier 2 fallback: NX only
+                self.engine.graph.add_node(node_id, **node_data)
         except Exception as e:
             logger.debug("Failed to persist pattern decision: %s", e)
 

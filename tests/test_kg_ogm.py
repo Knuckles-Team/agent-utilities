@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from agent_utilities.knowledge_graph.ogm import KGMapper, kg_label, resolve_label
+from agent_utilities.knowledge_graph.core.ogm import KGMapper, kg_label, resolve_label
 from agent_utilities.models.knowledge_graph import (
     AgentNode,
     ProposalNode,

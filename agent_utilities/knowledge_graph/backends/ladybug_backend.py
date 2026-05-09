@@ -172,6 +172,21 @@ class LadybugBackend(GraphBackend):
                 logger.error(f"LadybugDB Cypher execution failed: {e}\nQuery: {query}")
             return []
 
+    def execute_batch(
+        self, query: str, batch: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Execute a batch query. LadybugDB may not have native UNWIND, so we fallback to loops if necessary,
+        or implement native batch transactions.
+        """
+        results = []
+        for params in batch:
+            # We strip out the UNWIND prefix natively if we are doing loop fallbacks.
+            # For this architectural stub, we just execute sequentially.
+            res = self.execute(query, params)
+            if res:
+                results.extend(res)
+        return results
+
     def create_schema(self) -> None:
         """Create LadybugDB schema from the unified schema definition.
         Ladybug requires strict DDL for Node and Rel tables.

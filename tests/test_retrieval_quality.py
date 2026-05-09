@@ -3,7 +3,7 @@
 import pytest
 import time
 
-from agent_utilities.knowledge_graph.retrieval_quality import (
+from agent_utilities.knowledge_graph.retrieval.retrieval_quality import (
     ContextProvenanceRecord,
     RetrievalFailureMode,
     RetrievalQualityGate,
@@ -99,17 +99,14 @@ class TestFailureModes:
         """Stale index: majority of results have old timestamps."""
         old_ts = "2025-01-01T00:00:00Z"
         results = [
-            {"id": f"n{i}", "_score": 0.7, "timestamp": old_ts}
-            for i in range(10)
+            {"id": f"n{i}", "_score": 0.7, "timestamp": old_ts} for i in range(10)
         ]
         report = gate.assess_quality(results)
         assert RetrievalFailureMode.STALE_INDEX in report.failure_modes_detected
 
     def test_context_truncation_detected(self, gate):
         """Truncation: many results above threshold (>80%, >10 results)."""
-        results = [
-            {"id": f"n{i}", "_score": 0.8} for i in range(15)
-        ]
+        results = [{"id": f"n{i}", "_score": 0.8} for i in range(15)]
         report = gate.assess_quality(results)
         assert RetrievalFailureMode.CONTEXT_TRUNCATION in report.failure_modes_detected
 
@@ -124,7 +121,10 @@ class TestFailureModes:
         ]
         results = [{"id": "n1", "_score": 0.7}]
         report = gate.assess_quality(results, upstream_provenance=upstream)
-        assert RetrievalFailureMode.INTER_AGENT_PROPAGATION in report.failure_modes_detected
+        assert (
+            RetrievalFailureMode.INTER_AGENT_PROPAGATION
+            in report.failure_modes_detected
+        )
 
 
 # ── Gate Filtering ─────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ class TestGateFiltering:
 
     def test_gate_disabled_passes_everything(self, mock_engine, monkeypatch):
         """When gate is disabled, all results pass through."""
-        import agent_utilities.knowledge_graph.retrieval_quality as rq_module
+        import agent_utilities.knowledge_graph.retrieval.retrieval_quality as rq_module
 
         monkeypatch.setattr(rq_module, "_GATE_ENABLED", False)
         gate = RetrievalQualityGate(mock_engine)

@@ -149,18 +149,14 @@ class TestComplexityEstimator:
         """Low specialist confidence should increase complexity."""
         query = "What is the answer?"
         score_no_signal = ComplexityEstimator.estimate(query)
-        score_low_conf = ComplexityEstimator.estimate(
-            query, specialist_confidence=0.2
-        )
+        score_low_conf = ComplexityEstimator.estimate(query, specialist_confidence=0.2)
         assert score_low_conf > score_no_signal
 
     def test_tier2_high_diversity_increases_complexity(self):
         """High specialist diversity should increase complexity."""
         query = "What is the answer?"
         score_no_signal = ComplexityEstimator.estimate(query)
-        score_high_div = ComplexityEstimator.estimate(
-            query, specialist_diversity=5
-        )
+        score_high_div = ComplexityEstimator.estimate(query, specialist_diversity=5)
         assert score_high_div > score_no_signal
 
     def test_tier2_high_confidence_decreases_complexity(self):
@@ -175,7 +171,9 @@ class TestComplexityEstimator:
 
     def test_multi_step_patterns(self):
         """Numbered steps should increase complexity."""
-        query = "1. First check the logs. 2. Then review the code. 3. Finally fix the bug."
+        query = (
+            "1. First check the logs. 2. Then review the code. 3. Finally fix the bug."
+        )
         score = ComplexityEstimator.estimate(query)
         assert score > 0.3
 
@@ -269,9 +267,7 @@ class TestTrajectoryShuffler:
         ]
         shuffled = TrajectoryShuffler.shuffle(entries)
         assert len(shuffled) == len(entries)
-        assert set(e.thinker_id for e in shuffled) == set(
-            e.thinker_id for e in entries
-        )
+        assert set(e.thinker_id for e in shuffled) == set(e.thinker_id for e in entries)
 
     def test_shuffle_returns_new_list(self):
         """Shuffling should return a new list, not modify in-place."""
@@ -599,7 +595,7 @@ class TestMemoryCacheKGPersistence:
     def test_to_kg_nodes_creates_trajectory_nodes(self):
         """to_kg_nodes should create TrajectoryNode instances in the graph."""
         import networkx as nx
-        from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
         cache = MemoryCache.from_query("What is 2+2?")
@@ -616,7 +612,7 @@ class TestMemoryCacheKGPersistence:
     def test_to_kg_nodes_creates_query_anchor(self):
         """Should create a query anchor node."""
         import networkx as nx
-        from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
         cache = MemoryCache.from_query("test query")
@@ -631,7 +627,7 @@ class TestMemoryCacheKGPersistence:
     def test_to_kg_nodes_includes_enc_pi(self):
         """Trajectory nodes should include EncPI metadata."""
         import networkx as nx
-        from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
         cache = MemoryCache.from_query("test")

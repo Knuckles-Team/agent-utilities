@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
-from ..knowledge_graph.engine import IntelligenceGraphEngine
+from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 from .versioning import tool_version
 
 logger = logging.getLogger(__name__)

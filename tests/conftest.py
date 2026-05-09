@@ -19,7 +19,7 @@ def pytest_configure(config):
 import pytest
 
 from agent_utilities.knowledge_graph.backends import set_active_backend
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 
 @pytest.fixture(autouse=True)

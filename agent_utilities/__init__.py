@@ -161,7 +161,7 @@ def __getattr__(name):
             else create_graph_agent_server
         )
     elif name == "CodemapGenerator":
-        from .knowledge_graph.codemaps import CodemapGenerator
+        from .knowledge_graph.core.codemaps import CodemapGenerator
 
         return CodemapGenerator
     elif name == "parse_codemap_mentions":
@@ -308,7 +308,7 @@ def __getattr__(name):
 
             return locals()[name]
         else:
-            from .knowledge_graph.model_display import ModelDisplayOptimizer
+            from .knowledge_graph.core.model_display import ModelDisplayOptimizer
             from .models.imodel import DisplayComplexityBudget
 
             return (
@@ -318,7 +318,7 @@ def __getattr__(name):
             )
     # Ecosystem Topology Map (CONCEPT:ECO-4.7)
     elif name in ["EcosystemTopologyBuilder", "PackageCategory", "PackageInfo"]:
-        from .knowledge_graph.ecosystem_topology import (
+        from .knowledge_graph.core.ecosystem_topology import (
             EcosystemTopologyBuilder,
             PackageCategory,
             PackageInfo,
@@ -327,7 +327,7 @@ def __getattr__(name):
         return locals()[name]
     # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
     elif name in ["SynergyEngine", "ConceptBridge", "PillarCoupling", "SynergyInsight"]:
-        from .knowledge_graph.synergy_engine import (
+        from .knowledge_graph.core.synergy_engine import (
             ConceptBridge,
             PillarCoupling,
             SynergyEngine,
@@ -337,7 +337,7 @@ def __getattr__(name):
         return locals()[name]
     # Chat Search Facade (CONCEPT:KG-2.13)
     elif name in ["ChatSearchResult", "search_sessions"]:
-        from .knowledge_graph.chat_search import (
+        from .knowledge_graph.retrieval.chat_search import (
             ChatSearchResult,
             search_sessions,
         )
@@ -345,7 +345,7 @@ def __getattr__(name):
         return locals()[name]
     # Agents MD Facade (CONCEPT:KG-2.14)
     elif name in ["load_agents_md", "inject_project_context", "find_agents_md"]:
-        from .knowledge_graph.agents_md import (
+        from .knowledge_graph.core.agents_md import (
             find_agents_md,
             inject_project_context,
             load_agents_md,
@@ -361,6 +361,23 @@ def __getattr__(name):
         )
 
         return locals()[name]
+    # Agent-Runtimes Capabilities (CONCEPT:ECO-4.11, ECO-4.12, AHE-3.23)
+    elif name == "DurableExecutionManager":
+        from .orchestration.durable_execution import DurableExecutionManager
+
+        return DurableExecutionManager
+    elif name == "JupyterKernelAdapter":
+        from .tools.jupyter_adapter import JupyterKernelAdapter
+
+        return JupyterKernelAdapter
+    elif name == "SandboxExecutor":
+        from .tools.sandbox_executor import SandboxExecutor
+
+        return SandboxExecutor
+    elif name == "AgentSpecGenerator":
+        from .core.agentspec_catalog import AgentSpecGenerator
+
+        return AgentSpecGenerator
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -498,4 +515,9 @@ __all__ = [
     "EngineeringPatternOrchestrator",
     "PatternType",
     "PatternResult",
+    # Agent-Runtimes Capabilities
+    "DurableExecutionManager",
+    "JupyterKernelAdapter",
+    "SandboxExecutor",
+    "AgentSpecGenerator",
 ]

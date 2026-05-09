@@ -1,7 +1,8 @@
 import pytest
 import numpy as np
 
-from agent_utilities.knowledge_graph.hypergraph import PositionalInteractionEncoder
+from agent_utilities.knowledge_graph.core.hypergraph import PositionalInteractionEncoder
+
 
 def test_positional_interaction_encoder_initialization():
     """Test that EncPI initializes properly with seeded weights."""
@@ -12,6 +13,7 @@ def test_positional_interaction_encoder_initialization():
     # Check deterministic behavior
     enc2 = PositionalInteractionEncoder(pos_dim=16, hidden_dim=32, out_dim=16, seed=42)
     np.testing.assert_array_equal(enc.W1, enc2.W1)
+
 
 def test_sinusoidal_encoding():
     """Test sinusoidal positional encoding generation."""
@@ -24,6 +26,7 @@ def test_sinusoidal_encoding():
     # Position 1, index 1 -> cos(1 / 10000^0) = cos(1)
     assert np.isclose(pos_encoding[1], np.cos(1))
 
+
 def test_encode_interaction_shape_and_type():
     """Test that encode_interaction returns correct format and shape."""
     enc = PositionalInteractionEncoder(pos_dim=16, hidden_dim=32, out_dim=16)
@@ -32,6 +35,7 @@ def test_encode_interaction_shape_and_type():
     assert isinstance(result, list)
     assert len(result) == 16
     assert all(isinstance(x, float) for x in result)
+
 
 def test_encode_interaction_determinism():
     """Test that encoding the same interaction yields the same vector, but different interactions differ."""

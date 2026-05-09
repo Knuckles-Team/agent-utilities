@@ -10,12 +10,12 @@ from typing import cast
 import networkx as nx
 import pytest
 
-from agent_utilities.knowledge_graph.consolidation import (
+from agent_utilities.knowledge_graph.memory.consolidation import (
     ConsolidationEngine,
     DecisionToPrincipleRule,
     EpisodeToPreferenceRule,
 )
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 # ---------------------------------------------------------------------------
 # Helpers

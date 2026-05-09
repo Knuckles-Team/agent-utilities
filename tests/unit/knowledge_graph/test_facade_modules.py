@@ -26,7 +26,7 @@ class TestChatSearchFacade:
     """Tests for agent_utilities.knowledge_graph.chat_search."""
 
     def test_imports_from_facade(self) -> None:
-        from agent_utilities.knowledge_graph.chat_search import (
+        from agent_utilities.knowledge_graph.retrieval.chat_search import (
             ChatRecallMessage,
             ChatRecallResult,
             ChatRecallResults,
@@ -43,7 +43,9 @@ class TestChatSearchFacade:
         assert callable(search_sessions)
 
     def test_chat_search_result_dataclass(self) -> None:
-        from agent_utilities.knowledge_graph.chat_search import ChatSearchResult
+        from agent_utilities.knowledge_graph.retrieval.chat_search import (
+            ChatSearchResult,
+        )
 
         result = ChatSearchResult(
             session_id="test-123",
@@ -59,28 +61,34 @@ class TestChatSearchFacade:
 
     def test_search_sessions_no_engine(self) -> None:
         """search_sessions should gracefully return empty without a KG engine."""
-        from agent_utilities.knowledge_graph.chat_search import search_sessions
+        from agent_utilities.knowledge_graph.retrieval.chat_search import (
+            search_sessions,
+        )
 
         results = search_sessions("test query")
         assert isinstance(results, list)
         assert len(results) == 0
 
     def test_search_sessions_empty_query(self) -> None:
-        from agent_utilities.knowledge_graph.chat_search import search_sessions
+        from agent_utilities.knowledge_graph.retrieval.chat_search import (
+            search_sessions,
+        )
 
         results = search_sessions("")
         assert isinstance(results, list)
         assert len(results) == 0
 
     def test_search_chat_history_no_engine(self) -> None:
-        from agent_utilities.knowledge_graph.chat_search import search_chat_history
+        from agent_utilities.knowledge_graph.retrieval.chat_search import (
+            search_chat_history,
+        )
 
         results = search_chat_history("kubernetes")
         assert results.query == "kubernetes"
         assert results.total_matches == 0
 
     def test_all_exports(self) -> None:
-        import agent_utilities.knowledge_graph.chat_search as mod
+        import agent_utilities.knowledge_graph.retrieval.chat_search as mod
 
         assert hasattr(mod, "__all__")
         assert "ChatSearchResult" in mod.__all__
@@ -98,7 +106,7 @@ class TestAgentsMdFacade:
     """Tests for agent_utilities.knowledge_graph.agents_md."""
 
     def test_imports_from_facade(self) -> None:
-        from agent_utilities.knowledge_graph.agents_md import (
+        from agent_utilities.knowledge_graph.core.agents_md import (
             extract_project_metadata,
             find_agents_md,
             inject_project_context,
@@ -111,7 +119,7 @@ class TestAgentsMdFacade:
         assert callable(extract_project_metadata)
 
     def test_load_agents_md_found(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import load_agents_md
+        from agent_utilities.knowledge_graph.core.agents_md import load_agents_md
 
         (tmp_path / "AGENTS.md").write_text("# My Project\n\nRules here")
         content = load_agents_md(tmp_path)
@@ -120,13 +128,13 @@ class TestAgentsMdFacade:
         assert "Rules here" in content
 
     def test_load_agents_md_not_found(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import load_agents_md
+        from agent_utilities.knowledge_graph.core.agents_md import load_agents_md
 
         content = load_agents_md(tmp_path)
         assert content is None
 
     def test_load_agents_md_multiple_files(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import load_agents_md
+        from agent_utilities.knowledge_graph.core.agents_md import load_agents_md
 
         (tmp_path / "AGENTS.md").write_text("# Main rules")
         (tmp_path / "AGENTS.local.md").write_text("# Local overrides")
@@ -137,7 +145,7 @@ class TestAgentsMdFacade:
         assert "Local overrides" in content
 
     def test_load_agents_md_dot_agents_dir(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import load_agents_md
+        from agent_utilities.knowledge_graph.core.agents_md import load_agents_md
 
         agents_dir = tmp_path / ".agents"
         agents_dir.mkdir()
@@ -148,13 +156,13 @@ class TestAgentsMdFacade:
         assert "Nested rules" in content
 
     def test_load_agents_md_invalid_path(self) -> None:
-        from agent_utilities.knowledge_graph.agents_md import load_agents_md
+        from agent_utilities.knowledge_graph.core.agents_md import load_agents_md
 
         content = load_agents_md("/nonexistent/path/xyz")
         assert content is None
 
     def test_find_agents_md_walks_up(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import find_agents_md
+        from agent_utilities.knowledge_graph.core.agents_md import find_agents_md
 
         (tmp_path / "AGENTS.md").write_text("# Root rules")
         nested = tmp_path / "src" / "module"
@@ -166,7 +174,7 @@ class TestAgentsMdFacade:
         assert found.parent == tmp_path
 
     def test_find_agents_md_not_found(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import find_agents_md
+        from agent_utilities.knowledge_graph.core.agents_md import find_agents_md
 
         nested = tmp_path / "empty" / "dir"
         nested.mkdir(parents=True)
@@ -176,7 +184,9 @@ class TestAgentsMdFacade:
         assert found is None or found.is_file()
 
     def test_inject_project_context(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import inject_project_context
+        from agent_utilities.knowledge_graph.core.agents_md import (
+            inject_project_context,
+        )
 
         (tmp_path / "AGENTS.md").write_text("# Rules\n- Use pytest")
         prompt = "You are a helpful assistant."
@@ -186,7 +196,9 @@ class TestAgentsMdFacade:
         assert "Use pytest" in enriched
 
     def test_inject_project_context_with_memory(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import inject_project_context
+        from agent_utilities.knowledge_graph.core.agents_md import (
+            inject_project_context,
+        )
 
         (tmp_path / "AGENTS.md").write_text("# Rules")
         (tmp_path / "MEMORY.md").write_text("# Learned stuff")
@@ -194,13 +206,17 @@ class TestAgentsMdFacade:
         assert "MEMORY.md (Learned Context)" in enriched
 
     def test_inject_project_context_no_agents(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import inject_project_context
+        from agent_utilities.knowledge_graph.core.agents_md import (
+            inject_project_context,
+        )
 
         enriched = inject_project_context("Base prompt", tmp_path)
         assert enriched == "Base prompt"
 
     def test_extract_project_metadata(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import extract_project_metadata
+        from agent_utilities.knowledge_graph.core.agents_md import (
+            extract_project_metadata,
+        )
 
         (tmp_path / "AGENTS.md").write_text(
             textwrap.dedent("""\
@@ -224,7 +240,9 @@ class TestAgentsMdFacade:
         assert "make build" in meta["build_commands"]
 
     def test_extract_project_metadata_empty(self, tmp_path: Path) -> None:
-        from agent_utilities.knowledge_graph.agents_md import extract_project_metadata
+        from agent_utilities.knowledge_graph.core.agents_md import (
+            extract_project_metadata,
+        )
 
         meta = extract_project_metadata(tmp_path)
         assert meta == {}

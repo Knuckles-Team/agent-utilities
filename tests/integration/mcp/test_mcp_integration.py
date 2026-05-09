@@ -2,7 +2,7 @@ import networkx as nx
 import pytest
 
 from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 
 @pytest.fixture
@@ -13,8 +13,13 @@ def graph_engine():
     yield engine
     backend.close()
 
+from unittest.mock import patch, MagicMock
 
-def test_mcp_server_ingestion_and_discovery(graph_engine):
+@patch("agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model")
+def test_mcp_server_ingestion_and_discovery(mock_create_model, graph_engine):
+    mock_model = MagicMock()
+    mock_model.get_text_embedding.return_value = [0.1] * 768
+    mock_create_model.return_value = mock_model
     """Test full cycle of MCP server ingestion, discovery, and spawning."""
     tools = [
         {

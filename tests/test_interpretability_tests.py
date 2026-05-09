@@ -112,9 +112,7 @@ class TestTestCaseGeneration:
         )
         assert len(tests) >= 3  # At least most-important, ranking, signs
         # Most important feature test
-        most_important = [
-            t for t in tests if "largest absolute effect" in t.query
-        ]
+        most_important = [t for t in tests if "largest absolute effect" in t.query]
         assert len(most_important) == 1
         assert most_important[0].ground_truth == "temp"
 
@@ -137,7 +135,9 @@ class TestTestCaseGeneration:
             outputs=[5.0, 11.0],
         )
         assert len(tests) == 2
-        assert all(t.category == InterpretabilityTestCategory.POINT_SIMULATION for t in tests)
+        assert all(
+            t.category == InterpretabilityTestCategory.POINT_SIMULATION for t in tests
+        )
         assert "5.0000" in tests[0].ground_truth
 
     def test_sensitivity_tests(self):
@@ -156,11 +156,13 @@ class TestTestCaseGeneration:
         suite = InterpretabilityTestSuite()
         tests = suite.generate_counterfactual_tests(
             feature_names=["x"],
-            counterfactuals=[{
-                "target_output": 10.0,
-                "feature": "x",
-                "required_value": 4.5,
-            }],
+            counterfactuals=[
+                {
+                    "target_output": 10.0,
+                    "feature": "x",
+                    "required_value": 4.5,
+                }
+            ],
         )
         assert len(tests) == 1
         assert tests[0].category == InterpretabilityTestCategory.COUNTERFACTUAL
@@ -251,15 +253,18 @@ class TestTestSuiteExecution:
         tests = [
             InterpretabilityTestCase(
                 category=InterpretabilityTestCategory.POINT_SIMULATION,
-                query="Q1", ground_truth="1.0",
+                query="Q1",
+                ground_truth="1.0",
             ),
             InterpretabilityTestCase(
                 category=InterpretabilityTestCategory.POINT_SIMULATION,
-                query="Q2", ground_truth="2.0",
+                query="Q2",
+                ground_truth="2.0",
             ),
             InterpretabilityTestCase(
                 category=InterpretabilityTestCategory.FEATURE_ATTRIBUTION,
-                query="Q3", ground_truth="temp",
+                query="Q3",
+                ground_truth="temp",
             ),
         ]
         responses = ["1.0", "999.0", "temp"]
@@ -269,7 +274,9 @@ class TestTestSuiteExecution:
         assert result["overall_score"] == pytest.approx(2.0 / 3.0)
         assert "point_simulation" in result["per_category"]
         assert result["per_category"]["point_simulation"]["score"] == pytest.approx(0.5)
-        assert result["per_category"]["feature_attribution"]["score"] == pytest.approx(1.0)
+        assert result["per_category"]["feature_attribution"]["score"] == pytest.approx(
+            1.0
+        )
 
     def test_compute_score_empty(self):
         """Score computation with no results should return 0."""

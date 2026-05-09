@@ -20,7 +20,7 @@ _DEFAULT_ONTOLOGY = str(Path(__file__).parent.parent.parent / "ontology.ttl")
 
 try:
     from ...backends.owl import create_owl_backend
-    from ...owl_bridge import OWLBridge
+    from ...core.owl_bridge import OWLBridge
 
     OWL_SUPPORT = True
 except ImportError:

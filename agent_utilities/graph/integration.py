@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any
 
-from ..knowledge_graph.engine import IntelligenceGraphEngine
+from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 from ..models.knowledge_graph import OutcomeEvaluationNode, RegistryNodeType
 from .hsm import register_on_exit_hook
 

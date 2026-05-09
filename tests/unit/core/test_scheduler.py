@@ -50,7 +50,7 @@ def test_get_cron_tasks_no_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = scheduler.get_cron_tasks()
@@ -65,7 +65,7 @@ def test_get_cron_tasks_engine_no_backend(monkeypatch: pytest.MonkeyPatch) -> No
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = scheduler.get_cron_tasks()
@@ -98,7 +98,7 @@ def test_get_cron_tasks_success(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = scheduler.get_cron_tasks()
@@ -117,7 +117,7 @@ def test_get_cron_tasks_execute_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = scheduler.get_cron_tasks()
@@ -136,7 +136,7 @@ def test_get_cron_logs_no_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = scheduler.get_cron_logs()
@@ -151,7 +151,7 @@ def test_get_cron_logs_engine_no_backend(monkeypatch: pytest.MonkeyPatch) -> Non
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = scheduler.get_cron_logs()
@@ -183,7 +183,7 @@ def test_get_cron_logs_success(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = scheduler.get_cron_logs()
@@ -201,7 +201,7 @@ def test_get_cron_logs_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     result = scheduler.get_cron_logs()
@@ -219,7 +219,7 @@ def test_update_cron_task_no_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     # Should not raise
@@ -234,7 +234,7 @@ def test_update_cron_task_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.update_cron_task_in_cron_md("t1", "Task", 5, "do stuff")
@@ -248,7 +248,7 @@ def test_update_cron_task_success(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.update_cron_task_in_cron_md("t1", "Task", 5, "do stuff")
@@ -274,7 +274,7 @@ def test_schedule_task_invalid_interval(monkeypatch: pytest.MonkeyPatch) -> None
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     msg = scheduler.schedule_task("t1", "Task", 0, "do stuff")
@@ -288,7 +288,7 @@ def test_schedule_task_new_task(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     msg = scheduler.schedule_task("t1", "Task", 10, "do stuff")
@@ -305,7 +305,7 @@ def test_schedule_task_existing_task_updates(monkeypatch: pytest.MonkeyPatch) ->
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.tasks.append(
@@ -335,7 +335,7 @@ def test_delete_scheduled_task_no_engine(monkeypatch: pytest.MonkeyPatch) -> Non
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.tasks.append(
@@ -358,7 +358,7 @@ def test_delete_scheduled_task_with_engine(monkeypatch: pytest.MonkeyPatch) -> N
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.tasks.append(
@@ -379,7 +379,7 @@ def test_delete_scheduled_task_nonexistent_id(monkeypatch: pytest.MonkeyPatch) -
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     msg = scheduler.delete_scheduled_task("does_not_exist")
@@ -416,7 +416,7 @@ def test_append_cron_log_no_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.append_cron_log("t1", "Task", "output")
@@ -430,7 +430,7 @@ def test_append_cron_log_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.append_cron_log("t1", "Task", "output")
@@ -444,7 +444,7 @@ def test_append_cron_log_success(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.append_cron_log("t1", "Task", "output", status="success", chat_id="c1")
@@ -466,7 +466,7 @@ def test_append_cron_log_error_status(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.append_cron_log("t1", "Task", "bad", status="error")
@@ -485,7 +485,7 @@ def test_cleanup_cron_log_no_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.cleanup_cron_log()
@@ -499,7 +499,7 @@ def test_cleanup_cron_log_no_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.cleanup_cron_log()
@@ -513,7 +513,7 @@ def test_cleanup_cron_log_success(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.cleanup_cron_log(max_entries=50)
@@ -534,7 +534,7 @@ def test_cleanup_cron_log_default_max_entries(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     scheduler.cleanup_cron_log()

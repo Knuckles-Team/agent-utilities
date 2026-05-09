@@ -22,7 +22,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from ..knowledge_graph.ogm import KGMapper
+from ..knowledge_graph.core.ogm import KGMapper
 from ..models.knowledge_graph import (
     RegistryEdgeType,
     RegistryNode,
@@ -30,7 +30,7 @@ from ..models.knowledge_graph import (
 )
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 

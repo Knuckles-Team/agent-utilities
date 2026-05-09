@@ -1,7 +1,7 @@
 import pytest
 import networkx as nx
 
-from agent_utilities.knowledge_graph.analogy_engine import TopologicalAnalogyEngine
+from agent_utilities.knowledge_graph.core.analogy_engine import TopologicalAnalogyEngine
 from agent_utilities.security.topological_scanner import TopologicalScanner
 from agent_utilities.models.knowledge_graph import RegistryNode, RegistryNodeType
 
@@ -14,7 +14,7 @@ def analogy_engine():
         id="exec_node",
         name="Execution Node",
         type=RegistryNodeType.TOOL_METADATA,
-        embedding=[1.0, 0.0, 0.0]
+        embedding=[1.0, 0.0, 0.0],
     )
     G.add_node("exec_node", data=node_data)
 
@@ -27,14 +27,14 @@ def known_risk_topologies():
     risk_G.graph["metadata"] = {
         "vulnerability_type": "untrusted_data_flow",
         "severity": "high",
-        "mitigation_strategy": "Sanitize inputs"
+        "mitigation_strategy": "Sanitize inputs",
     }
 
     risk_node = RegistryNode(
         id="risk_node",
         name="Risk Node",
         type=RegistryNodeType.TOOL_METADATA,
-        embedding=[1.0, 0.0, 0.0]
+        embedding=[1.0, 0.0, 0.0],
     )
     risk_G.add_node("risk_node", data=risk_node)
 

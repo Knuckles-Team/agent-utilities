@@ -50,6 +50,9 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 
 ## Key Features
 
+- **Multi-Domain Architectural Pattern**: Transitioned `agent-utilities` to a Multi-Domain Expert System supporting modular expansion into `finance`, `medical`, `law`, and `science`. Domain integrations leverage Vectorized Topological Memory and the core Knowledge Graph, with heavy domain-specific dependencies optionally loaded via tags (e.g., `agent-utilities[finance]`).
+- **Quantitative Finance Framework**: Production-grade, KG-native financial framework designed for global asset classes (Crypto, Equities, Forex, Derivatives). Includes Stationary Feature Engineering (ADF tests), Topological TradingLSTM (sequence processing + networkx regimes), Walk-Forward Validation, Kelly Criterion sizing, and Kolmogorov-Smirnov shift detection.
+- **FIBO & Quant Ontology Alignment**: Extended `ontology.ttl` with `DomainEntity`, `ScientificEntity`, `LegalEntity`, and specialized finance classes (`FinancialInstrument`, `TradingStrategy`, `StationaryFeature`, `LSTMNetwork`, `MarketRegime`, `ExecutionSignal`, `KellySizing`).
 - **Native Multi-Modal (Vision) Support (CONCEPT:ORCH-1.0)**: Direct processing of image context within the graph orchestrator. Decodes base64 image data into `pydantic_ai.BinaryContent` for high-fidelity multi-modal reasoning.
 - **Dynamic MCP Tool Distribution (CONCEPT:ECO-4.1)**: Load an `mcp_config.json` and the system automatically connects to each MCP server, extracts and tags every tool, partitions them into focused specialist agents (~10-20 tools each), and registers them as graph nodes at runtime. This keeps context windows light — "GitLab Projects" specialist only sees 10 project tools.
 - **Registry Hot Cache (CONCEPT:ORCH-1.2)**: Session-scoped O(1) specialist lookups with event-driven invalidation. Filters 50+ specialists down to the top-7 relevant per query, reducing prompt bloat by ~7x. Invalidates on MCP reload, pipeline completion, Self-Model updates, and TeamConfig promotions.
@@ -117,10 +120,16 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Research Intelligence Pipeline (CONCEPT:KG-2.11)**: Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion (full KG + SQLite for relevant papers ≥3.0, abstract-only for marginal ≥1.0) → OWL Enrichment → Digest Generation. Supports arXiv papers via ScholarX, local files (PDF/HTML/Markdown), and web URLs. KG-backed watchlists via PolicyNodes.
 - **KG Source Resolver (CONCEPT:KG-2.12)**: Bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment. Enables `--kg-query` flag in `discover_projects.py` for KG-backed source resolution. Optional — gracefully returns empty when no KG is available.
 - **Cross-Session Chat Recall (CONCEPT:KG-2.13)**: Keyword-based search across stored chat sessions using the KG Cypher backend. Adapted from Goose's `ChatHistorySearch`. Provides `search_chat_history()` with relevance scoring and date filtering.
-- **Topological Analogy Engine (CONCEPT:KG-2.15)**: Leverages `networkx` and vectorized embeddings (`EncPI`) to find analogous subgraphs across different domains, enabling structural pattern matching and cross-domain innovation extraction.
-- **OWL-Driven Semantic Subsumption (CONCEPT:KG-2.16)**: Zero-shot ontology alignment. Automatically computes topological embedding cosine similarity against OWL class prototypes to inject new concepts directly into the correct class hierarchy.
+- **Topological Analogy Engine (CONCEPT:KG-2.15)**: Leverages exact subgraph isomorphism (networkx VF2) and vectorized embeddings (`EncPI`) to find analogous subgraphs across different domains, enabling structural pattern matching and cross-domain innovation extraction.
+- **OWL-Driven Semantic Subsumption (CONCEPT:KG-2.16)**: Hierarchy-aware zero-shot ontology alignment. Automatically computes topological embedding cosine similarity against OWL class prototypes to infer and inject new concepts directly into the correct class lineage.
 - **JSON-as-Code Prompting & Governance (CONCEPT:OS-5.10)**: Standardized Pydantic models for structured prompting. Moves away from free-form Markdown to robust, versioned JSON blueprints for high-precision task specification. Engineering rule books have been migrated to the `agent_utilities/policies/` directory with versioned YAML frontmatter, and prompt-based governance uses an explicit `rules` key.
 - **Topological Vulnerability Scanner (CONCEPT:OS-5.11)**: Enhances security by moving beyond text-based pattern-matching. Scans execution graphs for structural vulnerabilities (e.g., untrusted data flows, circular dependency deadlocks) by matching them against known risk subgraphs in the KG.
+- **Formal Relations Engine (CONCEPT:KG-2.47)**: Mathematical relation properties (Reflexive, Symmetric, Transitive closures) and Equivalence Classes from MCS Ch 4 for zero-shot entity resolution.
+- **State Machine Invariant Engine (CONCEPT:KG-2.48)**: Deterministic Finite Automata (DFA) abstractions and provable state invariants from MCS Ch 6 to prevent infinite loops.
+- **Markov Transition Forecasting (CONCEPT:KG-2.49)**: Markov Chain transition matrices over agent interaction traces (Vectorized Topologies) from MCS Ch 21 to predict statistical failure nodes via stationary distribution.
+- **Graph-Native Durable Execution (CONCEPT:ECO-4.11)**: Integrates DBOS-style fault-tolerant resumability natively into the LadybugDB Knowledge Graph for multi-leg algorithmic trading.
+- **Secure Jupyter Sandbox (CONCEPT:ECO-4.12)**: Isolated execution environments for quantitative analysis with State Machine invariant checks and AST-based Vectorized Topology safety boundaries.
+- **OWL-Driven AgentSpecs Catalog (CONCEPT:AHE-3.23)**: Dynamic generation of JSON blueprints from Knowledge Graph configurations, ensuring strict semantic typing via OWL Ontologies.
 - **Project-Aware Memory (AGENTS.md) (CONCEPT:KG-2.14)**: Native support for Claude-style project rules and memory. Backend automatically loads and injects `AGENTS.md` (Project Rules) into the system prompt for high-fidelity codebase awareness.
 - **Agent-Interpretable Model Evolver (CONCEPT:AHE-3.15)**: Autoresearch loop that evolves scikit-learn-compatible model classes optimized for both predictive accuracy and LLM readability via `__str__()`. Manages Pareto frontier tracking, reward decomposition (AHE-3.10 integration), and KG-native evolutionary lineage via `EVOLVED_MODEL` edges. Actual model fitting delegated to `data-science-mcp` via MCP tool calls. Based on Microsoft Research's Agentic-iModels (arXiv:2605.03808).
 - **LLM-Graded Interpretability Tests (CONCEPT:AHE-3.16)**: 6-category, 200-test protocol measuring whether an LLM can simulate model behavior (predictions, feature effects, counterfactuals) from `__str__()` alone. Includes reward hacking detection, numerical tolerance grading, and EvalRunner (AHE-3.12) integration. Based on arXiv:2605.03808.
@@ -132,6 +141,15 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Versioned KG Mutations (CONCEPT:KG-2.22)**: Git-like transactional mutation semantics: KGTransaction, KGCommit, KGVersionEngine (commit/rollback/diff), KGDiff. Derived from Evolving Idea Graphs (arXiv:2605.04922v1).
 - **Dynamic Skill Evolution (CONCEPT:ECO-4.8)**: On-the-fly skill creation and consolidation: SkillNeologismDetector, SkillFactory, SkillMerger. Derived from Skill Neologisms (arXiv:2605.04970v1).
 - **Jailbreak Robustness Hardening (CONCEPT:OS-5.12)**: 4-category SoK jailbreak taxonomy (template/optimization/LLM/manual) with 12 new threat patterns. Derived from SoK: Robustness against Jailbreak (arXiv:2605.05058v1).
+- **KG-Native Agentic Task Detection (CONCEPT:AHE-3.24)**: Evaluates topological complexity via KG subgraphs to route dense API toolchains to complex models automatically.
+- **Topological Reasoning Detection (CONCEPT:AHE-3.25)**: Maps user queries to `MathematicalFoundationNode` or quantitative financial concepts to trigger reasoning models natively.
+- **Ontological Fallback Chains (CONCEPT:ORCH-1.14)**: Uses the KG to find fallback models dynamically (via semantic equivalents) rather than relying on static lists during rate limits or server errors.
+- **Vectorized Context-Window Filtering (CONCEPT:KG-2.50)**: Semantically prunes non-relevant subgraph context before swapping models on token overflow, ensuring only contextually distant nodes are dropped.
+- **Topological Session Persistence (CONCEPT:OS-5.19)**: Pins the model for multi-turn conversations directly to the SessionNode to avoid jarring mid-thread model bouncing.
+- **KG-Driven Pydantic Graph Engine (CONCEPT:ORCH-1.20)**: Shifts from synthesizing graph configurations to dynamically polling the Knowledge Graph for state transitions at every step.
+- **Ontological State Checkpointing (CONCEPT:KG-2.53)**: Persists Pydantic Graph active states as ExecutionStateNodes, enabling zero-latency resume and background agent handoffs.
+- **Adaptive Tool Provisioning (CONCEPT:ECO-4.10)**: Real-time provisioning of MCP tools, APIs, and native functions into an execution context strictly driven by KG capabilities.
+- **Graph-Native Team Evolution (CONCEPT:AHE-3.18)**: Analyzes historical execution traces to autonomously propose architectural topological mutations and capability expansions.
 
 ## 🧠 Intelligence Graph
 
@@ -233,7 +251,7 @@ graph LR
     end
 ```
 
-→ **Deep-dive**: [docs/first-principles.md](docs/first-principles.md) · [docs/registry-cache.md](docs/registry-cache.md) · [docs/process-lifecycle.md](docs/process-lifecycle.md)
+→ **Deep-dive**: [docs/first-principles.md](docs/pillars/1_graph_orchestration/first-principles.md) · [docs/registry-cache.md](docs/pillars/1_graph_orchestration/registry-cache.md) · [docs/process-lifecycle.md](docs/pillars/5_agent_os_infrastructure/process-lifecycle.md)
 
 ## 🗺 Concept Map
 
@@ -244,10 +262,10 @@ The full architecture has been ontologically compressed from 60+ flat concepts i
 | Pillar | Sub-Concepts | Focus |
 |:------|:---------|:------|
 | **ORCH-1.0** Graph Orchestration | ORCH-1.1 to ORCH-1.8 | Hierarchical Task Network (HTN), Wide-Search, LATS, routing, execution budgets, swarm preset engine, SDD pipeline, learned agent routing |
-| **KG-2.0** Knowledge Graph | KG-2.1 to KG-2.22 | Active OGM, tiered memory, epistemology, structural fingerprinting, topological partitioning, trading pipeline, risk scoring, retrieval quality, research pipeline, analogy engine, semantic subsumption, model display, topology visualization, ecosystem topology, cross-pillar synergy, elastic context operators, multi-timescale memory, versioned KG mutations |
-| **AHE-3.0** Agentic Harness | AHE-3.1 to AHE-3.16 | Prompt evolution, LLM-as-judge evaluation, trace distillation, synergy tracking, heavy thinking, backtest/evaluation harness, horizon curriculum, decomposed rewards, engineering patterns, iModel evolver, interpretability tests |
-| **ECO-4.0** Ecosystem | ECO-4.1 to ECO-4.8 | Unified MCP tool interface, A2A network consensus, universal skills, market data connector protocol, provider prompt adaptation, function registry, ecosystem topology map, dynamic skill evolution |
-| **OS-5.0** Agent OS Kernel | OS-5.1 to OS-5.12 | Workspace management, scheduling, JWT auth, resource optimization, session concurrency, prompt injection scanning, repetition guard, token tracking, audit logging, guardrails, telemetry, policy governance, topological vulnerability scanning, jailbreak robustness |
+| **KG-2.0** Knowledge Graph | KG-2.1 to KG-2.40 | Active OGM, tiered memory, epistemology, structural fingerprinting, topological partitioning, trading pipeline, risk scoring, retrieval quality, research pipeline, analogy engine, semantic subsumption, model display, topology visualization, ecosystem topology, cross-pillar synergy, elastic context operators, multi-timescale memory, versioned KG mutations, research sub-agent, spectral clustering, blast radius analysis, auto-similarity memory graph, hybrid search index, RAG-KG unification, research orchestration, graph distillation migration |
+| **AHE-3.0** Agentic Harness | AHE-3.1 to AHE-3.23 | Prompt evolution, LLM-as-judge evaluation, trace distillation, synergy tracking, heavy thinking, backtest/evaluation harness, horizon curriculum, decomposed rewards, engineering patterns, iModel evolver, interpretability tests, AgentSpecs catalog |
+| **ECO-4.0** Ecosystem | ECO-4.1 to ECO-4.12 | Unified MCP tool interface, A2A network consensus, universal skills, market data connector protocol, provider prompt adaptation, function registry, ecosystem topology map, dynamic skill evolution, graph-native durable execution, secure jupyter sandbox |
+| **OS-5.0** Agent OS Kernel | OS-5.1 to OS-5.18 | Workspace management, scheduling, JWT auth, resource optimization, session concurrency, prompt injection scanning, repetition guard, token tracking, audit logging, guardrails, telemetry, policy governance, topological vulnerability scanning, jailbreak robustness, enhanced doom-loop detection |
 
 ## Architecture & Orchestration
 
@@ -655,7 +673,7 @@ agent = create_agent(name="MyAgent", skill_types=["universal", "graphs"])
 create_graph_agent_server(provider="openai", model_id="gpt-4o", port=8000)
 ```
 
-> See [docs/creating-an-agent.md](docs/creating-an-agent.md) for the complete walkthrough.
+> See [docs/creating-an-agent.md](docs/pillars/4_ecosystem_and_tooling/creating-an-agent.md) for the complete walkthrough.
 
 ## Multi-Model Config
 
@@ -679,7 +697,7 @@ Define a registry of models mapped to routing tiers (`light`, `medium`, `heavy`,
 export MODELS_CONFIG=/path/to/models.json
 ```
 *The graph orchestrator automatically uses `pick_for_task(complexity="medium")` during execution.*
-> **Full Documentation:** See [docs/models.md](docs/models.md) for advanced schema options, local model fallbacks, and routing logic.
+> **Full Documentation:** See [docs/models.md](docs/pillars/2_epistemic_knowledge_graph/models.md) for advanced schema options, local model fallbacks, and routing logic.
 
 ## Local Secret Storage (Vault & SQLite)
 
@@ -708,7 +726,7 @@ secret-manager set gitlab/token glpat-xxx
 secret-manager list
 ```
 
-> **Full Documentation:** See [docs/secrets-auth.md](docs/secrets-auth.md) for HashiCorp Vault setup, encryption details, and API references.
+> **Full Documentation:** See [docs/secrets-auth.md](docs/pillars/5_agent_os_infrastructure/secrets-auth.md) for HashiCorp Vault setup, encryption details, and API references.
 
 ## Installation
 
@@ -834,7 +852,7 @@ if __name__ == "__main__":
     agent_server()
 ```
 
-> **Full guide**: See [docs/creating-an-agent.md](docs/creating-an-agent.md) for the complete walkthrough including project structure, `main_agent.json`, `mcp_config.json`, `pyproject.toml`, and all CLI flags.
+> **Full guide**: See [docs/creating-an-agent.md](docs/pillars/4_ecosystem_and_tooling/creating-an-agent.md) for the complete walkthrough including project structure, `main_agent.json`, `mcp_config.json`, `pyproject.toml`, and all CLI flags.
 
 ## Building MCP Servers & API Wrappers
 
@@ -868,7 +886,7 @@ async def delete_resource(
 - `ctx_set_state/ctx_get_state` — Namespaced session state
 - `ctx_sample(ctx, prompt)` — Ask the client LLM to generate a response
 
-> **Full guide**: See [docs/building-mcp-servers.md](docs/building-mcp-servers.md) for complete coverage including API wrappers, authentication options, OpenAPI import, and running instructions.
+> **Full guide**: See [docs/building-mcp-servers.md](docs/pillars/4_ecosystem_and_tooling/building-mcp-servers.md) for complete coverage including API wrappers, authentication options, OpenAPI import, and running instructions.
 
 
 
@@ -882,54 +900,54 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 
 | Guide | Description |
 | :--- | :--- |
-| [Overview Map](docs/overview.md) | The Concept Galaxy connecting all 79 concepts (CONCEPT:ORCH-1.0 to CONCEPT:OS-5.12), plus the **Concept Map table** |
-| [Creating an Agent](docs/creating-an-agent.md) | Step-by-step guide to bootstrapping a new Pydantic AI agent |
-| [Building MCP Servers](docs/building-mcp-servers.md) | Guide for creating FastMCP servers, API wrappers, and context helpers |
+| [Overview Map](docs/overview.md) | The Concept Galaxy connecting all 94 concepts (CONCEPT:ORCH-1.0 to CONCEPT:KG-2.46), plus the **Concept Map table** |
+| [Creating an Agent](docs/pillars/4_ecosystem_and_tooling/creating-an-agent.md) | Step-by-step guide to bootstrapping a new Pydantic AI agent |
+| [Building MCP Servers](docs/pillars/4_ecosystem_and_tooling/building-mcp-servers.md) | Guide for creating FastMCP servers, API wrappers, and context helpers |
 
 ### Architecture & Design
 
 | Guide | Description |
 | :--- | :--- |
-| [Architecture](docs/architecture.md) | System architecture, component diagrams, protocol adapters, 3-stage routing, direct graph execution |
-| [AHE Architecture](docs/AHE_ARCHITECTURE.md) | Agentic Harness Engineering — trace distillation, prompt evolution, component observation |
-| [Design Patterns](docs/design-patterns-alignment.md) | Alignment of codebase with established AHE and SDD design patterns |
-| [Hierarchical State Machines](docs/hsm.md) | Orthogonal regions, entry/exit hooks, and static routing |
+| [Architecture](docs/pillars/1_graph_orchestration/architecture.md) | System architecture, component diagrams, protocol adapters, 3-stage routing, direct graph execution |
+| [AHE Architecture](docs/pillars/3_agentic_harness_engineering/AHE_ARCHITECTURE.md) | Agentic Harness Engineering — trace distillation, prompt evolution, component observation |
+| [Design Patterns](docs/pillars/3_agentic_harness_engineering/design-patterns-alignment.md) | Alignment of codebase with established AHE and SDD design patterns |
+| [Hierarchical State Machines](docs/pillars/2_epistemic_knowledge_graph/hsm.md) | Orthogonal regions, entry/exit hooks, and static routing |
 
 ### Intelligence & Learning
 
 | Guide | Description |
 | :--- | :--- |
-| [Knowledge Graph](docs/knowledge-graph.md) | Unified Intelligence Graph, 14-phase pipeline, OWL Reasoning, MAGMA views, maintenance |
-| [Emergent Architecture](docs/emergent-architecture.md) | OGM, Swarm Orchestration, Variant Selection, Self-Model, Global Workspace Attention (CONCEPT:KG-2.0–CONCEPT:ORCH-1.2) |
-| [First Principles Architecture](docs/first-principles.md) | Registry Hot Cache, TeamConfig Promotion, AgentCapability System, A2A PlannerGraphSkill (CONCEPT:ORCH-1.2–CONCEPT:ECO-4.2) |
-| [Registry Cache](docs/registry-cache.md) | Session-scoped O(1) specialist lookups, event-driven invalidation, performance analysis |
+| [Knowledge Graph](docs/pillars/2_epistemic_knowledge_graph/knowledge-graph.md) | Unified Intelligence Graph, 14-phase pipeline, OWL Reasoning, MAGMA views, maintenance |
+| [Emergent Architecture](docs/pillars/2_epistemic_knowledge_graph/emergent-architecture.md) | OGM, Swarm Orchestration, Variant Selection, Self-Model, Global Workspace Attention (CONCEPT:KG-2.0–CONCEPT:ORCH-1.2) |
+| [First Principles Architecture](docs/pillars/1_graph_orchestration/first-principles.md) | Registry Hot Cache, TeamConfig Promotion, AgentCapability System, A2A PlannerGraphSkill (CONCEPT:ORCH-1.2–CONCEPT:ECO-4.2) |
+| [Registry Cache](docs/pillars/1_graph_orchestration/registry-cache.md) | Session-scoped O(1) specialist lookups, event-driven invalidation, performance analysis |
 
 ### Execution & Orchestration
 
 | Guide | Description |
 | :--- | :--- |
-| [Agents & Orchestration](docs/agents.md) | Specialist registry, MCP loading, event system, memory CRUD, governance |
-| [SDD Orchestrator](docs/sdd.md) | Spec-Driven Development pipeline and task decomposition |
-| [RLM / REPL](docs/rlm.md) | Recursive Language Model patterns, smart auto-triggers, AHE integration, KG/OWL helpers |
-| [Features](docs/features.md) | Model registry, SDD lifecycle, human-in-the-loop, tool safety, agentic patterns, process lifecycle |
+| [Agents & Orchestration](docs/pillars/1_graph_orchestration/agents.md) | Specialist registry, MCP loading, event system, memory CRUD, governance |
+| [SDD Orchestrator](docs/pillars/1_graph_orchestration/sdd.md) | Spec-Driven Development pipeline and task decomposition |
+| [RLM / REPL](docs/pillars/3_agentic_harness_engineering/rlm.md) | Recursive Language Model patterns, smart auto-triggers, AHE integration, KG/OWL helpers |
+| [Features](docs/pillars/3_agentic_harness_engineering/features.md) | Model registry, SDD lifecycle, human-in-the-loop, tool safety, agentic patterns, process lifecycle |
 
 ### Configuration & Security
 
 | Guide | Description |
 | :--- | :--- |
-| [Configuration](docs/configuration.md) | Unified reference for all environment variables, config files, and CLI flags |
-| [Models & Routing](docs/models.md) | Multi-model registries, routing tiers, and `MODELS_CONFIG` |
-| [Secrets & Auth](docs/secrets-auth.md) | `SecretsClient`, Vault integration, URI references, and `secret-manager` CLI |
-| [Capabilities](docs/capabilities.md) | Self-healing, circuit breakers, checkpointing, capability auto-activation, team dispatch |
+| [Configuration](docs/pillars/5_agent_os_infrastructure/configuration.md) | Unified reference for all environment variables, config files, and CLI flags |
+| [Models & Routing](docs/pillars/2_epistemic_knowledge_graph/models.md) | Multi-model registries, routing tiers, and `MODELS_CONFIG` |
+| [Secrets & Auth](docs/pillars/5_agent_os_infrastructure/secrets-auth.md) | `SecretsClient`, Vault integration, URI references, and `secret-manager` CLI |
+| [Capabilities](docs/pillars/1_graph_orchestration/capabilities.md) | Self-healing, circuit breakers, checkpointing, capability auto-activation, team dispatch |
 
 ### Reference
 
 | Guide | Description |
 | :--- | :--- |
-| [Tools Registry](docs/tools.md) | 18 tool modules across 5 categories |
-| [Structured Prompts](docs/structured-prompts.md) | JSON prompt schema, Pydantic models, and prompt catalog |
-| [Process Lifecycle](docs/process-lifecycle.md) | Sidecar cleanup, signal handling, and child process management |
-| [Development](docs/development.md) | Developer guide, testing strategies, contributing rules, and repository management |
+| [Tools Registry](docs/pillars/4_ecosystem_and_tooling/tools.md) | 18 tool modules across 5 categories |
+| [Structured Prompts](docs/pillars/1_graph_orchestration/structured-prompts.md) | JSON prompt schema, Pydantic models, and prompt catalog |
+| [Process Lifecycle](docs/pillars/5_agent_os_infrastructure/process-lifecycle.md) | Sidecar cleanup, signal handling, and child process management |
+| [Development](docs/pillars/4_ecosystem_and_tooling/development.md) | Developer guide, testing strategies, contributing rules, and repository management |
 
 ## Contributing
 

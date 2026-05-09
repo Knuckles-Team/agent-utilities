@@ -13,14 +13,18 @@ import pytest
 
 @pytest.fixture
 def compactor():
-    from agent_utilities.knowledge_graph.context_compactor import ContextCompactor
+    from agent_utilities.knowledge_graph.memory.context_compactor import (
+        ContextCompactor,
+    )
 
     return ContextCompactor(max_tokens=100, tool_summary_max_length=50)
 
 
 @pytest.fixture
 def large_compactor():
-    from agent_utilities.knowledge_graph.context_compactor import ContextCompactor
+    from agent_utilities.knowledge_graph.memory.context_compactor import (
+        ContextCompactor,
+    )
 
     return ContextCompactor(max_tokens=500, tool_summary_max_length=200)
 
@@ -42,11 +46,13 @@ def make_tool_messages(count: int, tool_size: int = 200) -> list[dict]:
     msgs = [{"role": "user", "content": "Please analyze the code."}]
     for i in range(count):
         msgs.append({"role": "assistant", "content": f"Calling tool {i}..."})
-        msgs.append({
-            "role": "tool",
-            "tool_call_id": f"tc_{i}",
-            "content": f"Tool output {i}: {'data ' * (tool_size // 5)}",
-        })
+        msgs.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"tc_{i}",
+                "content": f"Tool output {i}: {'data ' * (tool_size // 5)}",
+            }
+        )
     msgs.append({"role": "assistant", "content": "Here is my analysis."})
     return msgs
 
@@ -60,24 +66,30 @@ class TestTokenEstimation:
     """Tests for token estimation accuracy."""
 
     def test_empty_string(self):
-        from agent_utilities.knowledge_graph.context_compactor import estimate_tokens
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
+            estimate_tokens,
+        )
 
         assert estimate_tokens("") == 0
 
     def test_single_word(self):
-        from agent_utilities.knowledge_graph.context_compactor import estimate_tokens
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
+            estimate_tokens,
+        )
 
         result = estimate_tokens("hello")
         assert result == 1  # 1 word * 1.33 ≈ 1
 
     def test_sentence(self):
-        from agent_utilities.knowledge_graph.context_compactor import estimate_tokens
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
+            estimate_tokens,
+        )
 
         result = estimate_tokens("The quick brown fox jumps over the lazy dog")
         assert 9 <= result <= 15  # 9 words * 1.33 ≈ 12
 
     def test_message_estimation(self):
-        from agent_utilities.knowledge_graph.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
             estimate_message_tokens,
         )
 
@@ -146,7 +158,9 @@ class TestDropMiddleStrategy:
     """Tests for the drop_middle compaction strategy."""
 
     def test_drops_middle_messages(self):
-        from agent_utilities.knowledge_graph.context_compactor import ContextCompactor
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
+            ContextCompactor,
+        )
 
         c = ContextCompactor(max_tokens=50, tool_summary_max_length=50)
         msgs = make_messages(10, content_size=30)
@@ -159,14 +173,17 @@ class TestDropMiddleStrategy:
         assert result.messages[-1]["content"] == msgs[-1]["content"]
 
     def test_inserts_context_note(self):
-        from agent_utilities.knowledge_graph.context_compactor import ContextCompactor
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
+            ContextCompactor,
+        )
 
         c = ContextCompactor(max_tokens=50, tool_summary_max_length=50)
         msgs = make_messages(10, content_size=30)
         result = c.compact(msgs, strategy="drop_middle")
         # Should have a system note about dropped messages
         context_notes = [
-            m for m in result.messages
+            m
+            for m in result.messages
             if m.get("role") == "system" and "Context note" in m.get("content", "")
         ]
         assert len(context_notes) > 0
@@ -187,7 +204,9 @@ class TestProgressiveStrategy:
     """Tests for the progressive compaction strategy."""
 
     def test_progressive_reduces_tokens(self):
-        from agent_utilities.knowledge_graph.context_compactor import ContextCompactor
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
+            ContextCompactor,
+        )
 
         c = ContextCompactor(max_tokens=50, tool_summary_max_length=50)
         msgs = make_messages(10, content_size=100)
@@ -222,7 +241,7 @@ class TestCompactionStrategy:
         assert result.strategy_used == "summarize_tools"
 
     def test_enum_strategy(self, compactor):
-        from agent_utilities.knowledge_graph.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
             CompactionStrategy,
         )
 
@@ -266,7 +285,9 @@ class TestCompactedResult:
     """Tests for CompactedResult model."""
 
     def test_default_values(self):
-        from agent_utilities.knowledge_graph.context_compactor import CompactedResult
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
+            CompactedResult,
+        )
 
         result = CompactedResult()
         assert result.messages == []
@@ -275,7 +296,9 @@ class TestCompactedResult:
         assert result.compaction_id.startswith("compact:")
 
     def test_compaction_id_unique(self):
-        from agent_utilities.knowledge_graph.context_compactor import CompactedResult
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
+            CompactedResult,
+        )
 
         r1 = CompactedResult()
         r2 = CompactedResult()

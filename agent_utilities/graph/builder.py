@@ -71,7 +71,7 @@ from .steps import (
 )
 
 try:
-    from ..knowledge_graph.engine import RegistryGraphEngine
+    from ..knowledge_graph.core.engine import RegistryGraphEngine
     from ..knowledge_graph.pipeline import RegistryPipeline
     from ..models.knowledge_graph import PipelineConfig
 except ImportError:

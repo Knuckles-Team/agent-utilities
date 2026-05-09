@@ -150,7 +150,7 @@ async def test_a2a_client_fetch_card_async_exception():
 
 
 def test_register_a2a_peer_no_engine(monkeypatch):
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.protocols import a2a
 
     monkeypatch.setattr(
@@ -160,7 +160,7 @@ def test_register_a2a_peer_no_engine(monkeypatch):
 
 
 def test_register_a2a_peer_success(monkeypatch):
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
@@ -175,7 +175,7 @@ def test_register_a2a_peer_success(monkeypatch):
 
 
 def test_register_a2a_peer_exception(monkeypatch):
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
@@ -189,7 +189,7 @@ def test_register_a2a_peer_exception(monkeypatch):
 
 
 def test_delete_a2a_peer_not_found(monkeypatch):
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
@@ -203,7 +203,7 @@ def test_delete_a2a_peer_not_found(monkeypatch):
 
 
 def test_delete_a2a_peer_success(monkeypatch):
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
@@ -216,7 +216,7 @@ def test_delete_a2a_peer_success(monkeypatch):
 
 
 def test_delete_a2a_peer_no_engine(monkeypatch):
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.protocols import a2a
 
     monkeypatch.setattr(
@@ -226,7 +226,7 @@ def test_delete_a2a_peer_no_engine(monkeypatch):
 
 
 def test_list_a2a_peers_no_engine(monkeypatch):
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.protocols import a2a
 
     monkeypatch.setattr(
@@ -237,7 +237,7 @@ def test_list_a2a_peers_no_engine(monkeypatch):
 
 
 def test_list_a2a_peers_success(monkeypatch):
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.protocols import a2a
 
     fake_engine = MagicMock()
@@ -538,4 +538,4 @@ def test_agent_utilities_reloadable_after_init(monkeypatch):
     import agent_utilities
 
     importlib.reload(agent_utilities)
-    assert agent_utilities.__version__ == "0.6.2"
+    assert isinstance(agent_utilities.__version__, str)

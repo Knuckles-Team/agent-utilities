@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic_ai import Agent
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import RegistryGraphEngine
+    from ..knowledge_graph.core.engine import RegistryGraphEngine
     from ..models import ModelRegistry
     from .models import Policy, ProcessFlow
 
@@ -213,6 +213,11 @@ class GraphState:
 
     session_id: str = ""
     """Unique session identifier for checkpoint resumption."""
+
+    pinned_model_id: str | None = None
+    """CONCEPT:OS-5.19 — Topological Session Persistence.
+    The primary model ID pinned to this session for multi-turn conversational consistency.
+    Synced to the SessionNode in the Knowledge Graph to prevent jarring model-bouncing mid-thread."""
 
     checkpoint_ts: float = 0.0
     """Timestamp of the last checkpoint."""

@@ -118,6 +118,28 @@ vault = [
 auth = [
     "authlib>=1.4.0"
 ]
+finance = [
+    "torch>=2.0.0",
+    "statsmodels>=0.14.0",
+    "yfinance>=0.2.0",
+    "scikit-learn>=1.3.0",
+    "pandas>=2.0.0",
+    "httpx>=0.28.0",
+    "websockets>=13.0"
+]
+finance-kronos = [
+    "agent-utilities[finance]",
+    "transformers>=4.40.0",
+    "safetensors>=0.4.0"
+]
+hr = []
+medical = []
+science = []
+law = []
+government = []
+postgresql = [
+    "psycopg[binary]>=3.2.0"
+]
 test = [
     "hypothesis>=6.152.1",
     "pytest-cov",
@@ -131,10 +153,10 @@ test = [
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-instrumentation-asgi",
     "repository-manager",
-    "agent-utilities[agent,graph,acp,owl]"
+    "agent-utilities[agent,graph,acp,owl,finance]"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,graph,browser,test,owl,stardog,vault,auth]>=0.7.0"]
+    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,graph,browser,test,owl,stardog,vault,auth,finance]>=0.7.0"]
 
 [tool.setuptools]
 include-package-data = true

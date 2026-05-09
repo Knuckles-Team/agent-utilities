@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 def save_chat_to_disk(chat_id: str, messages: list[dict[str, Any]]):
     """Save a chat conversation to the Knowledge Graph."""
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
@@ -86,7 +86,7 @@ def save_chat_to_disk(chat_id: str, messages: list[dict[str, Any]]):
 
 def list_chats_from_disk() -> list[dict[str, Any]]:
     """List all chats stored in the Knowledge Graph."""
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
@@ -113,7 +113,7 @@ def list_chats_from_disk() -> list[dict[str, Any]]:
 
 def get_chat_from_disk(chat_id: str) -> dict[str, Any] | None:
     """Retrieve a specific chat from the Knowledge Graph."""
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
@@ -153,7 +153,7 @@ def get_chat_from_disk(chat_id: str) -> dict[str, Any] | None:
 
 def delete_chat_from_disk(chat_id: str) -> bool:
     """Delete a chat and its messages from the Knowledge Graph."""
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
@@ -235,7 +235,7 @@ def compact_messages(
         Compacted message list.
     """
     try:
-        from agent_utilities.knowledge_graph.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.context_compactor import (
             ContextCompactor,
         )
 
@@ -331,7 +331,7 @@ def search_chat_history(
         for r in results.results:
             print(f"Session {r.session_id}: {len(r.messages)} matches")
     """
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:

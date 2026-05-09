@@ -1,41 +1,175 @@
 # Agent Utilities Documentation
 
-Welcome to the `agent-utilities` documentation. This index organizes the guides logically to help you navigate the complex ecosystem of features and advanced concepts.
+> The complete technical documentation for the `agent-utilities` ecosystem — the infrastructure substrate for multi-agent organizational intelligence.
 
-## 🧭 Getting Started
+---
 
-- [**Overview Map**](overview.md) — Start here! The Conceptual Map connecting the 27 core concepts (CONCEPT:ORCH-1.0 to CONCEPT:ECO-4.2).
-- [**Creating an Agent**](creating-an-agent.md) — Guide to bootstrapping a new Pydantic AI agent.
-- [**Building MCP Servers**](building-mcp-servers.md) — Creating FastMCP servers and wrappers.
+## How This Documentation Is Organized
 
-## 🏛️ Architecture
+All documentation is organized under the **5-Pillar Architecture**. Each pillar has:
+- A **summary page** (`{pillar_name}.md`) explaining the rationale, implementation, and benefits
+- A **directory** containing detailed concept references, guides, and deep-dives
+- **Concept IDs** (`CONCEPT:ORCH-1.x`, `KG-2.x`, etc.) linking docs to source code 1:1
 
-- [**Architecture Deep Dive**](architecture.md) — Diagrams, HSM state routing, and protocol adapters.
-- [**Features**](features.md) — Summary of the "operating system" features provided to agents.
-- [**Hierarchical State Machines**](hsm.md) — Orthogonal regions, entry/exit hooks, and static routing.
-- [**Design Patterns**](design-patterns-alignment.md) — AHE and SDD design pattern alignment.
+```
+docs/
+├── index.md                          ← You are here
+├── overview.md                       ← Concept Galaxy (88 concepts, Mermaid map)
+│
+└── pillars/
+    ├── 1_graph_orchestration.md       ← Pillar 1 summary
+    ├── 1_graph_orchestration/         ← Concept references & guides
+    │   ├── architecture.md
+    │   ├── agents.md
+    │   ├── ORCH-1.3-Execution_&_State_Safety.md
+    │   └── ...
+    │
+    ├── 2_epistemic_knowledge_graph.md ← Pillar 2 summary
+    ├── 2_epistemic_knowledge_graph/   ← Concept references & guides
+    │   ├── knowledge-graph.md
+    │   ├── KG-2.5-Topological_Mincut_Partitioning.md
+    │   ├── enterprise_ingestion.md
+    │   ├── company_brain/             ← Company Brain deep-dive (11 pages)
+    │   │   ├── 00_index.md
+    │   │   ├── architecture.md
+    │   │   ├── concurrency.md
+    │   │   ├── multi_tenancy.md
+    │   │   ├── conflict_resolution.md
+    │   │   ├── provenance.md
+    │   │   ├── event_streaming.md
+    │   │   ├── permissions.md
+    │   │   ├── ontology.md
+    │   │   ├── gap_analysis.md
+    │   │   └── roadmap.md
+    │   └── ...
+    │
+    ├── 3_agentic_harness_engineering.md
+    ├── 3_agentic_harness_engineering/
+    │   ├── AHE_ARCHITECTURE.md
+    │   ├── AHE-3.7-Heavy_Thinking_Orchestration.md
+    │   └── ...
+    │
+    ├── 4_ecosystem_peripherals.md
+    ├── 4_ecosystem_peripherals/
+    │   └── ...
+    │
+    ├── 5_agent_os_infrastructure.md
+    └── 5_agent_os_infrastructure/
+        ├── permissions-kernel.md
+        ├── OS-5.3-Session_Concurrency_Management.md
+        └── ...
+```
 
-## 🚀 Advanced Concepts
+---
 
-- [**Knowledge Graph**](knowledge-graph.md) — The MAGMA-inspired persistence layer bridging network topology and Cypher.
-- [**Spec-Driven Development (SDD)**](sdd.md) — Transform `.specify` definitions into parallel execution plans.
-- [**RLM / REPL**](rlm.md) — Recursive Language Model execution patterns and autonomous loops.
-- [**Agentic Harness Engineering (AHE)**](AHE_ARCHITECTURE.md) — Deep traceability and prompt evolution mechanisms.
-- [**Emergent Architecture**](emergent-architecture.md) — OGM, Swarm, Variant Selection, Self-Model, and Global Workspace Attention (CONCEPT:KG-2.0 to CONCEPT:ORCH-1.2).
+## Quick Navigation
 
-## 🔬 First Principles Architecture
+### Getting Started
 
-- [**First Principles Overview**](first-principles.md) — Registry Hot Cache, TeamConfig Promotion, AgentCapability System, and A2A PlannerGraphSkill (CONCEPT:ORCH-1.2 to CONCEPT:ECO-4.2).
-- [**Registry Cache Deep-Dive**](registry-cache.md) — Session-scoped O(1) specialist lookups with event-driven invalidation.
-- [**Process Lifecycle Management**](process-lifecycle.md) — Sidecar cleanup, signal handling, and child process management.
+| Document | Description |
+|:---------|:------------|
+| [Concept Galaxy (overview.md)](overview.md) | High-level map of all 88 concepts across 5 pillars |
 
-## 📖 Reference Guides
+### The 5 Pillars
 
-- [**Configuration**](configuration.md) — Unified reference for all environment variables, config files, and CLI flags.
-- [**Secrets & Authentication**](secrets-auth.md) — Authlib JWT integration and Vault backends.
-- [**Models & Routing**](models.md) — Multi-model registries, routing tiers, and `MODELS_CONFIG`.
-- [**Tools Registry**](tools.md) — Catalog of the 18 tool modules available to specialists.
-- [**Structured Prompts**](structured-prompts.md) — JSON schema blueprints replacing unstructured Markdown prompts.
-- [**Capabilities**](capabilities.md) — Self-healing, circuit breakers, checkpointing, capability auto-activation, and team dispatch.
-- [**Agents & Orchestration**](agents.md) — Specialist registry, MCP loading, event system, governance.
-- [**Development Guide**](development.md) — Contribution standards and troubleshooting.
+| # | Pillar | Summary | Key Capability |
+|:--|:-------|:--------|:---------------|
+| 1 | [Graph Orchestration](pillars/1_graph_orchestration.md) | Routing, planning, execution, state management | Routes work to the right agent/model |
+| 2 | [Epistemic Knowledge Graph](pillars/2_epistemic_knowledge_graph.md) | Memory, ontology, retrieval, reasoning, **Company Brain** | Maintains organizational state with provenance |
+| 3 | [Agentic Harness Engineering](pillars/3_agentic_harness_engineering.md) | Evaluation, self-improvement, experience tracking | Makes the system smarter over time |
+| 4 | [Ecosystem & Peripherals](pillars/4_ecosystem_peripherals.md) | Tooling, connectors, integrations, 40-repo ecosystem | Connects to external systems and sensors |
+| 5 | [Agent OS Infrastructure](pillars/5_agent_os_infrastructure.md) | Permissions, security, observability, governance | Wraps everything in policy and compliance |
+
+### Company Brain (Pillar 2 Deep-Dive)
+
+The Company Brain is the operational state layer that transforms the Knowledge Graph into a multi-writer, multi-reader, multi-tenant organizational brain. Actor-agnostic: humans, AIs, and hybrid teams are all first-class participants.
+
+| Document | Description |
+|:---------|:------------|
+| [Company Brain Index](pillars/2_epistemic_knowledge_graph/company_brain/00_index.md) | Master overview, quick start, concept registration |
+| [Architecture](pillars/2_epistemic_knowledge_graph/company_brain/architecture.md) | 5-layer architecture, data flow, design principles |
+| [Concurrency](pillars/2_epistemic_knowledge_graph/company_brain/concurrency.md) | Version vectors, CAS, graph-level locking |
+| [Multi-Tenancy](pillars/2_epistemic_knowledge_graph/company_brain/multi_tenancy.md) | Tenant hierarchies, scoped queries, membership |
+| [Conflict Resolution](pillars/2_epistemic_knowledge_graph/company_brain/conflict_resolution.md) | Contradiction detection, 5 merge strategies |
+| [Provenance](pillars/2_epistemic_knowledge_graph/company_brain/provenance.md) | PROV-O, trust hierarchies, read audits |
+| [Event Streaming](pillars/2_epistemic_knowledge_graph/company_brain/event_streaming.md) | Real-time ingestion, webhook adapters |
+| [Permissions](pillars/2_epistemic_knowledge_graph/company_brain/permissions.md) | Node-level ACLs, data classification labels |
+| [Ontology](pillars/2_epistemic_knowledge_graph/company_brain/ontology.md) | OWL reasoning cycles, BFO/PROV-O/SKOS alignment |
+| [Gap Analysis](pillars/2_epistemic_knowledge_graph/company_brain/gap_analysis.md) | 12-dimension maturity scorecard |
+| [Roadmap](pillars/2_epistemic_knowledge_graph/company_brain/roadmap.md) | 5-phase strategic plan |
+
+### Key Reference Guides
+
+| Guide | Pillar | Path |
+|:------|:-------|:-----|
+| Architecture Deep-Dive | P1 | [pillars/1_graph_orchestration/architecture.md](pillars/1_graph_orchestration/architecture.md) |
+| Knowledge Graph | P2 | [pillars/2_epistemic_knowledge_graph/knowledge-graph.md](pillars/2_epistemic_knowledge_graph/knowledge-graph.md) |
+| Enterprise Ingestion | P2 | [pillars/2_epistemic_knowledge_graph/enterprise_ingestion.md](pillars/2_epistemic_knowledge_graph/enterprise_ingestion.md) |
+| AHE Architecture | P3 | [pillars/3_agentic_harness_engineering/AHE_ARCHITECTURE.md](pillars/3_agentic_harness_engineering/AHE_ARCHITECTURE.md) |
+| Agent OS Architecture | P5 | [pillars/5_agent_os_infrastructure/agent-os-architecture.md](pillars/5_agent_os_infrastructure/agent-os-architecture.md) |
+| Permissions Kernel | P5 | [pillars/5_agent_os_infrastructure/permissions-kernel.md](pillars/5_agent_os_infrastructure/permissions-kernel.md) |
+| Configuration | P5 | [pillars/5_agent_os_infrastructure/configuration.md](pillars/5_agent_os_infrastructure/configuration.md) |
+| **Enterprise Entities** | P2 | [pillars/2_epistemic_knowledge_graph/enterprise_entities.md](pillars/2_epistemic_knowledge_graph/enterprise_entities.md) |
+
+---
+
+## Documentation Standards
+
+### Naming Conventions
+
+| Type | Pattern | Example |
+|:-----|:--------|:--------|
+| Pillar summary | `{N}_{pillar_name}.md` | `2_epistemic_knowledge_graph.md` |
+| Concept reference | `{ID}-{Name}.md` | `KG-2.5-Topological_Mincut_Partitioning.md` |
+| Guide / narrative | `{topic}.md` (lowercase, hyphens) | `knowledge-graph.md` |
+| Sub-section index | `00_index.md` | `company_brain/00_index.md` |
+
+### Structure of a Concept Reference
+
+Every `CONCEPT:ID` document follows:
+
+```markdown
+# {Concept Name} (CONCEPT:{ID})
+
+## Overview
+Brief description of what this concept does.
+
+## Why (Rationale)
+Why this capability exists.
+
+## How (Implementation)
+Key classes, modules, and data flows.
+
+## API Reference
+Public API surface with examples.
+
+## Related Concepts
+Cross-references to other CONCEPT:IDs.
+```
+
+### Structure of a Pillar Summary
+
+```markdown
+# Pillar {N}: {Name}
+
+## Overview
+## Why We Built This (Rationale)
+## How It Works (Implementation)
+## Benefits Introduced
+## Key Concepts Leveraged
+## Enterprise Ontology Alignments (if applicable)
+```
+
+---
+
+## Concept ID Registry
+
+All concepts are uniquely identified and traceable to source code:
+
+| Prefix | Pillar | Range |
+|:-------|:-------|:------|
+| `ORCH-1.x` | Graph Orchestration Engine | 1.0 – 1.14 |
+| `KG-2.x` | Epistemic Knowledge Graph | 2.0 – 2.51 |
+| `AHE-3.x` | Agentic Harness Engineering | 3.0 – 3.25 |
+| `ECO-4.x` | Ecosystem & Peripherals | 4.0 – 4.10 |
+| `OS-5.x` | Agent OS Infrastructure | 5.0 – 5.19 |

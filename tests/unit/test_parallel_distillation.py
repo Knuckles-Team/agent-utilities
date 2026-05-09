@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, AsyncMock
 from agent_utilities.graph.state import GraphDeps
 from agent_utilities.graph.verification import parallel_trajectory_distiller
 
+
 @pytest.fixture
 def mock_deps():
     deps = MagicMock(spec=GraphDeps)
@@ -12,12 +13,17 @@ def mock_deps():
     deps.agent_model = MagicMock()
     return deps
 
+
 @pytest.mark.asyncio
 async def test_parallel_trajectory_distiller(mock_deps, monkeypatch):
     trajectories = [
         {"candidate_id": 0, "success": False, "output": "Failed due to timeout."},
-        {"candidate_id": 1, "success": True, "output": "Succeeded by decomposing the query."},
-        {"candidate_id": 2, "success": True, "output": "Succeeded via decomposition."}
+        {
+            "candidate_id": 1,
+            "success": True,
+            "output": "Succeeded by decomposing the query.",
+        },
+        {"candidate_id": 2, "success": True, "output": "Succeeded via decomposition."},
     ]
     query = "Extract data from a large repository."
 
@@ -38,10 +44,13 @@ async def test_parallel_trajectory_distiller(mock_deps, monkeypatch):
 
     # Use a real string for agent_model so pydantic_ai doesn't try to JSON serialize a MagicMock in its __init__
     from pydantic_ai.models.test import TestModel
+
     mock_deps.agent_model = TestModel()
 
     mock_upsert = MagicMock()
-    monkeypatch.setattr("agent_utilities.knowledge_graph.ogm.KGMapper.upsert", mock_upsert)
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.ogm.KGMapper.upsert", mock_upsert
+    )
 
     await parallel_trajectory_distiller(mock_deps, trajectories, query=query)
 

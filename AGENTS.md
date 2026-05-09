@@ -30,6 +30,9 @@
 <!-- CONCEPT:AHE-3.7 Heavy Thinking Orchestration -->
 <!-- CONCEPT:KG-2.6 Financial Trading Pipeline -->
 <!-- CONCEPT:ECO-4.4 Market Data Connector Protocol -->
+<!-- CONCEPT:ECO-4.11 Graph-Native Durable Execution -->
+<!-- CONCEPT:ECO-4.12 Secure Jupyter Sandbox -->
+<!-- CONCEPT:AHE-3.23 OWL-Driven AgentSpecs Catalog -->
 <!-- CONCEPT:ORCH-1.4 Swarm Preset Template Engine -->
 <!-- CONCEPT:KG-2.7 Risk Scoring Ontology -->
 <!-- CONCEPT:AHE-3.8 Backtest Evaluation Harness -->
@@ -58,6 +61,11 @@
 <!-- CONCEPT:OS-5.11 Topological Vulnerability Scanner -->
 <!-- CONCEPT:ECO-4.7 Ecosystem Topology Map -->
 <!-- CONCEPT:KG-2.19 Cross-Pillar Synergy Engine -->
+<!-- CONCEPT:AHE-3.24 KG-Native Agentic Task Detection -->
+<!-- CONCEPT:AHE-3.25 Topological Reasoning Detection -->
+<!-- CONCEPT:ORCH-1.14 Ontological Fallback Chains -->
+<!-- CONCEPT:KG-2.50 Vectorized Context-Window Filtering -->
+<!-- CONCEPT:OS-5.19 Topological Session Persistence -->
 
 **agent-utilities is a protocol-first, framework-light agent core library.**
 
@@ -294,14 +302,23 @@ Context-Aware Entity Representations (injects multi-hop structural logic and OWL
 Experience Node Architecture (distills context-specific tactics), Cross-Rollout Critique (sequential contrastive failure analysis), Decomposed Context Retrieval (targeted multi-vector search), Memory-Aware Test-Time Scaling (batch-parallel experience distillation with zero-shot hypergraph generalization and topological feedback), Offline/Async Knowledge Compression (TraceDistiller for periodic episode-to-preference distillation), Topological Mincut Partitioning (emergent hierarchical waypoints with Label Propagation fallback), Temporal Drift & EWC Consolidation (Fisher-proxy mitigation of catastrophic forgetting), Heavy Thinking Orchestration (two-stage parallel-then-deliberate reasoning with tiered complexity gating, trajectory pruning/shuffling, iterative refinement, and KG-native trajectory persistence), Horizon-Aware Task Curriculum (progressive horizon scheduling with macro-action composition, subgoal checkpoints, and configurable promotion policies), and Decomposed Reward Signals (step-level vs trajectory-level reward separation for accurate credit assignment and experience distillation).
 ### Security & Reliability (CONCEPT:OS-5.4, CONCEPT:OS-5.5, CONCEPT:AHE-3.11, CONCEPT:KG-2.10)
 Prompt Injection Scanner (pattern-based threat detection with 25+ vectors adapted from Goose), Tool Repetition Guard (infinite loop prevention with ExperienceNode distillation), Structured Retry Manager (shell-based success checks with TeamConfig reward integration), and Token-Aware Context Compaction (three-strategy intelligent window management with episodic KG persistence).
+### Multi-Domain Architecture
+Transitioned to a Multi-Domain Expert System supporting modular expansion into `finance`, `medical`, `law`, and `science`. Domains leverage Vectorized Topological Memory and the Knowledge Graph, with heavy dependencies loaded optionally (e.g., `agent-utilities[finance]`).
+
 ### Financial Intelligence (CONCEPT:KG-2.6, ECO-4.4, ORCH-1.4, KG-2.7, AHE-3.8)
-Financial Trading Pipeline (FIBO-aligned KG primitives for Signal→Order→Position→Portfolio→Strategy lifecycle), Market Data Connector Protocol (generic `DataConnectorProtocol` with auto-fallback chain and provenance tracking), Swarm Preset Template Engine (YAML-driven DAG workflow orchestration with variable substitution), Risk Scoring Ontology (domain-agnostic assessment with transitive OWL propagation), and Backtest Evaluation Harness (SQLite-backed strategy evaluation with walk-forward validation and benchmark comparison).
+Financial Trading Pipeline (FIBO-aligned KG primitives for Signal→Order→Position→Portfolio→Strategy lifecycle, augmented with Trading-as-Git semantics `VERSIONED_TRADE_COMMIT`, pre-execution `EXECUTION_GUARD`, `UNIFIED_TRADING_ACCOUNT` from OpenAlice, and `TIME_SERIES_FORECAST` from Kronos), Market Data Connector Protocol (generic `DataConnectorProtocol` with auto-fallback chain and provenance tracking), Swarm Preset Template Engine (YAML-driven DAG workflow orchestration with variable substitution), Risk Scoring Ontology (domain-agnostic assessment with transitive OWL propagation), Backtest Evaluation Harness (SQLite-backed strategy evaluation with walk-forward validation and benchmark comparison), and a production-grade Quantitative Finance framework with Stationary Feature Engineering, TradingLSTM networks, Kelly Sizing execution, and Kolmogorov-Smirnov regime shift detection.
 ### MATE Integration (CONCEPT:AHE-3.12, AHE-3.13, OS-5.6, OS-5.7, OS-5.8)
 Multi-Strategy EvalRunner (exact match, semantic similarity, LLM-as-Judge with composite scoring), Token Usage Tracker (4-bucket granular analytics with budget alerting), Audit Logger (append-only compliance trail with 30+ action constants and retention), Guardrail Callback Engine (push-based input/output interception with block/redact/warn), and Agent Config Versioning (immutable snapshots with forward-only rollback and structured diffs). All ported from the MATE framework with KG-native persistence and OWL-promoted types for transitive reasoning.
 ### Research Intelligence (CONCEPT:KG-2.11, KG-2.12)
 Research Intelligence Pipeline (automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion → OWL Enrichment → Digest Generation), KG Source Resolver (bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment). Supports arXiv papers via ScholarX, local files (PDF/HTML/Markdown), and web URLs.
-### Topological Reasoning (CONCEPT:KG-2.15, KG-2.16, OS-5.11)
-Topological Analogy Engine (leverages EncPI embeddings and networkx for cross-domain subgraph analogy matching), OWL-Driven Semantic Subsumption (zero-shot ontology alignment mapping vectorized topological topologies to OWL class prototypes), and Topological Vulnerability Scanner (scans execution graphs for structural vulnerabilities using analogy matches to known risk subgraphs).
+### Topological Reasoning (CONCEPT:KG-2.15, KG-2.16, OS-5.11, KG-2.47, KG-2.48, KG-2.49)
+Topological Analogy Engine (leverages exact subgraph isomorphism via networkx VF2 and EncPI embeddings for cross-domain subgraph analogy matching), OWL-Driven Semantic Subsumption (hierarchy-aware zero-shot ontology alignment mapping vectorized topologies to OWL class prototypes with full lineage inference), and Topological Vulnerability Scanner (scans execution graphs for structural vulnerabilities using analogy matches to known risk subgraphs).
+- **Graph-Native Durable Execution (ECO-4.11)**: Fault-tolerant, resumable execution tracking mapped directly to Knowledge Graph nodes for multi-leg algorithmic trading.
+- **Secure Jupyter Sandbox (ECO-4.12)**: AST-verified code generation sandbox wrapping Jupyter kernels with formal State Machine invariant validations.
+- **OWL-Driven AgentSpecs (AHE-3.23)**: Shareable, JSON-based blueprints of dynamic agent topologies semantically typed via OWL.
+- **Formal Relations Engine (KG-2.47)**: Mathematical relation properties (Reflexive, Symmetric, Transitive closures) and Equivalence Classes from MCS Ch 4 for zero-shot entity resolution.
+- **State Machine Invariant Engine (KG-2.48)**: Deterministic Finite Automata (DFA) abstractions and provable state invariants from MCS Ch 6 to prevent infinite loops.
+- **Markov Transition Forecasting (KG-2.49)**: Markov Chain transition matrices over agent interaction traces (Vectorized Topologies) from MCS Ch 21 to predict statistical failure nodes via stationary distribution.
 
 ### Agentic-iModels Integration (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
 Agent-Interpretable Model Evolver (autoresearch loop evolving sklearn-compatible models for dual-objective accuracy + LLM readability, Pareto frontier tracking, MCP-delegated fitting via `data-science-mcp`), LLM-Graded Interpretability Tests (6-category 200-test protocol with reward hacking detection), and Model Display Optimization (display-predict decoupling with 5 strategies: linear_collapse, piecewise_table, symbolic_equation, coefficient_summary, adaptive/SmartAdditive). Based on Microsoft Research arXiv:2605.03808.
@@ -317,6 +334,13 @@ Derived from ScholarX May 7, 2026 scan of 50 arXiv papers (37 relevant, cross-ma
 - **Dynamic Skill Evolution (ECO-4.8)**: On-the-fly skill creation from execution traces. SkillNeologismDetector (identifies uncovered capabilities), SkillFactory (creates skill nodes from gaps), SkillMerger (Jaccard overlap consolidation). Derived from Skill Neologisms (arXiv:2605.04970v1, Score 11.9). New module: `agent_utilities/knowledge_graph/skill_evolver.py`.
 - **Jailbreak Robustness Hardening (OS-5.12)**: Extends Prompt Injection Scanner (OS-5.4) with 4-category SoK taxonomy: template-based (DAN, AIM, UCAR, Grandma), optimization-based (GCG suffix, token smuggling), LLM-based (context confusion, multi-turn escalation), manual (role-play, authority override). 12 new threat patterns. Derived from SoK: Robustness against Jailbreak (arXiv:2605.05058v1, Score 16.2). Extended module: `agent_utilities/security/prompt_scanner.py`.
 
+### KG-Native Autorouting (CONCEPT:AHE-3.24, AHE-3.25, ORCH-1.14, KG-2.50, OS-5.19)
+- **KG-Native Agentic Task Detection (AHE-3.24)**: Evaluates topological complexity via KG subgraphs to route dense API toolchains to complex models automatically.
+- **Topological Reasoning Detection (AHE-3.25)**: Maps user queries to `MathematicalFoundationNode` or quantitative financial concepts to trigger reasoning models natively.
+- **Ontological Fallback Chains (ORCH-1.14)**: Uses the KG to find fallback models dynamically (via semantic equivalents) rather than relying on static lists during rate limits or server errors.
+- **Vectorized Context-Window Filtering (KG-2.50)**: Semantically prunes non-relevant subgraph context before swapping models on token overflow, ensuring only contextually distant nodes are dropped.
+- **Topological Session Persistence (OS-5.19)**: Pins the model for multi-turn conversations directly to the SessionNode to avoid jarring mid-thread model bouncing.
+
 → See [docs/overview.md](docs/overview.md) for the full Concept Galaxy diagram and **Concept Map table** (all 79 concepts with descriptions and code paths).
 
 ## Detailed Documentation
@@ -324,16 +348,16 @@ Derived from ScholarX May 7, 2026 scan of 50 arXiv papers (37 relevant, cross-ma
 For comprehensive documentation, see the `docs/` directory:
 
 - **[Overview Map](docs/overview.md)** — The Concept Galaxy connecting all 79 concepts, plus the **Concept Map table** (CONCEPT:ORCH-1.0 → CONCEPT:OS-5.12)
-- **[Conductor Orchestration](docs/conductor-orchestration.md)** — Refined subtasks, visibility graphs, model synergies, recursive scaling (CONCEPT:ORCH-1.1–CONCEPT:ORCH-1.1)
-- **[Architecture](docs/architecture.md)** — System architecture, protocol adapters, 3-stage hybrid routing
-- **[Knowledge Graph](docs/knowledge-graph.md)** — UIG, 15-phase pipeline, OWL reasoning, MAGMA views, graph integrity validation, entity-claim extraction
-- **[First Principles](docs/first-principles.md)** — Registry Hot Cache, TeamConfig, AgentCapability, PlannerGraphSkill (CONCEPT:ORCH-1.2–CONCEPT:ECO-4.2)
-- **[Emergent Architecture](docs/emergent-architecture.md)** — OGM, Swarm, Variant Selection, Self-Model, Attention (CONCEPT:KG-2.0–CONCEPT:ORCH-1.2)
-- **[Agents & Orchestration](docs/agents.md)** — Specialist registry, MCP loading, event system, governance
-- **[Features](docs/features.md)** — Model registry, SDD lifecycle, human-in-the-loop, tool safety, agentic patterns, feedback loops
-- **[Configuration](docs/configuration.md)** — All environment variables, config files, and CLI flags
-- **[Development Guide](docs/development.md)** — Commands, testing, environment variables, code style, troubleshooting
-- **[Creating an Agent](docs/creating-an-agent.md)** — Step-by-step guide using `genius-agent` as template
-- **[Building MCP Servers](docs/building-mcp-servers.md)** — Building MCP servers and API wrappers
-- **[Registry Cache](docs/registry-cache.md)** — Deep-dive into O(1) specialist lookups
-- **[Process Lifecycle](docs/process-lifecycle.md)** — Sidecar cleanup and signal handling
+- **[Conductor Orchestration](docs/pillars/1_graph_orchestration/conductor-orchestration.md)** — Refined subtasks, visibility graphs, model synergies, recursive scaling (CONCEPT:ORCH-1.1–CONCEPT:ORCH-1.1)
+- **[Architecture](docs/pillars/1_graph_orchestration/architecture.md)** — System architecture, protocol adapters, 3-stage hybrid routing
+- **[Knowledge Graph](docs/pillars/2_epistemic_knowledge_graph/knowledge-graph.md)** — UIG, 15-phase pipeline, OWL reasoning, MAGMA views, graph integrity validation, entity-claim extraction
+- **[First Principles](docs/pillars/1_graph_orchestration/first-principles.md)** — Registry Hot Cache, TeamConfig, AgentCapability, PlannerGraphSkill (CONCEPT:ORCH-1.2–CONCEPT:ECO-4.2)
+- **[Emergent Architecture](docs/pillars/2_epistemic_knowledge_graph/emergent-architecture.md)** — OGM, Swarm, Variant Selection, Self-Model, Attention (CONCEPT:KG-2.0–CONCEPT:ORCH-1.2)
+- **[Agents & Orchestration](docs/pillars/1_graph_orchestration/agents.md)** — Specialist registry, MCP loading, event system, governance
+- **[Features](docs/pillars/3_agentic_harness_engineering/features.md)** — Model registry, SDD lifecycle, human-in-the-loop, tool safety, agentic patterns, feedback loops
+- **[Configuration](docs/pillars/5_agent_os_infrastructure/configuration.md)** — All environment variables, config files, and CLI flags
+- **[Development Guide](docs/pillars/4_ecosystem_and_tooling/development.md)** — Commands, testing, environment variables, code style, troubleshooting
+- **[Creating an Agent](docs/pillars/4_ecosystem_and_tooling/creating-an-agent.md)** — Step-by-step guide using `genius-agent` as template
+- **[Building MCP Servers](docs/pillars/4_ecosystem_and_tooling/building-mcp-servers.md)** — Building MCP servers and API wrappers
+- **[Registry Cache](docs/pillars/1_graph_orchestration/registry-cache.md)** — Deep-dive into O(1) specialist lookups
+- **[Process Lifecycle](docs/pillars/5_agent_os_infrastructure/process-lifecycle.md)** — Sidecar cleanup and signal handling

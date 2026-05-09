@@ -25,7 +25,7 @@ from ..models.imodel import (
 from ..models.knowledge_graph import RegistryEdgeType, RegistryNodeType
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +233,7 @@ class InterpretabilityTestSuite:
         if not feature_names or not coefficients:
             return tests
 
-        paired = list(zip(feature_names, coefficients))
+        paired = list(zip(feature_names, coefficients, strict=False))
         abs_sorted = sorted(paired, key=lambda x: abs(x[1]), reverse=True)
 
         # Most important feature
@@ -294,7 +294,7 @@ class InterpretabilityTestSuite:
             List of test cases.
         """
         tests: list[InterpretabilityTestCase] = []
-        for inp, out in zip(inputs, outputs):
+        for inp, out in zip(inputs, outputs, strict=False):
             features_str = ", ".join(f"{k}={v}" for k, v in inp.items())
             tests.append(
                 InterpretabilityTestCase(
@@ -441,7 +441,7 @@ class InterpretabilityTestSuite:
             )
 
         results = []
-        for tc, resp in zip(test_cases, llm_responses):
+        for tc, resp in zip(test_cases, llm_responses, strict=False):
             results.append(self.run_test(model_str, tc, resp))
 
         return self.compute_agent_interpretability_score(results)
@@ -523,7 +523,7 @@ class InterpretabilityTestSuite:
         persisted = 0
 
         try:
-            from ..knowledge_graph.ogm import KGMapper
+            from ..knowledge_graph.core.ogm import KGMapper
 
             ogm = KGMapper(self._engine)
 

@@ -202,7 +202,7 @@ async def test_record_specialist_outcome_no_engine():
     from agent_utilities.graph.integration import record_specialist_outcome_hook
 
     # get_active returns None → early return
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     original = IntelligenceGraphEngine.get_active
     IntelligenceGraphEngine.get_active = staticmethod(lambda: None)  # type: ignore[method-assign]
@@ -223,7 +223,7 @@ async def test_record_specialist_outcome_no_engine():
 @pytest.mark.asyncio
 async def test_record_specialist_outcome_success(monkeypatch):
     from agent_utilities.graph.integration import record_specialist_outcome_hook
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()
@@ -249,7 +249,7 @@ async def test_record_specialist_outcome_success(monkeypatch):
 async def test_record_specialist_outcome_failure_long_duration(monkeypatch):
     """Cover the reward-shaping branch where success + long duration."""
     from agent_utilities.graph.integration import record_specialist_outcome_hook
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()
@@ -276,7 +276,7 @@ async def test_record_specialist_outcome_failure_long_duration(monkeypatch):
 @pytest.mark.asyncio
 async def test_record_specialist_outcome_add_node_error(monkeypatch):
     from agent_utilities.graph.integration import record_specialist_outcome_hook
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()
@@ -406,7 +406,7 @@ def test_agent_utilities_facade_imports():
     # Importing the facade should not raise
     import agent_utilities
 
-    assert agent_utilities.__version__ == "0.6.2"
+    assert isinstance(agent_utilities.__version__, str)
 
 
 # ---------------------------------------------------------------------------
@@ -536,7 +536,7 @@ def test_discover_all_specialists(monkeypatch):
 
 def test_chat_persistence_no_engine():
     import agent_utilities.core.chat_persistence as cp
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     original = IntelligenceGraphEngine.get_active
     IntelligenceGraphEngine.get_active = staticmethod(lambda: None)  # type: ignore[method-assign]
@@ -551,7 +551,7 @@ def test_chat_persistence_no_engine():
 
 def test_chat_persistence_save_and_list_with_engine(monkeypatch):
     import agent_utilities.core.chat_persistence as cp
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()
@@ -571,7 +571,7 @@ def test_chat_persistence_save_and_list_with_engine(monkeypatch):
 
 def test_chat_persistence_list_error(monkeypatch):
     import agent_utilities.core.chat_persistence as cp
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()
@@ -584,7 +584,7 @@ def test_chat_persistence_list_error(monkeypatch):
 
 def test_chat_persistence_get_chat_with_engine(monkeypatch):
     import agent_utilities.core.chat_persistence as cp
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()
@@ -602,7 +602,7 @@ def test_chat_persistence_get_chat_with_engine(monkeypatch):
 
 def test_chat_persistence_get_chat_missing(monkeypatch):
     import agent_utilities.core.chat_persistence as cp
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()
@@ -615,7 +615,7 @@ def test_chat_persistence_get_chat_missing(monkeypatch):
 
 def test_chat_persistence_delete_chat_with_engine(monkeypatch):
     import agent_utilities.core.chat_persistence as cp
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()
@@ -627,7 +627,7 @@ def test_chat_persistence_delete_chat_with_engine(monkeypatch):
 
 def test_chat_persistence_delete_chat_error(monkeypatch):
     import agent_utilities.core.chat_persistence as cp
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()

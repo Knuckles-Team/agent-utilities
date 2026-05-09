@@ -3,6 +3,7 @@ import pytest
 from fastapi import HTTPException
 from agent_utilities.server.concurrency import AsyncioConcurrencyManager
 
+
 @pytest.mark.asyncio
 async def test_asyncio_concurrency_manager_enqueue():
     cm = AsyncioConcurrencyManager()
@@ -29,6 +30,7 @@ async def test_asyncio_concurrency_manager_enqueue():
     # Clean up
     await cm.release(session_id)
 
+
 @pytest.mark.asyncio
 async def test_asyncio_concurrency_manager_reject():
     cm = AsyncioConcurrencyManager()
@@ -43,6 +45,7 @@ async def test_asyncio_concurrency_manager_reject():
     assert "already active" in exc_info.value.detail
 
     await cm.release(session_id)
+
 
 @pytest.mark.asyncio
 async def test_asyncio_concurrency_manager_interrupt():

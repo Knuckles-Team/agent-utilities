@@ -40,6 +40,27 @@ class Neo4jBackend(GraphBackend):
             result = session.run(query, params)
             return [dict(record) for record in result]
 
+    def execute_batch(
+        self, query: str, batch: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Execute a batch query using Cypher UNWIND."""
+        if not self.driver:
+            raise RuntimeError("Neo4j backend not connected.")
+
+        # Ensure query contains UNWIND if the user hasn't explicitly structured it
+        if "UNWIND" not in query.upper():
+            logger.warning(
+                "Batch query does not contain UNWIND. Execution might be slow or fail."
+            )
+
+        with self.driver.session() as session:
+            try:
+                result = session.run(query, {"batch": batch})
+                return [dict(record) for record in result]
+            except Exception as e:
+                logger.error(f"Neo4j batch execution error: {e}")
+                return []
+
     def create_schema(self) -> None:
         logger.info("Creating Neo4j vector index for embeddings.")
         query = """

@@ -8,8 +8,8 @@ from agent_utilities.graph.models import (
     Evidence,
     Source,
 )
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 
 
 @pytest.mark.asyncio
@@ -83,7 +83,8 @@ async def test_concept_merging():
     maintainer = GraphMaintainer(engine=engine)
 
     with patch(
-        "agent_utilities.knowledge_graph.engine.cosine_similarity", return_value=0.99
+        "agent_utilities.knowledge_graph.core.engine.cosine_similarity",
+        return_value=0.99,
     ):
         merged = maintainer.merge_similar_concepts(similarity_threshold=0.9)
         assert merged == 1

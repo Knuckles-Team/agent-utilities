@@ -37,7 +37,7 @@ def engine_with_tmp_db(
     teardown so other tests aren't hijacked by our throwaway instance.
     """
     from agent_utilities.knowledge_graph.backends import create_backend
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     db_path = tmp_path / "kg.db"
     monkeypatch.setenv("GRAPH_DB_PATH", str(db_path))

@@ -1,7 +1,7 @@
 import networkx as nx
 import pytest
 
-from agent_utilities.knowledge_graph.engine import (
+from agent_utilities.knowledge_graph.core.engine import (
     IntelligenceGraphEngine,
     cosine_similarity,
 )
@@ -20,7 +20,7 @@ def engine(monkeypatch):
     # Isolate from any active backend singleton set by earlier tests
     # so IntelligenceGraphEngine.__init__ does not pick up a polluted backend.
     monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.engine.get_active_backend",
+        "agent_utilities.knowledge_graph.core.engine.get_active_backend",
         lambda: None,
     )
     g = nx.MultiDiGraph()

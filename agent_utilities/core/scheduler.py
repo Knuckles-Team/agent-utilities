@@ -44,7 +44,7 @@ def get_cron_tasks() -> CronRegistryModel:
         A CronRegistryModel object containing the list of active tasks.
 
     """
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
@@ -79,7 +79,7 @@ def get_cron_logs() -> CronLogModel:
         A CronLogModel object containing the history of task runs.
 
     """
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
@@ -119,7 +119,7 @@ def update_cron_task_in_cron_md(
         prompt: The prompt or internal command to execute.
 
     """
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
@@ -197,7 +197,7 @@ def delete_scheduled_task(task_id: str) -> str:
         A success or failure status message.
 
     """
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if engine and engine.backend:
@@ -238,7 +238,7 @@ def append_cron_log(
         chat_id: Optional reference to a persistent chat log.
 
     """
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
@@ -281,7 +281,7 @@ def cleanup_cron_log(max_entries: int = DEFAULT_MAX_CRON_LOG_ENTRIES):
         max_entries: The number of recent log entries to retain.
 
     """
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:

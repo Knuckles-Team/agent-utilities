@@ -7,7 +7,7 @@ import tempfile
 
 import pytest
 
-from agent_utilities.knowledge_graph.fingerprint import (
+from agent_utilities.knowledge_graph.core.fingerprint import (
     ChangeLevel,
     FingerprintManager,
     StructuralFingerprint,

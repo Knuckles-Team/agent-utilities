@@ -64,18 +64,22 @@ class TestRecursiveExecutorDepthCheck:
     @pytest.mark.asyncio
     async def test_exceeds_depth_raises(self):
         from unittest.mock import MagicMock
+
         ctx = RecursiveContext(recursion_depth=MAX_RECURSION_DEPTH + 1)
         deps = MagicMock()
         from agent_utilities.graph.hierarchical_planner import execute_recursive_graph
+
         with pytest.raises(RecursionDepthExceeded):
             await execute_recursive_graph(ctx, deps)
 
     @pytest.mark.asyncio
     async def test_at_max_depth_raises(self):
         from unittest.mock import MagicMock
+
         ctx = RecursiveContext(recursion_depth=MAX_RECURSION_DEPTH + 1)
         deps = MagicMock()
         from agent_utilities.graph.hierarchical_planner import execute_recursive_graph
+
         with pytest.raises(RecursionDepthExceeded):
             await execute_recursive_graph(ctx, deps)
 
@@ -83,6 +87,7 @@ class TestRecursiveExecutorDepthCheck:
 class TestStepDescriptionsIncludesRecursive:
     def test_recursive_orchestrator_in_descriptions(self):
         from agent_utilities.graph.executor import get_step_descriptions
+
         desc = get_step_descriptions()
         assert "recursive_orchestrator" in desc
         assert "CONCEPT:ORCH-1.1" in desc
