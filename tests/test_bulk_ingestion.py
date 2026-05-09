@@ -4,6 +4,7 @@ import pytest
 import networkx as nx
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
+from typing import Any
 
 
 class MockBackend(GraphBackend):
@@ -15,8 +16,9 @@ class MockBackend(GraphBackend):
         self.queries.append((query, params))
         return []
 
-    def execute_batch(self, query: str, batch_params: list[dict]) -> None:
+    def execute_batch(self, query: str, batch_params: list[dict]) -> list[dict[str, Any]]:
         self.batches.append((query, batch_params))
+        return []
 
     def add_embedding(self, *args, **kwargs):
         pass

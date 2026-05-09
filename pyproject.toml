@@ -45,8 +45,8 @@ mcp = [
 ]
 agent = [
     "agent-utilities[mcp,ag-ui,terminal]>=0.7.0",
-    "universal-skills>=0.7.2",
-    "skill-graphs>=0.7.2",
+    "universal-skills>=0.10.0",
+    "skill-graphs>=0.10.0",
     "pydantic-ai-skills>=0.4.1",
     "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.73.0,<2.0.0",
     "pydantic-graph>=1.0.0"
@@ -67,9 +67,9 @@ agent-huggingface = [
     "pydantic-ai-slim[huggingface]>=1.73.0,<2.0.0"
 ]
 ag-ui = [
-    "agent-webui>=0.8.2"]
+    "agent-webui>=0.10.0"]
 terminal = [
-    "agent-terminal-ui>=0.10.2"]
+    "agent-terminal-ui>=0.12.0"]
 browser = [
     "playwright>=1.49.1"]
 acp = [

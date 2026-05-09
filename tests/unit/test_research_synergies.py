@@ -55,7 +55,7 @@ def test_single_shot_sira(mock_engine):
 
 
 def test_voi_budget_controller():
-    controller = VOIBudgetController(engine=None, base_budget=100)
+    controller = VOIBudgetController(engine=MagicMock(spec=IntelligenceGraphEngine), base_budget=100)
 
     # Should continue early on
     assert controller.should_continue_traversal(10) is True
@@ -94,16 +94,19 @@ def test_experience_alignment(mock_engine):
         name="Test Exp",
         condition="When task fails",
         action="Retry task",
-        context={"status": "failed"},
-        outcome="Learned to retry",
-        tags=["retry", "failure"],
         importance_score=0.9,
     )
 
-    # Test ingestion uses registry mixin
-    mock_engine.add_registry_node = MagicMock()
+    # Test ingestion uses add_node
+    mock_engine = MagicMock()
+    mock_engine.add_node = MagicMock()
+    alignment = ExperienceAlignmentEngine(mock_engine)
     alignment.ingest_experience(exp)
-    mock_engine.add_registry_node.assert_called_once_with(exp)
+    mock_engine.add_node.assert_called_once_with(
+        node_id=exp.id,
+        node_type="Experience",
+        properties=exp.model_dump()
+    )
 
     # Test retrieval
     mock_engine.backend.execute.return_value = [

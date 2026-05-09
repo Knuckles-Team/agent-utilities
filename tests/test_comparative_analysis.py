@@ -421,7 +421,7 @@ class TestResearchSubagent:
         assert result is None
 
         result = sa.add_tokens(60)
-        assert "WARNING" in result
+        assert isinstance(result, str) and "WARNING" in result
 
     def test_token_budget_exceeded(self):
         """Exceeding max budget should change status."""
@@ -431,7 +431,7 @@ class TestResearchSubagent:
 
         sa = ResearchSubagent(query="test", token_budget_max=100)
         result = sa.add_tokens(150)
-        assert "EXCEEDED" in result
+        assert isinstance(result, str) and "EXCEEDED" in result
         assert sa.status == "budget_exceeded"
 
     def test_provenance_edges(self):
