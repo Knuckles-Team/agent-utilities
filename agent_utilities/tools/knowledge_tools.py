@@ -11,7 +11,7 @@ import uuid
 
 from pydantic_ai import RunContext
 
-from ..knowledge_graph.engine import RegistryGraphEngine
+from ..knowledge_graph.core.engine import RegistryGraphEngine
 from ..models import (
     AgentDeps,
     ImplementationPlan,

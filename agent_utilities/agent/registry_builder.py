@@ -120,7 +120,7 @@ async def ingest_prompts_to_graph():
     import networkx as nx
     from filelock import FileLock, Timeout
 
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.models.knowledge_graph import PromptNode
 
     workspace = get_agent_workspace()

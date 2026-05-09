@@ -59,7 +59,7 @@ async def test_should_sync_needed():
     with (
         patch("pathlib.Path.exists", return_value=True),
         patch(
-            "agent_utilities.knowledge_graph.engine.IntelligenceGraphEngine.get_active",
+            "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine.get_active",
             return_value=None,
         ),
     ):

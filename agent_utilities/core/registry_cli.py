@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 from ..models.knowledge_graph import (
     SpecialistPackageNode,

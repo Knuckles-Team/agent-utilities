@@ -20,14 +20,26 @@ def manager() -> AgentConfigVersionManager:
 @pytest.fixture
 def populated_manager() -> AgentConfigVersionManager:
     mgr = AgentConfigVersionManager()
-    mgr.create_version("agent-a", {
-        "model_name": "gpt-4o", "instruction": "Be helpful",
-        "tools_config": {"web_search": True},
-    }, author="alice", change_summary="Initial config")
-    mgr.create_version("agent-a", {
-        "model_name": "gpt-4o-mini", "instruction": "Be concise",
-        "tools_config": {"web_search": True, "calculator": True},
-    }, author="bob", change_summary="Switched to mini model")
+    mgr.create_version(
+        "agent-a",
+        {
+            "model_name": "gpt-4o",
+            "instruction": "Be helpful",
+            "tools_config": {"web_search": True},
+        },
+        author="alice",
+        change_summary="Initial config",
+    )
+    mgr.create_version(
+        "agent-a",
+        {
+            "model_name": "gpt-4o-mini",
+            "instruction": "Be concise",
+            "tools_config": {"web_search": True, "calculator": True},
+        },
+        author="bob",
+        change_summary="Switched to mini model",
+    )
     return mgr
 
 
@@ -53,9 +65,13 @@ class TestAgentConfigSnapshot:
 
 class TestVersionCreation:
     def test_first_version(self, manager):
-        v = manager.create_version("agent-a", {
-            "model_name": "gpt-4o", "instruction": "test",
-        })
+        v = manager.create_version(
+            "agent-a",
+            {
+                "model_name": "gpt-4o",
+                "instruction": "test",
+            },
+        )
         assert v.version_number == 1
         assert v.parent_version_id == ""
         assert v.agent_name == "agent-a"
@@ -68,8 +84,9 @@ class TestVersionCreation:
         assert v2.parent_version_id != ""
 
     def test_author_and_summary(self, manager):
-        v = manager.create_version("agent-a", {}, author="alice",
-                                    change_summary="Initial setup")
+        v = manager.create_version(
+            "agent-a", {}, author="alice", change_summary="Initial setup"
+        )
         assert v.created_by == "alice"
         assert v.change_summary == "Initial setup"
 
@@ -173,11 +190,16 @@ class TestRollback:
             populated_manager.rollback_to_version("agent-a", 99)
 
     def test_rollback_copies_all_fields(self, manager):
-        manager.create_version("a", {
-            "model_name": "m1", "instruction": "i1",
-            "tools_config": {"t": 1}, "guardrail_config": {"g": 2},
-            "mcp_servers": ["s1"],
-        })
+        manager.create_version(
+            "a",
+            {
+                "model_name": "m1",
+                "instruction": "i1",
+                "tools_config": {"t": 1},
+                "guardrail_config": {"g": 2},
+                "mcp_servers": ["s1"],
+            },
+        )
         manager.create_version("a", {"model_name": "m2"})
         v3 = manager.rollback_to_version("a", 1)
         assert v3.model_name == "m1"

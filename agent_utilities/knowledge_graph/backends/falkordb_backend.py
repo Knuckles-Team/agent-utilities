@@ -52,6 +52,14 @@ class FalkorDBBackend(GraphBackend):
             output.append(row_dict)
         return output
 
+    def execute_batch(
+        self, query: str, batch: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        results = []
+        for params in batch:
+            results.extend(self.execute(query, params))
+        return results
+
     def create_schema(self) -> None:
         logger.info("Creating FalkorDB vector index for embeddings.")
         query = "CALL db.idx.vector.create('idx_embedding', 'Chunk', 'embedding', 768, 'cosine')"

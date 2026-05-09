@@ -197,8 +197,12 @@ class TestBacktestKGNodes:
 
         strat = StrategyNode(id="strat:v2", name="Momentum V2")
         bt = BacktestRunNode(id="bt:001", name="BT", strategy_id="strat:v2")
-        m1 = BacktestMetricNode(id="bm:sr", name="Sharpe", metric_name="sharpe_ratio", value=1.5)
-        m2 = BacktestMetricNode(id="bm:dd", name="Drawdown", metric_name="max_drawdown", value=0.1)
+        m1 = BacktestMetricNode(
+            id="bm:sr", name="Sharpe", metric_name="sharpe_ratio", value=1.5
+        )
+        m2 = BacktestMetricNode(
+            id="bm:dd", name="Drawdown", metric_name="max_drawdown", value=0.1
+        )
 
         for n in [strat, bt, m1, m2]:
             g.add_node(n.id, **n.model_dump())
@@ -210,7 +214,8 @@ class TestBacktestKGNodes:
         assert g.out_degree(bt.id) == 3
         # Traverse from backtest to all metrics
         metric_ids = [
-            t for _, t, d in g.out_edges(bt.id, data=True)
+            t
+            for _, t, d in g.out_edges(bt.id, data=True)
             if d.get("type") == RegistryEdgeType.HAS_METRIC
         ]
         assert len(metric_ids) == 2

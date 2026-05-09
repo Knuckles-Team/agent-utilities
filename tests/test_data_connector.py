@@ -17,7 +17,13 @@ from agent_utilities.protocols.data_connector import (
 class FakeConnector:
     """Test connector implementing the DataConnectorProtocol."""
 
-    def __init__(self, name: str, priority: int = 0, healthy: bool = True, data: list | None = None):
+    def __init__(
+        self,
+        name: str,
+        priority: int = 0,
+        healthy: bool = True,
+        data: list | None = None,
+    ):
         self.name = name
         self.provider = f"fake_{name}"
         self.priority = priority
@@ -54,9 +60,7 @@ class TestDataFetchResult:
         assert r.fetched_at  # auto-generated timestamp
 
     def test_with_data(self):
-        r = DataFetchResult(
-            rows=[{"a": 1}], row_count=1, connector_name="test"
-        )
+        r = DataFetchResult(rows=[{"a": 1}], row_count=1, connector_name="test")
         assert r.row_count == 1
         assert r.connector_name == "test"
 
@@ -190,9 +194,7 @@ class TestDataConnectorKGNodes:
 
         g = nx.MultiDiGraph()
         for name, priority in [("yahoo", 0), ("polygon", 1), ("alpha", 2)]:
-            node = DataConnectorNode(
-                id=f"dc:{name}", name=name, priority=priority
-            )
+            node = DataConnectorNode(id=f"dc:{name}", name=name, priority=priority)
             g.add_node(node.id, **node.model_dump())
 
         g.add_edge("dc:yahoo", "dc:polygon", type=RegistryEdgeType.FALLS_BACK_TO)

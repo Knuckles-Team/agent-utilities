@@ -82,9 +82,7 @@ class TestOrderNode:
         assert node.status == "filled"
 
     def test_serialization(self):
-        node = OrderNode(
-            id="ord:003", name="Test", quantity=50, price=200.0
-        )
+        node = OrderNode(id="ord:003", name="Test", quantity=50, price=200.0)
         data = node.model_dump()
         restored = OrderNode.model_validate(data)
         assert restored.quantity == 50
@@ -225,9 +223,7 @@ class TestTradingPipelineIntegration:
 
         g = nx.MultiDiGraph()
         strat = StrategyNode(id="strat:v1", name="V1")
-        bt = BacktestRunNode(
-            id="bt:001", name="Backtest V1", strategy_id="strat:v1"
-        )
+        bt = BacktestRunNode(id="bt:001", name="Backtest V1", strategy_id="strat:v1")
         g.add_node(strat.id, **strat.model_dump())
         g.add_node(bt.id, **bt.model_dump())
         g.add_edge(strat.id, bt.id, type=RegistryEdgeType.BACKTESTED_WITH)

@@ -55,7 +55,7 @@ class MockStream:
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(strict=False, reason=_LIFECYCLE_XFAIL_REASON)
+
 async def test_full_graph_lifecycle():
     # 1. Initialize graph
     with (
@@ -120,7 +120,7 @@ async def test_full_graph_lifecycle():
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(strict=False, reason=_LIFECYCLE_XFAIL_REASON)
+
 async def test_graph_parallel_and_fallback():
     # 1. Initialize graph
     with (

@@ -26,7 +26,7 @@ from ..models.imodel import (
 from ..models.knowledge_graph import RegistryEdgeType, RegistryNodeType
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ class ParetoFrontier:
         if not self._engine:
             return
         try:
-            from ..knowledge_graph.ogm import KGMapper
+            from ..knowledge_graph.core.ogm import KGMapper
 
             ogm = KGMapper(self._engine)
             ogm.upsert_edge(
@@ -250,7 +250,7 @@ class IModelEvolver:
         if not self._engine:
             return
         try:
-            from ..knowledge_graph.ogm import KGMapper
+            from ..knowledge_graph.core.ogm import KGMapper
 
             ogm = KGMapper(self._engine)
             node = IModelNode(

@@ -65,7 +65,8 @@ class TestTestCaseModel:
 
     def test_create_with_strategy(self):
         tc = TestCase(
-            query="q", expected_output="a",
+            query="q",
+            expected_output="a",
             strategy=EvalStrategy.EXACT_MATCH,
         )
         assert tc.strategy == EvalStrategy.EXACT_MATCH
@@ -96,7 +97,8 @@ class TestEvalResultModel:
 class TestExactMatchStrategy:
     def test_perfect_match(self, runner, simple_test_case):
         result = runner.run_eval(
-            simple_test_case, "Paris",
+            simple_test_case,
+            "Paris",
             strategy=EvalStrategy.EXACT_MATCH,
         )
         assert result.exact_match_score == 1.0
@@ -104,7 +106,8 @@ class TestExactMatchStrategy:
 
     def test_case_insensitive(self, runner, simple_test_case):
         result = runner.run_eval(
-            simple_test_case, "paris",
+            simple_test_case,
+            "paris",
             strategy=EvalStrategy.EXACT_MATCH,
         )
         assert result.exact_match_score == 1.0
@@ -112,7 +115,8 @@ class TestExactMatchStrategy:
     def test_punctuation_normalization(self, runner):
         tc = TestCase(query="q", expected_output="Hello, world!")
         result = runner.run_eval(
-            tc, "hello world",
+            tc,
+            "hello world",
             strategy=EvalStrategy.EXACT_MATCH,
         )
         assert result.exact_match_score == 1.0
@@ -120,7 +124,8 @@ class TestExactMatchStrategy:
     def test_partial_overlap_jaccard(self, runner):
         tc = TestCase(query="q", expected_output="the quick brown fox")
         result = runner.run_eval(
-            tc, "the slow brown fox",
+            tc,
+            "the slow brown fox",
             strategy=EvalStrategy.EXACT_MATCH,
         )
         # Jaccard: {the, brown, fox} / {the, quick, slow, brown, fox} = 3/5
@@ -129,7 +134,8 @@ class TestExactMatchStrategy:
     def test_no_overlap(self, runner):
         tc = TestCase(query="q", expected_output="alpha beta")
         result = runner.run_eval(
-            tc, "gamma delta",
+            tc,
+            "gamma delta",
             strategy=EvalStrategy.EXACT_MATCH,
         )
         assert result.exact_match_score == 0.0
@@ -149,7 +155,8 @@ class TestSemanticSimilarityStrategy:
     def test_fallback_to_token_overlap(self, runner, simple_test_case):
         """Without an embedding model, falls back to exact match."""
         result = runner.run_eval(
-            simple_test_case, "Paris",
+            simple_test_case,
+            "Paris",
             strategy=EvalStrategy.SEMANTIC_SIMILARITY,
         )
         assert result.semantic_similarity_score == 1.0
@@ -158,7 +165,8 @@ class TestSemanticSimilarityStrategy:
     def test_partial_fallback(self, runner):
         tc = TestCase(query="q", expected_output="the quick brown fox")
         result = runner.run_eval(
-            tc, "the slow brown fox",
+            tc,
+            "the slow brown fox",
             strategy=EvalStrategy.SEMANTIC_SIMILARITY,
         )
         assert 0.0 < result.semantic_similarity_score < 1.0
@@ -185,7 +193,8 @@ class TestLLMJudgeStrategy:
     def test_fallback_without_model(self, runner, simple_test_case):
         """Falls back to semantic similarity when no LLM available."""
         result = runner.run_eval(
-            simple_test_case, "Paris",
+            simple_test_case,
+            "Paris",
             strategy=EvalStrategy.LLM_JUDGE,
         )
         assert result.llm_judge_score > 0.0
@@ -200,7 +209,8 @@ class TestLLMJudgeStrategy:
 class TestCompositeStrategy:
     def test_composite_combines_all(self, runner, simple_test_case):
         result = runner.run_eval(
-            simple_test_case, "Paris",
+            simple_test_case,
+            "Paris",
             strategy=EvalStrategy.COMPOSITE,
         )
         assert result.exact_match_score > 0.0
@@ -210,7 +220,9 @@ class TestCompositeStrategy:
     def test_composite_weights(self):
         """Custom weights should affect final score."""
         runner = EvalRunner(
-            exact_weight=1.0, semantic_weight=0.0, judge_weight=0.0,
+            exact_weight=1.0,
+            semantic_weight=0.0,
+            judge_weight=0.0,
         )
         tc = TestCase(query="q", expected_output="hello")
         result = runner.run_eval(tc, "hello", strategy=EvalStrategy.COMPOSITE)

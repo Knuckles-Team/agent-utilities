@@ -51,7 +51,7 @@ from pydantic_ai import Agent
 from .memory_cache import MemoryCache, TrajectoryEntry
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
     from .state import GraphDeps
 
 logger = logging.getLogger(__name__)
@@ -640,7 +640,7 @@ class HeavyThinkingOrchestrator:
         Returns:
             The ID of the persisted deliberation node.
         """
-        from ..knowledge_graph.ogm import KGMapper
+        from ..knowledge_graph.core.ogm import KGMapper
         from ..models.knowledge_graph import (
             DeliberationNode,
             RegistryEdgeType,
@@ -728,7 +728,7 @@ class HeavyThinkingOrchestrator:
                     source_run_id=cache.query_hash[:8],
                     metadata={"source": "heavy_thinking_distillation"},
                 )
-                from ..knowledge_graph.ogm import KGMapper
+                from ..knowledge_graph.core.ogm import KGMapper
 
                 ogm = KGMapper(deps.knowledge_engine)
                 ogm.upsert(node)

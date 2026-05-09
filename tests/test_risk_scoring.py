@@ -38,9 +38,7 @@ class TestRiskAssessmentNode:
             RiskAssessmentNode(id="ra:bad", name="Bad", overall_risk_score=1.5)
 
     def test_serialization(self):
-        node = RiskAssessmentNode(
-            id="ra:003", name="Test", overall_risk_score=0.5
-        )
+        node = RiskAssessmentNode(id="ra:003", name="Test", overall_risk_score=0.5)
         data = node.model_dump()
         restored = RiskAssessmentNode.model_validate(data)
         assert restored.overall_risk_score == 0.5
@@ -145,9 +143,18 @@ class TestRiskPropagationGraph:
             id="ra:port", name="Portfolio Risk", overall_risk_score=0.65
         )
         factors = [
-            RiskFactorNode(id="rf:market", name="Market", factor_type="market", severity=0.8),
-            RiskFactorNode(id="rf:credit", name="Credit", factor_type="credit", severity=0.5),
-            RiskFactorNode(id="rf:liquidity", name="Liquidity", factor_type="liquidity", severity=0.3),
+            RiskFactorNode(
+                id="rf:market", name="Market", factor_type="market", severity=0.8
+            ),
+            RiskFactorNode(
+                id="rf:credit", name="Credit", factor_type="credit", severity=0.5
+            ),
+            RiskFactorNode(
+                id="rf:liquidity",
+                name="Liquidity",
+                factor_type="liquidity",
+                severity=0.3,
+            ),
         ]
 
         g.add_node(ra.id, **ra.model_dump())

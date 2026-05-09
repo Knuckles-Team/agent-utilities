@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_utilities.knowledge_graph.policy_ingestor import (
+from agent_utilities.knowledge_graph.security.policy_ingestor import (
     PolicyIngestor,
     _determine_category,
     _extract_prompt_rules,

@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_utilities.knowledge_graph.codemaps import CodemapGenerator
+from agent_utilities.knowledge_graph.core.codemaps import CodemapGenerator
 from agent_utilities.models.codemap import (
     CodemapArtifact,
     CodemapNode,
@@ -43,9 +43,9 @@ def mock_kg():
 @pytest.mark.asyncio
 async def test_codemap_generator_create(mock_kg):
     # We need to mock create_model and the Agent.run
-    with patch("agent_utilities.knowledge_graph.codemaps.create_model"):
+    with patch("agent_utilities.knowledge_graph.core.codemaps.create_model"):
         with patch(
-            "agent_utilities.knowledge_graph.codemaps.Agent"
+            "agent_utilities.knowledge_graph.core.codemaps.Agent"
         ) as mock_agent_class:
             mock_agent = mock_agent_class.return_value
             mock_agent.run = AsyncMock()

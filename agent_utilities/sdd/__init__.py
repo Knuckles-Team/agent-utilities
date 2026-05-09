@@ -167,7 +167,7 @@ class SDDManager:
 
     def record_sdd_outcome(self, model: T, feature_id: str | None = None):
         """Record the creation or update of an SDD artifact in the Knowledge Graph."""
-        from ..knowledge_graph.engine import IntelligenceGraphEngine
+        from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_active()
         if not engine or not engine.backend:

@@ -16,6 +16,13 @@ class GraphBackend(ABC):
         pass
 
     @abstractmethod
+    def execute_batch(
+        self, query: str, batch: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Execute a graph query over a batch of parameters for high-throughput ingestion."""
+        pass
+
+    @abstractmethod
     def create_schema(self) -> None:
         """Initialize required database schema (DDL for Ladybug, etc)."""
         pass

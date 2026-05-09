@@ -9,16 +9,16 @@ import pytest
 import networkx as nx
 from typing import Any
 
-from agent_utilities.knowledge_graph.topological_partition import (
+from agent_utilities.knowledge_graph.core.topological_partition import (
     detect_communities,
     persist_stable_communities,
 )
-from agent_utilities.knowledge_graph.drift_tracker import (
+from agent_utilities.knowledge_graph.memory.drift_tracker import (
     calculate_cosine_distance,
     check_knowledge_drift,
     DriftReport,
 )
-from agent_utilities.knowledge_graph.ewc import (
+from agent_utilities.knowledge_graph.memory.ewc import (
     compute_fisher_diagonal_proxy,
     apply_ewc_consolidation,
 )
@@ -36,6 +36,7 @@ class MockEngine:
     def upsert_edge(self, edge: Any) -> None:
         self.upserted_edges.append(edge)
 
+
 @pytest.mark.concept("KG-2.5", "CONCEPT:KG-2.5")
 def test_detect_communities():
     """Test Louvain community detection.
@@ -44,8 +45,8 @@ def test_detect_communities():
     """
     # Create a graph with two distinct cliques connected by a single edge
     G = nx.Graph()
-    G.add_edges_from([(1,2), (2,3), (1,3)])  # Clique 1
-    G.add_edges_from([(4,5), (5,6), (4,6)])  # Clique 2
+    G.add_edges_from([(1, 2), (2, 3), (1, 3)])  # Clique 1
+    G.add_edges_from([(4, 5), (5, 6), (4, 6)])  # Clique 2
     G.add_edge(3, 4)  # Bridge
 
     for u, v in G.edges():
@@ -63,6 +64,7 @@ def test_detect_communities():
         assert c1 == {4, 5, 6}
         assert c2 == {1, 2, 3}
 
+
 @pytest.mark.concept("KG-2.5", "CONCEPT:KG-2.5")
 def test_persist_stable_communities():
     """Test community persistence to Cypher backend.
@@ -70,8 +72,8 @@ def test_persist_stable_communities():
     CONCEPT:KG-2.5
     """
     G = nx.Graph()
-    G.add_edges_from([(1,2), (2,3), (1,3)])
-    G.add_edges_from([(4,5), (5,6), (4,6)])
+    G.add_edges_from([(1, 2), (2, 3), (1, 3)])
+    G.add_edges_from([(4, 5), (5, 6), (4, 6)])
     G.add_edge(3, 4)
     for u, v in G.edges():
         G[u][v]["weight"] = 1.0
@@ -83,17 +85,14 @@ def test_persist_stable_communities():
     assert len(engine.upserted_nodes) == 2
     assert len(engine.upserted_edges) == 6  # 3 members per community = 6 edges
 
+
 @pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.6")
 def test_drift_tracker():
     """Test temporal knowledge drift measurement.
 
     CONCEPT:AHE-3.6
     """
-    history = [
-        [1.0, 0.0, 0.0],
-        [0.9, 0.1, 0.0],
-        [0.8, 0.2, 0.0]
-    ]
+    history = [[1.0, 0.0, 0.0], [0.9, 0.1, 0.0], [0.8, 0.2, 0.0]]
     current = [0.0, 1.0, 0.0]  # Orthogonal, huge shift
 
     report = check_knowledge_drift("node_1", history, current, drift_threshold=0.15)
@@ -103,6 +102,7 @@ def test_drift_tracker():
     assert report.cosine_shift == 1.0  # Cosine distance between [1,0,0] and [0,1,0]
     assert report.coefficient_of_variation > 0.0
 
+
 @pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.6")
 def test_ewc_consolidation():
     """Test Fisher-proxy Elastic Weight Consolidation.
@@ -110,12 +110,7 @@ def test_ewc_consolidation():
     CONCEPT:AHE-3.6
     """
     # History with high variance in index 1, low variance in index 0
-    history = [
-        [1.0, -1.0],
-        [1.0, 1.0],
-        [1.0, -0.5],
-        [1.0, 0.5]
-    ]
+    history = [[1.0, -1.0], [1.0, 1.0], [1.0, -0.5], [1.0, 0.5]]
 
     fisher = compute_fisher_diagonal_proxy(history)
     assert fisher[0] > fisher[1]

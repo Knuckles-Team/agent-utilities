@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 

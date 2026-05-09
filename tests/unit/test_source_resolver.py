@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import networkx as nx
 import pytest
 
-from agent_utilities.knowledge_graph.source_resolver import (
+from agent_utilities.knowledge_graph.core.source_resolver import (
     DEFAULT_RESOLVE_DIR,
     KGSourceResolver,
     ResolvedSource,
@@ -83,26 +83,34 @@ class TestKGSourceResolverWithEngine:
 
     def _add_article(self, article_id, title, content, tags=None, importance=0.8):
         from agent_utilities.models.knowledge_graph import RegistryNodeType
-        self.graph.add_node(article_id, **{
-            "type": RegistryNodeType.ARTICLE,
-            "name": title,
-            "description": content[:200],
-            "content": content,
-            "tags": tags or [],
-            "importance_score": importance,
-            "timestamp": "2026-05-07T00:00:00Z",
-        })
+
+        self.graph.add_node(
+            article_id,
+            **{
+                "type": RegistryNodeType.ARTICLE,
+                "name": title,
+                "description": content[:200],
+                "content": content,
+                "tags": tags or [],
+                "importance_score": importance,
+                "timestamp": "2026-05-07T00:00:00Z",
+            },
+        )
 
     def _add_kb(self, kb_id, name, source_type="directory"):
         from agent_utilities.models.knowledge_graph import RegistryNodeType
-        self.graph.add_node(kb_id, **{
-            "type": RegistryNodeType.KNOWLEDGE_BASE,
-            "name": name,
-            "description": f"Knowledge base: {name}",
-            "content": f"Content of {name} knowledge base with code examples",
-            "source_type": source_type,
-            "importance_score": 0.7,
-        })
+
+        self.graph.add_node(
+            kb_id,
+            **{
+                "type": RegistryNodeType.KNOWLEDGE_BASE,
+                "name": name,
+                "description": f"Knowledge base: {name}",
+                "content": f"Content of {name} knowledge base with code examples",
+                "source_type": source_type,
+                "importance_score": 0.7,
+            },
+        )
 
     def test_resolve_papers(self, tmp_path):
         self._add_article(
@@ -187,13 +195,17 @@ class TestKGSourceResolverWithEngine:
 
     def test_no_content_skipped(self, tmp_path):
         from agent_utilities.models.knowledge_graph import RegistryNodeType
-        self.graph.add_node("article:empty", **{
-            "type": RegistryNodeType.ARTICLE,
-            "name": "Empty Article",
-            "description": "",
-            "content": "",
-            "tags": [],
-        })
+
+        self.graph.add_node(
+            "article:empty",
+            **{
+                "type": RegistryNodeType.ARTICLE,
+                "name": "Empty Article",
+                "description": "",
+                "content": "",
+                "tags": [],
+            },
+        )
 
         resolver = KGSourceResolver(engine=self.engine, resolve_dir=str(tmp_path))
         results = resolver.resolve_papers("empty")

@@ -222,7 +222,7 @@ async def sync_a2a_agents(
             # Ingest full card for richer metadata (skills, embeddings)
             if card:
                 try:
-                    from agent_utilities.knowledge_graph.engine import (
+                    from agent_utilities.knowledge_graph.core.engine import (
                         IntelligenceGraphEngine,
                     )
 

@@ -40,7 +40,7 @@ def should_sync(config_path: Path) -> bool:
     if not config_path.exists():
         return False
 
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
@@ -573,7 +573,9 @@ async def sync_mcp_agents(
             import networkx as nx
 
             from agent_utilities.core.workspace import get_agent_workspace
-            from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine,
+            )
 
             logger.info(
                 f"Starting Knowledge Graph ingestion for {len(tools_inventory)} tools"

@@ -1,1 +1,13 @@
--e .[all]
+tree-sitter>=0.23.2
+requests>=2.32.5
+urllib3>=2.3.0
+pydantic[email]>=2.8.2
+pydantic-settings>=2.0.0
+PyYAML>=6.0.0
+python-dotenv>=1.2.1
+networkx>=3.0
+ladybug>=0.15.3
+numpy
+scipy
+cryptography>=47.0.0
+pathspec

@@ -73,9 +73,7 @@ class TestCognitiveScheduler:
         assert proc.state == ProcessState.RUNNING
 
     @pytest.mark.asyncio
-    async def test_submit_queues_when_full(
-        self, scheduler: CognitiveScheduler
-    ) -> None:
+    async def test_submit_queues_when_full(self, scheduler: CognitiveScheduler) -> None:
         await scheduler.submit("agent-a", task="A")
         await scheduler.submit("agent-b", task="B")
         proc_c = await scheduler.submit("agent-c", task="C")
@@ -98,25 +96,19 @@ class TestCognitiveScheduler:
         assert proc_c.state == ProcessState.RUNNING
 
     @pytest.mark.asyncio
-    async def test_fail_marks_failed(
-        self, scheduler: CognitiveScheduler
-    ) -> None:
+    async def test_fail_marks_failed(self, scheduler: CognitiveScheduler) -> None:
         proc = await scheduler.submit("agent-a", task="A")
         await scheduler.fail(proc.id, reason="test error")
         assert proc.state == ProcessState.FAILED
 
     @pytest.mark.asyncio
-    async def test_priority_ordering(
-        self, scheduler: CognitiveScheduler
-    ) -> None:
+    async def test_priority_ordering(self, scheduler: CognitiveScheduler) -> None:
         """Higher priority processes should be scheduled first."""
         # Fill capacity
         proc_a = await scheduler.submit(
             "agent-a", priority=SchedulerPriority.NORMAL, task="A"
         )
-        await scheduler.submit(
-            "agent-b", priority=SchedulerPriority.NORMAL, task="B"
-        )
+        await scheduler.submit("agent-b", priority=SchedulerPriority.NORMAL, task="B")
 
         # Queue two processes with different priorities
         proc_low = await scheduler.submit(
@@ -146,18 +138,12 @@ class TestTokenQuotas:
 
     @pytest.mark.asyncio
     async def test_exceeds_quota(self, scheduler: CognitiveScheduler) -> None:
-        proc = await scheduler.submit(
-            "agent-a", task="A", token_quota=10_000
-        )
+        proc = await scheduler.submit("agent-a", task="A", token_quota=10_000)
         assert scheduler.record_tokens(proc.id, 10_001) is False
 
     @pytest.mark.asyncio
-    async def test_enforce_quotas_preempts(
-        self, scheduler: CognitiveScheduler
-    ) -> None:
-        proc = await scheduler.submit(
-            "agent-a", task="A", token_quota=10_000
-        )
+    async def test_enforce_quotas_preempts(self, scheduler: CognitiveScheduler) -> None:
+        proc = await scheduler.submit("agent-a", task="A", token_quota=10_000)
         scheduler.record_tokens(proc.id, 10_001)
         preempted = await scheduler.enforce_quotas()
         assert proc.id in preempted
@@ -180,9 +166,7 @@ class TestPreemptionAndResume:
         assert proc.preempted_at is not None
 
     @pytest.mark.asyncio
-    async def test_resume_restores(
-        self, scheduler: CognitiveScheduler
-    ) -> None:
+    async def test_resume_restores(self, scheduler: CognitiveScheduler) -> None:
         proc = await scheduler.submit("agent-a", task="A")
         await scheduler.preempt(proc.id, reason="test")
         resumed = await scheduler.resume(proc.id)
@@ -190,9 +174,7 @@ class TestPreemptionAndResume:
         assert proc.state == ProcessState.RUNNING
 
     @pytest.mark.asyncio
-    async def test_resume_queues_when_full(
-        self, scheduler: CognitiveScheduler
-    ) -> None:
+    async def test_resume_queues_when_full(self, scheduler: CognitiveScheduler) -> None:
         proc_a = await scheduler.submit("agent-a", task="A")
         await scheduler.submit("agent-b", task="B")
         await scheduler.preempt(proc_a.id)
@@ -208,9 +190,7 @@ class TestIntrospection:
     """Test scheduler introspection methods."""
 
     @pytest.mark.asyncio
-    async def test_get_process_table(
-        self, scheduler: CognitiveScheduler
-    ) -> None:
+    async def test_get_process_table(self, scheduler: CognitiveScheduler) -> None:
         await scheduler.submit("agent-a", task="A")
         await scheduler.submit("agent-b", task="B")
         table = scheduler.get_process_table()

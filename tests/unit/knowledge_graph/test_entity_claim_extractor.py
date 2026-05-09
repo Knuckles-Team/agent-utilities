@@ -60,8 +60,7 @@ class TestDeterministicExtraction:
         content = "As shown by (Johnson, 2022), this is important."
         result = extract_deterministic(content, "doc:test")
 
-        cites_rels = [r for r in result.relationships
-                      if r.relationship_type == "cites"]
+        cites_rels = [r for r in result.relationships if r.relationship_type == "cites"]
         assert len(cites_rels) >= 1
 
     def test_empty_content(self):
@@ -121,8 +120,9 @@ class TestEntityClaimExtractor:
 
             def link_nodes(self, source, target, edge_type, metadata=None):
                 self.graph.add_edge(
-                    source, target,
-                    type=edge_type.value if hasattr(edge_type, 'value') else edge_type,
+                    source,
+                    target,
+                    type=edge_type.value if hasattr(edge_type, "value") else edge_type,
                     **(metadata or {}),
                 )
 
@@ -147,7 +147,8 @@ class TestEntityClaimExtractor:
 
         # Entities should be in the graph
         entity_nodes = [
-            n for n, d in mock_engine.graph.nodes(data=True)
+            n
+            for n, d in mock_engine.graph.nodes(data=True)
             if str(d.get("type", "")).lower() == "entity"
         ]
         assert len(entity_nodes) >= 1
@@ -167,7 +168,8 @@ class TestEntityClaimExtractor:
 
         # Claims should be in the graph
         claim_nodes = [
-            n for n, d in mock_engine.graph.nodes(data=True)
+            n
+            for n, d in mock_engine.graph.nodes(data=True)
             if str(d.get("type", "")).lower() == "claim"
         ]
         assert len(claim_nodes) >= 1

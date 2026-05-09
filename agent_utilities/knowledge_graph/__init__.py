@@ -11,7 +11,7 @@ from ..models.knowledge_graph import (
     PipelineConfig,
     RegistryGraphMetadata,
 )
-from .engine import IntelligenceGraphEngine, RegistryGraphEngine
+from .core.engine import IntelligenceGraphEngine, RegistryGraphEngine
 from .pipeline import IntelligencePipeline, RegistryPipeline
 
 __all__ = [

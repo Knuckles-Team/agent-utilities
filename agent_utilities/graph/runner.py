@@ -243,6 +243,51 @@ async def run_graph(
         logger.info(
             f"run_graph: Starting graph execution for run_id {run_id}. Registered {len(deps.tag_prompts)} specialists."
         )
+
+        # --- CONCEPT:ORCH-1.20 Service Registry Initialization ---
+        try:
+            from .service_registry import ServiceRegistry
+
+            svc_registry = ServiceRegistry.instance()
+            svc_count = svc_registry.initialize()
+            logger.debug(
+                "run_graph: Service registry initialized with %d services", svc_count
+            )
+        except Exception as e:
+            logger.debug("run_graph: Service registry init skipped: %s", e)
+
+        # --- Security Guard Pre-Flight (OS-5.4, OS-5.5) ---
+        try:
+            from ..security.prompt_scanner import PromptInjectionScanner
+
+            scanner = PromptInjectionScanner()
+            scan_result = scanner.scan_text(query)
+            if scan_result.is_malicious:
+                logger.warning(
+                    "run_graph: Query blocked by prompt scanner: %s",
+                    scan_result.explanation,
+                )
+                return GraphResponse(
+                    status="blocked",
+                    error=f"Security: {scan_result.explanation}",
+                    metadata={
+                        "run_id": run_id,
+                        "is_error": True,
+                        "security": {
+                            "confidence": scan_result.confidence,
+                            "finding_id": scan_result.finding_id,
+                        },
+                    },
+                ).model_dump()
+            if scan_result.matches:
+                logger.info(
+                    "run_graph: Prompt scanner warnings: %d patterns below threshold",
+                    len(scan_result.matches),
+                )
+        except ImportError:
+            pass  # Scanner not available
+        except Exception as e:
+            logger.debug("run_graph: Prompt scanning skipped: %s", e)
         result = None
         try:
             if tracer:

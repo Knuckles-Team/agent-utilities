@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -309,7 +309,7 @@ class EvaluationMonitor:
 # ---------------------------------------------------------------------------
 
 
-class EvalStrategy(str, Enum):
+class EvalStrategy(StrEnum):
     """Evaluation strategy for scoring agent responses.
 
     CONCEPT:AHE-3.12 — Multi-Strategy Evaluation
@@ -562,7 +562,7 @@ class EvalRunner:
             )
         return [
             self.run_eval(tc, output, strategy)
-            for tc, output in zip(test_cases, actual_outputs)
+            for tc, output in zip(test_cases, actual_outputs, strict=False)
         ]
 
     def summary(self) -> dict[str, Any]:
@@ -572,7 +572,7 @@ class EvalRunner:
                 "total": 0,
                 "passed": 0,
                 "failed": 0,
-                "pass_rate": 0.0,
+                "pass_rate": 0.0,  # nosec B105 - not a password
                 "avg_score": 0.0,
             }
         passed = sum(1 for r in self._results if r.passed)
@@ -640,12 +640,12 @@ class EvalRunner:
                 expected_emb = model.embed(expected)
                 actual_emb = model.embed(actual)
                 # Cosine similarity
-                dot = sum(a * b for a, b in zip(expected_emb, actual_emb))
+                dot = sum(a * b for a, b in zip(expected_emb, actual_emb, strict=False))
                 norm_e = sum(a * a for a in expected_emb) ** 0.5
                 norm_a = sum(a * a for a in actual_emb) ** 0.5
                 if norm_e > 0 and norm_a > 0:
                     return max(0.0, min(1.0, dot / (norm_e * norm_a)))
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
         # Fallback: token overlap (same as exact match partial)

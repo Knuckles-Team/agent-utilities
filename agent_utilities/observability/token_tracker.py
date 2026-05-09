@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
-class TokenBucket(str, Enum):
+class TokenBucket(StrEnum):
     """Token usage bucket categories.
 
     CONCEPT:OS-5.6 — Granular Token Analytics

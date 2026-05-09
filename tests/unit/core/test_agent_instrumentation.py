@@ -21,16 +21,18 @@ def test_instrumentation_presence():
     for agent, tool, helper in test_cases:
         # Find the file
         agent_path = AGENTS_DIR / agent
-        server_file = None
+        server_files = []
         for root, dirs, files in os.walk(agent_path):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
             if "mcp_server.py" in files:
-                server_file = Path(root) / "mcp_server.py"
-                break
+                server_files.append(Path(root) / "mcp_server.py")
 
-        assert server_file is not None, f"Could not find mcp_server.py for {agent}"
-        with open(server_file) as f:
-            content = f.read()
+        assert len(server_files) > 0, f"Could not find mcp_server.py for {agent}"
+
+        content = ""
+        for server_file in server_files:
+            with open(server_file) as f:
+                content += f.read() + "\n"
 
         # Check if the tool function contains the helper
         assert tool in content, f"Tool {tool} not found in {agent}"

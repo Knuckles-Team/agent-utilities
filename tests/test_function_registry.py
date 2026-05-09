@@ -7,12 +7,15 @@ from agent_utilities.models.knowledge_graph import TriggerBinding, CallableResou
 @pytest.fixture
 def mock_engine():
     import networkx as nx
+
     class _E:
         def __init__(self):
             self.graph = nx.MultiDiGraph()
             self.backend = None
+
         def search_hybrid(self, q, top_k=10):
             return [{"id": n, **d} for n, d in self.graph.nodes(data=True)][:top_k]
+
     return _E()
 
 
@@ -23,7 +26,9 @@ class TestTriggerBinding:
         assert t.binding == ""
 
     def test_http_trigger(self):
-        t = TriggerBinding(trigger_type="http", binding="/api/v1/run", conditions={"method": "POST"})
+        t = TriggerBinding(
+            trigger_type="http", binding="/api/v1/run", conditions={"method": "POST"}
+        )
         assert t.trigger_type == "http"
         assert t.conditions["method"] == "POST"
 
@@ -34,15 +39,23 @@ class TestTriggerBinding:
 
 class TestCallableResourceNodeExtensions:
     def test_default_empty_schemas(self):
-        n = CallableResourceNode(id="cr1", name="test", resource_type="MCP_TOOL", metadata_id="m1")
+        n = CallableResourceNode(
+            id="cr1", name="test", resource_type="MCP_TOOL", metadata_id="m1"
+        )
         assert n.input_schema == {}
         assert n.output_schema == {}
         assert n.trigger_bindings == []
 
     def test_with_schemas_and_triggers(self):
         n = CallableResourceNode(
-            id="cr2", name="search", resource_type="MCP_TOOL", metadata_id="m2",
-            input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+            id="cr2",
+            name="search",
+            resource_type="MCP_TOOL",
+            metadata_id="m2",
+            input_schema={
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+            },
             output_schema={"type": "array"},
             trigger_bindings=[TriggerBinding(trigger_type="http", binding="/search")],
         )
@@ -51,8 +64,13 @@ class TestCallableResourceNodeExtensions:
 
     def test_serialization_roundtrip(self):
         n = CallableResourceNode(
-            id="cr3", name="deploy", resource_type="INTERNAL_SKILL", metadata_id="m3",
-            trigger_bindings=[TriggerBinding(trigger_type="event", binding="deploy.requested")],
+            id="cr3",
+            name="deploy",
+            resource_type="INTERNAL_SKILL",
+            metadata_id="m3",
+            trigger_bindings=[
+                TriggerBinding(trigger_type="event", binding="deploy.requested")
+            ],
         )
         data = n.model_dump()
         restored = CallableResourceNode.model_validate(data)
@@ -63,13 +81,17 @@ class TestFunctionRegistryMixin:
     """Tests for register/deregister/discover on engine_registry."""
 
     def test_register_function(self, mock_engine):
-        from agent_utilities.knowledge_graph.engine_registry import RegistryMixin
+        from agent_utilities.knowledge_graph.core.engine_registry import RegistryMixin
+
         # Simulate mixin by calling on mock_engine directly
         mock_engine.graph.add_node(
             "fn:test1",
-            type="callable_resource", resource_type="MCP_TOOL",
-            name="test_tool", description="A test tool",
-            input_schema={"type": "object"}, output_schema={"type": "string"},
+            type="callable_resource",
+            resource_type="MCP_TOOL",
+            name="test_tool",
+            description="A test tool",
+            input_schema={"type": "object"},
+            output_schema={"type": "string"},
             trigger_bindings=[{"trigger_type": "http", "binding": "/test"}],
             importance_score=0.5,
         )
@@ -85,32 +107,45 @@ class TestFunctionRegistryMixin:
         assert "fn:rm1" not in mock_engine.graph
 
     def test_discover_functions_by_type(self, mock_engine):
-        mock_engine.graph.add_node("fn:a", type="callable_resource", resource_type="MCP_TOOL", name="alpha")
-        mock_engine.graph.add_node("fn:b", type="callable_resource", resource_type="A2A_AGENT", name="beta")
+        mock_engine.graph.add_node(
+            "fn:a", type="callable_resource", resource_type="MCP_TOOL", name="alpha"
+        )
+        mock_engine.graph.add_node(
+            "fn:b", type="callable_resource", resource_type="A2A_AGENT", name="beta"
+        )
 
         # Filter MCP_TOOL only
         results = [
             {"id": n, **d}
             for n, d in mock_engine.graph.nodes(data=True)
-            if d.get("type") == "callable_resource" and d.get("resource_type") == "MCP_TOOL"
+            if d.get("type") == "callable_resource"
+            and d.get("resource_type") == "MCP_TOOL"
         ]
         assert len(results) == 1
         assert results[0]["name"] == "alpha"
 
     def test_discover_by_trigger_type(self, mock_engine):
         mock_engine.graph.add_node(
-            "fn:cron1", type="callable_resource", resource_type="INTERNAL_SKILL",
-            name="scheduler", trigger_bindings=[{"trigger_type": "cron", "binding": "0 * * * *"}],
+            "fn:cron1",
+            type="callable_resource",
+            resource_type="INTERNAL_SKILL",
+            name="scheduler",
+            trigger_bindings=[{"trigger_type": "cron", "binding": "0 * * * *"}],
         )
         mock_engine.graph.add_node(
-            "fn:http1", type="callable_resource", resource_type="MCP_TOOL",
-            name="api", trigger_bindings=[{"trigger_type": "http", "binding": "/api"}],
+            "fn:http1",
+            type="callable_resource",
+            resource_type="MCP_TOOL",
+            name="api",
+            trigger_bindings=[{"trigger_type": "http", "binding": "/api"}],
         )
 
         cron_fns = [
             {"id": n, **d}
             for n, d in mock_engine.graph.nodes(data=True)
-            if any(t.get("trigger_type") == "cron" for t in d.get("trigger_bindings", []))
+            if any(
+                t.get("trigger_type") == "cron" for t in d.get("trigger_bindings", [])
+            )
         ]
         assert len(cron_fns) == 1
         assert cron_fns[0]["name"] == "scheduler"

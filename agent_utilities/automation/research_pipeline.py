@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ DEFAULT_CATEGORIES = [
 ]
 
 # Relevance taxonomy aligned with agent-utilities domains
-RELEVANCE_TAXONOMY: dict[str, dict[str, float]] = {
+RELEVANCE_TAXONOMY: dict[str, dict[str, Any]] = {
     "orchestration": {
         "keywords": [
             "multi-agent",
@@ -651,7 +651,7 @@ class ResearchPipelineRunner:
 
         try:
             from ..knowledge_graph.backends.owl import create_owl_backend
-            from ..knowledge_graph.owl_bridge import OWLBridge
+            from ..knowledge_graph.core.owl_bridge import OWLBridge
 
             owl_backend = create_owl_backend()
             bridge = OWLBridge(

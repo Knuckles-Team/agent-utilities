@@ -223,7 +223,7 @@ def register_a2a_peer(
     """
     import time
 
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.models.knowledge_graph import AgentNode, RegistryNodeType
 
     engine = IntelligenceGraphEngine.get_active()
@@ -253,7 +253,7 @@ def register_a2a_peer(
 
 def delete_a2a_peer(name: str) -> str:
     """Remove an A2A peer agent from the Knowledge Graph."""
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
@@ -273,7 +273,7 @@ def delete_a2a_peer(name: str) -> str:
 
 def list_a2a_peers() -> Any:
     """List all known A2A peer agents from the Knowledge Graph."""
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine:

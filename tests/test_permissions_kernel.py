@@ -95,7 +95,9 @@ class TestAuthorization:
 
     def test_admin_allows_everything(self, kernel: PermissionsKernel) -> None:
         identity = kernel.issue_identity("admin-agent", AgentRole.ADMIN)
-        assert kernel.authorize_tool(identity, "delete_everything") == AuthDecision.ALLOW
+        assert (
+            kernel.authorize_tool(identity, "delete_everything") == AuthDecision.ALLOW
+        )
         assert kernel.authorize_tool(identity, "reboot_server") == AuthDecision.ALLOW
         assert kernel.authorize_tool(identity, "read_file") == AuthDecision.ALLOW
 
@@ -109,9 +111,7 @@ class TestAuthorization:
             == AuthDecision.REQUIRE_APPROVAL
         )
 
-    def test_specialist_denied_os_operations(
-        self, kernel: PermissionsKernel
-    ) -> None:
+    def test_specialist_denied_os_operations(self, kernel: PermissionsKernel) -> None:
         identity = kernel.issue_identity("spec-agent", AgentRole.SPECIALIST)
         assert kernel.authorize_tool(identity, "reboot_server") == AuthDecision.DENY
         assert kernel.authorize_tool(identity, "read_file") == AuthDecision.ALLOW
@@ -170,9 +170,7 @@ class TestPolicyManagement:
         path = tmp_path / "agent_policies.json"
         path.write_text(json.dumps(policy_data))
 
-        kernel = PermissionsKernel(
-            signing_key="test", policies_path=str(path)
-        )
+        kernel = PermissionsKernel(signing_key="test", policies_path=str(path))
         policies = kernel.get_policies()
         assert len(policies) == 1
         assert policies[0].max_token_quota == 999999
@@ -193,7 +191,9 @@ class TestPatternMatching:
         assert PermissionsKernel._matches_patterns("read_user", ["delete_*"]) is False
 
     def test_contains_glob(self) -> None:
-        assert PermissionsKernel._matches_patterns("do_delete_now", ["*delete*"]) is True
+        assert (
+            PermissionsKernel._matches_patterns("do_delete_now", ["*delete*"]) is True
+        )
 
     def test_case_insensitive(self) -> None:
         assert PermissionsKernel._matches_patterns("delete_user", ["*DELETE*"]) is True

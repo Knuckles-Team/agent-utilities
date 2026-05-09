@@ -90,9 +90,7 @@ class TestPromptStructure:
         """Each prompt must contain at minimum: 'role'."""
         data = _load_prompt(prompt_file)
         missing = REQUIRED_KEYS - set(data.keys())
-        assert not missing, (
-            f"{prompt_file.name} missing required keys: {missing}"
-        )
+        assert not missing, f"{prompt_file.name} missing required keys: {missing}"
 
     @pytest.mark.parametrize(
         "prompt_file",
@@ -154,8 +152,10 @@ class TestPromptConsistency:
                 identity = str(identity_raw) if identity_raw else ""
             if identity and identity in identities:
                 # Allow council_ prompts to share advisory identities
-                if not (path.stem.startswith("council_") and
-                        identities[identity].startswith("council_")):
+                if not (
+                    path.stem.startswith("council_")
+                    and identities[identity].startswith("council_")
+                ):
                     pytest.fail(
                         f"Duplicate identity in {path.name} "
                         f"(first seen in {identities[identity]})"

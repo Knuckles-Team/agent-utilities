@@ -1,0 +1,67 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix bfo:    <http://purl.obolibrary.org/obo/BFO_> .
+
+<http://knuckles.team/kg/government> a owl:Ontology ;
+    owl:imports <http://knuckles.team/kg> ;
+    rdfs:label "Government & Public Sector Ontology" ;
+    rdfs:comment "Government domain ontology aligned to NIST 800-53, FedRAMP, and NIEM." .
+
+:SecurityControl a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Security Control" ;
+    rdfs:comment "A NIST 800-53 security control. BFO:GDC." .
+
+:AuthorizationToOperate a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Authorization To Operate" ;
+    rdfs:comment "A FedRAMP ATO granting system operational authority. BFO:GDC." .
+
+:ClassifiedDocument a owl:Class ;
+    rdfs:subClassOf :Document ;
+    rdfs:label "Classified Document" ;
+    rdfs:comment "A document with multi-level security classification." .
+
+:CitizenService a owl:Class ;
+    rdfs:subClassOf :Procedure ;
+    rdfs:label "Citizen Service" ;
+    rdfs:comment "A public service with eligibility rules. Aligned to NIEM." .
+
+:ControlFamily a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Control Family" ;
+    rdfs:comment "A NIST 800-53 control family (AC, AU, CM, etc.)." .
+
+:implementsControl a owl:ObjectProperty ;
+    rdfs:domain :Procedure ; rdfs:range :SecurityControl ;
+    rdfs:label "implements control" .
+
+:authorizedBy a owl:ObjectProperty ;
+    rdfs:domain :System ; rdfs:range :AuthorizationToOperate ;
+    rdfs:label "authorized by" .
+
+:belongsToFamily a owl:ObjectProperty ;
+    rdfs:domain :SecurityControl ; rdfs:range :ControlFamily ;
+    rdfs:label "belongs to family" .
+
+:classificationLevel a owl:DatatypeProperty ;
+    rdfs:domain :ClassifiedDocument ; rdfs:range xsd:string ;
+    rdfs:label "classification level" ;
+    rdfs:comment "UNCLASSIFIED, CUI, CONFIDENTIAL, SECRET, TOP_SECRET." .
+
+:controlId a owl:DatatypeProperty ;
+    rdfs:domain :SecurityControl ; rdfs:range xsd:string ;
+    rdfs:label "control id" ;
+    rdfs:comment "NIST control identifier (e.g., AC-2, AU-6)." .
+
+:atoStatus a owl:DatatypeProperty ;
+    rdfs:domain :AuthorizationToOperate ; rdfs:range xsd:string ;
+    rdfs:label "ATO status" ;
+    rdfs:comment "pending, authorized, conditional, revoked." .
+
+:impactLevel a owl:DatatypeProperty ;
+    rdfs:domain :AuthorizationToOperate ; rdfs:range xsd:string ;
+    rdfs:label "impact level" ;
+    rdfs:comment "FedRAMP impact: Low, Moderate, High." .

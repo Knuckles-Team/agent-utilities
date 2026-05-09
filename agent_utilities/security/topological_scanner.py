@@ -9,7 +9,7 @@ dependency deadlocks) by matching them against known risk subgraphs in the KG.
 
 import networkx as nx
 
-from agent_utilities.knowledge_graph.analogy_engine import TopologicalAnalogyEngine
+from agent_utilities.knowledge_graph.core.analogy_engine import TopologicalAnalogyEngine
 from agent_utilities.models.knowledge_graph import TopologicalVulnerabilityNode
 
 

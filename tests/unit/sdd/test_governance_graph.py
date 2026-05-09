@@ -12,7 +12,7 @@ from agent_utilities.graph.models import (
     ProcessFlow,
     ProcessStep,
 )
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 
 def test_policy_model_validation():
@@ -132,7 +132,7 @@ def test_engine_process_discovery():
 @pytest.mark.asyncio
 async def test_maintenance_model_validation(caplog):
     """Test the automated model validation routine in maintenance."""
-    from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
+    from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 
     graph = nx.MultiDiGraph()
     mock_backend = MagicMock()

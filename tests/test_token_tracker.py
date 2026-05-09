@@ -41,14 +41,17 @@ def sample_record() -> TokenUsageRecord:
 class TestTokenUsageRecord:
     def test_auto_total_computation(self):
         r = TokenUsageRecord(
-            prompt_tokens=100, response_tokens=50,
-            thoughts_tokens=20, tool_use_tokens=10,
+            prompt_tokens=100,
+            response_tokens=50,
+            thoughts_tokens=20,
+            tool_use_tokens=10,
         )
         assert r.total_tokens == 180
 
     def test_explicit_total_preserved(self):
         r = TokenUsageRecord(
-            prompt_tokens=100, response_tokens=50,
+            prompt_tokens=100,
+            response_tokens=50,
             total_tokens=999,  # Explicitly set
         )
         assert r.total_tokens == 999
@@ -98,8 +101,10 @@ class TestRecording:
 
     def test_auto_total_on_record(self, tracker):
         r = TokenUsageRecord(
-            prompt_tokens=50, response_tokens=30,
-            thoughts_tokens=10, tool_use_tokens=5,
+            prompt_tokens=50,
+            response_tokens=30,
+            thoughts_tokens=10,
+            tool_use_tokens=5,
         )
         result = tracker.record(r)
         assert result.total_tokens == 95
@@ -112,12 +117,20 @@ class TestRecording:
 
 class TestSessionTotals:
     def test_single_session(self, tracker):
-        tracker.record(TokenUsageRecord(
-            session_id="s1", prompt_tokens=100, response_tokens=50,
-        ))
-        tracker.record(TokenUsageRecord(
-            session_id="s1", prompt_tokens=200, response_tokens=100,
-        ))
+        tracker.record(
+            TokenUsageRecord(
+                session_id="s1",
+                prompt_tokens=100,
+                response_tokens=50,
+            )
+        )
+        tracker.record(
+            TokenUsageRecord(
+                session_id="s1",
+                prompt_tokens=200,
+                response_tokens=100,
+            )
+        )
         totals = tracker.get_session_totals("s1")
         assert totals.call_count == 2
         assert totals.total_prompt_tokens == 300
@@ -143,10 +156,15 @@ class TestSessionTotals:
 
 class TestAgentBreakdown:
     def test_breakdown_per_bucket(self, tracker):
-        tracker.record(TokenUsageRecord(
-            agent_name="agent_a", prompt_tokens=100,
-            response_tokens=50, thoughts_tokens=20, tool_use_tokens=10,
-        ))
+        tracker.record(
+            TokenUsageRecord(
+                agent_name="agent_a",
+                prompt_tokens=100,
+                response_tokens=50,
+                thoughts_tokens=20,
+                tool_use_tokens=10,
+            )
+        )
         breakdown = tracker.get_agent_breakdown("agent_a")
         assert breakdown["call_count"] == 1
         assert breakdown["total_prompt_tokens"] == 100
@@ -173,7 +191,8 @@ class TestBudgetAlerts:
     def test_warning_at_80_percent(self, tracker):
         tracker.record(TokenUsageRecord(prompt_tokens=850, session_id="s1"))
         alerts = tracker.get_budget_alerts(
-            {"prompt": 1000}, session_id="s1",
+            {"prompt": 1000},
+            session_id="s1",
         )
         assert len(alerts) >= 1
         assert alerts[0].severity == "warning"
@@ -182,7 +201,8 @@ class TestBudgetAlerts:
     def test_critical_at_100_percent(self, tracker):
         tracker.record(TokenUsageRecord(prompt_tokens=1100, session_id="s1"))
         alerts = tracker.get_budget_alerts(
-            {"prompt": 1000}, session_id="s1",
+            {"prompt": 1000},
+            session_id="s1",
         )
         assert any(a.severity == "critical" for a in alerts)
 
@@ -216,8 +236,11 @@ class TestLLMResponseAdapter:
         class FakeUsage:
             request_tokens = 100
             response_tokens = 50
+
         record = tracker.record_from_llm_response(
-            FakeUsage(), agent_name="a", session_id="s",
+            FakeUsage(),
+            agent_name="a",
+            session_id="s",
         )
         assert record is not None
         assert record.prompt_tokens == 100

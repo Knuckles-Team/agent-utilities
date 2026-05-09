@@ -228,7 +228,7 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
     historical_confidence = 0.5
     if knowledge_engine is not None:
         try:
-            from ..knowledge_graph.memory_retriever import MemoryRetriever
+            from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
             sm = MemoryRetriever(knowledge_engine)
             current = sm.get_current()

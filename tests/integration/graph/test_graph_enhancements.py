@@ -6,8 +6,8 @@ import networkx as nx
 import pytest
 
 from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.maintainer import GraphMaintainer
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 
 
 @pytest.fixture
@@ -91,7 +91,7 @@ def test_a2a_and_skill_ingestion(engine):
 import pytest
 
 
-@pytest.mark.xfail(reason="Keyword matching inconsistent in ephemeral test environment")
+
 def test_resource_discovery(engine):
     """Test find_relevant_callable_resources."""
     engine.ingest_a2a_agent_card(

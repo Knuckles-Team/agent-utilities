@@ -24,7 +24,9 @@ class TestRefinedSubtaskModel:
             node_id="python_programmer",
             refined_subtask="Implement JWT auth middleware for the FastAPI app",
         )
-        assert step.refined_subtask == "Implement JWT auth middleware for the FastAPI app"
+        assert (
+            step.refined_subtask == "Implement JWT auth middleware for the FastAPI app"
+        )
 
     def test_refined_subtask_serialization(self):
         """refined_subtask round-trips through JSON serialization."""
@@ -33,7 +35,9 @@ class TestRefinedSubtaskModel:
             refined_subtask="Find all REST API frameworks with built-in auth",
         )
         data = step.model_dump()
-        assert data["refined_subtask"] == "Find all REST API frameworks with built-in auth"
+        assert (
+            data["refined_subtask"] == "Find all REST API frameworks with built-in auth"
+        )
 
         restored = ExecutionStep.model_validate(data)
         assert restored.refined_subtask == step.refined_subtask

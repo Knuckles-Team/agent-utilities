@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.knowledge_graph.model_display import ModelDisplayOptimizer
+from agent_utilities.knowledge_graph.core.model_display import ModelDisplayOptimizer
 from agent_utilities.models.imodel import (
     DisplayComplexityBudget,
     DisplayStrategy,
@@ -74,7 +74,8 @@ class TestModelDisplayOptimizer:
         opt = ModelDisplayOptimizer()
         model_str = "Feature A:\n  knot=0.0 → 0.5\n  knot=1.0 → 0.8"
         result = opt.optimize_display(
-            model_str, strategy=DisplayStrategy.PIECEWISE_TABLE,
+            model_str,
+            strategy=DisplayStrategy.PIECEWISE_TABLE,
         )
         assert len(result) > 0
 
@@ -259,7 +260,11 @@ class TestBudgetEnforcement:
             strategy=DisplayStrategy.COEFFICIENT_SUMMARY,
         )
         # Should only show 3 features
-        feature_lines = [l for l in result.split("\n") if l.strip().startswith(("a", "b", "c", "d", "e", "f", "g"))]
+        feature_lines = [
+            l
+            for l in result.split("\n")
+            if l.strip().startswith(("a", "b", "c", "d", "e", "f", "g"))
+        ]
         assert len(feature_lines) <= 3
 
 

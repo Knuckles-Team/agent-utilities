@@ -1,0 +1,164 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix bfo:    <http://purl.obolibrary.org/obo/BFO_> .
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+
+<http://knuckles.team/kg/banking> a owl:Ontology ;
+    owl:imports <http://knuckles.team/kg> ;
+    rdfs:label "Enterprise Banking Ontology" ;
+    rdfs:comment """Banking-specific extensions for enterprise financial services.
+Covers ISO 20022 messaging, KYC/AML, correspondent banking,
+regulatory capital (Basel III), and credit risk modeling.""" .
+
+# =====================================================================
+# Banking Core Classes (CONCEPT:KG-2.85)
+# =====================================================================
+
+:BankAccount a owl:Class ;
+    rdfs:subClassOf :Account ;
+    rdfs:label "Bank Account" ;
+    rdfs:comment "A bank account with IBAN/SWIFT identifiers. Extends Account." .
+
+:NostroVostroAccount a owl:Class ;
+    rdfs:subClassOf :BankAccount ;
+    rdfs:label "Nostro/Vostro Account" ;
+    rdfs:comment "A correspondent banking account (Nostro = ours at theirs, Vostro = theirs at ours)." .
+
+:PaymentMessage a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Payment Message" ;
+    rdfs:comment """An ISO 20022 payment message (pacs.008 credit transfer,
+pain.001 payment initiation, camt.053 bank statement).
+BFO:GenericallyDependentContinuant.""" .
+
+:CorrespondentBank a owl:Class ;
+    rdfs:subClassOf :Organization ;
+    rdfs:label "Correspondent Bank" ;
+    rdfs:comment "A financial institution in a correspondent banking chain." .
+
+:KYCRecord a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "KYC Record" ;
+    rdfs:comment """Know Your Customer due diligence record with PEP screening,
+identity verification, and risk classification. FATF/FinCEN aligned.""" .
+
+:AMLAlert a owl:Class ;
+    rdfs:subClassOf :Incident ;
+    rdfs:label "AML Alert" ;
+    rdfs:comment """Anti-Money Laundering alert from transaction monitoring.
+Subclass of Incident for escalation workflows.""" .
+
+:SanctionsScreening a owl:Class ;
+    rdfs:subClassOf bfo:0000015 ;
+    rdfs:label "Sanctions Screening" ;
+    rdfs:comment "Real-time entity resolution against OFAC/EU/UN sanctions lists. BFO:Process." .
+
+:CreditRiskAssessment a owl:Class ;
+    rdfs:subClassOf :RiskAssessment ;
+    rdfs:label "Credit Risk Assessment" ;
+    rdfs:comment "PD/LGD/EAD credit risk model output. Extends RiskAssessment. IFRS 9/CECL aligned." .
+
+:RegulatoryCapital a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "Regulatory Capital" ;
+    rdfs:comment "Basel III/IV capital adequacy (CET1, AT1, Tier 2). BFO:GenericallyDependentContinuant." .
+
+:SettlementLeg a owl:Class ;
+    rdfs:subClassOf bfo:0000015 ;
+    rdfs:label "Settlement Leg" ;
+    rdfs:comment "A single leg in a multi-leg settlement process (T+1/T+2). BFO:Process." .
+
+# =====================================================================
+# Banking Object Properties (CONCEPT:KG-2.85)
+# =====================================================================
+
+:settledVia a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain :SettlementLeg ; rdfs:range :CorrespondentBank ;
+    rdfs:label "settled via" ;
+    rdfs:comment "Transitive correspondent banking chain for multi-leg settlement." .
+
+:screenedAgainst a owl:ObjectProperty ;
+    rdfs:domain :KYCRecord ; rdfs:range :SanctionsScreening ;
+    rdfs:label "screened against" .
+
+:hasCapitalRequirement a owl:ObjectProperty ;
+    rdfs:domain :BankAccount ; rdfs:range :RegulatoryCapital ;
+    rdfs:label "has capital requirement" .
+
+:nostroOf a owl:ObjectProperty ;
+    rdfs:domain :NostroVostroAccount ; rdfs:range :CorrespondentBank ;
+    rdfs:label "nostro of" ;
+    rdfs:comment "Our account held at the correspondent bank." .
+
+:vostroOf a owl:ObjectProperty ;
+    owl:inverseOf :nostroOf ;
+    rdfs:label "vostro of" ;
+    rdfs:comment "Their account held at our bank. Inverse of nostroOf." .
+
+:triggeredAlert a owl:ObjectProperty ;
+    rdfs:domain :FinancialTransaction ; rdfs:range :AMLAlert ;
+    rdfs:label "triggered alert" .
+
+:kycFor a owl:ObjectProperty ;
+    rdfs:domain :KYCRecord ; rdfs:range :Person ;
+    rdfs:label "kyc for" ;
+    rdfs:comment "Links a KYC record to the customer it verifies." .
+
+:creditAssessedBy a owl:ObjectProperty ;
+    rdfs:domain :BankAccount ; rdfs:range :CreditRiskAssessment ;
+    rdfs:label "credit assessed by" .
+
+# =====================================================================
+# Banking Datatype Properties (CONCEPT:KG-2.85)
+# =====================================================================
+
+:iban a owl:DatatypeProperty ;
+    rdfs:domain :BankAccount ; rdfs:range xsd:string ;
+    rdfs:label "IBAN" .
+
+:swiftCode a owl:DatatypeProperty ;
+    rdfs:domain :BankAccount ; rdfs:range xsd:string ;
+    rdfs:label "SWIFT/BIC code" .
+
+:messageType a owl:DatatypeProperty ;
+    rdfs:domain :PaymentMessage ; rdfs:range xsd:string ;
+    rdfs:label "message type" ;
+    rdfs:comment "ISO 20022 message type: pacs.008, pain.001, camt.053, etc." .
+
+:settlementDate a owl:DatatypeProperty ;
+    rdfs:domain :SettlementLeg ; rdfs:range xsd:date ;
+    rdfs:label "settlement date" .
+
+:settlementCycle a owl:DatatypeProperty ;
+    rdfs:domain :SettlementLeg ; rdfs:range xsd:string ;
+    rdfs:label "settlement cycle" ;
+    rdfs:comment "T+0, T+1, T+2 settlement timing." .
+
+:cet1Ratio a owl:DatatypeProperty ;
+    rdfs:domain :RegulatoryCapital ; rdfs:range xsd:float ;
+    rdfs:label "CET1 ratio" ;
+    rdfs:comment "Common Equity Tier 1 capital ratio (Basel III minimum 4.5%)." .
+
+:probabilityOfDefault a owl:DatatypeProperty ;
+    rdfs:domain :CreditRiskAssessment ; rdfs:range xsd:float ;
+    rdfs:label "probability of default" .
+
+:lossGivenDefault a owl:DatatypeProperty ;
+    rdfs:domain :CreditRiskAssessment ; rdfs:range xsd:float ;
+    rdfs:label "loss given default" .
+
+:exposureAtDefault a owl:DatatypeProperty ;
+    rdfs:domain :CreditRiskAssessment ; rdfs:range xsd:float ;
+    rdfs:label "exposure at default" .
+
+:pepStatus a owl:DatatypeProperty ;
+    rdfs:domain :KYCRecord ; rdfs:range xsd:boolean ;
+    rdfs:label "PEP status" ;
+    rdfs:comment "Politically Exposed Person flag." .
+
+:riskClassification a owl:DatatypeProperty ;
+    rdfs:domain :KYCRecord ; rdfs:range xsd:string ;
+    rdfs:label "risk classification" ;
+    rdfs:comment "Customer risk level: low, medium, high, prohibited." .

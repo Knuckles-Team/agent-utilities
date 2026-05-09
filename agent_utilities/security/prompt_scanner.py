@@ -26,7 +26,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     """Threat severity classification."""
 
     LOW = "low"
@@ -290,7 +290,7 @@ _INJECTION_PATTERNS: list[ThreatPattern] = [
 # 4. Manual: role-play, hypothetical, authority
 
 
-class JailbreakCategory(str, Enum):
+class JailbreakCategory(StrEnum):
     """Jailbreak attack categories from SoK taxonomy (CONCEPT:OS-5.4)."""
 
     TEMPLATE_BASED = "template_based"

@@ -498,7 +498,7 @@ def test_standard_table_definitions_include_base_columns() -> None:
 
 def test_owl_bridge_promotes_standard_node_types() -> None:
     """New standard node types are in PROMOTABLE_NODE_TYPES."""
-    from agent_utilities.knowledge_graph.owl_bridge import PROMOTABLE_NODE_TYPES
+    from agent_utilities.knowledge_graph.core.owl_bridge import PROMOTABLE_NODE_TYPES
 
     for t in (
         "document",
@@ -517,7 +517,7 @@ def test_owl_bridge_promotes_standard_node_types() -> None:
 
 def test_owl_bridge_promotes_standard_edge_types() -> None:
     """New standard edge types are in PROMOTABLE_EDGE_TYPES."""
-    from agent_utilities.knowledge_graph.owl_bridge import PROMOTABLE_EDGE_TYPES
+    from agent_utilities.knowledge_graph.core.owl_bridge import PROMOTABLE_EDGE_TYPES
 
     for t in (
         "was_generated_by",
@@ -547,8 +547,8 @@ def test_standard_inference_skos_broader_transitivity() -> None:
     """SKOS broader transitivity rule produces expected NX inference."""
     import networkx as nx
 
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-    from agent_utilities.knowledge_graph.inference_engine import InferenceEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
     g = nx.MultiDiGraph()
     g.add_node("concept:a", type="concept", name="A")
@@ -569,8 +569,8 @@ def test_standard_inference_prov_derivation_transitivity() -> None:
     """PROV-O was_derived_from transitivity rule works."""
     import networkx as nx
 
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-    from agent_utilities.knowledge_graph.inference_engine import InferenceEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
     g = nx.MultiDiGraph()
     g.add_node("doc:a", type="document", name="A")
@@ -591,8 +591,8 @@ def test_standard_inference_temporal_phase_containment() -> None:
     """Temporal phase containment rule works."""
     import networkx as nx
 
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
-    from agent_utilities.knowledge_graph.inference_engine import InferenceEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
     g = nx.MultiDiGraph()
     g.add_node("event:1", type="event", name="E1")

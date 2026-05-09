@@ -4,7 +4,7 @@
 import networkx as nx
 import pytest
 
-from agent_utilities.knowledge_graph.graph_validator import (
+from agent_utilities.knowledge_graph.security.graph_validator import (
     EDGE_TYPE_ALIASES,
     NODE_TYPE_ALIASES,
     GraphValidator,
@@ -27,12 +27,27 @@ def mock_engine():
 def populated_engine(mock_engine):
     """Engine with a small healthy graph."""
     g = mock_engine.graph
-    g.add_node("agent:genius", type="agent", name="genius-agent",
-               description="Primary orchestrator", importance_score=0.9)
-    g.add_node("tool:search", type="tool", name="search-tool",
-               description="Web search tool", importance_score=0.7)
-    g.add_node("skill:browser", type="skill", name="browser-skill",
-               description="Browser automation", importance_score=0.5)
+    g.add_node(
+        "agent:genius",
+        type="agent",
+        name="genius-agent",
+        description="Primary orchestrator",
+        importance_score=0.9,
+    )
+    g.add_node(
+        "tool:search",
+        type="tool",
+        name="search-tool",
+        description="Web search tool",
+        importance_score=0.7,
+    )
+    g.add_node(
+        "skill:browser",
+        type="skill",
+        name="browser-skill",
+        description="Browser automation",
+        importance_score=0.5,
+    )
     g.add_edge("agent:genius", "tool:search", type="provides", weight=1.0)
     g.add_edge("agent:genius", "skill:browser", type="has_skill", weight=0.8)
     g.add_edge("tool:search", "skill:browser", type="related_to", weight=0.5)
@@ -52,23 +67,19 @@ class TestTier1AutoFix:
 
         assert mock_engine.graph.nodes["n1"]["type"] == "symbol"
         assert mock_engine.graph.nodes["n2"]["type"] == "agent"
-        assert len([f for f in report.tier1_fixes
-                     if f.category == "type_alias"]) == 2
+        assert len([f for f in report.tier1_fixes if f.category == "type_alias"]) == 2
 
     def test_clamps_importance_score(self, mock_engine):
         """Scores outside [0, 1] should be clamped."""
-        mock_engine.graph.add_node("n1", type="agent", name="a",
-                                   importance_score=1.5)
-        mock_engine.graph.add_node("n2", type="tool", name="b",
-                                   importance_score=-0.3)
+        mock_engine.graph.add_node("n1", type="agent", name="a", importance_score=1.5)
+        mock_engine.graph.add_node("n2", type="tool", name="b", importance_score=-0.3)
 
         validator = GraphValidator(mock_engine)
         report = validator.validate()
 
         assert mock_engine.graph.nodes["n1"]["importance_score"] == 1.0
         assert mock_engine.graph.nodes["n2"]["importance_score"] == 0.0
-        assert len([f for f in report.tier1_fixes
-                     if f.category == "score_clamp"]) == 2
+        assert len([f for f in report.tier1_fixes if f.category == "score_clamp"]) == 2
 
     def test_sets_missing_name(self, mock_engine):
         """Nodes without names should get their ID as name."""
@@ -114,8 +125,7 @@ class TestTier2Integrity:
         validator = GraphValidator(mock_engine)
         report = validator.validate()
 
-        assert any(v.category == "missing_type"
-                    for v in report.tier2_violations)
+        assert any(v.category == "missing_type" for v in report.tier2_violations)
 
     def test_detects_untyped_edges(self, mock_engine):
         """Edges without type should be flagged."""
@@ -126,8 +136,7 @@ class TestTier2Integrity:
         validator = GraphValidator(mock_engine)
         report = validator.validate()
 
-        assert any(v.category == "untyped_edge"
-                    for v in report.tier2_violations)
+        assert any(v.category == "untyped_edge" for v in report.tier2_violations)
 
 
 class TestTier3Quality:
@@ -135,14 +144,14 @@ class TestTier3Quality:
 
     def test_detects_orphan_nodes(self, mock_engine):
         """Nodes with no edges should be flagged as orphans."""
-        mock_engine.graph.add_node("lonely", type="file", name="lonely.py",
-                                   description="A lonely file")
+        mock_engine.graph.add_node(
+            "lonely", type="file", name="lonely.py", description="A lonely file"
+        )
 
         validator = GraphValidator(mock_engine)
         report = validator.validate()
 
-        assert any(w.category == "orphan_node"
-                    for w in report.tier3_warnings)
+        assert any(w.category == "orphan_node" for w in report.tier3_warnings)
 
     def test_detects_self_referencing_edges(self, mock_engine):
         """Self-referencing edges should be flagged."""
@@ -152,21 +161,23 @@ class TestTier3Quality:
         validator = GraphValidator(mock_engine)
         report = validator.validate()
 
-        assert any(w.category == "self_reference"
-                    for w in report.tier3_warnings)
+        assert any(w.category == "self_reference" for w in report.tier3_warnings)
 
     def test_detects_generic_descriptions(self, mock_engine):
         """Generic placeholder descriptions should be flagged."""
-        mock_engine.graph.add_node("generic", type="tool", name="tool",
-                                   description="TODO")
-        mock_engine.graph.add_node("generic2", type="tool", name="tool2",
-                                   description="placeholder")
+        mock_engine.graph.add_node(
+            "generic", type="tool", name="tool", description="TODO"
+        )
+        mock_engine.graph.add_node(
+            "generic2", type="tool", name="tool2", description="placeholder"
+        )
 
         validator = GraphValidator(mock_engine)
         report = validator.validate()
 
-        generic_warnings = [w for w in report.tier3_warnings
-                            if w.category == "generic_description"]
+        generic_warnings = [
+            w for w in report.tier3_warnings if w.category == "generic_description"
+        ]
         assert len(generic_warnings) >= 2
 
 
@@ -178,8 +189,7 @@ class TestTier4Fatal:
         validator = GraphValidator(mock_engine)
         report = validator.validate()
 
-        assert any(f.category == "empty_graph"
-                    for f in report.tier4_fatal)
+        assert any(f.category == "empty_graph" for f in report.tier4_fatal)
         assert not report.is_healthy
 
     def test_healthy_graph_passes(self, populated_engine):

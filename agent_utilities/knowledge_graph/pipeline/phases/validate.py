@@ -6,8 +6,8 @@ Auto-fixes recoverable issues and logs integrity/quality reports.
 
 from typing import Any
 
-from agent_utilities.knowledge_graph.eval_capture import KGEvalCapture
-from agent_utilities.knowledge_graph.graph_validator import GraphValidator
+from agent_utilities.knowledge_graph.memory.eval_capture import KGEvalCapture
+from agent_utilities.knowledge_graph.security.graph_validator import GraphValidator
 
 from ..types import (
     PhaseResult,
@@ -28,7 +28,7 @@ async def execute_validate(
     Never blocks pipeline completion unless Tier 4 fatals are detected
     AND the graph is truly unusable (zero nodes).
     """
-    from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     # Build a temporary engine wrapper around the pipeline's graph
     engine = IntelligenceGraphEngine(

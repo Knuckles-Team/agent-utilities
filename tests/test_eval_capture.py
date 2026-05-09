@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_utilities.knowledge_graph.eval_capture import KGEvalCapture
+from agent_utilities.knowledge_graph.memory.eval_capture import KGEvalCapture
 from agent_utilities.models.knowledge_graph import EvaluationRecordNode
 
 

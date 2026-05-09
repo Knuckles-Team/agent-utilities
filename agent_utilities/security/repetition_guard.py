@@ -29,7 +29,7 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-class RepetitionVerdict(str, Enum):
+class RepetitionVerdict(StrEnum):
     """Outcome of a repetition check."""
 
     ALLOW = "allow"

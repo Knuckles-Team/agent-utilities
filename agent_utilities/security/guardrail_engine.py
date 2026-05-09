@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
-class GuardrailAction(str, Enum):
+class GuardrailAction(StrEnum):
     """Action to take when a guardrail is triggered. CONCEPT:OS-5.8."""
 
     BLOCK = "block"
@@ -32,7 +32,7 @@ class GuardrailAction(str, Enum):
     LOG = "log"
 
 
-class GuardrailPhase(str, Enum):
+class GuardrailPhase(StrEnum):
     """Phase at which the guardrail runs. CONCEPT:OS-5.8."""
 
     INPUT = "input"

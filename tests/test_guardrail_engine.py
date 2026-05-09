@@ -17,25 +17,33 @@ from agent_utilities.security.guardrail_engine import (
 
 @pytest.fixture
 def engine() -> GuardrailEngine:
-    return GuardrailEngine(rules=[
-        GuardrailRule(
-            name="block_secrets", pattern=r"(?:sk-|api_key\s*=\s*)[A-Za-z0-9]+",
-            action=GuardrailAction.BLOCK, phase=GuardrailPhase.INPUT,
-            description="Block API key leaks",
-        ),
-        GuardrailRule(
-            name="redact_ssn", pattern=r"\b\d{3}-\d{2}-\d{4}\b",
-            action=GuardrailAction.REDACT, phase=GuardrailPhase.OUTPUT,
-            replacement="[SSN REDACTED]",
-            description="Redact SSN from output",
-        ),
-        GuardrailRule(
-            name="warn_profanity", pattern="badword",
-            is_regex=False, action=GuardrailAction.WARN,
-            phase=GuardrailPhase.INPUT,
-            description="Warn on profanity",
-        ),
-    ])
+    return GuardrailEngine(
+        rules=[
+            GuardrailRule(
+                name="block_secrets",
+                pattern=r"(?:sk-|api_key\s*=\s*)[A-Za-z0-9]+",
+                action=GuardrailAction.BLOCK,
+                phase=GuardrailPhase.INPUT,
+                description="Block API key leaks",
+            ),
+            GuardrailRule(
+                name="redact_ssn",
+                pattern=r"\b\d{3}-\d{2}-\d{4}\b",
+                action=GuardrailAction.REDACT,
+                phase=GuardrailPhase.OUTPUT,
+                replacement="[SSN REDACTED]",
+                description="Redact SSN from output",
+            ),
+            GuardrailRule(
+                name="warn_profanity",
+                pattern="badword",
+                is_regex=False,
+                action=GuardrailAction.WARN,
+                phase=GuardrailPhase.INPUT,
+                description="Warn on profanity",
+            ),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +120,7 @@ class TestWarnMode:
         assert result.should_block is False
         assert len(result.triggered_results) >= 1
         warn_results = [
-            r for r in result.triggered_results
-            if r.action == GuardrailAction.WARN
+            r for r in result.triggered_results if r.action == GuardrailAction.WARN
         ]
         assert len(warn_results) >= 1
 
@@ -130,28 +137,39 @@ class TestWarnMode:
 
 class TestMultiRuleAggregation:
     def test_block_overrides_warn(self):
-        engine = GuardrailEngine(rules=[
-            GuardrailRule(
-                name="warn", pattern="test", is_regex=False,
-                action=GuardrailAction.WARN, phase=GuardrailPhase.INPUT,
-            ),
-            GuardrailRule(
-                name="block", pattern="dangerous",
-                is_regex=False, action=GuardrailAction.BLOCK,
-                phase=GuardrailPhase.INPUT,
-            ),
-        ])
+        engine = GuardrailEngine(
+            rules=[
+                GuardrailRule(
+                    name="warn",
+                    pattern="test",
+                    is_regex=False,
+                    action=GuardrailAction.WARN,
+                    phase=GuardrailPhase.INPUT,
+                ),
+                GuardrailRule(
+                    name="block",
+                    pattern="dangerous",
+                    is_regex=False,
+                    action=GuardrailAction.BLOCK,
+                    phase=GuardrailPhase.INPUT,
+                ),
+            ]
+        )
         result = engine.check_input("test and dangerous content")
         assert result.should_block is True
 
     def test_disabled_rules_skipped(self):
-        engine = GuardrailEngine(rules=[
-            GuardrailRule(
-                pattern="secret", is_regex=False,
-                action=GuardrailAction.BLOCK,
-                phase=GuardrailPhase.INPUT, enabled=False,
-            ),
-        ])
+        engine = GuardrailEngine(
+            rules=[
+                GuardrailRule(
+                    pattern="secret",
+                    is_regex=False,
+                    action=GuardrailAction.BLOCK,
+                    phase=GuardrailPhase.INPUT,
+                    enabled=False,
+                ),
+            ]
+        )
         result = engine.check_input("this is secret")
         assert result.should_block is False
 
@@ -216,20 +234,26 @@ class TestPolicyAdapter:
 class TestRedactionUtility:
     def test_regex_redaction(self):
         text = GuardrailEngine.apply_redaction(
-            "Call 555-1234 now", r"\d{3}-\d{4}", "[PHONE]",
+            "Call 555-1234 now",
+            r"\d{3}-\d{4}",
+            "[PHONE]",
         )
         assert text == "Call [PHONE] now"
 
     def test_keyword_redaction(self):
         text = GuardrailEngine.apply_redaction(
-            "Remove password here", "password", "[REDACTED]",
+            "Remove password here",
+            "password",
+            "[REDACTED]",
             is_regex=False,
         )
         assert text == "Remove [REDACTED] here"
 
     def test_invalid_regex_falls_back(self):
         text = GuardrailEngine.apply_redaction(
-            "test [bad regex", "[bad regex", "[FIXED]",
+            "test [bad regex",
+            "[bad regex",
+            "[FIXED]",
         )
         assert "[FIXED]" in text
 

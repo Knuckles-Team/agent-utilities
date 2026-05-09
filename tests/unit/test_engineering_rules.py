@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.knowledge_graph.rule_ingestor import (
+from agent_utilities.knowledge_graph.security.rule_ingestor import (
     RuleIngestor,
     _extract_list_items,
     _parse_frontmatter,

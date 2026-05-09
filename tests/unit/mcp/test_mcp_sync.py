@@ -43,7 +43,7 @@ def test_should_sync_no_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     fake_kg.IntelligenceGraphEngine.get_active.return_value = None
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     assert mgr.should_sync(cfg) is True
@@ -61,7 +61,7 @@ def test_should_sync_no_backend(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     assert mgr.should_sync(cfg) is True
@@ -81,7 +81,7 @@ def test_should_sync_no_last_sync(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     assert mgr.should_sync(cfg) is True
@@ -102,7 +102,7 @@ def test_should_sync_stale_config(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     assert mgr.should_sync(cfg) is True
@@ -124,7 +124,7 @@ def test_should_sync_up_to_date(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     assert mgr.should_sync(cfg) is False
@@ -144,7 +144,7 @@ def test_should_sync_execute_exception(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     assert mgr.should_sync(cfg) is True
@@ -164,7 +164,7 @@ def test_should_sync_empty_result(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
     assert mgr.should_sync(cfg) is True
@@ -262,7 +262,7 @@ async def test_sync_mcp_agents_no_backend(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = fake_engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
 
@@ -302,7 +302,7 @@ async def test_sync_mcp_agents_success_path(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
 
@@ -359,7 +359,7 @@ async def test_sync_mcp_agents_cleanup_exception(
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
         __import__("sys").modules,
-        "agent_utilities.knowledge_graph.engine",
+        "agent_utilities.knowledge_graph.core.engine",
         fake_kg,
     )
 

@@ -30,7 +30,7 @@ class AgentDeps:
         # Auto-register external ontologies with the active graph engine
         if self.external_ontologies:
             try:
-                from agent_utilities.knowledge_graph.engine import (
+                from agent_utilities.knowledge_graph.core.engine import (
                     IntelligenceGraphEngine,
                 )
 

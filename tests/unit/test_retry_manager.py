@@ -126,7 +126,7 @@ class TestSuccessChecks:
 
         config = RetryConfig(
             checks=[
-                SuccessCheck(command="false"),        # Fails
+                SuccessCheck(command="false"),  # Fails
                 SuccessCheck(command="echo 'never'"),  # Should not run
             ],
             timeout_seconds=10,

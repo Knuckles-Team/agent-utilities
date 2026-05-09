@@ -6,7 +6,7 @@ migration.  This shim preserves the old import path so existing tests and
 external integrations continue to work.
 """
 
-from agent_utilities.knowledge_graph.memory_retriever import (
+from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
     MemoryRetriever as SelfModel,
 )
 

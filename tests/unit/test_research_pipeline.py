@@ -73,7 +73,7 @@ class TestRelevanceScoring:
         score, domains = self.runner.score_paper(
             title="Multi-Agent Orchestration for Knowledge Graph Construction",
             abstract="We propose a novel multi-agent system with knowledge graph "
-                     "integration and memory-based retrieval for planning tasks.",
+            "integration and memory-based retrieval for planning tasks.",
         )
         assert score >= 3.0
         assert "orchestration" in domains
@@ -83,7 +83,7 @@ class TestRelevanceScoring:
         score, domains = self.runner.score_paper(
             title="Protein Folding via Monte Carlo Simulation",
             abstract="We study the thermodynamics of protein folding using "
-                     "traditional Monte Carlo methods on amino acid sequences.",
+            "traditional Monte Carlo methods on amino acid sequences.",
         )
         assert score < 1.0
 
@@ -91,7 +91,7 @@ class TestRelevanceScoring:
         score, domains = self.runner.score_paper(
             title="Efficient Inference for Large Language Models",
             abstract="We present a method for faster inference using reward "
-                     "shaping techniques.",
+            "shaping techniques.",
         )
         assert score >= 1.0
         assert len(domains) >= 1
@@ -192,7 +192,7 @@ class TestPipelineExecution:
                 "id": "2406.00001",
                 "title": "Multi-Agent Orchestration with Knowledge Graph Memory",
                 "abstract": "We propose a multi-agent system with knowledge graph "
-                           "and memory retrieval for planning coordination tasks.",
+                "and memory retrieval for planning coordination tasks.",
                 "authors": ["Alice"],
                 "url": "https://arxiv.org/abs/2406.00001",
             },
@@ -236,8 +236,13 @@ class TestPipelineExecution:
         )
 
         papers = [
-            {"id": "2406.00001", "title": "Already Known",
-             "abstract": "Already in KG", "authors": [], "url": ""},
+            {
+                "id": "2406.00001",
+                "title": "Already Known",
+                "abstract": "Already in KG",
+                "authors": [],
+                "url": "",
+            },
         ]
         report = await self.runner.run_daily_pipeline(papers=papers)
         assert report.papers_already_known == 1
@@ -256,15 +261,22 @@ class TestDigestGeneration:
             papers_skipped=2,
             records=[
                 IngestedPaperRecord(
-                    paper_id="1", title="Paper A", tier="relevant",
-                    relevance_score=4.5, domains_matched=["orchestration"],
+                    paper_id="1",
+                    title="Paper A",
+                    tier="relevant",
+                    relevance_score=4.5,
+                    domains_matched=["orchestration"],
                 ),
                 IngestedPaperRecord(
-                    paper_id="2", title="Paper B", tier="marginal",
+                    paper_id="2",
+                    title="Paper B",
+                    tier="marginal",
                     relevance_score=1.5,
                 ),
                 IngestedPaperRecord(
-                    paper_id="3", title="Paper C", tier="skipped",
+                    paper_id="3",
+                    title="Paper C",
+                    tier="skipped",
                     relevance_score=0.2,
                 ),
             ],
@@ -294,9 +306,13 @@ class TestWatchlists:
 
     def test_load_watchlists_from_kg(self):
         graph = nx.MultiDiGraph()
-        graph.add_node("policy:wl1", type="policy",
-                       policy_type="research_watchlist",
-                       name="Agent Safety", keywords=["alignment", "safety"])
+        graph.add_node(
+            "policy:wl1",
+            type="policy",
+            policy_type="research_watchlist",
+            name="Agent Safety",
+            keywords=["alignment", "safety"],
+        )
 
         engine = MagicMock()
         engine.graph = graph

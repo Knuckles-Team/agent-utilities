@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_utilities.knowledge_graph.ecosystem_topology import (
+from agent_utilities.knowledge_graph.core.ecosystem_topology import (
     EcosystemTopologyBuilder,
     PackageCategory,
     PackageInfo,
@@ -153,17 +153,13 @@ class TestPackageDiscovery:
         assert tui.is_kernel is False
         assert tui.category == PackageCategory.FRONTEND
 
-    def test_mcp_server_classification(
-        self, builder: EcosystemTopologyBuilder
-    ) -> None:
+    def test_mcp_server_classification(self, builder: EcosystemTopologyBuilder) -> None:
         packages = builder.discover_packages()
         container = next(p for p in packages if p.name == "container-manager-mcp")
         assert container.is_mcp_server is True
         assert container.category == PackageCategory.INFRASTRUCTURE
 
-    def test_media_mcp_categorization(
-        self, builder: EcosystemTopologyBuilder
-    ) -> None:
+    def test_media_mcp_categorization(self, builder: EcosystemTopologyBuilder) -> None:
         packages = builder.discover_packages()
         jellyfin = next(p for p in packages if p.name == "jellyfin-mcp")
         assert jellyfin.is_mcp_server is True
@@ -203,9 +199,7 @@ class TestPackageDiscovery:
 class TestDependencyGraph:
     """Tests for inter-package dependency graph construction."""
 
-    def test_builds_internal_deps_only(
-        self, builder: EcosystemTopologyBuilder
-    ) -> None:
+    def test_builds_internal_deps_only(self, builder: EcosystemTopologyBuilder) -> None:
         packages = builder.discover_packages()
         graph = builder.build_dependency_graph(packages)
         # TUI depends on agent-utilities (internal) but not textual (external)
@@ -268,9 +262,7 @@ class TestImpactRadius:
 class TestMCPCoverage:
     """Tests for frontend-to-MCP server coverage mapping."""
 
-    def test_frontends_consume_all_mcp(
-        self, builder: EcosystemTopologyBuilder
-    ) -> None:
+    def test_frontends_consume_all_mcp(self, builder: EcosystemTopologyBuilder) -> None:
         packages = builder.discover_packages()
         coverage = builder.compute_mcp_coverage(packages)
         assert "agent-terminal-ui" in coverage
@@ -307,9 +299,7 @@ class TestCategoryGroups:
 class TestTopologyReport:
     """Tests for markdown report generation."""
 
-    def test_report_contains_sections(
-        self, builder: EcosystemTopologyBuilder
-    ) -> None:
+    def test_report_contains_sections(self, builder: EcosystemTopologyBuilder) -> None:
         packages = builder.discover_packages()
         report = builder.generate_topology_report(packages)
         assert "# Ecosystem Topology Report" in report

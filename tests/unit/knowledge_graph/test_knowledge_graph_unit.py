@@ -1,7 +1,7 @@
 import networkx as nx
 import pytest
 
-from agent_utilities.knowledge_graph.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.models.codemap import CodemapArtifact
 
 

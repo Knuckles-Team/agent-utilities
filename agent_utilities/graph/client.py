@@ -12,7 +12,7 @@ async def get_graph_client():
     backend = get_active_backend()
     if backend is None:
         # Fallback to IntelligenceGraphEngine active instance if available
-        from ..knowledge_graph.engine import IntelligenceGraphEngine
+        from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_active()
         if engine and engine.backend:
@@ -23,7 +23,7 @@ async def get_graph_client():
 
 async def create_or_merge_node(node: GraphNode):
     """Pydantic-validated insert that works with your existing Cypher layer."""
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
 

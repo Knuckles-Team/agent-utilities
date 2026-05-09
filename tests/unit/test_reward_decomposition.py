@@ -250,8 +250,12 @@ class TestRewardDecomposer:
         """Accumulates records across multiple decompose() calls."""
         decomposer = RewardDecomposer()
 
-        decomposer.decompose("t1", [{"action": "a", "success": True}], goal_achieved=True)
-        decomposer.decompose("t2", [{"action": "b", "success": False}], goal_achieved=False)
+        decomposer.decompose(
+            "t1", [{"action": "a", "success": True}], goal_achieved=True
+        )
+        decomposer.decompose(
+            "t2", [{"action": "b", "success": False}], goal_achieved=False
+        )
 
         insights = decomposer.get_distillation_insights()
         assert insights["records_analyzed"] == 2
@@ -260,7 +264,9 @@ class TestRewardDecomposer:
     def test_clear(self):
         """Clear empties accumulated records."""
         decomposer = RewardDecomposer()
-        decomposer.decompose("t1", [{"action": "a", "success": True}], goal_achieved=True)
+        decomposer.decompose(
+            "t1", [{"action": "a", "success": True}], goal_achieved=True
+        )
         assert decomposer.get_distillation_insights()["records_analyzed"] == 1
 
         decomposer.clear()

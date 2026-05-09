@@ -10,7 +10,7 @@ import pytest
 from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import (
     Owlready2Backend,
 )
-from agent_utilities.knowledge_graph.owl_bridge import OWLBridge
+from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
 
 
 @pytest.fixture

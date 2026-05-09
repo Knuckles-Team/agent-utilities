@@ -97,7 +97,7 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
 
     This is the expensive operation that ``_RegistryCache`` wraps.
     """
-    from ..knowledge_graph.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine:

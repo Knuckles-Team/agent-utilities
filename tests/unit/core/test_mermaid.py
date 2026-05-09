@@ -1,6 +1,6 @@
 import networkx as nx
 
-from agent_utilities.knowledge_graph.engine import (
+from agent_utilities.knowledge_graph.core.engine import (
     FocusedSubgraph,
     IntelligenceGraphEngine,
 )

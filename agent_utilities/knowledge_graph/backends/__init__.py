@@ -1,19 +1,32 @@
 #!/usr/bin/python
 """Graph Database Backends.
 
-Provides the `GraphBackend` ABC and concrete implementations for LadybugDB,
-FalkorDB, Neo4j, and Vector-MCP. Use `create_backend()` to instantiate the correct
-backend from configuration or environment variables.
+Provides the `GraphBackend` ABC and concrete implementations for Memory,
+LadybugDB, FalkorDB, Neo4j, and PostgreSQL. Use `create_backend()` to
+instantiate the correct backend from configuration or environment variables.
+
+Architecture (Tiered Graph Engine):
+    The engine uses a two-tier architecture:
+    - **Tier 1 (Source of Truth)**: A persistent Cypher-capable backend
+      (LadybugDB/Neo4j/PostgreSQL) handles all CRUD, schema enforcement,
+      vector indexing, and Cypher queries.
+    - **Tier 2 (Compute Scratchpad)**: NetworkX is loaded on-demand via
+      ``load_subgraph()`` for graph algorithms (PageRank, VF2, spectral
+      clustering) that databases cannot perform natively.
+
+    The ``memory`` backend (pure NetworkX) is available for testing/CI
+    where no persistence or Cypher support is needed.
 
 Environment Variables:
-    GRAPH_BACKEND: Backend type ("ladybug", "falkordb", "neo4j"). Default: "ladybug".
+    GRAPH_BACKEND: Backend type. Default: "ladybug".
+        Supported: "memory", "ladybug", "falkordb", "neo4j", "postgresql".
     GRAPH_DB_PATH: File path for LadybugDB. Default: "knowledge_graph.db".
     GRAPH_DB_HOST: Host for FalkorDB/Neo4j. Default: "localhost".
     GRAPH_DB_PORT: Port for FalkorDB (6379) or Neo4j (7687).
-    GRAPH_DB_URI:  Full URI for Neo4j (e.g., "bolt://localhost:7687").
-    GRAPH_DB_USER: Username for Neo4j. Default: "neo4j".
-    GRAPH_DB_PASSWORD: Password for Neo4j. Default: "password".
-    GRAPH_DB_NAME: Database name for FalkorDB. Default: "agent_graph".
+    GRAPH_DB_URI:  Full URI for Neo4j or PostgreSQL.
+    GRAPH_DB_USER: Username for Neo4j/PostgreSQL. Default: "neo4j".
+    GRAPH_DB_PASSWORD: Password for Neo4j/PostgreSQL. Default: "password".
+    GRAPH_DB_NAME: Database name for FalkorDB/PostgreSQL. Default: "agent_graph".
 """
 
 import logging
@@ -22,7 +35,9 @@ import os
 from .base import GraphBackend
 from .falkordb_backend import FalkorDBBackend
 from .ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
+from .memory_backend import MemoryBackend
 from .neo4j_backend import Neo4jBackend
+from .postgresql_backend import PostgreSQLBackend
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +45,11 @@ _ACTIVE_BACKEND: GraphBackend | None = None
 
 __all__ = [
     "GraphBackend",
+    "MemoryBackend",
     "LadybugBackend",
     "FalkorDBBackend",
     "Neo4jBackend",
+    "PostgreSQLBackend",
     "LADYBUG_AVAILABLE",
     "create_backend",
     "get_active_backend",
@@ -65,20 +82,21 @@ def create_backend(
     """Factory function to create the appropriate graph backend.
 
     Resolves configuration from explicit arguments first, then falls back to
-    environment variables, then to sensible defaults. LadybugDB is the default
-    backend if nothing is specified.
+    environment variables, then to sensible defaults. LadybugDB (self-contained
+    SQLite + Cypher) is the default for zero-config startup with full
+    persistence. Use ``GRAPH_BACKEND=memory`` for testing/CI only.
 
     Args:
-        backend_type: One of "ladybug", "falkordb", "neo4j". Falls back to
-            ``GRAPH_BACKEND`` env var, then "ladybug".
+        backend_type: One of "memory", "ladybug", "falkordb", "neo4j",
+            "postgresql". Falls back to ``GRAPH_BACKEND`` env var,
+            then "ladybug".
         db_path: File path for LadybugDB. Falls back to ``GRAPH_DB_PATH``.
         host: Host for FalkorDB/Neo4j. Falls back to ``GRAPH_DB_HOST``.
         port: Port for FalkorDB/Neo4j. Falls back to ``GRAPH_DB_PORT``.
-        uri: Full URI for Neo4j. Falls back to ``GRAPH_DB_URI``.
-        user: Username for Neo4j. Falls back to ``GRAPH_DB_USER``.
-        password: Password for Neo4j. Falls back to ``GRAPH_DB_PASSWORD``.
-        db_name: Database name for FalkorDB. Falls back to ``GRAPH_DB_NAME``.
-
+        uri: Full URI for Neo4j/PostgreSQL. Falls back to ``GRAPH_DB_URI``.
+        user: Username for Neo4j/PostgreSQL. Falls back to ``GRAPH_DB_USER``.
+        password: Password for Neo4j/PostgreSQL. Falls back to ``GRAPH_DB_PASSWORD``.
+        db_name: Database name for FalkorDB/PostgreSQL. Falls back to ``GRAPH_DB_NAME``.
 
     Returns:
         A configured ``GraphBackend`` instance, or ``None`` if the requested
@@ -91,7 +109,11 @@ def create_backend(
     )
 
     backend: GraphBackend | None = None
-    if backend_type == "ladybug":
+
+    if backend_type == "memory":
+        backend = MemoryBackend()
+
+    elif backend_type == "ladybug":
         if not LADYBUG_AVAILABLE:
             logger.warning(
                 "LadybugDB requested but 'ladybug' package is not installed."
@@ -120,9 +142,19 @@ def create_backend(
             uri=resolved_uri, user=resolved_user, password=resolved_password
         )
 
+    elif backend_type == "postgresql":
+        resolved_uri = (
+            uri
+            or os.environ.get("GRAPH_DB_URI")
+            or "postgresql://localhost:5432/agent_utilities"
+        )
+        resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
+        backend = PostgreSQLBackend(dsn=resolved_uri, graph_name=resolved_name)
+
     else:
         logger.error(
-            f"Unknown graph backend type: '{backend_type}'. Supported: ladybug, falkordb, neo4j"
+            f"Unknown graph backend type: '{backend_type}'. "
+            f"Supported: memory, ladybug, falkordb, neo4j, postgresql"
         )
         return None
 
