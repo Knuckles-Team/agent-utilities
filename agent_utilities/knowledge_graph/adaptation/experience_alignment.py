@@ -29,8 +29,11 @@ class ExperienceAlignmentEngine:
             The ID of the ingested node.
         """
         logger.info(f"Ingesting Experience Node: {experience.id}")
-        # ExperienceNode inherits from RegistryNode, so it is ingested natively.
-        self.engine.add_registry_node(experience)
+        self.engine.add_node(
+            node_id=experience.id,
+            node_type="Experience",
+            properties=experience.model_dump(),
+        )
         return experience.id
 
     def retrieve_aligned_experiences(
@@ -72,10 +75,7 @@ class ExperienceAlignmentEngine:
                     name=row["name"],
                     condition="",
                     action="",
-                    tags=row["tags"] or [],
                     importance_score=row["score"] or 1.0,
-                    context={},  # Simplified for retrieval
-                    outcome="",
                 )
                 experiences.append(exp)
             except Exception as e:

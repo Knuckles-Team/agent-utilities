@@ -282,8 +282,8 @@ class RandomWalkExplorer:
         # Aggregate frequencies across walks
         total_freq: dict[str, float] = defaultdict(float)
         for _ in range(n_walks):
-            freq = self.explore(start_node, walk_length, restart_prob)
-            for node, f in freq.items():
+            freq_dict = self.explore(start_node, walk_length, restart_prob)
+            for node, f in freq_dict.items():
                 total_freq[node] += f
 
         # Normalize

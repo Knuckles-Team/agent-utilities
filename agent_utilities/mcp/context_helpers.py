@@ -86,7 +86,16 @@ def ctx_log(
         client_fn = getattr(ctx, level, None) or getattr(ctx, "info", None)
         if client_fn:
             try:
-                client_fn(message)
+                import asyncio
+                import inspect
+
+                res = client_fn(message)
+                if inspect.iscoroutine(res):
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(res)
+                    except RuntimeError:
+                        pass
             except Exception:
                 pass  # nosec: B110 - Never let client-side logging break tool execution
 

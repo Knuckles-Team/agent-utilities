@@ -102,7 +102,11 @@ class AutoSimilarityLinker:
         now = time.time()
 
         for candidate in candidates_with_embeddings:
-            if candidate.id == new_node.id:
+            if (
+                candidate.id == new_node.id
+                or not candidate.embedding
+                or not new_node.embedding
+            ):
                 continue
 
             sim = _cosine_similarity(new_node.embedding, candidate.embedding)
