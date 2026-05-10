@@ -489,7 +489,7 @@ def create_agent(
         system_prompt_str = system_prompt
 
     # Initialize Capabilities
-    agent_capabilities = []
+    agent_capabilities: list[Any] = []
 
     if stuck_loop_detection:
         agent_capabilities.append(

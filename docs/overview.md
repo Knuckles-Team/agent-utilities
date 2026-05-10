@@ -29,6 +29,7 @@ graph TD
         ORCH114["<b>ORCH-1.14: Ontological Fallback Chains</b>"]
         ORCH119["<b>ORCH-1.19: Dynamic Subgraph Orchestration</b>"]
         ORCH120["<b>ORCH-1.20: KG-Driven Pydantic Graph Engine</b>"]
+        ORCH121["<b>ORCH-1.21: Capability Wiring Engine</b>"]
     end
 
     %% Pillar 2: Epistemic Knowledge Graph
@@ -248,6 +249,8 @@ graph TD
 | **KG-2.75** | **Research Autopilot** | Automated hypothesis → backtest → report loop with configurable pass criteria (Sharpe, drawdown, win rate, profit factor). | `agent_utilities/domains/finance/research_autopilot.py` |
 | **KG-2.76** | **Strategy Sharing System** | Strategy cards with metadata, configuration presets, registry search, fork capability, and community marketplace. | `agent_utilities/domains/finance/strategy_sharing.py` |
 | **ORCH-1.19** | [**Dynamic Subgraph Orchestrator**](pillars/1_graph_orchestration/ORCH-1.19-Dynamic_Subgraph_Orchestrator.md) | Dynamically synthesizes subgraph transition logic from the Knowledge Graph on the fly without using predefined templates. Uses KG-2.41 Formal Graph Theory. | `agent_utilities/graph/dynamic_subgraph.py` |
+| **ORCH-1.20** | [**KG-Driven Pydantic Graph Engine**](pillars/1_graph_orchestration/ORCH-1.20-KG-Driven_Pydantic_Graph_Engine.md) | Connects Pydantic Graph state machines directly to the Active Knowledge Graph (KG-2.0). | `agent_utilities/graph/engine.py` |
+| **ORCH-1.21** | [**Capability Wiring Engine**](pillars/1_graph_orchestration/ORCH-1.21-Capability_Wiring_Engine.md) | Dynamic capability discovery and injection using the dual-interface CapabilityHandlerProtocol for seamless orchestrator integration. | `agent_utilities/capabilities/orchestrator.py` |
 | **AHE-3.17** | [**Long-Running Background Context Spawner**](pillars/3_agentic_harness_engineering/AHE-3.17-Long-Running_Background_Context_Spawner.md) | A module that polls background tasks via KG state and autonomously spawns specialized sub-agents by evaluating impact scores. | `agent_utilities/harness/background_spawner.py` |
 | **ECO-4.9** | [**Dynamic Tool Assignment Orchestration**](pillars/4_ecosystem_peripherals/ECO-4.9-Dynamic_Tool_Assignment_Orchestration.md) | Matches tool ontology to agent tasks dynamically at runtime based on task context and KG embeddings. | `agent_utilities/tools/dynamic_tool_orchestrator.py` |
 | **KG-2.52** | [**Ontological Team Sharing**](pillars/2_epistemic_knowledge_graph/KG-2.52-Ontological_Team_Sharing.md) | Serializes the dynamically created and successful subgraphs into OWL/Turtle ontology formats so they can be exported/imported as "shareable team compositions". | `agent_utilities/knowledge_graph/core/ontological_team_sharing.py` |

@@ -20,6 +20,8 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
+from agent_utilities.protocols.capability import CapabilityContext
+
 from ..models.knowledge_graph import RegistryNodeType, ToolCallNode
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,21 @@ class HooksCapability(AbstractCapability[Any]):
     _tool_sessions: dict[str, float] = field(
         default_factory=dict, init=False, repr=False
     )
+
+    @property
+    def capability_name(self) -> str:
+        return "hooks_capability"
+
+    def can_handle(self, context: CapabilityContext) -> bool:
+        return context.trigger_data.get("event") in [
+            "before_run",
+            "after_run",
+            "pre_tool_use",
+            "post_tool_use",
+        ]
+
+    async def execute(self, context: CapabilityContext) -> dict[str, Any]:
+        return {"status": "success", "action": "hook"}
 
     async def for_run(self, ctx: RunContext[Any]) -> HooksCapability:
         return replace(self)

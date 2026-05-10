@@ -10,14 +10,16 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelRequest, SystemPromptPart
 
-from ..models.knowledge_graph import MemoryNode, RegistryNodeType
+from agent_utilities.protocols.capability import CapabilityContext
+
+from ..models.knowledge_graph import RegistryNodeType, SelfEvaluationNode
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +35,18 @@ class ContextLimitWarner(AbstractCapability[Any]):
     critical_at: float = 0.90
     max_tokens: int | None = None
 
-    _has_warned: bool = False
-    _has_criticized: bool = False
+    _has_warned: bool = field(default=False, init=False, repr=False)
+    _has_criticized: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def capability_name(self) -> str:
+        return "context_limit_warner"
+
+    def can_handle(self, context: CapabilityContext) -> bool:
+        return context.trigger_data.get("event") == "before_model_run"
+
+    async def execute(self, context: CapabilityContext) -> dict[str, Any]:
+        return {"status": "success", "action": "warn_context"}
 
     async def for_run(self, ctx: RunContext[Any]) -> ContextLimitWarner:
         return replace(self)
@@ -54,32 +66,32 @@ class ContextLimitWarner(AbstractCapability[Any]):
 
         if ratio >= self.critical_at and not self._has_criticized:
             self._has_criticized = True
-            msg = f"CRITICAL: Context usage is at {ratio:.1%}. You are very close to the {limit} token limit. Prune your context or conclude immediately."
+            msg = f"CRITICAL: Context usage is at {ratio:.1%}. Limit is {limit} tokens. You MUST wrap up immediately."
+            request.parts = [SystemPromptPart(content=msg)] + list(request.parts)
 
-            # Graph integration
+            # Record event in knowledge graph if configured
             engine = getattr(ctx.deps, "graph_engine", None)
             if engine:
-                node = MemoryNode(
-                    id=f"ctx_pressure_{int(time.time())}",
-                    type=RegistryNodeType.MEMORY,
-                    name="Context Limit Warning",
-                    content=msg,
+                eval_node = SelfEvaluationNode(
+                    id=f"ctx_crit:{int(time.time())}",
+                    type=RegistryNodeType.SELF_EVALUATION,
+                    name="Context Limit Critical",
+                    evaluation=msg,
+                    confidence_calibration=1.0,
+                    task_difficulty=1.0,
                     importance_score=0.9,
-                    timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     metadata={
                         "ratio": ratio,
                         "limit": limit,
-                        "type": "context_pressure",
+                        "tokens": ctx.usage.total_tokens,
                     },
                 )
                 with contextlib.suppress(Exception):
-                    engine.graph.add_node(node.id, **node.model_dump())
-
-            request.parts.insert(0, SystemPromptPart(content=msg))
+                    engine.graph.add_node(eval_node.id, **eval_node.model_dump())
 
         elif ratio >= self.warn_at and not self._has_warned:
             self._has_warned = True
             msg = f"URGENT: Context usage is at {ratio:.1%}. Limit is {limit} tokens. Be concise."
-            request.parts.insert(0, SystemPromptPart(content=msg))
+            request.parts = [SystemPromptPart(content=msg)] + list(request.parts)
 
         return request
