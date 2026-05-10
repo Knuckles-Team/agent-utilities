@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.3 — Graph Integrity Validator.
 
 Non-blocking, tiered validation for the Unified Intelligence Graph.
@@ -26,7 +28,6 @@ Usage::
 See docs/emergent-architecture.md §CONCEPT:KG-2.3.
 """
 
-from __future__ import annotations
 
 import logging
 import re

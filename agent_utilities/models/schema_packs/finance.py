@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Finance Schema Pack — financial services domain profile.
 
 CONCEPT:KG-2.6, KG-2.7, AHE-3.8
@@ -10,7 +12,6 @@ Expanded with trading pipeline primitives (KG-2.6), risk scoring
 ontology (KG-2.7), and backtest evaluation nodes (AHE-3.8).
 """
 
-from __future__ import annotations
 
 from ..knowledge_graph import RegistryEdgeType, RegistryNodeType
 from ..schema_pack import BacklinkBoostStrategy, SchemaPack, SchemaPackMode

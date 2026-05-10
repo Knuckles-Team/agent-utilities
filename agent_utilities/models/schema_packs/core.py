@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Core Schema Pack — the default full-ontology profile.
 
 Activates all RegistryNodeType and RegistryEdgeType members.
@@ -5,7 +7,6 @@ This is the pack that loads when no explicit pack is configured,
 preserving full backward compatibility.
 """
 
-from __future__ import annotations
 
 from ..knowledge_graph import RegistryEdgeType, RegistryNodeType
 from ..schema_pack import BacklinkBoostStrategy, SchemaPack, SchemaPackMode

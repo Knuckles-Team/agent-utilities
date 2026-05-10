@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """Latent Space Anti-Collapse Regularizer.
 
 CONCEPT:KG-2.44 — Latent Space Anti-Collapse Regularizer
@@ -10,7 +12,6 @@ diversity-preserving consolidation, and predictive consistency scoring.
 Extends AHE-3.6 (EWC) with embedding diversity constraints.
 """
 
-from __future__ import annotations
 
 import logging
 from dataclasses import dataclass

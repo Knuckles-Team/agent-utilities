@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Prompt Chaining Pattern — CONCEPT:ORCH-1.1.
 
 Provides a declarative, multi-step prompt pipeline with intermediate
@@ -16,7 +18,6 @@ OWL alignment:
 See docs/design-patterns-alignment.md §CONCEPT:ORCH-1.1.
 """
 
-from __future__ import annotations
 
 import logging
 import time

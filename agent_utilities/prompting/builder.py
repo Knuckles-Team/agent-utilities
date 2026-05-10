@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Prompt Builder Module.
 
 CONCEPT:KG-2.14 — Project-Aware Context
@@ -16,7 +18,6 @@ and ``MEMORY.md`` are still read as plain markdown — they are not prompt
 blueprints, they are contextual memory surfaces.
 """
 
-from __future__ import annotations
 
 import json
 import logging

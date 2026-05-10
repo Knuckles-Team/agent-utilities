@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:ECO-4.5 — Provider Prompt Adaptation.
 
 Implements an abstracted provider adapter framework for per-provider
@@ -27,7 +29,6 @@ Environment Variables:
 See docs/overview.md §CONCEPT:ECO-4.5.
 """
 
-from __future__ import annotations
 
 import logging
 import os

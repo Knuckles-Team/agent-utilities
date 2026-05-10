@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Company Brain Infrastructure (CONCEPT:KG-2.51).
 
 Unified operational state layer that transforms the Knowledge Graph from a
@@ -15,7 +17,6 @@ Six infrastructure primitives:
     6. DataLevelPermissions — Node ACLs, classification labels, query filtering
 """
 
-from __future__ import annotations
 
 import logging
 import time

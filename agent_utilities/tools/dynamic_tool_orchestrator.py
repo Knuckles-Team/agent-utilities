@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Dynamic Tool Assignment Orchestration (CONCEPT:ECO-4.9).
 
 Matches tool ontology to agent tasks dynamically at runtime. Resolves the
 exact tools needed for a dynamically spawned agent by vectorizing the task schema.
 """
 
-from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any

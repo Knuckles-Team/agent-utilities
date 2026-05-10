@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Agent-to-Agent (A2A) Peer Management Module.
 
 This module provides a JSON-RPC client for executing tasks on remote A2A peer agents.
 All discovery and registration of peers is now handled via the Knowledge Graph.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging

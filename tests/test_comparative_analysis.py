@@ -157,7 +157,7 @@ class TestDoomLoopDetector:
 
     def test_consecutive_detection(self):
         """Three identical calls should trigger detection."""
-        from agent_utilities.security.doom_loop_detector import DoomLoopDetector
+        from agent_utilities.security.execution_stability_engine import DoomLoopDetector
 
         det = DoomLoopDetector(consecutive_threshold=3)
         det.record_call("shell", {"cmd": "ls"}, "file1")
@@ -171,7 +171,7 @@ class TestDoomLoopDetector:
 
     def test_different_results_no_loop(self):
         """Same args but different results should NOT trigger."""
-        from agent_utilities.security.doom_loop_detector import DoomLoopDetector
+        from agent_utilities.security.execution_stability_engine import DoomLoopDetector
 
         det = DoomLoopDetector(consecutive_threshold=3)
         det.record_call("poll", {"id": "1"}, "pending")
@@ -182,7 +182,7 @@ class TestDoomLoopDetector:
 
     def test_sequence_detection(self):
         """Repeating [A,B,A,B] should trigger sequence detection."""
-        from agent_utilities.security.doom_loop_detector import DoomLoopDetector
+        from agent_utilities.security.execution_stability_engine import DoomLoopDetector
 
         det = DoomLoopDetector(
             consecutive_threshold=5
@@ -197,7 +197,7 @@ class TestDoomLoopDetector:
 
     def test_corrective_prompt_generated(self):
         """Detected loops should produce corrective prompts."""
-        from agent_utilities.security.doom_loop_detector import DoomLoopDetector
+        from agent_utilities.security.execution_stability_engine import DoomLoopDetector
 
         det = DoomLoopDetector(consecutive_threshold=2)
         det.record_call("x", {}, "r")
@@ -208,7 +208,7 @@ class TestDoomLoopDetector:
 
     def test_reset(self):
         """Reset should clear all signatures."""
-        from agent_utilities.security.doom_loop_detector import DoomLoopDetector
+        from agent_utilities.security.execution_stability_engine import DoomLoopDetector
 
         det = DoomLoopDetector()
         det.record_call("a", {}, "r")
@@ -333,7 +333,7 @@ class TestHybridSearchScorer:
 
     def test_relevant_doc_ranked_first(self):
         """Document matching query should rank above irrelevant one."""
-        from agent_utilities.knowledge_graph.retrieval.hybrid_search_scorer import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             HybridSearchScorer,
         )
 
@@ -358,7 +358,7 @@ class TestHybridSearchScorer:
 
     def test_compound_name_splitting(self):
         """camelCase and snake_case should be split correctly."""
-        from agent_utilities.knowledge_graph.retrieval.hybrid_search_scorer import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             _split_compound_name,
         )
 
@@ -368,7 +368,7 @@ class TestHybridSearchScorer:
 
     def test_custom_config(self):
         """Custom config should be respected."""
-        from agent_utilities.knowledge_graph.retrieval.hybrid_search_scorer import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             HybridSearchScorer,
         )
         from agent_utilities.models.knowledge_graph import HybridSearchConfig

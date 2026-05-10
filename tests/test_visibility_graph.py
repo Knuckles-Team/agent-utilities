@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for CONCEPT:ORCH-1.1: Execution Visibility Graph.
 
 Validates the access_list field on ExecutionStep and the
@@ -5,7 +6,6 @@ _resolve_access_context() helper that filters results_registry
 for precise per-specialist context injection.
 """
 
-from __future__ import annotations
 
 from agent_utilities.graph.executor import _resolve_access_context
 from agent_utilities.models.graph import ExecutionStep, GraphPlan

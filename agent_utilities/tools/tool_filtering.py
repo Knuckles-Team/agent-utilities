@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Tool Filtering Module.
 
 This module provides utility functions for filtering skills and MCP tools based
@@ -7,7 +9,6 @@ from directory structures and robust extraction of metadata from various
 tool definition objects.
 """
 
-from __future__ import annotations
 
 import logging
 import os

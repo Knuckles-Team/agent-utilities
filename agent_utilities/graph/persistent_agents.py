@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Persistent Background Agents (CONCEPT:ORCH-1.19).
 
 Manages long-running background agents coordinated via the Knowledge Graph.
@@ -37,7 +39,6 @@ Agent types:
     - **Background**: General-purpose long-running agent
 """
 
-from __future__ import annotations
 
 import logging
 import time

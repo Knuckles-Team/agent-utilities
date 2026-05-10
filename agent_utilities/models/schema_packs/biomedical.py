@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Biomedical Schema Pack — clinical/healthcare domain profile.
 
 Optimized for biomedical agents managing medical entities, procedures,
@@ -5,7 +7,6 @@ conditions, regulations, and evidence chains. Includes SNOMED-CT
 OWL extension stub.
 """
 
-from __future__ import annotations
 
 from ..knowledge_graph import RegistryEdgeType, RegistryNodeType
 from ..schema_pack import BacklinkBoostStrategy, SchemaPack, SchemaPackMode

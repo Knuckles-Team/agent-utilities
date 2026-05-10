@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Graph Routing Steps.
 
 Core orchestration: routing, dispatching, parallel execution, and MCP routing.
 Extracted from the monolithic steps.py for maintainability.
 """
 
-from __future__ import annotations
 
 import asyncio
 import contextlib
@@ -49,7 +50,6 @@ __all__ = [
     "expert_executor_step",
     "dynamic_mcp_routing_step",
     "mcp_server_step",
-    "council_step",
 ]
 
 
@@ -313,7 +313,7 @@ async def router_step(
                             discovery_context += (
                                 "### SPECIALIST AFFINITIES (ACO Pheromone Trails)\n"
                                 + "\n".join(trail_lines)
-                                + "\nThese specialists have proven track records for these domains.\n\n"
+                                + "\nThese adaptive_agent_router have proven track records for these domains.\n\n"
                             )
             except Exception as e:
                 logger.debug(f"Self-Model proficiency injection failed: {e}")
@@ -343,7 +343,7 @@ async def router_step(
         )
 
         # CONCEPT:KG-2.1 — Reward-Driven Routing Optimization
-        # Leverage existing ACO pheromone trails (hidden value-add) to filter out low-performing specialists
+        # Leverage existing ACO pheromone trails (hidden value-add) to filter out low-performing adaptive_agent_router
         try:
             from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
@@ -368,14 +368,14 @@ async def router_step(
             logger.debug(f"Reward-driven routing optimization failed: {e}")
         if relevant:
             step_info = "\n".join([f"- {a.name}: {a.description}" for a in relevant])
-            # Append compact fallback list of OTHER specialists (name-only)
+            # Append compact fallback list of OTHER adaptive_agent_router (name-only)
             relevant_names = {a.name.lower() for a in relevant}
             other_names = [
                 tag for tag in specialist_tags if tag.lower() not in relevant_names
             ]
             if other_names:
                 step_info += (
-                    f"\n\nOther available specialists (request if needed): "
+                    f"\n\nOther available adaptive_agent_router (request if needed): "
                     f"{', '.join(other_names)}"
                 )
         else:
@@ -436,8 +436,8 @@ async def router_step(
             # Instruct the RLM to generate a GraphPlan
             rlm_result = await env.run_full_rlm(
                 f"Create a high-level execution plan for the query: {ctx.state.query}\n\n"
-                "Use the REPL to analyze available specialists and the project context. "
-                "Decompose the goal into steps that can be handled by the specialists. "
+                "Use the REPL to analyze available adaptive_agent_router and the project context. "
+                "Decompose the goal into steps that can be handled by the adaptive_agent_router. "
                 "You MUST output a valid JSON representation of a GraphPlan. "
                 "The GraphPlan should have 'steps' (list of {node_id, input_data}) and 'metadata' ({reasoning}). "
                 "Use FINAL_VAR('plan', <json_string>)."
@@ -717,7 +717,7 @@ async def dispatcher_step(
 
     # CONCEPT:OS-5.18 — Doom Loop Detection at transition boundary
     try:
-        from ..security.doom_loop_detector import DoomLoopDetector
+        from ..security.execution_stability_engine import DoomLoopDetector
 
         detector = DoomLoopDetector(session_id=ctx.state.session_id)
         # Feed node history as tool calls for pattern detection
@@ -766,7 +766,7 @@ async def dispatcher_step(
 
     # Phase-ordering guard: ensure research steps precede execution steps.
     # The LLM router may interleave them; we enforce discovery-first so that
-    # research results are available to all execution specialists.
+    # research results are available to all execution adaptive_agent_router.
     _RESEARCH_NODES = {"researcher", "architect"}
     if (
         ctx.state.step_cursor == 0
@@ -869,8 +869,8 @@ async def dispatcher_step(
         )
 
         # CONCEPT:ORCH-1.0 — Stigmergy Signal Board injection
-        # If prior specialists left signals, emit them so downstream
-        # specialists and the UI are aware of cross-node observations.
+        # If prior adaptive_agent_router left signals, emit them so downstream
+        # adaptive_agent_router and the UI are aware of cross-node observations.
         if ctx.state.signal_board:
             signal_summary = "; ".join(
                 f"{sig_type}: {', '.join(msgs[:3])}"
@@ -953,7 +953,7 @@ async def expert_executor_step(
     """Execute a single specialist task with built-in retry and fallback logic.
 
     Routes task execution to the appropriate functional handler (e.g.,
-    researcher_step, programmer nodes, or dynamic MCP specialists)
+    researcher_step, programmer nodes, or dynamic MCP adaptive_agent_router)
     based on the step's node_id. Implements per-node error recovery.
 
     Args:
@@ -1256,96 +1256,3 @@ async def mcp_server_step(
         logger.error(f"MCP Server Step '{server_name}' failed: {e}")
         ctx.state.error = f"MCP Server {server_name} failed: {e}"
         return "error_recovery"
-
-
-async def council_step(
-    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | str],
-) -> str:
-    """Run a multi-perspective council deliberation on the user's query.
-
-    Dispatches 5 advisors (Contrarian, First Principles, Expansionist,
-    Outsider, Executor) in parallel, anonymizes their responses for bias
-    prevention, runs peer reviewers, and produces a chairman-synthesized
-    :class:`CouncilVerdict`.
-
-    The council is invoked by the dispatcher when the router selects
-    ``council`` as a plan step, or when a specialist calls the council
-    as a tool for high-stakes decisions.
-
-    Args:
-        ctx: The pydantic-graph step context, potentially containing
-            a specific structured question via ``ExecutionStep``.
-
-    Returns:
-        The ID of the next node to execute (``'execution_joiner'``).
-
-    """
-    from .council import run_council_deliberation
-
-    _emit_node_lifecycle(ctx.deps.event_queue, "council", "node_start")
-
-    # If the dispatcher sent a specific question, use it
-    step_input = ctx.inputs
-    council_query = ctx.state.query
-    if isinstance(step_input, ExecutionStep) and step_input.input_data:
-        if isinstance(step_input.input_data, dict):
-            council_query = step_input.input_data.get("question", council_query)
-        elif isinstance(step_input.input_data, str):
-            council_query = step_input.input_data
-
-    try:
-        verdict, transcript = await run_council_deliberation(
-            query=council_query,
-            ctx_deps=ctx.deps,
-            ctx_state=ctx.state,
-        )
-
-        # Store structured verdict in results registry
-        node_uid = f"council_{ctx.state.step_cursor}"
-        ctx.state.results_registry[node_uid] = verdict.model_dump_json()
-        ctx.state.results["council"] = verdict.model_dump_json()
-
-        # Store markdown transcript for human inspection
-        ctx.state.results_registry[f"{node_uid}_transcript"] = transcript.to_markdown()
-
-        # Persist to Knowledge Graph as a DecisionNode (if available)
-        if ctx.deps.knowledge_engine:
-            try:
-                ctx.deps.knowledge_engine.add_node(
-                    node_id=f"council_verdict_{ctx.state.step_cursor}",
-                    node_type="Decision",
-                    properties={
-                        "name": f"Council Verdict: {council_query[:80]}",
-                        "description": verdict.final_recommendation,
-                        "rationale": "; ".join(verdict.key_insights),
-                        "confidence": verdict.confidence / 10.0,
-                    },
-                )
-            except Exception as e:
-                logger.debug(f"Failed to persist council verdict to KG: {e}")
-
-        logger.info(
-            f"[COUNCIL] Verdict stored. Confidence: {verdict.confidence}/10. "
-            f"Key insights: {len(verdict.key_insights)}"
-        )
-
-        _emit_node_lifecycle(
-            ctx.deps.event_queue,
-            "council",
-            "node_complete",
-            next_node="execution_joiner",
-        )
-        return "execution_joiner"
-
-    except Exception as e:
-        logger.error(f"Council deliberation failed: {e}")
-        ctx.state.results_registry[f"council_{ctx.state.step_cursor}"] = (
-            f"Council failed: {e}"
-        )
-        _emit_node_lifecycle(
-            ctx.deps.event_queue,
-            "council",
-            "node_complete",
-            next_node="execution_joiner",
-        )
-        return "execution_joiner"

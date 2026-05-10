@@ -14,13 +14,13 @@ Deploying autonomous systems in production introduces severe risks:
 ## How It Works (Implementation)
 
 ### Proactive Security & Jailbreak Defense (OS-5.4 & OS-5.12)
-The **Prompt Injection Scanner** intercepts all inputs and tool outputs, matching them against 25+ threat vectors (e.g., reverse shells, data exfiltration). The **Jailbreak Robustness Hardening** module implements a 4-category taxonomy defending against advanced attacks like GCG adversarial suffixes and LLM context boundary confusion.
+The **Threat Defense Engine (Injection)** intercepts all inputs and tool outputs, matching them against 25+ threat vectors (e.g., reverse shells, data exfiltration). The **Threat Defense Engine (Jailbreak)** module implements a 4-category taxonomy defending against advanced attacks like GCG adversarial suffixes and LLM context boundary confusion.
 
 ### Topological Vulnerability Scanning (OS-5.11)
 Moving beyond text regex, the system scans the actual execution graph (the HTN planner output) for structural vulnerabilities. By leveraging the Analogy Engine (KG-2.15), it matches current execution trajectories against known "risk subgraphs" (e.g., untrusted data flow into a shell execution node) and halts execution.
 
 ### Doom-Loop Detectors & Tool Repetitions (OS-5.18 & OS-5.5)
-The **Enhanced Doom-Loop Detector** monitors tool call signatures and execution histories. If an agent repeats an identical sequence of actions without making state progress, the **Tool Repetition Guard** cuts the execution and dynamically injects a corrective prompt into the LLM context, forcing it to change strategies.
+The **Execution Stability Engine (Doom-Loop)** monitors tool call signatures and execution histories. If an agent repeats an identical sequence of actions without making state progress, the **Execution Stability Engine (Repetition Guard)** cuts the execution and dynamically injects a corrective prompt into the LLM context, forcing it to change strategies.
 
 ### Observability & Audit Logging (OS-5.7 & OS-5.9)
 The OS implements a strict append-only **Audit Logger** capturing 30+ action constants. The **Token Usage Tracker** provides 4-bucket granular analytics (prompt, response, thoughts, tool_use) with per-session budgets and threshold alerting to enforce strict USD cost control.
@@ -33,9 +33,9 @@ The OS implements a strict append-only **Audit Logger** capturing 30+ action con
 
 ## Key Concepts Leveraged
 - **OS-5.0**: Agent OS Kernel
-- **OS-5.4**: Prompt Injection Scanner
-- **OS-5.5**: Tool Repetition Guard
+- **OS-5.4**: Threat Defense Engine (Injection)
+- **OS-5.5**: Execution Stability Engine (Repetition Guard)
 - **OS-5.7**: Audit Logger
-- **OS-5.11**: Topological Vulnerability Scanner
-- **OS-5.12**: Jailbreak Robustness Hardening
-- **OS-5.18**: Enhanced Doom-Loop Detector
+- **OS-5.11**: Threat Defense Engine (Topological)
+- **OS-5.12**: Threat Defense Engine (Jailbreak)
+- **OS-5.18**: Execution Stability Engine (Doom-Loop)

@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Tests for the Memory Consolidation Engine.
 
 Concept: memory-consolidation
 """
 
-from __future__ import annotations
 
 from typing import cast
 

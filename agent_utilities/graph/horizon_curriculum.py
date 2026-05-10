@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:AHE-3.9 — Horizon-Aware Task Curriculum.
 
 Implements progressive horizon scheduling derived from the "Long-Horizon
@@ -27,7 +29,6 @@ Integrates with:
 See docs/overview.md §CONCEPT:AHE-3.9.
 """
 
-from __future__ import annotations
 
 import logging
 import uuid

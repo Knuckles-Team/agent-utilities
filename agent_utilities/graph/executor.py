@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Graph Executor Module.
 
 This module implements the core logic for executing specialized agent nodes
@@ -7,7 +9,6 @@ domain-specific specialist logic, circuit breaker health checks, and
 automated fallback strategies for resilience in production workflows.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging
@@ -33,8 +34,8 @@ from .config_helpers import (
     load_node_agents_registry,
     load_specialized_prompts,
 )
+from .dynamic_graph_orchestrator import run_graph
 from .hsm import check_specialist_preconditions, on_enter_specialist, on_exit_specialist
-from .runner import run_graph
 from .state import GraphDeps, GraphState
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 # Simple per-node-id tier heuristic used when the Knowledge Graph registry
 # does not carry an explicit ``default_tier``. Keeps parity with the
-# description in AGENTS.md: cheap/fast models for discovery specialists,
+# description in AGENTS.md: cheap/fast models for discovery adaptive_agent_router,
 # heavy/reasoning models for the planner and synthesizer.
 _SPECIALIST_TIER_HINTS: dict[str, str] = {
     "researcher": "light",
@@ -412,7 +413,7 @@ async def _get_domain_tools(
 def get_step_descriptions() -> str:
     """Generate a formatted catalog of expert capabilities for the LLM planner.
 
-    Combines static roles, discovered A2A peers, and registered MCP specialists
+    Combines static roles, discovered A2A peers, and registered MCP adaptive_agent_router
     into a cohesive markdown list used in system prompts.  Uses the unified
     :func:`discover_all_specialists` roster so that both MCP and A2A sources
     are enumerated through the same code path.
@@ -447,7 +448,6 @@ def get_step_descriptions() -> str:
         "debugger_expert": "Interpreting error logs and fixing complex bugs.",
         "verifier": "Final quality gate. Validates that the implementation meets the original query requirements.",
         "mcp_server": "General-purpose tool hub for any task not covered by specialized nodes.",
-        "council": "Multi-perspective advisory council for high-stakes decisions. Spawns 5 advisors with different thinking styles (Contrarian, First Principles, Expansionist, Outsider, Executor), runs anonymous peer review, and produces a chairman verdict with confidence score. Use for strategy questions, architectural decisions, or when the user explicitly requests 'council this' or asks for diverse perspectives.",
         "recursive_orchestrator": (
             "CONCEPT:ORCH-1.1 — Recursive graph re-orchestration. Use when the "
             "current plan has failed and needs a fundamentally different approach. "
@@ -578,7 +578,7 @@ async def _execute_dynamic_mcp_agent(
             f"Address this feedback in your response by being more thorough or providing the missing data."
         )
 
-    # CONCEPT:ORCH-1.0 — Inject signal board observations from prior specialists
+    # CONCEPT:ORCH-1.0 — Inject signal board observations from prior adaptive_agent_router
     if ctx.state.signal_board:
         signal_lines = []
         for sig_type, messages in ctx.state.signal_board.items():
@@ -587,7 +587,7 @@ async def _execute_dynamic_mcp_agent(
         if signal_lines:
             agent_sys_prompt += (
                 "\n\n### OBSERVATIONS FROM PRIOR SPECIALISTS\n"
-                "Other specialists have flagged the following for your awareness:\n"
+                "Other adaptive_agent_router have flagged the following for your awareness:\n"
                 + "\n".join(signal_lines[:10])
                 + "\nConsider these signals when performing your task."
             )
@@ -789,7 +789,7 @@ async def _execute_dynamic_mcp_agent(
             output_retries=2,
         )
 
-        # Tool-count telemetry: surfaces blind or overloaded specialists
+        # Tool-count telemetry: surfaces blind or overloaded adaptive_agent_router
         emit_graph_event(
             ctx.deps.event_queue,
             "tools_bound",
@@ -1083,10 +1083,10 @@ async def _attempt_specialist_fallback(
     ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
     failed_agent: MCPAgent,
 ) -> str | None:
-    """Implement a resilience strategy by falling back to sibling specialists.
+    """Implement a resilience strategy by falling back to sibling adaptive_agent_router.
 
     If a targeted expert fails or is unavailable, this helper searches for
-    other specialists from the same MCP server. It scores candidate siblings
+    other adaptive_agent_router from the same MCP server. It scores candidate siblings
     using keyword intersection between the query and the specialist tags.
 
     Args:

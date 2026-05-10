@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Workspace Synchronization Phase (Phase 14).
 
 Uses the repository-manager (as a library or MCP) to ensure all projects
 defined in workspace.yml are cloned and available, then triggers graph ingestion.
 """
 
-from __future__ import annotations
 
 import logging
 from pathlib import Path

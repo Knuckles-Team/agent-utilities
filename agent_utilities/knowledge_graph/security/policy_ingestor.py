@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Constitution & Prompt Policy Ingestor — SDD governance into KG policies.
 
 CONCEPT:KG-2.2 — Engineering Rules Engine (Constitution Extension)
@@ -26,7 +28,6 @@ Usage::
     stats = ingestor.ingest_prompt_rules()
 """
 
-from __future__ import annotations
 
 import json
 import logging

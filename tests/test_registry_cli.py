@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for CONCEPT:OS-5.0 — Agent Registry."""
 
-from __future__ import annotations
 
 import json
 

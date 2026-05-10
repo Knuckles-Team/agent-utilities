@@ -1,4 +1,5 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for Chat Search, Agents MD, and Engineering Patterns facade modules.
 
 CONCEPT:KG-2.13, KG-2.14, AHE-3.14
@@ -8,7 +9,6 @@ previously existed only as inline implementations scattered across
 other modules.
 """
 
-from __future__ import annotations
 
 import textwrap
 from pathlib import Path

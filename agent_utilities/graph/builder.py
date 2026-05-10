@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Graph Builder Module.
 
 This module provides the factory and registration logic for constructing
@@ -6,7 +8,6 @@ pydantic-graph instances. It handles domain discovery, specialist node
 registration, and the definition of the graph's dynamic routing topology.
 """
 
-from __future__ import annotations
 
 import logging
 import os
@@ -51,7 +52,6 @@ from .state import GraphDeps, GraphState
 from .steps import (
     approval_gate_step,
     architect_step,
-    council_step,
     dispatcher_step,
     dynamic_mcp_routing_step,
     error_recovery_step,
@@ -495,7 +495,6 @@ def create_graph_agent(
 
     # Native Developer Steps
     _researcher = g.step(researcher_step, node_id="researcher")
-    _council = g.step(council_step, node_id="council")
 
     _dedicated_nodes = {
         "researcher",
@@ -526,7 +525,6 @@ def create_graph_agent(
         "browser_automation",
         "coordinator",
         "critique",
-        "council",
     }
 
     # --- Step Configuration Registry ---
@@ -622,7 +620,6 @@ def create_graph_agent(
         ("verifier", _verifier),
         ("synthesizer", _synthesizer),
         ("wide_search_joiner", _wide_search_joiner),
-        ("council", _council),
         ("mcp_router", _mcp_router),
         ("error_recovery", _error),
         ("onboarding", _onboarding),
@@ -681,10 +678,9 @@ def create_graph_agent(
         # Expert Nodes: Return to Joiner for synchronization
         g.edge_from(_researcher).label("Research Done").to(_research_joiner),
         g.edge_from(_architect).label("Design Done").to(_research_joiner),
-        # specialists returning strings are handled by dispatcher_route if they loop
+        # adaptive_agent_router returning strings are handled by dispatcher_route if they loop
         *(g.edge_from(node).to(_execution_joiner) for node in expert_nodes.values()),
         g.edge_from(_expert_executor).to(_execution_joiner),
-        g.edge_from(_council).to(_execution_joiner),
         # Special Handling for MCP Parallel Flow
         g.edge_from(_mcp_router).map().to(_mcp_server),
         g.edge_from(_mcp_server).to(_execution_joiner),

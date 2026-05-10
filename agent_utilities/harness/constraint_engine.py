@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Hierarchical Constraint Engine.
 
 CONCEPT:AHE-3.0 — Agentic Harness Engineering (Constraint Hierarchy)
@@ -20,7 +22,6 @@ Levels (from softest to hardest):
     4. TOOL_IMPLEMENTATION: Constraint is in the code itself (hardcoded)
 """
 
-from __future__ import annotations
 
 import logging
 import time

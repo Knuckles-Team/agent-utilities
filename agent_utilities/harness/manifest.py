@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Harness Change Manifest Models.
 
 CONCEPT:AHE-3.0 — Agentic Harness Engineering (Component & Decision Observability)
@@ -16,7 +18,6 @@ Manifests are stored in two locations:
     - Knowledge Graph ``ChangeManifest`` nodes — epistemic queries
 """
 
-from __future__ import annotations
 
 import time
 import uuid

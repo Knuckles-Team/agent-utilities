@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Auto-Similarity Memory Graph.
 
 CONCEPT:KG-2.36 — Auto-Similarity Memory Graph
@@ -17,7 +19,6 @@ Integrates with the existing ``MemoryRetriever`` and ``IntelligenceGraphEngine``
 for graph-augmented RAG retrieval shortcuts.
 """
 
-from __future__ import annotations
 
 import logging
 import math

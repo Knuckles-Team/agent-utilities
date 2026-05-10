@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Coverage push for agent_utilities.scheduler.
 
 Targets the mostly-pure-function paths: task CRUD on the Knowledge Graph
@@ -5,7 +6,6 @@ Targets the mostly-pure-function paths: task CRUD on the Knowledge Graph
 ``background_processor`` happy + error branches.
 """
 
-from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta

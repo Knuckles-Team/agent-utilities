@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for CONCEPT:OS-5.1 — Permissions Kernel."""
 
-from __future__ import annotations
 
 import time
 

@@ -9,7 +9,10 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ..core.engine import IntelligenceGraphEngine
-from ..id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
+from ..id_management.ontological_identifier import (
+    OntologicalIdentifierManager,
+    OntologicalIdentifierRegistry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +31,7 @@ class DocumentCleanup:
     def __init__(
         self,
         knowledge_graph: IntelligenceGraphEngine,
-        id_registry: UnifiedIDRegistry | None = None,
+        id_registry: OntologicalIdentifierRegistry | None = None,
     ):
         """
         Initialize the document cleanup operations.
@@ -38,8 +41,8 @@ class DocumentCleanup:
             id_registry: Optional unified ID registry
         """
         self.knowledge_graph = knowledge_graph
-        self.id_manager = UnifiedIDManager()
-        self.id_registry = id_registry or UnifiedIDRegistry()
+        self.id_manager = OntologicalIdentifierManager()
+        self.id_registry = id_registry or OntologicalIdentifierRegistry()
 
     async def cleanup_old_documents(
         self, age_days: int = 30, hard_delete_soft_deleted: bool = True

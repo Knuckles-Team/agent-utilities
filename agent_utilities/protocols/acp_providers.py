@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """ACP Providers Module.
 
 This module implements custom persistence providers for the ACP protocol.
@@ -11,7 +13,6 @@ plan tools mutate plan state, the result is also written to a workspace
 markdown file (default: ``PLAN.md``).
 """
 
-from __future__ import annotations
 
 import logging
 from collections.abc import Sequence

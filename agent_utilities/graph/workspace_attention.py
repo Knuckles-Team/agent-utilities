@@ -1,8 +1,10 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:ORCH-1.2 — Global Workspace Attention.
 
 Always-on attention mechanism for specialist output quality filtering.
-Inspired by Global Workspace Theory (GWT), specialists submit proposals
+Inspired by Global Workspace Theory (GWT), adaptive_agent_router submit proposals
 that are scored and ranked before integration into the final response.
 
 Architecture:
@@ -24,7 +26,6 @@ Integrates with:
 See docs/emergent-architecture.md §CONCEPT:ORCH-1.2.
 """
 
-from __future__ import annotations
 
 import logging
 import time
@@ -213,7 +214,7 @@ class WorkspaceAttention:
     ) -> list[str]:
         """Persist winning proposals to the KG for global visibility.
 
-        Creates ``ProposalNode`` entries and links them to their specialists.
+        Creates ``ProposalNode`` entries and links them to their adaptive_agent_router.
         These serve as training signal for the self-model (CONCEPT:KG-2.1).
 
         Args:

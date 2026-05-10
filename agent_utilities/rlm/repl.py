@@ -189,7 +189,7 @@ class RLMEnvironment:
     async def sub_agent_call_helper(
         self, prompt: str, agent_id: str | None = None, input_data: Any = None
     ) -> str:
-        """Recursive dispatch to other specialists via the graph dispatcher."""
+        """Recursive dispatch to other adaptive_agent_router via the graph dispatcher."""
         if not self.graph_deps:
             return "Error: graph_deps not available"
 

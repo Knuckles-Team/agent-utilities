@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """State Persistence Module.
 
 This module provides various backends for persisting graph execution state,
@@ -7,7 +9,6 @@ that long-running agentic workflows can be checkpointed and resumed across
 process restarts.
 """
 
-from __future__ import annotations
 
 import json
 import logging

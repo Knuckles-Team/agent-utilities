@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """High-Level Knowledge Distillation Orchestrator.
 
 CONCEPT:KG-2.23 — Knowledge Distillation Engine
@@ -19,7 +21,6 @@ Usage::
     result = engine.distill(iterations=3, base_threshold=0.65)
 """
 
-from __future__ import annotations
 
 import logging
 import re

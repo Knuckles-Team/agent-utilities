@@ -36,7 +36,7 @@ from agent_utilities.harness.trace_backend import (
     FileTraceBackend,
     create_trace_backend,
 )
-from agent_utilities.harness.trace_distiller import DistillationConfig, TraceDistiller
+from agent_utilities.harness.continuous_evaluation_engine import DistillationConfig, TraceDistiller
 from agent_utilities.harness.verifier import ManifestVerifier
 
 # ===========================================================================

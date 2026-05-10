@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:AHE-3.7 — Heavy Thinking Orchestration.
 
 Implements the two-stage parallel-then-deliberate pipeline from the
@@ -36,7 +38,6 @@ Integrates with:
 See docs/overview.md §CONCEPT:AHE-3.7.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging
@@ -188,7 +189,7 @@ class ComplexityEstimator:
 
         Args:
             query: The user query.
-            specialist_confidence: Optional confidence from specialists.
+            specialist_confidence: Optional confidence from adaptive_agent_router.
             specialist_diversity: Optional diversity count.
             deps: Graph dependencies for LLM access (Tier 3).
 
@@ -249,7 +250,7 @@ class ComplexityEstimator:
             score += max(0.0, 1.0 - confidence) * 0.6
 
         if diversity is not None:
-            # High diversity → high complexity (specialists disagree)
+            # High diversity → high complexity (adaptive_agent_router disagree)
             if diversity > 3:
                 score += 0.4
             elif diversity > 1:

@@ -15,7 +15,7 @@ The **Ecosystem & Peripherals** pillar handles the integration boundary between 
 ### Unified Tool Interface & MCP (ECO-4.0 & ECO-4.1)
 The foundation is the **Model Context Protocol (MCP)**. Instead of hardcoding integrations, `agent-utilities` acts as a universal client. Upon startup, it parses `mcp_config.json`, connects to N independent MCP servers (via `stdio` or SSE), and dynamically pulls all tools into the Knowledge Graph registry.
 
-### Dynamic Skill Evolution (ECO-4.8)
+### Skill Evolution Engine (ECO-4.8)
 When the system encounters a problem it lacks a tool for, the **SkillNeologismDetector** identifies the capability gap. The **SkillFactory** then uses execution traces to write a new, permanent `universal-skill` (complete with Python code and documentation). This ensures the agent's capabilities grow synchronously with the complexity of its environment.
 
 ### A2A Network & Consensus (ECO-4.2)
@@ -32,7 +32,7 @@ For financial workflows (linked to KG-2.46 Optimal Execution), the ecosystem imp
 
 ## Key Concepts Leveraged
 - **ECO-4.0**: Unified Tool Interface
-- **ECO-4.1**: MCP & Universal Skills
+- **ECO-4.1**: Capability Registry Engine
 - **ECO-4.2**: A2A Network & Consensus
 - **ECO-4.4**: Market Data Connector Protocol
-- **ECO-4.8**: Dynamic Skill Evolution
+- **ECO-4.8**: Skill Evolution Engine

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:AHE-3.10 — Decomposed Reward Signals.
 
 Separates trajectory-level reward (goal achievement) from step-level
@@ -30,7 +32,6 @@ Integrates with:
 See docs/overview.md §CONCEPT:AHE-3.10.
 """
 
-from __future__ import annotations
 
 import logging
 import time

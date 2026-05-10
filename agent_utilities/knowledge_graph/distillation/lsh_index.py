@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Locality-Sensitive Hashing Index for Knowledge Deduplication.
 
 CONCEPT:KG-2.23 — Knowledge Distillation Engine
@@ -18,7 +20,6 @@ Example::
     candidates = index.query(embedding_1, k=10)
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any

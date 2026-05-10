@@ -1,6 +1,9 @@
 """Capability Orchestrator."""
+
 from typing import Any
+
 from ..protocols.capability import CapabilityContext, CapabilityHandlerProtocol
+
 
 class CapabilityOrchestrator:
     def __init__(self):

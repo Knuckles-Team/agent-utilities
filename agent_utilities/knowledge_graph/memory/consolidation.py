@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Cognitive Consolidation Engine.
 
 Implements the *systems-consolidation* analogue (hippocampus → neocortex,
 McClelland, McNaughton & O'Reilly 1995) for the Unified Intelligence Graph.
 """
 
-from __future__ import annotations
 
 import hashlib
 import logging

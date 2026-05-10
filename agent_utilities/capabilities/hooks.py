@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Lifecycle hooks capability with knowledge graph integration.
 
 Provides PRE_TOOL_USE, POST_TOOL_USE, BEFORE_RUN, and AFTER_RUN hooks
 for auditing, safety, and automatic graph tracing.
 """
 
-from __future__ import annotations
 
 import contextlib
 import enum

@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Memory management mixin for IntelligenceGraphEngine.
 
 Extracted from engine.py. Contains CRUD operations for memory nodes.
 """
 # CONCEPT:ORCH-1.2 — Memory Management
 
-from __future__ import annotations
 
 import typing
 

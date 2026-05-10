@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Enterprise Banking Service Layer (CONCEPT:KG-2.85).
 
 Provides banking-specific services:
@@ -8,7 +10,6 @@ Provides banking-specific services:
 - Credit risk PD/LGD/EAD modeling
 """
 
-from __future__ import annotations
 
 import logging
 import uuid

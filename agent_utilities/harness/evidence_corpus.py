@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Layered Evidence Corpus Models.
 
 CONCEPT:AHE-3.0 — Agentic Harness Engineering (Experience Observability)
@@ -16,7 +18,6 @@ The Evolve Agent reads Layer 1 first, then drills into Layer 2 only
 for failure categories it decides to address, preserving token budget.
 """
 
-from __future__ import annotations
 
 import time
 import uuid

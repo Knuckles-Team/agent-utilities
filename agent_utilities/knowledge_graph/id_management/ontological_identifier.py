@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 
-class UnifiedIDManager:
+class OntologicalIdentifierManager:
     """
     Manager for generating and validating unified IDs.
 
@@ -65,7 +65,7 @@ class UnifiedIDManager:
         return f"{parent_doc_id}_entity_{entity_type}_{entity_index:04d}"
 
     @staticmethod
-    def is_unified_id(id_str: str) -> bool:
+    def is_ontological_identifier(id_str: str) -> bool:
         """
         Check if an ID follows the unified ID pattern.
 
@@ -78,44 +78,44 @@ class UnifiedIDManager:
         return id_str.startswith("doc_")
 
     @staticmethod
-    def extract_doc_id(unified_id: str) -> str | None:
+    def extract_doc_id(ontological_identifier: str) -> str | None:
         """
         Extract the parent document ID from a unified ID.
 
         Args:
-            unified_id: Unified ID (document, chunk, or entity)
+            ontological_identifier: Unified ID (document, chunk, or entity)
 
         Returns:
             Optional[str]: Parent document ID, or None if invalid
         """
-        if not unified_id.startswith("doc_"):
+        if not ontological_identifier.startswith("doc_"):
             return None
 
         # Extract base document ID (remove _chunk_* or _entity_* suffixes)
-        parts = unified_id.split("_")
+        parts = ontological_identifier.split("_")
         if len(parts) >= 2:
             # Return 'doc_{uuid}' part
             return f"{parts[0]}_{parts[1]}"
 
-        return unified_id
+        return ontological_identifier
 
     @staticmethod
-    def get_id_type(unified_id: str) -> str | None:
+    def get_id_type(ontological_identifier: str) -> str | None:
         """
         Determine the type of unified ID.
 
         Args:
-            unified_id: Unified ID string
+            ontological_identifier: Unified ID string
 
         Returns:
             Optional[str]: One of 'document', 'chunk', 'entity', or None
         """
-        if not unified_id.startswith("doc_"):
+        if not ontological_identifier.startswith("doc_"):
             return None
 
-        if "_chunk_" in unified_id:
+        if "_chunk_" in ontological_identifier:
             return "chunk"
-        elif "_entity_" in unified_id:
+        elif "_entity_" in ontological_identifier:
             return "entity"
         else:
             return "document"
@@ -177,7 +177,7 @@ class UnifiedIDManager:
 
 
 @dataclass
-class UnifiedIDRegistry:
+class OntologicalIdentifierRegistry:
     """
     Registry to track unified IDs and their synchronization status in the Knowledge Graph.
 

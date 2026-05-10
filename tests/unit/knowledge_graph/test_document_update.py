@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_utilities.knowledge_graph.id_management.unified_id import (
-    UnifiedIDManager,
-    UnifiedIDRegistry,
+from agent_utilities.knowledge_graph.id_management.ontological_identifier import (
+    OntologicalIdentifierManager,
+    OntologicalIdentifierRegistry,
 )
 from agent_utilities.knowledge_graph.pipeline.document_update import (
     DocumentUpdatePipeline,
@@ -25,8 +25,8 @@ class TestDocumentUpdatePipeline:
         pipeline = DocumentUpdatePipeline(knowledge_graph=knowledge_graph)
 
         assert pipeline.knowledge_graph == knowledge_graph
-        assert isinstance(pipeline.id_manager, UnifiedIDManager)
-        assert isinstance(pipeline.id_registry, UnifiedIDRegistry)
+        assert isinstance(pipeline.id_manager, OntologicalIdentifierManager)
+        assert isinstance(pipeline.id_registry, OntologicalIdentifierRegistry)
 
     def test_chunk_document(self):
         """Test document chunking."""
@@ -54,7 +54,7 @@ class TestDocumentUpdatePipeline:
 
         with pytest.raises(ValueError, match="Document .* not found"):
             await pipeline.update_document(
-                unified_id="doc_nonexistent", new_content="New content"
+                ontological_identifier="doc_nonexistent", new_content="New content"
             )
 
     @pytest.mark.asyncio
@@ -71,7 +71,7 @@ class TestDocumentUpdatePipeline:
 
         with pytest.raises(ValueError, match="Document .* is soft-deleted"):
             await pipeline.update_document(
-                unified_id="doc_123", new_content="New content"
+                ontological_identifier="doc_123", new_content="New content"
             )
 
     @pytest.mark.asyncio
@@ -86,7 +86,7 @@ class TestDocumentUpdatePipeline:
         }
 
         # Register document in registry
-        id_registry = UnifiedIDRegistry()
+        id_registry = OntologicalIdentifierRegistry()
         id_registry.register_document("doc_123", {"title": "Old Title"})
 
         pipeline = DocumentUpdatePipeline(
@@ -94,7 +94,7 @@ class TestDocumentUpdatePipeline:
         )
 
         result = await pipeline.update_document(
-            unified_id="doc_123",
+            ontological_identifier="doc_123",
             metadata_updates={"title": "New Title"},
             regenerate_embeddings=False,
         )

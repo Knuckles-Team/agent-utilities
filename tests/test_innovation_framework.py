@@ -1,4 +1,5 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for Innovation Framework modules (CONCEPT:OS-5.2 through CONCEPT:OS-5.2).
 
 Tests cover:
@@ -9,7 +10,6 @@ Tests cover:
 - CONCEPT:OS-5.2: Maintenance cron scheduling and budget management
 """
 
-from __future__ import annotations
 
 import json
 import os

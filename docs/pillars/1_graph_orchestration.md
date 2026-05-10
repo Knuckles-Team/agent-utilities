@@ -31,12 +31,12 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 
 - **Cost Efficiency**: By utilizing `Confidence-Gated Model Routing`, trivial queries fallback to smaller models (`gpt-4o-mini`), saving reasoning tokens for complex HTN planning.
 - **Architectural Safety**: `Subagent Lifecycle Patterns` and recursive execution constraints ensure the system fails gracefully and retries contextually rather than spinning in infinite loops.
-- **Test-Time Scaling**: The system achieves zero-shot generalization by spawning parallel agent rollouts and selecting the optimal path via `Swarm Preset` convergence and evolutionary aggregation.
+- **Test-Time Scaling**: The system achieves zero-shot generalization by spawning parallel agent rollouts and selecting the optimal path via dynamic subgraph convergence and evolutionary aggregation.
 
 ## Key Concepts Leveraged
-- **ORCH-1.0**: Unified Intelligence Graph
-- **ORCH-1.1**: Recursive HTN Planning & Execution Visibility
-- **ORCH-1.2**: Specialist Routing & Registry Hot Cache
+- **ORCH-1.0**: Dynamic Subgraph Orchestrator
+- **ORCH-1.1**: Agentic Planning Engine (Planning)
+- **ORCH-1.2**: Agentic Planning Engine (Routing)
 - **ORCH-1.3**: Execution Budgets & State Safety
 - **ORCH-1.7**: Spec-Driven Development
 - **ORCH-1.8**: Learned Agent Routing

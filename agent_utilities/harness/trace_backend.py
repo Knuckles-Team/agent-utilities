@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Agnostic Trace Backend Abstraction.
 
 CONCEPT:AHE-3.0 — Agentic Harness Engineering (Experience Observability)
@@ -26,7 +28,6 @@ Usage::
     traces = await backend.get_traces(round_id="round:abc123")
 """
 
-from __future__ import annotations
 
 import logging
 import os

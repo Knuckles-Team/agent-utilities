@@ -4,7 +4,7 @@ import networkx as nx
 import numpy as np
 import pytest
 
-from agent_utilities.knowledge_graph.core.graph_theory_primitives import (
+from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     chromatic_number_upper_bound,
     chromatic_schedule,
     count_paths_of_length,

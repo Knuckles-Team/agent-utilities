@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for CONCEPT:KG-2.6 — Financial Trading Pipeline KG Primitives."""
 
-from __future__ import annotations
 
 import pytest
 

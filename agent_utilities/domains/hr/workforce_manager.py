@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """HR/Workforce Management Service Layer (CONCEPT:KG-2.80).
 
 Provides workforce management capabilities:
@@ -8,7 +10,6 @@ Provides workforce management capabilities:
 - OKR cascading and tracking
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any

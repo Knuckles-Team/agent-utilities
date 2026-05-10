@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for Tool Repetition Guard (CONCEPT:OS-5.5)."""
 
-from __future__ import annotations
 
 import pytest
 
@@ -13,14 +13,14 @@ import pytest
 
 @pytest.fixture
 def guard():
-    from agent_utilities.security.repetition_guard import RepetitionGuard
+    from agent_utilities.security.execution_stability_engine import RepetitionGuard
 
     return RepetitionGuard(max_consecutive_repeats=3, max_calls_per_session=10)
 
 
 @pytest.fixture
 def strict_guard():
-    from agent_utilities.security.repetition_guard import RepetitionGuard
+    from agent_utilities.security.execution_stability_engine import RepetitionGuard
 
     return RepetitionGuard(max_consecutive_repeats=2, max_calls_per_session=5)
 
@@ -34,7 +34,7 @@ class TestConsecutiveRepetition:
     """Tests for consecutive identical call detection."""
 
     def test_first_call_allowed(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         result = guard.check_tool_call("shell", {"command": "ls"})
         assert result.verdict == RepetitionVerdict.ALLOW
@@ -42,7 +42,7 @@ class TestConsecutiveRepetition:
         assert result.total_count == 1
 
     def test_two_same_calls_allowed(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         guard.check_tool_call("shell", {"command": "ls"})
         result = guard.check_tool_call("shell", {"command": "ls"})
@@ -50,7 +50,7 @@ class TestConsecutiveRepetition:
         assert result.consecutive_count == 2
 
     def test_three_same_calls_denied(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         guard.check_tool_call("shell", {"command": "ls"})
         guard.check_tool_call("shell", {"command": "ls"})
@@ -60,7 +60,7 @@ class TestConsecutiveRepetition:
         assert "consecutively" in result.explanation
 
     def test_different_args_resets_consecutive(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         guard.check_tool_call("shell", {"command": "ls"})
         guard.check_tool_call("shell", {"command": "ls"})
@@ -69,7 +69,7 @@ class TestConsecutiveRepetition:
         assert result.consecutive_count == 1
 
     def test_different_tool_resets_consecutive(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         guard.check_tool_call("shell", {"command": "ls"})
         guard.check_tool_call("shell", {"command": "ls"})
@@ -78,7 +78,7 @@ class TestConsecutiveRepetition:
         assert result.consecutive_count == 1
 
     def test_strict_guard_two_repeats(self, strict_guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         strict_guard.check_tool_call("shell", {"command": "ls"})
         result = strict_guard.check_tool_call("shell", {"command": "ls"})
@@ -95,7 +95,7 @@ class TestSessionBudget:
     """Tests for per-tool session budget limits."""
 
     def test_within_budget(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         for i in range(10):
             # Vary args to avoid consecutive limit
@@ -103,7 +103,7 @@ class TestSessionBudget:
             assert result.verdict == RepetitionVerdict.ALLOW
 
     def test_exceed_budget(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         for i in range(10):
             guard.check_tool_call("shell", {"command": f"cmd-{i}"})
@@ -112,7 +112,7 @@ class TestSessionBudget:
         assert "session budget" in result.explanation
 
     def test_budget_per_tool(self, strict_guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         for i in range(5):
             strict_guard.check_tool_call("shell", {"command": f"cmd-{i}"})
@@ -131,7 +131,7 @@ class TestReset:
     """Tests for state reset."""
 
     def test_reset_clears_state(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         guard.check_tool_call("shell", {"command": "ls"})
         guard.check_tool_call("shell", {"command": "ls"})
@@ -186,7 +186,7 @@ class TestExperienceNode:
     """Tests for ExperienceNode creation from denied results."""
 
     def test_create_experience_on_deny(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         guard.check_tool_call("shell", {"command": "ls"})
         guard.check_tool_call("shell", {"command": "ls"})
@@ -223,7 +223,7 @@ class TestArgumentHashing:
 
     def test_same_args_same_hash(self, guard):
         """Identical arguments produce the same hash."""
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         guard.check_tool_call("shell", {"command": "ls", "cwd": "/home"})
         result = guard.check_tool_call("shell", {"cwd": "/home", "command": "ls"})
@@ -231,7 +231,7 @@ class TestArgumentHashing:
         assert result.consecutive_count == 2
 
     def test_none_args(self, guard):
-        from agent_utilities.security.repetition_guard import RepetitionVerdict
+        from agent_utilities.security.execution_stability_engine import RepetitionVerdict
 
         result = guard.check_tool_call("shell", None)
         assert result.verdict == RepetitionVerdict.ALLOW
@@ -247,7 +247,7 @@ class TestPolicyEngineIntegration:
 
     def test_policy_blocks_on_deny(self):
         from agent_utilities.security.guardrails import PolicyEngine
-        from agent_utilities.security.repetition_guard import RepetitionPolicy
+        from agent_utilities.security.execution_stability_engine import RepetitionPolicy
 
         policy = RepetitionPolicy()
         engine = PolicyEngine()
@@ -259,30 +259,30 @@ class TestPolicyEngineIntegration:
                 context={"tool_name": "shell", "tool_arguments": {"command": "ls"}}
             )
 
-        blocked = [r for r in results if r.policy_name == "repetition_guard"]
+        blocked = [r for r in results if r.policy_name == "execution_stability_engine"]
         assert len(blocked) == 1
         assert not blocked[0].allowed
 
     def test_policy_allows_normal(self):
         from agent_utilities.security.guardrails import PolicyEngine
-        from agent_utilities.security.repetition_guard import RepetitionPolicy
+        from agent_utilities.security.execution_stability_engine import RepetitionPolicy
 
         engine = PolicyEngine()
         engine.register(RepetitionPolicy())
         results = engine.evaluate(
             context={"tool_name": "shell", "tool_arguments": {"command": "ls"}}
         )
-        rep_result = [r for r in results if r.policy_name == "repetition_guard"]
+        rep_result = [r for r in results if r.policy_name == "execution_stability_engine"]
         assert len(rep_result) == 1
         assert rep_result[0].allowed
 
     def test_policy_no_context(self):
         from agent_utilities.security.guardrails import PolicyEngine
-        from agent_utilities.security.repetition_guard import RepetitionPolicy
+        from agent_utilities.security.execution_stability_engine import RepetitionPolicy
 
         engine = PolicyEngine()
         engine.register(RepetitionPolicy())
         results = engine.evaluate(input_text="hello")
-        rep_result = [r for r in results if r.policy_name == "repetition_guard"]
+        rep_result = [r for r in results if r.policy_name == "execution_stability_engine"]
         assert len(rep_result) == 1
         assert rep_result[0].allowed

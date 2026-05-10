@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:AHE-3.7 — Serialized Memory Cache for Heavy Thinking.
 
 Implements the structured cache that bridges parallel reasoning trajectories
@@ -22,7 +24,6 @@ Integrates with:
 See docs/overview.md §CONCEPT:AHE-3.7.
 """
 
-from __future__ import annotations
 
 import hashlib
 import logging

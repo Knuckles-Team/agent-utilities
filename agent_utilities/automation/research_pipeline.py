@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.11 — Automated Research Intelligence Pipeline.
 
 Orchestrates the end-to-end research ingestion cycle:
@@ -24,7 +26,6 @@ Integrates with:
 See docs/research-pipeline.md §CONCEPT:KG-2.11.
 """
 
-from __future__ import annotations
 
 import logging
 import time

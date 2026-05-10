@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Stardog OWL Backend.
 
 Full implementation using pystardog for remote Stardog server reasoning.
@@ -6,7 +8,6 @@ Stardog provides built-in OWL reasoning — queries with ``reasoning=True``
 automatically apply the ontology's inference rules.
 """
 
-from __future__ import annotations
 
 import logging
 import os

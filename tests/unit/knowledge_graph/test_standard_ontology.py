@@ -1,4 +1,5 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Unit tests for standard ontology integration.
 
 Covers the industry-standard ontology alignment (BFO, PROV-O, Schema.org,
@@ -14,7 +15,6 @@ Tests focus on:
 * OWL bridge promotable type coverage.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

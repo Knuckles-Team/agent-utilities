@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 """Default specialist package catalog for the Agent Registry.
 
 Ships 38 packages out-of-the-box:
-- 33 Knuckles-Team packages (4 OS subsystems + 2 OS services + 27 specialists)
+- 33 Knuckles-Team packages (4 OS subsystems + 2 OS services + 27 adaptive_agent_router)
 - 5 curated community MCP servers
 
 OS subsystems are auto-installed on first ``AgentRegistry`` init.
@@ -10,7 +12,6 @@ All other packages are placed in ``available/`` for on-demand install.
 Install commands default to ``uvx`` and versions are ``*`` (latest).
 """
 
-from __future__ import annotations
 
 import functools
 
@@ -468,7 +469,7 @@ def get_default_catalog() -> tuple[SpecialistPackage, ...]:
         SpecialistPackage(
             name="genius-agent",
             version="*",
-            description="Genius Agent — the orchestrator. Consumes MCP tools from all other specialists.",
+            description="Genius Agent — the orchestrator. Consumes MCP tools from all other adaptive_agent_router.",
             tags=["knuckles-team", "core"],
             container_config=ContainerConfig(
                 image="docker.io/knucklessg1/genius-agent:latest",

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Unit tests for the multi-model registry (models/model_registry.py).
 
 Covers:
@@ -14,7 +15,6 @@ Covers:
 - Local / zero-cost rendering (no `$` thrash on 0/0 rates).
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

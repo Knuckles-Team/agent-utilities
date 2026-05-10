@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Task Prioritization Engine — CONCEPT:ORCH-1.1.
 
 Multi-factor task prioritization with dynamic re-scoring, priority
@@ -11,7 +13,6 @@ OWL: :PrioritizedTask rdfs:subClassOf :Action
 See docs/design-patterns-alignment.md §CONCEPT:ORCH-1.1.
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any

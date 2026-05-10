@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Unified Service Registry (CONCEPT:ORCH-1.20).
 
 Central nervous system wiring all concept modules into the KG-driven
@@ -17,7 +19,6 @@ Architecture::
     Lazy-loaded module function invocation
 """
 
-from __future__ import annotations
 
 import importlib
 import logging
@@ -110,7 +111,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Background agent lifecycle (ORCH-1.19)",
     },
     {
-        "module": "agent_utilities.graph.routing_policy",
+        "module": "agent_utilities.graph.adaptive_agent_router",
         "entry": "TopologicalRoutingPolicy",
         "capability": "topological_routing",
         "layer": "orchestration",
@@ -134,7 +135,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "YAML-driven swarm templates (ORCH-1.4)",
     },
     {
-        "module": "agent_utilities.graph.retry_manager",
+        "module": "agent_utilities.security.execution_stability_engine",
         "entry": "RetryManager",
         "capability": "structured_retry",
         "layer": "orchestration",
@@ -142,7 +143,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Structured retry with hooks (AHE-3.11)",
     },
     {
-        "module": "agent_utilities.graph.context_filter",
+        "module": "agent_utilities.knowledge_graph.memory.elastic_context_manager",
         "entry": "VectorizedContextFilter",
         "capability": "context_filtering",
         "layer": "orchestration",
@@ -151,7 +152,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     # --- Layer 2: Security & Guards ---
     {
-        "module": "agent_utilities.security.prompt_scanner",
+        "module": "agent_utilities.security.threat_defense_engine",
         "entry": "PromptInjectionScanner",
         "capability": "prompt_scanning",
         "layer": "security",
@@ -159,7 +160,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Prompt injection detection (OS-5.4/5.12)",
     },
     {
-        "module": "agent_utilities.security.doom_loop_detector",
+        "module": "agent_utilities.security.execution_stability_engine",
         "entry": "DoomLoopDetector",
         "capability": "doom_loop_detection",
         "layer": "security",
@@ -167,15 +168,15 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Infinite loop prevention (OS-5.18)",
     },
     {
-        "module": "agent_utilities.security.repetition_guard",
+        "module": "agent_utilities.security.execution_stability_engine",
         "entry": "RepetitionGuard",
-        "capability": "repetition_guard",
+        "capability": "execution_stability_engine",
         "layer": "security",
         "domain": "general",
         "desc": "Tool repetition guard (OS-5.5)",
     },
     {
-        "module": "agent_utilities.security.topological_scanner",
+        "module": "agent_utilities.security.threat_defense_engine",
         "entry": "TopologicalVulnerabilityScanner",
         "capability": "vulnerability_scanning",
         "layer": "security",
@@ -191,7 +192,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Auth & permissions (OS-5.1)",
     },
     {
-        "module": "agent_utilities.security.guardrail_engine",
+        "module": "agent_utilities.security.threat_defense_engine",
         "entry": "GuardrailCallbackEngine",
         "capability": "guardrails",
         "layer": "security",
@@ -240,23 +241,23 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Similarity edge creation (KG-2.36)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.retrieval.graph_distillation",
+        "module": "agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine",
         "entry": "GraphDistillationMigrator",
-        "capability": "graph_distillation",
+        "capability": "semantic_retrieval_engine",
         "layer": "kg_intelligence",
         "domain": "general",
         "desc": "RAG→KG migration (KG-2.40)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.retrieval.unified_rag_kg",
-        "entry": "UnifiedRAGKGRetriever",
+        "module": "agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine",
+        "entry": "KGNativeRetrievalRetriever",
         "capability": "unified_retrieval",
         "layer": "kg_intelligence",
         "domain": "general",
         "desc": "KG-native retrieval (KG-2.38)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.retrieval.hybrid_search_scorer",
+        "module": "agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine",
         "entry": "HybridSearchScorer",
         "capability": "hybrid_search",
         "layer": "kg_intelligence",
@@ -272,23 +273,23 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Embedding quality monitoring (KG-2.42)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.core.causal_reasoning",
+        "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
         "entry": "CausalReasoningEngine",
-        "capability": "causal_reasoning",
+        "capability": "formal_reasoning_core",
         "layer": "kg_intelligence",
         "domain": "general",
         "desc": "Structural causal models (KG-2.43)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.core.probabilistic_reasoning",
+        "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
         "entry": "ProbabilisticReasoner",
-        "capability": "probabilistic_reasoning",
+        "capability": "formal_reasoning_core",
         "layer": "kg_intelligence",
         "domain": "general",
         "desc": "Bayesian belief propagation (KG-2.45)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.core.graph_theory_primitives",
+        "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
         "entry": "GraphTheoryPrimitives",
         "capability": "graph_theory",
         "layer": "kg_intelligence",
@@ -296,15 +297,15 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Formal graph algorithms (KG-2.41)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.core.formal_relations",
+        "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
         "entry": "FormalRelationsEngine",
-        "capability": "formal_relations",
+        "capability": "formal_reasoning_core",
         "layer": "kg_intelligence",
         "domain": "general",
         "desc": "Equivalence classes (KG-2.47)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.core.state_machines",
+        "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
         "entry": "StateMachineInvariantEngine",
         "capability": "state_invariants",
         "layer": "kg_intelligence",
@@ -312,7 +313,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "DFA invariant validation (KG-2.48)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.core.markov_transitions",
+        "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
         "entry": "MarkovTransitionForecaster",
         "capability": "markov_forecasting",
         "layer": "kg_intelligence",
@@ -337,7 +338,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     # --- Layer 4: Harness & Evolution ---
     {
-        "module": "agent_utilities.harness.trace_distiller",
+        "module": "agent_utilities.harness.continuous_evaluation_engine",
         "entry": "TraceDistiller",
         "capability": "trace_distillation",
         "layer": "harness",
@@ -353,7 +354,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Prompt mutation & selection (AHE-3.2)",
     },
     {
-        "module": "agent_utilities.harness.backtest_harness",
+        "module": "agent_utilities.harness.continuous_evaluation_engine",
         "entry": "BacktestHarness",
         "capability": "backtesting",
         "layer": "harness",

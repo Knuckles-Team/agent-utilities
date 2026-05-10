@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:OS-5.0 — Agent Registry (Package-Manager-Style Specialist Installation).
 
 Provides a CLI and programmatic API for installing, removing, and managing
@@ -25,7 +27,6 @@ Integrates with:
 See docs/agent-registry.md §CONCEPT:OS-5.2.
 """
 
-from __future__ import annotations
 
 import json
 import logging
@@ -86,7 +87,7 @@ class SpecialistPackage(BaseModel):
         dependencies: Other packages this one depends on.
         tags: Searchable tags.
         container_config: Optional container deployment config for
-            specialists that run as Docker/Podman containers.
+            adaptive_agent_router that run as Docker/Podman containers.
     """
 
     name: str

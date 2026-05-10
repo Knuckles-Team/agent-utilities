@@ -5,7 +5,7 @@
 
 import pytest
 
-from agent_utilities.observability.evaluation import (
+from agent_utilities.harness.continuous_evaluation_engine import (
     EvalResult,
     EvalRunner,
     EvalStrategy,

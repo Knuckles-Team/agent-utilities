@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for CONCEPT:ORCH-1.1: Conductor Workflow Specification.
 
 Validates that ExecutionStep.refined_subtask is correctly serialized,
@@ -5,7 +6,6 @@ preferred over raw queries in the executor, and properly integrated
 into the routing prompt.
 """
 
-from __future__ import annotations
 
 from agent_utilities.models.graph import ExecutionStep, GraphPlan
 

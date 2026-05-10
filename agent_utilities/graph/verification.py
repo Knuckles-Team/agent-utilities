@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Graph Verification Steps.
 
 Quality gates, synthesis, error recovery, and join synchronization.
 Extracted from the monolithic steps.py for maintainability.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging

@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Medical Domain Pydantic Models (CONCEPT:KG-2.90).
 
 Aligned to SNOMED-CT, ICD-10/11, LOINC, RxNorm, HL7 FHIR, CDISC.
 """
 
-from __future__ import annotations
 
 from enum import StrEnum
 from typing import Any

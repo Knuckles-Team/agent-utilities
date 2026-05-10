@@ -1,6 +1,6 @@
 import pytest
 
-from agent_utilities.knowledge_graph.core.state_machines import FormalStateMachine
+from agent_utilities.knowledge_graph.core.formal_reasoning_core import FormalStateMachine
 
 
 def test_state_machine_valid_transition():

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Company Brain Infrastructure Models (CONCEPT:KG-2.51).
 
 Pydantic models for the Company Brain operational state layer.
@@ -36,7 +38,6 @@ See Also:
     - ``docs/company_brain/index.md``
 """
 
-from __future__ import annotations
 
 import time
 import uuid

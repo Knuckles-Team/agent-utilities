@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """JWT and API Key Authentication Module.
 
 CONCEPT:OS-5.1 — Secrets & Authentication
@@ -15,7 +17,6 @@ When both are configured, a request is accepted if *either* credential is
 valid (logical OR), allowing gradual migration from API keys to JWT.
 """
 
-from __future__ import annotations
 
 import logging
 import time

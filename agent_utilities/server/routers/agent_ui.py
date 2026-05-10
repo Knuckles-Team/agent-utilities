@@ -122,7 +122,7 @@ async def ag_ui_endpoint(request: Request) -> Response:
         if _use_fast_path:
             from agent_utilities.protocols.agui_emitter import AGUIGraphEmitter
 
-            from ...graph.unified import execute_graph_iter
+            from ...graph.protocol_agnostic_execution import execute_graph_iter
 
             logger.info(
                 f"[LAYER:AG-UI] Direct graph execution fast-path for query: '{query[:50]}...'"

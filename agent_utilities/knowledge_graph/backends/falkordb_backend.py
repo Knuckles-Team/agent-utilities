@@ -1,7 +1,8 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """FalkorDB Backend Implementation."""
 
-from __future__ import annotations
 
 import logging
 from typing import Any

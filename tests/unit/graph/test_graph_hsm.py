@@ -71,8 +71,8 @@ def test_assert_state_valid():
 
 
 def test_static_route_query():
-    specialists = {"researcher": "Search for info", "git_expert": "Git operations"}
+    adaptive_agent_router = {"researcher": "Search for info", "git_expert": "Git operations"}
 
-    assert static_route_query("Please run researcher", specialists) == "researcher"
-    assert static_route_query("Use git expert here", specialists) == "git_expert"
-    assert static_route_query("Unknown task", specialists) is None
+    assert static_route_query("Please run researcher", adaptive_agent_router) == "researcher"
+    assert static_route_query("Use git expert here", adaptive_agent_router) == "git_expert"
+    assert static_route_query("Unknown task", adaptive_agent_router) is None

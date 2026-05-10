@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """Embedding Alignment Diagnostics.
 
 CONCEPT:KG-2.42 — Embedding Alignment Diagnostics
@@ -8,7 +10,6 @@ Provides Centered Kernel Alignment (CKA), Alignment Ratio diagnostics,
 adaptive sparse fusion, and continuous embedding health monitoring.
 """
 
-from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field

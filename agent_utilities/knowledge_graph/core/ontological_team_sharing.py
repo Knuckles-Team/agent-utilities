@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Ontological Team Sharing (CONCEPT:KG-2.52).
 
 Serializes dynamically created TeamCompositions into shareable
 semantic formats (OWL/Turtle) for export/import across instances.
 """
 
-from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
@@ -39,8 +40,8 @@ class OntologicalTeamExporter:
             "",
         ]
 
-        # Add specialists
-        for i, s in enumerate(composition.specialists):
+        # Add adaptive_agent_router
+        for i, s in enumerate(composition.adaptive_agent_router):
             spec_id = f"{composition.team_id}_spec_{i}"
             lines.append(
                 f"agent:{composition.team_id} agent:hasSpecialist agent:{spec_id} ."

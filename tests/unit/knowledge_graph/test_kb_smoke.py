@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Knowledge Base ingestion smoke test.
 
 Pytest migration of the Phase 6 Scenario 4 KB ingestion smoke from
@@ -10,7 +11,6 @@ the ingest still produces at least one ``Article`` node from the raw
 markdown, which is what these tests assert.
 """
 
-from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path

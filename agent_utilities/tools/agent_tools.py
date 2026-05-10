@@ -27,7 +27,7 @@ async def invoke_specialized_agent(
 ) -> str:
     """Invoke a specialized sub-agent for a targeted task.
 
-    This tool handles local specialists (Prompts, MCP) and remote A2A peers
+    This tool handles local adaptive_agent_router (Prompts, MCP) and remote A2A peers
     discovered via the Knowledge Graph.
 
     Args:
@@ -43,15 +43,15 @@ async def invoke_specialized_agent(
     from agent_utilities.agent.discovery import discover_all_specialists
     from agent_utilities.protocols.a2a import A2AClient
 
-    specialists = discover_all_specialists()
-    agent_info = next((a for a in specialists if a.name == agent_name), None)
+    adaptive_agent_router = discover_all_specialists()
+    agent_info = next((a for a in adaptive_agent_router if a.name == agent_name), None)
 
     if not agent_info:
         # Try fuzzy match
         agent_info = next(
             (
                 a
-                for a in specialists
+                for a in adaptive_agent_router
                 if a.tag == agent_name or a.name.lower() == agent_name.lower()
             ),
             None,
@@ -117,8 +117,10 @@ async def list_available_agents(ctx: RunContext[Any]) -> list[str]:
     """
     from agent_utilities.agent.discovery import discover_all_specialists
 
-    specialists = discover_all_specialists()
-    return [f"{s.name}: {s.description} (Source: {s.source})" for s in specialists]
+    adaptive_agent_router = discover_all_specialists()
+    return [
+        f"{s.name}: {s.description} (Source: {s.source})" for s in adaptive_agent_router
+    ]
 
 
 @tool_version("1.0.0")

@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Legal Domain Pydantic Models (CONCEPT:KG-2.95).
 
 Aligned to LKIF-Core, Akoma Ntoso, SALI/CLNR, EDRM.
 """
 
-from __future__ import annotations
 
 from enum import StrEnum
 from typing import Any

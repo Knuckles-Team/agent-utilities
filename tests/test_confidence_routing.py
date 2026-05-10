@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for CONCEPT:ORCH-1.2 — Confidence-Gated Model Router."""
 
-from __future__ import annotations
 
 import pytest
 

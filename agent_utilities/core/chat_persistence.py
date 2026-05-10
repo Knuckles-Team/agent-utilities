@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Chat Persistence Module.
 
 This module handles the serialization and retrieval of chat histories from
@@ -7,7 +9,6 @@ large tool outputs to manage context window usage, and listing/deleting
 stored conversations.
 """
 
-from __future__ import annotations
 
 import logging
 import sys
@@ -235,7 +236,7 @@ def compact_messages(
         Compacted message list.
     """
     try:
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             ContextCompactor,
         )
 

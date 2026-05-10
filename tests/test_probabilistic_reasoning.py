@@ -5,7 +5,7 @@ import math
 import networkx as nx
 import pytest
 
-from agent_utilities.knowledge_graph.core.probabilistic_reasoning import (
+from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     BayesianBeliefPropagator,
     RandomWalkExplorer,
     birthday_collision_probability,

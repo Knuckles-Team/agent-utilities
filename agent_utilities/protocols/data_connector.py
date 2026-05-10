@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Market Data Connector Protocol — generic data source abstraction.
 
 CONCEPT:ECO-4.4 — Market Data Connector Protocol
@@ -32,7 +34,6 @@ Usage::
     result = registry.fetch_with_fallback("AAPL", instrument_type="equity")
 """
 
-from __future__ import annotations
 
 import logging
 import time

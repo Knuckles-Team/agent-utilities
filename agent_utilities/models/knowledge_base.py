@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Knowledge Base Pydantic Models.
 
 Defines type-safe Pydantic models used throughout the KB system:
@@ -8,7 +10,6 @@ Defines type-safe Pydantic models used throughout the KB system:
 - Health report models for KB linting
 """
 
-from __future__ import annotations
 
 from typing import Any, Literal
 

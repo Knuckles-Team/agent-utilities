@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Context limit warning capability with graph integration.
 
 Monitors token usage and injects warnings into the model context as
 the limit is approached. Records context pressure events in the graph.
 """
 
-from __future__ import annotations
 
 import contextlib
 import logging

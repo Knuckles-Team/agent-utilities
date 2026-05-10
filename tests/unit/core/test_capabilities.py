@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Coverage push for agent_utilities.capabilities.*.
 
 CONCEPT:ORCH-1.2 — Resilient Agent Capabilities
@@ -12,7 +13,6 @@ Targets pure-logic / mocked-engine paths for:
   * hooks.HooksCapability (before/after hooks, cancel, modify)
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -792,7 +792,7 @@ async def test_context_warner_at_warn_threshold() -> None:
     req.parts = parts_list
     await w.before_model_run(ctx, req)
     # URGENT part inserted at index 0
-    assert len(parts_list) == 1
+    assert len(req.parts) == 1
 
 
 @pytest.mark.asyncio

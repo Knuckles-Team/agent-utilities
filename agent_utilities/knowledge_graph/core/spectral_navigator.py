@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Spectral Cluster Navigator.
 
 CONCEPT:KG-2.34 — Spectral Cluster Navigator
@@ -12,7 +14,6 @@ Uses ``numpy`` + ``scipy.sparse.linalg.eigsh`` for eigendecomposition
 nodes with ``broader``/``narrower`` edges for OWL-transitive hierarchies.
 """
 
-from __future__ import annotations
 
 import logging
 import uuid

@@ -53,7 +53,7 @@ async def main():
     # The agent will:
     # 1. Discover available MCP tools from mcp_config.json
     # 2. Partition tools into focused specialist agents (~10-20 tools each)
-    # 3. Register specialists as graph nodes
+    # 3. Register adaptive_agent_router as graph nodes
     # 4. Route queries to the appropriate specialist
     # 5. Execute tool calls with proper error handling and retries
 

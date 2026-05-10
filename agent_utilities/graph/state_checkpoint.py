@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Execution State Checkpointing (CONCEPT:ORCH-1.16).
 
 Bridges the ephemeral ``GraphState`` and the persistent Knowledge Graph.
@@ -18,7 +20,6 @@ The checkpointer is lightweight — it serializes only the essential
 GraphState fields, not the full agent context or model weights.
 """
 
-from __future__ import annotations
 
 import json
 import logging

@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Tests for cross-repository symbol resolution.
 
 Concept: cross-repo-symbols
 """
 
-from __future__ import annotations
 
 import networkx as nx
 import pytest

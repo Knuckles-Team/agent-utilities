@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Versioned KG Mutations (CONCEPT:KG-2.0 Enhancement).
 
 Derived from: Evolving Idea Graphs with Learnable Edits-and-Commits
@@ -10,7 +12,6 @@ Git-like mutation semantics for Knowledge Graph evolution:
 - KGDiffEngine — computes structural diffs between graph versions
 """
 
-from __future__ import annotations
 
 import hashlib
 import logging

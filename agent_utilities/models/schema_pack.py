@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Schema Pack Models — Domain-configurable KG profiles.
 
 CONCEPT:KG-2.2 — Schema Packs
@@ -29,7 +31,6 @@ Usage::
 See docs/knowledge-graph.md §Schema Packs for the full architecture guide.
 """
 
-from __future__ import annotations
 
 from enum import StrEnum
 from typing import ClassVar

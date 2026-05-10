@@ -1,4 +1,5 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for Cross-Pillar Synergy Engine.
 
 CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
@@ -7,7 +8,6 @@ Validates concept bridge discovery, pillar coupling computation,
 missing edge suggestions, and synergy report generation.
 """
 
-from __future__ import annotations
 
 import pytest
 
@@ -53,7 +53,7 @@ def sample_registry() -> dict:
         "KG-2.10": {
             "name": "Context Compaction",
             "pillar": "KG-2",
-            "module": "knowledge_graph/context_compactor.py",
+            "module": "knowledge_graph/elastic_context_manager.py",
         },
         "KG-2.11": {
             "name": "Research Pipeline",
@@ -68,12 +68,12 @@ def sample_registry() -> dict:
         "AHE-3.5": {
             "name": "Memory-Aware Test-Time Scaling",
             "pillar": "AHE-3",
-            "module": "harness/trace_distiller.py",
+            "module": "harness/continuous_evaluation_engine.py",
         },
         "AHE-3.12": {
             "name": "EvalRunner",
             "pillar": "AHE-3",
-            "module": "observability/evaluation.py",
+            "module": "harness.continuous_evaluation_engine.py",
         },
         "ECO-4.7": {
             "name": "Ecosystem Topology Map",
@@ -83,12 +83,12 @@ def sample_registry() -> dict:
         "OS-5.4": {
             "name": "Prompt Injection Scanner",
             "pillar": "OS-5",
-            "module": "security/prompt_scanner.py",
+            "module": "security/threat_defense_engine.py",
         },
         "OS-5.8": {
             "name": "Guardrail Engine",
             "pillar": "OS-5",
-            "module": "security/guardrail_engine.py",
+            "module": "security/threat_defense_engine.py",
         },
         "OS-5.9": {
             "name": "Telemetry & Observability",

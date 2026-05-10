@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for Token-Aware Context Compaction (CONCEPT:KG-2.10)."""
 
-from __future__ import annotations
 
 import pytest
 
@@ -13,7 +13,7 @@ import pytest
 
 @pytest.fixture
 def compactor():
-    from agent_utilities.knowledge_graph.memory.context_compactor import (
+    from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
         ContextCompactor,
     )
 
@@ -22,7 +22,7 @@ def compactor():
 
 @pytest.fixture
 def large_compactor():
-    from agent_utilities.knowledge_graph.memory.context_compactor import (
+    from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
         ContextCompactor,
     )
 
@@ -66,14 +66,14 @@ class TestTokenEstimation:
     """Tests for token estimation accuracy."""
 
     def test_empty_string(self):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             estimate_tokens,
         )
 
         assert estimate_tokens("") == 0
 
     def test_single_word(self):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             estimate_tokens,
         )
 
@@ -81,7 +81,7 @@ class TestTokenEstimation:
         assert result == 1  # 1 word * 1.33 ≈ 1
 
     def test_sentence(self):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             estimate_tokens,
         )
 
@@ -89,7 +89,7 @@ class TestTokenEstimation:
         assert 9 <= result <= 15  # 9 words * 1.33 ≈ 12
 
     def test_message_estimation(self):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             estimate_message_tokens,
         )
 
@@ -158,7 +158,7 @@ class TestDropMiddleStrategy:
     """Tests for the drop_middle compaction strategy."""
 
     def test_drops_middle_messages(self):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             ContextCompactor,
         )
 
@@ -173,7 +173,7 @@ class TestDropMiddleStrategy:
         assert result.messages[-1]["content"] == msgs[-1]["content"]
 
     def test_inserts_context_note(self):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             ContextCompactor,
         )
 
@@ -204,7 +204,7 @@ class TestProgressiveStrategy:
     """Tests for the progressive compaction strategy."""
 
     def test_progressive_reduces_tokens(self):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             ContextCompactor,
         )
 
@@ -241,7 +241,7 @@ class TestCompactionStrategy:
         assert result.strategy_used == "summarize_tools"
 
     def test_enum_strategy(self, compactor):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             CompactionStrategy,
         )
 
@@ -285,7 +285,7 @@ class TestCompactedResult:
     """Tests for CompactedResult model."""
 
     def test_default_values(self):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             CompactedResult,
         )
 
@@ -296,7 +296,7 @@ class TestCompactedResult:
         assert result.compaction_id.startswith("compact:")
 
     def test_compaction_id_unique(self):
-        from agent_utilities.knowledge_graph.memory.context_compactor import (
+        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
             CompactedResult,
         )
 

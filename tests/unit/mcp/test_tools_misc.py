@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Coverage push for small tool modules.
 
 Covers:
@@ -13,7 +14,6 @@ Covers:
   * sdd/orchestrator.py: SDDOrchestrator class basics
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Tool Guard Module.
 
 This module implements a security middleware layer for agent tools. It provides
@@ -19,7 +21,6 @@ Two mechanisms are provided:
    return ``DeferredToolRequests`` instead of executing the tool.
 """
 
-from __future__ import annotations
 
 import contextlib
 import logging

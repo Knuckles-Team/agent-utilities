@@ -1,15 +1,15 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for CONCEPT:AHE-3.16 — LLM-Graded Interpretability Tests.
 
 Validates the 6-category test protocol, grading logic, reward hacking
 detection, and aggregate score computation.
 """
 
-from __future__ import annotations
 
 import pytest
 
-from agent_utilities.harness.interpretability_tests import (
+from agent_utilities.harness.continuous_evaluation_engine import (
     InterpretabilityGrader,
     InterpretabilityTestCase,
     InterpretabilityTestSuite,

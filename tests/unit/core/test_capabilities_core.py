@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Coverage push for agent_utilities.capabilities.*.
 
 CONCEPT:ORCH-1.2 — Resilient Agent Capabilities
@@ -12,7 +13,6 @@ Targets pure-logic / mocked-engine paths for:
   * hooks.HooksCapability (before/after hooks, cancel, modify)
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

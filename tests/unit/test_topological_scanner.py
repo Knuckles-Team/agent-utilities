@@ -2,7 +2,7 @@ import pytest
 import networkx as nx
 
 from agent_utilities.knowledge_graph.core.analogy_engine import TopologicalAnalogyEngine
-from agent_utilities.security.topological_scanner import TopologicalScanner
+from agent_utilities.security.threat_defense_engine import TopologicalScanner
 from agent_utilities.models.knowledge_graph import RegistryNode, RegistryNodeType
 
 

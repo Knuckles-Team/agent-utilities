@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 """Government Domain Pydantic Models (CONCEPT:KG-3.00).
 
 Aligned to NIST 800-53, FedRAMP, and NIEM standards.
 """
 
-from __future__ import annotations
 
 from enum import StrEnum
 from typing import Any

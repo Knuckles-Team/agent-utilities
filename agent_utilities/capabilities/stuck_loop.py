@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Stuck loop detection capability with knowledge graph integration.
 
 Detects repetitive agent behavior and intervenes, recording the event
 as a SelfEvaluation node in the knowledge graph.
 """
 
-from __future__ import annotations
 
 import contextlib
 import hashlib

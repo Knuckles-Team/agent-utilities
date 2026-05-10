@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for CONCEPT:AHE-3.2 — Evolutionary Variant Selection."""
 
-from __future__ import annotations
 
 from agent_utilities.harness.variant_pool import VariantPool
 from agent_utilities.models.knowledge_graph import (

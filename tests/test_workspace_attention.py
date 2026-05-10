@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for CONCEPT:ORCH-1.2 — Global Workspace Attention."""
 
-from __future__ import annotations
 
 from agent_utilities.graph.workspace_attention import (
     Proposal,

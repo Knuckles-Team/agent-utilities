@@ -1,3 +1,19 @@
+from __future__ import annotations
+
+import hashlib
+import logging
+import math
+import uuid
+from collections import defaultdict
+from copy import deepcopy
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+# --- Merged from elastic_context_manager.py ---
+
 #!/usr/bin/python
 """Token-Aware Context Compaction (CONCEPT:KG-2.10).
 
@@ -25,16 +41,6 @@ Key differences from Goose:
   ``chat_persistence.py`` is kept as an alias.
 """
 
-from __future__ import annotations
-
-import logging
-import uuid
-from copy import deepcopy
-from datetime import UTC, datetime
-from enum import StrEnum
-from typing import Any
-
-from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -785,3 +791,240 @@ class ElasticContextManager:
             affected_indices=indices,
             metadata={"messages_deleted": len(indices_set)},
         )
+
+
+# --- Merged from elastic_context_manager.py ---
+
+#!/usr/bin/python
+"""Multi-Timescale Memory Dynamics (CONCEPT:KG-2.1 Enhancement).
+
+Derived from: Continual Knowledge Updating (arXiv:2605.05097v1, Score 11.2)
+
+Three memory tiers with exponential decay, consolidation, and pruning:
+- WORKING: 5min half-life, promotes at 3+ accesses
+- EPISODIC: 4hr half-life, promotes at 5+ accesses
+- SEMANTIC: 30-day half-life, permanent
+"""
+
+
+logger = logging.getLogger(__name__)
+
+
+class MemoryTimescale(StrEnum):
+    WORKING = "working"
+    EPISODIC = "episodic"
+    SEMANTIC = "semantic"
+
+
+DEFAULT_HALF_LIVES = {
+    MemoryTimescale.WORKING: 300.0,
+    MemoryTimescale.EPISODIC: 14400.0,
+    MemoryTimescale.SEMANTIC: 2592000.0,
+}
+CONSOLIDATION_THRESHOLDS = {
+    MemoryTimescale.WORKING: 3.0,
+    MemoryTimescale.EPISODIC: 5.0,
+    MemoryTimescale.SEMANTIC: float("inf"),
+}
+
+
+class MemoryEntry(BaseModel):
+    """A memory entry with timescale-aware decay (CONCEPT:KG-2.1)."""
+
+    memory_id: str
+    content: str
+    timescale: MemoryTimescale = MemoryTimescale.WORKING
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    last_accessed: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    access_count: int = 1
+    activation: float = 1.0
+    relevance_score: float = 0.5
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    source_session: str = ""
+
+    def compute_current_activation(self, half_lives: dict | None = None) -> float:
+        lives = half_lives or DEFAULT_HALF_LIVES
+        half_life = lives.get(self.timescale, 3600.0)
+        last = datetime.fromisoformat(self.last_accessed)
+        elapsed = (datetime.now(UTC) - last).total_seconds()
+        return self.activation * math.pow(2, -elapsed / half_life)
+
+    def access(self) -> None:
+        self.access_count += 1
+        self.activation = min(self.activation + 0.5, 10.0)
+        self.last_accessed = datetime.now(UTC).isoformat()
+
+
+class TimescaleMemoryStore:
+    """Multi-tier memory with consolidation (CONCEPT:KG-2.1)."""
+
+    def __init__(self, half_lives: dict | None = None, decay_floor: float = 0.01):
+        self.half_lives = half_lives or dict(DEFAULT_HALF_LIVES)
+        self.decay_floor = decay_floor
+        self._memories: dict[str, MemoryEntry] = {}
+
+    def store(
+        self,
+        content: str,
+        *,
+        timescale: MemoryTimescale = MemoryTimescale.WORKING,
+        tags: list[str] | None = None,
+        relevance_score: float = 0.5,
+        session_id: str = "",
+        metadata: dict | None = None,
+    ) -> MemoryEntry:
+        memory_id = f"mem:{hashlib.sha256(content.encode()).hexdigest()[:12]}"
+        if memory_id in self._memories:
+            self._memories[memory_id].access()
+            return self._memories[memory_id]
+        entry = MemoryEntry(
+            memory_id=memory_id,
+            content=content,
+            timescale=timescale,
+            tags=list(tags or []),
+            relevance_score=relevance_score,
+            source_session=session_id,
+            metadata=dict(metadata or {}),
+        )
+        self._memories[memory_id] = entry
+        return entry
+
+    def retrieve(
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        timescale: MemoryTimescale | None = None,
+        min_activation: float = 0.0,
+    ) -> list[MemoryEntry]:
+        query_words = set(query.lower().split())
+        candidates = []
+        for entry in self._memories.values():
+            if timescale and entry.timescale != timescale:
+                continue
+            activation = entry.compute_current_activation(self.half_lives)
+            if activation < min_activation:
+                continue
+            content_words = set(entry.content.lower().split())
+            tag_words = set(t.lower() for t in entry.tags)
+            overlap = len(query_words & (content_words | tag_words))
+            score = (
+                (overlap / max(len(query_words), 1))
+                * activation
+                * entry.relevance_score
+            )
+            if score > 0:
+                candidates.append((score, entry))
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        results = []
+        for _, entry in candidates[:top_k]:
+            entry.access()
+            results.append(entry)
+        return results
+
+    def consolidate(self) -> list[tuple[str, MemoryTimescale, MemoryTimescale]]:
+        promotions = []
+        for entry in list(self._memories.values()):
+            threshold = CONSOLIDATION_THRESHOLDS.get(entry.timescale, float("inf"))
+            if entry.access_count >= threshold:
+                old = entry.timescale
+                new = self._next_timescale(old)
+                if new and new != old:
+                    entry.timescale = new
+                    entry.activation = 1.0
+                    entry.access_count = 0
+                    promotions.append((entry.memory_id, old, new))
+        return promotions
+
+    def prune(self) -> int:
+        to_prune = [
+            mid
+            for mid, e in self._memories.items()
+            if e.compute_current_activation(self.half_lives) < self.decay_floor
+        ]
+        for mid in to_prune:
+            del self._memories[mid]
+        return len(to_prune)
+
+    def get_stats(self) -> dict[str, Any]:
+        by_tier: dict[str, int] = defaultdict(int)
+        for e in self._memories.values():
+            by_tier[e.timescale.value] += 1
+        return {
+            "total_memories": len(self._memories),
+            "by_timescale": dict(by_tier),
+            "total_accesses": sum(e.access_count for e in self._memories.values()),
+        }
+
+    @staticmethod
+    def _next_timescale(current: MemoryTimescale) -> MemoryTimescale | None:
+        return {
+            MemoryTimescale.WORKING: MemoryTimescale.EPISODIC,
+            MemoryTimescale.EPISODIC: MemoryTimescale.SEMANTIC,
+        }.get(current)
+
+
+# --- Merged from elastic_context_manager.py ---
+
+"""Vectorized Context-Window Filtering (CONCEPT:KG-2.41).
+
+This module implements token-aware context compaction by semantically pruning
+non-relevant subgraph context before swapping models on token overflow.
+"""
+
+
+logger = logging.getLogger(__name__)
+
+
+def prune_context_by_semantic_distance(
+    context_nodes: list[dict[str, Any]], query: str, max_tokens: int
+) -> list[dict[str, Any]]:
+    """Prune graph nodes from context if they exceed the token budget.
+
+    Instead of hard-truncation, it drops the most semantically distant nodes
+    from the query.
+    """
+    if not context_nodes:
+        return []
+
+    # Naive token estimation: ~4 chars per token
+    def estimate_tokens(text: str) -> int:
+        return len(text) // 4
+
+    total_tokens = sum(estimate_tokens(str(n)) for n in context_nodes)
+    if total_tokens <= max_tokens:
+        return context_nodes
+
+    logger.info(
+        f"Context overflow detected ({total_tokens} > {max_tokens}). Applying topological pruning."
+    )
+
+    # Sort nodes by semantic relevance (assuming 'relevance_score' or 'topological_distance' exists)
+    # If not, we fall back to trimming the longest nodes first as a heuristic, but
+    # ideally we rely on the KG embeddings.
+    try:
+        sorted_nodes = sorted(
+            context_nodes,
+            key=lambda n: n.get(
+                "topological_distance", n.get("distance", float("inf"))
+            ),
+        )
+    except Exception as e:
+        logger.warning(f"Failed to sort context nodes by distance: {e}")
+        sorted_nodes = context_nodes
+
+    pruned_nodes = []
+    current_tokens = 0
+    for node in sorted_nodes:
+        node_tokens = estimate_tokens(str(node))
+        if current_tokens + node_tokens <= max_tokens:
+            pruned_nodes.append(node)
+            current_tokens += node_tokens
+        else:
+            logger.debug(
+                f"Pruned node {node.get('id', 'unknown')} to save {node_tokens} tokens."
+            )
+
+    logger.info(f"Topological pruning complete. Final tokens: {current_tokens}.")
+    return pruned_nodes

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AHE Evolve Agent.
 
 CONCEPT:AHE-3.0 — Agentic Harness Engineering (Evolution Loop)
@@ -21,7 +23,6 @@ Architecture:
     Uses: KG for epistemic state, files for normative state, git for causal boundary
 """
 
-from __future__ import annotations
 
 import logging
 import subprocess

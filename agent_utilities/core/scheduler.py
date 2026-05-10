@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Task Scheduler Module.
 
 This module provides a persistent task scheduling system for agents. It
@@ -7,7 +9,6 @@ in CRON_LOG.md, and runs a background processor to execute scheduled tasks
 using the agent's core capabilities.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging

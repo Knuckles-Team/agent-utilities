@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.12 — KG Source Resolver for Comparative Analysis.
 
 Bridges the Knowledge Graph (indexing/discovery layer) to the
@@ -23,7 +25,6 @@ Integrates with:
 See docs/research-pipeline.md §CONCEPT:KG-2.12.
 """
 
-from __future__ import annotations
 
 import logging
 from pathlib import Path

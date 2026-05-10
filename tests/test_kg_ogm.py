@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for CONCEPT:KG-2.0 — KG Object-Graph Mapper (OGM)."""
 
-from __future__ import annotations
 
 from agent_utilities.knowledge_graph.core.ogm import KGMapper, kg_label, resolve_label
 from agent_utilities.models.knowledge_graph import (

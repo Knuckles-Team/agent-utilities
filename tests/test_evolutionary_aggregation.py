@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for CONCEPT:AHE-3.2 — Evolutionary Aggregation Engine."""
 
-from __future__ import annotations
 
 import pytest
 
@@ -113,7 +113,7 @@ class TestEvolutionaryAggregator:
     """Tests for the EvolutionaryAggregator."""
 
     def test_compute_group_fitness_high_confidence_low_diversity(self):
-        """All specialists agree with high confidence → MAJORITY_VOTE."""
+        """All adaptive_agent_router agree with high confidence → MAJORITY_VOTE."""
         agg = EvolutionaryAggregator(confidence_threshold=0.7, diversity_threshold=2)
         proposals = [
             _make_proposal("spec:a", "Same answer here", 0.9),

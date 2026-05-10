@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Output style tools with knowledge base integration.
 
 Allows agents to set and discover response styles (concise, formal, etc.)
 stored as KB Articles in the knowledge graph.
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Custom Observability Module.
 
 CONCEPT:OS-5.9 — Telemetry & Observability
@@ -9,7 +11,6 @@ configuration, and automatic instrumentation of pydantic-ai agents for
 distributed tracing.
 """
 
-from __future__ import annotations
 
 import base64
 import logging

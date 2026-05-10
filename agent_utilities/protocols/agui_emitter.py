@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """AG-UI Wire Format Emitter Module.
 
 This module translates graph execution events from :func:`run_graph_iter`
@@ -13,7 +15,6 @@ wire protocol uses numbered line prefixes:
 CONCEPT:ORCH-1.0 Graph Orchestration
 """
 
-from __future__ import annotations
 
 import json
 import logging
@@ -26,7 +27,7 @@ class AGUIGraphEmitter:
     """Translates graph execution events to AG-UI wire format.
 
     This emitter converts the structured event dictionaries yielded by
-    :func:`~agent_utilities.graph.runner.run_graph_iter` into byte-encoded
+    :func:`~agent_utilities.graph.dynamic_graph_orchestrator.run_graph_iter` into byte-encoded
     AG-UI wire format lines suitable for ``StreamingResponse``.
 
     The AG-UI protocol uses specific line prefixes:

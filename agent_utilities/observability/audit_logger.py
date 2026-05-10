@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Audit Logger — Append-Only Compliance Logging (CONCEPT:OS-5.7).
 
 Ported from MATE's audit_service.py with KG-native persistence.
 OWL: :AuditLog rdfs:subClassOf :Event
 """
 
-from __future__ import annotations
 
 import logging
 import time

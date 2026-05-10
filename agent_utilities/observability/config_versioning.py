@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Agent Config Versioning — Database-Driven Config History (CONCEPT:AHE-3.13).
 
 Immutable config snapshots with forward-only rollback. Ported from
@@ -10,7 +12,6 @@ engine_registry.py) for KG-native version chain traversal.
 OWL: :AgentConfigVersion rdfs:subClassOf :ChangeManifest
 """
 
-from __future__ import annotations
 
 import logging
 import time

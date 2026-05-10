@@ -45,14 +45,14 @@ graph TD
         A[WiringEngine] -->|Discovers| B(Registered Capabilities)
         B -->|Implements| C(CapabilityHandlerProtocol)
         B -->|Implements| D(AbstractCapability)
-        
+
         C -->|Event Stream| E(CapabilityOrchestrator)
         D -->|Pydantic Hooks| F(Agent Factory)
-        
+
         E -->|Injects| G[IntelligenceGraphEngine]
         F -->|Injects| G
     end
-    
+
     style A fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
     style E fill:#d5e8d4,stroke:#82b366,stroke-width:2px
     style F fill:#fff2cc,stroke:#d6b656,stroke-width:2px

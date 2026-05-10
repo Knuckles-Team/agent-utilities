@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """CONCEPT:ECO-4.2 — A2A-Native PlannerAgent (Graph-Backed Skill).
 
 Graph-backed A2A Skill that delegates directly to ``execute_graph()``.
@@ -11,7 +13,6 @@ the LLM wrapper hop.  The agent card stays identical.
 See docs/emergent-architecture.md §CONCEPT:ECO-4.2.
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any
@@ -25,7 +26,7 @@ class PlannerGraphSkill:
     CONCEPT:ECO-4.2 — A2A-Native PlannerAgent
 
     External A2A agents see the same JSON-RPC interface.  Internally,
-    queries go directly through router→dispatcher→specialists→verifier
+    queries go directly through router→dispatcher→adaptive_agent_router→verifier
     without an intermediary LLM deciding to call ``run_graph_flow``.
 
     Args:
@@ -74,7 +75,7 @@ class PlannerGraphSkill:
         Returns:
             The graph pipeline output as a string.
         """
-        from agent_utilities.graph.unified import execute_graph
+        from agent_utilities.graph.protocol_agnostic_execution import execute_graph
 
         query = self._extract_query(messages)
         if not query:

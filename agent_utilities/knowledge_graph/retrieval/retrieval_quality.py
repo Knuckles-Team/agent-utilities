@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.8 — Retrieval Quality Gate & CONCEPT:KG-2.9 — Cross-Agent Context Provenance.
 
 Provides systematic retrieval quality measurement and failure detection
@@ -28,7 +30,6 @@ Environment Variables:
 See docs/knowledge-graph.md §Retrieval Quality Gate.
 """
 
-from __future__ import annotations
 
 import logging
 import math

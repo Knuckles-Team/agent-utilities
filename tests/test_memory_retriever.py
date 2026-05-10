@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for CONCEPT:KG-2.1 — Persistent Self-Model."""
 
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 

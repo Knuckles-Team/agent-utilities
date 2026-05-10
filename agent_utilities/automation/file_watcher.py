@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:OS-5.0 — Watchdog File Trigger System.
 
 Monitors the project workspace for file changes and maps them to
@@ -22,7 +24,6 @@ Integrates with:
 See docs/watchdog-triggers.md §CONCEPT:OS-5.0.
 """
 
-from __future__ import annotations
 
 import fnmatch
 import json

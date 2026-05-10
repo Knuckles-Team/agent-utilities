@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Agent team coordination tools.
 
 Exposes team management, task assignment, and P2P messaging to agents,
 backed by the TeamCapability and ACP.
 """
 
-from __future__ import annotations
 
 from typing import Any
 

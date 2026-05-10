@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Integration tests for the agent-utilities FastAPI server routes.
 
 These tests are the pytest migration of the ad-hoc Phase 1 smoke tests
@@ -14,7 +15,6 @@ runs against a fake "dummy-model" provider and a tempfile-backed Ladybug
 graph database.
 """
 
-from __future__ import annotations
 
 import os
 from collections.abc import Iterator

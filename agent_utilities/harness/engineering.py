@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Agentic Engineering Patterns — Facade Module.
 
 CONCEPT:AHE-3.14 — Agentic Engineering Patterns
@@ -30,7 +32,6 @@ See Also:
     - :mod:`agent_utilities.patterns.tdd` — Red/Green/Refactor cycle
 """
 
-from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field

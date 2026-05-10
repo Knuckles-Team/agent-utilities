@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Harness Component Registry.
 
 CONCEPT:AHE-3.0 — Agentic Harness Engineering (Component Observability)
@@ -13,7 +15,6 @@ The registry serves as the bridge between the **normative state**
     - Query edit history for a component or file
 """
 
-from __future__ import annotations
 
 import json
 import logging

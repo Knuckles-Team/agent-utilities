@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Iterative Knowledge Deduplication Engine.
 
 CONCEPT:KG-2.23 — Knowledge Distillation Engine
@@ -17,7 +19,6 @@ Defaults are tuned for agent-utilities' KG-integrated environment:
 All parameters are configurable via constructor.
 """
 
-from __future__ import annotations
 
 import json
 import logging

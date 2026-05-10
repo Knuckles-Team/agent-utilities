@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for Prompt Injection Scanner (CONCEPT:OS-5.4)."""
 
-from __future__ import annotations
 
 import os
 
@@ -15,14 +15,14 @@ import pytest
 
 @pytest.fixture
 def scanner():
-    from agent_utilities.security.prompt_scanner import PromptInjectionScanner
+    from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
     return PromptInjectionScanner()
 
 
 @pytest.fixture
 def scanner_low_threshold():
-    from agent_utilities.security.prompt_scanner import PromptInjectionScanner
+    from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
     return PromptInjectionScanner(threshold=0.3)
 
@@ -215,20 +215,20 @@ class TestThreshold:
         assert scanner.threshold == 0.8
 
     def test_custom_threshold(self):
-        from agent_utilities.security.prompt_scanner import PromptInjectionScanner
+        from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
         s = PromptInjectionScanner(threshold=0.5)
         assert s.threshold == 0.5
 
     def test_env_threshold(self, monkeypatch):
-        from agent_utilities.security.prompt_scanner import PromptInjectionScanner
+        from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
         monkeypatch.setenv("SECURITY_PROMPT_THRESHOLD", "0.6")
         s = PromptInjectionScanner()
         assert s.threshold == 0.6
 
     def test_below_threshold_not_malicious(self):
-        from agent_utilities.security.prompt_scanner import PromptInjectionScanner
+        from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
         # env dump is MEDIUM risk (0.6 confidence), threshold 0.8
         s = PromptInjectionScanner(threshold=0.8)
@@ -270,7 +270,7 @@ class TestPolicyEngineIntegration:
 
     def test_policy_blocks_malicious(self):
         from agent_utilities.security.guardrails import PolicyEngine
-        from agent_utilities.security.prompt_scanner import PromptInjectionPolicy
+        from agent_utilities.security.threat_defense_engine import PromptInjectionPolicy
 
         engine = PolicyEngine()
         engine.register(PromptInjectionPolicy())
@@ -281,7 +281,7 @@ class TestPolicyEngineIntegration:
 
     def test_policy_allows_safe(self):
         from agent_utilities.security.guardrails import PolicyEngine
-        from agent_utilities.security.prompt_scanner import PromptInjectionPolicy
+        from agent_utilities.security.threat_defense_engine import PromptInjectionPolicy
 
         engine = PolicyEngine()
         engine.register(PromptInjectionPolicy())
@@ -300,7 +300,7 @@ class TestScanResult:
     """Tests for ScanResult model."""
 
     def test_default_values(self):
-        from agent_utilities.security.prompt_scanner import ScanResult
+        from agent_utilities.security.threat_defense_engine import ScanResult
 
         result = ScanResult()
         assert not result.is_malicious
@@ -309,7 +309,7 @@ class TestScanResult:
         assert result.finding_id.startswith("SEC-")
 
     def test_finding_id_unique(self):
-        from agent_utilities.security.prompt_scanner import ScanResult
+        from agent_utilities.security.threat_defense_engine import ScanResult
 
         r1 = ScanResult()
         r2 = ScanResult()

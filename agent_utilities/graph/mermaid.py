@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Mermaid Visualization Module.
 
 This module provides utilities for generating Mermaid diagrams from
@@ -6,7 +8,6 @@ pydantic-graph objects, allowing for visual representation of the
 agentic workflow and state transitions.
 """
 
-from __future__ import annotations
 
 import logging
 
