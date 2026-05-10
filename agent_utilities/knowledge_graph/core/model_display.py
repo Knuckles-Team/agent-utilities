@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.17 — Model Display Optimization.
 
 Implements the display-predict decoupling pattern from arXiv:2605.03808.
@@ -18,7 +20,6 @@ Integrates with:
 See docs/overview.md §CONCEPT:KG-2.17.
 """
 
-from __future__ import annotations
 
 import logging
 import re

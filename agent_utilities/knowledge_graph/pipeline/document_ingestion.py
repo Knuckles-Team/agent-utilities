@@ -11,7 +11,10 @@ from datetime import datetime
 from typing import Any
 
 from ..core.engine import IntelligenceGraphEngine
-from ..id_management.unified_id import UnifiedIDManager, UnifiedIDRegistry
+from ..id_management.ontological_identifier import (
+    OntologicalIdentifierManager,
+    OntologicalIdentifierRegistry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +34,8 @@ class DocumentIngestionPipeline:
     def __init__(
         self,
         knowledge_graph: IntelligenceGraphEngine,
-        id_manager: UnifiedIDManager | None = None,
-        id_registry: UnifiedIDRegistry | None = None,
+        id_manager: OntologicalIdentifierManager | None = None,
+        id_registry: OntologicalIdentifierRegistry | None = None,
     ):
         """
         Initialize the document ingestion pipeline.
@@ -43,8 +46,8 @@ class DocumentIngestionPipeline:
             id_registry: Optional unified ID registry (creates default if None)
         """
         self.knowledge_graph = knowledge_graph
-        self.id_manager = id_manager or UnifiedIDManager()
-        self.id_registry = id_registry or UnifiedIDRegistry()
+        self.id_manager = id_manager or OntologicalIdentifierManager()
+        self.id_registry = id_registry or OntologicalIdentifierRegistry()
         self._ingested_docs: list[str] = []  # Track for rollback
 
     async def ingest_document(
@@ -69,18 +72,18 @@ class DocumentIngestionPipeline:
             metadata: Optional metadata about the document
 
         Returns:
-            Dict with unified_id and processing results
+            Dict with ontological_identifier and processing results
 
         Raises:
             Exception: If ingestion fails (with rollback)
         """
-        unified_id: str | None = None
+        ontological_identifier: str | None = None
         rollback_actions: list[Callable] = []
 
         try:
             # Step 1: Generate unified ID
-            unified_id = self.id_manager.generate_document_id()
-            logger.info(f"Generated unified ID: {unified_id}")
+            ontological_identifier = self.id_manager.generate_document_id()
+            logger.info(f"Generated unified ID: {ontological_identifier}")
 
             # Step 2: Process document (chunking)
             chunks = self._chunk_document(content)
@@ -88,7 +91,7 @@ class DocumentIngestionPipeline:
 
             # Step 3: Generate chunks IDs and embeddings
             chunk_ids = [
-                self.id_manager.generate_chunk_id(unified_id, i)
+                self.id_manager.generate_chunk_id(ontological_identifier, i)
                 for i in range(len(chunks))
             ]
             embeddings = await self._generate_embeddings(chunks)
@@ -96,24 +99,24 @@ class DocumentIngestionPipeline:
 
             # Step 4: Create knowledge graph nodes (now includes everything)
             await self._create_graph_nodes(
-                unified_id=unified_id,
+                ontological_identifier=ontological_identifier,
                 chunks=chunks,
                 chunk_ids=chunk_ids,
                 embeddings=embeddings,
                 metadata=metadata or {},
                 rollback_actions=rollback_actions,
             )
-            self.id_registry.mark_system_synced(unified_id)
+            self.id_registry.mark_system_synced(ontological_identifier)
             logger.info("Created unified knowledge graph nodes")
 
             # Step 5: Register unified ID
-            self.id_registry.register_document(unified_id, metadata or {})
-            self._ingested_docs.append(unified_id)
+            self.id_registry.register_document(ontological_identifier, metadata or {})
+            self._ingested_docs.append(ontological_identifier)
 
-            logger.info(f"Successfully ingested document: {unified_id}")
+            logger.info(f"Successfully ingested document: {ontological_identifier}")
 
             return {
-                "unified_id": unified_id,
+                "ontological_identifier": ontological_identifier,
                 "chunk_count": len(chunks),
                 "embedding_count": len(embeddings),
                 "synced_systems": ["knowledge_graph"],
@@ -122,22 +125,24 @@ class DocumentIngestionPipeline:
             }
 
         except Exception as e:
-            logger.error(f"Document ingestion failed for {unified_id}: {e}")
+            logger.error(f"Document ingestion failed for {ontological_identifier}: {e}")
             # Perform rollback
-            await self._rollback(rollback_actions, unified_id)
+            await self._rollback(rollback_actions, ontological_identifier)
             raise Exception(
                 f"Document ingestion failed and was rolled back: {e}"
             ) from e
 
-    async def _rollback(self, rollback_actions: list[Callable], unified_id: str | None):
+    async def _rollback(
+        self, rollback_actions: list[Callable], ontological_identifier: str | None
+    ):
         """
         Perform rollback actions in reverse order.
 
         Args:
             rollback_actions: List of rollback actions
-            unified_id: Document ID for logging
+            ontological_identifier: Document ID for logging
         """
-        logger.info(f"Starting rollback for {unified_id}")
+        logger.info(f"Starting rollback for {ontological_identifier}")
 
         # Execute rollbacks in reverse order
         for action in reversed(rollback_actions):
@@ -147,10 +152,10 @@ class DocumentIngestionPipeline:
                 logger.warning(f"Rollback action failed: {e}")
 
         # Remove from registry if it was registered
-        if unified_id in self.id_registry.document_ids:
-            self.id_registry.unregister_document(unified_id)
+        if ontological_identifier in self.id_registry.document_ids:
+            self.id_registry.unregister_document(ontological_identifier)
 
-        logger.info(f"Rollback completed for {unified_id}")
+        logger.info(f"Rollback completed for {ontological_identifier}")
 
     def _chunk_document(self, content: str) -> list[str]:
         """
@@ -199,7 +204,7 @@ class DocumentIngestionPipeline:
 
     async def _create_graph_nodes(
         self,
-        unified_id: str,
+        ontological_identifier: str,
         chunks: list[str],
         chunk_ids: list[str],
         embeddings: list[list[float]],
@@ -210,7 +215,7 @@ class DocumentIngestionPipeline:
         Create knowledge graph nodes for document.
 
         Args:
-            unified_id: Unified document ID
+            ontological_identifier: Unified document ID
             chunks: List of chunks
             chunk_ids: List of chunk IDs
             metadata: Document metadata
@@ -218,7 +223,7 @@ class DocumentIngestionPipeline:
         """
         # Create document node
         doc_node_data = {
-            "id": unified_id,
+            "id": ontological_identifier,
             "file_path": metadata.get("file_path", ""),
             "chunk_count": len(chunks),
             "metadata": metadata,
@@ -226,12 +231,12 @@ class DocumentIngestionPipeline:
         }
 
         # Add document node to graph
-        self.knowledge_graph.graph.add_node(unified_id, **doc_node_data)
+        self.knowledge_graph.graph.add_node(ontological_identifier, **doc_node_data)
 
         # Add rollback action
         def rollback_doc_node():
-            if self.knowledge_graph.graph.has_node(unified_id):
-                self.knowledge_graph.graph.remove_node(unified_id)
+            if self.knowledge_graph.graph.has_node(ontological_identifier):
+                self.knowledge_graph.graph.remove_node(ontological_identifier)
 
         rollback_actions.append(rollback_doc_node)
 
@@ -241,18 +246,18 @@ class DocumentIngestionPipeline:
         ):
             chunk_node_data = {
                 "id": chunk_id,
-                "parent_doc_id": unified_id,
+                "parent_doc_id": ontological_identifier,
                 "chunk_index": i,
                 "content": chunk,
                 "embedding": emb,
-                "metadata": {"unified_id": unified_id},
+                "metadata": {"ontological_identifier": ontological_identifier},
             }
 
             self.knowledge_graph.graph.add_node(chunk_id, **chunk_node_data)
 
             # Add edge from document to chunk
             self.knowledge_graph.graph.add_edge(
-                unified_id,
+                ontological_identifier,
                 chunk_id,
                 relationship_type="HAS_CHUNK",
                 created_at=datetime.now().isoformat(),

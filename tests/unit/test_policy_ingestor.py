@@ -1,10 +1,10 @@
+from __future__ import annotations
 """Unit tests for the Constitution & Prompt Policy Ingestor (CONCEPT:KG-2.2, CONCEPT:OS-5.10).
 
 Tests the policy ingestion pipeline from constitutions, prompt JSONs,
 unified ingestion, policy querying, and prompt rendering.
 """
 
-from __future__ import annotations
 
 import json
 import textwrap

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Integration tests for the `GET /models` endpoint.
 
 Exercises three scenarios:
@@ -13,7 +14,6 @@ the environment, and that `ModelRegistry` survives an HTTP round-trip via
 `model_validate` (the web UI uses this contract).
 """
 
-from __future__ import annotations
 
 import json
 import os

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Dynamic Skill Evolution (CONCEPT:ECO-4.1 Enhancement).
 
 Derived from: Skill Neologisms — Towards Skill-based Continual Learning
@@ -14,7 +16,6 @@ Provides:
 - SkillMerger — detects and consolidates overlapping skills
 """
 
-from __future__ import annotations
 
 import hashlib
 import logging

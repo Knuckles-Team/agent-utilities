@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Tests for TeamCapability — team coordination with ACP/A2A.
 
 Concept: team-coordination
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any

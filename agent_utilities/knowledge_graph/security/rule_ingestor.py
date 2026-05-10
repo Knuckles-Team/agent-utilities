@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Engineering Rules Ingestor — Parses agent-rules-books into KG nodes.
 
 CONCEPT:KG-2.2 — Engineering Rules Engine
@@ -23,7 +25,6 @@ Usage::
     stats = ingestor.ingest_rules_books()  # Uses bundled data by default
 """
 
-from __future__ import annotations
 
 import logging
 import re

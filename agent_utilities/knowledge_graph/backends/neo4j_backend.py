@@ -1,7 +1,8 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Neo4j Backend Implementation."""
 
-from __future__ import annotations
 
 import logging
 from typing import Any

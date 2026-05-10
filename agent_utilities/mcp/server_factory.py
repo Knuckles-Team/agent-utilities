@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """MCP Server Factory.
 
 Handles CLI argument parsing for MCP servers, automated server initialization
@@ -6,7 +8,6 @@ with middleware stacks, and the ``create_mcp_server`` convenience constructor.
 CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 """
 
-from __future__ import annotations
 
 import argparse
 import logging

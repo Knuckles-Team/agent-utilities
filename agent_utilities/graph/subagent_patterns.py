@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:ORCH-1.6 — Subagent Lifecycle Patterns.
 
 Formalizes the four-tier subagent interaction taxonomy identified by
@@ -23,7 +25,6 @@ entries in the Knowledge Graph for harness learning.
 See docs/overview.md §CONCEPT:ORCH-1.6.
 """
 
-from __future__ import annotations
 
 import logging
 import time
@@ -49,12 +50,12 @@ class SubagentPattern(StrEnum):
     Use for atomic, well-scoped tasks with clear input/output."""
 
     FAN_OUT = "fan_out"
-    """Multiple specialists execute in parallel with result aggregation.
+    """Multiple adaptive_agent_router execute in parallel with result aggregation.
     Use for embarrassingly parallel tasks (multi-source research)."""
 
     AGENT_POOL = "agent_pool"
-    """Persistent pool of specialists with inter-agent messaging.
-    Use when specialists need to share intermediate findings."""
+    """Persistent pool of adaptive_agent_router with inter-agent messaging.
+    Use when adaptive_agent_router need to share intermediate findings."""
 
     TEAMS = "teams"
     """Full cross-agent collaboration via A2A protocol.
@@ -130,8 +131,8 @@ class SubagentPatternRouter:
         Args:
             task_complexity: Estimated task complexity (1-5 scale).
             parallelizable: Whether sub-tasks can run independently.
-            needs_collaboration: Whether specialists need to exchange messages.
-            specialist_count: Number of specialists the planner wants to invoke.
+            needs_collaboration: Whether adaptive_agent_router need to exchange messages.
+            specialist_count: Number of adaptive_agent_router the planner wants to invoke.
             has_a2a_peers: Whether remote A2A agents are available.
 
         Returns:
@@ -151,7 +152,7 @@ class SubagentPatternRouter:
         elif parallelizable and not needs_collaboration:
             pattern = SubagentPattern.FAN_OUT
             reasoning = (
-                f"Task is parallelizable with {specialist_count} specialists, "
+                f"Task is parallelizable with {specialist_count} adaptive_agent_router, "
                 f"no inter-agent messaging needed — fan-out with aggregation."
             )
             confidence = 0.85
@@ -174,9 +175,7 @@ class SubagentPatternRouter:
 
         elif specialist_count > 1 and parallelizable:
             pattern = SubagentPattern.FAN_OUT
-            reasoning = (
-                f"Multiple specialists ({specialist_count}) with parallel execution."
-            )
+            reasoning = f"Multiple adaptive_agent_router ({specialist_count}) with parallel execution."
             confidence = 0.8
 
         else:
@@ -409,16 +408,16 @@ def get_infrastructure_mapping() -> dict[SubagentPattern, dict[str, Any]]:
             "requires": [],
         },
         SubagentPattern.FAN_OUT: {
-            "module": "agent_utilities.harness.swarm_preset_engine",
-            "class": "SwarmPresetEngine",
-            "description": "Parallel dispatch with SwarmPresetEngine",
-            "requires": ["swarm_presets"],
+            "module": "agent_utilities.graph.dynamic_graph_orchestrator",
+            "class": "DynamicSubgraphOrchestrator",
+            "description": "Parallel dispatch with DynamicSubgraphOrchestrator",
+            "requires": ["dynamic_graph_orchestrator"],
         },
         SubagentPattern.AGENT_POOL: {
-            "module": "agent_utilities.harness.council",
-            "class": "Council",
-            "description": "Persistent advisory council with messaging",
-            "requires": ["council"],
+            "module": "agent_utilities.graph.dynamic_graph_orchestrator",
+            "class": "DynamicSubgraphOrchestrator",
+            "description": "Persistent advisory pool mapped to dynamic subgraphs",
+            "requires": ["dynamic_graph_orchestrator"],
         },
         SubagentPattern.TEAMS: {
             "module": "agent_utilities.knowledge_graph.engine_query",

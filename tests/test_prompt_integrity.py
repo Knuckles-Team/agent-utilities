@@ -1,4 +1,5 @@
 #!/usr/bin/python
+from __future__ import annotations
 """CONCEPT:AHE-3.1 — Prompt Integrity Tests.
 
 Validates the structural integrity and consistency of all JSON prompt
@@ -15,7 +16,6 @@ Tests cover:
     6. No embedded secrets or API keys in prompt content
 """
 
-from __future__ import annotations
 
 import hashlib
 import json

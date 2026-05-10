@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Approval Manager Module.
 
 Provides a protocol-agnostic, asyncio-based pause/resume mechanism for
@@ -23,7 +25,6 @@ Design notes
   so this manager is bypassed automatically.
 """
 
-from __future__ import annotations
 
 import asyncio
 import contextvars

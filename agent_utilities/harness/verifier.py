@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """AHE Manifest Verifier.
 
 CONCEPT:AHE-3.0 — Agentic Harness Engineering (Decision Observability)
@@ -21,7 +23,6 @@ Auto-revert is triggered when:
     - Overall score delta is negative
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any

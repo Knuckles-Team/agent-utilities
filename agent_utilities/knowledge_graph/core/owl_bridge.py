@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """OWL Bridge — Orchestrates LPG ↔ OWL data flow.
 
 Handles the deterministic promote → reason → downfeed cycle that
 enriches the LPG with OWL-inferred facts.
 """
 
-from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta

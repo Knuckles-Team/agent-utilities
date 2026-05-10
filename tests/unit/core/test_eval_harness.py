@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Tests for the Evaluation Harness.
 
 Concept: eval-tracing
 """
 
-from __future__ import annotations
 
 import json
 

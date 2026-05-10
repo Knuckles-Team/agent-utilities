@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Coverage push for agent_utilities.knowledge_graph.pipeline.phases.*.
 
 Targets each phase's ``execute_fn`` via a mocked PipelineContext with a
@@ -5,7 +6,6 @@ pre-seeded NetworkX graph.  Backend / external services are replaced with
 MagicMock to avoid any I/O.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 from typing import Any

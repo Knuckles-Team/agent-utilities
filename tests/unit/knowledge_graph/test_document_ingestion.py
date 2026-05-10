@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities.knowledge_graph.id_management.unified_id import (
-    UnifiedIDManager,
-    UnifiedIDRegistry,
+from agent_utilities.knowledge_graph.id_management.ontological_identifier import (
+    OntologicalIdentifierManager,
+    OntologicalIdentifierRegistry,
 )
 from agent_utilities.knowledge_graph.pipeline.document_ingestion import (
     DocumentIngestionPipeline,
@@ -28,8 +28,8 @@ class TestDocumentIngestionPipeline:
         pipeline = DocumentIngestionPipeline(knowledge_graph=knowledge_graph)
 
         assert pipeline.knowledge_graph == knowledge_graph
-        assert isinstance(pipeline.id_manager, UnifiedIDManager)
-        assert isinstance(pipeline.id_registry, UnifiedIDRegistry)
+        assert isinstance(pipeline.id_manager, OntologicalIdentifierManager)
+        assert isinstance(pipeline.id_registry, OntologicalIdentifierRegistry)
         assert pipeline.get_ingested_documents() == []
 
     def test_initialization_with_custom_id_manager(self):
@@ -37,8 +37,8 @@ class TestDocumentIngestionPipeline:
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
 
-        id_manager = UnifiedIDManager()
-        id_registry = UnifiedIDRegistry()
+        id_manager = OntologicalIdentifierManager()
+        id_registry = OntologicalIdentifierRegistry()
 
         pipeline = DocumentIngestionPipeline(
             knowledge_graph=knowledge_graph,

@@ -1,13 +1,13 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for RAG-KG Unification, Research Orchestration, and Graph Distillation.
 
 Covers:
-- CONCEPT:KG-2.38 — UnifiedRAGKGRetriever (unified retrieval pipeline)
+- CONCEPT:KG-2.38 — KGNativeRetrievalRetriever (unified retrieval pipeline)
 - CONCEPT:KG-2.39 — ResearchOrchestrator (orchestration integration)
 - CONCEPT:KG-2.40 — GraphDistillationMigrator (similarity shortcut migration)
 """
 
-from __future__ import annotations
 
 import asyncio
 import time
@@ -61,31 +61,31 @@ def _similar_embedding(
 
 
 # =====================================================================
-# CONCEPT:KG-2.38 — UnifiedRAGKGRetriever Tests
+# CONCEPT:KG-2.38 — KGNativeRetrievalRetriever Tests
 # =====================================================================
 
 
-class TestUnifiedRAGKGRetriever:
+class TestKGNativeRetrievalRetriever:
     """Tests for the KG-native unified retrieval pipeline."""
 
     def test_import(self):
         """Module imports cleanly."""
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGConfig,
-            UnifiedRAGKGRetriever,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalConfig,
+            KGNativeRetrievalRetriever,
         )
 
-        retriever = UnifiedRAGKGRetriever()
+        retriever = KGNativeRetrievalRetriever()
         assert retriever is not None
         assert retriever.config.enable_similarity_shortcuts is True
 
     def test_config_defaults(self):
         """Default configuration values are sensible."""
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGConfig,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalConfig,
         )
 
-        config = UnifiedRAGKGConfig()
+        config = KGNativeRetrievalConfig()
         assert config.similarity_weight == 0.72
         assert config.keyword_weight == 0.28
         assert config.shortcut_boost == 1.15
@@ -93,27 +93,27 @@ class TestUnifiedRAGKGRetriever:
 
     def test_config_custom(self):
         """Custom configuration is applied."""
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGConfig,
-            UnifiedRAGKGRetriever,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalConfig,
+            KGNativeRetrievalRetriever,
         )
 
-        config = UnifiedRAGKGConfig(
+        config = KGNativeRetrievalConfig(
             enable_cluster_scoping=False,
             similarity_weight=0.6,
             keyword_weight=0.4,
         )
-        retriever = UnifiedRAGKGRetriever(config=config)
+        retriever = KGNativeRetrievalRetriever(config=config)
         assert retriever.config.enable_cluster_scoping is False
         assert retriever.config.similarity_weight == 0.6
 
     def test_build_cluster_index(self):
         """Cluster index builds from nodes with embeddings."""
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGRetriever,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalRetriever,
         )
 
-        retriever = UnifiedRAGKGRetriever()
+        retriever = KGNativeRetrievalRetriever()
 
         # Create clusterable nodes (two groups)
         nodes = []
@@ -129,22 +129,22 @@ class TestUnifiedRAGKGRetriever:
 
     def test_build_cluster_index_insufficient_nodes(self):
         """Cluster index handles <2 nodes gracefully."""
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGRetriever,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalRetriever,
         )
 
-        retriever = UnifiedRAGKGRetriever()
+        retriever = KGNativeRetrievalRetriever()
         node = _make_node("solo", embedding=_random_embedding(dim=16))
         n_clusters = retriever.build_cluster_index([node])
         assert n_clusters == 0
 
     def test_build_similarity_index(self):
         """Similarity edge index builds from existing edges."""
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGRetriever,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalRetriever,
         )
 
-        retriever = UnifiedRAGKGRetriever()
+        retriever = KGNativeRetrievalRetriever()
 
         edges = [
             SimilarityEdgeNode(
@@ -168,11 +168,11 @@ class TestUnifiedRAGKGRetriever:
 
     def test_retrieve_unified_keyword_only(self):
         """Unified retrieval works without embeddings (keyword fallback)."""
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGRetriever,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalRetriever,
         )
 
-        retriever = UnifiedRAGKGRetriever()
+        retriever = KGNativeRetrievalRetriever()
         nodes = [
             _make_node("spectral clustering algorithm"),
             _make_node("neural network training"),
@@ -191,11 +191,11 @@ class TestUnifiedRAGKGRetriever:
 
     def test_retrieve_unified_with_embeddings(self):
         """Unified retrieval with embeddings uses semantic scoring."""
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGRetriever,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalRetriever,
         )
 
-        retriever = UnifiedRAGKGRetriever()
+        retriever = KGNativeRetrievalRetriever()
 
         base_emb = _random_embedding(dim=32, seed=42)
         nodes = [
@@ -217,11 +217,11 @@ class TestUnifiedRAGKGRetriever:
 
     def test_stats_tracking(self):
         """Retrieval statistics are tracked."""
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGRetriever,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalRetriever,
         )
 
-        retriever = UnifiedRAGKGRetriever()
+        retriever = KGNativeRetrievalRetriever()
         nodes = [_make_node("test")]
 
         retriever.retrieve_unified("test", nodes, top_k=1)
@@ -346,7 +346,7 @@ class TestGraphDistillationMigrator:
 
     def test_import(self):
         """Module imports cleanly."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             CoverageReport,
             DistillationStats,
             GraphDistillationMigrator,
@@ -357,7 +357,7 @@ class TestGraphDistillationMigrator:
 
     def test_distill_batch_empty(self):
         """Distilling empty batch returns zero stats."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
         )
 
@@ -368,7 +368,7 @@ class TestGraphDistillationMigrator:
 
     def test_distill_batch_creates_edges(self):
         """Distilling similar nodes creates similarity edges."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
         )
 
@@ -391,7 +391,7 @@ class TestGraphDistillationMigrator:
 
     def test_distill_batch_incremental(self):
         """Incremental distillation skips already-distilled nodes."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
         )
 
@@ -411,7 +411,7 @@ class TestGraphDistillationMigrator:
 
     def test_distilled_retrieve(self):
         """Distilled retrieval returns scored results."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
         )
 
@@ -441,7 +441,7 @@ class TestGraphDistillationMigrator:
 
     def test_coverage_report(self):
         """Coverage report reflects distillation state."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
         )
 
@@ -454,7 +454,7 @@ class TestGraphDistillationMigrator:
 
     def test_coverage_report_with_data(self):
         """Coverage report reflects actual edge data."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
         )
 
@@ -477,7 +477,7 @@ class TestGraphDistillationMigrator:
 
     def test_migrate_existing(self):
         """Batch migration processes all nodes."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
         )
 
@@ -493,7 +493,7 @@ class TestGraphDistillationMigrator:
 
     def test_get_all_edges(self):
         """Edge accessor returns current edges."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
         )
 
@@ -511,15 +511,15 @@ class TestGraphDistillationMigrator:
 
     def test_retriever_access(self):
         """Underlying retriever is accessible."""
-        from agent_utilities.knowledge_graph.retrieval.graph_distillation import (
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
         )
-        from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-            UnifiedRAGKGRetriever,
+        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+            KGNativeRetrievalRetriever,
         )
 
         migrator = GraphDistillationMigrator()
-        assert isinstance(migrator.retriever, UnifiedRAGKGRetriever)
+        assert isinstance(migrator.retriever, KGNativeRetrievalRetriever)
 
 
 # =====================================================================

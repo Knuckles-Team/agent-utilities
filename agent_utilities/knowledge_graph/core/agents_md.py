@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Project-Aware Context — AGENTS.md Loader.
 
 CONCEPT:KG-2.14 — Project-Aware Context
@@ -34,7 +36,6 @@ See Also:
     - :func:`agent_utilities.tools.memory_tools.read_agents_md`
 """
 
-from __future__ import annotations
 
 import logging
 from pathlib import Path

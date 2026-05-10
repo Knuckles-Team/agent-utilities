@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Multi-agent team coordination capability with ACP integration.
 
 Manages team membership, shared tasks, and message routing via the
@@ -9,7 +11,6 @@ Falls back to A2A when ACP is unavailable.
 Concept: team-coordination
 """
 
-from __future__ import annotations
 
 import contextlib
 import logging

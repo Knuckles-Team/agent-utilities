@@ -1,12 +1,15 @@
 """Unified Capability Protocol."""
+
 from dataclasses import dataclass
 from typing import Any
+
 
 @dataclass
 class CapabilityContext:
     trigger_data: dict[str, Any]
     state: dict[str, Any]
     metadata: dict[str, Any]
+
 
 class CapabilityHandlerProtocol:
     @property

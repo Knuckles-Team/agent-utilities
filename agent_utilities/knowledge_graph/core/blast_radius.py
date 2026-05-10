@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Symbol Blast Radius Analyzer.
 
 CONCEPT:KG-2.35 — Symbol Blast Radius Analyzer
@@ -11,7 +13,6 @@ Provides regex-based symbol usage tracking, definition-line exclusion,
 and low-usage warnings for potential dead code detection.
 """
 
-from __future__ import annotations
 
 import logging
 import math

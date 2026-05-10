@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Positional Interaction Encodings (EncPI) for Inductive Knowledge Hypergraphs.
 
 CONCEPT:KG-2.4: Inductive Knowledge Hypergraphs
@@ -6,7 +8,6 @@ Knowledge Hypergraphs" to allow zero-shot inductive generalization across
 novel edge intersections based purely on their structural positional interactions.
 """
 
-from __future__ import annotations
 
 import logging
 import math

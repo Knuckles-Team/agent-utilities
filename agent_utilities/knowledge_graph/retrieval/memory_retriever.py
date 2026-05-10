@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.1 — Persistent Self-Model with OWL Integration.
 
 Provides a versioned metacognitive self-model that aggregates session
@@ -22,7 +24,6 @@ Integrates with:
 See docs/emergent-architecture.md §CONCEPT:KG-2.1.
 """
 
-from __future__ import annotations
 
 import logging
 import time

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Ecosystem Topology Map.
 
 CONCEPT:ECO-4.7 — Ecosystem Topology Map
@@ -46,7 +48,6 @@ See Also:
     - :mod:`agent_utilities.knowledge_graph.owl_bridge` — OWL promotion.
 """
 
-from __future__ import annotations
 
 import logging
 import re

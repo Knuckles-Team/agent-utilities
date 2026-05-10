@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:AHE-3.2 — Evolutionary Variant Selection.
 
 Manages competing variants of prompts, skills, or sub-graph configurations
@@ -14,7 +16,6 @@ Integrates with:
 See docs/emergent-architecture.md §CONCEPT:ORCH-1.0.
 """
 
-from __future__ import annotations
 
 import logging
 import random

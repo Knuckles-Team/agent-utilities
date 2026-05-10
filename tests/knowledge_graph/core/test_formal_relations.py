@@ -1,7 +1,7 @@
 import networkx as nx
 import pytest
 
-from agent_utilities.knowledge_graph.core.formal_relations import (
+from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     equivalence_classes,
     hasse_diagram,
     is_equivalence_relation,

@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Conversation checkpointing capability with graph persistence.
 
 Allows snapshotting conversation state, persisting it to the knowledge graph,
 and rewinding or forking from specific points.
 """
 
-from __future__ import annotations
 
 import abc
 import builtins

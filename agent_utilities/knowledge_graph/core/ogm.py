@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.0 — Knowledge Graph Object-Graph Mapper (OGM).
 
 Provides declarative, bidirectional mapping between Pydantic
@@ -20,7 +22,6 @@ Usage::
 See docs/emergent-architecture.md §CONCEPT:KG-2.0.
 """
 
-from __future__ import annotations
 
 import logging
 import time

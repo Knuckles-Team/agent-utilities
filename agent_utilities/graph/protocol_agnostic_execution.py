@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Unified Execution Layer Module.
 
 This module provides protocol-agnostic entry points for graph execution,
@@ -6,13 +8,12 @@ simplifying the interface for various adapters (ACP, AG-UI, SSE). It wraps
 the core runner logic to provide a consistent execution contract.
 """
 
-from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from .runner import run_graph, run_graph_iter, run_graph_stream
+from .dynamic_graph_orchestrator import run_graph, run_graph_iter, run_graph_stream
 
 logger = logging.getLogger(__name__)
 

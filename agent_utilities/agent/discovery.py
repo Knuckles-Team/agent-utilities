@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Agent Discovery Module.
 
-This module provides functionality for discovering local specialists, MCP tools,
+This module provides functionality for discovering local adaptive_agent_router, MCP tools,
 and remote A2A peer agents. All discovery is performed via the Knowledge Graph,
 which serves as the unified specialist registry for the graph orchestrator.
 """
@@ -64,11 +64,11 @@ def discover_all_specialists() -> list[DiscoveredSpecialist]:
     """
     from agent_utilities.graph.config_helpers import get_discovery_registry
 
-    specialists: list[DiscoveredSpecialist] = []
+    adaptive_agent_router: list[DiscoveredSpecialist] = []
     registry = get_discovery_registry()
 
     for agent in registry.agents:
-        specialists.append(
+        adaptive_agent_router.append(
             DiscoveredSpecialist(
                 tag=agent.name,
                 name=agent.name,
@@ -80,4 +80,4 @@ def discover_all_specialists() -> list[DiscoveredSpecialist]:
             )
         )
 
-    return specialists
+    return adaptive_agent_router

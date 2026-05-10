@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Structured Prompt models for JSON-as-Code prompting.
 
 CONCEPT:ORCH-1.0 — Structured Prompting
@@ -6,7 +8,6 @@ CONCEPT:ORCH-1.0 — Structured Prompting
     ``instructions`` sections for machine-parseable prompt engineering.
 """
 
-from __future__ import annotations
 
 import json
 import logging

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Research Orchestration Loop.
 
 CONCEPT:KG-2.39 — Research Orchestration Integration
@@ -29,7 +31,6 @@ Designed for integration with:
 - universal-skills research-scanner: As the discovery backend
 """
 
-from __future__ import annotations
 
 import logging
 import time
@@ -43,8 +44,8 @@ from agent_utilities.knowledge_graph.memory.auto_similarity import (
 from agent_utilities.knowledge_graph.orchestration.research_subagent import (
     ResearchSubagent,
 )
-from agent_utilities.knowledge_graph.retrieval.unified_rag_kg import (
-    UnifiedRAGKGRetriever,
+from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
+    KGNativeRetrievalRetriever,
 )
 from agent_utilities.models.knowledge_graph import (
     RegistryEdge,
@@ -126,7 +127,7 @@ class ResearchOrchestrator:
     CONCEPT:KG-2.39 — Research Orchestration Integration
 
     Connects the ResearchSubagent, ResearchPipelineRunner, and
-    UnifiedRAGKGRetriever into a cohesive cycle for autonomous,
+    KGNativeRetrievalRetriever into a cohesive cycle for autonomous,
     scheduled research ingestion and KG enrichment.
 
     Example::
@@ -162,7 +163,7 @@ class ResearchOrchestrator:
 
         # Sub-components
         self._similarity_linker = AutoSimilarityLinker()
-        self._unified_retriever = UnifiedRAGKGRetriever(engine=engine)
+        self._unified_retriever = KGNativeRetrievalRetriever(engine=engine)
 
     def _create_pipeline_runner(self) -> ResearchPipelineRunner:
         """Create a configured ResearchPipelineRunner."""

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Agentic-iModels KG Node Models.
 
 CONCEPT:AHE-3.15 — Agent-Interpretable Model Evolver
@@ -26,7 +28,6 @@ Integration points:
 See docs/overview.md §CONCEPT:AHE-3.15.
 """
 
-from __future__ import annotations
 
 from enum import StrEnum
 

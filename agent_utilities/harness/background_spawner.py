@@ -1,17 +1,18 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Background Context Spawner (CONCEPT:AHE-3.17).
 
 Monitors background context shifts via the Knowledge Graph and autonomously
 spawns specialized sub-agents dynamically.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from ..graph.dynamic_subgraph import DynamicSubgraphOrchestrator
+from ..graph.dynamic_graph_orchestrator import DynamicSubgraphOrchestrator
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine

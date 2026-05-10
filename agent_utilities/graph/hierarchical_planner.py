@@ -217,8 +217,8 @@ async def planner_step(
             f"and configure 'access_list' to share the shared workboard context.\n\n"
             f"### MULTI-LEVEL ABSTRACTION LAYERING (CONCEPT:ORCH-1.5)\n"
             f"Do not attempt to plan every micro-step. Instead, emit coarse, high-level steps "
-            f"and delegate the detailed refinement to the executing specialists. This saves "
-            f"upfront planning tokens and allows specialists to adapt dynamically.\n\n"
+            f"and delegate the detailed refinement to the executing adaptive_agent_router. This saves "
+            f"upfront planning tokens and allows adaptive_agent_router to adapt dynamically.\n\n"
             f"{feedback_section}"
             f"{error_section}"
             f"{results_section}"
@@ -839,7 +839,7 @@ async def execute_recursive_graph(
     )
 
     # Import here to avoid circular dependency
-    from .runner import run_graph
+    from .dynamic_graph_orchestrator import run_graph
 
     result = await run_graph(  # type: ignore[call-arg]
         query=refined_query,
@@ -881,7 +881,7 @@ Core signals:
       group.  Eq. 5: D(g) = |{answer(τ) : τ ∈ g}|.
 
 Three-tier aggregation strategy:
-    - ``MAJORITY_VOTE``:  Free — no LLM call when all specialists agree.
+    - ``MAJORITY_VOTE``:  Free — no LLM call when all adaptive_agent_router agree.
     - ``LIGHT_MODEL``:    Cheap model synthesis for moderate-confidence.
     - ``HEAVY_MODEL``:    Deep aggregation for low-confidence, high-
                           diversity groups requiring reasoning.
@@ -916,7 +916,7 @@ class AggregationStrategy(StrEnum):
     """Three-tier aggregation strategy from Squeeze Evolve §5.1."""
 
     MAJORITY_VOTE = "majority_vote"
-    """Free — no LLM call needed when all specialists agree."""
+    """Free — no LLM call needed when all adaptive_agent_router agree."""
 
     LIGHT_MODEL = "light_model"
     """Cheap model synthesis for moderate-confidence groups."""
@@ -944,7 +944,7 @@ class GroupFitness(BaseModel):
     group_id: str = Field(description="Unique identifier for this group.")
     specialist_ids: list[str] = Field(
         default_factory=list,
-        description="IDs of specialists whose proposals form this group.",
+        description="IDs of adaptive_agent_router whose proposals form this group.",
     )
     group_confidence: float = Field(
         default=0.5,

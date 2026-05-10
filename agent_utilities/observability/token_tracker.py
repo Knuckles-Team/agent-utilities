@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Token Usage Tracker — 4-Bucket Granular Analytics (CONCEPT:OS-5.6).
 
 Provides granular token usage tracking with four distinct buckets:
@@ -13,7 +15,6 @@ cross-session trend analysis that MATE can only do via flat SQL queries.
 OWL: :TokenUsageRecord rdfs:subClassOf :Observation
 """
 
-from __future__ import annotations
 
 import logging
 import time

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Coverage uplift tests for agent-utilities.
 
 Targets 0%-covered and low-covered modules:
@@ -12,7 +13,6 @@ Targets 0%-covered and low-covered modules:
 - ``chat_persistence.py`` - on-disk round-trip
 """
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock

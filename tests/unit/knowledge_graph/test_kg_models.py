@@ -1,4 +1,5 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Unit tests for KG V2 node / edge model additions.
 
 Covers the 10 new ``RegistryNode`` subclasses and 20 new ``RegistryEdgeType``
@@ -22,7 +23,6 @@ members introduced per ``docs/KG_V2_DESIGN.md`` §§2-3. Tests focus on:
 
 # CONCEPT:OS-5.0 — Agent Identity Management
 
-from __future__ import annotations
 
 import json
 

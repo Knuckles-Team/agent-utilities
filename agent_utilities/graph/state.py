@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Graph State Module.
 
 This module defines the core data structures for managing the state and
@@ -7,7 +9,6 @@ runtime configuration and GraphState for tracking queries, plans,
 execution results, and usage statistics across the agent lifecycle.
 """
 
-from __future__ import annotations
 
 import asyncio
 import contextvars
@@ -128,7 +129,7 @@ class GraphDeps:
     of terminating when ``DeferredToolRequests`` is returned."""
 
     knowledge_engine: RegistryGraphEngine | None = None
-    """Engine for topological and semantic discovery of specialists and memories."""
+    """Engine for topological and semantic discovery of adaptive_agent_router and memories."""
 
     model_registry: ModelRegistry | None = None
     """Optional :class:`~agent_utilities.models.ModelRegistry` used by the

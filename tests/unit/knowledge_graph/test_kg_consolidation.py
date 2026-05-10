@@ -1,4 +1,5 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Unit tests for the ``consolidation.py`` minimum-viable skeleton.
 
 Covers:
@@ -15,7 +16,6 @@ Covers:
 * ``ConsolidationEngine.dedup_by_signature`` removes duplicates.
 """
 
-from __future__ import annotations
 
 import networkx as nx
 import pytest

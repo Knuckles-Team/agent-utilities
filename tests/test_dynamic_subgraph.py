@@ -4,7 +4,7 @@ import pytest
 import networkx as nx
 from unittest.mock import Mock
 
-from agent_utilities.graph.dynamic_subgraph import DynamicSubgraphOrchestrator
+from agent_utilities.graph.dynamic_graph_orchestrator import DynamicSubgraphOrchestrator
 from agent_utilities.models.knowledge_graph import TeamComposition
 
 
@@ -35,9 +35,9 @@ def test_dynamic_subgraph_synthesize_team():
 
     assert isinstance(team, TeamComposition)
     assert team.execution_mode in ["sequential", "parallel", "mixed"]
-    assert len(team.specialists) == 3
-    assert team.specialists[0]["role"] == "planner"
-    assert team.specialists[1]["tools"] == ["search_web", "read_doc"]
+    assert len(team.adaptive_agent_router) == 3
+    assert team.adaptive_agent_router[0]["role"] == "planner"
+    assert team.adaptive_agent_router[1]["tools"] == ["search_web", "read_doc"]
 
 def test_dynamic_subgraph_with_delegated_authority():
     """Test synthesizing a team dynamically with delegated authority constraints."""
@@ -63,8 +63,8 @@ def test_dynamic_subgraph_with_delegated_authority():
     )
 
     assert isinstance(team, TeamComposition)
-    assert len(team.specialists) == 1
-    assert team.specialists[0]["role"] == "financial_auditor"
+    assert len(team.adaptive_agent_router) == 1
+    assert team.adaptive_agent_router[0]["role"] == "financial_auditor"
 
     # Check that the execute call contained the delegated_authority parameter
     called_args, called_kwargs = mock_backend.execute.call_args_list[0]

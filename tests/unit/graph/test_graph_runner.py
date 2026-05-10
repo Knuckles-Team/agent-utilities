@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_utilities.graph import runner
+from agent_utilities.graph import dynamic_graph_orchestrator as runner
 from agent_utilities.models import GraphResponse
 
 
@@ -25,7 +25,7 @@ async def test_run_graph_basic(mock_graph):
     deps.event_queue = None
     config = {"deps": deps}
 
-    with patch("agent_utilities.graph.runner.load_node_agents_registry") as mock_reg:
+    with patch("agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry") as mock_reg:
         mock_reg.return_value.agents = []
         response = await runner.run_graph(
             mock_graph, config, query="hello", streamdown=False
@@ -45,7 +45,7 @@ async def test_run_graph_exception(mock_graph):
     deps.tag_prompts = {}
     config = {"deps": deps}
 
-    with patch("agent_utilities.graph.runner.load_node_agents_registry") as mock_reg:
+    with patch("agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry") as mock_reg:
         mock_reg.return_value.agents = []
         response = await runner.run_graph(
             mock_graph, config, query="hello", streamdown=False
@@ -98,8 +98,8 @@ async def test_run_graph_stream_basic(mock_graph):
     mock_graph.run_stream.return_value = MockStreamedRun()
 
     with (
-        patch("agent_utilities.graph.runner.load_node_agents_registry") as mock_reg,
-        patch("agent_utilities.graph.runner.create_model") as mock_model,
+        patch("agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry") as mock_reg,
+        patch("agent_utilities.graph.dynamic_graph_orchestrator.create_model") as mock_model,
     ):
         mock_reg.return_value.agents = []
         mock_model.return_value = MagicMock()

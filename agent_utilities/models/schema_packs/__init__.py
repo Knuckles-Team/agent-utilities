@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Pre-built Schema Packs for common domains.
 
 CONCEPT:KG-2.2 — Schema Packs
@@ -7,7 +9,6 @@ to instantiate a named pack, or ``list_schema_packs()`` to discover
 available packs.
 """
 
-from __future__ import annotations
 
 from .biomedical import BiomedicalSchemaPack
 from .core import CoreSchemaPack

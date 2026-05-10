@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Agent Factory Module.
 
 This module provides factory functions for creating and configuring Pydantic AI
@@ -8,7 +10,6 @@ registration, and system prompt construction.
 CONCEPT:OS-5.0 Agent Creation
 """
 
-from __future__ import annotations
 
 import argparse
 import logging

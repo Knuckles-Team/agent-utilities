@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Graph Models Module.
 
 This module defines the structured Pydantic models used for input and output
@@ -6,7 +8,6 @@ across various graph nodes, including routing decisions, planning
 metadata, and quality validation results.
 """
 
-from __future__ import annotations
 
 from pydantic import BaseModel, Field
 

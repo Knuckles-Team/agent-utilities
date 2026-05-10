@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """MCP Context Helper Utilities.
 
 Standardized helpers for the FastMCP ``Context`` object. Every MCP server
@@ -8,7 +10,6 @@ compatible with callers that do not inject a context).
 CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any

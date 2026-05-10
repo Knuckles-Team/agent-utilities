@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Dynamic Topology Engine (CONCEPT:ORCH-1.17).
 
 Replaces static ``create_graph_agent()`` topology with KG-driven dynamic
@@ -8,7 +10,7 @@ the engine selects and materializes only the relevant subgraph based on:
     - Task domain (general, finance, medical, legal, government)
     - Task complexity (1-5 scale)
     - KG-stored ``TopologyTemplateNode`` success rates
-    - Available specialists and tools
+    - Available adaptive_agent_router and tools
 
 The engine supports all pydantic-graph execution patterns:
     - **Sequential**: A → B → C (simple pipeline)
@@ -24,7 +26,6 @@ Each materialized topology creates isolated subgraph instances with:
     - Shared KG memory channels for P2P communication
 """
 
-from __future__ import annotations
 
 import logging
 import time
@@ -90,15 +91,17 @@ class TopologyEngine:
                 - ``memory_channels``: Shared KG channels
                 - ``topology_id``: Template ID for tracking
         """
-        specialists = team_composition.specialists
+        adaptive_agent_router = team_composition.adaptive_agent_router
         mode = team_composition.execution_mode
         parallel_groups = team_composition.parallel_groups
 
         # Build execution plan
-        execution_plan = self._build_execution_plan(specialists, mode, parallel_groups)
+        execution_plan = self._build_execution_plan(
+            adaptive_agent_router, mode, parallel_groups
+        )
 
         # Build per-specialist configs with full context
-        specialist_configs = self._build_specialist_configs(specialists)
+        specialist_configs = self._build_specialist_configs(adaptive_agent_router)
 
         result = {
             "execution_plan": execution_plan,
@@ -117,7 +120,7 @@ class TopologyEngine:
 
         logger.info(
             "[CONCEPT:ORCH-1.17] Materialized topology: %d steps, "
-            "%d specialists, mode=%s",
+            "%d adaptive_agent_router, mode=%s",
             len(execution_plan),
             len(specialist_configs),
             mode,
@@ -127,15 +130,15 @@ class TopologyEngine:
 
     def _build_execution_plan(
         self,
-        specialists: list[dict[str, Any]],
+        adaptive_agent_router: list[dict[str, Any]],
         mode: str,
         parallel_groups: list[list[str]],
     ) -> list[dict[str, Any]]:
-        """Build an ordered execution plan from specialists and mode.
+        """Build an ordered execution plan from adaptive_agent_router and mode.
 
         Returns a list of execution steps, where each step may contain:
         - A single specialist (sequential)
-        - Multiple specialists (parallel group)
+        - Multiple adaptive_agent_router (parallel group)
         """
         if mode == "sequential":
             return [
@@ -145,40 +148,46 @@ class TopologyEngine:
                     "mode": "sequential",
                     "agent_ids": [s.get("agent_id", s["role"])],
                 }
-                for i, s in enumerate(specialists)
+                for i, s in enumerate(adaptive_agent_router)
             ]
 
         if mode == "parallel":
-            # All specialists execute in parallel, then join
+            # All adaptive_agent_router execute in parallel, then join
             return [
                 {
                     "step": 0,
-                    "roles": [s["role"] for s in specialists],
+                    "roles": [s["role"] for s in adaptive_agent_router],
                     "mode": "parallel",
-                    "agent_ids": [s.get("agent_id", s["role"]) for s in specialists],
+                    "agent_ids": [
+                        s.get("agent_id", s["role"]) for s in adaptive_agent_router
+                    ],
                 }
             ]
 
         if mode == "fan_out":
             # First specialist fans out to the rest
-            if len(specialists) < 2:
-                return self._build_execution_plan(specialists, "sequential", [])
+            if len(adaptive_agent_router) < 2:
+                return self._build_execution_plan(
+                    adaptive_agent_router, "sequential", []
+                )
 
             steps = [
                 {
                     "step": 0,
-                    "roles": [specialists[0]["role"]],
+                    "roles": [adaptive_agent_router[0]["role"]],
                     "mode": "sequential",
                     "agent_ids": [
-                        specialists[0].get("agent_id", specialists[0]["role"])
+                        adaptive_agent_router[0].get(
+                            "agent_id", adaptive_agent_router[0]["role"]
+                        )
                     ],
                 },
                 {
                     "step": 1,
-                    "roles": [s["role"] for s in specialists[1:]],
+                    "roles": [s["role"] for s in adaptive_agent_router[1:]],
                     "mode": "parallel",
                     "agent_ids": [
-                        s.get("agent_id", s["role"]) for s in specialists[1:]
+                        s.get("agent_id", s["role"]) for s in adaptive_agent_router[1:]
                     ],
                 },
             ]
@@ -186,38 +195,42 @@ class TopologyEngine:
 
         if mode == "fan_in":
             # All but last execute in parallel, then last gathers
-            if len(specialists) < 2:
-                return self._build_execution_plan(specialists, "sequential", [])
+            if len(adaptive_agent_router) < 2:
+                return self._build_execution_plan(
+                    adaptive_agent_router, "sequential", []
+                )
 
             steps = [
                 {
                     "step": 0,
-                    "roles": [s["role"] for s in specialists[:-1]],
+                    "roles": [s["role"] for s in adaptive_agent_router[:-1]],
                     "mode": "parallel",
                     "agent_ids": [
-                        s.get("agent_id", s["role"]) for s in specialists[:-1]
+                        s.get("agent_id", s["role"]) for s in adaptive_agent_router[:-1]
                     ],
                 },
                 {
                     "step": 1,
-                    "roles": [specialists[-1]["role"]],
+                    "roles": [adaptive_agent_router[-1]["role"]],
                     "mode": "sequential",
                     "agent_ids": [
-                        specialists[-1].get("agent_id", specialists[-1]["role"])
+                        adaptive_agent_router[-1].get(
+                            "agent_id", adaptive_agent_router[-1]["role"]
+                        )
                     ],
                 },
             ]
             return steps
 
         if mode == "mixed":
-            return self._build_mixed_plan(specialists, parallel_groups)
+            return self._build_mixed_plan(adaptive_agent_router, parallel_groups)
 
         # Fallback: sequential
-        return self._build_execution_plan(specialists, "sequential", [])
+        return self._build_execution_plan(adaptive_agent_router, "sequential", [])
 
     def _build_mixed_plan(
         self,
-        specialists: list[dict[str, Any]],
+        adaptive_agent_router: list[dict[str, Any]],
         parallel_groups: list[list[str]],
     ) -> list[dict[str, Any]]:
         """Build a mixed sequential/parallel execution plan.
@@ -232,12 +245,12 @@ class TopologyEngine:
 
         steps: list[dict[str, Any]] = []
         step_idx = 0
-        role_to_spec = {s["role"]: s for s in specialists}
+        role_to_spec = {s["role"]: s for s in adaptive_agent_router}
 
         # Track which roles have been scheduled
         scheduled: set[str] = set()
 
-        for specialist in specialists:
+        for specialist in adaptive_agent_router:
             role = specialist["role"]
             if role in scheduled:
                 continue
@@ -282,12 +295,12 @@ class TopologyEngine:
         return steps
 
     def _build_specialist_configs(
-        self, specialists: list[dict[str, Any]]
+        self, adaptive_agent_router: list[dict[str, Any]]
     ) -> dict[str, dict[str, Any]]:
         """Build per-specialist configuration from the team composition."""
         configs: dict[str, dict[str, Any]] = {}
 
-        for spec in specialists:
+        for spec in adaptive_agent_router:
             role = spec["role"]
             configs[role] = {
                 "agent_id": spec.get("agent_id", role),

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Cross-Pillar Synergy Engine.
 
 CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
@@ -46,7 +48,6 @@ See Also:
     - :mod:`agent_utilities.knowledge_graph.semantic_subsumption` (KG-2.16)
 """
 
-from __future__ import annotations
 
 import logging
 import re

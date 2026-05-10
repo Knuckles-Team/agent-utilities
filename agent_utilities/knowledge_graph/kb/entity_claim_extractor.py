@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.2 — Entity-Claim Extraction for MAGMA Epistemic View.
 
 Extends the knowledge base pipeline to extract entities, claims, and
@@ -22,7 +24,6 @@ Usage::
 See docs/emergent-architecture.md §CONCEPT:KG-2.2.
 """
 
-from __future__ import annotations
 
 import hashlib
 import logging

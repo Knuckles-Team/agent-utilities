@@ -15,7 +15,7 @@ async def main():
     """Create and run a graph agent with universal skills."""
 
     # Create a Graph Agent with Universal Skills
-    # This automatically discovers domain specialists from registries
+    # This automatically discovers domain adaptive_agent_router from registries
     agent, _ = create_agent(name="GraphAgent", skill_types=["universal", "graphs"])
 
     # Run the agent with a complex query that requires orchestration
@@ -31,7 +31,7 @@ async def main():
     # The graph orchestrator will:
     # 1. Route the query to the appropriate specialist
     # 2. Plan the approach
-    # 3. Dispatch to domain specialists in parallel
+    # 3. Dispatch to domain adaptive_agent_router in parallel
     # 4. Verify the results
     # 5. Synthesize the final response
 

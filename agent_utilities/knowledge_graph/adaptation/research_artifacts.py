@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.11 — Research Artifact Generator.
 
 Generates actionable LLM artifacts from KG-ingested research papers,
@@ -20,7 +22,6 @@ Integrates with:
 See docs/research-pipeline.md §CONCEPT:KG-2.11.
 """
 
-from __future__ import annotations
 
 import logging
 import time

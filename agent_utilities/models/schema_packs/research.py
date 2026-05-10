@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Research Schema Pack — academic/scientific domain profile.
 
 Optimized for research agents managing papers, claims, methods,
@@ -5,7 +7,6 @@ datasets, evidence, and hypotheses. Uses CONTEXT_ONLY backlink
 boost to preserve discovery of novel/low-citation papers.
 """
 
-from __future__ import annotations
 
 from ..knowledge_graph import RegistryEdgeType, RegistryNodeType
 from ..schema_pack import BacklinkBoostStrategy, SchemaPack, SchemaPackMode

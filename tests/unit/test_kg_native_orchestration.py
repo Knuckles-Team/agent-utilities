@@ -30,7 +30,7 @@ class TestKGTeamComposer:
         team = composer.compose_team("What is Python?", complexity=1)
         assert team.team_id.startswith("team:")
         assert team.source in ("composed", "dynamic_synthesis")
-        assert len(team.specialists) > 0
+        assert len(team.adaptive_agent_router) > 0
         assert team.execution_mode in (
             "sequential",
             "parallel",
@@ -44,7 +44,7 @@ class TestKGTeamComposer:
 
         composer = KGTeamComposer(engine=None)
         team = composer.compose_team("Analyze this codebase architecture", complexity=4)
-        assert len(team.specialists) >= 1
+        assert len(team.adaptive_agent_router) >= 1
         assert team.execution_mode in ("sequential", "mixed", "parallel", "fan_out", "fan_in")
 
     def test_compose_finance_domain(self):
@@ -54,21 +54,21 @@ class TestKGTeamComposer:
         team = composer.compose_team(
             "Analyze AAPL stock", domain="finance", complexity=4
         )
-        assert len(team.specialists) >= 1
+        assert len(team.adaptive_agent_router) >= 1
 
     def test_compose_single_agent(self):
         from agent_utilities.graph.team_composer import KGTeamComposer
 
         composer = KGTeamComposer(engine=None)
         team = composer.compose_team("Hello", complexity=1)
-        assert len(team.specialists) >= 1
+        assert len(team.adaptive_agent_router) >= 1
 
     def test_team_has_system_prompts(self):
         from agent_utilities.graph.team_composer import KGTeamComposer
 
         composer = KGTeamComposer(engine=None)
         team = composer.compose_team("Research topic", complexity=3)
-        for spec in team.specialists:
+        for spec in team.adaptive_agent_router:
             assert "system_prompt" in spec
             assert len(spec["system_prompt"]) > 0
 
@@ -164,7 +164,7 @@ class TestTopologyEngine:
         from agent_utilities.models.knowledge_graph import TeamComposition
 
         roles = roles or ["router", "expert", "verifier"]
-        specialists = [
+        adaptive_agent_router = [
             {
                 "role": r,
                 "agent_id": r,
@@ -176,7 +176,7 @@ class TestTopologyEngine:
         ]
         return TeamComposition(
             team_id="test-team",
-            specialists=specialists,
+            adaptive_agent_router=adaptive_agent_router,
             execution_mode=mode,
             parallel_groups=parallel_groups or [],
             memory_channels=["episodic"],
@@ -261,7 +261,7 @@ class TestTopologicalRoutingPolicy:
     """Tests for KG-Native Routing Policy (CONCEPT:ORCH-1.18)."""
 
     def test_cold_start_fallback(self):
-        from agent_utilities.graph.routing_policy import (
+        from agent_utilities.graph.adaptive_agent_router import (
             TopologicalRoutingPolicy,
             RoutingCandidate,
         )
@@ -275,14 +275,14 @@ class TestTopologicalRoutingPolicy:
         assert decision.selected.model_id == "gpt-4"
 
     def test_no_candidates_raises(self):
-        from agent_utilities.graph.routing_policy import TopologicalRoutingPolicy
+        from agent_utilities.graph.adaptive_agent_router import TopologicalRoutingPolicy
 
         policy = TopologicalRoutingPolicy(engine=None)
         with pytest.raises(ValueError):
             policy.route("test", [])
 
     def test_with_engine_scores_candidates(self):
-        from agent_utilities.graph.routing_policy import (
+        from agent_utilities.graph.adaptive_agent_router import (
             TopologicalRoutingPolicy,
             RoutingCandidate,
         )
@@ -503,12 +503,12 @@ class TestKGNativeModels:
 
         team = TeamComposition(
             team_id="team:test",
-            specialists=[{"role": "expert", "agent_id": "a1", "tools": ["search"]}],
+            adaptive_agent_router=[{"role": "expert", "agent_id": "a1", "tools": ["search"]}],
             execution_mode="parallel",
             confidence=0.85,
         )
         assert team.source == "composed"
-        assert len(team.specialists) == 1
+        assert len(team.adaptive_agent_router) == 1
 
     def test_registry_node_types_added(self):
         from agent_utilities.models.knowledge_graph import RegistryNodeType
@@ -591,7 +591,7 @@ class TestEndToEndOrchestration:
 
         team = TeamComposition(
             team_id="parallel-test",
-            specialists=[
+            adaptive_agent_router=[
                 {
                     "role": "dispatcher",
                     "agent_id": "d1",

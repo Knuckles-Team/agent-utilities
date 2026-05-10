@@ -1,3 +1,23 @@
+from __future__ import annotations
+
+import hashlib
+import logging
+import math
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
+from pydantic_graph import End
+from pydantic_graph.beta import StepContext
+
+from .executor import _execute_specialized_step
+from .state import GraphDeps, GraphState
+
+# --- Merged from adaptive_agent_router.py ---
+
 #!/usr/bin/python
 """Learned Agent Routing Policy (CONCEPT:ORCH-1.2 Enhancement).
 
@@ -17,17 +37,6 @@ Three routing strategies are provided:
 3. **CostAwareRouter** — Wraps any policy with cost/accuracy Pareto filtering.
 """
 
-from __future__ import annotations
-
-import hashlib
-import logging
-import math
-from collections import defaultdict
-from datetime import UTC, datetime
-from enum import StrEnum
-from typing import Any
-
-from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -690,3 +699,150 @@ class TopologicalRoutingPolicy(RoutingPolicy):
             pass
 
         return 0.0
+
+
+# --- Merged from adaptive_agent_router.py ---
+
+#!/usr/bin/python
+"""Graph Specialist Steps — Data-Driven Factory.
+
+CONCEPT:ORCH-1.0 Dynamic agent spawning via a registry-driven factory.
+
+Instead of 20+ identical boilerplate functions, this module provides a
+single ``make_specialist_step`` factory and a ``SPECIALIST_REGISTRY``
+that maps persona IDs to their metadata.  The factory generates
+async step functions at import time for backward compatibility.
+
+New personas can be added by appending to ``SPECIALIST_REGISTRY`` —
+no new function definitions are needed.
+"""
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SpecialistPersona:
+    """Metadata for a specialist persona node."""
+
+    node_id: str
+    description: str
+
+
+# ── Registry of all built-in specialist personas ─────────────────────
+SPECIALIST_REGISTRY: list[SpecialistPersona] = [
+    SpecialistPersona(
+        "python_programmer", "Python implementation, refactoring, packaging (Poetry/UV)"
+    ),
+    SpecialistPersona(
+        "golang_programmer", "Cloud-native backends, microservices, concurrent Go"
+    ),
+    SpecialistPersona(
+        "typescript_programmer", "TypeScript, React, Node.js, type-safe API design"
+    ),
+    SpecialistPersona("rust_programmer", "Memory-safe systems programming, CLI, Cargo"),
+    SpecialistPersona(
+        "security_auditor", "Threat modeling, OWASP, dependency vulnerability scanning"
+    ),
+    SpecialistPersona(
+        "javascript_programmer",
+        "General-purpose JS, legacy maintenance, Node scripting",
+    ),
+    SpecialistPersona("c_programmer", "C systems programming and embedded development"),
+    SpecialistPersona(
+        "cpp_programmer", "C++ systems and performance-critical applications"
+    ),
+    SpecialistPersona(
+        "qa_expert", "Test planning, regression analysis, quality assurance"
+    ),
+    SpecialistPersona(
+        "debugger_expert",
+        "Root cause analysis, log forensics, stack trace interpretation",
+    ),
+    SpecialistPersona(
+        "ui_ux_designer", "Design systems, accessibility, responsive layouts"
+    ),
+    SpecialistPersona(
+        "devops_engineer", "CI/CD, Docker, K8s, IaC, environment stabilization"
+    ),
+    SpecialistPersona(
+        "cloud_architect", "Distributed systems, multi-cloud, serverless, scalability"
+    ),
+    SpecialistPersona(
+        "database_expert", "SQL/NoSQL schema design, query optimization, migrations"
+    ),
+    SpecialistPersona(
+        "java_programmer", "Enterprise Java, Spring Boot, JVM performance tuning"
+    ),
+    SpecialistPersona(
+        "data_scientist", "Data analysis, ML modeling, statistical inference"
+    ),
+    SpecialistPersona(
+        "document_specialist", "README generation, API docs, Mermaid diagrams"
+    ),
+    SpecialistPersona("mobile_programmer", "React Native, Flutter, native iOS/Android"),
+    SpecialistPersona(
+        "agent_engineer", "Autonomous agents, MCP servers, graph orchestration"
+    ),
+    SpecialistPersona(
+        "project_manager", "Task decomposition, resource planning, timeline estimation"
+    ),
+    SpecialistPersona(
+        "systems_manager", "Codebase structural analysis, dependency mapping"
+    ),
+    SpecialistPersona(
+        "browser_automation", "E2E testing, visual regression, web crawling"
+    ),
+    SpecialistPersona(
+        "coordinator", "Multi-agent synchronization, session state alignment"
+    ),
+    SpecialistPersona(
+        "critique", "Code review, architectural critique, logic validation"
+    ),
+]
+
+
+def make_specialist_step(persona: SpecialistPersona):
+    """Factory: create a specialist step function for a given persona.
+
+    Args:
+        persona: The specialist persona metadata.
+
+    Returns:
+        An async step function compatible with pydantic-graph.
+    """
+
+    async def _specialist_step(
+        ctx: StepContext[GraphState, GraphDeps, None],
+    ) -> str | End[Any]:
+        return await _execute_specialized_step(ctx, persona.node_id)
+
+    # Set function metadata for introspection and graph registration
+    _specialist_step.__name__ = f"{persona.node_id}_step"
+    _specialist_step.__qualname__ = f"{persona.node_id}_step"
+    _specialist_step.__doc__ = (
+        f"Execute the specialized {persona.description} role.\n\n"
+        f"Auto-generated by the specialist factory (CONCEPT:ORCH-1.0).\n\n"
+        f"Args:\n"
+        f"    ctx: The pydantic-graph step context.\n\n"
+        f"Returns:\n"
+        f"    The next node identifier or terminal End state.\n"
+    )
+    return _specialist_step
+
+
+# ── Generate all specialist step functions at module level ────────────
+# This makes them importable: ``from .adaptive_agent_router import python_programmer_step``
+
+
+def _build_exports():
+    """Build module-level step functions and __all__ list."""
+    exports = []
+    for persona in SPECIALIST_REGISTRY:
+        func_name = f"{persona.node_id}_step"
+        globals()[func_name] = make_specialist_step(persona)
+        exports.append(func_name)
+    return exports
+
+
+__all__ = _build_exports()

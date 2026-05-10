@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """KG-Driven Team Composer (CONCEPT:ORCH-1.15).
 
 Assembles specialist teams from Knowledge Graph topology instead of
@@ -22,7 +24,6 @@ This replaces the ad-hoc ``if deps.knowledge_engine:`` pattern in
 ``routing.py`` with a single call: ``composer.compose_team(query, deps)``.
 """
 
-from __future__ import annotations
 
 import logging
 import time
@@ -33,7 +34,7 @@ from ..models.knowledge_graph import (
     RegistryNodeType,
     TeamComposition,
 )
-from .dynamic_subgraph import DynamicSubgraphOrchestrator
+from .dynamic_graph_orchestrator import DynamicSubgraphOrchestrator
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -48,7 +49,7 @@ class KGTeamComposer:
 
     This is the primary entry point for KG-driven orchestration.
     Instead of static agent registration, the KG dynamically determines
-    which specialists participate, what tools they receive, and how they
+    which adaptive_agent_router participate, what tools they receive, and how they
     collaborate.
 
     Args:
@@ -130,10 +131,11 @@ class KGTeamComposer:
 
         # Build a TeamConfigNode from the composition
         specialist_ids = [
-            s.get("agent_id", s.get("role", "")) for s in composition.specialists
+            s.get("agent_id", s.get("role", ""))
+            for s in composition.adaptive_agent_router
         ]
         tool_assignments = {}
-        for s in composition.specialists:
+        for s in composition.adaptive_agent_router:
             role = s.get("role", "")
             tools = s.get("tools", [])
             if tools:
@@ -189,10 +191,10 @@ class KGTeamComposer:
                     best = matching_teams[0]
                     # Only reuse if success rate is high enough
                     if best.get("success_rate", 0) >= 0.7:
-                        specialists = []
+                        adaptive_agent_router = []
                         for sid in best.get("specialist_ids", []):
                             tool_map = best.get("tool_assignments", {})
-                            specialists.append(
+                            adaptive_agent_router.append(
                                 {
                                     "role": sid,
                                     "agent_id": sid,
@@ -206,7 +208,7 @@ class KGTeamComposer:
                             team_id="",
                             source="reused",
                             team_config_id=best.get("id", ""),
-                            specialists=specialists,
+                            adaptive_agent_router=adaptive_agent_router,
                             execution_mode="sequential",
                             confidence=best.get("success_rate", 0.7),
                             reasoning=f"Reused proven team '{best.get('name', '')}' "

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Graph Lifecycle Steps.
 
 Session lifecycle, policy enforcement, and human-in-the-loop gates.
@@ -10,7 +12,6 @@ Extracted from the monolithic steps.py for maintainability.
 - ``_emit_node_lifecycle``: Shared helper for node-level tracing events.
 """
 
-from __future__ import annotations
 
 import logging
 from typing import Any

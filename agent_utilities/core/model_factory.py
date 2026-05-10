@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Model Factory Module.
 
 This module provides a unified factory function to create and configure
@@ -7,7 +9,6 @@ using pydantic-ai. It handles environment-based configuration, custom HTTP
 clients, and SSL verification settings.
 """
 
-from __future__ import annotations
 
 import logging
 import os

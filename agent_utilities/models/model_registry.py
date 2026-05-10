@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Model Registry.
 
 Declarative configuration for the multi-model routing layer. A single
@@ -12,12 +14,11 @@ Consumers:
   the web UI model picker can replace its hardcoded cost table.
 - `agent_terminal_ui` `/model list | set | show` commands drive the
   per-turn model override via the `x-agent-model-id` request header.
-- The graph orchestrator calls `pick_for_task()` when spawning specialists,
+- The graph orchestrator calls `pick_for_task()` when spawning adaptive_agent_router,
   so a `light` tier can be used for a cheap researcher and a `heavy` tier
   for a planner/synthesizer without any hardcoded model ids.
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

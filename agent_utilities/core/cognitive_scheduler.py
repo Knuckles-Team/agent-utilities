@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:OS-5.2 — Cognitive Scheduler with Priority-Aware Preemption.
 
 Manages competing agent demands in real-time with priority preemption,
@@ -26,7 +28,6 @@ Integrates with:
 See docs/cognitive-scheduler.md §CONCEPT:OS-5.2.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging

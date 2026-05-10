@@ -6,7 +6,7 @@ from pydantic_ai import Agent
 
 from agent_utilities.graph.builder import initialize_graph_from_workspace
 from agent_utilities.graph.graph_models import ValidationResult
-from agent_utilities.graph.runner import run_graph
+from agent_utilities.graph.dynamic_graph_orchestrator import run_graph
 from agent_utilities.models import ExecutionStep, GraphPlan
 
 # Cap every test in this module at 30 s so a graph-orchestration infinite loop
@@ -108,7 +108,7 @@ async def test_full_graph_lifecycle():
     with (
         patch.object(Agent, "run", new=mock_run_call),
         patch.object(Agent, "run_stream", new=mock_run_stream),
-        patch("agent_utilities.graph.runner.create_model", return_value=MagicMock()),
+        patch("agent_utilities.graph.dynamic_graph_orchestrator.create_model", return_value=MagicMock()),
         patch(
             "agent_utilities.graph.steps.fetch_unified_context", return_value="context"
         ),
@@ -217,7 +217,7 @@ async def test_graph_parallel_and_fallback():
     with (
         patch.object(Agent, "run", new=mock_run_call),
         patch.object(Agent, "run_stream", new=mock_run_stream),
-        patch("agent_utilities.graph.runner.create_model", return_value=MagicMock()),
+        patch("agent_utilities.graph.dynamic_graph_orchestrator.create_model", return_value=MagicMock()),
         patch(
             "agent_utilities.graph.steps.fetch_unified_context", return_value="context"
         ),

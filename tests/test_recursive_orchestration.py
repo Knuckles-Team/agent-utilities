@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for CONCEPT:ORCH-1.1: Recursive Graph Orchestration."""
 
-from __future__ import annotations
 
 import pytest
 

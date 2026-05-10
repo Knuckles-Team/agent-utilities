@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """HR/Workforce Management Pydantic Models (CONCEPT:KG-2.80).
 
 Pydantic models for the Human Capital & Workforce Management domain.
 Aligned to BFO upper ontology, HR-XML, W3C ORG, and SFIA frameworks.
 """
 
-from __future__ import annotations
 
 from enum import StrEnum
 from typing import Any

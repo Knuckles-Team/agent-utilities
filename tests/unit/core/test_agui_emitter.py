@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Tests for the AG-UI wire format emitter.
 
 Validates that :class:`AGUIGraphEmitter` correctly translates graph
@@ -7,7 +8,6 @@ protocol format (``0:``, ``2:``, ``8:``, ``9:`` line prefixes).
 CONCEPT:ORCH-1.0 Graph Orchestration
 """
 
-from __future__ import annotations
 
 import json
 from typing import Any

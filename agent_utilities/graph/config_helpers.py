@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Graph Configuration Helpers Module.
 
 CONCEPT:ORCH-1.2 — Hot Cache Layer & Registry Optimization
@@ -13,7 +15,6 @@ explicit signals from ``sync_mcp_agents()``, pipeline completion,
 ``promote_coalition_to_template()``, and ``MemoryRetriever.update_after_session()``.
 """
 
-from __future__ import annotations
 
 import asyncio
 import json
@@ -219,7 +220,7 @@ def get_relevant_specialists(
     engine: Any | None = None,
     top_n: int = 7,
 ) -> list[MCPAgent]:
-    """Return the top-N specialists most relevant to a query.
+    """Return the top-N adaptive_agent_router most relevant to a query.
 
     CONCEPT:ORCH-1.2 — Hot Cache Layer
 
@@ -231,7 +232,7 @@ def get_relevant_specialists(
     Args:
         query: The user query to match against.
         engine: Optional ``IntelligenceGraphEngine`` for hybrid search.
-        top_n: Maximum number of specialists to return.
+        top_n: Maximum number of adaptive_agent_router to return.
 
     Returns:
         A list of the most relevant ``MCPAgent`` objects.
@@ -264,7 +265,7 @@ def get_relevant_specialists(
         if relevant:
             return relevant[:top_n]
     except Exception as e:
-        logger.debug(f"Hybrid search for specialists failed: {e}")
+        logger.debug(f"Hybrid search for adaptive_agent_router failed: {e}")
 
     # Fallback: return all agents (capped)
     return all_agents[:top_n]

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Compatibility shim for the legacy ``graph_orchestration`` module.
 
 The core graph orchestration engine now lives in the
@@ -13,7 +15,6 @@ orchestration now uses the step-based ``pydantic_graph.beta.GraphBuilder``
 topology in :mod:`agent_utilities.graph.builder`.
 """
 
-from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass

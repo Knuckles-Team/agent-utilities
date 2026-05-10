@@ -5,7 +5,7 @@
 
 import pytest
 
-from agent_utilities.security.guardrail_engine import (
+from agent_utilities.security.threat_defense_engine import (
     GuardrailAction,
     GuardrailCheckSummary,
     GuardrailEngine,
@@ -209,7 +209,7 @@ class TestFromConfig:
 class TestPolicyAdapter:
     def test_adapter_creates_policy_result(self, engine):
         adapter = engine.to_policy_adapter()
-        assert adapter.name == "guardrail_engine"
+        assert adapter.name == "threat_defense_engine"
         result = adapter.evaluate("clean input", "clean output")
         assert result.allowed is True
 

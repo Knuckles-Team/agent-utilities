@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import MagicMock
 
-from agent_utilities.graph.routing_policy import OntologicalFallbackChain
-from agent_utilities.graph.context_filter import prune_context_by_semantic_distance
+from agent_utilities.graph.adaptive_agent_router import OntologicalFallbackChain
+from agent_utilities.knowledge_graph.memory.elastic_context_manager import prune_context_by_semantic_distance
 
 
 def test_ontological_fallback_chain():

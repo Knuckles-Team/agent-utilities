@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:OS-5.2 — Autonomous Maintenance Cron.
 
 Provides scheduled autonomous maintenance capabilities that leverage
@@ -27,7 +29,6 @@ Integrates with:
 See docs/maintenance-cron.md §CONCEPT:OS-5.2.
 """
 
-from __future__ import annotations
 
 import logging
 import os

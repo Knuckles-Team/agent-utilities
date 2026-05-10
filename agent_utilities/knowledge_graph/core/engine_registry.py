@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Registry and CRUD mixin for IntelligenceGraphEngine.
 
 Extracted from engine.py. Contains agent identity, prompt management,
 skill/tool listing, resource toggling, codemap operations, and mermaid generation.
 """
 
-from __future__ import annotations
 
 import typing
 

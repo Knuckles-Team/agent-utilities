@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_utilities.knowledge_graph.id_management.unified_id import (
-    UnifiedIDManager,
-    UnifiedIDRegistry,
+from agent_utilities.knowledge_graph.id_management.ontological_identifier import (
+    OntologicalIdentifierManager,
+    OntologicalIdentifierRegistry,
 )
 from agent_utilities.knowledge_graph.maintenance.document_cleanup import DocumentCleanup
 from agent_utilities.knowledge_graph.pipeline.document_deletion import (
@@ -26,8 +26,8 @@ class TestDocumentDeletionPipeline:
         pipeline = DocumentDeletionPipeline(knowledge_graph=knowledge_graph)
 
         assert pipeline.knowledge_graph == knowledge_graph
-        assert isinstance(pipeline.id_manager, UnifiedIDManager)
-        assert isinstance(pipeline.id_registry, UnifiedIDRegistry)
+        assert isinstance(pipeline.id_manager, OntologicalIdentifierManager)
+        assert isinstance(pipeline.id_registry, OntologicalIdentifierRegistry)
 
     @pytest.mark.asyncio
     async def test_delete_document_not_in_registry(self):
@@ -44,7 +44,7 @@ class TestDocumentDeletionPipeline:
         result = await pipeline.delete_document("doc_123", hard_delete=True)
 
         assert result["status"] == "completed"
-        assert result["unified_id"] == "doc_123"
+        assert result["ontological_identifier"] == "doc_123"
 
     @pytest.mark.asyncio
     async def test_delete_document_soft_delete(self):
@@ -57,7 +57,7 @@ class TestDocumentDeletionPipeline:
         }
 
         # Register document
-        id_registry = UnifiedIDRegistry()
+        id_registry = OntologicalIdentifierRegistry()
         id_registry.register_document("doc_123")
 
         pipeline = DocumentDeletionPipeline(
@@ -81,7 +81,7 @@ class TestDocumentDeletionPipeline:
         }
 
         # Register document
-        id_registry = UnifiedIDRegistry()
+        id_registry = OntologicalIdentifierRegistry()
         id_registry.register_document("doc_123")
 
         pipeline = DocumentDeletionPipeline(
@@ -110,7 +110,7 @@ class TestDocumentDeletionPipeline:
         result = await pipeline.restore_document("doc_123")
 
         assert result["status"] == "restored"
-        assert result["unified_id"] == "doc_123"
+        assert result["ontological_identifier"] == "doc_123"
 
     @pytest.mark.asyncio
     async def test_restore_document_not_soft_deleted(self):
@@ -158,8 +158,8 @@ class TestDocumentCleanup:
         cleanup = DocumentCleanup(knowledge_graph=knowledge_graph)
 
         assert cleanup.knowledge_graph == knowledge_graph
-        assert isinstance(cleanup.id_manager, UnifiedIDManager)
-        assert isinstance(cleanup.id_registry, UnifiedIDRegistry)
+        assert isinstance(cleanup.id_manager, OntologicalIdentifierManager)
+        assert isinstance(cleanup.id_registry, OntologicalIdentifierRegistry)
 
     @pytest.mark.asyncio
     async def test_cleanup_old_documents(self):
@@ -167,7 +167,7 @@ class TestDocumentCleanup:
         knowledge_graph = MagicMock()
 
         # Add some old documents to registry
-        id_registry = UnifiedIDRegistry()
+        id_registry = OntologicalIdentifierRegistry()
         id_registry.register_document(
             "doc_old_1", {"created_at": "2024-01-01T00:00:00"}
         )
@@ -255,7 +255,7 @@ class TestDocumentCleanup:
         knowledge_graph = MagicMock()
 
         # Add some documents to registry
-        id_registry = UnifiedIDRegistry()
+        id_registry = OntologicalIdentifierRegistry()
         id_registry.register_document("doc_1")
         id_registry.register_document("doc_2")
 

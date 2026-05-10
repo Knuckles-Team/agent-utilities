@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """Optimal Execution Engine.
 
 CONCEPT:KG-2.46 — Optimal Execution Engine
@@ -32,7 +34,6 @@ Glossary of financial terms:
   optimal control problems.
 """
 
-from __future__ import annotations
 
 import logging
 import math

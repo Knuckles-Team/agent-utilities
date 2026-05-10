@@ -1,11 +1,12 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Owlready2 OWL Backend.
 
 Default in-memory + optional SQLite persistence backend using Owlready2
 and its bundled HermiT/Pellet reasoner.
 """
 
-from __future__ import annotations
 
 import logging
 import os

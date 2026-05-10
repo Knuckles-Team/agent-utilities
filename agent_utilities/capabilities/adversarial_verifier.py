@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:AHE-3.1 — Adversarial Verification (Opt-In).
 
 Provides an optional adversarial verification pass that runs alongside
@@ -23,7 +25,6 @@ Integrates with:
 See docs/adversarial-verification.md §CONCEPT:AHE-3.1.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging

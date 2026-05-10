@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Evaluation Harness Module.
 
 Provides a pluggable evaluation framework for scoring agent outputs.
@@ -9,7 +11,6 @@ as ``EvalNode`` instances.
 Concept: eval-tracing
 """
 
-from __future__ import annotations
 
 import json
 import logging

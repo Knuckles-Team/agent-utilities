@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """MCP Configuration Loader.
 
 Reads mcp_config.json, expands environment variable placeholders,
@@ -6,7 +8,6 @@ validates executable commands, and initializes pydantic-ai MCP server objects.
 CONCEPT:OS-5.1 — Secrets & Authentication
 """
 
-from __future__ import annotations
 
 import json
 import logging

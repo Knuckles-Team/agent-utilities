@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """A2A agent configuration loader and auto-discovery.
 
 CONCEPT:ECO-4.2 — A2A Config File Loading
@@ -29,7 +31,6 @@ Example ``a2a_config.json``::
     }
 """
 
-from __future__ import annotations
 
 import asyncio
 import json

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Research Intelligence Sub-Agent.
 
 CONCEPT:KG-2.33 — Research Intelligence Sub-Agent
@@ -15,7 +17,6 @@ Key features:
 * Paper metadata → Document nodes with citesSource edges
 """
 
-from __future__ import annotations
 
 import hashlib
 import logging
@@ -33,7 +34,7 @@ from agent_utilities.models.knowledge_graph import (
     ResearchSessionNode,
     SourceNode,
 )
-from agent_utilities.security.doom_loop_detector import DoomLoopDetector
+from agent_utilities.security.execution_stability_engine import DoomLoopDetector
 
 logger = logging.getLogger(__name__)
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Second-pass coverage uplift for agent-utilities.
 
 Targets remaining 0%-coverage and low-coverage modules:
@@ -11,7 +12,6 @@ Targets remaining 0%-coverage and low-coverage modules:
 - ``mermaid.py`` - subgraph rendering paths
 """
 
-from __future__ import annotations
 
 import importlib
 import os

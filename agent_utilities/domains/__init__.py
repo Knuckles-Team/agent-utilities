@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Multi-domain root module for agent-utilities.
 
@@ -8,7 +10,6 @@ domain registry for the ServiceRegistry and KGTeamComposer to discover
 domain-specific capabilities at runtime.
 """
 
-from __future__ import annotations
 
 __all__ = ["finance", "hr", "medical", "law", "government", "DOMAIN_REGISTRY"]
 

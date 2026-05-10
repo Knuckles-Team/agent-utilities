@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """ACP Adapter Module.
 
 This module provides the integration layer between the agent ecosystem and
@@ -6,7 +8,6 @@ the Async Control Protocol (ACP). It handles session management, approval
 bridges, and high-fidelity interaction modes.
 """
 
-from __future__ import annotations
 
 import logging
 import os
@@ -223,7 +224,7 @@ def create_graph_acp_app(
                 The synthesized result from the graph verifier.
 
             """
-            from agent_utilities.graph.unified import execute_graph
+            from agent_utilities.graph.protocol_agnostic_execution import execute_graph
 
             # Session context is captured from the factory closure.
             # No REQUESTED_MODEL_ID_CTX workaround needed.

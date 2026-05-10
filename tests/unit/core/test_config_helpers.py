@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Coverage push for agent_utilities.graph.config_helpers.
 
 Targets the pure-function helpers and mocked-engine paths.
 """
 
-from __future__ import annotations
 
 import asyncio
 import json

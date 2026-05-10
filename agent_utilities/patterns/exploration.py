@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Exploration & Discovery Engine — CONCEPT:AHE-3.2.
 
 Autonomous exploration loop with hypothesis generation, experiment design,
@@ -13,7 +15,6 @@ OWL: :Experiment rdfs:subClassOf :Procedure
 See docs/design-patterns-alignment.md §CONCEPT:AHE-3.2.
 """
 
-from __future__ import annotations
 
 import logging
 import uuid

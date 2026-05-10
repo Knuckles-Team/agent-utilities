@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Pluggable Secrets Manager.
 
 CONCEPT:OS-5.1 — Secrets & Authentication
@@ -24,7 +26,6 @@ URI reference resolution::
     client.resolve_ref("sqlite://gitlab/token")
 """
 
-from __future__ import annotations
 
 import abc
 import json

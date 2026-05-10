@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Query and search mixin for IntelligenceGraphEngine.
 
 Extracted from engine.py for maintainability. Contains all read-only
 query, search, and retrieval methods.
 """
 
-from __future__ import annotations
 
 import typing
 

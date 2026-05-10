@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Policy & Guardrails Engine.
 
 Provides automated policy enforcement for agent inputs and outputs.
@@ -9,7 +11,6 @@ output validation, token limits, and cost-budget tracking.
 Concept: policy-guardrails
 """
 
-from __future__ import annotations
 
 import logging
 import re

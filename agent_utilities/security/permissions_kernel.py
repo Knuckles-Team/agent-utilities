@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:OS-5.1 — Permissions Kernel (Identity-Based Governance).
 
 Shifts agent security from tool-centric ("is this tool dangerous?") to
@@ -27,7 +29,6 @@ Integrates with:
 See docs/permissions-kernel.md §CONCEPT:OS-5.2.
 """
 
-from __future__ import annotations
 
 import hashlib
 import hmac

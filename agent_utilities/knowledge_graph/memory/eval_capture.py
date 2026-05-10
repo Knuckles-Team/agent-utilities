@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """KG Eval Capture — Regression testing for Knowledge Graph changes.
 
 CONCEPT:AHE-3.1 — Eval & Distillation
@@ -9,7 +11,6 @@ as EvaluationRecordNode entries, enabling replay-based regression testing.
 Controlled by the ``KG_EVAL_CAPTURE`` environment variable (default: disabled).
 """
 
-from __future__ import annotations
 
 import json
 import logging

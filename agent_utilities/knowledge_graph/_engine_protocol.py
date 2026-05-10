@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Protocol defining the engine interface expected by all mixins.
 
 This module is used under ``TYPE_CHECKING`` to give mypy visibility
@@ -5,7 +7,6 @@ into the attributes that the composed ``IntelligenceGraphEngine`` provides
 to each mixin.  At runtime this is never imported, avoiding circularity.
 """
 
-from __future__ import annotations
 
 from typing import Any, Protocol
 

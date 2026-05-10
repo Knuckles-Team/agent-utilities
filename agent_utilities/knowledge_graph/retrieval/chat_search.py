@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Cross-Session Chat Recall — Facade Module.
 
 CONCEPT:KG-2.13 — Cross-Session Chat Recall
@@ -23,7 +25,6 @@ See Also:
     - :class:`agent_utilities.core.chat_persistence.ChatRecallResult`
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime

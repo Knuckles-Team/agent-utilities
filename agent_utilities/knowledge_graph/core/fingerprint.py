@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:KG-2.3 — Structural Fingerprint Engine.
 
 Generic capability for detecting structural vs. cosmetic changes in any
@@ -28,7 +30,6 @@ Usage::
 See docs/emergent-architecture.md §CONCEPT:KG-2.3.
 """
 
-from __future__ import annotations
 
 import ast
 import hashlib

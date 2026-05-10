@@ -3,8 +3,8 @@
 
 This module manages the lifecycle of agents derived from MCP servers. It
 handles the extraction of tool metadata from running servers, partitioning
-tools into logical domain specialists, deterministic tool relevance scoring,
-and synchronizing these specialists directly with the Knowledge Graph.
+tools into logical domain adaptive_agent_router, deterministic tool relevance scoring,
+and synchronizing these adaptive_agent_router directly with the Knowledge Graph.
 """
 
 import asyncio

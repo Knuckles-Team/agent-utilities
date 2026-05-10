@@ -1,12 +1,13 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Registry Graph Models Module.
 
 This module defines the Pydantic models used for the hybrid graph representation
 of the agent registry (NODE_AGENTS.md). It supports topological and semantic
-discovery of specialists and their tools.
+discovery of adaptive_agent_router and their tools.
 """
 
-from __future__ import annotations
 
 from enum import StrEnum
 from typing import Any, Literal
@@ -2299,7 +2300,7 @@ class TeamConfigNode(RegistryNode):
     with a high enough ``success_rate``, it is reused directly.
 
     The ``capability_overrides`` field enables RLM + TeamConfig synergy:
-    specialists that historically receive large data can have the ``rlm``
+    adaptive_agent_router that historically receive large data can have the ``rlm``
     capability auto-attached at reuse time.
 
     See docs/emergent-architecture.md §CONCEPT:AHE-3.3.
@@ -2568,7 +2569,7 @@ class TeamComposition(BaseModel):
 
     Returned by KGTeamComposer.compose_team(). Contains everything
     needed to materialize and execute a specialist team:
-    - Which specialists to spawn (with their roles)
+    - Which adaptive_agent_router to spawn (with their roles)
     - What tools each specialist gets
     - What model each specialist uses
     - What system prompts to inject
@@ -2589,13 +2590,13 @@ class TeamComposition(BaseModel):
         default="",
         description="ID of the TopologyTemplate used",
     )
-    specialists: list[dict[str, Any]] = Field(
+    adaptive_agent_router: list[dict[str, Any]] = Field(
         default_factory=list,
         description="List of specialist configurations: [{role, agent_id, model_id, tools, system_prompt, ...}]",
     )
     execution_mode: str = Field(
         default="sequential",
-        description="How specialists execute: sequential, parallel, fan_out, fan_in, mixed",
+        description="How adaptive_agent_router execute: sequential, parallel, fan_out, fan_in, mixed",
     )
     parallel_groups: list[list[str]] = Field(
         default_factory=list,

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Resource-Aware Optimization — CONCEPT:OS-5.2.
 
 Cost-aware model selection, per-specialist budget allocation,
@@ -10,7 +12,6 @@ OWL: :ResourceUsage rdfs:subClassOf bfo:Process
 See docs/design-patterns-alignment.md §CONCEPT:OS-5.2.
 """
 
-from __future__ import annotations
 
 import logging
 import os
@@ -108,7 +109,7 @@ class ResourceOptimizer:
         specialist_ids: list[str],
         weights: dict[str, float] | None = None,
     ) -> dict[str, AllocationSlice]:
-        """Allocate budget across specialists (equal or weighted)."""
+        """Allocate budget across adaptive_agent_router (equal or weighted)."""
         n = len(specialist_ids)
         if n == 0:
             return {}

@@ -1,7 +1,7 @@
 """
 AgentSpecs Catalog Generator (CONCEPT:AHE-3.23)
 
-Compiles agent topologies, team configurations, and specialists into
+Compiles agent topologies, team configurations, and adaptive_agent_router into
 OWL-driven JSON blueprints for shareability and reproducible trading architectures.
 """
 

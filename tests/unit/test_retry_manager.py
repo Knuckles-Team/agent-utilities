@@ -1,7 +1,7 @@
 #!/usr/bin/python
+from __future__ import annotations
 """Tests for Structured Retry Manager (CONCEPT:AHE-3.11)."""
 
-from __future__ import annotations
 
 import pytest
 
@@ -13,14 +13,14 @@ import pytest
 
 @pytest.fixture
 def manager():
-    from agent_utilities.graph.retry_manager import RetryManager
+    from agent_utilities.security.execution_stability_engine import RetryManager
 
     return RetryManager()
 
 
 @pytest.fixture
 def success_config():
-    from agent_utilities.graph.retry_manager import RetryConfig, SuccessCheck
+    from agent_utilities.security.execution_stability_engine import RetryConfig, SuccessCheck
 
     return RetryConfig(
         max_retries=3,
@@ -31,7 +31,7 @@ def success_config():
 
 @pytest.fixture
 def fail_config():
-    from agent_utilities.graph.retry_manager import RetryConfig, SuccessCheck
+    from agent_utilities.security.execution_stability_engine import RetryConfig, SuccessCheck
 
     return RetryConfig(
         max_retries=2,
@@ -52,7 +52,7 @@ class TestShellExecution:
 
     @pytest.mark.asyncio
     async def test_successful_command(self):
-        from agent_utilities.graph.retry_manager import execute_shell_command
+        from agent_utilities.security.execution_stability_engine import execute_shell_command
 
         result = await execute_shell_command("echo 'hello world'", timeout_seconds=10)
         assert result.success
@@ -62,7 +62,7 @@ class TestShellExecution:
 
     @pytest.mark.asyncio
     async def test_failing_command(self):
-        from agent_utilities.graph.retry_manager import execute_shell_command
+        from agent_utilities.security.execution_stability_engine import execute_shell_command
 
         result = await execute_shell_command("false", timeout_seconds=10)
         assert not result.success
@@ -71,7 +71,7 @@ class TestShellExecution:
 
     @pytest.mark.asyncio
     async def test_command_timeout(self):
-        from agent_utilities.graph.retry_manager import execute_shell_command
+        from agent_utilities.security.execution_stability_engine import execute_shell_command
 
         result = await execute_shell_command("sleep 5", timeout_seconds=1)
         assert not result.success
@@ -80,7 +80,7 @@ class TestShellExecution:
 
     @pytest.mark.asyncio
     async def test_command_with_stderr(self):
-        from agent_utilities.graph.retry_manager import execute_shell_command
+        from agent_utilities.security.execution_stability_engine import execute_shell_command
 
         result = await execute_shell_command(
             "echo 'error' >&2 && exit 1", timeout_seconds=10
@@ -113,7 +113,7 @@ class TestSuccessChecks:
 
     @pytest.mark.asyncio
     async def test_empty_checks(self, manager):
-        from agent_utilities.graph.retry_manager import RetryConfig
+        from agent_utilities.security.execution_stability_engine import RetryConfig
 
         config = RetryConfig(checks=[])
         all_passed, results = await manager.execute_success_checks(config)
@@ -122,7 +122,7 @@ class TestSuccessChecks:
 
     @pytest.mark.asyncio
     async def test_fail_fast(self, manager):
-        from agent_utilities.graph.retry_manager import RetryConfig, SuccessCheck
+        from agent_utilities.security.execution_stability_engine import RetryConfig, SuccessCheck
 
         config = RetryConfig(
             checks=[
@@ -146,7 +146,7 @@ class TestRetryLogic:
 
     @pytest.mark.asyncio
     async def test_success_no_retry(self, manager, success_config):
-        from agent_utilities.graph.retry_manager import RetryResult
+        from agent_utilities.security.execution_stability_engine import RetryResult
 
         outcome = await manager.handle_retry(success_config)
         assert outcome.result == RetryResult.SUCCESS
@@ -154,7 +154,7 @@ class TestRetryLogic:
 
     @pytest.mark.asyncio
     async def test_failure_triggers_retry(self, manager, fail_config):
-        from agent_utilities.graph.retry_manager import RetryResult
+        from agent_utilities.security.execution_stability_engine import RetryResult
 
         outcome = await manager.handle_retry(fail_config)
         assert outcome.result == RetryResult.RETRIED
@@ -162,7 +162,7 @@ class TestRetryLogic:
 
     @pytest.mark.asyncio
     async def test_max_retries_reached(self, manager, fail_config):
-        from agent_utilities.graph.retry_manager import RetryResult
+        from agent_utilities.security.execution_stability_engine import RetryResult
 
         # Exhaust retries
         for _ in range(fail_config.max_retries):
@@ -173,7 +173,7 @@ class TestRetryLogic:
 
     @pytest.mark.asyncio
     async def test_skip_when_no_checks(self, manager):
-        from agent_utilities.graph.retry_manager import RetryConfig, RetryResult
+        from agent_utilities.security.execution_stability_engine import RetryConfig, RetryResult
 
         config = RetryConfig(checks=[])
         outcome = await manager.handle_retry(config)
@@ -187,7 +187,7 @@ class TestRetryLogic:
 
     @pytest.mark.asyncio
     async def test_on_failure_hook_absent(self, manager):
-        from agent_utilities.graph.retry_manager import RetryConfig, SuccessCheck
+        from agent_utilities.security.execution_stability_engine import RetryConfig, SuccessCheck
 
         config = RetryConfig(
             checks=[SuccessCheck(command="false")],
@@ -226,7 +226,7 @@ class TestTimeoutConfig:
         assert manager._get_check_timeout(success_config) == 10
 
     def test_default_timeout(self, manager):
-        from agent_utilities.graph.retry_manager import (
+        from agent_utilities.security.execution_stability_engine import (
             DEFAULT_RETRY_TIMEOUT_SECONDS,
             RetryConfig,
         )
@@ -235,7 +235,7 @@ class TestTimeoutConfig:
         assert manager._get_check_timeout(config) == DEFAULT_RETRY_TIMEOUT_SECONDS
 
     def test_env_timeout(self, manager, monkeypatch):
-        from agent_utilities.graph.retry_manager import RetryConfig
+        from agent_utilities.security.execution_stability_engine import RetryConfig
 
         monkeypatch.setenv("AGENT_RETRY_TIMEOUT_SECONDS", "42")
         config = RetryConfig(timeout_seconds=None)
@@ -254,30 +254,30 @@ class TestRewardSignal:
     """Tests for TeamConfig reward signal creation."""
 
     def test_success_reward(self, manager):
-        from agent_utilities.graph.retry_manager import RetryOutcome, RetryResult
+        from agent_utilities.security.execution_stability_engine import RetryOutcome, RetryResult
 
         outcome = RetryOutcome(result=RetryResult.SUCCESS, attempts=0)
         signal = manager.create_reward_signal(outcome, session_id="s1")
         assert signal["reward"] == 1.0
-        assert signal["source"] == "retry_manager"
+        assert signal["source"] == "execution_stability_engine"
         assert signal["session_id"] == "s1"
 
     def test_retried_reward(self, manager):
-        from agent_utilities.graph.retry_manager import RetryOutcome, RetryResult
+        from agent_utilities.security.execution_stability_engine import RetryOutcome, RetryResult
 
         outcome = RetryOutcome(result=RetryResult.RETRIED, attempts=1)
         signal = manager.create_reward_signal(outcome)
         assert signal["reward"] == 0.5
 
     def test_max_attempts_reward(self, manager):
-        from agent_utilities.graph.retry_manager import RetryOutcome, RetryResult
+        from agent_utilities.security.execution_stability_engine import RetryOutcome, RetryResult
 
         outcome = RetryOutcome(result=RetryResult.MAX_ATTEMPTS_REACHED, attempts=3)
         signal = manager.create_reward_signal(outcome)
         assert signal["reward"] == -0.5
 
     def test_skipped_reward(self, manager):
-        from agent_utilities.graph.retry_manager import RetryOutcome, RetryResult
+        from agent_utilities.security.execution_stability_engine import RetryOutcome, RetryResult
 
         outcome = RetryOutcome(result=RetryResult.SKIPPED, attempts=0)
         signal = manager.create_reward_signal(outcome)
@@ -293,7 +293,7 @@ class TestModels:
     """Tests for Pydantic model validation."""
 
     def test_retry_config_defaults(self):
-        from agent_utilities.graph.retry_manager import RetryConfig
+        from agent_utilities.security.execution_stability_engine import RetryConfig
 
         config = RetryConfig()
         assert config.max_retries == 3
@@ -301,14 +301,14 @@ class TestModels:
         assert config.on_failure is None
 
     def test_success_check_model(self):
-        from agent_utilities.graph.retry_manager import SuccessCheck
+        from agent_utilities.security.execution_stability_engine import SuccessCheck
 
         check = SuccessCheck(command="pytest tests/ -q")
         assert check.type == "shell"
         assert check.command == "pytest tests/ -q"
 
     def test_shell_check_result(self):
-        from agent_utilities.graph.retry_manager import ShellCheckResult
+        from agent_utilities.security.execution_stability_engine import ShellCheckResult
 
         result = ShellCheckResult(
             command="echo hi", success=True, exit_code=0, stdout="hi\n"

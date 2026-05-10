@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """CONCEPT:AHE-3.15 — Agent-Interpretable Model Evolver.
 
 Autoresearch loop from arXiv:2605.03808, adapted for the agent-utilities
@@ -8,7 +10,6 @@ and KG persistence. Actual model fitting is delegated to MCP tools.
 See docs/overview.md §CONCEPT:AHE-3.15.
 """
 
-from __future__ import annotations
 
 import hashlib
 import logging

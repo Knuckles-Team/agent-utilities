@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Pure In-Memory Graph Backend (CONCEPT:OS-5.20).
 
 Zero-dependency, zero-disk backend using only NetworkX.
@@ -8,7 +10,6 @@ Implements the full GraphBackend ABC with optional
 JSON serialization for persistence.
 """
 
-from __future__ import annotations
 
 import json
 import logging

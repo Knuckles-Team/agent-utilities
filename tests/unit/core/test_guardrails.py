@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Tests for the Policy / Guardrails Engine.
 
 Concept: policy-guardrails
 """
 
-from __future__ import annotations
 
 import json
 

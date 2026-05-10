@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Tests for CONCEPT:AHE-3.3: Model Synergy Tracker."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock
 

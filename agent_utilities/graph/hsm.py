@@ -1,13 +1,14 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """HSM/BT Infrastructure Module.
 
 This module implements Hierarchical State Machine (HSM) and Behavior Tree (BT)
-patterns for the agent graph. It provides entry/exit hooks for specialists,
+patterns for the agent graph. It provides entry/exit hooks for adaptive_agent_router,
 state invariant assertions, orthogonal regions for concurrent sub-tasking,
 and static routing junctions.
 """
 
-from __future__ import annotations
 
 import asyncio
 import logging

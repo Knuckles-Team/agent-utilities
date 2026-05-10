@@ -29,12 +29,12 @@ The **Agent-Interpretable Model Evolver** autonomously evolves scikit-learn comp
 
 - **Self-Healing Knowledge**: The ecosystem autonomously refines its understanding and prevents degradation over time.
 - **Explainable Autonomy**: Through the iModels integration, the agents can natively interpret and defend the machine learning models they use.
-- **Measurable Evolution**: The Multi-Strategy EvalRunner provides exact Jaccard metrics, cosine semantic tracking, and LLM-as-Judge scores to quantitatively prove the agent is getting smarter.
+- **Measurable Evolution**: The Continuous Evaluation Engine (EvalRunner) provides exact Jaccard metrics, cosine semantic tracking, and LLM-as-Judge scores to quantitatively prove the agent is getting smarter.
 
 ## Key Concepts Leveraged
-- **AHE-3.1**: Evaluation & Distillation
+- **AHE-3.1**: Continuous Evaluation Engine
 - **AHE-3.5**: Continual Learning & Experience Nodes
-- **AHE-3.6**: Temporal Drift & EWC Consolidation
+- **AHE-3.6**: Continual Learning Engine
 - **AHE-3.7**: Heavy Thinking Orchestration
 - **AHE-3.9**: Horizon-Aware Task Curriculum
 - **AHE-3.15**: Agent-Interpretable Model Evolver

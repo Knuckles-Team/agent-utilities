@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Ingestion mixin for IntelligenceGraphEngine.
 
 Extracted from engine.py. Contains methods for ingesting episodes,
 MCP servers, A2A agent cards, and agent skills into the KG.
 """
 
-from __future__ import annotations
 
 import typing
 

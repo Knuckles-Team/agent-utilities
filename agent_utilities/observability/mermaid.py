@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Mermaid Diagram Generation Utilities.
 
 This module provides a structured way to generate Mermaid.js diagram code
@@ -6,7 +8,6 @@ from various internal data structures, ensuring consistent styling and
 escaping of special characters.
 """
 
-from __future__ import annotations
 
 import re
 from enum import Enum

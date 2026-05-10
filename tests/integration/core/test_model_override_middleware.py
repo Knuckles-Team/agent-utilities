@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Integration tests for the per-turn model override middleware.
 
 CONCEPT:ECO-4.0 Protocol Layer
@@ -19,7 +20,6 @@ Every test is mock-based: no real LLM is spun up and no HTTP traffic
 leaves the process.
 """
 
-from __future__ import annotations
 
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -431,7 +431,7 @@ async def test_run_graph_stream_reads_contextvar_fallback(registry):
     This is the channel used by ACP (which sets the CV in the middleware
     and then the graph runs several layers deep inside pydantic-acp).
     """
-    from agent_utilities.graph.runner import run_graph_stream
+    from agent_utilities.graph.dynamic_graph_orchestrator import run_graph_stream
 
     captured: dict[str, Any] = {}
 
@@ -460,7 +460,7 @@ async def test_run_graph_stream_reads_contextvar_fallback(registry):
 @pytest.mark.asyncio
 async def test_run_graph_kwarg_overrides_contextvar(registry):
     """An explicit kwarg wins over the ContextVar fallback."""
-    from agent_utilities.graph.runner import run_graph
+    from agent_utilities.graph.dynamic_graph_orchestrator import run_graph
 
     captured: dict[str, Any] = {}
 

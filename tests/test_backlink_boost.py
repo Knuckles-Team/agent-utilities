@@ -1,9 +1,9 @@
+from __future__ import annotations
 """Tests for Backlink-Density Retrieval Boost.
 
 CONCEPT:KG-2.2
 """
 
-from __future__ import annotations
 
 import math
 from unittest.mock import MagicMock, patch

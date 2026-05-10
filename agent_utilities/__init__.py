@@ -249,7 +249,7 @@ def __getattr__(name):
 
         return SDDManager
     elif name in ["EvalRunner", "EvalStrategy", "TestCase", "EvalResult"]:
-        from .observability.evaluation import (
+        from .harness.continuous_evaluation_engine import (
             EvalResult,
             EvalRunner,
             EvalStrategy,
@@ -270,7 +270,7 @@ def __getattr__(name):
 
         return AuditLogger if name == "AuditLogger" else AuditRecord
     elif name in ["GuardrailEngine", "GuardrailRule", "GuardrailAction"]:
-        from .security.guardrail_engine import (
+        from .security.threat_defense_engine import (
             GuardrailAction,
             GuardrailEngine,
             GuardrailRule,
@@ -301,7 +301,7 @@ def __getattr__(name):
 
             return locals()[name]
         elif name in ["InterpretabilityTestSuite", "InterpretabilityGrader"]:
-            from .harness.interpretability_tests import (
+            from .harness.continuous_evaluation_engine import (
                 InterpretabilityGrader,
                 InterpretabilityTestSuite,
             )

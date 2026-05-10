@@ -1,4 +1,6 @@
 #!/usr/bin/python
+from __future__ import annotations
+
 """Federation Mixin for the Unified Intelligence Graph Engine.
 
 This module provides support for registering external ontologies (e.g. via SPARQL
@@ -6,7 +8,6 @@ endpoints) and ingesting metadata stubs from external knowledge graphs (like Lea
 that lack semantic web capabilities.
 """
 
-from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
