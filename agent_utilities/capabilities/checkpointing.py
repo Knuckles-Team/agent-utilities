@@ -22,6 +22,8 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelMessage
 
+from agent_utilities.protocols.capability import CapabilityContext
+
 from ..models.knowledge_graph import CheckpointNode, RegistryNodeType
 
 logger = logging.getLogger(__name__)
@@ -206,6 +208,16 @@ class CheckpointMiddleware(AbstractCapability[Any]):
     frequency: Literal["every_tool", "every_turn", "manual_only"] = "every_tool"
 
     _current_turn: int = 0
+
+    @property
+    def capability_name(self) -> str:
+        return "checkpoint_middleware"
+
+    def can_handle(self, context: CapabilityContext) -> bool:
+        return context.trigger_data.get("event") in ["after_tool_call", "before_run"]
+
+    async def execute(self, context: CapabilityContext) -> dict[str, Any]:
+        return {"status": "success", "action": "checkpoint"}
 
     async def after_tool_execute(self, ctx: RunContext[Any], **kwargs) -> Any:
         call = kwargs.get("call")

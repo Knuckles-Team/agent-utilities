@@ -18,6 +18,8 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
+from agent_utilities.protocols.capability import CapabilityContext
+
 from ..models.knowledge_graph import RawSourceNode, RegistryNodeType
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,16 @@ class ToolOutputEviction(AbstractCapability[Any]):
 
     threshold_chars: int = 80_000  # ~20k tokens
     store_in_graph: bool = True
+
+    @property
+    def capability_name(self) -> str:
+        return "tool_output_eviction"
+
+    def can_handle(self, context: CapabilityContext) -> bool:
+        return context.trigger_data.get("event") == "before_model_run"
+
+    async def execute(self, context: CapabilityContext) -> dict[str, Any]:
+        return {"status": "success", "action": "evict"}
 
     async def for_run(self, ctx: RunContext[Any]) -> ToolOutputEviction:
         return replace(self)

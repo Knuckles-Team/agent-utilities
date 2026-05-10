@@ -1,0 +1,200 @@
+agent_utilities/tools/tool_filtering.py:17: error: Library stubs not installed for "yaml"  [import-untyped]
+agent_utilities/domains/finance/streaming.py:226: error: Incompatible types in assignment (expression has type "ClientConnection", variable has type "None")  [assignment]
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:125: error: No overload variant of "norm" matches argument types "Any", "str"  [call-overload]
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:125: note: Possible overload variants:
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:125: note:     def norm(x: _Buffer | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | complex | bytes | str | _NestedSequence[complex | bytes | str], ord: Literal['fro', 'nuc'] | float | None = ..., axis: None = ..., keepdims: Literal[False] = ...) -> floating[Any]
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:125: note:     def norm(x: _Buffer | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | complex | bytes | str | _NestedSequence[complex | bytes | str], ord: Literal['fro', 'nuc'] | float | None, axis: SupportsInt | SupportsIndex | tuple[int, ...] | None, keepdims: bool = ...) -> Any
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:125: note:     def norm(x: _Buffer | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | complex | bytes | str | _NestedSequence[complex | bytes | str], ord: Literal['fro', 'nuc'] | float | None = ..., *, axis: SupportsInt | SupportsIndex | tuple[int, ...] | None, keepdims: bool = ...) -> Any
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:126: error: No overload variant of "norm" matches argument types "Any", "str"  [call-overload]
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:126: note: Possible overload variants:
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:126: note:     def norm(x: _Buffer | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | complex | bytes | str | _NestedSequence[complex | bytes | str], ord: Literal['fro', 'nuc'] | float | None = ..., axis: None = ..., keepdims: Literal[False] = ...) -> floating[Any]
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:126: note:     def norm(x: _Buffer | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | complex | bytes | str | _NestedSequence[complex | bytes | str], ord: Literal['fro', 'nuc'] | float | None, axis: SupportsInt | SupportsIndex | tuple[int, ...] | None, keepdims: bool = ...) -> Any
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:126: note:     def norm(x: _Buffer | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | complex | bytes | str | _NestedSequence[complex | bytes | str], ord: Literal['fro', 'nuc'] | float | None = ..., *, axis: SupportsInt | SupportsIndex | tuple[int, ...] | None, keepdims: bool = ...) -> Any
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:127: error: No overload variant of "norm" matches argument types "Any", "str"  [call-overload]
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:127: note: Possible overload variants:
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:127: note:     def norm(x: _Buffer | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | complex | bytes | str | _NestedSequence[complex | bytes | str], ord: Literal['fro', 'nuc'] | float | None = ..., axis: None = ..., keepdims: Literal[False] = ...) -> floating[Any]
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:127: note:     def norm(x: _Buffer | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | complex | bytes | str | _NestedSequence[complex | bytes | str], ord: Literal['fro', 'nuc'] | float | None, axis: SupportsInt | SupportsIndex | tuple[int, ...] | None, keepdims: bool = ...) -> Any
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:127: note:     def norm(x: _Buffer | _SupportsArray[dtype[Any]] | _NestedSequence[_SupportsArray[dtype[Any]]] | complex | bytes | str | _NestedSequence[complex | bytes | str], ord: Literal['fro', 'nuc'] | float | None = ..., *, axis: SupportsInt | SupportsIndex | tuple[int, ...] | None, keepdims: bool = ...) -> Any
+agent_utilities/knowledge_graph/memory/latent_space_regularizer.py:196: error: Incompatible types in assignment (expression has type "floating[Any] | float", variable has type "float")  [assignment]
+agent_utilities/domains/finance/research_autopilot.py:284: error: "ndarray[tuple[Any, ...], dtype[Any]]" has no attribute "get"  [attr-defined]
+agent_utilities/domains/finance/research_autopilot.py:285: error: "ndarray[tuple[Any, ...], dtype[Any]]" has no attribute "get"  [attr-defined]
+agent_utilities/domains/finance/research_autopilot.py:286: error: "ndarray[tuple[Any, ...], dtype[Any]]" has no attribute "get"  [attr-defined]
+agent_utilities/domains/finance/kronos_forecaster.py:189: error: Argument 2 to "_bucketize" of "KLineTokenizer" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "ndarray[tuple[Any, ...], dtype[Any]]"  [arg-type]
+agent_utilities/domains/finance/kronos_forecaster.py:190: error: Argument 2 to "_bucketize" of "KLineTokenizer" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "ndarray[tuple[Any, ...], dtype[Any]]"  [arg-type]
+agent_utilities/domains/finance/kronos_forecaster.py:191: error: Argument 2 to "_bucketize" of "KLineTokenizer" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]] | None"; expected "ndarray[tuple[Any, ...], dtype[Any]]"  [arg-type]
+agent_utilities/domains/finance/evaluation.py:65: error: Need type annotation for "all_actuals" (hint: "all_actuals: list[<type>] = ...")  [var-annotated]
+agent_utilities/models/model_registry.py:290: error: Library stubs not installed for "yaml"  [import-untyped]
+agent_utilities/graph/swarm_preset.py:11: error: Library stubs not installed for "yaml"  [import-untyped]
+agent_utilities/graph/swarm_preset.py:11: note: Hint: "python3 -m pip install types-PyYAML"
+agent_utilities/graph/swarm_preset.py:11: note: (or run "mypy --install-types" to install all missing stub packages)
+agent_utilities/graph/swarm_preset.py:11: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+agent_utilities/observability/approval_manager.py:236: error: Incompatible types in assignment (expression has type "dict[str, Collection[str]]", variable has type "ToolCallPart")  [assignment]
+agent_utilities/observability/approval_manager.py:237: error: Value of type "ToolCallPart" is not indexable  [index]
+agent_utilities/observability/approval_manager.py:246: error: Argument "approvals" to "DeferredToolResults" has incompatible type "dict[str, ToolApproved | ToolDenied]"; expected "dict[str, bool | ToolApproved | ToolDenied]"  [arg-type]
+agent_utilities/observability/approval_manager.py:246: note: "dict" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+agent_utilities/observability/approval_manager.py:246: note: Consider using "Mapping" instead, which is covariant in the value type
+agent_utilities/core/persistence.py:51: error: Signature of "snapshot_node_if_new" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:51: note:      Superclass:
+agent_utilities/core/persistence.py:51: note:          def snapshot_node_if_new(self, snapshot_id: str, state: StateT, next_node: BaseNode[StateT, Any, Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:51: note:      Subclass:
+agent_utilities/core/persistence.py:51: note:          def snapshot_node_if_new(self, snapshot: NodeSnapshot[StateT, Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:53: error: Missing positional arguments "state", "next_node" in call to "snapshot_node_if_new" of "FileStatePersistence"  [call-arg]
+agent_utilities/core/persistence.py:53: error: Argument 1 to "snapshot_node_if_new" of "FileStatePersistence" has incompatible type "NodeSnapshot[StateT, Any]"; expected "str"  [arg-type]
+agent_utilities/core/persistence.py:55: error: Signature of "snapshot_end" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:55: note:      Superclass:
+agent_utilities/core/persistence.py:55: note:          def snapshot_end(self, state: StateT, end: End[Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:55: note:      Subclass:
+agent_utilities/core/persistence.py:55: note:          def snapshot_end(self, snapshot: EndSnapshot[StateT, Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:56: error: Missing positional argument "end" in call to "snapshot_end" of "FileStatePersistence"  [call-arg]
+agent_utilities/core/persistence.py:58: error: Signature of "load_next" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:58: note:      Superclass:
+agent_utilities/core/persistence.py:58: note:          def load_next(self) -> Coroutine[Any, Any, NodeSnapshot[StateT, Any] | None]
+agent_utilities/core/persistence.py:58: note:      Subclass:
+agent_utilities/core/persistence.py:58: note:          def load_next(self, run_id: str) -> Coroutine[Any, Any, NodeSnapshot[StateT, Any] | None]
+agent_utilities/core/persistence.py:59: error: Too many arguments for "load_next" of "FileStatePersistence"  [call-arg]
+agent_utilities/core/persistence.py:61: error: Signature of "load_all" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:61: note:      Superclass:
+agent_utilities/core/persistence.py:61: note:          def load_all(self) -> Coroutine[Any, Any, list[NodeSnapshot[StateT, Any] | EndSnapshot[StateT, Any]]]
+agent_utilities/core/persistence.py:61: note:      Subclass:
+agent_utilities/core/persistence.py:61: note:          def load_all(self, run_id: str) -> Coroutine[Any, Any, list[NodeSnapshot[StateT, Any] | EndSnapshot[StateT, Any]]]
+agent_utilities/core/persistence.py:64: error: Too many arguments for "load_all" of "FileStatePersistence"  [call-arg]
+agent_utilities/core/persistence.py:102: error: Signature of "snapshot_node_if_new" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:102: note:      Superclass:
+agent_utilities/core/persistence.py:102: note:          def snapshot_node_if_new(self, snapshot_id: str, state: StateT, next_node: BaseNode[StateT, Any, Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:102: note:      Subclass:
+agent_utilities/core/persistence.py:102: note:          def snapshot_node_if_new(self, snapshot: NodeSnapshot[StateT, Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:111: error: "NodeSnapshot[StateT, Any]" has no attribute "run_id"  [attr-defined]
+agent_utilities/core/persistence.py:112: error: "NodeSnapshot[StateT, Any]" has no attribute "timestamp"  [attr-defined]
+agent_utilities/core/persistence.py:116: error: "NodeSnapshot[StateT, Any]" has no attribute "run_id"  [attr-defined]
+agent_utilities/core/persistence.py:116: error: "NodeSnapshot[StateT, Any]" has no attribute "timestamp"  [attr-defined]
+agent_utilities/core/persistence.py:124: error: No overload variant of "asdict" matches argument type "BaseNode[StateT, Any, Any]"  [call-overload]
+agent_utilities/core/persistence.py:124: note: Possible overload variants:
+agent_utilities/core/persistence.py:124: note:     def asdict(obj: DataclassInstance) -> dict[str, Any]
+agent_utilities/core/persistence.py:124: note:     def [_T] asdict(obj: DataclassInstance, *, dict_factory: Callable[[list[tuple[str, Any]]], _T]) -> _T
+agent_utilities/core/persistence.py:132: error: Signature of "snapshot_end" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:132: note:      Superclass:
+agent_utilities/core/persistence.py:132: note:          def snapshot_end(self, state: StateT, end: End[Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:132: note:      Subclass:
+agent_utilities/core/persistence.py:132: note:          def snapshot_end(self, snapshot: EndSnapshot[StateT, Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:140: error: "EndSnapshot[StateT, Any]" has no attribute "run_id"  [attr-defined]
+agent_utilities/core/persistence.py:141: error: "EndSnapshot[StateT, Any]" has no attribute "timestamp"  [attr-defined]
+agent_utilities/core/persistence.py:142: error: "EndSnapshot[StateT, Any]" has no attribute "run_id"  [attr-defined]
+agent_utilities/core/persistence.py:143: error: "EndSnapshot[StateT, Any]" has no attribute "output"  [attr-defined]
+agent_utilities/core/persistence.py:148: error: Signature of "load_next" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:148: note:      Superclass:
+agent_utilities/core/persistence.py:148: note:          def load_next(self) -> Coroutine[Any, Any, NodeSnapshot[StateT, Any] | None]
+agent_utilities/core/persistence.py:148: note:      Subclass:
+agent_utilities/core/persistence.py:148: note:          def load_next(self, run_id: str) -> Coroutine[Any, Any, NodeSnapshot[StateT, Any] | None]
+agent_utilities/core/persistence.py:151: error: Signature of "load_all" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:151: note:      Superclass:
+agent_utilities/core/persistence.py:151: note:          def load_all(self) -> Coroutine[Any, Any, list[NodeSnapshot[StateT, Any] | EndSnapshot[StateT, Any]]]
+agent_utilities/core/persistence.py:151: note:      Subclass:
+agent_utilities/core/persistence.py:151: note:          def load_all(self, run_id: str) -> Coroutine[Any, Any, list[NodeSnapshot[StateT, Any] | EndSnapshot[StateT, Any]]]
+agent_utilities/core/persistence.py:175: error: Signature of "snapshot_node_if_new" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:175: note:      Superclass:
+agent_utilities/core/persistence.py:175: note:          def snapshot_node_if_new(self, snapshot_id: str, state: StateT, next_node: BaseNode[StateT, Any, Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:175: note:      Subclass:
+agent_utilities/core/persistence.py:175: note:          def snapshot_node_if_new(self, snapshot: NodeSnapshot[StateT, Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:177: error: "NodeSnapshot[StateT, Any]" has no attribute "run_id"  [attr-defined]
+agent_utilities/core/persistence.py:178: error: "NodeSnapshot[StateT, Any]" has no attribute "timestamp"  [attr-defined]
+agent_utilities/core/persistence.py:181: error: "NodeSnapshot[StateT, Any]" has no attribute "timestamp"  [attr-defined]
+agent_utilities/core/persistence.py:194: error: Signature of "snapshot_end" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:194: note:      Superclass:
+agent_utilities/core/persistence.py:194: note:          def snapshot_end(self, state: StateT, end: End[Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:194: note:      Subclass:
+agent_utilities/core/persistence.py:194: note:          def snapshot_end(self, snapshot: EndSnapshot[StateT, Any]) -> Coroutine[Any, Any, None]
+agent_utilities/core/persistence.py:196: error: "EndSnapshot[StateT, Any]" has no attribute "run_id"  [attr-defined]
+agent_utilities/core/persistence.py:198: error: "EndSnapshot[StateT, Any]" has no attribute "timestamp"  [attr-defined]
+agent_utilities/core/persistence.py:199: error: "EndSnapshot[StateT, Any]" has no attribute "output"  [attr-defined]
+agent_utilities/core/persistence.py:207: error: Signature of "load_next" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:207: note:      Superclass:
+agent_utilities/core/persistence.py:207: note:          def load_next(self) -> Coroutine[Any, Any, NodeSnapshot[StateT, Any] | None]
+agent_utilities/core/persistence.py:207: note:      Subclass:
+agent_utilities/core/persistence.py:207: note:          def load_next(self, run_id: str) -> Coroutine[Any, Any, NodeSnapshot[StateT, Any] | None]
+agent_utilities/core/persistence.py:210: error: Signature of "load_all" incompatible with supertype "pydantic_graph.persistence.BaseStatePersistence"  [override]
+agent_utilities/core/persistence.py:210: note:      Superclass:
+agent_utilities/core/persistence.py:210: note:          def load_all(self) -> Coroutine[Any, Any, list[NodeSnapshot[StateT, Any] | EndSnapshot[StateT, Any]]]
+agent_utilities/core/persistence.py:210: note:      Subclass:
+agent_utilities/core/persistence.py:210: note:          def load_all(self, run_id: str) -> Coroutine[Any, Any, list[NodeSnapshot[StateT, Any] | EndSnapshot[StateT, Any]]]
+agent_utilities/core/persistence.py:225: error: Cannot instantiate abstract class "EnhancedFileStatePersistence" with abstract attributes "record_run" and "snapshot_node"  [abstract]
+agent_utilities/core/persistence.py:231: error: Cannot instantiate abstract class "PostgresStatePersistence" with abstract attributes "record_run" and "snapshot_node"  [abstract]
+agent_utilities/core/persistence.py:237: error: Cannot instantiate abstract class "RedisStatePersistence" with abstract attributes "record_run" and "snapshot_node"  [abstract]
+agent_utilities/base_utilities.py:51: error: Cannot assign to a type  [misc]
+agent_utilities/base_utilities.py:51: error: Incompatible types in assignment (expression has type "None", variable has type "type[AsyncOpenAI]")  [assignment]
+agent_utilities/base_utilities.py:52: error: Cannot assign to a type  [misc]
+agent_utilities/base_utilities.py:52: error: Incompatible types in assignment (expression has type "None", variable has type "type[OpenAIProvider]")  [assignment]
+agent_utilities/base_utilities.py:58: error: Cannot assign to a type  [misc]
+agent_utilities/base_utilities.py:58: error: Incompatible types in assignment (expression has type "None", variable has type "type[AsyncGroq]")  [assignment]
+agent_utilities/base_utilities.py:59: error: Cannot assign to a type  [misc]
+agent_utilities/base_utilities.py:59: error: Incompatible types in assignment (expression has type "None", variable has type "type[GroqProvider]")  [assignment]
+agent_utilities/base_utilities.py:62: error: Module "mistralai" has no attribute "Mistral"  [attr-defined]
+agent_utilities/base_utilities.py:66: error: Cannot assign to a type  [misc]
+agent_utilities/base_utilities.py:66: error: Incompatible types in assignment (expression has type "None", variable has type "type[MistralProvider]")  [assignment]
+agent_utilities/base_utilities.py:73: error: Cannot assign to a type  [misc]
+agent_utilities/base_utilities.py:73: error: Incompatible types in assignment (expression has type "None", variable has type "type[AnthropicModel]")  [assignment]
+agent_utilities/base_utilities.py:74: error: Cannot assign to a type  [misc]
+agent_utilities/base_utilities.py:74: error: Incompatible types in assignment (expression has type "None", variable has type "type[AsyncAnthropic]")  [assignment]
+agent_utilities/base_utilities.py:75: error: Cannot assign to a type  [misc]
+agent_utilities/base_utilities.py:75: error: Incompatible types in assignment (expression has type "None", variable has type "type[AnthropicProvider]")  [assignment]
+agent_utilities/core/model_factory.py:26: error: Module "pydantic_ai.providers.openai" has no attribute "OpenAIChatModel"  [attr-defined]
+agent_utilities/core/model_factory.py:26: error: Name "OpenAIChatModel" already defined (possibly by an import)  [no-redef]
+agent_utilities/core/model_factory.py:28: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:28: error: Incompatible types in assignment (expression has type "None", variable has type "type[OpenAIChatModel]")  [assignment]
+agent_utilities/core/model_factory.py:34: error: Name "GoogleModel" already defined (possibly by an import)  [no-redef]
+agent_utilities/core/model_factory.py:36: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:36: error: Incompatible types in assignment (expression has type "None", variable has type "type[GeminiModel]")  [assignment]
+agent_utilities/core/model_factory.py:42: error: Module "pydantic_ai.providers.anthropic" has no attribute "AnthropicModel"; maybe "AnthropicModelProfile" or "AnthropicProvider"?  [attr-defined]
+agent_utilities/core/model_factory.py:42: error: Name "AnthropicModel" already defined (possibly by an import)  [no-redef]
+agent_utilities/core/model_factory.py:44: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:44: error: Incompatible types in assignment (expression has type "None", variable has type "type[AnthropicModel]")  [assignment]
+agent_utilities/core/model_factory.py:50: error: Module "pydantic_ai.providers.groq" has no attribute "GroqModel"  [attr-defined]
+agent_utilities/core/model_factory.py:50: error: Name "GroqModel" already defined (possibly by an import)  [no-redef]
+agent_utilities/core/model_factory.py:52: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:52: error: Incompatible types in assignment (expression has type "None", variable has type "type[GroqModel]")  [assignment]
+agent_utilities/core/model_factory.py:58: error: Module "pydantic_ai.providers.mistral" has no attribute "MistralModel"  [attr-defined]
+agent_utilities/core/model_factory.py:58: error: Name "MistralModel" already defined (possibly by an import)  [no-redef]
+agent_utilities/core/model_factory.py:60: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:60: error: Incompatible types in assignment (expression has type "None", variable has type "type[MistralModel]")  [assignment]
+agent_utilities/core/model_factory.py:66: error: Module "pydantic_ai.providers.huggingface" has no attribute "HuggingFaceModel"; maybe "HuggingFaceProvider"?  [attr-defined]
+agent_utilities/core/model_factory.py:66: error: Name "HuggingFaceModel" already defined (possibly by an import)  [no-redef]
+agent_utilities/core/model_factory.py:68: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:68: error: Incompatible types in assignment (expression has type "None", variable has type "type[HuggingFaceModel]")  [assignment]
+agent_utilities/core/model_factory.py:75: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:75: error: Incompatible types in assignment (expression has type "None", variable has type "type[AsyncOpenAI]")  [assignment]
+agent_utilities/core/model_factory.py:76: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:76: error: Incompatible types in assignment (expression has type "None", variable has type "type[OpenAIProvider]")  [assignment]
+agent_utilities/core/model_factory.py:82: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:82: error: Incompatible types in assignment (expression has type "None", variable has type "type[AsyncAnthropic]")  [assignment]
+agent_utilities/core/model_factory.py:83: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:83: error: Incompatible types in assignment (expression has type "None", variable has type "type[AnthropicProvider]")  [assignment]
+agent_utilities/core/model_factory.py:89: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:89: error: Incompatible types in assignment (expression has type "None", variable has type "type[AsyncGroq]")  [assignment]
+agent_utilities/core/model_factory.py:90: error: Cannot assign to a type  [misc]
+agent_utilities/core/model_factory.py:90: error: Incompatible types in assignment (expression has type "None", variable has type "type[GroqProvider]")  [assignment]
+agent_utilities/core/model_factory.py:160: error: Function "AsyncOpenAI" could always be true in boolean context  [truthy-function]
+agent_utilities/core/model_factory.py:160: error: Function "OpenAIProvider" could always be true in boolean context  [truthy-function]
+agent_utilities/core/model_factory.py:179: error: Function "AsyncOpenAI" could always be true in boolean context  [truthy-function]
+agent_utilities/core/model_factory.py:179: error: Function "OpenAIProvider" could always be true in boolean context  [truthy-function]
+agent_utilities/core/model_factory.py:203: error: Function "AsyncAnthropic" could always be true in boolean context  [truthy-function]
+agent_utilities/core/model_factory.py:203: error: Function "AnthropicProvider" could always be true in boolean context  [truthy-function]
+agent_utilities/core/model_factory.py:204: error: Incompatible types in assignment (expression has type "AsyncAnthropic", variable has type "AsyncOpenAI")  [assignment]
+agent_utilities/core/model_factory.py:208: error: No overload variant of "AnthropicProvider" matches argument type "AsyncOpenAI"  [call-overload]
+agent_utilities/core/model_factory.py:208: note: Possible overload variants:
+agent_utilities/core/model_factory.py:208: note:     def AnthropicProvider(*, anthropic_client: AsyncAnthropic | AsyncAnthropicBedrock | AsyncAnthropicFoundry | AsyncAnthropicVertex | None = ...) -> AnthropicProvider
+agent_utilities/core/model_factory.py:208: note:     def AnthropicProvider(*, api_key: str | None = ..., base_url: str | None = ..., http_client: AsyncClient | None = ...) -> AnthropicProvider
+agent_utilities/core/model_factory.py:230: error: Function "AsyncGroq" could always be true in boolean context  [truthy-function]
+agent_utilities/core/model_factory.py:230: error: Function "GroqProvider" could always be true in boolean context  [truthy-function]
+agent_utilities/core/model_factory.py:231: error: Incompatible types in assignment (expression has type "AsyncGroq", variable has type "AsyncOpenAI")  [assignment]
+agent_utilities/core/model_factory.py:235: error: No overload variant of "GroqProvider" matches argument type "AsyncOpenAI"  [call-overload]
+agent_utilities/core/model_factory.py:235: note: Possible overload variants:
+agent_utilities/core/model_factory.py:235: note:     def GroqProvider(*, groq_client: AsyncGroq | None = ...) -> GroqProvider
+agent_utilities/core/model_factory.py:235: note:     def GroqProvider(*, api_key: str | None = ..., base_url: str | None = ..., http_client: AsyncClient | None = ...) -> GroqProvider
+agent_utilities/knowledge_graph/kb/extractor.py:99: error: Incompatible types in assignment (expression has type "Agent[None, ExtractedArticle]", variable has type "None")  [assignment]
+agent_utilities/knowledge_graph/kb/extractor.py:115: error: Incompatible types in assignment (expression has type "Agent[None, KBHealthReport]", variable has type "None")  [assignment]
+agent_utilities/knowledge_graph/kb/extractor.py:131: error: Incompatible types in assignment (expression has type "Agent[None, ExtractedKBIndex]", variable has type "None")  [assignment]
+agent_utilities/knowledge_graph/distillation/deduplicator.py:331: error: "AgentRunResult[str]" has no attribute "data"  [attr-defined]
+agent_utilities/observability/custom_observability.py:37: error: Incompatible types in assignment (expression has type "None", variable has type Module)  [assignment]
+agent_utilities/knowledge_graph/core/spectral_navigator.py:270: error: Incompatible types in assignment (expression has type "list[floating[Any]]", variable has type "ndarray[tuple[Any, ...], dtype[Any]]")  [assignment]
+agent_utilities/capabilities/context_warnings.py:78: error: "Sequence[SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart]" has no attribute "insert"  [attr-defined]
+agent_utilities/capabilities/context_warnings.py:83: error: "Sequence[SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart]" has no attribute "insert"  [attr-defined]
+Interrupted
