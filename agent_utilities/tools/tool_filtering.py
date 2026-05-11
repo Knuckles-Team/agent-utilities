@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Tool Filtering Module.
 
+CONCEPT:ECO-4.0
+
 This module provides utility functions for filtering skills and MCP tools based
 on tags, categories, and frontmatter metadata. It supports dynamic discovery
 from directory structures and robust extraction of metadata from various
@@ -15,7 +17,7 @@ import os
 import re
 from typing import TYPE_CHECKING, Any
 
-import yaml
+import yaml  # type: ignore
 
 if TYPE_CHECKING:
     from fasta2a import Skill

@@ -224,7 +224,7 @@ def compact_messages(
     Falls back to :func:`prune_large_messages` if the compactor is
     unavailable.
 
-    CONCEPT:KG-2.10 — Token-Aware Context Compaction
+    CONCEPT:KG-2.1 — Token-Aware Context Compaction
 
     Args:
         messages: List of message dicts.
@@ -310,7 +310,7 @@ def search_chat_history(
 ) -> ChatRecallResults:
     """Search across stored chat sessions for matching messages.
 
-    CONCEPT:KG-2.13 — Cross-Session Chat Recall
+    CONCEPT:KG-2.1 — Cross-Session Chat Recall
 
     Adapted from Goose's ``ChatHistorySearch`` (Rust/SQLite). Uses
     the Knowledge Graph's Cypher backend for keyword-based search

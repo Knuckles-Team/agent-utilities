@@ -260,7 +260,7 @@ class QueryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Find the most relevant Tools, Agents, or Skills for a given task.
 
-        CONCEPT:ECO-4.6 enhanced: searches ALL resource types (tools,
+        CONCEPT:ECO-4.0 enhanced: searches ALL resource types (tools,
         agents, skills, memory) in a single hybrid query for unified
         capability discovery (AgentOS-style category collapse).
         """
@@ -328,7 +328,7 @@ class QueryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Discover all capabilities across all resource types in a unified view.
 
-        CONCEPT:ECO-4.6 — Self-Describing Function Registry
+        CONCEPT:ECO-4.0 — Self-Describing Function Registry
 
         Returns a unified function-level view of all discoverable
         capabilities, inspired by AgentOS's category collapse pattern.

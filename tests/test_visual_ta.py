@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.72 — Visual Technical Analysis Engine."""
+"""Tests for CONCEPT:KG-2.6 — Visual Technical Analysis Engine."""
 
 import numpy as np
 import pytest

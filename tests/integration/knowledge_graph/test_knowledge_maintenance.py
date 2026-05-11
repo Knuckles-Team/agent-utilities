@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.0"""
+
 from unittest.mock import MagicMock, patch
 
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer

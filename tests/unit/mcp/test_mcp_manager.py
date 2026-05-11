@@ -1,3 +1,5 @@
+"""CONCEPT:ECO-4.0"""
+
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 

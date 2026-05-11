@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Dynamic Topology Engine (CONCEPT:ORCH-1.17).
+"""Dynamic Topology Engine (CONCEPT:ORCH-1.2).
 
 Replaces static ``create_graph_agent()`` topology with KG-driven dynamic
 graph materialization.  Instead of all execution paths existing simultaneously,
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 class TopologyEngine:
     """Materializes KG-stored topology templates into executable graphs.
 
-    CONCEPT:ORCH-1.17 — Dynamic Topology Materialization
+    CONCEPT:ORCH-1.2 — Dynamic Topology Materialization
 
     The engine is the bridge between the KG's declarative topology
     descriptions and the pydantic-graph's runtime execution model.
@@ -119,7 +119,7 @@ class TopologyEngine:
             self._record_materialization(result)
 
         logger.info(
-            "[CONCEPT:ORCH-1.17] Materialized topology: %d steps, "
+            "[CONCEPT:ORCH-1.2] Materialized topology: %d steps, "
             "%d adaptive_agent_router, mode=%s",
             len(execution_plan),
             len(specialist_configs),
@@ -367,7 +367,7 @@ class TopologyEngine:
                     {"tid": topology_id, "alpha": alpha, "score": score},
                 )
                 logger.info(
-                    "[CONCEPT:ORCH-1.17] Updated topology '%s': success=%s, quality=%.2f",
+                    "[CONCEPT:ORCH-1.2] Updated topology '%s': success=%s, quality=%.2f",
                     topology_id,
                     success,
                     quality_score,

@@ -1,5 +1,5 @@
 """
-x402 AI Payment Protocol — CONCEPT:KG-2.65
+x402 AI Payment Protocol — CONCEPT:KG-2.6
 
 First-class module for autonomous AI agent payments using the x402
 protocol (HTTP 402 challenge-response) with budget guards and KG provenance.

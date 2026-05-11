@@ -39,11 +39,19 @@ async def execute_memory(
                 graph.add_node(node_data["id"], **node_data)
 
         # Retrieve all edges
-        results = db.execute(
-            "MATCH (a)-[r]->(b) RETURN a.id as u, b.id as v, type(r) as t"
-        )
-        for res in results:
-            graph.add_edge(res["u"], res["v"], type=res["t"].lower())
+        is_ladybug = db.__class__.__name__ == "LadybugBackend"
+        if is_ladybug:
+            results = db.execute("MATCH (a)-[r]->(b) RETURN a.id as u, b.id as v, r")
+            for res in results:
+                edge_data = res.get("r", {})
+                e_type = edge_data.get("_LABEL", "rel").lower()
+                graph.add_edge(res["u"], res["v"], type=e_type)
+        else:
+            results = db.execute(
+                "MATCH (a)-[r]->(b) RETURN a.id as u, b.id as v, type(r) as t"
+            )
+            for res in results:
+                graph.add_edge(res["u"], res["v"], type=res["t"].lower())
 
         duration = (time.time() - start_time) * 1000
         return {

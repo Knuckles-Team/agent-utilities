@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""CONCEPT:AHE-3.3"""
+
 """Tests for TeamCapability — team coordination with ACP/A2A.
 
 Concept: team-coordination

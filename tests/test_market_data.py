@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.64 — Market Data Abstraction Layer."""
+"""Tests for CONCEPT:KG-2.6 — Market Data Abstraction Layer."""
 
 import numpy as np
 import pandas as pd

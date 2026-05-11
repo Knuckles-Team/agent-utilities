@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Value of Information (VOI) Budget Controller.
 
-Implements CONCEPT:KG-2.35 (VOI Budget Controller)
+Implements CONCEPT:KG-2.5 (VOI Budget Controller)
 Enforces graph traversal scaling laws by computing the marginal utility of expanding exploration.
 """
 

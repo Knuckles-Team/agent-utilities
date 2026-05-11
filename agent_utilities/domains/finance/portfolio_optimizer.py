@@ -1,5 +1,5 @@
 """
-Portfolio Optimization Suite — CONCEPT:KG-2.62
+Portfolio Optimization Suite — CONCEPT:KG-2.6
 
 Provides Mean-Variance (Markowitz), Risk Parity, and Black-Litterman
 portfolio optimization with KG-backed allocation tracking.

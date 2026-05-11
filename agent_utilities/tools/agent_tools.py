@@ -1,3 +1,5 @@
+"""CONCEPT:ECO-4.0"""
+
 import logging
 from typing import Any
 

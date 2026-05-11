@@ -132,3 +132,136 @@ class ProjectConstitution(BaseModel):
     tech_stack: dict[str, Any] = Field(default_factory=dict)
     quality_gates: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+# --- DSTDD (Design-Spec-Test Driven Development) Models ---
+
+
+class ExtensionStrategy(StrEnum):
+    """How a new feature relates to existing pillar concepts."""
+
+    AUGMENT = "augment"
+    """Adds functionality to an existing concept without changing its interface."""
+
+    COMPOSE = "compose"
+    """Combines multiple existing concepts into a higher-level abstraction."""
+
+    SPECIALIZE = "specialize"
+    """Creates a domain-specific variant of an existing concept."""
+
+    NEW = "new"
+    """Introduces an entirely new concept (requires justification)."""
+
+
+class NearestConcept(BaseModel):
+    """A KG node that is semantically similar to the proposed feature."""
+
+    concept_id: str = Field(description="CONCEPT:ID of the nearest match")
+    name: str = Field(description="Human-readable name of the concept")
+    similarity: float = Field(
+        description="Semantic similarity score (0.0 to 1.0)", ge=0.0, le=1.0
+    )
+    pillar: str = Field(
+        description="Pillar this concept belongs to (ORCH/KG/AHE/ECO/OS)"
+    )
+
+
+class NewConceptProposal(BaseModel):
+    """Justification for introducing an entirely new concept.
+
+    Required only when extension_strategy is 'new' and no existing concept
+    can be extended to accommodate the feature.
+    """
+
+    proposed_id: str = Field(
+        description="Proposed CONCEPT:ID (e.g., 'KG-2.54', 'ECO-4.14')"
+    )
+    target_pillar: str = Field(
+        description="Which pillar this new concept augments (ORCH/KG/AHE/ECO/OS)"
+    )
+    pipeline_phase: str = Field(
+        default="",
+        description="Which of the 15-phase pipeline phases this wires into",
+    )
+    justification: str = Field(
+        description="Why this cannot be expressed as an extension of existing concepts"
+    )
+
+
+class KGAnalysis(BaseModel):
+    """Knowledge Graph analysis results for a proposed feature.
+
+    This is the mandatory first step of the DSTDD pipeline. Every new feature
+    must demonstrate that it has been analyzed against the existing KG to find
+    the nearest concepts and determine the optimal extension strategy.
+    """
+
+    nearest_concepts: list[NearestConcept] = Field(
+        default_factory=list,
+        description="Top-5 nearest existing concepts from KG semantic search",
+    )
+    extension_point: str | None = Field(
+        default=None,
+        description="CONCEPT:ID of the concept being extended (if applicable)",
+    )
+    extension_strategy: ExtensionStrategy = Field(
+        default=ExtensionStrategy.AUGMENT,
+        description="How this feature relates to existing concepts",
+    )
+    new_concept_proposal: NewConceptProposal | None = Field(
+        default=None,
+        description="Required when extension_strategy is 'new'",
+    )
+
+
+class RiskAssessment(BaseModel):
+    """Risk analysis for a proposed feature's impact on the system."""
+
+    blast_radius: list[str] = Field(
+        default_factory=list,
+        description="List of existing modules affected by this change",
+    )
+    backward_compatible: bool = Field(
+        default=True,
+        description="Whether this change maintains backward compatibility",
+    )
+    breaking_changes: list[str] = Field(
+        default_factory=list,
+        description="List of breaking changes (if any)",
+    )
+
+
+class DesignDocument(BaseModel):
+    """Design Document — First phase of the DSTDD pipeline.
+
+    CONCEPT:ORCH-1.6 Extension — Design-Spec-Test Driven Development
+
+    Every feature begins with a design document that gates creation through
+    the Knowledge Graph. The design must demonstrate:
+    1. KG analysis was performed (nearest concepts identified)
+    2. Extension strategy is justified
+    3. C4 integration diagram shows where this fits in the 5-pillar topology
+    4. Risk assessment covers blast radius and backward compatibility
+
+    The design document is stored in ``.specify/design/<feature_id>.md``
+    and must be validated before a Spec can be created.
+    """
+
+    feature_id: str = Field(description="Unique feature identifier")
+    title: str = Field(description="Human-readable feature title")
+    kg_analysis: KGAnalysis = Field(
+        description="KG search and extension analysis results"
+    )
+    c4_diagram: str = Field(
+        default="",
+        description="Mermaid C4 diagram source showing integration point",
+    )
+    data_flow: str = Field(
+        default="",
+        description="Description of how data flows through the 5 pillars",
+    )
+    risk_assessment: RiskAssessment = Field(
+        default_factory=RiskAssessment,
+        description="Impact and compatibility analysis",
+    )
+    metadata: dict[str, Any] = Field(default_factory=dict)

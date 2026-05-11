@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Browser Management Module.
 
+CONCEPT:ECO-4.0
+
 This module implements a singleton BrowserManager that handles the
 asynchronous lifecycle of Playwright-based browser instances, including
 context initialization and page tracking.

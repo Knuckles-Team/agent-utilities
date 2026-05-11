@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""CONCEPT:ECO-4.0"""
+
 """Regression guard: every ``/api/enhanced/*`` route has at least one consumer.
 
 Scans ``agent_webui.api_extensions`` for ``@router`` declarations and asserts

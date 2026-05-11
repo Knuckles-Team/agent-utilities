@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""CONCEPT:OS-5.2"""
+
 """Coverage push for agent_utilities.scheduler.
 
 Targets the mostly-pure-function paths: task CRUD on the Knowledge Graph

@@ -22,8 +22,10 @@ router = APIRouter(tags=["Core"])
 async def list_configured_models(request: Request) -> dict[str, Any]:
     """Return the configured model registry.
 
-    Consumers: web-UI model picker + cost table, terminal-UI
-    ``/model list``, graph orchestrator's specialist spawner.
+    CONCEPT:ECO-4.0
+
+        Consumers: web-UI model picker + cost table, terminal-UI
+        ``/model list``, graph orchestrator's specialist spawner.
     """
     reg = getattr(request.app.state, "model_registry", None)
     if reg is None:

@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:ECO-4.5 — Provider Prompt Adaptation."""
+"""Tests for CONCEPT:ECO-4.0 — Provider Prompt Adaptation."""
 
 import pytest
 from agent_utilities.prompting.provider_adapter import (

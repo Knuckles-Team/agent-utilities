@@ -2,6 +2,8 @@ from __future__ import annotations
 
 """Default specialist package catalog for the Agent Registry.
 
+CONCEPT:ORCH-1.2
+
 Ships 38 packages out-of-the-box:
 - 33 Knuckles-Team packages (4 OS subsystems + 2 OS services + 27 adaptive_agent_router)
 - 5 curated community MCP servers

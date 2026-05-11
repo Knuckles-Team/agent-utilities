@@ -13,7 +13,7 @@ clinical concepts, patient management, and research trials.
 Aligned to SNOMED-CT, ICD-10/11, LOINC, RxNorm, HL7 FHIR, CDISC.""" .
 
 # =====================================================================
-# Medical Core Classes (CONCEPT:KG-2.90)
+# Medical Core Classes (CONCEPT:KG-2.8)
 # =====================================================================
 
 :Patient a owl:Class ;
@@ -58,7 +58,7 @@ attributes. HIPAA §164.312 technical safeguards apply.""" .
     rdfs:comment "A laboratory test result. Subclass of Observation. Aligned to LOINC." .
 
 # =====================================================================
-# Medical Object Properties (CONCEPT:KG-2.90)
+# Medical Object Properties (CONCEPT:KG-2.8)
 # =====================================================================
 
 :diagnosedWith a owl:ObjectProperty ;
@@ -91,7 +91,7 @@ attributes. HIPAA §164.312 technical safeguards apply.""" .
     rdfs:label "coded as" .
 
 # =====================================================================
-# Medical Datatype Properties (CONCEPT:KG-2.90)
+# Medical Datatype Properties (CONCEPT:KG-2.8)
 # =====================================================================
 
 :icdCode a owl:DatatypeProperty ;

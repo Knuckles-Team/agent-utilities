@@ -63,6 +63,44 @@ def get_env_file() -> str | None:
     return ".env"
 
 
+def _load_xdg_json_config():
+    import json
+    from pathlib import Path
+
+    import platformdirs
+
+    APP_NAME = "agent-utilities"
+    APP_AUTHOR = "knuckles-team"
+
+    override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+    if override:
+        cfg_dir = Path(override).expanduser()
+    else:
+        cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
+
+    cfg_file = cfg_dir / "config.json"
+    if cfg_file.exists():
+        try:
+            with open(cfg_file) as f:
+                data = json.load(f)
+                for k, v in data.items():
+                    env_key = k.upper()
+                    if env_key not in os.environ:
+                        if isinstance(v, (list, dict)):
+                            os.environ[env_key] = json.dumps(v)
+                        elif v is None:
+                            os.environ[env_key] = ""
+                        else:
+                            os.environ[env_key] = str(v)
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).debug(f"Failed to load XDG JSON config: {e}")
+
+
+_load_xdg_json_config()
+
+
 class AgentConfig(BaseSettings):
     """Configuration schema for the AI Agent server.
 
@@ -129,6 +167,9 @@ class AgentConfig(BaseSettings):
     graph_router_timeout: float = Field(default=300.0, alias="GRAPH_ROUTER_TIMEOUT")
     graph_verifier_timeout: float = Field(default=300.0, alias="GRAPH_VERIFIER_TIMEOUT")
     enable_kg_embeddings: bool = Field(default=True, alias="ENABLE_KG_EMBEDDINGS")
+    embedding_model: str = Field(
+        default="text-embedding-nomic-embed-text-v2-moe", alias="EMBEDDING_MODEL"
+    )
     kg_backups: int = Field(default=3, alias="KG_BACKUPS")
     graph_direct_execution: bool = Field(default=True, alias="GRAPH_DIRECT_EXECUTION")
     """When True, AG-UI and ACP adapters bypass the LLM tool-call hop
@@ -174,9 +215,9 @@ class AgentConfig(BaseSettings):
     a2a_storage: str = Field(default="in-memory", alias="A2A_STORAGE")
     a2a_storage_url: str | None = Field(default=None, alias="A2A_STORAGE_URL")
     a2a_config: str | None = Field(default=None, alias="A2A_CONFIG")
-    """Path to a2a_config.json for external A2A agent discovery (CONCEPT:ECO-4.2)."""
+    """Path to a2a_config.json for external A2A agent discovery (CONCEPT:ECO-4.1)."""
     a2a_refresh_interval: int = Field(default=300, alias="A2A_REFRESH_INTERVAL")
-    """Interval in seconds for periodic A2A agent card re-fetch (CONCEPT:ECO-4.2)."""
+    """Interval in seconds for periodic A2A agent card re-fetch (CONCEPT:ECO-4.1)."""
 
     max_tokens: int = Field(default=16384, alias="MAX_TOKENS")
     temperature: float = Field(default=0.7, alias="TEMPERATURE")
@@ -472,3 +513,33 @@ DEFAULT_ADVERSARIAL_VERIFICATION = config.adversarial_verification
 DEFAULT_MAINTENANCE_TOKEN_BUDGET = config.maintenance_token_budget
 DEFAULT_MAINTENANCE_PRIORITY = config.maintenance_priority
 DEFAULT_WATCHDOG_PATTERNS = config.watchdog_patterns
+
+
+def _ensure_config_template():
+    import json
+    from pathlib import Path
+
+    import platformdirs
+
+    APP_NAME = "agent-utilities"
+    APP_AUTHOR = "knuckles-team"
+
+    override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+    if override:
+        cfg_dir = Path(override).expanduser()
+    else:
+        cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
+
+    cfg_file = cfg_dir / "config.json"
+    if not cfg_file.exists():
+        try:
+            cfg_dir.mkdir(parents=True, exist_ok=True)
+            with open(cfg_file, "w") as f:
+                json.dump(config.model_dump(by_alias=False), f, indent=4)
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(f"Failed to write config template: {e}")
+
+
+_ensure_config_template()

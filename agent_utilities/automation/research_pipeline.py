@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.11 — Automated Research Intelligence Pipeline.
+"""CONCEPT:KG-2.6 — Automated Research Intelligence Pipeline.
 
 Orchestrates the end-to-end research ingestion cycle:
   ScholarX Discovery → Relevance Scoring → Tiered Ingestion → OWL Enrichment → Digest
@@ -23,7 +23,7 @@ Integrates with:
     - CONCEPT:KG-2.0 (IntelligenceGraphEngine): Graph persistence
     - CONCEPT:KG-2.2 (OWL Bridge): Post-ingestion reasoning cycle
 
-See docs/research-pipeline.md §CONCEPT:KG-2.11.
+See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:KG-2.6
 """
 
 
@@ -246,7 +246,7 @@ class PipelineReport(BaseModel):
 
 @dataclass
 class ResearchPipelineRunner:
-    """CONCEPT:KG-2.11 — Automated research ingestion pipeline.
+    """CONCEPT:KG-2.6 — Automated research ingestion pipeline.
 
     Orchestrates: ScholarX Discovery → Relevance Scoring → Tiered Ingestion
     → OWL Reasoning → Digest Generation.
@@ -499,7 +499,7 @@ class ResearchPipelineRunner:
             except Exception as e:
                 logger.warning(f"KB full ingestion failed for {paper_id}: {e}")
 
-        logger.info(f"[CONCEPT:KG-2.11] Fully ingested: {title[:60]} → {article_id}")
+        logger.info(f"[CONCEPT:KG-2.6] Fully ingested: {title[:60]} → {article_id}")
         return article_id
 
     async def ingest_paper_marginal(
@@ -575,7 +575,7 @@ class ResearchPipelineRunner:
                     self.engine._serialize_node(article_node, "Article"),
                 )
 
-        logger.info(f"[CONCEPT:KG-2.11] Marginal ingested: {title[:60]} → {article_id}")
+        logger.info(f"[CONCEPT:KG-2.6] Marginal ingested: {title[:60]} → {article_id}")
         return article_id
 
     async def ingest_local_file(
@@ -612,7 +612,7 @@ class ResearchPipelineRunner:
             force=False,
         )
         logger.info(
-            f"[CONCEPT:KG-2.11] Local file ingested: {file_path.name} → {result.id}"
+            f"[CONCEPT:KG-2.6] Local file ingested: {file_path.name} → {result.id}"
         )
         return result.id
 
@@ -642,7 +642,7 @@ class ResearchPipelineRunner:
             topic=topic or f"Web article: {url[:60]}",
             force=False,
         )
-        logger.info(f"[CONCEPT:KG-2.11] URL ingested: {url[:60]} → {result.id}")
+        logger.info(f"[CONCEPT:KG-2.6] URL ingested: {url[:60]} → {result.id}")
         return result.id
 
     def _run_owl_enrichment(self) -> int:
@@ -662,7 +662,7 @@ class ResearchPipelineRunner:
             )
             stats = bridge.run_cycle(lightweight=True)
             inferred = stats.get("inferred", 0)
-            logger.info(f"[CONCEPT:KG-2.11] OWL enrichment: {inferred} inferences")
+            logger.info(f"[CONCEPT:KG-2.6] OWL enrichment: {inferred} inferences")
             return inferred
         except Exception as e:
             logger.debug(f"OWL enrichment skipped: {e}")
@@ -762,7 +762,7 @@ class ResearchPipelineRunner:
             except Exception as e:
                 record.status = f"error: {e}"
                 report.errors.append(f"{paper_id}: {e}")
-                logger.error(f"[CONCEPT:KG-2.11] Ingestion error for {paper_id}: {e}")
+                logger.error(f"[CONCEPT:KG-2.6] Ingestion error for {paper_id}: {e}")
 
             report.records.append(record)
 
@@ -772,7 +772,7 @@ class ResearchPipelineRunner:
 
         report.duration_seconds = time.time() - start
         logger.info(
-            "[CONCEPT:KG-2.11] Pipeline complete: %d discovered, %d relevant, "
+            "[CONCEPT:KG-2.6] Pipeline complete: %d discovered, %d relevant, "
             "%d marginal, %d skipped, %d known, %.1fs",
             report.papers_discovered,
             report.papers_relevant,

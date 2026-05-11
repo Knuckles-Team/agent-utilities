@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.7 — Heavy Thinking Orchestration.
+"""CONCEPT:AHE-3.5 — Heavy Thinking Orchestration.
 
 Implements the two-stage parallel-then-deliberate pipeline from the
 HEAVYSKILL research framework (2026), adapted for the agent-utilities
@@ -25,17 +25,17 @@ Pipeline overview::
     ├── KG persistence of trajectories (cross-session reuse)
     ├── OWL-enriched deliberation context (CONCEPT:KG-2.2)
     ├── EncPI hyperedge mapping (CONCEPT:KG-2.4)
-    ├── EWC consolidation protection (CONCEPT:AHE-3.6)
+    ├── EWC consolidation protection (CONCEPT:AHE-3.4)
     └── Topological trajectory clustering (CONCEPT:KG-2.5)
 
 Integrates with:
     - CONCEPT:ORCH-1.1 (HTN Planning): As an alternative to ``LATSPlanner``
     - CONCEPT:ORCH-1.2 (Model Routing): Heterogeneous model pairing
-    - CONCEPT:AHE-3.5 (Experience Distillation): Trajectory → ExperienceNode
+    - CONCEPT:AHE-3.4 (Experience Distillation): Trajectory → ExperienceNode
     - CONCEPT:KG-2.0 (OGM): Native KG persistence
     - CONCEPT:KG-2.4 (Hypergraphs): Structural generalization
 
-See docs/overview.md §CONCEPT:AHE-3.7.
+See docs/overview.md §CONCEPT:AHE-3.5
 """
 
 
@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 class HeavyThinkingConfig(BaseModel):
     """Configuration for the Heavy Thinking orchestration pipeline.
 
-    CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+    CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
 
     Attributes:
         k: Number of parallel thinker agents to spawn (default 4).
@@ -94,7 +94,7 @@ class HeavyThinkingConfig(BaseModel):
 class ComplexityEstimator:
     """Tiered hybrid complexity estimator for activation gating.
 
-    CONCEPT:AHE-3.7 — Determines whether heavy thinking should be
+    CONCEPT:AHE-3.5 — Determines whether heavy thinking should be
     activated for a given query.  Uses a three-tier approach:
 
     **Tier 1 (Free)**: Heuristic signals — query length, keyword markers,
@@ -297,7 +297,7 @@ class ComplexityEstimator:
 class HeavyThinkingOrchestrator:
     """Two-stage parallel-then-deliberate reasoning pipeline.
 
-    CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+    CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
 
     Implements the HEAVYSKILL framework adapted for agent-utilities:
 
@@ -346,7 +346,7 @@ class HeavyThinkingOrchestrator:
         delib_model = model_deliberation or deps.agent_model
 
         logger.info(
-            "[CONCEPT:AHE-3.7] Starting Heavy Thinking pipeline "
+            "[CONCEPT:AHE-3.5] Starting Heavy Thinking pipeline "
             "(k=%d, max_iter=%d, query=%s)",
             self.config.k,
             self.config.max_iterations,
@@ -371,11 +371,11 @@ class HeavyThinkingOrchestrator:
             result["trajectory_node_ids"] = trajectory_ids
             result["deliberation_node_id"] = delib_node_id
 
-        # Distill experience for continual learning (CONCEPT:AHE-3.5)
+        # Distill experience for continual learning (CONCEPT:AHE-3.4)
         await self._distill_heavy_experience(cache, result, deps)
 
         logger.info(
-            "[CONCEPT:AHE-3.7] Heavy Thinking complete: confidence=%.2f, "
+            "[CONCEPT:AHE-3.5] Heavy Thinking complete: confidence=%.2f, "
             "iterations=%d, trajectories=%d",
             result.get("confidence", 0.0),
             result.get("iterations", 1),
@@ -406,7 +406,7 @@ class HeavyThinkingOrchestrator:
         cache = MemoryCache.from_query(query)
         k = self.config.k
 
-        logger.info("[CONCEPT:AHE-3.7] Spawning %d parallel thinkers...", k)
+        logger.info("[CONCEPT:AHE-3.5] Spawning %d parallel thinkers...", k)
 
         async def run_thinker(thinker_id: str) -> TrajectoryEntry:
             """Run a single parallel thinker."""
@@ -431,7 +431,7 @@ class HeavyThinkingOrchestrator:
                     success=True,
                 )
             except Exception as e:
-                logger.warning("[CONCEPT:AHE-3.7] Thinker %s failed: %s", thinker_id, e)
+                logger.warning("[CONCEPT:AHE-3.5] Thinker %s failed: %s", thinker_id, e)
                 return TrajectoryEntry(
                     thinker_id=thinker_id,
                     raw_output=f"Error: {e}",
@@ -452,10 +452,10 @@ class HeavyThinkingOrchestrator:
                     success=result.success,
                 )
             elif isinstance(result, Exception):
-                logger.warning("[CONCEPT:AHE-3.7] Thinker failed: %s", result)
+                logger.warning("[CONCEPT:AHE-3.5] Thinker failed: %s", result)
 
         logger.info(
-            "[CONCEPT:AHE-3.7] Parallel reasoning complete: %d/%d succeeded",
+            "[CONCEPT:AHE-3.5] Parallel reasoning complete: %d/%d succeeded",
             sum(1 for t in cache.trajectories if t.success),
             k,
         )
@@ -502,7 +502,7 @@ class HeavyThinkingOrchestrator:
                 prev_answer = cache.deliberation_results[-1]
                 if result.get("answer", "") == prev_answer:
                     logger.info(
-                        "[CONCEPT:AHE-3.7] Deliberation converged at iteration %d",
+                        "[CONCEPT:AHE-3.5] Deliberation converged at iteration %d",
                         iteration + 1,
                     )
                     break
@@ -578,7 +578,7 @@ class HeavyThinkingOrchestrator:
                     "critical_analysis": result.output.critical_analysis,
                 }
         except Exception as e:
-            logger.warning("[CONCEPT:AHE-3.7] Deliberation failed: %s", e)
+            logger.warning("[CONCEPT:AHE-3.5] Deliberation failed: %s", e)
 
         # Fallback: majority vote from trajectories
         return self._majority_vote_fallback(
@@ -676,7 +676,7 @@ class HeavyThinkingOrchestrator:
             )
 
         logger.info(
-            "[CONCEPT:AHE-3.7] Persisted deliberation node %s "
+            "[CONCEPT:AHE-3.5] Persisted deliberation node %s "
             "(trajectories=%d, confidence=%.2f)",
             delib_id,
             len(trajectory_ids),
@@ -692,7 +692,7 @@ class HeavyThinkingOrchestrator:
     ) -> None:
         """Distill heavy thinking into an ExperienceNode for continual learning.
 
-        CONCEPT:AHE-3.5 — Cross-Rollout Critique integration.
+        CONCEPT:AHE-3.4 — Cross-Rollout Critique integration.
         Extracts a condition-action heuristic from the deliberation's
         critical analysis of trajectory differences.
 
@@ -734,7 +734,7 @@ class HeavyThinkingOrchestrator:
                 ogm = KGMapper(deps.knowledge_engine)
                 ogm.upsert(node)
                 logger.info(
-                    "[CONCEPT:AHE-3.7] Distilled ExperienceNode from deliberation: %s",
+                    "[CONCEPT:AHE-3.5] Distilled ExperienceNode from deliberation: %s",
                     exp_id,
                 )
         except Exception as e:
@@ -745,7 +745,7 @@ class HeavyThinkingOrchestrator:
 
 
 class HeavyThinkingPlanner:
-    """CONCEPT:AHE-3.7 — Heavy Thinking as an alternative to LATSPlanner.
+    """CONCEPT:AHE-3.5 — Heavy Thinking as an alternative to LATSPlanner.
 
     Wraps ``HeavyThinkingOrchestrator`` to produce a ``GraphPlan`` from
     the deliberation result.  Used when the complexity estimator

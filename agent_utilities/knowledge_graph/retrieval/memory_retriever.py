@@ -21,7 +21,7 @@ Integrates with:
     - Existing OWL bridge: ``promote_to_owl()`` / ``reason_about_self()``
     - ``GraphState``: Session outcome aggregation
 
-See docs/emergent-architecture.md §CONCEPT:KG-2.1.
+See docs/pillars/architecture_c4.md §CONCEPT:KG-2.1
 """
 
 

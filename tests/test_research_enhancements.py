@@ -3,11 +3,11 @@
 
 Tests cover:
 1. Learned Agent Routing (CONCEPT:ORCH-1.2)
-2. Elastic Context Operators (CONCEPT:KG-2.10)
-3. Dynamic Skill Evolution (CONCEPT:ECO-4.1)
+2. Elastic Context Operators (CONCEPT:KG-2.1)
+3. Dynamic Skill Evolution (CONCEPT:ECO-4.0)
 4. Multi-Timescale Memory (CONCEPT:KG-2.1)
 5. Versioned KG Mutations (CONCEPT:KG-2.0)
-6. Jailbreak Robustness (CONCEPT:OS-5.4)
+6. Jailbreak Robustness (CONCEPT:OS-5.1)
 """
 
 import pytest
@@ -18,7 +18,7 @@ from typing import Any
 
 
 class TestRoutingPolicy:
-    """Tests for adaptive_agent_router.py — CONCEPT:ORCH-1.2."""
+    """Tests for adaptive_agent_router.py — CONCEPT:ORCH-1.2"""
 
     def test_extract_task_features(self):
         from agent_utilities.graph.adaptive_agent_router import extract_task_features
@@ -119,11 +119,11 @@ class TestRoutingPolicy:
         assert decision.selected.model_id == "cheap"
 
 
-# ── Enhancement 2: Elastic Context Operators (CONCEPT:KG-2.10) ──────────────
+# ── Enhancement 2: Elastic Context Operators (CONCEPT:KG-2.1) ──────────────
 
 
 class TestElasticContext:
-    """Tests for elastic_context_manager.py elastic operators — CONCEPT:KG-2.10."""
+    """Tests for elastic_context_manager.py elastic operators — CONCEPT:KG-2.1"""
 
     def _make_messages(self, n=5):
         return [
@@ -215,11 +215,11 @@ class TestElasticContext:
             ecm.rollback()
 
 
-# ── Enhancement 3: Dynamic Skill Evolution (CONCEPT:ECO-4.1) ────────────────
+# ── Enhancement 3: Dynamic Skill Evolution (CONCEPT:ECO-4.0) ────────────────
 
 
 class TestSkillEvolver:
-    """Tests for skill_evolver.py — CONCEPT:ECO-4.1."""
+    """Tests for skill_evolver.py — CONCEPT:ECO-4.0"""
 
     def test_gap_detection_empty_skills(self):
         from agent_utilities.knowledge_graph.adaptation.skill_evolver import (
@@ -301,7 +301,7 @@ class TestSkillEvolver:
 
 
 class TestTimescaleMemory:
-    """Tests for elastic_context_manager.py — CONCEPT:KG-2.1."""
+    """Tests for elastic_context_manager.py — CONCEPT:KG-2.1"""
 
     def test_store_and_retrieve(self):
         from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
@@ -370,7 +370,7 @@ class TestTimescaleMemory:
 
 
 class TestKGVersioning:
-    """Tests for kg_versioning.py — CONCEPT:KG-2.0."""
+    """Tests for kg_versioning.py — CONCEPT:KG-2.0"""
 
     def test_commit_adds_nodes(self):
         from agent_utilities.knowledge_graph.core.kg_versioning import (
@@ -445,11 +445,11 @@ class TestKGVersioning:
         assert len(engine.history) == 3
 
 
-# ── Enhancement 6: Jailbreak Robustness (CONCEPT:OS-5.4) ────────────────────
+# ── Enhancement 6: Jailbreak Robustness (CONCEPT:OS-5.1) ────────────────────
 
 
 class TestJailbreakPatterns:
-    """Tests for jailbreak patterns in threat_defense_engine.py — CONCEPT:OS-5.4."""
+    """Tests for jailbreak patterns in threat_defense_engine.py — CONCEPT:OS-5.1"""
 
     def test_dan_jailbreak_detection(self):
         from agent_utilities.security.threat_defense_engine import PromptInjectionScanner

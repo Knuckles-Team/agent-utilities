@@ -148,13 +148,13 @@ __all__ = [
     "walk_forward_validation",
     "calculate_kelly_fraction",
     "check_regime_shift",
-    # Alpha Factors (KG-2.60)
+    # Alpha Factors (KG-2.6)
     "AlphaFactorLibrary",
     "FACTOR_REGISTRY",
     "compute_factor_ic",
     "compute_factor_ir",
     "rank_factors",
-    # Risk Management (KG-2.61)
+    # Risk Management (KG-2.6)
     "RiskManager",
     "RiskLimits",
     "PreTradeGuard",
@@ -163,25 +163,25 @@ __all__ = [
     "VaRResult",
     "StressTestEngine",
     "StressTestResult",
-    # Portfolio Optimization (KG-2.62)
+    # Portfolio Optimization (KG-2.6)
     "MeanVarianceOptimizer",
     "RiskParityOptimizer",
     "BlackLittermanOptimizer",
     "OptimizationResult",
-    # Versioned Orders (KG-2.63)
+    # Versioned Orders (KG-2.6)
     "OrderHistory",
     "OrderStage",
     "OrderCommit",
     "OrderStatus",
     "PreCommitGuard",
-    # Market Data (KG-2.64)
+    # Market Data (KG-2.6)
     "MarketDataProvider",
     "YFinanceProvider",
     "SyntheticProvider",
     "DataRegistry",
     "DataFetchResult",
     "normalize_ohlcv",
-    # x402 Payments (KG-2.65)
+    # x402 Payments (KG-2.6)
     "X402PaymentClient",
     "PaymentChallenge",
     "PaymentProof",
@@ -189,27 +189,27 @@ __all__ = [
     "PaymentGuard",
     "PaymentStatus",
     "BudgetLimits",
-    # Profit Attribution (KG-2.66)
+    # Profit Attribution (KG-2.6)
     "ProfitAttributor",
     "AttributionResult",
     "PerformanceReport",
     "BenchmarkComparison",
     "compute_performance_report",
     "compare_to_benchmark",
-    # Streaming (KG-2.67)
+    # Streaming (KG-2.6)
     "StreamBus",
     "StreamMessage",
     "StreamSubscriber",
     "CallbackSubscriber",
     "WebSocketStreamAdapter",
-    # Kronos Forecaster (KG-2.70)
+    # Kronos Forecaster (KG-2.6)
     "KronosForecaster",
     "KLineTokenizer",
     "KLineToken",
     "KronosPredictor",
     "CandleType",
     "ForecastResult",
-    # Trading Swarm (KG-2.71)
+    # Trading Swarm (KG-2.6)
     "TradingSwarm",
     "SwarmAgent",
     "SwarmRole",
@@ -217,7 +217,7 @@ __all__ = [
     "SwarmConsensus",
     "SwarmConfig",
     "AgentSignal",
-    # Visual TA (KG-2.72)
+    # Visual TA (KG-2.6)
     "VisualTAEngine",
     "PatternDetector",
     "SupportResistanceDetector",
@@ -226,13 +226,13 @@ __all__ = [
     "PatternType",
     "DetectedPattern",
     "SupportResistanceLevel",
-    # Market Feeds (KG-2.73)
+    # Market Feeds (KG-2.6)
     "MarketFeedBus",
     "Tick",
     "LiveBar",
     "TickAggregator",
     "FeedSubscription",
-    # Strategy Export (KG-2.74)
+    # Strategy Export (KG-2.6)
     "StrategyExporter",
     "PineScriptExporter",
     "MQL5Exporter",
@@ -241,7 +241,7 @@ __all__ = [
     "StrategyCondition",
     "ExportPlatform",
     "ExportResult",
-    # Research Autopilot (KG-2.75)
+    # Research Autopilot (KG-2.6)
     "ResearchAutopilot",
     "Hypothesis",
     "HypothesisStatus",
@@ -250,7 +250,7 @@ __all__ = [
     "ResearchReport",
     "AutopilotConfig",
     "SimpleBacktester",
-    # Strategy Sharing (KG-2.76)
+    # Strategy Sharing (KG-2.6)
     "StrategyRegistry",
     "StrategyCard",
     "StrategyPreset",

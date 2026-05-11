@@ -1,5 +1,5 @@
 """
-Multi-Agent Trading Swarm — CONCEPT:KG-2.71
+Multi-Agent Trading Swarm — CONCEPT:KG-2.6
 
 Provides specialized agent roles (Director, Quant Analyst, Risk Manager,
 Execution Trader) with swarm orchestration for collaborative trading decisions.

@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.4"""
+
 import pytest
 
 from agent_utilities.mcp.agent_manager import partition_tools

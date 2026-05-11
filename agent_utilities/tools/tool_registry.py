@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Tool Registry Module.
 
+CONCEPT:ECO-4.0
+
 This module provides a centralized system for registering agent tools. It handles
 the aggregation of various domain-specific toolsets (workspace, memory, git, etc.)
 and applies environment-based gating to control which tools are exposed to the agent.

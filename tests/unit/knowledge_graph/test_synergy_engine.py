@@ -2,7 +2,7 @@
 from __future__ import annotations
 """Tests for Cross-Pillar Synergy Engine.
 
-CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
 Validates concept bridge discovery, pillar coupling computation,
 missing edge suggestions, and synergy report generation.

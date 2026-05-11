@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Multi-agent team coordination capability with ACP integration.
 
+CONCEPT:AHE-3.3
+
 Manages team membership, shared tasks, and message routing via the
 Agent Communication Protocol (ACP). Persists state to the Knowledge Graph.
 

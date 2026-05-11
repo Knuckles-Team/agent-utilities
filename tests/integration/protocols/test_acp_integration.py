@@ -1,3 +1,5 @@
+"""CONCEPT:ECO-4.0"""
+
 from typing import Any
 from unittest.mock import MagicMock, patch
 

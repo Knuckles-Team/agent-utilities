@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Comprehensive tests for KG-Native Orchestration (CONCEPT:ORCH-1.15 through ORCH-1.19).
+"""Comprehensive tests for KG-Native Orchestration (CONCEPT:ORCH-1.1 through ORCH-1.19).
 
 Tests cover all 7 gaps:
   1. KG-Driven Team Composition
@@ -21,7 +21,7 @@ import pytest
 
 
 class TestKGTeamComposer:
-    """Tests for KG-Driven Team Composition (CONCEPT:ORCH-1.15)."""
+    """Tests for KG-Driven Team Composition (CONCEPT:ORCH-1.1)."""
 
     def test_compose_simple_team(self):
         from agent_utilities.graph.team_composer import KGTeamComposer
@@ -92,7 +92,7 @@ class TestKGTeamComposer:
 
 
 class TestStateCheckpointer:
-    """Tests for Execution State Checkpointing (CONCEPT:ORCH-1.16)."""
+    """Tests for Execution State Checkpointing (CONCEPT:ORCH-1.1)."""
 
     def _make_mock_state(self):
         class MockState:
@@ -158,7 +158,7 @@ class TestStateCheckpointer:
 
 
 class TestTopologyEngine:
-    """Tests for Dynamic Topology Materialization (CONCEPT:ORCH-1.17)."""
+    """Tests for Dynamic Topology Materialization (CONCEPT:ORCH-1.2)."""
 
     def _make_team(self, mode="sequential", roles=None, parallel_groups=None):
         from agent_utilities.models.knowledge_graph import TeamComposition
@@ -258,7 +258,7 @@ class TestTopologyEngine:
 
 
 class TestTopologicalRoutingPolicy:
-    """Tests for KG-Native Routing Policy (CONCEPT:ORCH-1.18)."""
+    """Tests for KG-Native Routing Policy (CONCEPT:ORCH-1.4)."""
 
     def test_cold_start_fallback(self):
         from agent_utilities.graph.adaptive_agent_router import (
@@ -307,7 +307,7 @@ class TestTopologicalRoutingPolicy:
 
 
 class TestPersistentAgentManager:
-    """Tests for Persistent Background Agents (CONCEPT:ORCH-1.19)."""
+    """Tests for Persistent Background Agents (CONCEPT:ORCH-1.4)."""
 
     def test_register_agent(self):
         from agent_utilities.graph.persistent_agents import PersistentAgentManager
@@ -382,7 +382,7 @@ class TestPersistentAgentManager:
 
 
 class TestShareableTeamConfigs:
-    """Tests for Shareable Team Compositions (CONCEPT:ORCH-1.15)."""
+    """Tests for Shareable Team Compositions (CONCEPT:ORCH-1.1)."""
 
     def test_export_from_nx(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine

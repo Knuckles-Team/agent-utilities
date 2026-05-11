@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Experience Alignment for Few-Shot Adaptation.
 
-Implements CONCEPT:KG-2.37 (Experience Alignment)
+Implements CONCEPT:KG-2.3 (Experience Alignment)
 Leverages the native ExperienceNode to adapt agentic behavior through few-shot memory alignment.
 """
 

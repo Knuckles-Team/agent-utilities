@@ -1,4 +1,6 @@
 """
+
+CONCEPT:KG-2.0
 Document Deletion Pipeline for Knowledge Graph.
 
 Handle document deletion with cascading cleanup across all storage layers.

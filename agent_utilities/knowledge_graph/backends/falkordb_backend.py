@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """FalkorDB Backend Implementation."""
 
+# CONCEPT:KG-2.0
+
 
 import logging
 from typing import Any

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ontological Team Sharing (CONCEPT:KG-2.52).
+"""Ontological Team Sharing (CONCEPT:KG-2.6).
 
 Serializes dynamically created TeamCompositions into shareable
 semantic formats (OWL/Turtle) for export/import across instances.
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class OntologicalTeamExporter:
     """Exports and imports team compositions as OWL/Turtle.
 
-    CONCEPT:KG-2.52
+    CONCEPT:KG-2.6
     """
 
     @staticmethod
@@ -60,7 +60,7 @@ class OntologicalTeamExporter:
             lines.append("")
 
         logger.info(
-            "[CONCEPT:KG-2.52] Exported team %s to Turtle format", composition.team_id
+            "[CONCEPT:KG-2.6] Exported team %s to Turtle format", composition.team_id
         )
         return "\n".join(lines)
 
@@ -69,5 +69,5 @@ class OntologicalTeamExporter:
         """Stub for parsing Turtle back into a TeamComposition."""
         # A fully compliant system would use RDFLib to parse the TTL
         logger.debug("Importing TTL content length: %d", len(ttl_content))
-        logger.info("[CONCEPT:KG-2.52] Importing team from Turtle format (Stub)")
+        logger.info("[CONCEPT:KG-2.6] Importing team from Turtle format (Stub)")
         return {}

@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.0"""
+
 import logging
 
 import networkx as nx
@@ -7,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 def get_owl_context(node_id: str, graph: nx.MultiDiGraph) -> str:
     """Extracts OWL inferred facts for a node."""
+
     if node_id not in graph:
         return ""
 

@@ -1,5 +1,5 @@
 """
-Tests for JupyterKernelAdapter and SandboxExecutor (CONCEPT:ECO-4.12).
+Tests for JupyterKernelAdapter and SandboxExecutor (CONCEPT:ECO-4.3).
 """
 
 import pytest

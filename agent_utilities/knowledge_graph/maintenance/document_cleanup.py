@@ -1,4 +1,6 @@
 """
+
+CONCEPT:KG-2.0
 Automated Cleanup Operations for Knowledge Graph.
 
 Handle automated cleanup of old documents, orphan embeddings, etc.

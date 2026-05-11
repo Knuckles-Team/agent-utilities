@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Topological Analogy Engine.
 
-CONCEPT:KG-2.15 — Topological Analogy Engine
+CONCEPT:KG-2.5 — Topological Analogy Engine
 Leverages `networkx` and vectorized embeddings (`EncPI`) to find analogous
 subgraphs across different domains. This enables cross-domain innovation extraction
 and structural pattern matching within the Knowledge Graph.

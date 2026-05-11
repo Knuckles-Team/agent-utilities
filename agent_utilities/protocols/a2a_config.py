@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """A2A agent configuration loader and auto-discovery.
 
-CONCEPT:ECO-4.2 — A2A Config File Loading
+CONCEPT:ECO-4.1 — A2A Config File Loading
 
 Loads ``a2a_config.json``, fetches ``.well-known/agent-card.json`` for each
 declared agent, registers them in the Knowledge Graph, and optionally sets
@@ -136,7 +136,7 @@ async def sync_a2a_agents(
 ) -> dict[str, Any]:
     """Load ``a2a_config.json`` and register all agents in the Knowledge Graph.
 
-    CONCEPT:ECO-4.2 — A2A Config File Loading
+    CONCEPT:ECO-4.1 — A2A Config File Loading
 
     For each agent declared in the config:
     1. Resolve ``auth_token`` via ``SecretsClient`` if present.
@@ -264,7 +264,7 @@ async def periodic_a2a_refresh(
 ) -> None:
     """Background task to periodically re-fetch A2A agent cards.
 
-    CONCEPT:ECO-4.2 — A2A Config File Loading (periodic refresh)
+    CONCEPT:ECO-4.1 — A2A Config File Loading (periodic refresh)
 
     Runs on a configurable interval to pick up new skills/capabilities
     from remote agents. Should be started as ``asyncio.create_task()``

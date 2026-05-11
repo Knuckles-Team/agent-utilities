@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Unified Intelligence Graph CLI.
 
+CONCEPT:KG-2.0
+
 Command-line interface for running the Unified Intelligence Pipeline
 and querying the graph (Agents, Tools, Code, Memory).
 """
@@ -10,10 +12,10 @@ import asyncio
 import logging
 from pathlib import Path
 
-from agent_utilities.core.workspace import get_agent_workspace
+from agent_utilities.core.paths import kg_db_path
+from agent_utilities.models.knowledge_graph import PipelineConfig
 
-from ..core.engine import IntelligenceGraphEngine
-from ..models.knowledge_graph import PipelineConfig
+from .core.engine import IntelligenceGraphEngine
 from .pipeline import IntelligencePipeline
 
 
@@ -21,6 +23,12 @@ async def main():
     parser = argparse.ArgumentParser(description="Unified Intelligence Graph CLI")
     parser.add_argument(
         "--maintain", action="store_true", help="Run the full intelligence pipeline"
+    )
+    parser.add_argument(
+        "--bootstrap-workspace",
+        nargs="?",
+        const="DEFAULT",
+        help="Parse XDG workspace.yml (or custom path), clone missing projects, and ingest all projects natively.",
     )
     parser.add_argument(
         "--status", action="store_true", help="Show current graph metrics"
@@ -49,15 +57,57 @@ async def main():
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-    agent_ws = get_agent_workspace()
     config = PipelineConfig(
         workspace_path=str(Path.cwd()),
-        ladybug_path=str(agent_ws / "knowledge_graph.db"),
+        ladybug_path=str(kg_db_path()),
     )
 
     pipeline = IntelligencePipeline(config)
 
-    if args.maintain:
+    if args.bootstrap_workspace:
+        from agent_utilities.core.workspace_config import clone_missing_projects
+
+        print("Bootstrapping workspace...")
+        if args.bootstrap_workspace == "DEFAULT":
+            project_paths = clone_missing_projects()
+        else:
+            project_paths = clone_missing_projects(yml_path=args.bootstrap_workspace)
+
+        if not project_paths:
+            print("No projects found in workspace.yml to bootstrap.")
+            return
+
+        print(
+            f"Discovered {len(project_paths)} projects. Running IntelligencePipeline on each..."
+        )
+        total_nodes = 0
+        total_edges = 0
+        for path in project_paths:
+            print(f"Ingesting {path}...")
+            if not path.exists() or not path.is_dir():
+                print(f"  Skipping {path} (not a valid directory)")
+                continue
+
+            try:
+                proj_config = PipelineConfig(
+                    workspace_path=str(path),
+                    ladybug_path=str(kg_db_path()),
+                )
+                proj_pipeline = IntelligencePipeline(proj_config)
+                metadata = await proj_pipeline.run()
+                total_nodes += metadata.node_count
+                total_edges += metadata.edge_count
+                print(
+                    f"  Success: {metadata.node_count} nodes, {metadata.edge_count} edges."
+                )
+            except Exception as e:
+                print(f"  Failed to ingest {path}: {e}")
+
+        print(
+            f"Workspace Bootstrap Complete! Ingested {total_nodes} nodes and {total_edges} edges across {len(project_paths)} projects."
+        )
+
+    elif args.maintain:
         metadata = await pipeline.run()
         print(
             f"Intelligence Graph Updated: {metadata.node_count} nodes, {metadata.edge_count} edges."

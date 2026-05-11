@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+"""Codemap models for code structure visualization.
+
+CONCEPT:KG-2.0
+"""
+
 from datetime import datetime
 from typing import Any, Literal
 

@@ -21,7 +21,7 @@ Integrates with:
     - CONCEPT:OS-5.2 (AgentRegistry): Monitors registry directory changes
     - ``systems-manager``: Package audit via pip inspection
 
-See docs/watchdog-triggers.md §CONCEPT:OS-5.0.
+See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.0
 """
 
 

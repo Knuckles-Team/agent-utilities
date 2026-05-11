@@ -1,6 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
-"""Tests for Prompt Injection Scanner (CONCEPT:OS-5.4)."""
+"""Tests for Prompt Injection Scanner (CONCEPT:OS-5.1)."""
 
 
 import os

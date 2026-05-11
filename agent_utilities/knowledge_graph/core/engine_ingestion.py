@@ -315,22 +315,62 @@ class IngestionMixin(_Base):
             return {"status": "success", "nodes": len(entities), "backend": False}
 
         # Use backend high-throughput UNWIND batching
-        q_nodes = """
-        UNWIND $batch AS row
-        MERGE (n:DomainEntity {id: row.id})
-        SET n += row
-        """
-        self.backend.execute_batch(q_nodes, entities)
+        # Check backend capabilities
+        is_ladybug = self.backend.__class__.__name__ == "LadybugBackend"
 
-        if relationships:
-            q_rels = """
-            UNWIND $batch AS row
-            MATCH (s {id: row.source})
-            MATCH (t {id: row.target})
-            MERGE (s)-[r:EXTERNAL_LINK {type: row.type}]->(t)
-            SET r += row
-            """
-            self.backend.execute_batch(q_rels, relationships)
+        if is_ladybug:
+            # Iterative fallback since Ladybug doesn't support UNWIND
+            for row in entities:
+                node_type = row.get("type", "DomainEntity")
+                set_clause = self._get_set_clause(row, "n", label=node_type)
+                q_node = f"MERGE (n:{node_type} {{id: $id}}){set_clause}"
+                self.backend.execute(q_node, row)
+
+            if relationships:
+                for row in relationships:
+                    set_clause = self._get_set_clause(row, "r")
+                    q_rel = f"""
+                    MATCH (s {{id: $source}})
+                    MATCH (t {{id: $target}})
+                    MERGE (s)-[r:EXTERNAL_LINK {{type: $type}}]->(t){set_clause}
+                    """
+                    self.backend.execute(q_rel, row)
+        else:
+            # Use Neo4j/FalkorDB high-throughput UNWIND batching
+            # dynamically generate SET keys to avoid SET n += row
+            if entities:
+                keys = [k for k in entities[0].keys() if k != "id"]
+                set_clause = (
+                    "SET " + ", ".join([f"n.{k} = row.{k}" for k in keys])
+                    if keys
+                    else ""
+                )
+                q_nodes = f"""
+                UNWIND $batch AS row
+                MERGE (n:DomainEntity {{id: row.id}})
+                {set_clause}
+                """
+                self.backend.execute_batch(q_nodes, entities)
+
+            if relationships:
+                r_keys = [
+                    k
+                    for k in relationships[0].keys()
+                    if k not in ("source", "target", "type")
+                ]
+                r_set_clause = (
+                    "SET " + ", ".join([f"r.{k} = row.{k}" for k in r_keys])
+                    if r_keys
+                    else ""
+                )
+                q_rels = f"""
+                UNWIND $batch AS row
+                MATCH (s {{id: row.source}})
+                MATCH (t {{id: row.target}})
+                MERGE (s)-[r:EXTERNAL_LINK {{type: row.type}}]->(t)
+                {r_set_clause}
+                """
+                self.backend.execute_batch(q_rels, relationships)
 
         return {"status": "success", "nodes": len(entities), "backend": True}
 
@@ -474,7 +514,7 @@ class IngestionMixin(_Base):
 
     # --- Discovery & Retrieval Tools ---
 
-    # --- Knowledge Distillation (CONCEPT:KG-2.23) ---
+    # --- Knowledge Distillation (CONCEPT:KG-2.2) ---
 
     def ingest_ideablock(
         self,
@@ -489,7 +529,7 @@ class IngestionMixin(_Base):
     ) -> str:
         """Ingest a single structured IdeaBlock into the Knowledge Graph.
 
-        CONCEPT:KG-2.23 — Knowledge Distillation Engine
+        CONCEPT:KG-2.2 — Knowledge Distillation Engine
 
         Creates an atomic knowledge unit as a question-answer pair with
         governance metadata, persists it to the KG, and returns its ID.
@@ -533,7 +573,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Run iterative knowledge distillation on IdeaBlocks in the KG.
 
-        CONCEPT:KG-2.23 — Knowledge Distillation Engine
+        CONCEPT:KG-2.2 — Knowledge Distillation Engine
 
         Performs semantic deduplication via LSH + cosine similarity,
         community clustering, and LLM-powered merging of redundant

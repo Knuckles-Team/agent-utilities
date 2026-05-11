@@ -28,7 +28,7 @@ Usage::
     )
     active = pack.get_active_node_types()  # core + research types
 
-See docs/knowledge-graph.md §Schema Packs for the full architecture guide.
+See docs/pillars/2_epistemic_knowledge_graph.md §Schema Packs for the full architecture guide.
 """
 
 
@@ -169,7 +169,7 @@ class SchemaPack(BaseModel):
         description="Additional .ttl files for OWL reasoner",
     )
 
-    # Retrieval Quality (CONCEPT:KG-2.8)
+    # Retrieval Quality (CONCEPT:KG-2.6)
     min_relevance_threshold: float = Field(
         default=0.6,
         ge=0.0,

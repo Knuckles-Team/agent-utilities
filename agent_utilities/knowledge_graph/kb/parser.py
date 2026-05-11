@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """KB Document Parser.
 
+CONCEPT:KG-2.0
+
 Parses raw source documents into DocumentChunk objects for KB ingestion.
 Supports: Markdown, PDF, DOCX, EPUB, TXT, HTML, URLs.
 Uses SimpleDirectoryReader (LlamaIndex) exactly as vector-mcp does.

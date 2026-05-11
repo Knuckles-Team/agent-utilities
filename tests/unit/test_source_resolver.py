@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.12 — KG Source Resolver.
+"""Tests for CONCEPT:KG-2.6 — KG Source Resolver.
 
 Validates:
 - ResolvedSource model

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Optimal Execution Engine.
 
-CONCEPT:KG-2.46 — Optimal Execution Engine
+CONCEPT:KG-2.6 — Optimal Execution Engine
 
 Mathematical optimal execution strategies derived from Oxford-Man Institute
 HFT lecture notes (Drissi, 2024).  Provides production-grade implementations of:
@@ -117,7 +117,7 @@ class PairsTradeSignal:
 class AlmgrenChrissDiscrete:
     """Almgren-Chriss optimal execution in discrete time.
 
-    CONCEPT:KG-2.46 — Almgren-Chriss Discrete (Oxford HFT Ch 3)
+    CONCEPT:KG-2.6 — Almgren-Chriss Discrete (Oxford HFT Ch 3)
 
     Minimizes expected implementation shortfall (execution cost + risk penalty):
         min E[C] + λ·Var[C]
@@ -222,7 +222,7 @@ class AlmgrenChrissDiscrete:
 class AlmgrenChrissContinuous:
     """Almgren-Chriss optimal execution in continuous time.
 
-    CONCEPT:KG-2.46 — Almgren-Chriss Continuous (Oxford HFT Ch 4)
+    CONCEPT:KG-2.6 — Almgren-Chriss Continuous (Oxford HFT Ch 4)
 
     Solves the Hamilton-Jacobi-Bellman (HJB) equation for continuous-time
     optimal execution.  The optimal trajectory is:
@@ -328,7 +328,7 @@ class AlmgrenChrissContinuous:
 class CarteaJaimungalExecutor:
     """Cartea-Jaimungal optimal execution framework.
 
-    CONCEPT:KG-2.46 — Cartea-Jaimungal (Oxford HFT Ch 5)
+    CONCEPT:KG-2.6 — Cartea-Jaimungal (Oxford HFT Ch 5)
 
     Extends Almgren-Chriss with running inventory penalty and adverse
     selection modeling.  Solves the associated Riccati ODE for the
@@ -420,7 +420,7 @@ class CarteaJaimungalExecutor:
 class AvellanedaStoikovMarketMaker:
     """Avellaneda-Stoikov optimal market making.
 
-    CONCEPT:KG-2.46 — Optimal Market Making (Oxford HFT Ch 10)
+    CONCEPT:KG-2.6 — Optimal Market Making (Oxford HFT Ch 10)
 
     Computes optimal bid-ask quotes as functions of inventory and time.
     The reservation price adjusts the fair value for inventory risk:
@@ -492,7 +492,7 @@ class AvellanedaStoikovMarketMaker:
 class CointegrationPairsTrader:
     """Cointegration-based pairs trading with OU mean-reversion.
 
-    CONCEPT:KG-2.46 — Cointegration Pairs Trading (Oxford HFT Ch 12)
+    CONCEPT:KG-2.6 — Cointegration Pairs Trading (Oxford HFT Ch 12)
 
     Models the spread between two cointegrated assets as an
     Ornstein-Uhlenbeck (OU) process:
@@ -628,7 +628,7 @@ class CointegrationPairsTrader:
 class SignalAdaptiveExecutor:
     """Signal-adaptive optimal execution.
 
-    CONCEPT:KG-2.46 — Signal-Adaptive Execution (Oxford HFT Ch 7)
+    CONCEPT:KG-2.6 — Signal-Adaptive Execution (Oxford HFT Ch 7)
 
     Incorporates predictive signals (e.g., order flow imbalance, MACD)
     into the execution schedule.  When the signal predicts favorable

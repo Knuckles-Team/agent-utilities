@@ -2,7 +2,7 @@
 from __future__ import annotations
 """Tests for Chat Search, Agents MD, and Engineering Patterns facade modules.
 
-CONCEPT:KG-2.13, KG-2.14, AHE-3.14
+CONCEPT:KG-2.1
 
 Validates the facade modules that were referenced in overview.md but
 previously existed only as inline implementations scattered across

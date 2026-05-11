@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Symbol Blast Radius Analyzer.
 
-CONCEPT:KG-2.35 — Symbol Blast Radius Analyzer
+CONCEPT:KG-2.5 — Symbol Blast Radius Analyzer
 
 Traces how widely a Python symbol (function, class, variable) is used
 across a codebase. Adapted from contextplus's blast-radius.ts with
@@ -51,7 +51,7 @@ _EXCLUDE_PATTERNS = {
 class BlastRadiusAnalyzer:
     """Analyzes how widely a symbol is used across a Python codebase.
 
-    CONCEPT:KG-2.35 — Symbol Blast Radius Analyzer
+    CONCEPT:KG-2.5 — Symbol Blast Radius Analyzer
 
     Adapted from contextplus's ``getBlastRadius()`` function for Python
     codebases with KG integration and structural impact scoring.

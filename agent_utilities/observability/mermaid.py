@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Mermaid Diagram Generation Utilities.
 
+CONCEPT:OS-5.4
+
 This module provides a structured way to generate Mermaid.js diagram code
 from various internal data structures, ensuring consistent styling and
 escaping of special characters.

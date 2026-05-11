@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Any
 
 from ..types import (
@@ -10,27 +9,28 @@ from ..types import (
 
 logger = logging.getLogger(__name__)
 
-# LM Studio defaults (matching vector-mcp and maintenance.py patterns)
-LM_STUDIO_URL = os.environ.get("LLM_BASE_URL", "http://localhost:1234/v1")
-EMBEDDING_MODEL = os.environ.get(
-    "EMBEDDING_MODEL", "text-embedding-nomic-embed-text-v2-moe"
-)
+# Configuration is now read dynamically from agent_utilities.core.config
 
 
 def _generate_embedding_batch(texts: list[str]) -> list[list[float]] | None:
     """Generate embeddings via LM Studio's OpenAI-compatible endpoint.
 
-    Uses the same pattern as vector-mcp's create_embedding_model() and
-    maintenance.py's generate_embedding(), connecting to the local LM Studio
-    server at LLM_BASE_URL/embeddings.
+    CONCEPT:KG-2.3
+
+        Uses the same pattern as vector-mcp's create_embedding_model() and
+        maintenance.py's generate_embedding(), connecting to the local LM Studio
+        server at LLM_BASE_URL/embeddings.
     """
+    from agent_utilities.core.config import config
+
+    url = config.llm_base_url or "http://localhost:1234/v1"
+    model = getattr(config, "embedding_model", "text-embedding-nomic-embed-text-v2-moe")
+
     try:
         import requests
 
-        payload = {"model": EMBEDDING_MODEL, "input": texts}
-        response = requests.post(
-            f"{LM_STUDIO_URL}/embeddings", json=payload, timeout=30
-        )
+        payload = {"model": model, "input": texts}
+        response = requests.post(f"{url}/embeddings", json=payload, timeout=30)
         response.raise_for_status()
         data = response.json()
         if "data" in data:
@@ -39,8 +39,11 @@ def _generate_embedding_batch(texts: list[str]) -> list[list[float]] | None:
             return [item["embedding"] for item in sorted_data]
     except ImportError:
         logger.warning("requests package not available for embedding generation")
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         logger.warning(f"Embedding generation failed: {e}")
+        raise ConnectionError(f"Embedding server unreachable: {e}") from e
+    except Exception as e:
+        logger.warning(f"Embedding generation failed unexpectedly: {e}")
     return None
 
 
@@ -115,7 +118,18 @@ async def execute_embedding(
         texts = [text for _, text in batch]
 
         # Try direct HTTP first (faster, fewer deps), then LlamaIndex fallback
-        embeddings = _generate_embedding_batch(texts)
+        try:
+            embeddings = _generate_embedding_batch(texts)
+        except ConnectionError as e:
+            if i == 0:
+                logger.error(f"Aborting embedding phase gracefully: {e}")
+                return {
+                    "status": "skipped",
+                    "embeddings_generated": 0,
+                    "reason": f"Embedding server unreachable on first batch: {e}",
+                }
+            embeddings = None
+
         if embeddings is None:
             embeddings = _generate_embedding_llamaindex(texts)
 

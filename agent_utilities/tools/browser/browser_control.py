@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Browser Control Tools Module.
 
+CONCEPT:ECO-4.0
+
 This module provides tools for lifecycle management of the browser
 instance, including initialization, status monitoring, and resource cleanup.
 """

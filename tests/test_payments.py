@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.65 — x402 AI Payment Protocol."""
+"""Tests for CONCEPT:KG-2.6 — x402 AI Payment Protocol."""
 
 import pytest
 

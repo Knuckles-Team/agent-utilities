@@ -1,4 +1,4 @@
-"""Tests for Enterprise Banking Domain (CONCEPT:KG-2.85)."""
+"""Tests for Enterprise Banking Domain (CONCEPT:KG-2.8)."""
 
 from agent_utilities.domains.finance.banking_models import (
     AMLAlertNode,

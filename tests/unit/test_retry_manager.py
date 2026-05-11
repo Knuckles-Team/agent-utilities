@@ -1,6 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
-"""Tests for Structured Retry Manager (CONCEPT:AHE-3.11)."""
+"""Tests for Structured Retry Manager (CONCEPT:ORCH-1.3)."""
 
 
 import pytest

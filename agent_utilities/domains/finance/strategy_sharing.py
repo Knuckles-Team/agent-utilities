@@ -1,5 +1,5 @@
 """
-Strategy Sharing System — CONCEPT:KG-2.76
+Strategy Sharing System — CONCEPT:KG-2.6
 
 Provides shareable strategy cards with metadata, configuration presets,
 and strategy marketplace primitives.

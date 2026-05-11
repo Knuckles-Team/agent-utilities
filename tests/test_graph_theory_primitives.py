@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.41 — Formal Graph Theory Primitives."""
+"""Tests for CONCEPT:KG-2.6 — Formal Graph Theory Primitives."""
 
 import networkx as nx
 import numpy as np

@@ -1,5 +1,8 @@
 #!/usr/bin/python
-"""Knowledge Graph Maintenance & Pruning."""
+"""Knowledge Graph Maintenance & Pruning.
+
+CONCEPT:KG-2.0
+"""
 
 import logging
 from collections.abc import Callable
@@ -118,10 +121,12 @@ class GraphMaintainer:
                 }
 
                 # Add summary node
-                self.engine.backend.execute(
-                    "MERGE (n:ChatSummary {id: $id}) SET n += $props",
-                    {"id": sum_id, "props": props},
+                set_clause = self.engine._get_set_clause(
+                    props, alias="n", label="ChatSummary"
                 )
+                query = f"MERGE (n:ChatSummary {{id: $id}}){set_clause}"
+                params: dict[str, Any] = {"id": sum_id, **props}
+                self.engine.backend.execute(query, params)
 
                 # Link summary to thread
                 self.engine.backend.execute(
@@ -234,7 +239,7 @@ class GraphMaintainer:
                 [ep["description"] for ep in episodes if ep.get("description")]
             )
             result = agent.run_sync(combined_text)
-            summary_text = result.data
+            summary_text = result.data  # type: ignore[attr-defined]
         except Exception as e:
             logger.warning(f"LLM summarization failed, using fallback: {e}")
             summary_text = f"Consolidated summary of {len(episodes)} episodes."

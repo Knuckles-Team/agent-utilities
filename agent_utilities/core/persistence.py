@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """State Persistence Module.
 
+CONCEPT:ORCH-1.3
+
 This module provides various backends for persisting graph execution state,
 including file-based JSON storage, PostgreSQL via asyncpg, and Redis. It ensures
 that long-running agentic workflows can be checkpointed and resumed across

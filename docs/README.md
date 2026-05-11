@@ -14,7 +14,7 @@ All documentation is organized under the **5-Pillar Architecture**. Each pillar 
 ```
 docs/
 ├── index.md                          ← You are here
-├── overview.md                       ← Concept Galaxy (88 concepts, Mermaid map)
+├── overview.md                       ← Concept Galaxy (33 canonical concepts, Mermaid map)
 │
 └── pillars/
     ├── 1_graph_orchestration.md       ← Pillar 1 summary
@@ -68,7 +68,7 @@ docs/
 
 | Document | Description |
 |:---------|:------------|
-| [Concept Galaxy (overview.md)](overview.md) | High-level map of all 88 concepts across 5 pillars |
+| [Concept Galaxy (overview.md)](overview.md) | High-level map of all 33 canonical concepts across 5 pillars |
 
 ### The 5 Pillars
 
@@ -168,8 +168,8 @@ All concepts are uniquely identified and traceable to source code:
 
 | Prefix | Pillar | Range |
 |:-------|:-------|:------|
-| `ORCH-1.x` | Graph Orchestration Engine | 1.0 – 1.14 |
-| `KG-2.x` | Epistemic Knowledge Graph | 2.0 – 2.51 |
-| `AHE-3.x` | Agentic Harness Engineering | 3.0 – 3.25 |
-| `ECO-4.x` | Ecosystem & Peripherals | 4.0 – 4.10 |
-| `OS-5.x` | Agent OS Infrastructure | 5.0 – 5.19 |
+| `ORCH-1.x` | Graph Orchestration Engine | 1.0 – 1.6 |
+| `KG-2.x` | Epistemic Knowledge Graph | 2.0 – 2.8 |
+| `AHE-3.x` | Agentic Harness Engineering | 3.0 – 3.6 |
+| `ECO-4.x` | Ecosystem & Peripherals | 4.0 – 4.4 |
+| `OS-5.x` | Agent OS Infrastructure | 5.0 – 5.4 |

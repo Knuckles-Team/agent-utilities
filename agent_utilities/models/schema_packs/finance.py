@@ -59,14 +59,14 @@ class FinanceSchemaPack(SchemaPack):
         RegistryNodeType.VERSIONED_TRADE_COMMIT,
         RegistryNodeType.EXECUTION_GUARD,
         RegistryNodeType.UNIFIED_TRADING_ACCOUNT,
-        # Data connectors (CONCEPT:ECO-4.4)
+        # Data connectors (CONCEPT:ECO-4.3)
         RegistryNodeType.DATA_CONNECTOR,
         RegistryNodeType.DATA_FETCH_RECORD,
-        # Risk scoring (CONCEPT:KG-2.7)
+        # Risk scoring (CONCEPT:KG-2.6)
         RegistryNodeType.RISK_ASSESSMENT,
         RegistryNodeType.RISK_FACTOR,
         RegistryNodeType.RISK_MITIGATION,
-        # Backtest evaluation (CONCEPT:AHE-3.8)
+        # Backtest evaluation (CONCEPT:AHE-3.6)
         RegistryNodeType.BACKTEST_RUN,
         RegistryNodeType.BACKTEST_METRIC,
     }
@@ -91,15 +91,15 @@ class FinanceSchemaPack(SchemaPack):
         RegistryEdgeType.FORECASTED,
         RegistryEdgeType.VERSIONED_IN,
         RegistryEdgeType.GUARDED_BY,
-        # Data connector edges (CONCEPT:ECO-4.4)
+        # Data connector edges (CONCEPT:ECO-4.3)
         RegistryEdgeType.FETCHED_FROM,
         RegistryEdgeType.FALLS_BACK_TO,
-        # Risk scoring edges (CONCEPT:KG-2.7)
+        # Risk scoring edges (CONCEPT:KG-2.6)
         RegistryEdgeType.ASSESSED_RISK,
         RegistryEdgeType.HAS_RISK_FACTOR,
         RegistryEdgeType.MITIGATED_BY,
         RegistryEdgeType.PROPAGATES_RISK_TO,
-        # Backtest evaluation edges (CONCEPT:AHE-3.8)
+        # Backtest evaluation edges (CONCEPT:AHE-3.6)
         RegistryEdgeType.EVALUATED_STRATEGY,
         RegistryEdgeType.HAS_METRIC,
         RegistryEdgeType.COMPARED_TO_BENCHMARK,

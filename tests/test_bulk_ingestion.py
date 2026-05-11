@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.0"""
+
 """Tests for the Enterprise Hub-and-Spoke ingestion and batch writing capabilities."""
 
 import pytest

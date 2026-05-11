@@ -1,5 +1,5 @@
 from __future__ import annotations
-"""Tests for CONCEPT:ECO-4.4 — Market Data Connector Protocol."""
+"""Tests for CONCEPT:ECO-4.3 — Market Data Connector Protocol."""
 
 
 from agent_utilities.models.knowledge_graph import (

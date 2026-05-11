@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Background Context Spawner (CONCEPT:AHE-3.17).
+"""Background Context Spawner (CONCEPT:AHE-3.4).
 
 Monitors background context shifts via the Knowledge Graph and autonomously
 spawns specialized sub-agents dynamically.
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class BackgroundContextSpawner:
     """Spawns sub-agents based on KG context shifts.
 
-    CONCEPT:AHE-3.17
+    CONCEPT:AHE-3.4
     """
 
     def __init__(self, engine: IntelligenceGraphEngine, poll_interval_sec: int = 60):
@@ -39,7 +39,7 @@ class BackgroundContextSpawner:
             return
         self._running = True
         self._task = asyncio.create_task(self._poll_loop())
-        logger.info("[CONCEPT:AHE-3.17] Started BackgroundContextSpawner.")
+        logger.info("[CONCEPT:AHE-3.4] Started BackgroundContextSpawner.")
 
     def stop(self):
         """Stop the background spawner loop."""
@@ -78,7 +78,7 @@ class BackgroundContextSpawner:
 
                 if desc:
                     logger.info(
-                        "[CONCEPT:AHE-3.17] High-impact event detected: %s. "
+                        "[CONCEPT:AHE-3.4] High-impact event detected: %s. "
                         "Dynamically synthesizing response team.",
                         event_id,
                     )

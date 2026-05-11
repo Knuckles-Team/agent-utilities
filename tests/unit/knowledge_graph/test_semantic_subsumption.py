@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.5"""
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.semantic_subsumption import (

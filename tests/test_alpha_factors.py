@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.60 — Alpha Factor Library."""
+"""Tests for CONCEPT:KG-2.6 — Alpha Factor Library."""
 
 import numpy as np
 import pandas as pd

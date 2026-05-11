@@ -27,7 +27,7 @@ from agent_utilities.models.knowledge_graph import (
 #!/usr/bin/python
 """Hybrid Search Scorer.
 
-CONCEPT:KG-2.37 — Hybrid Search Index
+CONCEPT:KG-2.3 — Hybrid Search Index
 
 Provides weighted semantic+keyword search scoring adapted from contextplus's
 hybrid search. Uses existing embedding infrastructure.
@@ -57,7 +57,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 class HybridSearchScorer:
     """Weighted hybrid semantic+keyword scoring engine.
 
-    CONCEPT:KG-2.37 — Hybrid Search Index
+    CONCEPT:KG-2.3 — Hybrid Search Index
 
     Scores documents via configurable blend of semantic similarity
     and keyword matching with phrase boost and symbol-specific scoring.
@@ -188,7 +188,7 @@ class HybridSearchScorer:
 #!/usr/bin/python
 """RAG-KG Unified Retriever.
 
-CONCEPT:KG-2.38 — RAG-KG Unification
+CONCEPT:KG-2.3 — RAG-KG Unification
 
 Collapses the separate RAG vector index into KG-native retrieval by
 leveraging three acceleration primitives:
@@ -252,7 +252,7 @@ class KGNativeRetrievalConfig:
 class KGNativeRetrievalRetriever:
     """KG-native retrieval combining similarity shortcuts, spectral scoping, and hybrid scoring.
 
-    CONCEPT:KG-2.38 — RAG-KG Unification
+    CONCEPT:KG-2.3 — RAG-KG Unification
 
     This replaces the pure-vector RAG pipeline with a graph-aware retrieval
     path that leverages pre-computed structure (similarity edges, spectral
@@ -620,7 +620,7 @@ class KGNativeRetrievalRetriever:
 #!/usr/bin/python
 """Graph Distillation Migration.
 
-CONCEPT:KG-2.40 — Graph Distillation Migration
+CONCEPT:KG-2.6 — Graph Distillation Migration
 
 Migrates standard RAG retrieval pathways to use SimilarityEdgeNode
 shortcuts for improved latency. Instead of performing O(N) cosine
@@ -700,7 +700,7 @@ class CoverageReport:
 class GraphDistillationMigrator:
     """Migrates RAG retrieval to use pre-computed similarity shortcuts.
 
-    CONCEPT:KG-2.40 — Graph Distillation Migration
+    CONCEPT:KG-2.6 — Graph Distillation Migration
 
     Pre-computes similarity edges across KG nodes to enable O(degree)
     retrieval instead of O(N) full-index scans. Manages the lifecycle
@@ -816,7 +816,7 @@ class GraphDistillationMigrator:
         self._retriever.build_similarity_index(self._all_edges)
 
         logger.info(
-            "[CONCEPT:KG-2.40] Distillation batch: %d nodes, %d edges created, "
+            "[CONCEPT:KG-2.6] Distillation batch: %d nodes, %d edges created, "
             "%d pruned, coverage=%.0f%%, %.1fs",
             stats.nodes_processed,
             stats.edges_created,

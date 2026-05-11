@@ -1,5 +1,5 @@
 """
-Visual Technical Analysis Agent — CONCEPT:KG-2.72
+Visual Technical Analysis Agent — CONCEPT:KG-2.6
 
 Provides programmatic chart pattern detection and generation for
 visual technical analysis — identifying candlestick patterns,

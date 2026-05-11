@@ -1,5 +1,5 @@
 """
-Kronos Foundation Model Forecaster — CONCEPT:KG-2.70
+Kronos Foundation Model Forecaster — CONCEPT:KG-2.6
 
 K-line candlestick tokenizer and autoregressive transformer predictor
 for financial time series forecasting. Requires [finance-kronos] extra.

@@ -1,3 +1,5 @@
+"""CONCEPT:ECO-4.0"""
+
 import os
 from unittest.mock import MagicMock
 

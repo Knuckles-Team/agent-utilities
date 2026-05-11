@@ -1,3 +1,5 @@
+"""CONCEPT:OS-5.1"""
+
 from unittest.mock import MagicMock, patch
 
 import pytest

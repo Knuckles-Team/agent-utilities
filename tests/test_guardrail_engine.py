@@ -1,4 +1,4 @@
-"""Tests for GuardrailEngine — Input/Output Interception (CONCEPT:OS-5.8).
+"""Tests for GuardrailEngine — Input/Output Interception (CONCEPT:OS-5.3).
 
 @pytest.mark.concept("OS-5.8")
 """

@@ -138,13 +138,13 @@ class IntelligenceGraphEngine(
                 endpoint = parts[1].strip() if len(parts) > 1 else None
                 self.register_external_ontology(uri, endpoint)
 
-        # CONCEPT:ORCH-1.20 — Auto-register service registry
+        # CONCEPT:ORCH-1.4 — Auto-register service registry
         self._services_registered = False
 
     def register_services(self) -> int:
         """Register all services with the KG for orchestrator discovery.
 
-        CONCEPT:ORCH-1.20 — Unified Service Discovery
+        CONCEPT:ORCH-1.4 — Unified Service Discovery
 
         Lazily initializes the ServiceRegistry and registers all concept
         modules as CallableResource nodes in the KG, enabling the
@@ -164,7 +164,7 @@ class IntelligenceGraphEngine(
             count = registry.register_with_kg(self)
             self._services_registered = True
             logger.info(
-                "[CONCEPT:ORCH-1.20] Registered %d services with KG engine", count
+                "[CONCEPT:ORCH-1.4] Registered %d services with KG engine", count
             )
             return count
         except Exception as e:
@@ -230,11 +230,35 @@ class IntelligenceGraphEngine(
                 clean_data[k] = v
         return clean_data
 
-    def _get_set_clause(self, data: dict[str, Any], alias: str = "n") -> str:
-        """Generate a SET clause for a Cypher query from a dictionary."""
+    def _get_set_clause(
+        self, data: dict[str, Any], alias: str = "n", label: str | None = None
+    ) -> str:
+        """Generate a SET clause for a Cypher query from a dictionary.
+
+        Filters properties against the schema if the backend is Ladybug.
+        """
+        valid_keys = None
+        is_ladybug = (
+            self.backend and self.backend.__class__.__name__ == "LadybugBackend"
+        )
+
+        # LadybugDB rel tables have no properties in our current schema definition.
+        if is_ladybug and alias == "r":
+            return ""
+
+        if is_ladybug and label:
+            from agent_utilities.models.schema_definition import SCHEMA
+
+            for node in SCHEMA.nodes:
+                if node.name == label:
+                    valid_keys = set(node.columns.keys())
+                    break
+
         sets = []
         for k in data.keys():
             if k == "id":
+                continue
+            if valid_keys is not None and k not in valid_keys:
                 continue
             sets.append(f"{alias}.{k} = ${k}")
         return " SET " + ", ".join(sets) if sets else ""
@@ -245,15 +269,34 @@ class IntelligenceGraphEngine(
             return
 
         # 1. Try to update existing
-        set_clause = self._get_set_clause(data)
+        set_clause = self._get_set_clause(data, label=label)
         update_query = f"MATCH (n:{label}) WHERE n.id = $id {set_clause} RETURN n.id"
         res = self.backend.execute(update_query, data)
 
         if not res:
             # 2. If not found, create
-            cols = ", ".join([f"{k}: ${k}" for k in data.keys()])
+            valid_keys = None
+            is_ladybug = self.backend.__class__.__name__ == "LadybugBackend"
+            if is_ladybug and label:
+                from agent_utilities.models.schema_definition import SCHEMA
+
+                for node in SCHEMA.nodes:
+                    if node.name == label:
+                        valid_keys = set(node.columns.keys())
+                        break
+
+            create_data = {}
+            for k, v in data.items():
+                if k == "id":
+                    create_data[k] = v
+                elif valid_keys is not None and k not in valid_keys:
+                    continue
+                else:
+                    create_data[k] = v
+
+            cols = ", ".join([f"{k}: ${k}" for k in create_data.keys()])
             create_query = f"CREATE (n:{label} {{{cols}}})"
-            self.backend.execute(create_query, data)
+            self.backend.execute(create_query, create_data)
 
     def link_nodes(
         self,
@@ -278,13 +321,24 @@ class IntelligenceGraphEngine(
 
         if self.backend and not ephemeral:
             # Tier 1: Backend is source of truth
+            set_clause = self._get_set_clause(props, alias="r")
+
+            s_label_res = self.backend.execute(
+                "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl", {"id": source_id}
+            )
+            t_label_res = self.backend.execute(
+                "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl", {"id": target_id}
+            )
+            s_label = f":{s_label_res[0]['lbl']}" if s_label_res else ""
+            t_label = f":{t_label_res[0]['lbl']}" if t_label_res else ""
+
             query = (
-                f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
-                f"MERGE (s)-[r:{rel_type}]->(t) SET r += $props"
+                f"MATCH (s{s_label} {{id: $sid}}), (t{t_label} {{id: $tid}}) "
+                f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
             )
-            self.backend.execute(
-                query, {"sid": source_id, "tid": target_id, "props": props}
-            )
+            params = {"sid": source_id, "tid": target_id}
+            params.update(props)
+            self.backend.execute(query, params)
         elif source_id in self.graph and target_id in self.graph:
             # Tier 2 fallback: NX only (memory-only mode or ephemeral)
             self.graph.add_edge(source_id, target_id, type=rel_type, **props)
@@ -308,21 +362,21 @@ class IntelligenceGraphEngine(
 
         if self.backend and not ephemeral:
             # Push-down resolution to backend via CONTAINS to avoid O(N) memory scan
+            props = properties or {}
+            set_clause = self._get_set_clause(props, alias="r")
             q = f"""
             MATCH (s) WHERE toLower(s.name) CONTAINS toLower($source) OR toLower($source) CONTAINS toLower(s.name)
             MATCH (t) WHERE toLower(t.name) CONTAINS toLower($target) OR toLower($target) CONTAINS toLower(t.name)
             WITH s, t LIMIT 1
-            MERGE (s)-[r:{rel_type}]->(t) SET r += $props
+            MERGE (s)-[r:{rel_type}]->(t){set_clause}
             RETURN s.id AS sid, t.id AS tid
             """
-            res = self.backend.execute(
-                q,
-                {
-                    "source": source_name,
-                    "target": target_name,
-                    "props": properties or {},
-                },
-            )
+            params = {
+                "source": source_name,
+                "target": target_name,
+            }
+            params.update(props)
+            res = self.backend.execute(q, params)
             return len(res) > 0
 
         # Fallback to O(N) NetworkX memory scan (memory-only mode)

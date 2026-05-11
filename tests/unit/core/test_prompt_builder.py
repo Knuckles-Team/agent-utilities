@@ -1,6 +1,6 @@
 """Tests for Prompt Builder.
 
-CONCEPT:KG-2.14 — Project-Aware Context
+CONCEPT:KG-2.1 — Project-Aware Context
 """
 
 import json

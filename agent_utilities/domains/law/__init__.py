@@ -1,4 +1,4 @@
-"""Legal Domain (CONCEPT:KG-2.95).
+"""Legal Domain (CONCEPT:KG-2.8).
 
 Provides legal domain models aligned to LKIF-Core,
 Akoma Ntoso, and SALI/CLNR standards.

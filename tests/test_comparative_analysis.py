@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for Comparative Analysis Integration Modules.
 
-Tests for CONCEPT:KG-2.33 through KG-2.37 and OS-5.18:
+Tests for CONCEPT:KG-2.6 through KG-2.37 and OS-5.18:
 - ResearchSubagent (KG-2.33)
 - SpectralClusterNavigator (KG-2.34)
 - BlastRadiusAnalyzer (KG-2.35)
@@ -21,7 +21,7 @@ import pytest
 
 
 class TestSpectralClusterNavigator:
-    """Tests for CONCEPT:KG-2.34 — Spectral Cluster Navigator."""
+    """Tests for CONCEPT:KG-2.5 — Spectral Cluster Navigator."""
 
     def test_two_clear_clusters(self):
         """Two well-separated clusters should be discovered."""
@@ -103,7 +103,7 @@ class TestSpectralClusterNavigator:
 
 
 class TestBlastRadiusAnalyzer:
-    """Tests for CONCEPT:KG-2.35 — Symbol Blast Radius Analyzer."""
+    """Tests for CONCEPT:KG-2.5 — Symbol Blast Radius Analyzer."""
 
     def test_analyze_known_symbol(self):
         """RegistryNode should have many usages."""
@@ -153,7 +153,7 @@ class TestBlastRadiusAnalyzer:
 
 
 class TestDoomLoopDetector:
-    """Tests for CONCEPT:OS-5.18 — Enhanced Doom-Loop Detector."""
+    """Tests for CONCEPT:OS-5.0 — Enhanced Doom-Loop Detector."""
 
     def test_consecutive_detection(self):
         """Three identical calls should trigger detection."""
@@ -222,7 +222,7 @@ class TestDoomLoopDetector:
 
 
 class TestAutoSimilarityLinker:
-    """Tests for CONCEPT:KG-2.36 — Auto-Similarity Memory Graph."""
+    """Tests for CONCEPT:KG-2.3 — Auto-Similarity Memory Graph."""
 
     def test_similar_nodes_linked(self):
         """Nodes above threshold should be linked."""
@@ -329,7 +329,7 @@ class TestAutoSimilarityLinker:
 
 
 class TestHybridSearchScorer:
-    """Tests for CONCEPT:KG-2.37 — Hybrid Search Index."""
+    """Tests for CONCEPT:KG-2.3 — Hybrid Search Index."""
 
     def test_relevant_doc_ranked_first(self):
         """Document matching query should rank above irrelevant one."""
@@ -391,7 +391,7 @@ class TestHybridSearchScorer:
 
 
 class TestResearchSubagent:
-    """Tests for CONCEPT:KG-2.33 — Research Intelligence Sub-Agent."""
+    """Tests for CONCEPT:KG-2.6 — Research Intelligence Sub-Agent."""
 
     def test_session_lifecycle(self):
         """Session should transition from active to completed."""

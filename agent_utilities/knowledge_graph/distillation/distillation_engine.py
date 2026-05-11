@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """High-Level Knowledge Distillation Orchestrator.
 
-CONCEPT:KG-2.23 — Knowledge Distillation Engine
+CONCEPT:KG-2.2 — Knowledge Distillation Engine
 
 Ties together IdeaBlock ingestion, embedding generation, semantic
 deduplication, and KG persistence into a single cohesive pipeline.

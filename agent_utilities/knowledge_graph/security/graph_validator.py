@@ -25,7 +25,7 @@ Usage::
     report = validator.validate()
     # report.tier1_fixes, report.tier2_violations, report.tier3_warnings
 
-See docs/emergent-architecture.md §CONCEPT:KG-2.3.
+See docs/pillars/architecture_c4.md §CONCEPT:KG-2.3
 """
 
 

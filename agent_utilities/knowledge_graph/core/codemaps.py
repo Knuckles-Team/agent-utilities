@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""CONCEPT:KG-2.0"""
+
 import uuid
 from typing import Literal
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Evaluation Harness Module.
 
+CONCEPT:AHE-3.1
+
 Provides a pluggable evaluation framework for scoring agent outputs.
 Scorers implement the :class:`EvalScorer` protocol and are aggregated
 by :class:`EvalHarness` which persists results to the Knowledge Graph

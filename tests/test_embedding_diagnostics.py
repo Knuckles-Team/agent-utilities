@@ -1,11 +1,11 @@
-"""Tests for CONCEPT:KG-2.42 — Embedding Alignment Diagnostics."""
+"""Tests for CONCEPT:KG-2.6 — Embedding Alignment Diagnostics."""
 
 import numpy as np
 import pytest
 
-from agent_utilities.knowledge_graph.retrieval.embedding_diagnostics import (
+from agent_utilities.knowledge_graph.memory.knowledge_stability_engine import (
     CKAResult,
-    EmbeddingDiagnostics,
+    KnowledgeStabilityEngine as EmbeddingDiagnostics,
     EmbeddingHealthReport,
     FusionResult,
 )

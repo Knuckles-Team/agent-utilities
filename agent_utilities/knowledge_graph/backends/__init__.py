@@ -119,9 +119,18 @@ def create_backend(
                 "LadybugDB requested but 'ladybug' package is not installed."
             )
             return None
-        resolved_path = (
-            db_path or os.environ.get("GRAPH_DB_PATH") or "knowledge_graph.db"
-        )
+        # Use centralized XDG-aware path resolver
+        if db_path:
+            resolved_path = db_path
+        elif os.environ.get("GRAPH_DB_PATH"):
+            resolved_path = os.environ["GRAPH_DB_PATH"]
+        else:
+            from agent_utilities.core.paths import kg_db_path
+
+            resolved = kg_db_path()
+            # Ensure parent directory exists for XDG paths
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved_path = str(resolved)
         backend = LadybugBackend(resolved_path)
 
     elif backend_type == "falkordb":

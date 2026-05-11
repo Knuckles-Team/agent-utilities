@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Dynamic Skill Evolution (CONCEPT:ECO-4.1 Enhancement).
+"""Dynamic Skill Evolution (CONCEPT:ECO-4.0 Enhancement).
 
 Derived from: Skill Neologisms — Towards Skill-based Continual Learning
 (arXiv:2605.04970v1, Score 11.9)
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class SkillNode(BaseModel):
     """A skill representation in the evolvable skill graph.
 
-    CONCEPT:ECO-4.1 — Each skill has a name, description, trigger patterns,
+    CONCEPT:ECO-4.0 — Each skill has a name, description, trigger patterns,
     and provenance tracking to its creation source.
 
     Attributes:
@@ -131,7 +131,7 @@ class SkillMergeCandidate(BaseModel):
 class SkillNeologismDetector:
     """Detects when existing skills don't cover a new capability.
 
-    CONCEPT:ECO-4.1 — Identifies skill gaps by comparing task features
+    CONCEPT:ECO-4.0 — Identifies skill gaps by comparing task features
     against the existing skill graph.
     """
 
@@ -238,7 +238,7 @@ class SkillNeologismDetector:
 class SkillFactory:
     """Creates new skill nodes from execution traces.
 
-    CONCEPT:ECO-4.1 — When a gap is detected, the factory creates a new
+    CONCEPT:ECO-4.0 — When a gap is detected, the factory creates a new
     skill node with auto-generated trigger patterns, keywords, and
     provenance tracking.
     """
@@ -347,7 +347,7 @@ class SkillFactory:
 class SkillMerger:
     """Detects and consolidates overlapping skills.
 
-    CONCEPT:ECO-4.1 — Prevents skill graph bloat by merging skills
+    CONCEPT:ECO-4.0 — Prevents skill graph bloat by merging skills
     with high keyword overlap.
     """
 

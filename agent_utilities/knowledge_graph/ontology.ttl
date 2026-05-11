@@ -392,94 +392,94 @@ bfo:0000008 a owl:Class ; rdfs:subClassOf bfo:0000003 ;
 :AlphaFactor a owl:Class ;
     rdfs:subClassOf :StationaryFeature ;
     rdfs:label "Alpha Factor" ;
-    rdfs:comment "A predictive alpha factor with IC/IR statistics. Subclass of StationaryFeature. CONCEPT:KG-2.60." .
+    rdfs:comment "A predictive alpha factor with IC/IR statistics. Subclass of StationaryFeature. CONCEPT:KG-2.6" .
 
 :RiskLimit a owl:Class ;
     rdfs:subClassOf :Policy ;
     rdfs:label "Risk Limit" ;
-    rdfs:comment "A risk management policy (max position, VaR limit, drawdown limit). CONCEPT:KG-2.61." .
+    rdfs:comment "A risk management policy (max position, VaR limit, drawdown limit). CONCEPT:KG-2.6" .
 
 :VaREstimate a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "VaR Estimate" ;
-    rdfs:comment "A Value at Risk estimate (historical, parametric, or Monte Carlo). CONCEPT:KG-2.61." .
+    rdfs:comment "A Value at Risk estimate (historical, parametric, or Monte Carlo). CONCEPT:KG-2.6" .
 
 :PortfolioAllocation a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Portfolio Allocation" ;
-    rdfs:comment "An optimized weight assignment (MVO, Risk Parity, Black-Litterman). CONCEPT:KG-2.62." .
+    rdfs:comment "An optimized weight assignment (MVO, Risk Parity, Black-Litterman). CONCEPT:KG-2.6" .
 
 :OrderVersion a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Order Version" ;
-    rdfs:comment "An immutable versioned snapshot of a trading order. CONCEPT:KG-2.63." .
+    rdfs:comment "An immutable versioned snapshot of a trading order. CONCEPT:KG-2.6" .
 
 :OrderCommitRecord a owl:Class ;
     rdfs:subClassOf bfo:0000015 ;
     rdfs:label "Order Commit" ;
-    rdfs:comment "An atomic commit of a staged order to execution. BFO:Process. CONCEPT:KG-2.63." .
+    rdfs:comment "An atomic commit of a staged order to execution. BFO:Process. CONCEPT:KG-2.6" .
 
 :MarketDataSource a owl:Class ;
     rdfs:subClassOf :Tool ;
     rdfs:label "Market Data Source" ;
-    rdfs:comment "A market data provider (yfinance, CCXT, synthetic). CONCEPT:KG-2.64." .
+    rdfs:comment "A market data provider (yfinance, CCXT, synthetic). CONCEPT:KG-2.6" .
 
 :PaymentProofEntity a owl:Class ;
     rdfs:subClassOf :FinancialTransaction ;
     rdfs:label "Payment Proof" ;
-    rdfs:comment "An x402 payment proof attesting a completed autonomous payment. CONCEPT:KG-2.65." .
+    rdfs:comment "An x402 payment proof attesting a completed autonomous payment. CONCEPT:KG-2.6" .
 
 :PaymentBudget a owl:Class ;
     rdfs:subClassOf :Policy ;
     rdfs:label "Payment Budget" ;
-    rdfs:comment "Budget limits governing autonomous AI agent spending. CONCEPT:KG-2.65." .
+    rdfs:comment "Budget limits governing autonomous AI agent spending. CONCEPT:KG-2.6" .
 
 :ProfitAttribution a owl:Class ;
     rdfs:subClassOf :OutcomeEvaluation ;
     rdfs:label "Profit Attribution" ;
-    rdfs:comment "Alpha/beta/residual P&L decomposition. CONCEPT:KG-2.66." .
+    rdfs:comment "Alpha/beta/residual P&L decomposition. CONCEPT:KG-2.6" .
 
 :StreamChannel a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Stream Channel" ;
-    rdfs:comment "A real-time pub/sub streaming topic. CONCEPT:KG-2.67." .
+    rdfs:comment "A real-time pub/sub streaming topic. CONCEPT:KG-2.6" .
 
 # ── Finance Domain Extension: Phase 2+3 (KG-2.70 through KG-2.76) ──
 
 :KronosModel a owl:Class ;
     rdfs:subClassOf :NeuralNetworkModel ;
     rdfs:label "Kronos Foundation Model" ;
-    rdfs:comment "A K-line tokenizer and autoregressive transformer for candlestick forecasting. CONCEPT:KG-2.70." .
+    rdfs:comment "A K-line tokenizer and autoregressive transformer for candlestick forecasting. CONCEPT:KG-2.6" .
 
 :TradingSwarmEntity a owl:Class ;
     rdfs:subClassOf bfo:0000027 ;
     rdfs:label "Trading Swarm" ;
-    rdfs:comment "A multi-agent swarm with specialized roles for collaborative trading. CONCEPT:KG-2.71." .
+    rdfs:comment "A multi-agent swarm with specialized roles for collaborative trading. CONCEPT:KG-2.6" .
 
 :ChartPattern a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Chart Pattern" ;
-    rdfs:comment "A detected visual chart pattern (double top, breakout, etc.). CONCEPT:KG-2.72." .
+    rdfs:comment "A detected visual chart pattern (double top, breakout, etc.). CONCEPT:KG-2.6" .
 
 :MarketFeed a owl:Class ;
     rdfs:subClassOf :StreamChannel ;
     rdfs:label "Market Feed" ;
-    rdfs:comment "A live market data feed with tick aggregation. CONCEPT:KG-2.73." .
+    rdfs:comment "A live market data feed with tick aggregation. CONCEPT:KG-2.6" .
 
 :StrategyExport a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Strategy Export" ;
-    rdfs:comment "A platform-specific strategy code export (Pine Script, MQL5, TDX). CONCEPT:KG-2.74." .
+    rdfs:comment "A platform-specific strategy code export (Pine Script, MQL5, TDX). CONCEPT:KG-2.6" .
 
 :ResearchHypothesis a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Research Hypothesis" ;
-    rdfs:comment "A testable trading hypothesis in the research autopilot. CONCEPT:KG-2.75." .
+    rdfs:comment "A testable trading hypothesis in the research autopilot. CONCEPT:KG-2.6" .
 
 :StrategyCardEntity a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Strategy Card" ;
-    rdfs:comment "A shareable strategy card with configuration and performance data. CONCEPT:KG-2.76." .
+    rdfs:comment "A shareable strategy card with configuration and performance data. CONCEPT:KG-2.6" .
 
 # ── Phase 2+3 Properties ──
 :forecasts a owl:ObjectProperty ;
@@ -1464,7 +1464,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "severity score" .
 
 # ══════════════════════════════════════════════════════════════════════
-# Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+# Backtest Evaluation Harness (CONCEPT:AHE-3.6)
 # ══════════════════════════════════════════════════════════════════════
 
 :BacktestRun a owl:Class ;
@@ -1493,7 +1493,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "compared to benchmark" .
 
 # ══════════════════════════════════════════════════════════════════════
-# Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+# Agentic-iModels (CONCEPT:AHE-3.3, AHE-3.16, KG-2.17)
 # arXiv:2605.03808 — Agent-interpretable ML model evolution
 # ══════════════════════════════════════════════════════════════════════
 
@@ -1558,7 +1558,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "display strategy" .
 
 # ============================================================================
-# Ecosystem Topology Map (CONCEPT:ECO-4.7)
+# Ecosystem Topology Map (CONCEPT:ECO-4.2)
 # ============================================================================
 
 # --- Ecosystem Package Hierarchy ---
@@ -1643,7 +1643,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
 :hasSynergyWith a owl:ObjectProperty, owl:SymmetricProperty ;
     rdfs:domain :EcosystemPackage ;
     rdfs:range :EcosystemPackage ;
-    rdfs:comment "CONCEPT:KG-2.19 — Two packages have a discovered functional synergy." ;
+    rdfs:comment "CONCEPT:KG-2.4 — Two packages have a discovered functional synergy." ;
     rdfs:label "has synergy with" .
 
 :packageCategory a owl:DatatypeProperty ;
@@ -1658,7 +1658,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "package version" .
 
 # =====================================================================
-# Knowledge Distillation Classes (CONCEPT:KG-2.23)
+# Knowledge Distillation Classes (CONCEPT:KG-2.2)
 # =====================================================================
 
 :IdeaBlock     a owl:Class ;
@@ -1667,16 +1667,16 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment """An atomic, structured knowledge unit containing a critical
     question, trusted answer, governance tags, and entity references.
     BFO:GenericallyDependentContinuant. Aligned to skos:Concept.
-    Derived from Blockify's IdeaBlock specification (CONCEPT:KG-2.23).""" .
+    Derived from Blockify's IdeaBlock specification (CONCEPT:KG-2.2).""" .
 
 :DistillationRound a owl:Class ;
     rdfs:subClassOf bfo:0000015 ;
     rdfs:label "Distillation Round" ;
     rdfs:comment """A single iteration of the knowledge deduplication process.
     BFO:Process. Tracks blocks_before, blocks_after, and similarity_threshold
-    for reproducible distillation lineage (CONCEPT:KG-2.23).""" .
+    for reproducible distillation lineage (CONCEPT:KG-2.2).""" .
 
-# ── CONCEPT:KG-2.23 Object Properties ──
+# ── CONCEPT:KG-2.2 Object Properties ──
 
 :distilledFrom a owl:ObjectProperty, owl:TransitiveProperty ;
     rdfs:domain :IdeaBlock ; rdfs:range :IdeaBlock ;
@@ -1689,7 +1689,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "produced in round" ;
     rdfs:comment "Links an IdeaBlock to the distillation round that produced it." .
 
-# ── CONCEPT:KG-2.23 Datatype Properties ──
+# ── CONCEPT:KG-2.2 Datatype Properties ──
 
 :answersQuestion a owl:DatatypeProperty ;
     rdfs:domain :IdeaBlock ; rdfs:range xsd:string ;
@@ -1715,7 +1715,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "blocks after distillation" .
 
 # =====================================================================
-# CONCEPT:KG-2.33 — Research Intelligence Sub-Agent
+# CONCEPT:KG-2.7 — Research Intelligence Sub-Agent
 # =====================================================================
 
 :ResearchSession a owl:Class ;
@@ -1723,16 +1723,16 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "Research Session" ;
     rdfs:comment """An isolated research sub-agent execution session with its own
     token budget, tool whitelist, and findings. BFO:Process. Adapted from
-    ml-intern's research_tool.py (CONCEPT:KG-2.33).""" .
+    ml-intern's research_tool.py (CONCEPT:KG-2.7).""" .
 
 :CitationEdge a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Citation Edge" ;
     rdfs:comment """A directional citation relationship between two research papers
     with semantic metadata. BFO:GenericallyDependentContinuant.
-    Enables transitive citation graph traversal (CONCEPT:KG-2.33).""" .
+    Enables transitive citation graph traversal (CONCEPT:KG-2.7).""" .
 
-# ── CONCEPT:KG-2.33 Object Properties ──
+# ── CONCEPT:KG-2.7 Object Properties ──
 
 :citesPaper a owl:ObjectProperty ;
     rdfs:domain :CitationEdge ; rdfs:range bfo:0000031 ;
@@ -1744,7 +1744,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "discovered in session" ;
     rdfs:comment "Links a finding or paper to the research session that discovered it." .
 
-# ── CONCEPT:KG-2.33 Datatype Properties ──
+# ── CONCEPT:KG-2.7 Datatype Properties ──
 
 :citationDepth a owl:DatatypeProperty ;
     rdfs:domain :CitationEdge ; rdfs:range xsd:integer ;
@@ -1757,7 +1757,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment "Hard token ceiling for the research session." .
 
 # =====================================================================
-# CONCEPT:KG-2.34 — Spectral Cluster Navigator
+# CONCEPT:KG-2.5 — Spectral Cluster Navigator
 # =====================================================================
 
 :SpectralCluster a owl:Class ;
@@ -1766,9 +1766,9 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment """A semantically coherent cluster discovered via spectral
     decomposition of the normalized Laplacian. Inherits SKOS taxonomy
     semantics for auto-hierarchical concept taxonomies. Tuning-free
-    k-selection via eigengap heuristic (CONCEPT:KG-2.34).""" .
+    k-selection via eigengap heuristic (CONCEPT:KG-2.5).""" .
 
-# ── CONCEPT:KG-2.34 Object Properties ──
+# ── CONCEPT:KG-2.5 Object Properties ──
 
 :memberOfCluster a owl:ObjectProperty ;
     rdfs:domain bfo:0000001 ; rdfs:range :SpectralCluster ;
@@ -1781,7 +1781,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment """Transitive hierarchical relationship between spectral clusters.
     Enables multi-level cluster taxonomies.""" .
 
-# ── CONCEPT:KG-2.34 Datatype Properties ──
+# ── CONCEPT:KG-2.5 Datatype Properties ──
 
 :eigengapValue a owl:DatatypeProperty ;
     rdfs:domain :SpectralCluster ; rdfs:range xsd:float ;
@@ -1794,7 +1794,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment "Intra-cluster cosine similarity average." .
 
 # =====================================================================
-# CONCEPT:KG-2.35 — Symbol Blast Radius Analyzer
+# CONCEPT:KG-2.5 — Symbol Blast Radius Analyzer
 # =====================================================================
 
 :BlastRadiusReport a owl:Class ;
@@ -1802,9 +1802,9 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "Blast Radius Report" ;
     rdfs:comment """A symbol-level impact analysis report tracking how widely a
     code symbol is used across the codebase. BFO:SpecificallyDependentContinuant.
-    Adapted from contextplus (CONCEPT:KG-2.35).""" .
+    Adapted from contextplus (CONCEPT:KG-2.5).""" .
 
-# ── CONCEPT:KG-2.35 Object Properties ──
+# ── CONCEPT:KG-2.5 Object Properties ──
 
 :symbolUsedIn a owl:ObjectProperty ;
     rdfs:domain :BlastRadiusReport ; rdfs:range bfo:0000031 ;
@@ -1816,7 +1816,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "symbol defined in" ;
     rdfs:comment "Links a blast radius report to the file where the symbol is defined." .
 
-# ── CONCEPT:KG-2.35 Datatype Properties ──
+# ── CONCEPT:KG-2.5 Datatype Properties ──
 
 :blastRadiusCount a owl:DatatypeProperty ;
     rdfs:domain :BlastRadiusReport ; rdfs:range xsd:integer ;
@@ -1829,7 +1829,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment "Normalized impact score (0.0-1.0) based on usage count and file diversity." .
 
 # =====================================================================
-# CONCEPT:KG-2.36 — Auto-Similarity Memory Graph
+# CONCEPT:KG-2.3 — Auto-Similarity Memory Graph
 # =====================================================================
 
 :SimilarityEdge a owl:Class ;
@@ -1837,9 +1837,9 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "Similarity Edge" ;
     rdfs:comment """An auto-created similarity link between memory nodes.
     Uses cosine similarity thresholding with exponential decay scoring.
-    BFO:GenericallyDependentContinuant. Adapted from contextplus (CONCEPT:KG-2.36).""" .
+    BFO:GenericallyDependentContinuant. Adapted from contextplus (CONCEPT:KG-2.3).""" .
 
-# ── CONCEPT:KG-2.36 Object Properties ──
+# ── CONCEPT:KG-2.3 Object Properties ──
 
 :similarTo a owl:ObjectProperty, owl:SymmetricProperty ;
     rdfs:domain bfo:0000001 ; rdfs:range bfo:0000001 ;
@@ -1847,7 +1847,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment """Symmetric auto-similarity relationship discovered during memory
     node insertion. Weight decays exponentially over time.""" .
 
-# ── CONCEPT:KG-2.36 Datatype Properties ──
+# ── CONCEPT:KG-2.3 Datatype Properties ──
 
 :decayLambda a owl:DatatypeProperty ;
     rdfs:domain :SimilarityEdge ; rdfs:range xsd:float ;
@@ -1860,7 +1860,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment "Raw cosine similarity score at edge creation time." .
 
 # =====================================================================
-# CONCEPT:OS-5.18 — Enhanced Doom-Loop Detector
+# CONCEPT:OS-5.0 — Enhanced Doom-Loop Detector
 # =====================================================================
 
 :DoomLoopIncident a owl:Class ;
@@ -1868,16 +1868,16 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "Doom Loop Incident" ;
     rdfs:comment """A detected tool-call repetition pattern including consecutive
     identical calls and repeating multi-tool sequences. BFO:Process.
-    Adapted from ml-intern's doom_loop.py (CONCEPT:OS-5.18).""" .
+    Adapted from ml-intern's doom_loop.py (CONCEPT:OS-5.0).""" .
 
-# ── CONCEPT:OS-5.18 Object Properties ──
+# ── CONCEPT:OS-5.0 Object Properties ──
 
 :triggeredDoomLoop a owl:ObjectProperty ;
     rdfs:domain bfo:0000015 ; rdfs:range :DoomLoopIncident ;
     rdfs:label "triggered doom loop" ;
     rdfs:comment "Links a process to a doom loop incident it triggered." .
 
-# ── CONCEPT:OS-5.18 Datatype Properties ──
+# ── CONCEPT:OS-5.0 Datatype Properties ──
 
 :correctivePrompt a owl:DatatypeProperty ;
     rdfs:domain :DoomLoopIncident ; rdfs:range xsd:string ;
@@ -1890,7 +1890,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment "Number of times the pattern repeated before detection." .
 
 # =====================================================================
-# CONCEPT:KG-2.38 — RAG-KG Unification
+# CONCEPT:KG-2.3 — RAG-KG Unification
 # =====================================================================
 
 :UnifiedRAGConfig a owl:Class ;
@@ -1899,9 +1899,9 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment """Configuration and performance snapshot for KG-native unified
     retrieval combining similarity-edge shortcuts, spectral cluster
     scoping, and hybrid scoring. BFO:SpecificallyDependentContinuant.
-    (CONCEPT:KG-2.38).""" .
+    (CONCEPT:KG-2.3).""" .
 
-# ── CONCEPT:KG-2.38 Object Properties ──
+# ── CONCEPT:KG-2.3 Object Properties ──
 
 :shortcutRetrievalFrom a owl:ObjectProperty ;
     rdfs:domain bfo:0000001 ; rdfs:range bfo:0000001 ;
@@ -1909,7 +1909,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment """Links a retrieval result to the similarity edge shortcut
     that accelerated its discovery.""" .
 
-# ── CONCEPT:KG-2.38 Datatype Properties ──
+# ── CONCEPT:KG-2.3 Datatype Properties ──
 
 :shortcutHitCount a owl:DatatypeProperty ;
     rdfs:domain :UnifiedRAGConfig ; rdfs:range xsd:integer ;
@@ -1922,7 +1922,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment "Number of queries scoped to spectral clusters." .
 
 # =====================================================================
-# CONCEPT:KG-2.39 — Research Orchestration Integration
+# CONCEPT:KG-2.7 — Research Orchestration Integration
 # =====================================================================
 
 :OrchestrationCycle a owl:Class ;
@@ -1930,16 +1930,16 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "Orchestration Cycle" ;
     rdfs:comment """A complete research orchestration cycle connecting discovery,
     citation traversal, similarity linking, and cluster refresh.
-    BFO:Process. (CONCEPT:KG-2.39).""" .
+    BFO:Process. (CONCEPT:KG-2.7).""" .
 
-# ── CONCEPT:KG-2.39 Object Properties ──
+# ── CONCEPT:KG-2.7 Object Properties ──
 
 :orchestratedBy a owl:ObjectProperty ;
     rdfs:domain bfo:0000015 ; rdfs:range :OrchestrationCycle ;
     rdfs:label "orchestrated by" ;
     rdfs:comment "Links a research session to the orchestration cycle that managed it." .
 
-# ── CONCEPT:KG-2.39 Datatype Properties ──
+# ── CONCEPT:KG-2.7 Datatype Properties ──
 
 :cycleIntervalHours a owl:DatatypeProperty ;
     rdfs:domain :OrchestrationCycle ; rdfs:range xsd:integer ;
@@ -1952,7 +1952,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:comment "Number of papers ingested during this cycle." .
 
 # =====================================================================
-# CONCEPT:KG-2.40 — Graph Distillation Migration
+# CONCEPT:KG-2.6 — Graph Distillation Migration
 # =====================================================================
 
 :DistillationIndex a owl:Class ;
@@ -1960,9 +1960,9 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "Distillation Index" ;
     rdfs:comment """A snapshot of the pre-computed similarity edge index health.
     Tracks coverage, staleness, and recommendations for maintenance.
-    BFO:SpecificallyDependentContinuant. (CONCEPT:KG-2.40).""" .
+    BFO:SpecificallyDependentContinuant. (CONCEPT:KG-2.6).""" .
 
-# ── CONCEPT:KG-2.40 Datatype Properties ──
+# ── CONCEPT:KG-2.6 Datatype Properties ──
 
 :coverageRatio a owl:DatatypeProperty ;
     rdfs:domain :DistillationIndex ; rdfs:range xsd:float ;
@@ -1983,7 +1983,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
 # Formal Mathematics for Computer Science (MCS)
 # =====================================================================
 
-# ── CONCEPT:KG-2.47: Formal Relations ──
+# ── CONCEPT:KG-2.6: Formal Relations ──
 :FormalRelation a owl:Class ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Formal Relation" ;
@@ -1999,7 +1999,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "Partial Order" ;
     rdfs:comment "A reflexive, antisymmetric, and transitive relation." .
 
-# ── CONCEPT:KG-2.48: State Machines ──
+# ── CONCEPT:KG-2.6: State Machines ──
 :StateMachine a owl:Class ;
     rdfs:subClassOf bfo:0000004 ;
     rdfs:label "State Machine" ;
@@ -2015,7 +2015,7 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:label "Invariant" ;
     rdfs:comment "A provable mathematical property that holds true across all valid state transitions." .
 
-# ── CONCEPT:KG-2.49: Markov Transitions ──
+# ── CONCEPT:KG-2.6: Markov Transitions ──
 :StochasticProcess a owl:Class ;
     rdfs:subClassOf bfo:0000015 ;
     rdfs:label "Stochastic Process" ;

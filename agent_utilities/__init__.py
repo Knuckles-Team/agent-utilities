@@ -316,7 +316,7 @@ def __getattr__(name):
                 if name == "ModelDisplayOptimizer"
                 else DisplayComplexityBudget
             )
-    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
     elif name in ["EcosystemTopologyBuilder", "PackageCategory", "PackageInfo"]:
         from .knowledge_graph.core.ecosystem_topology import (
             EcosystemTopologyBuilder,
@@ -325,7 +325,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
     elif name in ["SynergyEngine", "ConceptBridge", "PillarCoupling", "SynergyInsight"]:
         from .knowledge_graph.core.synergy_engine import (
             ConceptBridge,
@@ -335,7 +335,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Chat Search Facade (CONCEPT:KG-2.13)
+    # Chat Search Facade (CONCEPT:KG-2.1)
     elif name in ["ChatSearchResult", "search_sessions"]:
         from .knowledge_graph.retrieval.chat_search import (
             ChatSearchResult,
@@ -343,7 +343,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Agents MD Facade (CONCEPT:KG-2.14)
+    # Agents MD Facade (CONCEPT:KG-2.1)
     elif name in ["load_agents_md", "inject_project_context", "find_agents_md"]:
         from .knowledge_graph.core.agents_md import (
             find_agents_md,
@@ -352,7 +352,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Engineering Patterns Facade (CONCEPT:AHE-3.14)
+    # Engineering Patterns Facade (CONCEPT:AHE-3.2)
     elif name in ["EngineeringPatternOrchestrator", "PatternType", "PatternResult"]:
         from .harness.engineering import (
             EngineeringPatternOrchestrator,
@@ -361,7 +361,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Agent-Runtimes Capabilities (CONCEPT:ECO-4.11, ECO-4.12, AHE-3.23)
+    # Agent-Runtimes Capabilities (CONCEPT:ECO-4.3, ECO-4.12, AHE-3.23)
     elif name == "DurableExecutionManager":
         from .orchestration.durable_execution import DurableExecutionManager
 
@@ -392,7 +392,7 @@ if os.environ.get("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
 # Disabled by default to avoid import overhead during testing
 # Can be enabled by setting ENABLE_GRAPH_INTEGRATION=true and calling initialize_graph_integration() explicitly
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 __all__ = [
     # Agent creation
@@ -476,42 +476,42 @@ __all__ = [
     "SecretsClient",
     "create_secrets_client",
     "verify_credentials",
-    # MATE Integration — Evaluation (CONCEPT:AHE-3.12)
+    # MATE Integration — Evaluation (CONCEPT:AHE-3.1)
     "EvalRunner",
     "EvalStrategy",
     "TestCase",
     "EvalResult",
-    # MATE Integration — Token Tracking (CONCEPT:OS-5.6)
+    # MATE Integration — Token Tracking (CONCEPT:OS-5.4)
     "TokenUsageTracker",
     "TokenUsageRecord",
     "TokenBucket",
-    # MATE Integration — Audit Logging (CONCEPT:OS-5.7)
+    # MATE Integration — Audit Logging (CONCEPT:OS-5.4)
     "AuditLogger",
     "AuditRecord",
-    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.8)
+    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.3)
     "GuardrailEngine",
     "GuardrailRule",
     "GuardrailAction",
-    # MATE Integration — Config Versioning (CONCEPT:AHE-3.13)
+    # MATE Integration — Config Versioning (CONCEPT:AHE-3.2)
     "AgentConfigVersionManager",
     "AgentConfigSnapshot",
-    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
     "EcosystemTopologyBuilder",
     "PackageCategory",
     "PackageInfo",
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
     "SynergyEngine",
     "ConceptBridge",
     "PillarCoupling",
     "SynergyInsight",
-    # Chat Search Facade (CONCEPT:KG-2.13)
+    # Chat Search Facade (CONCEPT:KG-2.1)
     "ChatSearchResult",
     "search_sessions",
-    # Agents MD Facade (CONCEPT:KG-2.14)
+    # Agents MD Facade (CONCEPT:KG-2.1)
     "load_agents_md",
     "inject_project_context",
     "find_agents_md",
-    # Engineering Patterns Facade (CONCEPT:AHE-3.14)
+    # Engineering Patterns Facade (CONCEPT:AHE-3.2)
     "EngineeringPatternOrchestrator",
     "PatternType",
     "PatternResult",

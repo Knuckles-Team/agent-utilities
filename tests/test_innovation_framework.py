@@ -372,7 +372,7 @@ class TestMaintenanceCron:
 
 
 class TestInnovationConfig:
-    """Config fields for CONCEPT:OS-5.2 through CONCEPT:OS-5.2."""
+    """Config fields for CONCEPT:OS-5.2 through CONCEPT:OS-5.2"""
 
     def test_homeostatic_downgrade_config_exists(self):
         """AgentConfig should have homeostatic_downgrade_enabled field."""

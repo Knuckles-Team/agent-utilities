@@ -13,7 +13,7 @@ Integrates with:
     - Existing KG: ``OutcomeEvaluationNode.reward`` for fitness signals
     - Existing edges: ``EVOLVED_FROM``, ``SUPERSEDES``, ``VARIANT_OF``
 
-See docs/emergent-architecture.md §CONCEPT:ORCH-1.0.
+See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.0
 """
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.9 — Horizon-Aware Task Curriculum.
+"""CONCEPT:AHE-3.6 — Horizon-Aware Task Curriculum.
 
 Implements progressive horizon scheduling derived from the "Long-Horizon
 Training" research (Kim et al., ICML 2026).  The core insight is that
@@ -23,10 +23,10 @@ Key primitives:
 Integrates with:
     - CONCEPT:ORCH-1.1 (HTN Planning): Macro-actions as plan step composites
     - CONCEPT:ORCH-1.4 (Swarm Presets): Curriculum stages as DAG phases
-    - CONCEPT:AHE-3.7 (Heavy Thinking): Trajectory diversity via horizon variants
-    - CONCEPT:AHE-3.10 (Reward Decomposition): Step-level checkpoint rewards
+    - CONCEPT:AHE-3.5 (Heavy Thinking): Trajectory diversity via horizon variants
+    - CONCEPT:AHE-3.1 (Reward Decomposition): Step-level checkpoint rewards
 
-See docs/overview.md §CONCEPT:AHE-3.9.
+See docs/overview.md §CONCEPT:AHE-3.6
 """
 
 
@@ -77,7 +77,7 @@ class PromotionPolicy(StrEnum):
 class MacroAction(BaseModel):
     """A composite action that bundles multiple atomic steps.
 
-    CONCEPT:AHE-3.9 — Macro-actions reduce effective horizon length by
+    CONCEPT:AHE-3.6 — Macro-actions reduce effective horizon length by
     combining sequential atomic actions into single execution primitives.
 
     Example: In a code-editing agent, the atomic actions ``open_file``,
@@ -113,7 +113,7 @@ class MacroAction(BaseModel):
 class SubgoalCheckpoint(BaseModel):
     """An intermediate milestone within a long-horizon task.
 
-    CONCEPT:AHE-3.9 — Subgoal checkpoints decompose trajectory-level
+    CONCEPT:AHE-3.6 — Subgoal checkpoints decompose trajectory-level
     goals into step-level verifiable milestones, enabling credit
     assignment at intermediate points rather than only at trajectory end.
 
@@ -171,7 +171,7 @@ class HorizonStageConfig(BaseModel):
 class HorizonCurriculum:
     """Progressive horizon scheduling engine.
 
-    CONCEPT:AHE-3.9 — Implements the key insight from Long-Horizon
+    CONCEPT:AHE-3.6 — Implements the key insight from Long-Horizon
     Training research: models trained on reduced horizons generalize
     better to longer horizons.  This engine stages task execution through
     progressively longer horizons:
@@ -208,7 +208,7 @@ class HorizonCurriculum:
         self._ema_success: list[float] = [0.0 for _ in self.stages]
 
         logger.info(
-            "[CONCEPT:AHE-3.9] Horizon Curriculum initialized: %d stages, policy=%s",
+            "[CONCEPT:AHE-3.6] Horizon Curriculum initialized: %d stages, policy=%s",
             len(self.stages),
             self.promotion_policy.value,
         )
@@ -310,7 +310,7 @@ class HorizonCurriculum:
 
         if promoted:
             logger.info(
-                "[CONCEPT:AHE-3.9] Promoted to stage %s (horizon=%d)",
+                "[CONCEPT:AHE-3.6] Promoted to stage %s (horizon=%d)",
                 self.current_stage.stage.value,
                 self.current_stage.max_horizon,
             )
@@ -397,7 +397,7 @@ class HorizonCurriculum:
         self._current_stage_idx = 0
         self._episode_results = [[] for _ in self.stages]
         self._ema_success = [0.0 for _ in self.stages]
-        logger.info("[CONCEPT:AHE-3.9] Curriculum reset to stage MACRO")
+        logger.info("[CONCEPT:AHE-3.6] Curriculum reset to stage MACRO")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize curriculum state for persistence or logging.

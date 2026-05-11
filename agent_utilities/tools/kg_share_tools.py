@@ -26,12 +26,14 @@ async def export_subgraph(
 ) -> str:
     """Export a lightweight snapshot or subgraph for sharing with other agents.
 
-    Export a subgraph centered around a topic for agent-to-agent sharing.
+    CONCEPT:KG-2.0
 
-    Args:
-        topic: The topic or entity ID to export a subgraph around.
-        depth: How many hops to traverse for the export.
-        ctx: The agent context.
+        Export a subgraph centered around a topic for agent-to-agent sharing.
+
+        Args:
+            topic: The topic or entity ID to export a subgraph around.
+            depth: How many hops to traverse for the export.
+            ctx: The agent context.
     """
     if not HAS_GRAPH_ENGINE or IntelligenceGraphEngine is None:
         return "IntelligenceGraphEngine is not available."

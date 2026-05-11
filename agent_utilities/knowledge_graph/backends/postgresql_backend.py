@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""PostgreSQL + Apache AGE Graph Backend (CONCEPT:OS-5.20).
+"""PostgreSQL + Apache AGE Graph Backend (CONCEPT:OS-5.0).
 
 Production-grade backend using PostgreSQL with the Apache AGE
 graph extension for Cypher query support. Suitable for

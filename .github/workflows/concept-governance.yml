@@ -1,0 +1,72 @@
+name: Concept Governance
+
+on:
+  pull_request:
+    paths:
+      - 'agent_utilities/**'
+      - 'docs/**'
+      - 'AGENTS.md'
+
+jobs:
+  concept-check:
+    name: Extend-Before-Invent Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for new CONCEPT tags
+        run: |
+          echo "🔍 Scanning for new CONCEPT: tags in this PR..."
+
+          # Get the list of new CONCEPT: tags added in this PR
+          NEW_CONCEPTS=$(git diff origin/main...HEAD --unified=0 | \
+            grep -oP '(?<=CONCEPT:)[A-Z]+-\d+\.\d+' | \
+            sort -u || true)
+
+          if [ -z "$NEW_CONCEPTS" ]; then
+            echo "✅ No new CONCEPT: tags found. Governance check passed."
+            exit 0
+          fi
+
+          echo "📋 New CONCEPT tags found:"
+          echo "$NEW_CONCEPTS"
+          echo ""
+
+          # Check each new concept has a design document
+          VIOLATIONS=""
+          for concept in $NEW_CONCEPTS; do
+            # Extract pillar prefix (e.g., ORCH, KG, AHE, ECO, OS)
+            PILLAR=$(echo "$concept" | grep -oP '^[A-Z]+')
+
+            # Check for corresponding design document
+            DESIGN_DIR=".specify/design/"
+            if ! find "$DESIGN_DIR" -name "*.md" -exec grep -l "$concept" {} \; 2>/dev/null | head -1 | grep -q .; then
+              VIOLATIONS="$VIOLATIONS\n  ❌ $concept — No design document references this concept"
+            fi
+
+            # Check that concept references a valid pillar
+            case $PILLAR in
+              ORCH|KG|AHE|ECO|OS)
+                echo "  ✅ $concept — Valid pillar: $PILLAR"
+                ;;
+              *)
+                VIOLATIONS="$VIOLATIONS\n  ❌ $concept — Invalid pillar prefix: $PILLAR (must be ORCH/KG/AHE/ECO/OS)"
+                ;;
+            esac
+          done
+
+          if [ -n "$VIOLATIONS" ]; then
+            echo ""
+            echo "🚫 Governance violations found:"
+            echo -e "$VIOLATIONS"
+            echo ""
+            echo "To fix: Create a design document in .specify/design/<feature>/ that references"
+            echo "each new CONCEPT tag and includes a KG analysis + C4 integration diagram."
+            echo ""
+            echo "See: .specify/design/_template.md"
+            exit 1
+          fi
+
+          echo "✅ All new concepts have design documents. Governance check passed."

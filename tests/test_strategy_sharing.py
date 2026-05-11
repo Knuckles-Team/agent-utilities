@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.76 — Strategy Sharing System."""
+"""Tests for CONCEPT:KG-2.6 — Strategy Sharing System."""
 
 import json
 

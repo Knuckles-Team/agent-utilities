@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Ontological State Checkpointing (CONCEPT:KG-2.53).
+"""Ontological State Checkpointing (CONCEPT:KG-2.6).
 
 Persist Pydantic Graph active states as ExecutionStateNodes within the Knowledge Graph.
 Deprecates local execution states, enabling background agents (AHE-3.17) to seamlessly
@@ -32,7 +32,7 @@ class ExecutionStateNode(BaseModel):
 class StateCheckpointer:
     """Manages the persistence of execution states to the KG.
 
-    CONCEPT:KG-2.53 — Ontological State Checkpointing
+    CONCEPT:KG-2.6 — Ontological State Checkpointing
     """
 
     def __init__(self, engine: IntelligenceGraphEngine):
@@ -61,13 +61,12 @@ class StateCheckpointer:
         if self.engine.backend:
             # Upsert the state node
             data = state_node.model_dump()
-            self.engine.backend.execute(
-                """
-                MERGE (s:ExecutionStateNode {node_id: $node_id})
-                SET s += $props
-                """,
-                {"node_id": node_id, "props": data},
+            set_clause = self.engine._get_set_clause(
+                data, alias="s", label="ExecutionStateNode"
             )
+            query = f"MERGE (s:ExecutionStateNode {{node_id: $node_id}}){set_clause}"
+            params: dict[str, Any] = {"node_id": node_id, **data}
+            self.engine.backend.execute(query, params)
 
             # Link it to the agent
             self.engine.backend.execute(

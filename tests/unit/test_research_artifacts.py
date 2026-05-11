@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.11 — Research Artifact Generator.
+"""Tests for CONCEPT:KG-2.6 — Research Artifact Generator.
 
 Validates:
 - ResearchArtifact and DigestArtifact models

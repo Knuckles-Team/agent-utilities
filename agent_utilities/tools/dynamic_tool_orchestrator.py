@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Dynamic Tool Assignment Orchestration (CONCEPT:ECO-4.9).
+"""Dynamic Tool Assignment Orchestration (CONCEPT:ECO-4.0).
 
 Matches tool ontology to agent tasks dynamically at runtime. Resolves the
 exact tools needed for a dynamically spawned agent by vectorizing the task schema.
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class DynamicToolOrchestrator:
     """Dynamically assigns tools based on task context and KG embeddings.
 
-    CONCEPT:ECO-4.9
+    CONCEPT:ECO-4.0
     """
 
     def __init__(self, engine: IntelligenceGraphEngine):
@@ -61,7 +61,7 @@ class DynamicToolOrchestrator:
                     )
 
             logger.info(
-                "[CONCEPT:ECO-4.9] Assigned %d dynamic tools for role '%s'",
+                "[CONCEPT:ECO-4.0] Assigned %d dynamic tools for role '%s'",
                 len(tools),
                 agent_role,
             )

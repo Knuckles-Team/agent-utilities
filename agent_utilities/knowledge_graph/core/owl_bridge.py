@@ -102,53 +102,53 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "position",
     "portfolio",
     "strategy",
-    # Market Data Connector Protocol (CONCEPT:ECO-4.4)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.3)
     "data_connector",
     "data_fetch_record",
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
     "swarm_preset",
     "swarm_run",
     "swarm_task_record",
-    # Risk Scoring Ontology (CONCEPT:KG-2.7)
+    # Risk Scoring Ontology (CONCEPT:KG-2.6)
     "risk_assessment",
     "risk_factor",
     "risk_mitigation",
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.6)
     "backtest_run",
     "backtest_metric",
-    # Prompt Injection Scanner (CONCEPT:OS-5.4)
+    # Prompt Injection Scanner (CONCEPT:OS-5.1)
     "security_finding",
-    # Tool Repetition Guard (CONCEPT:OS-5.5)
+    # Tool Repetition Guard (CONCEPT:OS-5.3)
     "experience",
-    # MATE Integration — Token Analytics (CONCEPT:OS-5.6)
+    # MATE Integration — Token Analytics (CONCEPT:OS-5.4)
     "token_usage_record",
-    # MATE Integration — Audit Logging (CONCEPT:OS-5.7)
+    # MATE Integration — Audit Logging (CONCEPT:OS-5.4)
     "audit_log",
-    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.8)
+    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.3)
     "guardrail_trigger",
-    # MATE Integration — Config Versioning (CONCEPT:AHE-3.13)
+    # MATE Integration — Config Versioning (CONCEPT:AHE-3.2)
     "agent_config_version",
-    # MATE Integration — EvalRunner (CONCEPT:AHE-3.12)
+    # MATE Integration — EvalRunner (CONCEPT:AHE-3.1)
     "eval_run",
-    # Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+    # Agentic-iModels (CONCEPT:AHE-3.3, AHE-3.16, KG-2.17)
     "imodel",
     "interpretability_test",
     "model_display",
-    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
     "ecosystem_package",
     "frontend_package",
     "kernel_package",
     "mcp_server_package",
     "skill_package",
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
     "synergy_insight",
-    # Formal Graph Theory Primitives (CONCEPT:KG-2.41)
+    # Formal Graph Theory Primitives (CONCEPT:KG-2.6)
     "math_foundation",
     "critical_path_result",
-    # Structural Causal Reasoning (CONCEPT:KG-2.43)
+    # Structural Causal Reasoning (CONCEPT:KG-2.6)
     "causal_factor",
     "causal_model",
-    # Optimal Execution Engine (CONCEPT:KG-2.46)
+    # Optimal Execution Engine (CONCEPT:KG-2.6)
     "execution_plan",
     "market_making_quote",
     "pairs_trade_signal",
@@ -217,55 +217,55 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "belongs_to_portfolio",
     "executes_strategy",
     "backtested_with",
-    # Market Data Connector Protocol (CONCEPT:ECO-4.4)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.3)
     "fetched_from",
     "falls_back_to",
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
     "preset_of",
     "ran_preset",
     "task_depends_on",
-    # Risk Scoring Ontology (CONCEPT:KG-2.7)
+    # Risk Scoring Ontology (CONCEPT:KG-2.6)
     "assessed_risk",
     "has_risk_factor",
     "mitigated_by",
     "propagates_risk_to",
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.6)
     "evaluated_strategy",
     "has_metric",
     "compared_to_benchmark",
-    # Prompt Injection Scanner (CONCEPT:OS-5.4)
+    # Prompt Injection Scanner (CONCEPT:OS-5.1)
     "detected_threat",
-    # Structured Retry Manager (CONCEPT:AHE-3.11)
+    # Structured Retry Manager (CONCEPT:ORCH-1.3)
     "triggered_retry",
-    # MATE Integration — Audit Logging (CONCEPT:OS-5.7)
+    # MATE Integration — Audit Logging (CONCEPT:OS-5.4)
     "audited_by",
-    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.8)
+    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.3)
     "triggered_guardrail",
-    # MATE Integration — Config Versioning (CONCEPT:AHE-3.13)
+    # MATE Integration — Config Versioning (CONCEPT:AHE-3.2)
     "config_version_of",
-    # MATE Integration — EvalRunner (CONCEPT:AHE-3.12)
+    # MATE Integration — EvalRunner (CONCEPT:AHE-3.1)
     "evaluated_by",
-    # Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+    # Agentic-iModels (CONCEPT:AHE-3.3, AHE-3.16, KG-2.17)
     "evolved_model",
     "tested_interpretability",
     "display_of",
     "pareto_dominates",
-    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
     "provides_capability_to",
     "consumes_from_kernel",
     "visualizes",
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
     "has_synergy_with",
-    # Formal Graph Theory Primitives (CONCEPT:KG-2.41)
+    # Formal Graph Theory Primitives (CONCEPT:KG-2.6)
     "critical_path_of",
     "colored_with",
-    # Structural Causal Reasoning (CONCEPT:KG-2.43)
+    # Structural Causal Reasoning (CONCEPT:KG-2.6)
     "causes",
     "causal_mechanism",
     "counterfactual_of",
-    # Probabilistic Reasoning (CONCEPT:KG-2.45)
+    # Probabilistic Reasoning (CONCEPT:KG-2.6)
     "belief_update",
-    # Optimal Execution (CONCEPT:KG-2.46)
+    # Optimal Execution (CONCEPT:KG-2.6)
     "executed_via",
     "pairs_with",
     "makes_market_in",

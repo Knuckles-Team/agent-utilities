@@ -1,5 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
+"""CONCEPT:KG-2.0"""
+
 """Unit tests for standard ontology integration.
 
 Covers the industry-standard ontology alignment (BFO, PROV-O, Schema.org,

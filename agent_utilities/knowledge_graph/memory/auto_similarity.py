@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Auto-Similarity Memory Graph.
 
-CONCEPT:KG-2.36 — Auto-Similarity Memory Graph
+CONCEPT:KG-2.3 — Auto-Similarity Memory Graph
 
 Provides automatic similarity edge creation and exponential decay scoring
 for memory nodes in the Knowledge Graph. Adapted from contextplus's
@@ -52,7 +52,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 class AutoSimilarityLinker:
     """Creates and manages auto-similarity edges between KG memory nodes.
 
-    CONCEPT:KG-2.36 — Auto-Similarity Memory Graph
+    CONCEPT:KG-2.3 — Auto-Similarity Memory Graph
 
     On node insertion, finds similar existing nodes via cosine similarity
     and creates weighted edges with exponential decay.

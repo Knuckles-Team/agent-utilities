@@ -1,5 +1,5 @@
 """
-KG-Native Alpha Factor Library — CONCEPT:KG-2.60
+KG-Native Alpha Factor Library — CONCEPT:KG-2.6
 
 Provides a comprehensive library of battle-tested alpha factors with
 Information Coefficient (IC) / Information Ratio (IR) analysis.

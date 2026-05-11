@@ -479,7 +479,7 @@ class CostAwareRouter:
 
 
 class OntologicalFallbackChain:
-    """Ontological Fallback Chains (CONCEPT:ORCH-1.14).
+    """Ontological Fallback Chains (CONCEPT:ORCH-1.2).
 
     Instead of a hardcoded CSV list of fallback models, this class queries
     the Knowledge Graph (KG) for nearest ModelCapabilityNode neighbors to find
@@ -524,7 +524,7 @@ class OntologicalFallbackChain:
 class TopologicalRoutingPolicy(RoutingPolicy):
     """Routes using KG-derived topological signals instead of keyword TF-IDF.
 
-    CONCEPT:ORCH-1.18 — Topological Routing
+    CONCEPT:ORCH-1.4 — Topological Routing
 
     Scoring dimensions:
         1. **PageRank centrality** — Specialists highly connected in the KG

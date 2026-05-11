@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.8 — Retrieval Quality Gate & CONCEPT:KG-2.9 — Context Provenance."""
+"""Tests for CONCEPT:KG-2.6 — Retrieval Quality Gate & CONCEPT:KG-2.6 — Context Provenance."""
 
 import pytest
 import time
@@ -190,7 +190,7 @@ class TestTemporalFreshness:
 
 
 class TestContextProvenance:
-    """Tests for CONCEPT:KG-2.9 provenance tracking."""
+    """Tests for CONCEPT:KG-2.6 provenance tracking."""
 
     def test_create_provenance_record(self, gate):
         report = RetrievalQualityReport(

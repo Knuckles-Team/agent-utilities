@@ -53,8 +53,14 @@ from .scheduling import (
     PeriodicTask,
 )
 from .sdd import (
+    DesignDocument,
+    ExtensionStrategy,
     ImplementationPlan,
+    KGAnalysis,
+    NearestConcept,
+    NewConceptProposal,
     ProjectConstitution,
+    RiskAssessment,
     Spec,
     Task,
     Tasks,
@@ -110,4 +116,10 @@ __all__ = [
     "ModelDefinition",
     "ModelRegistry",
     "ModelTier",
+    "DesignDocument",
+    "KGAnalysis",
+    "NearestConcept",
+    "NewConceptProposal",
+    "ExtensionStrategy",
+    "RiskAssessment",
 ]

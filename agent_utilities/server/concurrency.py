@@ -1,5 +1,7 @@
 """Session Concurrency Manager for OS-5.3.
 
+CONCEPT:OS-5.0
+
 Provides double-texting concurrency strategies (enqueue, reject, interrupt, rollback)
 for Pydantic AI graph sessions. Supports both Asyncio (local) and Redis (distributed).
 """

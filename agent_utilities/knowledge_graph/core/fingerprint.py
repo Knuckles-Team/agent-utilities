@@ -27,7 +27,7 @@ Usage::
     change = classify_change(old_fp, new_fp)
     # change == ChangeLevel.COSMETIC  # Only formatting changed
 
-See docs/emergent-architecture.md §CONCEPT:KG-2.3.
+See docs/pillars/architecture_c4.md §CONCEPT:KG-2.3
 """
 
 

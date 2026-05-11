@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""CONCEPT:KG-2.0"""
+
 """Tests for cross-repository symbol resolution.
 
 Concept: cross-repo-symbols

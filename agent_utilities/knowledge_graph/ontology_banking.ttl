@@ -13,7 +13,7 @@ Covers ISO 20022 messaging, KYC/AML, correspondent banking,
 regulatory capital (Basel III), and credit risk modeling.""" .
 
 # =====================================================================
-# Banking Core Classes (CONCEPT:KG-2.85)
+# Banking Core Classes (CONCEPT:KG-2.8)
 # =====================================================================
 
 :BankAccount a owl:Class ;
@@ -71,7 +71,7 @@ Subclass of Incident for escalation workflows.""" .
     rdfs:comment "A single leg in a multi-leg settlement process (T+1/T+2). BFO:Process." .
 
 # =====================================================================
-# Banking Object Properties (CONCEPT:KG-2.85)
+# Banking Object Properties (CONCEPT:KG-2.8)
 # =====================================================================
 
 :settledVia a owl:ObjectProperty, owl:TransitiveProperty ;
@@ -111,7 +111,7 @@ Subclass of Incident for escalation workflows.""" .
     rdfs:label "credit assessed by" .
 
 # =====================================================================
-# Banking Datatype Properties (CONCEPT:KG-2.85)
+# Banking Datatype Properties (CONCEPT:KG-2.8)
 # =====================================================================
 
 :iban a owl:DatatypeProperty ;

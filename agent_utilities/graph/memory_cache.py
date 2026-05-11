@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.7 — Serialized Memory Cache for Heavy Thinking.
+"""CONCEPT:AHE-3.5 — Serialized Memory Cache for Heavy Thinking.
 
 Implements the structured cache that bridges parallel reasoning trajectories
 into the sequential deliberation phase.  The cache provides:
@@ -17,11 +17,11 @@ into the sequential deliberation phase.  The cache provides:
   instances for cross-session reuse (free value-add from CONCEPT:KG-2.0)
 
 Integrates with:
-    - CONCEPT:AHE-3.7 (Heavy Thinking): Core data structure for the pipeline
+    - CONCEPT:AHE-3.5 (Heavy Thinking): Core data structure for the pipeline
     - CONCEPT:KG-2.0 (OGM): KG persistence via ``KGMapper``
     - CONCEPT:KG-2.4 (Hypergraphs): EncPI metadata on trajectory interactions
 
-See docs/overview.md §CONCEPT:AHE-3.7.
+See docs/overview.md §CONCEPT:AHE-3.5
 """
 
 
@@ -66,7 +66,7 @@ class TrajectoryEntry(BaseModel):
 class MemoryCache(BaseModel):
     """Serialized Memory Cache for bridging parallel → deliberation phases.
 
-    CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+    CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
 
     Accumulates parallel thinker outputs, provides pruning/shuffling
     for the deliberation prompt, and supports iterative augmentation
@@ -285,7 +285,7 @@ class MemoryCache(BaseModel):
 class TrajectoryPruner:
     """Strips thinking tokens while preserving answer content.
 
-    CONCEPT:AHE-3.7 — Prevents context overflow in the deliberation
+    CONCEPT:AHE-3.5 — Prevents context overflow in the deliberation
     prompt by removing verbose chain-of-thought markers, internal
     planning tokens, and self-talk patterns.
     """
@@ -350,7 +350,7 @@ class TrajectoryPruner:
 class TrajectoryShuffler:
     """Randomizes trajectory order to prevent position bias.
 
-    CONCEPT:AHE-3.7 — The deliberation model may exhibit position bias
+    CONCEPT:AHE-3.5 — The deliberation model may exhibit position bias
     (favoring the first or last trajectory).  Shuffling mitigates this
     while preserving all trajectory content.
     """

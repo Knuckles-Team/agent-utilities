@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Graph Lifecycle Steps.
 
+CONCEPT:ORCH-1.0
+
 Session lifecycle, policy enforcement, and human-in-the-loop gates.
 Extracted from the monolithic steps.py for maintainability.
 

@@ -1,3 +1,5 @@
+"""CONCEPT:OS-5.0"""
+
 import os
 
 from agent_utilities.core.workspace import CORE_FILES, get_workspace_path

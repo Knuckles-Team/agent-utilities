@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Stardog OWL Backend.
 
+CONCEPT:KG-2.2
+
 Full implementation using pystardog for remote Stardog server reasoning.
 Stardog provides built-in OWL reasoning — queries with ``reasoning=True``
 automatically apply the ontology's inference rules.

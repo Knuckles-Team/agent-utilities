@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.11 — Research Pipeline Runner.
+"""Tests for CONCEPT:KG-2.6 — Research Pipeline Runner.
 
 Validates:
 - PipelineConfig defaults and customization

@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Onboarding Tools Module.
 
+CONCEPT:ECO-4.0
+
 This module provides utilities for bootstrapping new agentic workspaces,
 detecting project technology stacks, and initializing core configuration files
 like ``main_agent.json``.

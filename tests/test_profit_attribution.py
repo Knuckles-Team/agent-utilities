@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.66 — Profit Attribution Engine."""
+"""Tests for CONCEPT:KG-2.6 — Profit Attribution Engine."""
 
 import numpy as np
 import pytest

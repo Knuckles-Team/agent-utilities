@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.6"""
+
 import pytest
 import numpy as np
 import pandas as pd
