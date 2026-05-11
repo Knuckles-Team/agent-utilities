@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""CONCEPT:ORCH-1.2"""
+
 """Coverage push for agent_utilities.graph.config_helpers.
 
 Targets the pure-function helpers and mocked-engine paths.

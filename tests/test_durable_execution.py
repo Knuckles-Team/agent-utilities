@@ -1,5 +1,5 @@
 """
-Tests for Graph-Native Durable Execution (CONCEPT:ECO-4.11).
+Tests for Graph-Native Durable Execution (CONCEPT:ECO-4.3).
 """
 
 import pytest

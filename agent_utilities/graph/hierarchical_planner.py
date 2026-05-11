@@ -215,7 +215,7 @@ async def planner_step(
             f"multiple parallel ExecutionSteps assigned to an extraction specialist, each targeting "
             f"a specific partition of the data in its 'refined_subtask'. Set 'is_parallel=True' "
             f"and configure 'access_list' to share the shared workboard context.\n\n"
-            f"### MULTI-LEVEL ABSTRACTION LAYERING (CONCEPT:ORCH-1.5)\n"
+            f"### MULTI-LEVEL ABSTRACTION LAYERING (CONCEPT:ORCH-1.3)\n"
             f"Do not attempt to plan every micro-step. Instead, emit coarse, high-level steps "
             f"and delegate the detailed refinement to the executing adaptive_agent_router. This saves "
             f"upfront planning tokens and allows adaptive_agent_router to adapt dynamically.\n\n"
@@ -235,7 +235,7 @@ async def planner_step(
     rlm_config = RLMConfig()
 
     try:
-        # CONCEPT:AHE-3.7 — Heavy Thinking activation gate
+        # CONCEPT:AHE-3.5 — Heavy Thinking activation gate
         # When the complexity estimator determines the query warrants
         # deep multi-trajectory reasoning, use the Heavy Thinking pipeline
         # instead of standard LATS or single-shot planning.
@@ -258,7 +258,7 @@ async def planner_step(
                 logger.debug("Complexity estimation failed: %s", e)
 
         if use_heavy_thinking:
-            logger.info("Planner: Running in Heavy Thinking (CONCEPT:AHE-3.7) mode.")
+            logger.info("Planner: Running in Heavy Thinking (CONCEPT:AHE-3.5) mode.")
             from .heavy_thinking import HeavyThinkingPlanner as HTP
 
             ht_planner = HTP(
@@ -335,13 +335,14 @@ async def planner_step(
 async def fetch_unified_context() -> str:
     """Aggregate essential workspace metadata for agent situational awareness.
 
-    Collects agent registries from Knowledge Graph, historical memory, and VCS state (git status)
-    to provide agents with a holistic view of the current repository state
-    without overwhelming the context window.
+    Collects agent registries from Knowledge Graph, historical memory, VCS state
+    (git status), and KG-based semantic retrieval to provide agents with a
+    holistic view of the current repository state without overwhelming the
+    context window.
 
     Returns:
         A formatted markdown string containing truncated registry previews,
-        recent memory, and git status.
+        recent memory, git status, and KG retrieval results.
 
     """
     # 1. Fetch agents from Knowledge Graph
@@ -368,11 +369,38 @@ async def fetch_unified_context() -> str:
     except Exception:
         git_status = "Not a git repository or git not installed."
 
-    return (
-        f"### PROJECT CONTEXT (Agent OS)\n\n"
-        f"**Registered Agents (Knowledge Graph):**\n{mcp_agents or '(empty)'}\n\n"
-        f"**Git Status:**\n{git_status or '(clean)'}"
-    )
+    # 3. KG-based context from IntelligenceGraphEngine (CONCEPT:KG-2.3)
+    kg_context = ""
+    try:
+        import networkx as nx
+
+        from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+
+        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
+        if engine.graph and engine.graph.number_of_nodes() > 0:
+            # Sample top nodes by degree centrality for awareness
+            nodes_by_degree = sorted(
+                engine.graph.degree(), key=lambda x: x[1], reverse=True
+            )
+            kg_entries = []
+            for node_id, degree in nodes_by_degree[:5]:
+                data = engine.graph.nodes.get(node_id, {})
+                name = data.get("name", node_id)
+                desc = str(data.get("description", ""))[:120]
+                kg_entries.append(f"- {name} (degree={degree}): {desc}")
+            kg_context = "\n".join(kg_entries)
+    except Exception as e:
+        logger.debug("KG context unavailable: %s", e)
+
+    sections = [
+        "### PROJECT CONTEXT (Agent OS)\n",
+        f"**Registered Agents (Knowledge Graph):**\n{mcp_agents or '(empty)'}\n",
+        f"**Git Status:**\n{git_status or '(clean)'}",
+    ]
+    if kg_context:
+        sections.append(f"\n**KG Context (top nodes):**\n{kg_context}")
+
+    return "\n".join(sections)
 
 
 async def architect_step(
@@ -633,7 +661,7 @@ class LATSPlanner:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # CONCEPT:AHE-3.5: Memory-Aware Test-Time Scaling
+        # CONCEPT:AHE-3.4: Memory-Aware Test-Time Scaling
         # Distill memory from parallel scaling trajectories before evaluation
         try:
             from .verification import parallel_trajectory_distiller
@@ -730,7 +758,7 @@ Usage::
     )
     result = await execute_recursive_graph(ctx, graph_deps)
 
-See docs/conductor-orchestration.md §CONCEPT:ORCH-1.1.
+See docs/pillars/1_graph_orchestration.md §CONCEPT:ORCH-1.1
 """
 
 
@@ -892,7 +920,7 @@ Integrates with:
     - CONCEPT:ORCH-1.2 (Confidence-Gated Router): Feeds group confidence back as a
       routing signal.
 
-See docs/squeeze-evolve-routing.md §CONCEPT:ORCH-1.2.
+See docs/pillars/1_graph_orchestration.md §CONCEPT:ORCH-1.2
 """
 
 

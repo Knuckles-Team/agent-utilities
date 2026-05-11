@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Cross-Session Chat Recall — Facade Module.
 
-CONCEPT:KG-2.13 — Cross-Session Chat Recall
+CONCEPT:KG-2.1 — Cross-Session Chat Recall
 
 This module provides a dedicated entry point for cross-session chat search
 functionality.  It re-exports the keyword-based search implementation from
@@ -41,7 +41,7 @@ from agent_utilities.core.chat_persistence import (
 class ChatSearchResult:
     """Simplified result container for chat search consumers.
 
-    CONCEPT:KG-2.13 — Cross-Session Chat Recall
+    CONCEPT:KG-2.1 — Cross-Session Chat Recall
 
     Adapts :class:`ChatRecallResult` into a simpler flat dataclass for
     callers that do not need the full Pydantic model semantics.
@@ -74,7 +74,7 @@ def search_sessions(
 ) -> list[ChatSearchResult]:
     """Search across stored chat sessions and return simplified results.
 
-    CONCEPT:KG-2.13 — Cross-Session Chat Recall
+    CONCEPT:KG-2.1 — Cross-Session Chat Recall
 
     A convenience wrapper around :func:`search_chat_history` that returns
     :class:`ChatSearchResult` dataclass instances instead of the raw

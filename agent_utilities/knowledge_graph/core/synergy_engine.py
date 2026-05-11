@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Cross-Pillar Synergy Engine.
 
-CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
 Discovers non-obvious functional synergies between the 5 Unified Pillars
 of the agent-utilities ecosystem by analyzing concept-to-concept edges,
@@ -74,7 +74,7 @@ _CONCEPT_RE = re.compile(r"CONCEPT:((?:ORCH|KG|AHE|ECO|OS)-\d+)\.(\d+)")
 class ConceptBridge:
     """A concept that spans multiple pillars.
 
-    CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+    CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
     Attributes:
         concept_id: The CONCEPT:ID (e.g., ``AHE-3.5``).
@@ -95,7 +95,7 @@ class ConceptBridge:
 class PillarCoupling:
     """Coupling metric between two pillars.
 
-    CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+    CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
     Attributes:
         pillar_a: First pillar prefix (e.g., ``ORCH-1``).
@@ -116,7 +116,7 @@ class PillarCoupling:
 class SynergyInsight:
     """A discovered synergy or missing relationship.
 
-    CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+    CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
     Attributes:
         source_concept: The source concept ID.
@@ -138,7 +138,7 @@ class SynergyInsight:
 class SynergyEngine:
     """Discovers functional synergies between the 5 Unified Pillars.
 
-    CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+    CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
     Analyzes the existing concept registry and Knowledge Graph topology
     to find:
@@ -213,7 +213,7 @@ class SynergyEngine:
     def discover_concept_bridges(self) -> list[ConceptBridge]:
         """Find concepts that functionally span multiple pillars.
 
-        CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+        CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
         Uses a combination of:
         - Hardcoded known bridges from architecture documentation
@@ -276,7 +276,7 @@ class SynergyEngine:
     def compute_pillar_coupling(self) -> list[PillarCoupling]:
         """Quantify coupling between each pillar pair.
 
-        CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+        CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
         Coupling is measured by:
         - Number of shared edge types between pillar concepts
@@ -337,7 +337,7 @@ class SynergyEngine:
     def suggest_missing_edges(self) -> list[SynergyInsight]:
         """Suggest relationships that should exist but don't.
 
-        CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+        CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
         Uses structural pattern matching to identify concepts that
         are similar in structure but lack explicit connections.
@@ -398,7 +398,7 @@ class SynergyEngine:
     def generate_synergy_report(self) -> str:
         """Generate a comprehensive synergy analysis report.
 
-        CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+        CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
         Returns:
             Formatted markdown report of discovered synergies,

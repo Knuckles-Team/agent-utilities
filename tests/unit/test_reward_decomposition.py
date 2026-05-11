@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:AHE-3.10 — Decomposed Reward Signals.
+"""Tests for CONCEPT:AHE-3.1 — Decomposed Reward Signals.
 
 Validates step-level vs trajectory-level reward separation, credit
 assignment accuracy, and distillation insight extraction.

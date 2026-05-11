@@ -17,7 +17,7 @@ hierarchy, competency tracking, and performance management.
 Aligned to HR-XML, W3C ORG, and SFIA frameworks.""" .
 
 # =====================================================================
-# HR Core Classes (CONCEPT:KG-2.80)
+# HR Core Classes (CONCEPT:KG-2.8)
 # =====================================================================
 
 :Employee a owl:Class ;
@@ -78,7 +78,7 @@ to individual. BFO:SpecificallyDependentContinuant.""" .
 BFO:Process via Procedure.""" .
 
 # =====================================================================
-# HR Object Properties (CONCEPT:KG-2.80)
+# HR Object Properties (CONCEPT:KG-2.8)
 # =====================================================================
 
 :reportsTo a owl:ObjectProperty, owl:TransitiveProperty ;
@@ -129,7 +129,7 @@ escalation chain traversal.""" .
     rdfs:comment "Transitive department hierarchy for org chart traversal." .
 
 # =====================================================================
-# HR Datatype Properties (CONCEPT:KG-2.80)
+# HR Datatype Properties (CONCEPT:KG-2.8)
 # =====================================================================
 
 :employeeId a owl:DatatypeProperty ;

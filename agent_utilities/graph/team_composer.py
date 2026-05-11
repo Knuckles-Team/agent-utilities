@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""KG-Driven Team Composer (CONCEPT:ORCH-1.15).
+"""KG-Driven Team Composer (CONCEPT:ORCH-1.1).
 
 Assembles specialist teams from Knowledge Graph topology instead of
 static ``discover_agents()`` registration.  The KG becomes the single
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 class KGTeamComposer:
     """Assembles specialist teams from KG topology.
 
-    CONCEPT:ORCH-1.15 — KG-Driven Team Composition
+    CONCEPT:ORCH-1.1 — KG-Driven Team Composition
 
     This is the primary entry point for KG-driven orchestration.
     Instead of static agent registration, the KG dynamically determines
@@ -83,7 +83,7 @@ class KGTeamComposer:
         if proven is not None:
             proven.team_id = team_id
             logger.info(
-                "[CONCEPT:ORCH-1.15] Reusing proven team config '%s' "
+                "[CONCEPT:ORCH-1.1] Reusing proven team config '%s' "
                 "(success_rate=%.2f, usage=%d)",
                 proven.team_config_id,
                 proven.confidence,
@@ -162,7 +162,7 @@ class KGTeamComposer:
         try:
             self.engine._upsert_node("TeamConfig", node_id, node_data)
             logger.info(
-                "[CONCEPT:ORCH-1.15] Promoted composition to TeamConfig '%s'",
+                "[CONCEPT:ORCH-1.1] Promoted composition to TeamConfig '%s'",
                 node_id,
             )
             return node_id

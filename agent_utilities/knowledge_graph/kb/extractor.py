@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """KB Structured Extraction Engine.
 
+CONCEPT:KG-2.0
+
 Uses Pydantic AI with typed output_type= to extract structured articles,
 facts, and concepts from raw document chunks. This ensures all LLM output
 is validated by Pydantic before entering the knowledge graph.

@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.1"""
+
 import pytest
 import networkx as nx
 from agent_utilities.knowledge_graph.core.context_builder import (

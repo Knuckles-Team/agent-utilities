@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.62 — Portfolio Optimization Suite."""
+"""Tests for CONCEPT:KG-2.6 — Portfolio Optimization Suite."""
 
 import numpy as np
 import pytest

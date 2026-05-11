@@ -119,7 +119,7 @@ print(brain.status())
 
 ## Concept Registration
 
-The Company Brain infrastructure is registered under **CONCEPT:KG-2.51** in the 5-Pillar ecosystem:
+The Company Brain infrastructure is registered under **CONCEPT:KG-2.6** in the 5-Pillar ecosystem:
 
 - **Pillar**: KG-2 (Knowledge Graph & Retrieval)
 - **Concept ID**: KG-2.51

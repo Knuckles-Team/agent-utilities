@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """OWL-Driven Semantic Subsumption.
 
-CONCEPT:KG-2.16 — OWL-Driven Semantic Subsumption
+CONCEPT:KG-2.2 — OWL-Driven Semantic Subsumption
 Enables zero-shot ontology alignment. When a new entity is discovered, its topological
 embedding is compared against existing OWL class prototypes to automatically inject
 it into the correct class hierarchy.

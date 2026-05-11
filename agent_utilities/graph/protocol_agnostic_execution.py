@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Unified Execution Layer Module.
 
+CONCEPT:ORCH-1.4
+
 This module provides protocol-agnostic entry points for graph execution,
 simplifying the interface for various adapters (ACP, AG-UI, SSE). It wraps
 the core runner logic to provide a consistent execution contract.

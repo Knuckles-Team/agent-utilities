@@ -21,7 +21,7 @@ Usage::
     result = await extractor.extract_from_article(article_node)
     # result.entities, result.claims, result.relationships
 
-See docs/emergent-architecture.md §CONCEPT:KG-2.2.
+See docs/pillars/architecture_c4.md §CONCEPT:KG-2.2
 """
 
 

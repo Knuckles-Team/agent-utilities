@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Ecosystem Topology Map.
 
-CONCEPT:ECO-4.7 — Ecosystem Topology Map
+CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
 This module materializes the multi-repository agent ecosystem as a
 first-class Knowledge Graph topology.  It scans the workspace for
@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 class PackageCategory(StrEnum):
     """Intelligent category groupings for ecosystem packages.
 
-    CONCEPT:ECO-4.7 — Ecosystem Topology Map
+    CONCEPT:ECO-4.2 — Ecosystem Topology Map
     """
 
     KERNEL = "kernel"
@@ -138,7 +138,7 @@ _CATEGORY_RULES: dict[PackageCategory, list[str]] = {
 class PackageInfo:
     """Extracted metadata from a ``pyproject.toml`` file.
 
-    CONCEPT:ECO-4.7 — Ecosystem Topology Map
+    CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
     Attributes:
         name: The package name (from ``[project].name``).
@@ -168,7 +168,7 @@ class PackageInfo:
 class EcosystemTopologyBuilder:
     """Builds and manages the ecosystem topology in the Knowledge Graph.
 
-    CONCEPT:ECO-4.7 — Ecosystem Topology Map
+    CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
     Scans a workspace directory tree for ``pyproject.toml`` files, extracts
     package metadata, infers inter-package dependencies, and creates
@@ -192,7 +192,7 @@ class EcosystemTopologyBuilder:
     def discover_packages(self, max_depth: int = 3) -> list[PackageInfo]:
         """Scan the workspace for packages via ``pyproject.toml`` files.
 
-        CONCEPT:ECO-4.7 — Ecosystem Topology Map
+        CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
         Args:
             max_depth: Maximum directory depth to search.
@@ -286,7 +286,7 @@ class EcosystemTopologyBuilder:
     def _categorize_package(self, info: PackageInfo) -> PackageCategory:
         """Infer the category of a package from its name and metadata.
 
-        CONCEPT:ECO-4.7 — Ecosystem Topology Map
+        CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
         Args:
             info: The package info to categorize.
@@ -313,7 +313,7 @@ class EcosystemTopologyBuilder:
     ) -> dict[str, list[str]]:
         """Build an inter-package dependency adjacency list.
 
-        CONCEPT:ECO-4.7 — Ecosystem Topology Map
+        CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
         Only includes edges where both source and target are ecosystem
         packages (not external PyPI dependencies).
@@ -341,7 +341,7 @@ class EcosystemTopologyBuilder:
     ) -> list[str]:
         """Compute the transitive impact radius of a package change.
 
-        CONCEPT:ECO-4.7 — Ecosystem Topology Map
+        CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
         Uses BFS over the *reverse* dependency graph to find all packages
         that directly or transitively depend on ``package_name``.  This
@@ -382,7 +382,7 @@ class EcosystemTopologyBuilder:
     def compute_mcp_coverage(self, packages: list[PackageInfo]) -> dict[str, list[str]]:
         """Map which MCP servers are consumed by which frontends.
 
-        CONCEPT:ECO-4.7 — Ecosystem Topology Map
+        CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
         Args:
             packages: List of discovered packages.
@@ -404,7 +404,7 @@ class EcosystemTopologyBuilder:
     def get_category_groups(self, packages: list[PackageInfo]) -> dict[str, list[str]]:
         """Group packages by their inferred category.
 
-        CONCEPT:ECO-4.7 — Ecosystem Topology Map
+        CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
         Args:
             packages: List of discovered packages.
@@ -424,7 +424,7 @@ class EcosystemTopologyBuilder:
     def persist_to_kg(self, packages: list[PackageInfo]) -> int:
         """Persist ecosystem topology nodes and edges to the Knowledge Graph.
 
-        CONCEPT:ECO-4.7 — Ecosystem Topology Map
+        CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
         Creates :class:`EcosystemPackageNode` entries and inter-package
         dependency edges.  Requires an active ``IntelligenceGraphEngine``.
@@ -522,7 +522,7 @@ class EcosystemTopologyBuilder:
     def generate_topology_report(self, packages: list[PackageInfo]) -> str:
         """Generate a human-readable topology report.
 
-        CONCEPT:ECO-4.7 — Ecosystem Topology Map
+        CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
         Args:
             packages: List of discovered packages.

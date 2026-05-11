@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Agentic Engineering Patterns — Facade Module.
 
-CONCEPT:AHE-3.14 — Agentic Engineering Patterns
+CONCEPT:AHE-3.2 — Agentic Engineering Patterns
 
 This module provides a unified entry point for all agentic engineering
 patterns that are implemented across the ``patterns/`` sub-package.
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 class PatternType(StrEnum):
     """Enumeration of supported agentic engineering patterns.
 
-    CONCEPT:AHE-3.14 — Agentic Engineering Patterns
+    CONCEPT:AHE-3.2 — Agentic Engineering Patterns
     """
 
     TDD = "tdd"
@@ -58,7 +58,7 @@ class PatternType(StrEnum):
 class PatternResult:
     """Result of executing an engineering pattern.
 
-    CONCEPT:AHE-3.14 — Agentic Engineering Patterns
+    CONCEPT:AHE-3.2 — Agentic Engineering Patterns
 
     Attributes:
         pattern: The pattern type that was executed.
@@ -80,7 +80,7 @@ class PatternResult:
 class EngineeringPatternOrchestrator:
     """Orchestrates agentic engineering patterns for a workspace.
 
-    CONCEPT:AHE-3.14 — Agentic Engineering Patterns
+    CONCEPT:AHE-3.2 — Agentic Engineering Patterns
 
     Provides a unified interface to execute TDD cycles, first-run tests,
     manual testing sessions, code walkthroughs, and interactive explanations
@@ -124,7 +124,7 @@ class EngineeringPatternOrchestrator:
     ) -> PatternResult:
         """Execute an engineering pattern.
 
-        CONCEPT:AHE-3.14 — Agentic Engineering Patterns
+        CONCEPT:AHE-3.2 — Agentic Engineering Patterns
 
         Dispatches to the appropriate pattern module and returns a
         structured result.

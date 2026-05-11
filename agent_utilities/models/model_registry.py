@@ -288,7 +288,7 @@ class ModelRegistry(BaseModel):
         p = Path(path)
         text = p.read_text()
         if p.suffix.lower() in (".yaml", ".yml"):
-            import yaml
+            import yaml  # type: ignore
 
             data = yaml.safe_load(text)
         else:

@@ -26,12 +26,16 @@ class IntelligencePipeline:
 
     async def run(self) -> RegistryGraphMetadata:
         """Execute the full unified intelligence pipeline."""
+        import datetime
+
         start_time = time.time()
+        run_start_timestamp = datetime.datetime.now(datetime.UTC).isoformat()
         logger.info("Starting Unified Intelligence Pipeline...")
 
         ctx = PipelineContext(
             config=self.config, nx_graph=self.graph, backend=self.backend
         )
+        ctx.metadata["ingestion_timestamp"] = run_start_timestamp
 
         runner = PipelineRunner(PHASES)
 

@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""CONCEPT:ECO-4.1"""
+
 """Second-pass coverage uplift for agent-utilities.
 
 Targets remaining 0%-coverage and low-coverage modules:

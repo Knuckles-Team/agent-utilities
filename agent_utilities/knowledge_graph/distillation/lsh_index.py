@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Locality-Sensitive Hashing Index for Knowledge Deduplication.
 
-CONCEPT:KG-2.23 — Knowledge Distillation Engine
+CONCEPT:KG-2.2 — Knowledge Distillation Engine
 
 Provides efficient approximate nearest-neighbor candidate generation using
 random hyperplane LSH.  Designed for the deduplication pipeline where we need

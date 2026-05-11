@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Enterprise Banking Pydantic Models (CONCEPT:KG-2.85).
+"""Enterprise Banking Pydantic Models (CONCEPT:KG-2.8).
 
 Models for ISO 20022 messaging, KYC/AML, correspondent banking,
 regulatory capital (Basel III), and credit risk.

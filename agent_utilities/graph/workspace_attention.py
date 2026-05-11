@@ -23,7 +23,7 @@ Integrates with:
     - CONCEPT:KG-2.1 (Self-Model): Track record scoring
     - Existing engine: ``cosine_similarity()`` for relevance scoring
 
-See docs/emergent-architecture.md §CONCEPT:ORCH-1.2.
+See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.2
 """
 
 
@@ -379,7 +379,7 @@ class WorkspaceAttention:
     def deliberation_score(self, proposals: list[Proposal]) -> dict[str, float]:
         """Cross-trajectory critical analysis for heavy thinking integration.
 
-        CONCEPT:AHE-3.7 — Analyzes a group of proposals (representing
+        CONCEPT:AHE-3.5 — Analyzes a group of proposals (representing
         parallel reasoning trajectories) to determine whether they
         warrant sequential deliberation.
 

@@ -1,4 +1,4 @@
-"""Tests for EvalRunner — Multi-Strategy Scoring (CONCEPT:AHE-3.12).
+"""Tests for EvalRunner — Multi-Strategy Scoring (CONCEPT:AHE-3.1).
 
 @pytest.mark.concept("AHE-3.12")
 """

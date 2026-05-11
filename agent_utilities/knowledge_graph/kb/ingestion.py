@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """KB Ingestion Engine.
 
+CONCEPT:KG-2.0
+
 Orchestrates the full ingestion pipeline:
   parse → extract (Pydantic AI) → embed → write to graph backend → update index
 

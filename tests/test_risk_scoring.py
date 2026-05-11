@@ -1,5 +1,5 @@
 from __future__ import annotations
-"""Tests for CONCEPT:KG-2.7 — Risk Scoring Ontology Extension."""
+"""Tests for CONCEPT:KG-2.6 — Risk Scoring Ontology Extension."""
 
 
 import pytest

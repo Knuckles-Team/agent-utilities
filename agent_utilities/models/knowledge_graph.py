@@ -140,7 +140,7 @@ class RegistryNodeType(StrEnum):
     QUIET_STAR_RATIONALE = "quiet_star_rationale"
     # Topological Mincut Partitioning (CONCEPT:KG-2.5)
     COMMUNITY = "community"
-    # Heavy Thinking Orchestration (CONCEPT:AHE-3.7)
+    # Heavy Thinking Orchestration (CONCEPT:AHE-3.5)
     TRAJECTORY = "trajectory"
     DELIBERATION = "deliberation"
     # Financial Trading Pipeline (CONCEPT:KG-2.6)
@@ -153,71 +153,71 @@ class RegistryNodeType(StrEnum):
     VERSIONED_TRADE_COMMIT = "versioned_trade_commit"
     EXECUTION_GUARD = "execution_guard"
     UNIFIED_TRADING_ACCOUNT = "unified_trading_account"
-    # Market Data Connector Protocol (CONCEPT:ECO-4.4)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.3)
     DATA_CONNECTOR = "data_connector"
     DATA_FETCH_RECORD = "data_fetch_record"
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
     SWARM_PRESET = "swarm_preset"
     SWARM_RUN = "swarm_run"
     SWARM_TASK_RECORD = "swarm_task_record"
-    # Risk Scoring Ontology (CONCEPT:KG-2.7)
+    # Risk Scoring Ontology (CONCEPT:KG-2.6)
     RISK_ASSESSMENT = "risk_assessment"
     RISK_FACTOR = "risk_factor"
     RISK_MITIGATION = "risk_mitigation"
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.6)
     BACKTEST_RUN = "backtest_run"
     BACKTEST_METRIC = "backtest_metric"
-    # Topological Analogy Engine (CONCEPT:KG-2.15)
+    # Topological Analogy Engine (CONCEPT:KG-2.5)
     ANALOGY_MATCH = "analogy_match"
-    # OWL-Driven Semantic Subsumption (CONCEPT:KG-2.16)
+    # OWL-Driven Semantic Subsumption (CONCEPT:KG-2.2)
     SUBSUMPTION_ALIGNMENT = "subsumption_alignment"
-    # Topological Vulnerability Scanner (CONCEPT:OS-5.11)
+    # Topological Vulnerability Scanner (CONCEPT:OS-5.1)
     TOPOLOGICAL_VULNERABILITY = "topological_vulnerability"
-    # Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+    # Agentic-iModels (CONCEPT:AHE-3.3, AHE-3.16, KG-2.17)
     IMODEL = "imodel"
     INTERPRETABILITY_TEST = "interpretability_test"
     MODEL_DISPLAY = "model_display"
-    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
     ECOSYSTEM_PACKAGE = "ecosystem_package"
     FRONTEND_PACKAGE = "frontend_package"
     KERNEL_PACKAGE = "kernel_package"
     MCP_SERVER_PACKAGE = "mcp_server_package"
     SKILL_PACKAGE = "skill_package"
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
     SYNERGY_INSIGHT = "synergy_insight"
-    # Knowledge Distillation Engine (CONCEPT:KG-2.23)
+    # Knowledge Distillation Engine (CONCEPT:KG-2.2)
     IDEA_BLOCK = "idea_block"
     DISTILLATION_ROUND = "distillation_round"
-    # Research Intelligence Sub-Agent (CONCEPT:KG-2.33)
+    # Research Intelligence Sub-Agent (CONCEPT:KG-2.6)
     RESEARCH_SESSION = "research_session"
     CITATION_EDGE = "citation_edge"
-    # Spectral Cluster Navigator (CONCEPT:KG-2.34)
+    # Spectral Cluster Navigator (CONCEPT:KG-2.5)
     SPECTRAL_CLUSTER = "spectral_cluster"
-    # Symbol Blast Radius Analyzer (CONCEPT:KG-2.35)
+    # Symbol Blast Radius Analyzer (CONCEPT:KG-2.5)
     BLAST_RADIUS_REPORT = "blast_radius_report"
-    # Auto-Similarity Memory Graph (CONCEPT:KG-2.36)
+    # Auto-Similarity Memory Graph (CONCEPT:KG-2.3)
     SIMILARITY_EDGE = "similarity_edge"
-    # Hybrid Search Index (CONCEPT:KG-2.37)
+    # Hybrid Search Index (CONCEPT:KG-2.3)
     HYBRID_SEARCH_CONFIG = "hybrid_search_config"
-    # Enhanced Doom-Loop Detector (CONCEPT:OS-5.18)
+    # Enhanced Doom-Loop Detector (CONCEPT:OS-5.0)
     DOOM_LOOP_INCIDENT = "doom_loop_incident"
-    # RAG-KG Unification (CONCEPT:KG-2.38)
+    # RAG-KG Unification (CONCEPT:KG-2.3)
     UNIFIED_RAG_CONFIG = "unified_rag_config"
-    # Research Orchestration (CONCEPT:KG-2.39)
+    # Research Orchestration (CONCEPT:KG-2.6)
     ORCHESTRATION_CYCLE = "orchestration_cycle"
-    # Graph Distillation Migration (CONCEPT:KG-2.40)
+    # Graph Distillation Migration (CONCEPT:KG-2.6)
     DISTILLATION_INDEX = "distillation_index"
-    # Formal Graph Theory Primitives (CONCEPT:KG-2.41)
+    # Formal Graph Theory Primitives (CONCEPT:KG-2.6)
     MATH_FOUNDATION = "math_foundation"
     CRITICAL_PATH_RESULT = "critical_path_result"
-    # Structural Causal Reasoning (CONCEPT:KG-2.43)
+    # Structural Causal Reasoning (CONCEPT:KG-2.6)
     CAUSAL_FACTOR = "causal_factor"
     CAUSAL_MODEL = "causal_model"
-    # Optimal Execution Engine (CONCEPT:KG-2.46)
+    # Optimal Execution Engine (CONCEPT:KG-2.6)
     EXECUTION_PLAN = "execution_plan"
     MARKET_MAKING_QUOTE = "market_making_quote"
     PAIRS_TRADE_SIGNAL = "pairs_trade_signal"
-    # KG-Native Orchestration (CONCEPT:ORCH-1.15 through CONCEPT:ORCH-1.19)
+    # KG-Native Orchestration (CONCEPT:ORCH-1.1 through CONCEPT:ORCH-1.4)
     TOPOLOGY_TEMPLATE = "topology_template"
     SESSION_CHECKPOINT = "session_checkpoint"
     PERSISTENT_AGENT = "persistent_agent"
@@ -432,9 +432,9 @@ class RegistryEdgeType(StrEnum):
     AUTHORED_BY = "authored_by"
     # Topological Mincut Partitioning (CONCEPT:KG-2.5)
     PART_OF_COMMUNITY = "part_of_community"
-    # Temporal Drift (CONCEPT:AHE-3.6)
+    # Temporal Drift (CONCEPT:AHE-3.4)
     DRIFTED_TO = "drifted_to"
-    # Heavy Thinking Orchestration (CONCEPT:AHE-3.7)
+    # Heavy Thinking Orchestration (CONCEPT:AHE-3.5)
     TRAJECTORY_OF = "trajectory_of"
     DELIBERATED_BY = "deliberated_by"
     AGREES_WITH = "agrees_with"
@@ -449,76 +449,76 @@ class RegistryEdgeType(StrEnum):
     FORECASTED = "forecasted"
     VERSIONED_IN = "versioned_in"
     GUARDED_BY = "guarded_by"
-    # Market Data Connector Protocol (CONCEPT:ECO-4.4)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.3)
     FETCHED_FROM = "fetched_from"
     FALLS_BACK_TO = "falls_back_to"
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
     PRESET_OF = "preset_of"
     RAN_PRESET = "ran_preset"
     TASK_DEPENDS_ON = "task_depends_on"
-    # Risk Scoring Ontology (CONCEPT:KG-2.7)
+    # Risk Scoring Ontology (CONCEPT:KG-2.6)
     ASSESSED_RISK = "assessed_risk"
     HAS_RISK_FACTOR = "has_risk_factor"
     MITIGATED_BY = "mitigated_by"
     PROPAGATES_RISK_TO = "propagates_risk_to"
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.8)
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.6)
     EVALUATED_STRATEGY = "evaluated_strategy"
     HAS_METRIC = "has_metric"
     COMPARED_TO_BENCHMARK = "compared_to_benchmark"
-    # Topological Analogy Engine (CONCEPT:KG-2.15)
+    # Topological Analogy Engine (CONCEPT:KG-2.5)
     ANALOGOUS_TO = "analogous_to"
-    # OWL-Driven Semantic Subsumption (CONCEPT:KG-2.16)
+    # OWL-Driven Semantic Subsumption (CONCEPT:KG-2.2)
     SUBSUMED_BY = "subsumed_by"
-    # Topological Vulnerability Scanner (CONCEPT:OS-5.11)
+    # Topological Vulnerability Scanner (CONCEPT:OS-5.1)
     EXPOSES_VULNERABILITY = "exposes_vulnerability"
-    # Agentic-iModels (CONCEPT:AHE-3.15, AHE-3.16, KG-2.17)
+    # Agentic-iModels (CONCEPT:AHE-3.3, AHE-3.16, KG-2.17)
     EVOLVED_MODEL = "evolved_model"
     TESTED_INTERPRETABILITY = "tested_interpretability"
     DISPLAY_OF = "display_of"
     PARETO_DOMINATES = "pareto_dominates"
-    # Ecosystem Topology Map (CONCEPT:ECO-4.7)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
     PROVIDES_CAPABILITY_TO = "provides_capability_to"
     CONSUMES_FROM_KERNEL = "consumes_from_kernel"
     VISUALIZES = "visualizes"
-    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.19)
+    # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
     HAS_SYNERGY_WITH = "has_synergy_with"
-    # Knowledge Distillation Engine (CONCEPT:KG-2.23)
+    # Knowledge Distillation Engine (CONCEPT:KG-2.2)
     DISTILLED_FROM = "distilled_from"
     PRODUCED_IN_ROUND = "produced_in_round"
-    # Research Intelligence Sub-Agent (CONCEPT:KG-2.33)
+    # Research Intelligence Sub-Agent (CONCEPT:KG-2.6)
     CITES_PAPER = "cites_paper"
     CITED_BY_PAPER = "cited_by_paper"
     DISCOVERED_IN_SESSION = "discovered_in_session"
-    # Spectral Cluster Navigator (CONCEPT:KG-2.34)
+    # Spectral Cluster Navigator (CONCEPT:KG-2.5)
     MEMBER_OF_CLUSTER = "member_of_cluster"
     CLUSTER_PARENT = "cluster_parent"
-    # Symbol Blast Radius Analyzer (CONCEPT:KG-2.35)
+    # Symbol Blast Radius Analyzer (CONCEPT:KG-2.5)
     SYMBOL_USED_IN = "symbol_used_in"
     SYMBOL_DEFINED_IN = "symbol_defined_in"
-    # Auto-Similarity Memory Graph (CONCEPT:KG-2.36)
+    # Auto-Similarity Memory Graph (CONCEPT:KG-2.3)
     SIMILAR_TO = "similar_to"
-    # Enhanced Doom-Loop Detector (CONCEPT:OS-5.18)
+    # Enhanced Doom-Loop Detector (CONCEPT:OS-5.0)
     TRIGGERED_DOOM_LOOP = "triggered_doom_loop"
-    # RAG-KG Unification (CONCEPT:KG-2.38)
+    # RAG-KG Unification (CONCEPT:KG-2.3)
     SHORTCUT_RETRIEVAL = "shortcut_retrieval"
-    # Research Orchestration (CONCEPT:KG-2.39)
+    # Research Orchestration (CONCEPT:KG-2.6)
     ORCHESTRATED_BY = "orchestrated_by"
-    # KG-Native Orchestration (CONCEPT:ORCH-1.15 through CONCEPT:ORCH-1.19)
+    # KG-Native Orchestration (CONCEPT:ORCH-1.1 through CONCEPT:ORCH-1.4)
     TRANSITIONS_TO = "transitions_to"
     CHECKPOINTED_STATE = "checkpointed_state"
     SUBSCRIBED_TO = "subscribed_to"
     MATERIALIZED_FROM = "materialized_from"
     COMPOSED_TEAM = "composed_team"
-    # Formal Graph Theory Primitives (CONCEPT:KG-2.41)
+    # Formal Graph Theory Primitives (CONCEPT:KG-2.6)
     CRITICAL_PATH_OF = "critical_path_of"
     COLORED_WITH = "colored_with"
-    # Structural Causal Reasoning (CONCEPT:KG-2.43)
+    # Structural Causal Reasoning (CONCEPT:KG-2.6)
     CAUSES = "causes"
     CAUSAL_MECHANISM = "causal_mechanism"
     COUNTERFACTUAL_OF = "counterfactual_of"
-    # Probabilistic Reasoning (CONCEPT:KG-2.45)
+    # Probabilistic Reasoning (CONCEPT:KG-2.6)
     BELIEF_UPDATE = "belief_update"
-    # Optimal Execution (CONCEPT:KG-2.46)
+    # Optimal Execution (CONCEPT:KG-2.6)
     EXECUTED_VIA = "executed_via"
     PAIRS_WITH = "pairs_with"
     MAKES_MARKET_IN = "makes_market_in"
@@ -638,7 +638,7 @@ class CommunityNode(RegistryNode):
 class TrajectoryNode(RegistryNode):
     """A persisted reasoning trajectory from a parallel thinker agent.
 
-    CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+    CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
 
     Represents the output of a single parallel reasoning attempt during
     the Heavy Thinking pipeline.  Multiple ``TrajectoryNode`` instances
@@ -668,7 +668,7 @@ class TrajectoryNode(RegistryNode):
 class DeliberationNode(RegistryNode):
     """A deliberation synthesis result from the sequential deliberation phase.
 
-    CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+    CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
 
     Represents the output of the deliberation agent that critically
     analyzes multiple parallel trajectories and synthesizes a final
@@ -1043,13 +1043,13 @@ class CapabilityNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.CAPABILITY
 
 
-# --- Ecosystem Topology Nodes (CONCEPT:ECO-4.7) ---
+# --- Ecosystem Topology Nodes (CONCEPT:ECO-4.2) ---
 
 
 class EcosystemPackageNode(RegistryNode):
     """Represents a package within the agent-utilities ecosystem.
 
-    CONCEPT:ECO-4.7 — Ecosystem Topology Map
+    CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
     Models kernel, frontend, MCP server, and skill packages as
     first-class Knowledge Graph nodes for dependency analysis,
@@ -1083,7 +1083,7 @@ class EcosystemPackageNode(RegistryNode):
 class SynergyInsightNode(RegistryNode):
     """A discovered cross-pillar synergy persisted in the KG.
 
-    CONCEPT:KG-2.19 — Cross-Pillar Synergy Engine
+    CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine
 
     Attributes:
         source_concept: Source concept ID (e.g., ``AHE-3.5``).
@@ -1120,7 +1120,7 @@ class ToolMetadataNode(RegistryNode):
 class AnalogyMatchNode(RegistryNode):
     """Represents a topological analogy found across domains.
 
-    CONCEPT:KG-2.15 — Topological Analogy Engine
+    CONCEPT:KG-2.5 — Topological Analogy Engine
     """
 
     type: RegistryNodeType = RegistryNodeType.ANALOGY_MATCH
@@ -1133,7 +1133,7 @@ class AnalogyMatchNode(RegistryNode):
 class SubsumptionAlignmentNode(RegistryNode):
     """Represents a zero-shot semantic subsumption alignment.
 
-    CONCEPT:KG-2.16 — OWL-Driven Semantic Subsumption
+    CONCEPT:KG-2.2 — OWL-Driven Semantic Subsumption
     """
 
     type: RegistryNodeType = RegistryNodeType.SUBSUMPTION_ALIGNMENT
@@ -1146,7 +1146,7 @@ class SubsumptionAlignmentNode(RegistryNode):
 class TopologicalVulnerabilityNode(RegistryNode):
     """Represents a structural vulnerability found in the execution graph.
 
-    CONCEPT:OS-5.11 — Topological Vulnerability Scanner
+    CONCEPT:OS-5.1 — Topological Vulnerability Scanner
     """
 
     type: RegistryNodeType = RegistryNodeType.TOPOLOGICAL_VULNERABILITY
@@ -1157,7 +1157,7 @@ class TopologicalVulnerabilityNode(RegistryNode):
 
 
 class TriggerBinding(BaseModel):
-    """CONCEPT:ECO-4.6 — Declarative trigger binding for callable resources.
+    """CONCEPT:ECO-4.0 — Declarative trigger binding for callable resources.
 
     Maps a function/tool to an activation trigger (HTTP route, cron
     schedule, or event topic). Enables AgentOS-style category collapse
@@ -1187,7 +1187,7 @@ class CallableResourceNode(RegistryNode):
     origin: Literal["local", "community", "upstream"] = "local"
     timestamp: str | None = None
     author: str | None = None
-    # CONCEPT:ECO-4.6 — Self-Describing Function Registry
+    # CONCEPT:ECO-4.0 — Self-Describing Function Registry
     input_schema: dict[str, Any] = Field(
         default_factory=dict,
         description="JSON Schema describing the function's input parameters",
@@ -2007,7 +2007,7 @@ class MemoryRetrieverNode(RegistryNode):
     CURRENT_SELF_MODEL pointer for O(1) lookup. Integrates with OWL via
     ``memory_retriever.promote_to_owl()`` for reasoner-driven metacognition.
 
-    See docs/emergent-architecture.md §CONCEPT:KG-2.1.
+    See docs/pillars/architecture_c4.md §CONCEPT:KG-2.1
     """
 
     type: RegistryNodeType = RegistryNodeType.SELF_MODEL
@@ -2069,7 +2069,7 @@ class SwarmCoalitionNode(RegistryNode):
     participated, the task tree they were assigned, and the achieved
     parallelism ratio. Registered as transient KG nodes for observability.
 
-    See docs/emergent-architecture.md §CONCEPT:KG-2.0.
+    See docs/pillars/architecture_c4.md §CONCEPT:KG-2.0
     """
 
     type: RegistryNodeType = RegistryNodeType.SWARM_COALITION
@@ -2091,7 +2091,7 @@ class ProposalNode(RegistryNode):
     Specialists submit proposals that are scored by relevance, confidence,
     and track record. Winners are broadcast to the KG for integration.
 
-    See docs/emergent-architecture.md §CONCEPT:ORCH-1.2.
+    See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.2
     """
 
     type: RegistryNodeType = RegistryNodeType.PROPOSAL
@@ -2117,7 +2117,7 @@ class PromptChainNode(RegistryNode):
     for discovery and reuse across sessions.
 
     BFO:Process (occurrent), aligned to :Procedure.
-    See docs/design-patterns-alignment.md §CONCEPT:ORCH-1.1.
+    See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.1
     """
 
     type: RegistryNodeType = RegistryNodeType.PROMPT_CHAIN
@@ -2143,7 +2143,7 @@ class ResourceUsageNode(RegistryNode):
     the OWL reasoner for model selection optimization.
 
     BFO:Process (occurrent), aligned to :ResourceUsage.
-    See docs/design-patterns-alignment.md §CONCEPT:OS-5.2.
+    See docs/pillars/architecture_c4.md §CONCEPT:OS-5.2
     """
 
     type: RegistryNodeType = RegistryNodeType.RESOURCE_USAGE
@@ -2171,7 +2171,7 @@ class EvaluationRecordNode(RegistryNode):
     existing verifier gate. Supports LLM-as-Judge and human calibration.
 
     BFO:SpecificallyDependentContinuant, aligned to :Observation.
-    See docs/design-patterns-alignment.md §CONCEPT:AHE-3.1.
+    See docs/pillars/architecture_c4.md §CONCEPT:AHE-3.1
     """
 
     type: RegistryNodeType = RegistryNodeType.EVALUATION_RECORD
@@ -2203,7 +2203,7 @@ class PrioritizedTaskNode(RegistryNode):
     from blocking tasks, and capability-based specialist assignment.
 
     BFO:Process (occurrent), aligned to :Action.
-    See docs/design-patterns-alignment.md §CONCEPT:ORCH-1.1.
+    See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.1
     """
 
     type: RegistryNodeType = RegistryNodeType.PRIORITIZED_TASK
@@ -2239,7 +2239,7 @@ class KnowledgeGapNode(RegistryNode):
     designed to test those hypotheses.
 
     BFO:SpecificallyDependentContinuant, aligned to :Observation.
-    See docs/design-patterns-alignment.md §CONCEPT:AHE-3.2.
+    See docs/pillars/architecture_c4.md §CONCEPT:AHE-3.2
     """
 
     type: RegistryNodeType = RegistryNodeType.KNOWLEDGE_GAP
@@ -2266,7 +2266,7 @@ class ExplorationExperimentNode(RegistryNode):
     multi-reviewer evaluation with structured scoring.
 
     BFO:Process (occurrent), aligned to :Procedure.
-    See docs/design-patterns-alignment.md §CONCEPT:AHE-3.2.
+    See docs/pillars/architecture_c4.md §CONCEPT:AHE-3.2
     """
 
     type: RegistryNodeType = RegistryNodeType.EXPLORATION_EXPERIMENT
@@ -2303,7 +2303,7 @@ class TeamConfigNode(RegistryNode):
     adaptive_agent_router that historically receive large data can have the ``rlm``
     capability auto-attached at reuse time.
 
-    See docs/emergent-architecture.md §CONCEPT:AHE-3.3.
+    See docs/pillars/architecture_c4.md §CONCEPT:AHE-3.3
     """
 
     type: RegistryNodeType = RegistryNodeType.TEAM_CONFIG
@@ -2356,7 +2356,7 @@ class AgentCapabilityNode(RegistryNode):
     trigger conditions are met at runtime, the executor dynamically
     invokes the capability handler.
 
-    See docs/emergent-architecture.md §CONCEPT:ORCH-1.2.
+    See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.2
     """
 
     type: RegistryNodeType = RegistryNodeType.AGENT_CAPABILITY
@@ -2389,13 +2389,13 @@ class AgentCapabilityNode(RegistryNode):
     )
 
 
-# --- KG-Native Orchestration Nodes (CONCEPT:ORCH-1.15 through CONCEPT:ORCH-1.19) ---
+# --- KG-Native Orchestration Nodes (CONCEPT:ORCH-1.1 through CONCEPT:ORCH-1.4) ---
 
 
 class TopologyTemplateNode(RegistryNode):
     """KG-stored graph execution topology template.
 
-    CONCEPT:ORCH-1.17 — Dynamic Topology Materialization
+    CONCEPT:ORCH-1.2 — Dynamic Topology Materialization
 
     Defines a reusable execution pattern: which specialist types participate,
     how they are connected (transitions), and what execution mode they use.
@@ -2469,7 +2469,7 @@ class TopologyTemplateNode(RegistryNode):
 class SessionCheckpointNode(RegistryNode):
     """Persisted execution state checkpoint in the Knowledge Graph.
 
-    CONCEPT:ORCH-1.16 — Execution State Persistence
+    CONCEPT:ORCH-1.1 — Execution State Persistence
 
     Bridges the ephemeral ``GraphState`` and the persistent KG.
     Created at HSM transition boundaries and on session completion.
@@ -2508,7 +2508,7 @@ class SessionCheckpointNode(RegistryNode):
 class PersistentAgentNode(RegistryNode):
     """Long-running background agent coordinated via the Knowledge Graph.
 
-    CONCEPT:ORCH-1.19 — Persistent Background Agents
+    CONCEPT:ORCH-1.4 — Persistent Background Agents
 
     Unlike ephemeral request agents, persistent agents maintain state
     across sessions.  They register in the KG with subscription filters
@@ -2565,7 +2565,7 @@ class PersistentAgentNode(RegistryNode):
 class TeamComposition(BaseModel):
     """Result of KG-driven team composition.
 
-    CONCEPT:ORCH-1.15 — KG-Driven Team Composition
+    CONCEPT:ORCH-1.1 — KG-Driven Team Composition
 
     Returned by KGTeamComposer.compose_team(). Contains everything
     needed to materialize and execute a specialist team:
@@ -2632,7 +2632,7 @@ class AgentProcessNode(RegistryNode):
     paging.  Linked to its parent agent via ``EXECUTED_BY`` edges
     and to checkpoints via ``CHECKPOINTED_TO`` edges.
 
-    See docs/cognitive-scheduler.md §CONCEPT:OS-5.2.
+    See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
     """
 
     type: RegistryNodeType = RegistryNodeType.AGENT_PROCESS
@@ -2681,7 +2681,7 @@ class AgentIdentityNode(RegistryNode):
     Linked to agents via ``HAS_IDENTITY`` edges and to authorized
     tools via ``AUTHORIZED_FOR`` edges.
 
-    See docs/permissions-kernel.md §CONCEPT:OS-5.2.
+    See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
     """
 
     type: RegistryNodeType = RegistryNodeType.AGENT_IDENTITY
@@ -2714,7 +2714,7 @@ class SpecialistPackageNode(RegistryNode):
     nodes.  Linked to the originating registry via ``INSTALLED_FROM``
     edges.
 
-    See docs/agent-registry.md §CONCEPT:OS-5.2.
+    See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
     """
 
     type: RegistryNodeType = RegistryNodeType.SPECIALIST_PACKAGE
@@ -2882,7 +2882,7 @@ class SchemaPackNode(RegistryNode):
     enabling pack-aware filtering in the OWL bridge, hybrid retriever,
     and inference engine.
 
-    See docs/knowledge-graph.md §Schema Packs.
+    See docs/pillars/2_epistemic_knowledge_graph.md §Schema Packs.
     """
 
     type: RegistryNodeType = RegistryNodeType.SCHEMA_PACK
@@ -3085,13 +3085,13 @@ class StrategyNode(RegistryNode):
     universes: list[str] = Field(default_factory=list)
 
 
-# --- Market Data Connector Nodes (CONCEPT:ECO-4.4) ---
+# --- Market Data Connector Nodes (CONCEPT:ECO-4.3) ---
 
 
 class DataConnectorNode(RegistryNode):
     """A registered external data source with health and rate-limit metadata.
 
-    CONCEPT:ECO-4.4 — Market Data Connector Protocol
+    CONCEPT:ECO-4.3 — Market Data Connector Protocol
 
     Represents an external data provider that can be queried by agents.
     The ``FALLS_BACK_TO`` edge creates a prioritized fallback chain.
@@ -3123,7 +3123,7 @@ class DataConnectorNode(RegistryNode):
 class DataFetchRecordNode(RegistryNode):
     """Immutable provenance record of a data fetch operation.
 
-    CONCEPT:ECO-4.4 — Market Data Connector Protocol
+    CONCEPT:ECO-4.3 — Market Data Connector Protocol
 
     Records every data retrieval for audit, debugging, and cost tracking.
     Links to the source ``DataConnectorNode`` via ``FETCHED_FROM``.
@@ -3237,13 +3237,13 @@ class SwarmTaskRecordNode(RegistryNode):
     duration_seconds: float = 0.0
 
 
-# --- Risk Scoring Nodes (CONCEPT:KG-2.7) ---
+# --- Risk Scoring Nodes (CONCEPT:KG-2.6) ---
 
 
 class RiskAssessmentNode(RegistryNode):
     """Domain-agnostic risk evaluation with multi-dimensional scoring.
 
-    CONCEPT:KG-2.7 — Risk Scoring Ontology Extension
+    CONCEPT:KG-2.6 — Risk Scoring Ontology Extension
 
     Represents a point-in-time risk assessment for any entity (financial
     instrument, software component, project, etc.). Links to constituent
@@ -3270,7 +3270,7 @@ class RiskAssessmentNode(RegistryNode):
 class RiskFactorNode(RegistryNode):
     """An individual risk factor contributing to an assessment.
 
-    CONCEPT:KG-2.7 — Risk Scoring Ontology Extension
+    CONCEPT:KG-2.6 — Risk Scoring Ontology Extension
 
     Represents a specific dimension of risk (market_risk, credit_risk,
     operational_risk, code_quality_risk, etc.). Multiple risk factors
@@ -3301,7 +3301,7 @@ class RiskFactorNode(RegistryNode):
 class RiskMitigationNode(RegistryNode):
     """A proposed or applied mitigation for a risk factor.
 
-    CONCEPT:KG-2.7 — Risk Scoring Ontology Extension
+    CONCEPT:KG-2.6 — Risk Scoring Ontology Extension
 
     Links to the ``RiskFactorNode`` it addresses via ``MITIGATED_BY``.
 
@@ -3321,13 +3321,13 @@ class RiskMitigationNode(RegistryNode):
     applied_at: str | None = None
 
 
-# --- Backtest / Evaluation Harness Nodes (CONCEPT:AHE-3.8) ---
+# --- Backtest / Evaluation Harness Nodes (CONCEPT:AHE-3.6) ---
 
 
 class BacktestRunNode(RegistryNode):
     """A complete backtesting or evaluation run record.
 
-    CONCEPT:AHE-3.8 — Backtest Evaluation Harness
+    CONCEPT:AHE-3.6 — Backtest Evaluation Harness
 
     Records a full evaluation run including parameters, date range, and
     aggregate results. Links to ``StrategyNode`` via ``EVALUATED_STRATEGY``
@@ -3362,7 +3362,7 @@ class BacktestRunNode(RegistryNode):
 class BacktestMetricNode(RegistryNode):
     """An individual metric from a backtest or evaluation run.
 
-    CONCEPT:AHE-3.8 — Backtest Evaluation Harness
+    CONCEPT:AHE-3.6 — Backtest Evaluation Harness
 
     Represents a single named metric (Sharpe ratio, max drawdown, accuracy,
     F1, etc.) for a specific evaluation window. Links to the parent
@@ -3384,13 +3384,13 @@ class BacktestMetricNode(RegistryNode):
     is_passing: bool = True
 
 
-# --- Knowledge Distillation Nodes (CONCEPT:KG-2.23) ---
+# --- Knowledge Distillation Nodes (CONCEPT:KG-2.2) ---
 
 
 class EntityReference(BaseModel):
     """A named entity reference within an IdeaBlock.
 
-    CONCEPT:KG-2.23 — Knowledge Distillation Engine
+    CONCEPT:KG-2.2 — Knowledge Distillation Engine
 
     Attributes:
         entity_name: The entity name (e.g., 'CLAUDE CODE').
@@ -3404,7 +3404,7 @@ class EntityReference(BaseModel):
 class IdeaBlockNode(RegistryNode):
     """An atomic, structured knowledge unit.
 
-    CONCEPT:KG-2.23 — Knowledge Distillation Engine
+    CONCEPT:KG-2.2 — Knowledge Distillation Engine
 
     Represents a single piece of knowledge as a question-answer pair with
     governance metadata, entity references, and retrieval keywords.
@@ -3438,7 +3438,7 @@ class IdeaBlockNode(RegistryNode):
 class DistillationRoundNode(RegistryNode):
     """A single iteration of the knowledge deduplication process.
 
-    CONCEPT:KG-2.23 — Knowledge Distillation Engine
+    CONCEPT:KG-2.2 — Knowledge Distillation Engine
 
     Records metrics for one distillation round including the similarity
     threshold, block counts before and after, and the number of merges
@@ -3464,13 +3464,13 @@ class DistillationRoundNode(RegistryNode):
     clusters_merged: int = 0
 
 
-# --- Research Intelligence Sub-Agent Nodes (CONCEPT:KG-2.33) ---
+# --- Research Intelligence Sub-Agent Nodes (CONCEPT:KG-2.6) ---
 
 
 class ResearchSessionNode(RegistryNode):
     """A research sub-agent execution session.
 
-    CONCEPT:KG-2.33 — Research Intelligence Sub-Agent
+    CONCEPT:KG-2.6 — Research Intelligence Sub-Agent
 
     Tracks an isolated research context window with its own token budget,
     tool whitelist, and findings. Adapted from ml-intern's research_tool.py
@@ -3507,7 +3507,7 @@ class ResearchSessionNode(RegistryNode):
 class CitationEdgeNode(RegistryNode):
     """A citation relationship between two research papers.
 
-    CONCEPT:KG-2.33 — Research Intelligence Sub-Agent
+    CONCEPT:KG-2.6 — Research Intelligence Sub-Agent
 
     Represents directional citation edges with semantic metadata.
     Enables transitive citation graph traversal via ``wasDerivedFrom``
@@ -3533,13 +3533,13 @@ class CitationEdgeNode(RegistryNode):
     depth: int = 0
 
 
-# --- Spectral Cluster Navigator Nodes (CONCEPT:KG-2.34) ---
+# --- Spectral Cluster Navigator Nodes (CONCEPT:KG-2.5) ---
 
 
 class SpectralClusterNode(RegistryNode):
     """A semantically coherent cluster discovered via spectral decomposition.
 
-    CONCEPT:KG-2.34 — Spectral Cluster Navigator
+    CONCEPT:KG-2.5 — Spectral Cluster Navigator
 
     Represents an auto-discovered group of semantically related entities
     using normalized Laplacian eigengap heuristics for tuning-free
@@ -3569,13 +3569,13 @@ class SpectralClusterNode(RegistryNode):
     domain: str = "general"  # codebase, research, financial, general
 
 
-# --- Symbol Blast Radius Analyzer Nodes (CONCEPT:KG-2.35) ---
+# --- Symbol Blast Radius Analyzer Nodes (CONCEPT:KG-2.5) ---
 
 
 class BlastRadiusNode(RegistryNode):
     """A symbol-level impact analysis report.
 
-    CONCEPT:KG-2.35 — Symbol Blast Radius Analyzer
+    CONCEPT:KG-2.5 — Symbol Blast Radius Analyzer
 
     Tracks how widely a code symbol (function, class, variable) is used
     across the codebase. Adapted from contextplus's blast-radius.ts
@@ -3607,13 +3607,13 @@ class BlastRadiusNode(RegistryNode):
     usages: list[dict[str, Any]] = Field(default_factory=list)
 
 
-# --- Auto-Similarity Memory Graph Nodes (CONCEPT:KG-2.36) ---
+# --- Auto-Similarity Memory Graph Nodes (CONCEPT:KG-2.3) ---
 
 
 class SimilarityEdgeNode(RegistryNode):
     """An auto-created similarity link between memory nodes.
 
-    CONCEPT:KG-2.36 — Auto-Similarity Memory Graph
+    CONCEPT:KG-2.3 — Auto-Similarity Memory Graph
 
     Represents a similarity relationship discovered during memory
     node insertion. Uses cosine similarity thresholding with exponential
@@ -3646,7 +3646,7 @@ class SimilarityEdgeNode(RegistryNode):
 class MemoryDecayConfig(BaseModel):
     """Configuration for auto-similarity and decay parameters.
 
-    CONCEPT:KG-2.36 — Auto-Similarity Memory Graph
+    CONCEPT:KG-2.3 — Auto-Similarity Memory Graph
 
     Attributes:
         similarity_threshold: Minimum cosine similarity to create an edge (default 0.72).
@@ -3663,13 +3663,13 @@ class MemoryDecayConfig(BaseModel):
     batch_window: int = 100
 
 
-# --- Hybrid Search Index Configuration (CONCEPT:KG-2.37) ---
+# --- Hybrid Search Index Configuration (CONCEPT:KG-2.3) ---
 
 
 class HybridSearchConfig(BaseModel):
     """Configuration for hybrid semantic+keyword search scoring.
 
-    CONCEPT:KG-2.37 — Hybrid Search Index
+    CONCEPT:KG-2.3 — Hybrid Search Index
 
     Adapted from contextplus's embedding.ts hybrid scoring with
     configurable weight/threshold parameters.
@@ -3693,13 +3693,13 @@ class HybridSearchConfig(BaseModel):
     top_k: int = 10
 
 
-# --- Enhanced Doom-Loop Detector Nodes (CONCEPT:OS-5.18) ---
+# --- Enhanced Doom-Loop Detector Nodes (CONCEPT:OS-5.0) ---
 
 
 class DoomLoopIncidentNode(RegistryNode):
     """A detected tool-call repetition pattern.
 
-    CONCEPT:OS-5.18 — Enhanced Doom-Loop Detector
+    CONCEPT:OS-5.0 — Enhanced Doom-Loop Detector
 
     Records pattern-aware doom-loop detection incidents including
     consecutive identical calls and repeating multi-tool sequences.
@@ -3728,13 +3728,13 @@ class DoomLoopIncidentNode(RegistryNode):
     was_broken: bool = False
 
 
-# --- RAG-KG Unification Node (CONCEPT:KG-2.38) ---
+# --- RAG-KG Unification Node (CONCEPT:KG-2.3) ---
 
 
 class UnifiedRAGConfigNode(RegistryNode):
     """Configuration snapshot for a unified RAG-KG retrieval session.
 
-    CONCEPT:KG-2.38 — RAG-KG Unification
+    CONCEPT:KG-2.3 — RAG-KG Unification
 
     Tracks the configuration and performance metrics for unified
     retrieval sessions that combine similarity shortcuts, spectral
@@ -3760,13 +3760,13 @@ class UnifiedRAGConfigNode(RegistryNode):
     avg_latency_ms: float = 0.0
 
 
-# --- Research Orchestration Node (CONCEPT:KG-2.39) ---
+# --- Research Orchestration Node (CONCEPT:KG-2.6) ---
 
 
 class OrchestrationCycleNode(RegistryNode):
     """Record of a research orchestration cycle execution.
 
-    CONCEPT:KG-2.39 — Research Orchestration Integration
+    CONCEPT:KG-2.6 — Research Orchestration Integration
 
     Tracks the results of an automated research-to-KG cycle including
     discovery, citation traversal, similarity linking, and cluster
@@ -3794,13 +3794,13 @@ class OrchestrationCycleNode(RegistryNode):
     query: str = ""
 
 
-# --- Graph Distillation Node (CONCEPT:KG-2.40) ---
+# --- Graph Distillation Node (CONCEPT:KG-2.6) ---
 
 
 class DistillationIndexNode(RegistryNode):
     """Snapshot of the graph distillation index health.
 
-    CONCEPT:KG-2.40 — Graph Distillation Migration
+    CONCEPT:KG-2.6 — Graph Distillation Migration
 
     Records the state of the pre-computed similarity edge index
     for monitoring and operational awareness.

@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.71 — Multi-Agent Trading Swarm."""
+"""Tests for CONCEPT:KG-2.6 — Multi-Agent Trading Swarm."""
 
 import pytest
 

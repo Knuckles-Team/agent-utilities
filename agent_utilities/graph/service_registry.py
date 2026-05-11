@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unified Service Registry (CONCEPT:ORCH-1.20).
+"""Unified Service Registry (CONCEPT:ORCH-1.4).
 
 Central nervous system wiring all concept modules into the KG-driven
 orchestration pipeline via lazy-load registration. Each module registers
@@ -127,14 +127,6 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Subagent lifecycle patterns (ORCH-1.6)",
     },
     {
-        "module": "agent_utilities.graph.swarm_preset",
-        "entry": "SwarmPresetEngine",
-        "capability": "swarm_presets",
-        "layer": "orchestration",
-        "domain": "general",
-        "desc": "YAML-driven swarm templates (ORCH-1.4)",
-    },
-    {
         "module": "agent_utilities.security.execution_stability_engine",
         "entry": "RetryManager",
         "capability": "structured_retry",
@@ -144,7 +136,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.knowledge_graph.memory.elastic_context_manager",
-        "entry": "VectorizedContextFilter",
+        "entry": "ElasticContextManager",
         "capability": "context_filtering",
         "layer": "orchestration",
         "domain": "general",
@@ -177,7 +169,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.security.threat_defense_engine",
-        "entry": "TopologicalVulnerabilityScanner",
+        "entry": "TopologicalScanner",
         "capability": "vulnerability_scanning",
         "layer": "security",
         "domain": "general",
@@ -193,7 +185,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.security.threat_defense_engine",
-        "entry": "GuardrailCallbackEngine",
+        "entry": "GuardrailRule",
         "capability": "guardrails",
         "layer": "security",
         "domain": "general",
@@ -201,7 +193,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.server.concurrency",
-        "entry": "ConcurrencyManager",
+        "entry": "AsyncioConcurrencyManager",
         "capability": "concurrency_control",
         "layer": "security",
         "domain": "general",
@@ -234,7 +226,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.knowledge_graph.memory.auto_similarity",
-        "entry": "AutoSimilarityEngine",
+        "entry": "AutoSimilarityLinker",
         "capability": "auto_similarity",
         "layer": "kg_intelligence",
         "domain": "general",
@@ -265,16 +257,16 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Semantic+keyword search (KG-2.37)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.retrieval.embedding_diagnostics",
-        "entry": "EmbeddingDiagnostics",
+        "module": "agent_utilities.knowledge_graph.memory.knowledge_stability_engine",
+        "entry": "KnowledgeStabilityEngine",
         "capability": "embedding_diagnostics",
         "layer": "kg_intelligence",
         "domain": "general",
-        "desc": "Embedding quality monitoring (KG-2.42)",
+        "desc": "Embedding quality & alignment diagnostics (AHE-3.6)",
     },
     {
         "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
-        "entry": "CausalReasoningEngine",
+        "entry": "CausalVerifier",
         "capability": "formal_reasoning_core",
         "layer": "kg_intelligence",
         "domain": "general",
@@ -282,7 +274,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
-        "entry": "ProbabilisticReasoner",
+        "entry": "BayesianBeliefPropagator",
         "capability": "formal_reasoning_core",
         "layer": "kg_intelligence",
         "domain": "general",
@@ -290,7 +282,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
-        "entry": "GraphTheoryPrimitives",
+        "entry": "RandomWalkExplorer",
         "capability": "graph_theory",
         "layer": "kg_intelligence",
         "domain": "general",
@@ -298,7 +290,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
-        "entry": "FormalRelationsEngine",
+        "entry": "FormalStateMachine",
         "capability": "formal_reasoning_core",
         "layer": "kg_intelligence",
         "domain": "general",
@@ -306,7 +298,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
-        "entry": "StateMachineInvariantEngine",
+        "entry": "FormalStateMachine",
         "capability": "state_invariants",
         "layer": "kg_intelligence",
         "domain": "general",
@@ -314,7 +306,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.knowledge_graph.core.formal_reasoning_core",
-        "entry": "MarkovTransitionForecaster",
+        "entry": "MarkovTransitionModel",
         "capability": "markov_forecasting",
         "layer": "kg_intelligence",
         "domain": "general",
@@ -322,19 +314,19 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "module": "agent_utilities.knowledge_graph.core.optimal_execution",
-        "entry": "OptimalExecutionEngine",
+        "entry": "AlmgrenChrissDiscrete",
         "capability": "optimal_execution",
         "layer": "kg_intelligence",
         "domain": "finance",
         "desc": "Almgren-Chriss/Cartea-Jaimungal (KG-2.46)",
     },
     {
-        "module": "agent_utilities.knowledge_graph.memory.latent_space_regularizer",
-        "entry": "LatentSpaceRegularizer",
-        "capability": "anti_collapse",
+        "module": "agent_utilities.knowledge_graph.memory.knowledge_stability_engine",
+        "entry": "KnowledgeStabilityEngine",
+        "capability": "knowledge_stability",
         "layer": "kg_intelligence",
         "domain": "general",
-        "desc": "Latent space anti-collapse (KG-2.44)",
+        "desc": "Knowledge stability: EWC, drift, collapse, diagnostics (AHE-3.6)",
     },
     # --- Layer 4: Harness & Evolution ---
     {
@@ -409,55 +401,55 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "capability": "alpha_factors",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Alpha factor library (KG-2.60)",
+        "desc": "Alpha factor library (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.risk_manager",
-        "entry": "RiskManagementEngine",
+        "entry": "RiskManager",
         "capability": "risk_management",
         "layer": "domain",
         "domain": "finance",
-        "desc": "VaR & stress testing (KG-2.61)",
+        "desc": "VaR & stress testing (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.portfolio_optimizer",
-        "entry": "PortfolioOptimizer",
+        "entry": "MeanVarianceOptimizer",
         "capability": "portfolio_optimization",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Markowitz/Risk Parity (KG-2.62)",
+        "desc": "Markowitz/Risk Parity (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.versioned_orders",
-        "entry": "VersionedOrderSystem",
+        "entry": "OrderHistory",
         "capability": "versioned_orders",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Trading-as-Git (KG-2.63)",
+        "desc": "Trading-as-Git (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.market_data",
-        "entry": "MarketDataAbstraction",
+        "entry": "DataRegistry",
         "capability": "market_data",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Data provider abstraction (KG-2.64)",
+        "desc": "Data provider abstraction (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.payments",
-        "entry": "X402PaymentProtocol",
+        "entry": "X402PaymentClient",
         "capability": "ai_payments",
         "layer": "domain",
         "domain": "finance",
-        "desc": "x402 AI payments (KG-2.65)",
+        "desc": "x402 AI payments (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.profit_attribution",
-        "entry": "ProfitAttributionEngine",
+        "entry": "ProfitAttributor",
         "capability": "profit_attribution",
         "layer": "domain",
         "domain": "finance",
-        "desc": "P&L decomposition (KG-2.66)",
+        "desc": "P&L decomposition (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.kronos_forecaster",
@@ -465,7 +457,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "capability": "time_series_forecast",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Kronos foundation model (KG-2.70)",
+        "desc": "Kronos foundation model (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.trading_swarm",
@@ -473,7 +465,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "capability": "trading_swarm",
         "layer": "domain",
         "domain": "finance",
-        "desc": "8-role trading swarm (KG-2.71)",
+        "desc": "8-role trading swarm (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.visual_ta",
@@ -481,15 +473,15 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "capability": "visual_ta",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Chart pattern detection (KG-2.72)",
+        "desc": "Chart pattern detection (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.market_feeds",
-        "entry": "MarketFeedManager",
+        "entry": "MarketFeedBus",
         "capability": "market_feeds",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Real-time market feeds (KG-2.73)",
+        "desc": "Real-time market feeds (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.strategy_export",
@@ -497,7 +489,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "capability": "strategy_export",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Multi-platform export (KG-2.74)",
+        "desc": "Multi-platform export (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.research_autopilot",
@@ -505,15 +497,56 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "capability": "research_autopilot",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Automated hypothesis testing (KG-2.75)",
+        "desc": "Automated hypothesis testing (KG-2.6)",
     },
     {
         "module": "agent_utilities.domains.finance.strategy_sharing",
-        "entry": "StrategySharingSystem",
+        "entry": "StrategyRegistry",
         "capability": "strategy_sharing",
         "layer": "domain",
         "domain": "finance",
-        "desc": "Community strategy marketplace (KG-2.76)",
+        "desc": "Community strategy marketplace (KG-2.6)",
+    },
+    # --- Consolidated Engine Facades ---
+    {
+        "module": "agent_utilities.observability",
+        "entry": "TelemetryEngine",
+        "capability": "telemetry",
+        "layer": "observability",
+        "domain": "general",
+        "desc": "Audit + token tracking facade (OS-5.6/5.7/5.9)",
+    },
+    {
+        "module": "agent_utilities.knowledge_graph.core.topological_analysis_engine",
+        "entry": "TopologicalAnalysisEngine",
+        "capability": "topological_analysis",
+        "layer": "topology",
+        "domain": "general",
+        "desc": "Community + analogy + spectral + blast radius (KG-2.5/2.15/2.34/2.35)",
+    },
+    {
+        "module": "agent_utilities.knowledge_graph.research.research_intelligence_engine",
+        "entry": "ResearchIntelligenceEngine",
+        "capability": "research_intelligence",
+        "layer": "research",
+        "domain": "general",
+        "desc": "Pipeline + citation + orchestration (KG-2.11/2.33/2.39)",
+    },
+    {
+        "module": "agent_utilities.harness.agentic_evolution_engine",
+        "entry": "AgenticEvolutionEngine",
+        "capability": "agentic_evolution",
+        "layer": "harness",
+        "domain": "general",
+        "desc": "Variant pool + skill evolution (AHE-3.2/ECO-4.1)",
+    },
+    {
+        "module": "agent_utilities.harness.evaluation_engine",
+        "entry": "EvaluationEngine",
+        "capability": "evaluation",
+        "layer": "harness",
+        "domain": "general",
+        "desc": "Reward decomposition + trace distillation (AHE-3.1/3.10/KG-2.4)",
     },
 ]
 
@@ -521,7 +554,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
 class ServiceRegistry:
     """Central service registry for KG-driven orchestration.
 
-    CONCEPT:ORCH-1.20 — Unified Service Discovery
+    CONCEPT:ORCH-1.4 — Unified Service Discovery
 
     Lazily loads and registers all concept modules, making them
     discoverable by the TopologyEngine and KGTeamComposer at runtime.
@@ -578,7 +611,7 @@ class ServiceRegistry:
 
         self._initialized = True
         logger.info(
-            "[CONCEPT:ORCH-1.20] Service registry initialized with %d services",
+            "[CONCEPT:ORCH-1.4] Service registry initialized with %d services",
             len(self._services),
         )
         return len(self._services)
@@ -678,5 +711,5 @@ class ServiceRegistry:
             except Exception as e:
                 logger.debug("Failed to register service '%s': %s", cap, e)
 
-        logger.info("[CONCEPT:ORCH-1.20] Registered %d services with KG", count)
+        logger.info("[CONCEPT:ORCH-1.4] Registered %d services with KG", count)
         return count

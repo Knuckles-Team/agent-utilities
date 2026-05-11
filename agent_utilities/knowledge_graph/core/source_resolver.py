@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.12 — KG Source Resolver for Comparative Analysis.
+"""CONCEPT:KG-2.7 — KG Source Resolver for Comparative Analysis.
 
 Bridges the Knowledge Graph (indexing/discovery layer) to the
 comparative-analysis skill (analysis layer) by materializing stored
@@ -19,10 +19,10 @@ When a KG is available, it provides an additional discovery mechanism.
 
 Integrates with:
     - CONCEPT:KG-2.0 (IntelligenceGraphEngine): Source discovery
-    - CONCEPT:KG-2.11 (ResearchPipeline): Paper ingestion
+    - CONCEPT:KG-2.7 (ResearchPipeline): Paper ingestion
     - comparative-analysis skill: discover_projects.py --kg-query
 
-See docs/research-pipeline.md §CONCEPT:KG-2.12.
+See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:KG-2.6
 """
 
 
@@ -68,7 +68,7 @@ class ResolvedSource(BaseModel):
 
 
 class KGSourceResolver:
-    """CONCEPT:KG-2.12 — Resolves KG-stored documents into filesystem-ready sources.
+    """CONCEPT:KG-2.6 — Resolves KG-stored documents into filesystem-ready sources.
 
     Bridges the KG (indexing layer) to the comparative-analysis (analysis layer)
     by materializing stored documents to persistent paths with metadata enrichment.
@@ -354,7 +354,7 @@ class KGSourceResolver:
             )
 
         logger.info(
-            "[CONCEPT:KG-2.12] Resolved %d sources for type '%s' to %s",
+            "[CONCEPT:KG-2.6] Resolved %d sources for type '%s' to %s",
             len(resolved),
             source_type,
             self.resolve_dir,
@@ -375,5 +375,5 @@ class KGSourceResolver:
             f.unlink()
             count += 1
 
-        logger.info("[CONCEPT:KG-2.12] Cleaned up %d materialized files", count)
+        logger.info("[CONCEPT:KG-2.6] Cleaned up %d materialized files", count)
         return count

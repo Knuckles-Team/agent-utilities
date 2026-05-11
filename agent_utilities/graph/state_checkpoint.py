@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Execution State Checkpointing (CONCEPT:ORCH-1.16).
+"""Execution State Checkpointing (CONCEPT:ORCH-1.1).
 
 Bridges the ephemeral ``GraphState`` and the persistent Knowledge Graph.
 Checkpoints are created at HSM transition boundaries and on session
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 class StateCheckpointer:
     """Checkpoints GraphState to/from the Knowledge Graph.
 
-    CONCEPT:ORCH-1.16 — Execution State Persistence
+    CONCEPT:ORCH-1.1 — Execution State Persistence
 
     Converts key GraphState fields to a ``SessionCheckpointNode`` in the KG,
     enabling session resume, cross-session learning, and active execution
@@ -149,7 +149,7 @@ class StateCheckpointer:
                         "SessionCheckpoint", checkpoint_id, node_data
                     )
                     logger.info(
-                        "[CONCEPT:ORCH-1.16] Checkpointed session '%s' (status=%s, nodes=%d)",
+                        "[CONCEPT:ORCH-1.1] Checkpointed session '%s' (status=%s, nodes=%d)",
                         session_id,
                         status,
                         len(node_history),
@@ -161,7 +161,7 @@ class StateCheckpointer:
                 # Memory-only mode: store directly in NX graph
                 self.engine.graph.add_node(checkpoint_id, **node_data)
                 logger.info(
-                    "[CONCEPT:ORCH-1.16] Checkpointed session '%s' to NX (memory-only)",
+                    "[CONCEPT:ORCH-1.1] Checkpointed session '%s' to NX (memory-only)",
                     session_id,
                 )
         else:
@@ -247,7 +247,7 @@ class StateCheckpointer:
             state_dict["state_data"] = sd
 
         logger.info(
-            "[CONCEPT:ORCH-1.16] Restored session '%s' (status=%s)",
+            "[CONCEPT:ORCH-1.1] Restored session '%s' (status=%s)",
             session_id,
             state_dict.get("status"),
         )
@@ -313,7 +313,7 @@ class StateCheckpointer:
                     {"sid": session_id, "status": status},
                 )
                 logger.info(
-                    "[CONCEPT:ORCH-1.16] Marked session '%s' as %s",
+                    "[CONCEPT:ORCH-1.1] Marked session '%s' as %s",
                     session_id,
                     status,
                 )

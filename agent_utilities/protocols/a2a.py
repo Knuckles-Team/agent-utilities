@@ -162,7 +162,7 @@ class A2AClient:
     async def execute_bft_consensus(
         self, urls: list[str], query: str, threshold: float = 0.66
     ) -> Any:
-        """CONCEPT:ECO-4.2 — Multi-agent BFT consensus for A2A.
+        """CONCEPT:ECO-4.1 — Multi-agent BFT consensus for A2A.
         Queries multiple peers simultaneously and requires a consensus threshold to return a validated result.
 
         Args:

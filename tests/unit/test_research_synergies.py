@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.4"""
+
 import pytest
 import networkx as nx
 from unittest.mock import MagicMock

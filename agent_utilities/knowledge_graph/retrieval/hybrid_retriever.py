@@ -32,7 +32,7 @@ class HybridRetriever:
     Combines semantic vector similarity, topological graph traversal,
     backlink-density retrieval weighting (CONCEPT:KG-2.2), positional interaction
     encodings (CONCEPT:KG-2.4) for inductive hypergraph reasoning, and
-    retrieval quality gating (CONCEPT:KG-2.8) for faithfulness scoring.
+    retrieval quality gating (CONCEPT:KG-2.6) for faithfulness scoring.
 
     When a pack is configured, its ``backlink_boost_strategy``,
     ``backlink_boost_factor``, and ``min_relevance_threshold`` govern
@@ -67,7 +67,7 @@ class HybridRetriever:
         # CONCEPT:KG-2.4: Inductive Knowledge Hypergraphs
         self._enc_pi = PositionalInteractionEncoder()
 
-        # CONCEPT:KG-2.8: Retrieval Quality Gate
+        # CONCEPT:KG-2.6: Retrieval Quality Gate
         self._quality_gate: Any = None  # Lazy-initialized
         self._last_quality_report = None
 
@@ -148,7 +148,7 @@ class HybridRetriever:
                         sim = cosine_similarity(query_emb, node_emb)
                         if (
                             sim > self._relevance_threshold
-                        ):  # CONCEPT:KG-2.8 configurable threshold
+                        ):  # CONCEPT:KG-2.6 configurable threshold
                             node_data = row.get("data", {})
                             node_data["id"] = row.get("id")
                             node_data["_score"] = sim * self._compute_query_weight(
@@ -230,7 +230,7 @@ class HybridRetriever:
                         visited.add(node_id)
                         assembled_subgraph.append(node)
 
-        # CONCEPT:KG-2.8 — Assess retrieval quality
+        # CONCEPT:KG-2.6 — Assess retrieval quality
         self._last_quality_report = None
         try:
             from .retrieval_quality import RetrievalQualityGate
@@ -246,7 +246,7 @@ class HybridRetriever:
             self._last_quality_report = report
             if not report.gate_passed:
                 logger.warning(
-                    "[CONCEPT:KG-2.8] Retrieval quality gate failed: %s",
+                    "[CONCEPT:KG-2.6] Retrieval quality gate failed: %s",
                     [m.value for m in report.failure_modes_detected],
                 )
             return filtered if report.gate_passed else assembled_subgraph
@@ -266,7 +266,7 @@ class HybridRetriever:
         multi_hop_depth: int = 2,
         max_subtasks: int = 3,
     ) -> list[dict[str, Any]]:
-        """Retrieve using decomposed subqueries (CONCEPT:AHE-3.5)."""
+        """Retrieve using decomposed subqueries (CONCEPT:AHE-3.4)."""
         subqueries = self._decompose_query(query, max_subtasks=max_subtasks)
 
         # If it didn't decompose, just run normal retrieval
@@ -294,7 +294,7 @@ class HybridRetriever:
         return all_nodes[:context_window]
 
     def _decompose_query(self, query: str, max_subtasks: int = 3) -> list[str]:
-        """Decompose a complex query into sub-queries for targeted retrieval (CONCEPT:AHE-3.5)."""
+        """Decompose a complex query into sub-queries for targeted retrieval (CONCEPT:AHE-3.4)."""
         try:
             model = create_model()
             agent = Agent(

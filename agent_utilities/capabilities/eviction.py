@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Tool output eviction capability with knowledge base integration.
 
+CONCEPT:KG-2.1
+
 Intercepts large tool outputs and moves them to the Knowledge Base
 as RawSource nodes, leaving a small preview in the conversation history.
 """

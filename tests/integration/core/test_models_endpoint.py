@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""CONCEPT:ECO-4.0"""
+
 """Integration tests for the `GET /models` endpoint.
 
 Exercises three scenarios:

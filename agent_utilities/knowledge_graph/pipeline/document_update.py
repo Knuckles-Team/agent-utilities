@@ -1,4 +1,6 @@
 """
+
+CONCEPT:KG-2.0
 Document Update Pipeline for Knowledge Graph.
 
 Handle document updates with cascading sync across all storage layers,

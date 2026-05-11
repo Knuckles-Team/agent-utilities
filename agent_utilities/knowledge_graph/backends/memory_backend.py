@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Pure In-Memory Graph Backend (CONCEPT:OS-5.20).
+"""Pure In-Memory Graph Backend (CONCEPT:OS-5.0).
 
 Zero-dependency, zero-disk backend using only NetworkX.
 Ideal for testing, edge devices, ephemeral containers,

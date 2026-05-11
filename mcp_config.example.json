@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "agent-utilities-kg": {
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "agent_utilities.mcp.kg_server"
+      ],
+      "env": {
+        "AGENT_ID": "local-developer",
+        "WORKSPACE_PATH": "${workspaceFolder}"
+      }
+    }
+  }
+}

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """ACP Providers Module.
 
+CONCEPT:ECO-4.0
+
 This module implements custom persistence providers for the ACP protocol.
 It enables mirroring of ACP session state (like plans) into workspace-local
 markdown files, ensuring human-readability and state persistence across restarts.

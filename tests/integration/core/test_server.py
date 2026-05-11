@@ -1,3 +1,5 @@
+"""CONCEPT:ECO-4.0"""
+
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 

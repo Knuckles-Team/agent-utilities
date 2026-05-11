@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.7"""
+
 from unittest.mock import MagicMock, patch
 
 import networkx as nx

@@ -461,8 +461,8 @@ async def router_step(
                 plan_output = res.output
         else:
             # CONCEPT:KG-2.1 — Adaptive Model Routing (Planner Path)
-            # CONCEPT:AHE-3.24 — KG-Native Agentic Task Detection
-            # CONCEPT:AHE-3.25 — Topological Reasoning Detection
+            # CONCEPT:AHE-3.5 — KG-Native Agentic Task Detection
+            # CONCEPT:AHE-3.5 — Topological Reasoning Detection
             import os
 
             query_length = len(ctx.state.query.split())
@@ -486,7 +486,7 @@ async def router_step(
             # KG-Native Topological overrides
             if deps.knowledge_engine:
                 try:
-                    # CONCEPT:AHE-3.24 Agentic detection
+                    # CONCEPT:AHE-3.5 Agentic detection
                     task_topologies = deps.knowledge_engine.search_hybrid(
                         ctx.state.query + " TradingPipeline RiskScoringOntology",
                         top_k=2,
@@ -497,10 +497,10 @@ async def router_step(
                     ):
                         is_complex = True
                         logger.info(
-                            "Router: CONCEPT:AHE-3.24 — Detected complex topological subgraphs. Escalate to complex model."
+                            "Router: CONCEPT:AHE-3.5 — Detected complex topological subgraphs. Escalate to complex model."
                         )
 
-                    # CONCEPT:AHE-3.25 Reasoning detection
+                    # CONCEPT:AHE-3.5 Reasoning detection
                     math_topologies = deps.knowledge_engine.search_hybrid(
                         ctx.state.query
                         + " MathematicalFoundationNode vectorized topologies OWL Almgren-Chriss",
@@ -514,12 +514,12 @@ async def router_step(
                     ):
                         requires_reasoning = True
                         logger.info(
-                            "Router: CONCEPT:AHE-3.25 — Detected mathematical/quantitative topology. Escalate to reasoning model."
+                            "Router: CONCEPT:AHE-3.5 — Detected mathematical/quantitative topology. Escalate to reasoning model."
                         )
                 except Exception as e:
                     logger.warning(f"Topological routing detection failed: {e}")
 
-            # CONCEPT:OS-5.19 — Topological Session Persistence
+            # CONCEPT:OS-5.0 — Topological Session Persistence
             if ctx.state.pinned_model_id:
                 from ..core.model_factory import create_model
 
@@ -715,7 +715,7 @@ async def dispatcher_step(
         ctx.state.error = str(e)
         return "error_recovery"
 
-    # CONCEPT:OS-5.18 — Doom Loop Detection at transition boundary
+    # CONCEPT:OS-5.0 — Doom Loop Detection at transition boundary
     try:
         from ..security.execution_stability_engine import DoomLoopDetector
 
@@ -734,7 +734,7 @@ async def dispatcher_step(
     except Exception as e:
         logger.debug("Doom loop detection skipped: %s", e)
 
-    # CONCEPT:ORCH-1.16 — State checkpoint at transition boundary
+    # CONCEPT:ORCH-1.1 — State checkpoint at transition boundary
     try:
         from .state_checkpoint import StateCheckpointer
 

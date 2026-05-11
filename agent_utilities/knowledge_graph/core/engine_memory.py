@@ -98,12 +98,11 @@ class MemoryMixin(_Base):
         if memory_id in self.graph:
             self.graph.nodes[memory_id].update(kwargs)
         if self.backend:
-            set_clause = self._get_set_clause(kwargs, "n")
-            if set_clause:
-                self.backend.execute(
-                    f"MATCH (n {{id: $id}}){set_clause}",
-                    {"id": memory_id, **kwargs},
-                )
+            set_clause = self._get_set_clause(kwargs, "n", label="Memory")
+            self.backend.execute(
+                f"MATCH (n {{id: $id}}){set_clause}",
+                {"id": memory_id, **kwargs},
+            )
 
     def link_nodes(
         self,
@@ -118,13 +117,14 @@ class MemoryMixin(_Base):
             self.graph.add_edge(source_id, target_id, type=rel_type, **props)
 
         if self.backend:
+            set_clause = self._get_set_clause(props, alias="r", label=rel_type)
             query = (
                 f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
-                f"MERGE (s)-[r:{rel_type}]->(t) SET r += $props"
+                f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
             )
-            self.backend.execute(
-                query, {"sid": source_id, "tid": target_id, "props": props}
-            )
+            params = {"sid": source_id, "tid": target_id}
+            params.update(props)
+            self.backend.execute(query, params)
 
     def add_memory_node(self, memory: MemoryNode):
         """Add a MemoryNode object to the graph."""

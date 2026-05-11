@@ -29,9 +29,11 @@ router = APIRouter(tags=["Agent UI"])
 async def ag_ui_endpoint(request: Request) -> Response:
     """Primary streaming endpoint for the Agent UI (FastAG-UI).
 
-    Supports sideband graph activity annotations, session resumption,
-    and rich media attachments. This endpoint handles high-fidelity
-    SSE streaming with sideband data.
+    CONCEPT:ECO-4.0
+
+        Supports sideband graph activity annotations, session resumption,
+        and rich media attachments. This endpoint handles high-fidelity
+        SSE streaming with sideband data.
     """
     try:
         from pydantic_ai.ui.ag_ui import AGUIAdapter

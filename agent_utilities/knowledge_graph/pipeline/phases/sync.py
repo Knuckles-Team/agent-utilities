@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.0"""
+
 import logging
 from typing import Any
 
@@ -59,6 +61,7 @@ async def execute_sync(
     ctx: PipelineContext, deps: dict[str, PhaseResult]
 ) -> dict[str, Any]:
     """Phase 12: Persist to the configured graph backend."""
+
     if not ctx.config.persist_to_ladybug:
         return {"status": "skipped", "reason": "persistence disabled"}
 
@@ -88,10 +91,36 @@ async def execute_sync(
             continue
 
         props = {k: v for k, v in data.items() if v is not None}
+        if "ingestion_timestamp" in ctx.metadata:
+            props["last_seen_timestamp"] = ctx.metadata["ingestion_timestamp"]
+
         try:
+            valid_keys = None
+            is_ladybug = db.__class__.__name__ == "LadybugBackend"
+            if is_ladybug:
+                from agent_utilities.models.schema_definition import SCHEMA
+
+                for node in SCHEMA.nodes:
+                    if node.name == label:
+                        valid_keys = set(node.columns.keys())
+                        break
+
+            keys = [k for k in props.keys() if k != "id"]
+            if valid_keys is not None:
+                keys = [k for k in keys if k in valid_keys]
+
+            set_clause = (
+                " SET " + ", ".join([f"n.{k} = $props_{k}" for k in keys])
+                if keys
+                else ""
+            )
+            params: dict[str, Any] = {"id": node_id}
+            for k in keys:
+                params[f"props_{k}"] = props[k]
+
             db.execute(
-                f"MERGE (n:{label} {{id: $id}}) SET n += $props",
-                {"id": node_id, "props": props},
+                f"MERGE (n:{label} {{id: $id}}){set_clause}",
+                params,
             )
             nodes_synced += 1
         except Exception as e:
@@ -100,7 +129,7 @@ async def execute_sync(
     # Sync Edges
     for u, v, data in graph.edges(data=True):
         etype = str(data.get("type", "rel")).upper()
-        etype = "".join(filter(str.isalnum, etype))
+        etype = "".join(c for c in etype if c.isalnum() or c == "_")
         if not etype:
             continue
         try:
@@ -111,6 +140,19 @@ async def execute_sync(
             edges_synced += 1
         except Exception as e:
             logger.debug(f"Failed to sync edge {u}->{v}: {e}")
+
+    # Sweep stale codebase nodes
+    if "ingestion_timestamp" in ctx.metadata:
+        ts = ctx.metadata["ingestion_timestamp"]
+        workspace_path = ctx.config.workspace_path
+        try:
+            db.execute(
+                "MATCH (n:Code) WHERE n.file_path STARTS WITH $workspace_path AND (n.last_seen_timestamp < $ts OR n.last_seen_timestamp IS NULL) DETACH DELETE n",
+                {"workspace_path": workspace_path, "ts": ts},
+            )
+            logger.info("Sweep complete: deleted stale codebase nodes.")
+        except Exception as e:
+            logger.debug(f"Failed to sweep stale nodes: {e}")
 
     return {"nodes_synced": nodes_synced, "edges_synced": edges_synced}
 

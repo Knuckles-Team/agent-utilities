@@ -25,7 +25,7 @@ Integrates with:
     - CONCEPT:OS-5.2 (Eviction): Context paging under memory pressure
     - CONCEPT:KG-2.0 (Swarm): Concurrent agent pool management
 
-See docs/cognitive-scheduler.md §CONCEPT:OS-5.2.
+See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
 """
 
 

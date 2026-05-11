@@ -1,3 +1,5 @@
+"""CONCEPT:OS-5.0"""
+
 import os
 
 from agent_utilities.core.config import AgentConfig, get_env_file

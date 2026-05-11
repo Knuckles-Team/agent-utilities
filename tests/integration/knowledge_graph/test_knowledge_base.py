@@ -1,4 +1,6 @@
 #!/usr/bin/python
+"""CONCEPT:KG-2.0"""
+
 """Tests for the Knowledge Base (KB) graph extension.
 
 Covers:

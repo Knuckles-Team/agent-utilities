@@ -17,7 +17,7 @@ import numpy as np
 #!/usr/bin/env python3
 """Formal Graph Theory Primitives.
 
-CONCEPT:KG-2.41 — Formal Graph Theory Primitives
+CONCEPT:KG-2.6 — Formal Graph Theory Primitives
 
 Implements mathematically rigorous graph-theoretic operations derived from
 *Mathematics for Computer Science* (Lehman, Leighton, Meyer — MIT 6.042J).
@@ -42,7 +42,7 @@ def dag_critical_path(
 ) -> dict[str, Any]:
     """Compute the critical (longest) path in a weighted DAG.
 
-    CONCEPT:KG-2.41 — DAG Critical Path Analysis (MCS §10.5)
+    CONCEPT:KG-2.6 — DAG Critical Path Analysis (MCS §10.5)
 
     The critical path is the longest weighted path from any source to any
     sink.  Its length equals the minimum possible makespan.  Uses a single
@@ -112,28 +112,28 @@ def dag_critical_path(
 
 
 def vertex_connectivity(graph: nx.Graph) -> Any:
-    """Compute vertex connectivity κ(G). CONCEPT:KG-2.41 (MCS §12.10)."""
+    """Compute vertex connectivity κ(G). CONCEPT:KG-2.6 (MCS §12.10)."""
     if len(graph) < 2 or not nx.is_connected(graph):
         return 0
     return nx.node_connectivity(graph)
 
 
 def edge_connectivity(graph: nx.Graph) -> Any:
-    """Compute edge connectivity λ(G). CONCEPT:KG-2.41 (MCS §12.10)."""
+    """Compute edge connectivity λ(G). CONCEPT:KG-2.6 (MCS §12.10)."""
     if len(graph) < 2 or not nx.is_connected(graph):
         return 0
     return nx.edge_connectivity(graph)
 
 
 def minimum_vertex_cut(graph: nx.Graph) -> set[str]:
-    """Fiand minimum vertex cut set — critical chokepoint nodes. CONCEPT:KG-2.41."""
+    """Fiand minimum vertex cut set — critical chokepoint nodes. CONCEPT:KG-2.6"""
     if len(graph) < 2 or not nx.is_connected(graph):
         return set()
     return set(nx.minimum_node_cut(graph))
 
 
 def euler_tour(graph: nx.Graph) -> list[Any]:
-    """Compute Euler tour of an undirected graph. CONCEPT:KG-2.41 (MCS §12.9).
+    """Compute Euler tour of an undirected graph. CONCEPT:KG-2.6 (MCS §12.9).
 
     An Euler tour traverses every edge exactly once.  Falls back to DFS
     traversal when the graph is not Eulerian.
@@ -154,7 +154,7 @@ def euler_tour(graph: nx.Graph) -> list[Any]:
 
 
 def chromatic_schedule(conflict_graph: nx.Graph) -> dict[str, int]:
-    """Assign colors (execution slots) via greedy graph coloring. CONCEPT:KG-2.41 (MCS §12.6).
+    """Assign colors (execution slots) via greedy graph coloring. CONCEPT:KG-2.6 (MCS §12.6).
 
     Args:
         conflict_graph: Edges represent conflicts between tasks/agents.
@@ -182,7 +182,7 @@ def personalized_pagerank(
     max_iter: int = 100,
     tol: float = 1e-6,
 ) -> dict[str, float]:
-    """Compute personalized PageRank via power iteration. CONCEPT:KG-2.41 (MCS §21.2).
+    """Compute personalized PageRank via power iteration. CONCEPT:KG-2.6 (MCS §21.2).
 
     At each step the walker follows an edge (prob ``damping``) or teleports
     to a seed node (prob ``1 - damping``).
@@ -240,7 +240,7 @@ def personalized_pagerank(
 def count_paths_of_length(
     graph: nx.DiGraph, source: str, target: str, length: int
 ) -> int:
-    """Count directed walks of exact length k via adjacency matrix power. CONCEPT:KG-2.41 (MCS §10.3, Ch 16).
+    """Count directed walks of exact length k via adjacency matrix power. CONCEPT:KG-2.6 (MCS §10.3, Ch 16).
 
     Uses the theorem: (A^k)[i][j] = number of walks of length k from i to j.
 
@@ -272,7 +272,7 @@ def count_paths_of_length(
 def reachability_within_hops(
     graph: nx.DiGraph, source: str, max_hops: int
 ) -> dict[str, int]:
-    """BFS reachability within max_hops. CONCEPT:KG-2.41 (MCS §10.4 Walk Relations).
+    """BFS reachability within max_hops. CONCEPT:KG-2.6 (MCS §10.4 Walk Relations).
 
     Args:
         graph: A directed graph.
@@ -300,7 +300,7 @@ def reachability_within_hops(
 
 
 def generate_math_foundation_seed() -> list[dict[str, Any]]:
-    """Generate curated MCS reference taxonomy for KG seeding. CONCEPT:KG-2.41.
+    """Generate curated MCS reference taxonomy for KG seeding. CONCEPT:KG-2.6
 
     Returns a list of mathematical concept definitions derived from MIT's
     *Mathematics for Computer Science*, structured as KG-persistable node dicts.
@@ -501,7 +501,7 @@ def generate_math_foundation_seed() -> list[dict[str, Any]]:
 #!/usr/bin/env python3
 """Structural Causal Reasoning Engine.
 
-CONCEPT:KG-2.43 — Structural Causal Reasoning Engine
+CONCEPT:KG-2.6 — Structural Causal Reasoning Engine
 
 Explicit causal chain modeling derived from MedCausalX (arXiv:2603.23085v1).
 Provides Structural Causal Models (SCMs), causal verification protocols,
@@ -610,7 +610,7 @@ class CounterfactualQuery:
 class StructuralCausalModel:
     """A Structural Causal Model (SCM) built on a directed graph.
 
-    CONCEPT:KG-2.43 — SCM (MedCausalX §3.1, Eq. 2)
+    CONCEPT:KG-2.6 — SCM (MedCausalX §3.1, Eq. 2)
 
     An SCM M = ⟨V, U, F, P(U)⟩ where:
     - V: Endogenous (observed) variables
@@ -686,7 +686,7 @@ class StructuralCausalModel:
     def do_intervention(self, node_id: str, value: Any) -> nx.DiGraph:
         """Perform a do-calculus intervention: do(X = value).
 
-        CONCEPT:KG-2.43 — do-Calculus Intervention
+        CONCEPT:KG-2.6 — do-Calculus Intervention
 
         Implements Pearl's do-operator by removing all incoming edges to
         the intervened node and setting its value.  Returns the mutilated
@@ -722,7 +722,7 @@ class StructuralCausalModel:
     ) -> bool:
         """Test d-separation between X and Y given conditioning set Z.
 
-        CONCEPT:KG-2.43 — d-Separation (Conditional Independence)
+        CONCEPT:KG-2.6 — d-Separation (Conditional Independence)
 
         X and Y are d-separated given Z iff every path between X and Y
         is blocked by Z.  A path is blocked if it contains:
@@ -791,7 +791,7 @@ class StructuralCausalModel:
 class CausalVerifier:
     """Verifies causal consistency of reasoning trajectories.
 
-    CONCEPT:KG-2.43 — Causal Verification Protocol (MedCausalX §3.2)
+    CONCEPT:KG-2.6 — Causal Verification Protocol (MedCausalX §3.2)
 
     Inspired by MedCausalX's <causal> and <verify> token mechanism.
     Checks whether a reasoning chain's intermediate steps maintain causal
@@ -882,7 +882,7 @@ class CausalVerifier:
 class SpuriousnessDetector:
     """Detects spurious correlations in the KG.
 
-    CONCEPT:KG-2.43 — Causal Spuriousness Detection
+    CONCEPT:KG-2.6 — Causal Spuriousness Detection
 
     Identifies edges that rely on co-occurrence without a causal mechanism,
     using the d-separation criterion from SCM theory.
@@ -945,7 +945,7 @@ class SpuriousnessDetector:
 class CounterfactualGenerator:
     """Generates counterfactual queries from an SCM.
 
-    CONCEPT:KG-2.43 — Counterfactual Generation (MedCausalX §3.1)
+    CONCEPT:KG-2.6 — Counterfactual Generation (MedCausalX §3.1)
     """
 
     def __init__(self, scm: StructuralCausalModel) -> None:
@@ -1006,7 +1006,7 @@ def trajectory_causal_alignment_score(
 ) -> float:
     """Score a reasoning trajectory for global causal coherence.
 
-    CONCEPT:KG-2.43 — Trajectory-Level Causal Alignment (MedCausalX §3.3)
+    CONCEPT:KG-2.6 — Trajectory-Level Causal Alignment (MedCausalX §3.3)
 
     Unlike per-step token likelihood, this scores the entire trajectory
     for consistency with the causal DAG.  Integrates with AHE-3.10
@@ -1066,7 +1066,7 @@ def trajectory_causal_alignment_score(
 #!/usr/bin/env python3
 """Probabilistic Knowledge Graph Reasoning.
 
-CONCEPT:KG-2.45 — Probabilistic Knowledge Graph Reasoning
+CONCEPT:KG-2.6 — Probabilistic Knowledge Graph Reasoning
 
 Probabilistic reasoning over the Knowledge Graph derived from
 *Mathematics for Computer Science* (MCS) Chapters 17–21.
@@ -1126,7 +1126,7 @@ class CollisionEstimate:
 class BayesianBeliefPropagator:
     """Bayesian belief propagation over the KG topology.
 
-    CONCEPT:KG-2.45 — Bayesian Belief Propagation (MCS §18.4)
+    CONCEPT:KG-2.6 — Bayesian Belief Propagation (MCS §18.4)
 
     Given prior beliefs about node states and observed evidence, computes
     posterior beliefs via Bayes' rule propagated through the KG edges.
@@ -1160,7 +1160,7 @@ class BayesianBeliefPropagator:
     ) -> BeliefState:
         """Update belief at a node given observed evidence via Bayes' rule.
 
-        CONCEPT:KG-2.45 — Bayes' Rule Update (MCS §18.4)
+        CONCEPT:KG-2.6 — Bayes' Rule Update (MCS §18.4)
 
         P(H|E) = P(E|H) × P(H) / P(E)
 
@@ -1203,7 +1203,7 @@ class BayesianBeliefPropagator:
     ) -> dict[str, BeliefState]:
         """Propagate belief updates from a source node through the graph.
 
-        CONCEPT:KG-2.45 — Belief Propagation
+        CONCEPT:KG-2.6 — Belief Propagation
 
         When a node's belief changes, propagates a dampened update to
         its neighbors (successors in the directed graph).  The update
@@ -1259,7 +1259,7 @@ class BayesianBeliefPropagator:
 class RandomWalkExplorer:
     """Stochastic KG exploration via random walks with restart.
 
-    CONCEPT:KG-2.45 — Random Walk Exploration (MCS Ch 21)
+    CONCEPT:KG-2.6 — Random Walk Exploration (MCS Ch 21)
 
     Discovers unexpected connections that deterministic traversal misses.
     Uses random walks with restart (teleport probability) to balance
@@ -1382,7 +1382,7 @@ def total_probability_aggregation(
 ) -> float:
     """Combine retrieval scores from multiple sources using Law of Total Probability.
 
-    CONCEPT:KG-2.45 — Law of Total Probability (MCS §18.5)
+    CONCEPT:KG-2.6 — Law of Total Probability (MCS §18.5)
 
     P(relevant) = Σ P(relevant|source_i) × P(source_i)
 
@@ -1411,7 +1411,7 @@ def total_probability_aggregation(
 def birthday_collision_probability(n_items: int, space_size: int) -> CollisionEstimate:
     """Estimate collision probability using the Birthday Paradox.
 
-    CONCEPT:KG-2.45 — Birthday Paradox Collision Detector (MCS §17.4)
+    CONCEPT:KG-2.6 — Birthday Paradox Collision Detector (MCS §17.4)
 
     Among n items chosen from a space of size d, the probability of at
     least one collision (duplicate) is approximately:
@@ -1457,7 +1457,7 @@ def conditional_independence_test(
 ) -> dict[str, Any]:
     """Test conditional independence using d-separation on the KG.
 
-    CONCEPT:KG-2.45 — Conditional Independence (MCS §18.7)
+    CONCEPT:KG-2.6 — Conditional Independence (MCS §18.7)
 
     Two nodes X and Y are conditionally independent given Z if and only if
     they are d-separated by Z in the graph.
@@ -1506,7 +1506,7 @@ def conditional_independence_test(
 #!/usr/bin/env python3
 """Formal Relations and Equivalence Classes.
 
-CONCEPT:KG-2.47 — Formal Relations Engine
+CONCEPT:KG-2.6 — Formal Relations Engine
 
 Implements mathematical relation properties (Reflexive, Symmetric, Transitive)
 and Equivalence Classes from *Mathematics for Computer Science* (MCS Ch 4).
@@ -1618,7 +1618,7 @@ def resolve_entities(equivalences: list[tuple[str, str]]) -> dict[str, str]:
 #!/usr/bin/env python3
 """Formal State Machines and Invariants.
 
-CONCEPT:KG-2.48 — State Machine Invariant Engine
+CONCEPT:KG-2.6 — State Machine Invariant Engine
 
 Implements Deterministic Finite Automata (DFA) abstractions and provable
 state invariants from *Mathematics for Computer Science* (MCS Ch 6).
@@ -1747,7 +1747,7 @@ class FormalStateMachine:
 #!/usr/bin/env python3
 """Markov Chain Transitions and Vectorized Topologies.
 
-CONCEPT:KG-2.49 — Markov Transition Forecasting
+CONCEPT:KG-2.6 — Markov Transition Forecasting
 
 Implements Markov Chain transition matrices over agent interaction traces
 (Vectorized Topologies) from *Mathematics for Computer Science* (MCS Ch 21).

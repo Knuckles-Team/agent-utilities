@@ -464,7 +464,7 @@ class TraceDistiller:
 
 """Backtest / Evaluation Harness — strategy validation and capture.
 
-CONCEPT:AHE-3.8 — Backtest Evaluation Harness
+CONCEPT:AHE-3.6 — Backtest Evaluation Harness
 
 Domain-agnostic backtesting and evaluation harness that extends
 KGEvalCapture.  Records multi-dimensional evaluation results with
@@ -496,7 +496,7 @@ _DEFAULT_DB_PATH = ".agent_workspace/backtest_log.db"
 
 
 class BacktestMetric(BaseModel):
-    """A single metric from a backtest run. CONCEPT:AHE-3.8"""
+    """A single metric from a backtest run. CONCEPT:AHE-3.6"""
 
     metric_name: str
     value: float
@@ -506,7 +506,7 @@ class BacktestMetric(BaseModel):
 
 
 class BacktestRunRecord(BaseModel):
-    """Complete record of a backtest run. CONCEPT:AHE-3.8"""
+    """Complete record of a backtest run. CONCEPT:AHE-3.6"""
 
     run_id: str
     strategy_id: str = ""
@@ -525,7 +525,7 @@ class BacktestRunRecord(BaseModel):
 
 
 class BacktestComparison(BaseModel):
-    """Comparison result between a run and a benchmark. CONCEPT:AHE-3.8"""
+    """Comparison result between a run and a benchmark. CONCEPT:AHE-3.6"""
 
     run_id: str
     benchmark_id: str
@@ -539,7 +539,7 @@ class BacktestComparison(BaseModel):
 class BacktestHarness:
     """Domain-agnostic backtesting and evaluation harness.
 
-    CONCEPT:AHE-3.8 — Backtest Evaluation Harness
+    CONCEPT:AHE-3.6 — Backtest Evaluation Harness
 
     Records evaluation runs to a separate SQLite database to prevent
     KG contamination (same pattern as KGEvalCapture).
@@ -605,7 +605,7 @@ class BacktestHarness:
     ) -> str:
         """Create a new backtest run.
 
-        CONCEPT:AHE-3.8
+        CONCEPT:AHE-3.6
 
         Args:
             strategy_id: Reference to the strategy being evaluated.
@@ -677,7 +677,7 @@ class BacktestHarness:
     ) -> None:
         """Record a metric for a backtest run.
 
-        CONCEPT:AHE-3.8
+        CONCEPT:AHE-3.6
 
         Args:
             run_id: The run to record the metric for.
@@ -727,7 +727,7 @@ class BacktestHarness:
     ) -> BacktestRunRecord | None:
         """Complete a backtest run and finalize results.
 
-        CONCEPT:AHE-3.8
+        CONCEPT:AHE-3.6
 
         Args:
             run_id: The run to complete.
@@ -787,7 +787,7 @@ class BacktestHarness:
     ) -> list[BacktestComparison]:
         """Compare a run's metrics against benchmark values.
 
-        CONCEPT:AHE-3.8
+        CONCEPT:AHE-3.6
 
         Args:
             run_id: The run to compare.
@@ -864,7 +864,7 @@ class BacktestHarness:
 # --- Merged from evaluation.py ---
 
 #!/usr/bin/python
-"""Evaluation & Monitoring Framework — CONCEPT:AHE-3.1.
+"""Evaluation & Monitoring Framework — CONCEPT:AHE-3.1
 
 Multi-dimensional evaluation with LLM-as-Judge rubrics, trend monitoring,
 quality alerting, and human calibration support.
@@ -872,7 +872,7 @@ quality alerting, and human calibration support.
 Design-pattern source: Chapter 19 — Evaluation and Monitoring.
 
 OWL: :EvaluationRecord rdfs:subClassOf :Observation
-See docs/design-patterns-alignment.md §CONCEPT:AHE-3.1.
+See docs/pillars/architecture_c4.md §CONCEPT:AHE-3.1
 """
 
 
@@ -1151,7 +1151,7 @@ class EvaluationMonitor:
 
 
 # ---------------------------------------------------------------------------
-# EvalRunner — Multi-Strategy Scoring (CONCEPT:AHE-3.12)
+# EvalRunner — Multi-Strategy Scoring (CONCEPT:AHE-3.1)
 # ---------------------------------------------------------------------------
 # Ported from MATE's eval_runner.py. Provides three concrete scoring
 # strategies that execute automatically against test cases:
@@ -1168,7 +1168,7 @@ class EvaluationMonitor:
 class EvalStrategy(StrEnum):
     """Evaluation strategy for scoring agent responses.
 
-    CONCEPT:AHE-3.12 — Multi-Strategy Evaluation
+    CONCEPT:AHE-3.1 — Multi-Strategy Evaluation
 
     Ported from MATE's eval_runner.py pattern with three concrete
     strategies plus a composite mode that combines all three.
@@ -1183,7 +1183,7 @@ class EvalStrategy(StrEnum):
 class TestCase(BaseModel):
     """A single evaluation test case with expected output.
 
-    CONCEPT:AHE-3.12 — Multi-Strategy Evaluation
+    CONCEPT:AHE-3.1 — Multi-Strategy Evaluation
 
     Mirrors MATE's test case schema but adds KG provenance fields
     for integration with the agent-utilities knowledge graph.
@@ -1201,7 +1201,7 @@ class TestCase(BaseModel):
 class EvalResult(BaseModel):
     """Result of evaluating a single test case.
 
-    CONCEPT:AHE-3.12 — Multi-Strategy Evaluation
+    CONCEPT:AHE-3.1 — Multi-Strategy Evaluation
 
     Contains per-strategy scores and a final composite score.
     """
@@ -1225,7 +1225,7 @@ class EvalResult(BaseModel):
 class EvalRunner:
     """Multi-strategy evaluation runner.
 
-    CONCEPT:AHE-3.12 — Multi-Strategy Evaluation
+    CONCEPT:AHE-3.1 — Multi-Strategy Evaluation
 
     Ported from MATE's ``EvalRunner`` with three scoring strategies:
 
@@ -1553,16 +1553,16 @@ class EvalRunner:
 # --- Merged from continuous_evaluation_engine.py ---
 
 #!/usr/bin/python
-"""CONCEPT:AHE-3.16 — LLM-Graded Interpretability Tests.
+"""CONCEPT:AHE-3.3 — LLM-Graded Interpretability Tests.
 
 Implements the 6-category interpretability testing protocol from
 arXiv:2605.03808. Tests whether an LLM can correctly answer quantitative
 questions about a model solely from its ``__str__()`` output.
 
-Integrates with EvalRunner (CONCEPT:AHE-3.12) for LLM-as-Judge scoring
+Integrates with EvalRunner (CONCEPT:AHE-3.1) for LLM-as-Judge scoring
 and EvaluationMonitor for trend tracking.
 
-See docs/overview.md §CONCEPT:AHE-3.16.
+See docs/overview.md §CONCEPT:AHE-3.3
 """
 
 
@@ -1608,9 +1608,9 @@ class InterpretabilityTestCase:
 class InterpretabilityGrader:
     """LLM-based grading for interpretability test responses.
 
-    CONCEPT:AHE-3.16 — LLM-Graded Interpretability Tests
+    CONCEPT:AHE-3.3 — LLM-Graded Interpretability Tests
 
-    Uses the EvalRunner (CONCEPT:AHE-3.12) infrastructure for
+    Uses the EvalRunner (CONCEPT:AHE-3.1) infrastructure for
     LLM-as-Judge scoring with numerical tolerance. Detects
     reward hacking when the model's ``__str__()`` directly
     contains the answer.
@@ -1709,7 +1709,7 @@ class InterpretabilityGrader:
 class InterpretabilityTestSuite:
     """Manages the full interpretability test protocol.
 
-    CONCEPT:AHE-3.16 — LLM-Graded Interpretability Tests
+    CONCEPT:AHE-3.3 — LLM-Graded Interpretability Tests
 
     Implements the 6-category, 200-test protocol from arXiv:2605.03808:
         1. Feature Attribution (32 tests)

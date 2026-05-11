@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Embedding Utilities Module.
 
+CONCEPT:KG-2.3
+
 This module provides factory functions for initializing LlamaIndex-compatible
 embedding models. It supports various providers including OpenAI, Ollama,
 HuggingFace, and local models, with robust environment-based configuration.
@@ -94,7 +96,8 @@ def create_embedding_model(
         from unittest.mock import MagicMock
 
         mock = MagicMock()
-        mock.get_text_embedding.return_value = [1.0] + [0.0] * 1535
+        dim = int(os.environ.get("KG_EMBEDDING_DIM", "768"))
+        mock.get_text_embedding.return_value = [1.0] + [0.0] * (dim - 1)
         return mock
 
     if provider == "openai":
@@ -136,7 +139,8 @@ def create_embedding_model(
         from unittest.mock import MagicMock
 
         mock = MagicMock()
-        mock.get_text_embedding.return_value = [1.0] + [0.0] * 1535
+        dim = int(os.environ.get("KG_EMBEDDING_DIM", "768"))
+        mock.get_text_embedding.return_value = [1.0] + [0.0] * (dim - 1)
         return mock
 
     else:

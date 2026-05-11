@@ -1,12 +1,16 @@
 #!/usr/bin/python
 """LadybugDB Graph Backend.
 
+CONCEPT:KG-2.0
+
 This module provides the LadybugDB implementation of the GraphBackend interface,
 supporting strict schema-bound Cypher queries.
 """
 
+import fcntl
 import logging
 import os
+from contextlib import contextmanager
 from typing import Any
 
 from .base import GraphBackend
@@ -25,6 +29,28 @@ logger = logging.getLogger(__name__)
 
 class LadybugBackend(GraphBackend):
     """LadybugDB backend implementation."""
+
+    def _get_lock(self):
+        """Get a cross-process pessimistic lock for the database."""
+        if self.db_path == ":memory:":
+
+            @contextmanager
+            def no_op_lock():
+                yield
+
+            return no_op_lock()
+
+        @contextmanager
+        def file_lock():
+            lock_path = f"{self.db_path}.lock"
+            with open(lock_path, "w") as f:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX)
+                    yield
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+
+        return file_lock()
 
     def __init__(self, db_path: str = "knowledge_graph.db"):
         if not LADYBUG_AVAILABLE:
@@ -52,9 +78,19 @@ class LadybugBackend(GraphBackend):
                         logger.warning(f"Invalid LADYBUG buffer/db size: {buffer_size}")
 
                 self.db = ladybug.Database(
-                    db_path if db_path != ":memory:" else None, **db_params
+                    db_path if db_path != ":memory:" else None,
+                    **db_params,  # type: ignore[arg-type]
                 )
                 self.conn = ladybug.Connection(self.db)
+
+                # Apply WAL pragmas if supported (SQLite underlying)
+                try:
+                    self.conn.execute("PRAGMA journal_mode=WAL;")
+                    self.conn.execute("PRAGMA synchronous=NORMAL;")
+                    self.conn.execute("PRAGMA busy_timeout=10000;")
+                except Exception as e:
+                    logger.debug(f"WAL pragma not supported or ignored: {e}")
+
                 # Successful connection, perform backup
                 self._backup_db()
                 return
@@ -62,6 +98,16 @@ class LadybugBackend(GraphBackend):
                 last_error = e
                 msg = str(e).lower()
                 if "lock" in msg or "busy" in msg:
+                    if attempt == max_retries - 1:
+                        logger.warning(
+                            f"Failed to acquire exclusive lock, falling back to read-only mode for {db_path}"
+                        )
+                        db_params["read_only"] = True
+                        self.db = ladybug.Database(
+                            db_path if db_path != ":memory:" else None, **db_params
+                        )
+                        self.conn = ladybug.Connection(self.db)
+                        return
                     wait_time = (2**attempt) + random.random()  # nosec B311
                     logger.warning(
                         f"Graph DB locked, retrying in {wait_time:.2f}s (attempt {attempt + 1}/{max_retries})..."
@@ -148,29 +194,58 @@ class LadybugBackend(GraphBackend):
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query on LadybugDB."""
-        try:
-            res = self.conn.execute(query, params or {})
-            if isinstance(res, list):
-                if not res:
-                    return []
-                res = res[0]
-            # ladybug returns a QueryResult object. We want a list of dicts.
-            return res.rows_as_dict().get_all()
-        except Exception as e:
-            msg = str(e).lower()
-            if (
-                "already has property" in msg
-                or "duplicate" in msg
-                or "already exists" in msg
-            ):
-                logger.debug(f"LadybugDB expected migration error: {e}")
-            elif "table" in msg and "does not exist" in msg:
-                logger.warning(f"LadybugDB table not found (check schema): {e}")
-            elif "binder exception" in msg:
-                logger.error(f"LadybugDB binder issue (invalid property?): {e}")
-            else:
-                logger.error(f"LadybugDB Cypher execution failed: {e}\nQuery: {query}")
-            return []
+        import time
+
+        max_retries = 5
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                with self._get_lock():
+                    res = self.conn.execute(query, params or {})
+                    if isinstance(res, list):
+                        if not res:
+                            return []
+                        res = res[0]
+                # ladybug returns a QueryResult object. We want a list of dicts.
+                from typing import cast
+
+                return cast(list[dict[str, Any]], res.rows_as_dict().get_all())
+            except Exception as e:
+                msg = str(e).lower()
+                if "lock" in msg or "busy" in msg or "database is locked" in msg:
+                    import secrets
+
+                    wait_time = (
+                        2**attempt
+                    ) * 0.1 + secrets.SystemRandom().random() * 0.1
+                    logger.warning(
+                        f"Database locked, retrying execute in {wait_time:.2f}s... (attempt {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(wait_time)
+                    last_error = e
+                    continue
+                elif (
+                    "already has property" in msg
+                    or "duplicate" in msg
+                    or "already exists" in msg
+                ):
+                    logger.debug(f"LadybugDB expected migration error: {e}")
+                elif "table" in msg and "does not exist" in msg:
+                    logger.warning(f"LadybugDB table not found (check schema): {e}")
+                elif "binder exception" in msg:
+                    logger.error(f"LadybugDB binder issue (invalid property?): {e}")
+                else:
+                    logger.error(
+                        f"LadybugDB Cypher execution failed: {e}\nQuery: {query}"
+                    )
+                return []
+
+        if last_error:
+            logger.error(
+                f"Failed to execute query after {max_retries} retries due to locking: {last_error}"
+            )
+        return []
 
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]
@@ -215,16 +290,13 @@ class LadybugBackend(GraphBackend):
                 if "already exists" not in str(e).lower():
                     logger.warning(f"Rel table creation issue ({rel.type}): {e}")
 
-        # 3. Create Vector Indices for any FLOAT column named 'embedding'.
-        #
-        # LadybugDB 0.15.x does not support `CREATE INDEX ... USING HNSW` DDL.
-        # Vector indexes are provided by the optional VECTOR extension and must
-        # be created via `CALL CREATE_VECTOR_INDEX(table, name, column)`. The
-        # extension additionally requires fixed-size arrays (e.g. FLOAT[768]);
-        # variable-length FLOAT[] columns raise a binder exception. When the
-        # extension is unavailable or the column type is incompatible, we log
-        # once at INFO level (not per-node WARNING) to avoid log pollution on
-        # every startup.
+    def build_vector_indices(self) -> None:
+        """Create Vector Indices for any FLOAT column named 'embedding'.
+
+        Note: LadybugDB (Kuzu) currently does not support updating properties
+        (via SET) that are part of a vector index. Therefore, vector indices
+        should only be built AFTER all initial ingestion is complete.
+        """
         embedding_tables = [
             node.name
             for node in SCHEMA.nodes
@@ -260,8 +332,6 @@ class LadybugBackend(GraphBackend):
                         if "already exists" in msg.lower():
                             continue
                         if "FLOAT/DOUBLE ARRAY" in msg:
-                            # Schema uses variable-length FLOAT[]; vector index
-                            # needs FLOAT[N]. Record once and skip remaining.
                             skip_reason = msg
                             break
                         logger.warning(f"Vector index creation issue ({idx_name}): {e}")
@@ -277,6 +347,7 @@ class LadybugBackend(GraphBackend):
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Add embedding to an existing node."""
         query = "MATCH (n {id: $id}) SET n.embedding = $emb"
+        # The _get_lock is inside self.execute()
         self.execute(query, {"id": node_id, "emb": embedding})
 
     def semantic_search(

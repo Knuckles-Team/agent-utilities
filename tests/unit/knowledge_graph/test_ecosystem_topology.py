@@ -2,7 +2,7 @@
 from __future__ import annotations
 """Tests for Ecosystem Topology Builder.
 
-CONCEPT:ECO-4.7 — Ecosystem Topology Map
+CONCEPT:ECO-4.2 — Ecosystem Topology Map
 
 Validates package discovery, dependency graph construction,
 impact radius computation, MCP categorization, and KG persistence.

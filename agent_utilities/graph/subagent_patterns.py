@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ORCH-1.6 — Subagent Lifecycle Patterns.
+"""CONCEPT:ORCH-1.5 — Subagent Lifecycle Patterns.
 
 Formalizes the four-tier subagent interaction taxonomy identified by
 Phil Schmid (2026) as first-class graph orchestration primitives:
@@ -22,7 +22,7 @@ task complexity, parallelizability, and collaboration requirements.
 Pattern selection decisions are recorded as ``RoutingDecisionNode``
 entries in the Knowledge Graph for harness learning.
 
-See docs/overview.md §CONCEPT:ORCH-1.6.
+See docs/overview.md §CONCEPT:ORCH-1.5
 """
 
 
@@ -98,7 +98,7 @@ class SubagentPatternDecision(BaseModel):
 class SubagentPatternRouter:
     """Selects the optimal subagent interaction pattern for a task.
 
-    CONCEPT:ORCH-1.6 — Subagent Lifecycle Patterns
+    CONCEPT:ORCH-1.5 — Subagent Lifecycle Patterns
 
     Decision logic:
         - INLINE_TOOL: complexity ≤ SIMPLE, not parallelizable
@@ -199,7 +199,7 @@ class SubagentPatternRouter:
         )
 
         logger.info(
-            "[CONCEPT:ORCH-1.6] Pattern selected: %s (confidence=%.2f, reason=%s)",
+            "[CONCEPT:ORCH-1.5] Pattern selected: %s (confidence=%.2f, reason=%s)",
             pattern.value,
             confidence,
             reasoning[:80],
@@ -214,7 +214,7 @@ class SubagentPatternRouter:
     def estimate_specialist_count(self, query: str) -> int:
         """Estimate specialist count using KG topology.
 
-        CONCEPT:ORCH-1.15 — KG-Driven Specialist Estimation
+        CONCEPT:ORCH-1.1 — KG-Driven Specialist Estimation
 
         Instead of the caller guessing specialist_count, query the KG
         for agents/tools topologically proximate to the task.
@@ -273,7 +273,7 @@ class SubagentPatternRouter:
                         historical_rate = success_count / total_count
                         adjusted = 0.7 * base_confidence + 0.3 * historical_rate
                         logger.debug(
-                            "[CONCEPT:ORCH-1.6] Adjusted confidence for %s: %.2f → %.2f "
+                            "[CONCEPT:ORCH-1.5] Adjusted confidence for %s: %.2f → %.2f "
                             "(historical: %d/%d = %.2f, source=backend)",
                             pattern.value,
                             base_confidence,
@@ -303,7 +303,7 @@ class SubagentPatternRouter:
                 # Blend: 70% base + 30% historical
                 adjusted = 0.7 * base_confidence + 0.3 * historical_rate
                 logger.debug(
-                    "[CONCEPT:ORCH-1.6] Adjusted confidence for %s: %.2f → %.2f "
+                    "[CONCEPT:ORCH-1.5] Adjusted confidence for %s: %.2f → %.2f "
                     "(historical: %d/%d = %.2f)",
                     pattern.value,
                     base_confidence,
@@ -384,7 +384,7 @@ class SubagentPatternRouter:
                     self.engine.graph.nodes[nid]["outcome_success"] = success
                     self.engine.graph.nodes[nid]["outcome_duration_ms"] = duration_ms
                     logger.info(
-                        "[CONCEPT:ORCH-1.6] Pattern outcome recorded: %s → %s (%.0fms)",
+                        "[CONCEPT:ORCH-1.5] Pattern outcome recorded: %s → %s (%.0fms)",
                         decision.pattern.value,
                         "SUCCESS" if success else "FAILURE",
                         duration_ms,

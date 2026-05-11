@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.43 — Structural Causal Reasoning Engine."""
+"""Tests for CONCEPT:KG-2.6 — Structural Causal Reasoning Engine."""
 
 import pytest
 

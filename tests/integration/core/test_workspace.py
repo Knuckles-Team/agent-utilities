@@ -1,3 +1,5 @@
+"""CONCEPT:OS-5.0"""
+
 from unittest.mock import patch
 
 from agent_utilities.core.workspace import (

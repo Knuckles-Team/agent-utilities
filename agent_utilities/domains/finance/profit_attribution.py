@@ -1,5 +1,5 @@
 """
-Profit Attribution Engine — CONCEPT:KG-2.66
+Profit Attribution Engine — CONCEPT:KG-2.6
 
 Decomposes P&L into alpha, beta, and residual components with
 comprehensive performance analytics.

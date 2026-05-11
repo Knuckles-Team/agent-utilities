@@ -1,5 +1,5 @@
 from __future__ import annotations
-"""Unit tests for the Constitution & Prompt Policy Ingestor (CONCEPT:KG-2.2, CONCEPT:OS-5.10).
+"""Unit tests for the Constitution & Prompt Policy Ingestor (CONCEPT:KG-2.2, CONCEPT:OS-5.1).
 
 Tests the policy ingestion pipeline from constitutions, prompt JSONs,
 unified ingestion, policy querying, and prompt rendering.

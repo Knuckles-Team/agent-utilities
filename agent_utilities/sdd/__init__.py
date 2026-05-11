@@ -1,12 +1,17 @@
 #!/usr/bin/python
-"""SDD (Spec-Driven Development) Utility Module.
+"""DSTDD (Design-Spec-Test Driven Development) Utility Module.
 
-CONCEPT:AHE-3.0 — Spec-Driven Development
+CONCEPT:AHE-3.0 — Spec-Driven Development (Extended to DSTDD)
 
-This module provides high-level utilities for managing structured SDD artifacts
-(Specifications, Plans, Constitutions) and their relationship to tasks. It handles
-disk persistence in the agent's 'agent_data' directory and provides logic for
-dependency analysis.
+This module provides high-level utilities for managing structured DSTDD artifacts
+(Designs, Specifications, Plans, Constitutions) and their relationship to tasks.
+It handles disk persistence in the agent's '.specify' directory and provides
+logic for dependency analysis.
+
+DSTDD Lifecycle:
+    1. **Design Phase**: KG analysis → extension strategy → C4 diagram
+    2. **Spec Phase**: User stories → acceptance criteria → NFRs
+    3. **Test Phase**: TDD artifacts → validation against KG integrity
 """
 
 import contextlib
@@ -15,7 +20,10 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from ..models import (
+    DesignDocument,
+    ExtensionStrategy,
     ImplementationPlan,
+    KGAnalysis,
     ProjectConstitution,
     Spec,
     Task,
@@ -23,11 +31,15 @@ from ..models import (
     TaskStatus,
 )
 
-T = TypeVar("T", ProjectConstitution, Spec, ImplementationPlan, Tasks)
+T = TypeVar("T", ProjectConstitution, Spec, ImplementationPlan, Tasks, DesignDocument)
 
 
 class SDDManager:
-    """Manages structured SDD data within an agent's workspace."""
+    """Manages structured DSTDD data within an agent's workspace.
+
+    Supports the full Design → Spec → Test lifecycle with KG-gated
+    design validation and Extend-Before-Invent governance.
+    """
 
     def __init__(self, workspace_path: str | Path | None = None):
         self.workspace_root = Path(workspace_path or ".")
@@ -43,9 +55,14 @@ class SDDManager:
         self.save(c)
 
     def _get_path(self, model_type: type[T], feature_id: str | None = None) -> Path:
-        """Resolve the standard path for an SDD model (Markdown-first)."""
+        """Resolve the standard path for a DSTDD model (Markdown-first)."""
         if model_type == ProjectConstitution:
             return self.specify_dir / "constitution.md"
+
+        if model_type == DesignDocument:
+            if feature_id is None:
+                raise ValueError("feature_id is required for DesignDocument")
+            return self.specify_dir / "design" / feature_id / "design.md"
 
         if feature_id is None:
             raise ValueError(f"feature_id is required for {model_type.__name__}")
@@ -59,15 +76,25 @@ class SDDManager:
         if model_type == Tasks:
             return self.specify_dir / "specs" / feature_id / "tasks.md"
 
-        raise ValueError(f"Unsupported SDD model type: {model_type}")
+        raise ValueError(f"Unsupported DSTDD model type: {model_type}")
 
     def save(self, model: T, feature_id: str | None = None) -> Path:
-        """Persist an SDD model to the .specify directory as Markdown."""
+        """Persist a DSTDD model to the .specify directory as Markdown."""
         path = self._get_path(type(model), feature_id)
         path.parent.mkdir(parents=True, exist_ok=True)
 
         if isinstance(model, ProjectConstitution):
             content = self._render_constitution_md(model)
+        elif isinstance(model, DesignDocument):
+            content = self._render_design_md(model)
+            # Also write JSON sidecar for round-trip loading
+            import json
+
+            json_path = path.parent / "design.json"
+            json_path.write_text(
+                json.dumps(model.model_dump(), indent=2, default=str),
+                encoding="utf-8",
+            )
         elif isinstance(model, Spec):
             content = self._render_spec_md(model)
         elif isinstance(model, ImplementationPlan):
@@ -85,7 +112,7 @@ class SDDManager:
         return path
 
     def load(self, model_type: type[T], feature_id: str | None = None) -> T | None:
-        """Load an SDD model from the .specify directory by parsing Markdown."""
+        """Load a DSTDD model from the .specify directory by parsing Markdown."""
         path = self._get_path(model_type, feature_id)
         if not path.exists():
             return None
@@ -96,12 +123,28 @@ class SDDManager:
 
         if model_type == ProjectConstitution:
             return cast(T, self._parse_constitution_md(content))
+        if model_type == DesignDocument:
+            return cast(T, self._load_design(feature_id or ""))
         if model_type == Spec:
             return cast(T, self._parse_spec_md(content, feature_id))
         if model_type == ImplementationPlan:
             return cast(T, self._parse_plan_md(content, feature_id))
         if model_type == Tasks:
             return cast(T, self.import_from_markdown(path, feature_id or "default"))
+        return None
+
+    def _load_design(self, feature_id: str) -> DesignDocument | None:
+        """Load a DesignDocument from its JSON sidecar file.
+
+        Design documents are persisted as both markdown (human-readable)
+        and JSON (machine-readable) to support round-trip loading.
+        """
+        json_path = self.specify_dir / "design" / feature_id / "design.json"
+        if json_path.exists():
+            import json
+
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            return DesignDocument.model_validate(data)
         return None
 
     def list_specs(self) -> list[dict[str, Any]]:
@@ -473,3 +516,212 @@ class SDDManager:
             tasks.append(Task(**current_task))
 
         return Tasks(feature_id=feature_id, tasks=tasks)
+
+    # --- DSTDD Design Phase Methods ---
+
+    def create_design(
+        self, feature_id: str, kg_analysis: KGAnalysis, **kwargs: Any
+    ) -> DesignDocument:
+        """Create and persist a new design document for the DSTDD pipeline.
+
+        This is the entry point for the Design phase. The KG analysis
+        must be completed before calling this method.
+
+        Args:
+            feature_id: Unique feature identifier.
+            kg_analysis: Results of the KG search and extension analysis.
+            **kwargs: Additional DesignDocument fields (title, c4_diagram, etc.).
+
+        Returns:
+            The persisted DesignDocument.
+        """
+        title = kwargs.pop("title", feature_id)
+        doc = DesignDocument(
+            feature_id=feature_id,
+            title=title,
+            kg_analysis=kg_analysis,
+            **kwargs,
+        )
+        self.save(doc, feature_id)
+        return doc
+
+    def validate_design(self, feature_id: str) -> list[str]:
+        """Validate a design document against Extend-Before-Invent rules.
+
+        Returns a list of violation messages. An empty list means the design
+        passes validation and a Spec can be created.
+
+        Validation rules:
+            1. KG analysis must contain at least one nearest concept.
+            2. If any nearest concept has similarity >= 0.7, extension_strategy
+               must NOT be 'new'.
+            3. If extension_strategy is 'new', a NewConceptProposal is required.
+            4. New concept proposals must specify a target pillar.
+        """
+        design = self.load(DesignDocument, feature_id)
+        if design is None:
+            return [f"Design document not found for feature '{feature_id}'"]
+
+        violations: list[str] = []
+        kg = design.kg_analysis
+
+        # Rule 1: Must have analyzed the KG
+        if not kg.nearest_concepts:
+            violations.append(
+                "KG analysis is empty. Run kg_search against the Knowledge Graph "
+                "to find nearest existing concepts before creating a design."
+            )
+
+        # Rule 2: High-similarity match requires extension, not new concept
+        high_sim = [c for c in kg.nearest_concepts if c.similarity >= 0.7]
+        if high_sim and kg.extension_strategy == ExtensionStrategy.NEW:
+            names = ", ".join(f"{c.concept_id} ({c.similarity:.0%})" for c in high_sim)
+            violations.append(
+                f"High-similarity concepts found ({names}) but extension_strategy is 'new'. "
+                f"You MUST extend an existing concept when similarity >= 70%."
+            )
+
+        # Rule 3: New concept requires proposal
+        if (
+            kg.extension_strategy == ExtensionStrategy.NEW
+            and not kg.new_concept_proposal
+        ):
+            violations.append(
+                "Extension strategy is 'new' but no NewConceptProposal provided. "
+                "A justification is required for introducing new concepts."
+            )
+
+        # Rule 4: Proposal must have pillar assignment
+        if kg.new_concept_proposal:
+            valid_pillars = {"ORCH", "KG", "AHE", "ECO", "OS"}
+            if kg.new_concept_proposal.target_pillar not in valid_pillars:
+                violations.append(
+                    f"New concept pillar '{kg.new_concept_proposal.target_pillar}' "
+                    f"is not valid. Must be one of: {valid_pillars}"
+                )
+
+        return violations
+
+    def design_to_spec(self, feature_id: str) -> Spec:
+        """Auto-generate a Spec skeleton from a validated design document.
+
+        The design must pass validation (no violations) before a Spec
+        can be generated. The generated Spec includes a reference back
+        to the design document.
+
+        Args:
+            feature_id: The feature ID of the design to convert.
+
+        Returns:
+            A new Spec model with user story placeholders.
+
+        Raises:
+            ValueError: If the design has validation violations.
+        """
+        violations = self.validate_design(feature_id)
+        if violations:
+            raise ValueError(
+                f"Design has {len(violations)} violation(s): {'; '.join(violations)}"
+            )
+
+        design = self.load(DesignDocument, feature_id)
+        if design is None:
+            raise ValueError(f"Design document not found for '{feature_id}'")
+
+        from ..models import UserStory
+
+        # Build a default user story from the design
+        strategy_desc = design.kg_analysis.extension_strategy.value
+        extension_note = (
+            f" (extends {design.kg_analysis.extension_point})"
+            if design.kg_analysis.extension_point
+            else ""
+        )
+
+        stories = [
+            UserStory(
+                id=f"{feature_id}-US1",
+                title=design.title,
+                description=(
+                    f"As a developer, I want {design.title.lower()} "
+                    f"so that the system capabilities are enhanced. "
+                    f"Strategy: {strategy_desc}{extension_note}."
+                ),
+                acceptance_criteria=[
+                    "Feature integrates with existing pillar architecture",
+                    "All existing tests continue to pass",
+                    "Design document validation passes",
+                ],
+            )
+        ]
+
+        spec = Spec(
+            feature_id=feature_id,
+            title=design.title,
+            user_stories=stories,
+            metadata={
+                "design_ref": f".specify/design/{feature_id}/design.md",
+                "extension_strategy": strategy_desc,
+            },
+        )
+        self.save(spec, feature_id)
+        return spec
+
+    def _render_design_md(self, design: DesignDocument) -> str:
+        """Render a DesignDocument as Markdown."""
+        md = [f"# Design Document: {design.title}\n"]
+        md.append(f"**Feature ID**: {design.feature_id}\n")
+
+        # KG Analysis section
+        md.append("## KG Analysis\n")
+        if design.kg_analysis.nearest_concepts:
+            md.append("### Nearest Existing Concepts\n")
+            md.append("| Concept ID | Name | Similarity | Pillar |")
+            md.append("|---|---|---|---|")
+            for nc in design.kg_analysis.nearest_concepts:
+                md.append(
+                    f"| {nc.concept_id} | {nc.name} | {nc.similarity:.0%} | {nc.pillar} |"
+                )
+            md.append("")
+
+        md.append("### Extension Analysis\n")
+        md.append(
+            f"- **Extension Strategy**: {design.kg_analysis.extension_strategy.value}"
+        )
+        if design.kg_analysis.extension_point:
+            md.append(f"- **Extension Point**: {design.kg_analysis.extension_point}")
+
+        if design.kg_analysis.new_concept_proposal:
+            ncp = design.kg_analysis.new_concept_proposal
+            md.append("\n### New Concept Proposal\n")
+            md.append(f"- **Proposed ID**: {ncp.proposed_id}")
+            md.append(f"- **Target Pillar**: {ncp.target_pillar}")
+            if ncp.pipeline_phase:
+                md.append(f"- **Pipeline Phase**: {ncp.pipeline_phase}")
+            md.append(f"- **Justification**: {ncp.justification}")
+
+        # C4 Diagram
+        if design.c4_diagram:
+            md.append("\n## C4 Context Diagram\n")
+            md.append("```mermaid")
+            md.append(design.c4_diagram)
+            md.append("```")
+
+        # Data Flow
+        if design.data_flow:
+            md.append(f"\n## Data Flow\n\n{design.data_flow}")
+
+        # Risk Assessment
+        md.append("\n## Risk Assessment\n")
+        ra = design.risk_assessment
+        md.append(
+            f"- **Backward Compatible**: {'Yes' if ra.backward_compatible else 'No'}"
+        )
+        if ra.blast_radius:
+            md.append(f"- **Blast Radius**: {', '.join(ra.blast_radius)}")
+        if ra.breaking_changes:
+            md.append("- **Breaking Changes**:")
+            for bc in ra.breaking_changes:
+                md.append(f"  - {bc}")
+
+        return "\n".join(md)

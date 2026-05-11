@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.9.0"
+version = "0.10.0"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -27,7 +27,9 @@ dependencies = [
     "numpy",
     "scipy",
     "cryptography>=47.0.0",
-    "pathspec"]
+    "pathspec",
+    "platformdirs>=4.0.0",
+    "packaging"]
 
 [[project.authors]]
 name = "Audel Rouhi"
@@ -69,12 +71,16 @@ agent-huggingface = [
 ag-ui = [
     "agent-webui>=0.10.0"]
 terminal = [
-    "agent-terminal-ui>=0.12.0"]
+    "agent-terminal-ui>=0.11.0"]
 browser = [
     "playwright>=1.49.1"]
 acp = [
     "pydantic-acp>=0.1.0",
     "acpkit[pydantic]>=0.1.0"
+]
+documents = [
+    "llama-index-core>=0.14.15",
+    "llama-index-readers-file>=0.4.1"
 ]
 embeddings = [
     "llama-index-core>=0.14.15"]
@@ -156,7 +162,10 @@ test = [
     "agent-utilities[agent,graph,acp,owl,finance]"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,graph,browser,test,owl,stardog,vault,auth,finance]>=0.7.0"]
+    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,browser,test,owl,stardog,vault,auth,finance]>=0.7.0"]
+
+[project.scripts]
+agent-utilities-kg = "agent_utilities.mcp.kg_server:main"
 
 [tool.setuptools]
 include-package-data = true

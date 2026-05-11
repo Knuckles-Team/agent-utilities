@@ -48,3 +48,50 @@
 If you append to the Knowledge Graph schema, you should always consider adding an OWL layer if it would be beneficial to do so.
 
 We should always look at the existing ontology and try to notice some existing types that are in the schema definition but NOT yet in the OWL ontology. We want to highly consider adding those to OWL ontology.
+
+## Concept Governance — Extend Before Invent
+
+New functionality MUST first be expressed as an extension, augmentation, or composition
+of an existing pillar/concept before a new CONCEPT: tag or domain is introduced.
+The Knowledge Graph is the arbiter.
+
+### Pre-Feature Gate
+1. Query the KG for the 5 nearest semantic matches to the proposed feature.
+2. If any match has similarity ≥ 0.7, the feature MUST extend that concept.
+3. If no match, submit a New Concept Proposal with:
+   - Target pillar assignment (ORCH / KG / AHE / ECO / OS)
+   - C4 integration diagram showing how it wires into the pillar topology
+   - 15-phase pipeline wiring point
+4. New CONCEPT: tags require explicit approval in the design document.
+
+### CI Enforcement
+A GitHub Actions workflow validates that:
+- No new `CONCEPT:` tags appear without a corresponding `.specify/design/` document.
+- All new concepts reference an existing pillar.
+- The KG graph integrity check (phase 15) passes.
+
+## Development Pipeline — DSTDD (Design-Spec-Test Driven Development)
+
+All features follow the DSTDD lifecycle:
+
+1. **Design Phase** (first): Analyze the Knowledge Graph for nearest concepts,
+   determine extension strategy, create C4 context diagram, assess risk.
+   Artifacts: `.specify/design/<feature>/design.md`
+
+2. **Spec Phase**: Decompose into user stories with acceptance criteria.
+   Specs MUST reference the design document and pass the pre-flight checklist.
+   Artifacts: `.specify/specs/<feature>/spec.md`
+
+3. **Test Phase**: Generate TDD tests + validate against KG integrity (phase 15).
+   Artifacts: `.specify/specs/<feature>/tasks.md`
+
+## Shared Memory Architecture
+
+All agents in the `agent-packages` ecosystem share a unified Knowledge Graph:
+- **Global KG**: `~/.local/share/agent-utilities/kg/knowledge_graph.db`
+- **Config**: `~/.config/agent-utilities/` (XDG Base Directory Specification)
+- **Cache**: `~/.cache/agent-utilities/`
+- **Per-project specs**: `.specify/` (git-tracked, project-specific)
+- **MCP Exposure**: The KG is accessible as an MCP server for cross-IDE integration
+  (Antigravity, Claude Code, OpenCode, Devin). Read-only by default, write access
+  requires `kg:write` scope. Every write carries provenance (agent_id, session_id).

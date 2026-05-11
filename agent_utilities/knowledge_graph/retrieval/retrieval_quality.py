@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.8 — Retrieval Quality Gate & CONCEPT:KG-2.9 — Cross-Agent Context Provenance.
+"""CONCEPT:KG-2.3 — Retrieval Quality Gate & CONCEPT:KG-2.3 — Cross-Agent Context Provenance.
 
 Provides systematic retrieval quality measurement and failure detection
 for the HybridRetriever. Based on Devika Ambekar's research on
@@ -27,7 +27,7 @@ Environment Variables:
     ``KG_RETRIEVAL_QUALITY_GATE``: Set to ``false`` to disable (default: ``true``).
     ``KG_MIN_RELEVANCE_THRESHOLD``: Override the default 0.6 threshold.
 
-See docs/knowledge-graph.md §Retrieval Quality Gate.
+See docs/pillars/2_epistemic_knowledge_graph.md §Retrieval Quality Gate.
 """
 
 
@@ -81,7 +81,7 @@ class RetrievalFailureMode(StrEnum):
 class ContextProvenanceRecord(BaseModel):
     """Tracks retrieval quality at each agent boundary.
 
-    CONCEPT:KG-2.9 — Cross-Agent Context Provenance
+    CONCEPT:KG-2.3 — Cross-Agent Context Provenance
 
     Attached to ``GraphState.context_provenance`` to enable downstream
     agents to assess the reliability of upstream context.
@@ -102,7 +102,7 @@ class ContextProvenanceRecord(BaseModel):
 class RetrievalQualityReport(BaseModel):
     """Quality metrics for a single retrieval operation.
 
-    CONCEPT:KG-2.8 — Retrieval Quality Gate
+    CONCEPT:KG-2.3 — Retrieval Quality Gate
 
     All metrics are computed without LLM calls for minimal overhead.
     """
@@ -152,7 +152,7 @@ class RetrievalQualityReport(BaseModel):
 class RetrievalQualityGate:
     """Wraps HybridRetriever with quality assessment and failure detection.
 
-    CONCEPT:KG-2.8 — Retrieval Quality Gate
+    CONCEPT:KG-2.3 — Retrieval Quality Gate
 
     The gate computes quality metrics for every retrieval and optionally
     filters out low-quality results. When ``gate_passed`` is False, callers
@@ -421,7 +421,7 @@ class RetrievalQualityGate:
     ) -> ContextProvenanceRecord:
         """Create a provenance record from a quality report.
 
-        CONCEPT:KG-2.9 — Cross-Agent Context Provenance
+        CONCEPT:KG-2.3 — Cross-Agent Context Provenance
 
         This record should be appended to ``GraphState.context_provenance``
         after each specialist execution.

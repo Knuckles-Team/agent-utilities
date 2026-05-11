@@ -35,14 +35,14 @@ from .graph_models import (
     ValidationResult,
 )
 from .heavy_thinking import (
-    # CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+    # CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
     ComplexityEstimator,
     HeavyThinkingConfig,
     HeavyThinkingOrchestrator,
     HeavyThinkingPlanner,
 )
 from .horizon_curriculum import (
-    # CONCEPT:AHE-3.9 — Horizon-Aware Task Curriculum
+    # CONCEPT:AHE-3.6 — Horizon-Aware Task Curriculum
     CurriculumStage,
     HorizonCurriculum,
     HorizonStageConfig,
@@ -83,7 +83,7 @@ from .protocol_agnostic_execution import (
     execute_graph_stream,
 )
 from .reward_decomposition import (
-    # CONCEPT:AHE-3.10 — Decomposed Reward Signals
+    # CONCEPT:AHE-3.1 — Decomposed Reward Signals
     DecomposedRewardRecord,
     RewardDecomposer,
     StepOutcome,
@@ -145,7 +145,7 @@ __all__ = [
     "ACPEventHandler",
     # Mermaid
     "get_graph_mermaid",
-    # CONCEPT:AHE-3.7 — Heavy Thinking Orchestration
+    # CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
     "HeavyThinkingOrchestrator",
     "HeavyThinkingConfig",
     "HeavyThinkingPlanner",
@@ -154,14 +154,14 @@ __all__ = [
     "TrajectoryEntry",
     "TrajectoryPruner",
     "TrajectoryShuffler",
-    # CONCEPT:AHE-3.9 — Horizon-Aware Task Curriculum
+    # CONCEPT:AHE-3.6 — Horizon-Aware Task Curriculum
     "HorizonCurriculum",
     "HorizonStageConfig",
     "CurriculumStage",
     "PromotionPolicy",
     "MacroAction",
     "SubgoalCheckpoint",
-    # CONCEPT:AHE-3.10 — Decomposed Reward Signals
+    # CONCEPT:AHE-3.1 — Decomposed Reward Signals
     "RewardDecomposer",
     "DecomposedRewardRecord",
     "StepReward",

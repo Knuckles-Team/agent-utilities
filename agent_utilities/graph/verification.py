@@ -276,7 +276,7 @@ async def verifier_step(
                 return "dispatcher"
             logger.info(f"Verifier: Validation passed (score: {validation.score:.2f}).")
 
-            # CONCEPT:AHE-3.5: Cross-Rollout Critique (Distill Experience)
+            # CONCEPT:AHE-3.4: Cross-Rollout Critique (Distill Experience)
             if ctx.state.verification_attempts > 0 or ctx.state.retry_count > 0:
                 await _distill_experience_from_retry(ctx, results_summary)
 
@@ -582,7 +582,7 @@ async def error_recovery_step(
 async def _distill_experience_from_retry(
     ctx: StepContext[GraphState, GraphDeps, Any], results_summary: str
 ) -> None:
-    """CONCEPT:AHE-3.5: Contrastive self-correction distillation.
+    """CONCEPT:AHE-3.4: Contrastive self-correction distillation.
 
     Extracts an ExperienceNode by contrasting a successful retry against
     its previous failure feedback.
@@ -644,7 +644,7 @@ async def _distill_experience_from_retry(
 async def parallel_trajectory_distiller(
     deps: GraphDeps, trajectories: list[dict[str, Any]], query: str = ""
 ) -> None:
-    """CONCEPT:AHE-3.5: Memory-Aware Test-Time Scaling (Parallel Experience Distillation).
+    """CONCEPT:AHE-3.4: Memory-Aware Test-Time Scaling (Parallel Experience Distillation).
 
     Extracts an ExperienceNode by evaluating a batch of parallel trajectory attempts
     (both successes and failures). Unlike sequential retry loops, this batch processing
@@ -655,7 +655,7 @@ async def parallel_trajectory_distiller(
     """
     if not deps.knowledge_engine:
         return
-    logger.info("Distilling Memory from Parallel Trajectories (CONCEPT:AHE-3.5)...")
+    logger.info("Distilling Memory from Parallel Trajectories (CONCEPT:AHE-3.4)...")
 
     try:
         from pydantic import BaseModel, Field
@@ -726,7 +726,7 @@ async def parallel_trajectory_distiller(
             ogm = KGMapper(deps.knowledge_engine)
             ogm.upsert(node)
             logger.info(
-                f"Distilled Parallel Experience Node (CONCEPT:AHE-3.5): {exp_id} with EncPI mapping."
+                f"Distilled Parallel Experience Node (CONCEPT:AHE-3.4): {exp_id} with EncPI mapping."
             )
 
     except Exception as e:

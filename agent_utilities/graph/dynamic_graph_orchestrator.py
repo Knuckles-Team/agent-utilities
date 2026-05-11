@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -41,7 +42,7 @@ from .state import REQUESTED_MODEL_ID_CTX, GraphDeps, GraphState
 # --- Merged from dynamic_graph_orchestrator.py ---
 
 #!/usr/bin/python
-"""Dynamic Subgraph Orchestrator (CONCEPT:ORCH-1.19).
+"""Dynamic Subgraph Orchestrator (CONCEPT:ORCH-1.4).
 
 Dynamically synthesizes pydantic-graph transition logic from the Knowledge
 Graph on the fly without using predefined templates. Uses formal graph theory
@@ -59,7 +60,7 @@ logger = logging.getLogger(__name__)
 class DynamicSubgraphOrchestrator:
     """Dynamically synthesizes graph topology.
 
-    CONCEPT:ORCH-1.19 — Dynamic Subgraph Orchestration
+    CONCEPT:ORCH-1.4 — Dynamic Subgraph Orchestration
     """
 
     def __init__(self, engine: IntelligenceGraphEngine | None = None):
@@ -158,7 +159,7 @@ class DynamicSubgraphOrchestrator:
         )
 
         logger.info(
-            "[CONCEPT:ORCH-1.19] Dynamically synthesized subgraph '%s': %d adaptive_agent_router, mode=%s",
+            "[CONCEPT:ORCH-1.4] Dynamically synthesized subgraph '%s': %d adaptive_agent_router, mode=%s",
             team_id,
             len(adaptive_agent_router),
             mode,
@@ -259,7 +260,7 @@ class DynamicSubgraphOrchestrator:
 # --- Merged from dynamic_graph_orchestrator.py ---
 
 #!/usr/bin/python
-"""KG-Driven Pydantic Graph Engine (CONCEPT:ORCH-1.20).
+"""KG-Driven Pydantic Graph Engine (CONCEPT:ORCH-1.4).
 
 Shifts control of pydantic-graph workflows from Python logic to Knowledge Graph state transitions.
 Every step polls the KG for the next optimal execution node instead of relying on statically compiled transitions.
@@ -272,7 +273,7 @@ logger = logging.getLogger(__name__)
 class KGDrivenExecutionEngine:
     """Orchestrates dynamic pydantic-graph execution using the KG.
 
-    CONCEPT:ORCH-1.20 — KG-Driven Pydantic Graph Engine
+    CONCEPT:ORCH-1.4 — KG-Driven Pydantic Graph Engine
     """
 
     def __init__(self, engine: IntelligenceGraphEngine):
@@ -558,7 +559,7 @@ async def run_graph(
             f"run_graph: Starting graph execution for run_id {run_id}. Registered {len(deps.tag_prompts)} adaptive_agent_router."
         )
 
-        # --- CONCEPT:ORCH-1.20 Service Registry Initialization ---
+        # --- CONCEPT:ORCH-1.4 Service Registry Initialization ---
         try:
             from .service_registry import ServiceRegistry
 
@@ -569,6 +570,19 @@ async def run_graph(
             )
         except Exception as e:
             logger.debug("run_graph: Service registry init skipped: %s", e)
+
+        # --- Telemetry Engine Initialization (OS-5.6, OS-5.7, OS-5.9) ---
+        _telemetry = None
+        _telemetry_start = time.monotonic()
+        try:
+            from ..observability import TelemetryEngine
+
+            _telemetry = TelemetryEngine()
+            _telemetry.on_graph_start(
+                run_id=run_id, agent_id=config.get("agent_id", ""), query=query
+            )
+        except Exception as e:
+            logger.debug("run_graph: Telemetry init skipped: %s", e)
 
         # --- Security Guard Pre-Flight (OS-5.4, OS-5.5) ---
         try:
@@ -657,6 +671,12 @@ async def run_graph(
     if isinstance(result, GraphResponse):
         result.mermaid = mermaid_prefix if mermaid_prefix else None
         result.metadata.update({"run_id": run_id, "domain": state.routed_domain})
+        if _telemetry:
+            _telemetry.on_graph_end(
+                run_id=run_id,
+                status=result.status or "success",
+                duration_ms=(time.monotonic() - _telemetry_start) * 1000,
+            )
         return result.model_dump()
 
     # Guard: graph.run() returned a plain string (node label) instead of GraphResponse.

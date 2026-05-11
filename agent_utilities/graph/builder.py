@@ -128,7 +128,7 @@ def initialize_graph_from_workspace(
 
     Args:
         mcp_config: Filename or path to the MCP configuration file.
-        a2a_config: Filename or path to the A2A agent configuration file (CONCEPT:ECO-4.2).
+        a2a_config: Filename or path to the A2A agent configuration file (CONCEPT:ECO-4.1).
         router_model: Optional override for the router's LLM model ID.
         agent_model: Optional override for the specialist agents' LLM model ID.
         api_key: Optional API key for the LLM provider.
@@ -228,7 +228,7 @@ def initialize_graph_from_workspace(
         except Exception as e:
             logger.warning(f"Failed to load MCP discovery metadata: {e}")
 
-    # --- CONCEPT:ECO-4.2: A2A Agent Sync ---
+    # --- CONCEPT:ECO-4.1: A2A Agent Sync ---
     _a2a_config = a2a_config or os.getenv("A2A_CONFIG")
     if _a2a_config:
         try:

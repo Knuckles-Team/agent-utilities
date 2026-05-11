@@ -22,11 +22,11 @@ Architecture:
 
 Integrates with:
     - CONCEPT:OS-5.1 (Secrets & Auth): HMAC key from Secrets Engine
-    - CONCEPT:ECO-4.1 (Agent Tool System): Tool Guard pipeline integration
+    - CONCEPT:ECO-4.0 (Agent Tool System): Tool Guard pipeline integration
     - CONCEPT:OS-5.2 (Cognitive Scheduler): Priority escalation for CRITICAL roles
     - ``systems-manager``: Eunomia RBAC enforcement
 
-See docs/permissions-kernel.md §CONCEPT:OS-5.2.
+See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
 """
 
 

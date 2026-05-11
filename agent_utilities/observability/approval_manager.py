@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Approval Manager Module.
 
+CONCEPT:OS-5.1
+
 Provides a protocol-agnostic, asyncio-based pause/resume mechanism for
 human-in-the-loop tool approval and MCP elicitation.  The core primitive
 is an :class:`ApprovalManager` that maps request IDs to

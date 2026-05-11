@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.0"""
+
 import pytest
 from unittest.mock import MagicMock
 

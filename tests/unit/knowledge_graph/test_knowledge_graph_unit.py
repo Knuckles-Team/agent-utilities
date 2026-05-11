@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.0"""
+
 import networkx as nx
 import pytest
 

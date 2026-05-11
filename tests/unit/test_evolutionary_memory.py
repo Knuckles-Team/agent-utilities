@@ -1,8 +1,8 @@
 """Tests for Evolutionary Memory parity features: Topological Partitioning, Drift Tracker, EWC++.
 
 CONCEPT:KG-2.5 (Topological Mincut)
-CONCEPT:AHE-3.6 (Temporal Drift)
-CONCEPT:AHE-3.6 (EWC++)
+CONCEPT:AHE-3.4 (Temporal Drift)
+CONCEPT:AHE-3.4 (EWC++)
 """
 
 import pytest
@@ -86,11 +86,11 @@ def test_persist_stable_communities():
     assert len(engine.upserted_edges) == 6  # 3 members per community = 6 edges
 
 
-@pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.6")
+@pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.4")
 def test_drift_tracker():
     """Test temporal knowledge drift measurement.
 
-    CONCEPT:AHE-3.6
+    CONCEPT:AHE-3.4
     """
     history = [[1.0, 0.0, 0.0], [0.9, 0.1, 0.0], [0.8, 0.2, 0.0]]
     current = [0.0, 1.0, 0.0]  # Orthogonal, huge shift
@@ -103,11 +103,11 @@ def test_drift_tracker():
     assert report.coefficient_of_variation > 0.0
 
 
-@pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.6")
+@pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.4")
 def test_ewc_consolidation():
     """Test Fisher-proxy Elastic Weight Consolidation.
 
-    CONCEPT:AHE-3.6
+    CONCEPT:AHE-3.4
     """
     # History with high variance in index 1, low variance in index 0
     history = [[1.0, -1.0], [1.0, 1.0], [1.0, -0.5], [1.0, 0.5]]

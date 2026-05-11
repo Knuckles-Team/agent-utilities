@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:AHE-3.10 — Decomposed Reward Signals.
+"""CONCEPT:AHE-3.1 — Decomposed Reward Signals.
 
 Separates trajectory-level reward (goal achievement) from step-level
 reward (local constraint satisfaction) to prevent penalising correct
@@ -24,12 +24,12 @@ Where:
     - α: Weighting factor (default 0.2) balancing local vs global feedback
 
 Integrates with:
-    - CONCEPT:AHE-3.5 (Experience Distillation): Per-step success feeds ExperienceNode
-    - CONCEPT:AHE-3.7 (Heavy Thinking): Step rewards for each thinker trajectory
-    - CONCEPT:AHE-3.9 (Horizon Curriculum): Subgoal checkpoint rewards
+    - CONCEPT:AHE-3.4 (Experience Distillation): Per-step success feeds ExperienceNode
+    - CONCEPT:AHE-3.5 (Heavy Thinking): Step rewards for each thinker trajectory
+    - CONCEPT:AHE-3.6 (Horizon Curriculum): Subgoal checkpoint rewards
     - CONCEPT:KG-2.0 (OGM): Persists reward records as KG nodes
 
-See docs/overview.md §CONCEPT:AHE-3.10.
+See docs/overview.md §CONCEPT:AHE-3.1
 """
 
 
@@ -85,7 +85,7 @@ class TrajectoryOutcome(StrEnum):
 class StepReward(BaseModel):
     """Reward signal for a single step within a trajectory.
 
-    CONCEPT:AHE-3.10 — Captures local constraint satisfaction at the
+    CONCEPT:AHE-3.1 — Captures local constraint satisfaction at the
     step level, independent of whether the overall trajectory succeeded.
 
     Attributes:
@@ -154,7 +154,7 @@ class StepReward(BaseModel):
 class TrajectoryReward(BaseModel):
     """Trajectory-level reward signal for goal achievement.
 
-    CONCEPT:AHE-3.10 — Binary (or graded) signal for whether the
+    CONCEPT:AHE-3.1 — Binary (or graded) signal for whether the
     overall task goal was achieved, independent of step-level quality.
 
     Attributes:
@@ -217,7 +217,7 @@ class TrajectoryReward(BaseModel):
 class DecomposedRewardRecord(BaseModel):
     """Complete decomposed reward record for a single trajectory.
 
-    CONCEPT:AHE-3.10 — Combines step-level and trajectory-level signals
+    CONCEPT:AHE-3.1 — Combines step-level and trajectory-level signals
     into a single record that can be persisted as a KG node and used
     for experience distillation.
 
@@ -293,10 +293,10 @@ class DecomposedRewardRecord(BaseModel):
 class RewardDecomposer:
     """Decomposes trajectory outcomes into step + trajectory reward signals.
 
-    CONCEPT:AHE-3.10 — Implements the decomposed reward framework from
+    CONCEPT:AHE-3.1 — Implements the decomposed reward framework from
     Long-Horizon Training research.  Designed to be called after each
     trajectory execution to produce a ``DecomposedRewardRecord`` that
-    feeds into experience distillation (CONCEPT:AHE-3.5).
+    feeds into experience distillation (CONCEPT:AHE-3.4).
 
     The decomposer addresses the credit assignment problem: when a
     trajectory fails, individual correct steps should not be penalized.
@@ -314,7 +314,7 @@ class RewardDecomposer:
         self._records: list[DecomposedRewardRecord] = []
 
         logger.info(
-            "[CONCEPT:AHE-3.10] RewardDecomposer initialized (alpha=%.2f)",
+            "[CONCEPT:AHE-3.1] RewardDecomposer initialized (alpha=%.2f)",
             self.alpha,
         )
 
@@ -368,7 +368,7 @@ class RewardDecomposer:
         self._records.append(record)
 
         logger.info(
-            "[CONCEPT:AHE-3.10] Decomposed trajectory %s: "
+            "[CONCEPT:AHE-3.1] Decomposed trajectory %s: "
             "total_reward=%.3f, step_accuracy=%.1f%%, outcome=%s",
             trajectory_id,
             record.total_reward,

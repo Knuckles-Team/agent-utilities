@@ -1,4 +1,6 @@
 """
+
+CONCEPT:ECO-4.0
 Concept: building-mcp-servers
 
 Tests for MCP utilities.

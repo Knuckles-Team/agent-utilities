@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.75 — Research Autopilot."""
+"""Tests for CONCEPT:KG-2.6 — Research Autopilot."""
 
 import numpy as np
 import pytest

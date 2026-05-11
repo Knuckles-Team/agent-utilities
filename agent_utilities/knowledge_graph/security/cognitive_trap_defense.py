@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Zero-Shot Cognitive Trap Defense.
 
-Implements CONCEPT:KG-2.36 (Cognitive Trap Defense)
+Implements CONCEPT:KG-2.3 (Cognitive Trap Defense)
 Uses topological isomorphism via the TopologicalAnalogyEngine to detect and neutralize adversarial subgraphs.
 """
 

@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:ECO-4.2 — A2A-Native PlannerAgent (Graph-Backed Skill).
+"""Tests for CONCEPT:ECO-4.1 — A2A-Native PlannerAgent (Graph-Backed Skill).
 
 Validates:
     - ``PlannerGraphSkill`` instantiation and configuration
@@ -11,7 +11,7 @@ import pytest
 from agent_utilities.protocols.a2a_graph_skill import PlannerGraphSkill
 
 
-@pytest.mark.concept("CONCEPT:ECO-4.2")
+@pytest.mark.concept("CONCEPT:ECO-4.1")
 class TestPlannerGraphSkill:
     """Test suite for the A2A graph-backed skill."""
 
@@ -42,7 +42,7 @@ class TestPlannerGraphSkill:
         assert skill.tags == ["custom", "graph"]
 
 
-@pytest.mark.concept("CONCEPT:ECO-4.2")
+@pytest.mark.concept("CONCEPT:ECO-4.1")
 class TestExtractQuery:
     """Test suite for message parsing."""
 

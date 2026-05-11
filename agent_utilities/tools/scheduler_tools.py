@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Scheduler Tools Module.
 
+CONCEPT:OS-5.2
+
 This module provides tools for managing periodic agent tasks, including
 scheduling new background jobs, auditing the cron registry, and
 viewing execution logs.

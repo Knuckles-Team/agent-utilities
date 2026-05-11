@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Inference Engine for Knowledge Graph.
 
+CONCEPT:KG-2.2
+
 Provides lightweight rule evaluation logic to derive new facts automatically.
 """
 

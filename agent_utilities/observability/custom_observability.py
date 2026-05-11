@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Custom Observability Module.
 
-CONCEPT:OS-5.9 — Telemetry & Observability
+CONCEPT:OS-5.4 — Telemetry & Observability
 
 This module provides instrumentation for OpenTelemetry (OTel) using Logfire.
 It handles the generation of OTLP headers from credentials, service-level

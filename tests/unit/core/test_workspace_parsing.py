@@ -1,3 +1,5 @@
+"""CONCEPT:OS-5.0"""
+
 from agent_utilities.core.workspace import md_table_escape, smart_truncate
 
 

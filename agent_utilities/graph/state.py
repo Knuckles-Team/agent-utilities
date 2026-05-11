@@ -216,7 +216,7 @@ class GraphState:
     """Unique session identifier for checkpoint resumption."""
 
     pinned_model_id: str | None = None
-    """CONCEPT:OS-5.19 — Topological Session Persistence.
+    """CONCEPT:OS-5.0 — Topological Session Persistence.
     The primary model ID pinned to this session for multi-turn conversational consistency.
     Synced to the SessionNode in the Knowledge Graph to prevent jarring model-bouncing mid-thread."""
 
@@ -337,14 +337,14 @@ class GraphState:
     during wide-search extraction tasks."""
 
     context_provenance: list[dict[str, Any]] = field(default_factory=list)
-    """CONCEPT:KG-2.9 — Cross-Agent Context Provenance.
+    """CONCEPT:KG-2.6 — Cross-Agent Context Provenance.
     Tracks retrieval quality scores and failure modes across agent boundaries.
     Each entry is a serialized ``ContextProvenanceRecord`` from
     ``retrieval_quality.py``. Downstream agents inspect this to assess
     the reliability of upstream context."""
 
     subagent_pattern: str | None = None
-    """CONCEPT:ORCH-1.6 — Active Subagent Lifecycle Pattern.
+    """CONCEPT:ORCH-1.5 — Active Subagent Lifecycle Pattern.
     Records which interaction pattern (inline_tool, fan_out, agent_pool,
     teams) was selected for this execution. Used for telemetry and
     pattern-outcome learning."""

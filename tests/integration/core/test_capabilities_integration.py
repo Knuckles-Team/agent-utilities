@@ -1,4 +1,6 @@
 #!/usr/bin/python
+"""CONCEPT:ORCH-1.4"""
+
 """Tests for agent capabilities (reliability, session resilience, teams)."""
 
 from unittest.mock import AsyncMock, MagicMock

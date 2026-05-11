@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Git Utilities Tools Module.
 
+CONCEPT:ECO-4.0
+
 This module provides tools for inspecting git status, managing isolated
 worktrees for parallel development, and auditing version control history.
 """
@@ -33,14 +35,18 @@ async def get_git_status(ctx: RunContext[Any]) -> str:
 
     """
     try:
-        branch = subprocess.check_output(  # nosec B607
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
+        git_cmd = shutil.which("git")
+        if not git_cmd:
+            return "Error: git executable not found."
+
+        branch = subprocess.check_output(
+            [git_cmd, "rev-parse", "--abbrev-ref", "HEAD"], text=True
         ).strip()
-        status = subprocess.check_output(  # nosec B607
-            ["git", "status", "--short"], text=True
+        status = subprocess.check_output(
+            [git_cmd, "status", "--short"], text=True
         ).strip()
-        log = subprocess.check_output(  # nosec B607
-            ["git", "log", "--oneline", "-n", "5"], text=True
+        log = subprocess.check_output(
+            [git_cmd, "log", "--oneline", "-n", "5"], text=True
         ).strip()
 
         return (
@@ -70,11 +76,15 @@ async def create_worktree(ctx: RunContext[Any], branch_name: str, path: str) -> 
 
     """
     try:
+        git_cmd = shutil.which("git")
+        if not git_cmd:
+            return "Error: git executable not found."
+
         # 1. Create the branch if it doesn't exist
-        subprocess.run(["git", "branch", branch_name], check=False)  # nosec B607
+        subprocess.run([git_cmd, "branch", branch_name], check=False)
 
         # 2. Add the worktree
-        cmd = ["git", "worktree", "add", path, branch_name]
+        cmd = [git_cmd, "worktree", "add", path, branch_name]
         subprocess.check_call(cmd)
 
         return f"Successfully created worktree at '{path}' on branch '{branch_name}'."
@@ -96,7 +106,11 @@ async def remove_worktree(ctx: RunContext[Any], path: str, force: bool = False) 
 
     """
     try:
-        cmd = ["git", "worktree", "remove", path]
+        git_cmd = shutil.which("git")
+        if not git_cmd:
+            return "Error: git executable not found."
+
+        cmd = [git_cmd, "worktree", "remove", path]
         if force:
             cmd.append("--force")
         subprocess.check_call(cmd)
@@ -122,7 +136,11 @@ async def list_worktrees(ctx: RunContext[Any]) -> str:
 
     """
     try:
-        return subprocess.check_output(["git", "worktree", "list"], text=True).strip()  # nosec B607
+        git_cmd = shutil.which("git")
+        if not git_cmd:
+            return "Error: git executable not found."
+
+        return subprocess.check_output([git_cmd, "worktree", "list"], text=True).strip()
     except Exception as e:
         return f"Error listing worktrees: {e}"
 

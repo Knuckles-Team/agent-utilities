@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 """Secret Manager CLI.
 
+CONCEPT:OS-5.1
+
 Provides a command-line interface to manage secrets using the agent_utilities
 SecretsClient. Supports setting, getting, deleting, and listing keys across
 all backends (SQLite, Vault, InMemory).

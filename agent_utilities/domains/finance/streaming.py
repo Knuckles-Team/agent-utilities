@@ -1,5 +1,5 @@
 """
-Universal Real-Time Streaming Infrastructure — CONCEPT:KG-2.67
+Universal Real-Time Streaming Infrastructure — CONCEPT:KG-2.6
 
 Provides a protocol-based, domain-agnostic WebSocket streaming framework
 that can be leveraged for financial market data, system telemetry,

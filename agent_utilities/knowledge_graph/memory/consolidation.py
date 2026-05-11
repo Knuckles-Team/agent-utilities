@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Cognitive Consolidation Engine.
 
+CONCEPT:KG-2.1
+
 Implements the *systems-consolidation* analogue (hippocampus → neocortex,
 McClelland, McNaughton & O'Reilly 1995) for the Unified Intelligence Graph.
 """

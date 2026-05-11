@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for the Unified Service Registry (CONCEPT:ORCH-1.20)."""
+"""Tests for the Unified Service Registry (CONCEPT:ORCH-1.4)."""
 
 import pytest
 

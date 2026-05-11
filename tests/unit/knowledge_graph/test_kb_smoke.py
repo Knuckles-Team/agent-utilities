@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""CONCEPT:KG-2.0"""
+
 """Knowledge Base ingestion smoke test.
 
 Pytest migration of the Phase 6 Scenario 4 KB ingestion smoke from

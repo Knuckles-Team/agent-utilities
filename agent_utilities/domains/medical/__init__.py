@@ -1,4 +1,4 @@
-"""Medical/Healthcare Domain (CONCEPT:KG-2.90).
+"""Medical/Healthcare Domain (CONCEPT:KG-2.8).
 
 Provides clinical concept models aligned to SNOMED-CT,
 ICD-10/11, LOINC, RxNorm, and HL7 FHIR.

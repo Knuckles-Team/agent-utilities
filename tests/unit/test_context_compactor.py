@@ -1,6 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
-"""Tests for Token-Aware Context Compaction (CONCEPT:KG-2.10)."""
+"""Tests for Token-Aware Context Compaction (CONCEPT:KG-2.1)."""
 
 
 import pytest

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for CONCEPT:AHE-3.7 — Heavy Thinking Orchestration.
+"""Tests for CONCEPT:AHE-3.5 — Heavy Thinking Orchestration.
 
 Covers:
 - HeavyThinkingConfig validation and defaults

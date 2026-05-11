@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Model Factory Module.
 
+CONCEPT:ORCH-1.2
+
 This module provides a unified factory function to create and configure
 different LLM providers (OpenAI, Anthropic, Google, Groq, Mistral, Ollama)
 using pydantic-ai. It handles environment-based configuration, custom HTTP

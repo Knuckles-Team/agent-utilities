@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Research Intelligence Sub-Agent.
 
-CONCEPT:KG-2.33 — Research Intelligence Sub-Agent
+CONCEPT:KG-2.6 — Research Intelligence Sub-Agent
 
 Provides an isolated research context with citation graph traversal,
 doom-loop detection, and KG persistence. Adapted from ml-intern's
@@ -47,7 +47,7 @@ _S2_FIELDS = "paperId,title,abstract,year,citationCount,influentialCitationCount
 class CitationGraphWalker:
     """Traverses citation graphs via Semantic Scholar API.
 
-    CONCEPT:KG-2.33 — Research Intelligence Sub-Agent
+    CONCEPT:KG-2.6 — Research Intelligence Sub-Agent
 
     Performs rate-limited citation and reference traversal with caching,
     depth-limited recursion, and influence-flag tracking.
@@ -194,7 +194,7 @@ class CitationGraphWalker:
 class ResearchSubagent:
     """Isolated research context with KG persistence.
 
-    CONCEPT:KG-2.33 — Research Intelligence Sub-Agent
+    CONCEPT:KG-2.6 — Research Intelligence Sub-Agent
 
     Manages an isolated research session with its own token budget,
     doom-loop detection, and citation graph traversal. Findings are

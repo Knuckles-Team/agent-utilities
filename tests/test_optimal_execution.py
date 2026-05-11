@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.46 — Optimal Execution Engine."""
+"""Tests for CONCEPT:KG-2.6 — Optimal Execution Engine."""
 
 import math
 

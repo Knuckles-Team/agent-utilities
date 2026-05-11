@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Agent Registry Builder Module.
 
+CONCEPT:ORCH-1.2
+
 This module provides logic to ingest specialized prompt metadata into the
 Knowledge Graph as ``PromptNode`` entries. Prompts are JSON blueprints that
 live under ``agent_utilities/prompts/*.json``; each file is read as a dict

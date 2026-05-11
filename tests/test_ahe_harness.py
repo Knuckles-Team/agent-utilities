@@ -1,5 +1,7 @@
 """Tests for the AHE (Agentic Harness Engineering) harness package.
 
+CONCEPT:AHE-3.0
+
 Tests cover:
     - Manifest models (ComponentType, ComponentEdit, ChangeManifest, VerificationResult)
     - Evidence corpus models (EvidenceLayer, EvidenceEntry, FailureCluster, EvidenceCorpus)

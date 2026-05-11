@@ -1,4 +1,4 @@
-"""Tests for AgentConfigVersionManager (CONCEPT:AHE-3.13).
+"""Tests for AgentConfigVersionManager (CONCEPT:AHE-3.2).
 
 @pytest.mark.concept("AHE-3.13")
 """

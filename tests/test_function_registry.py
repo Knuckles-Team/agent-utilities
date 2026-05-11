@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:ECO-4.6 — Self-Describing Function Registry."""
+"""Tests for CONCEPT:ECO-4.0 — Self-Describing Function Registry."""
 
 import pytest
 from agent_utilities.models.knowledge_graph import TriggerBinding, CallableResourceNode

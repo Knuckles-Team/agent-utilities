@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""CONCEPT:KG-2.8"""
+
 import logging
 import time
 import typing

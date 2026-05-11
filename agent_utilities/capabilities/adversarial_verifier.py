@@ -22,7 +22,7 @@ Integrates with:
     - Verifier prompt: Extends the existing adversarial probes section.
     - ``GraphState``: Uses standard feedback/re-dispatch flow.
 
-See docs/adversarial-verification.md §CONCEPT:AHE-3.1.
+See docs/pillars/3_agentic_harness_engineering.md §CONCEPT:AHE-3.1
 """
 
 

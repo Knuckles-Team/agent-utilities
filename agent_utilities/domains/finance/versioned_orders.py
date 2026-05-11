@@ -1,5 +1,5 @@
 """
-Versioned Order System ("Trading-as-Git") — CONCEPT:KG-2.63
+Versioned Order System ("Trading-as-Git") — CONCEPT:KG-2.6
 
 Provides immutable order snapshots with version tracking, atomic
 commit promotion, and git-like mutation history with KG provenance.

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Audit Logger — Append-Only Compliance Logging (CONCEPT:OS-5.7).
+"""Audit Logger — Append-Only Compliance Logging (CONCEPT:OS-5.4).
 
 Ported from MATE's audit_service.py with KG-native persistence.
 OWL: :AuditLog rdfs:subClassOf :Event
@@ -69,7 +69,7 @@ RESOURCE_AUTH = "auth"
 
 
 class AuditRecord(BaseModel):
-    """A single append-only audit log entry. CONCEPT:OS-5.7."""
+    """A single append-only audit log entry. CONCEPT:OS-5.4"""
 
     id: str = ""
     actor: str = "system"
@@ -87,7 +87,7 @@ class AuditRecord(BaseModel):
 
 
 class AuditLogger:
-    """Append-only audit logger. CONCEPT:OS-5.7.
+    """Append-only audit logger. CONCEPT:OS-5.4
 
     Ported from MATE's audit_service.py. Key principles:
     1. Append-only — no update/delete on records

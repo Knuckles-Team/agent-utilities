@@ -19,12 +19,12 @@ Architecture:
       and graph steps.
 
 Integrates with:
-    - CONCEPT:ECO-4.1 (Agent Tool System): MCP config merging
+    - CONCEPT:ECO-4.0 (Agent Tool System): MCP config merging
     - CONCEPT:KG-2.0 (KG OGM): Specialist node hydration
     - CONCEPT:ORCH-1.2 (Registry Cache): Cache invalidation on install/uninstall
     - ``systems-manager``: Privileged install operations
 
-See docs/agent-registry.md §CONCEPT:OS-5.2.
+See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
 """
 
 

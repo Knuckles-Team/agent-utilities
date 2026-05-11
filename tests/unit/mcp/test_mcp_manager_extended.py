@@ -1,4 +1,6 @@
 from __future__ import annotations
+"""CONCEPT:ECO-4.0"""
+
 
 """Coverage push for agent_utilities.mcp_agent_manager.
 

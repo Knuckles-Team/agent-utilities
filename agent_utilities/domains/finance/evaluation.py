@@ -16,7 +16,9 @@ def evaluate_trading_signal(
     predictions: np.ndarray, actuals: np.ndarray, returns: np.ndarray
 ) -> tuple[float, float, float]:
     """
-    Evaluates signal against directional accuracy, ROC-AUC, Sharpe, and Drawdown.
+
+    CONCEPT:KG-2.6
+        Evaluates signal against directional accuracy, ROC-AUC, Sharpe, and Drawdown.
     """
     pred_direction = (predictions > 0.5).astype(int)
 

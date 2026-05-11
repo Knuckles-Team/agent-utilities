@@ -3,6 +3,8 @@ from __future__ import annotations
 
 """Task Scheduler Module.
 
+CONCEPT:OS-5.2
+
 This module provides a persistent task scheduling system for agents. It
 manages periodic tasks defined in CRON.md, maintains an execution history
 in CRON_LOG.md, and runs a background processor to execute scheduled tasks

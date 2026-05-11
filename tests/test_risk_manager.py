@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.61 — Risk Management Engine."""
+"""Tests for CONCEPT:KG-2.6 — Risk Management Engine."""
 
 import numpy as np
 import pytest

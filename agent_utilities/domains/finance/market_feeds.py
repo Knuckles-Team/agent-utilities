@@ -1,7 +1,7 @@
 """
-Real-Time Market Data Feeds — CONCEPT:KG-2.73
+Real-Time Market Data Feeds — CONCEPT:KG-2.6
 
-Finance-specific adapter on top of the universal StreamBus (KG-2.67)
+Finance-specific adapter on top of the universal StreamBus (KG-2.6)
 for real-time market data streaming with OHLCV aggregation and
 tick-level processing.
 

@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Workspace Management Tools Module.
 
+CONCEPT:ECO-4.0
+
 This module provides tools for interacting with the agentic workspace,
 including reading/writing core metadata files, managing dynamic skills,
 and auditing the filesystem.

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ECO-4.5 — Provider Prompt Adaptation.
+"""CONCEPT:ECO-4.0 — Provider Prompt Adaptation.
 
 Implements an abstracted provider adapter framework for per-provider
 prompt optimization, inspired by The Rosetta Prompt research (Source 3).
@@ -26,7 +26,7 @@ Environment Variables:
     ``KG_PROVIDER_ADAPTER_BACKEND``: Backend to use (``static`` or ``kg``).
         Defaults to ``static``.
 
-See docs/overview.md §CONCEPT:ECO-4.5.
+See docs/overview.md §CONCEPT:ECO-4.0
 """
 
 
@@ -314,7 +314,7 @@ class KGRuleBackend(ProviderBackend):
 class ProviderPromptAdapter:
     """Transforms prompts based on target provider optimization rules.
 
-    CONCEPT:ECO-4.5 — Provider Prompt Adaptation
+    CONCEPT:ECO-4.0 — Provider Prompt Adaptation
 
     Uses an abstracted backend (static or KG) to retrieve and apply
     provider-specific prompt transformation rules. Transformations
@@ -382,7 +382,7 @@ class ProviderPromptAdapter:
 
         if applied:
             logger.debug(
-                "[CONCEPT:ECO-4.5] Applied %d rules for provider '%s': %s",
+                "[CONCEPT:ECO-4.0] Applied %d rules for provider '%s': %s",
                 len(applied),
                 provider,
                 applied,
@@ -437,7 +437,7 @@ class ProviderPromptAdapter:
         """Register a new provider optimization rule."""
         self._backend.add_rule(rule)
         logger.info(
-            "[CONCEPT:ECO-4.5] Registered rule '%s' for provider '%s'",
+            "[CONCEPT:ECO-4.0] Registered rule '%s' for provider '%s'",
             rule.rule_id,
             rule.provider,
         )

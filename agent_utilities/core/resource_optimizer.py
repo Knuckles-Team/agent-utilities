@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Resource-Aware Optimization — CONCEPT:OS-5.2.
+"""Resource-Aware Optimization — CONCEPT:OS-5.2
 
 Cost-aware model selection, per-specialist budget allocation,
 latency-aware routing, and resource usage tracking with KG persistence.
@@ -9,7 +9,7 @@ latency-aware routing, and resource usage tracking with KG persistence.
 Design-pattern source: Chapter 16 — Resource-Aware Optimization.
 
 OWL: :ResourceUsage rdfs:subClassOf bfo:Process
-See docs/design-patterns-alignment.md §CONCEPT:OS-5.2.
+See docs/pillars/architecture_c4.md §CONCEPT:OS-5.2
 """
 
 
@@ -145,9 +145,9 @@ class ResourceOptimizer:
             complexity: Requested model tier.
             required_tags: Tags every candidate must carry.
             confidence_signal: Optional normalised confidence ``[0, 1]``
-                from upstream scoring.  CONCEPT:ORCH-1.2.
+                from upstream scoring.  CONCEPT:ORCH-1.2
             routing_percentile: Threshold for confidence gating.
-                CONCEPT:ORCH-1.2.
+                CONCEPT:ORCH-1.2
         """
         if self._registry is None:
             return None

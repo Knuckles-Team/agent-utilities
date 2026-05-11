@@ -1,3 +1,5 @@
+"""CONCEPT:ECO-4.1"""
+
 from unittest.mock import MagicMock, patch
 
 import pytest

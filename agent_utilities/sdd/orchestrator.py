@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """SDD Orchestration Layer.
 
-CONCEPT:ORCH-1.7 — Spec-Driven Development Pipeline
+CONCEPT:ORCH-1.6 — Spec-Driven Development Pipeline
 
 This module provides high-level orchestration for Spec-Driven Development,
 integrating TDD, manual testing, and documentation patterns.

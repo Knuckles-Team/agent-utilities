@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 0.9.0*
+*Version: 0.10.0*
 
 ## Table of Contents
 
@@ -54,24 +54,24 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Quantitative Finance Framework**: Production-grade, KG-native financial framework designed for global asset classes (Crypto, Equities, Forex, Derivatives). Includes Stationary Feature Engineering (ADF tests), Topological TradingLSTM (sequence processing + networkx regimes), Walk-Forward Validation, Kelly Criterion sizing, and Kolmogorov-Smirnov shift detection.
 - **FIBO & Quant Ontology Alignment**: Extended `ontology.ttl` with `DomainEntity`, `ScientificEntity`, `LegalEntity`, and specialized finance classes (`FinancialInstrument`, `TradingStrategy`, `StationaryFeature`, `LSTMNetwork`, `MarketRegime`, `ExecutionSignal`, `KellySizing`).
 - **Native Multi-Modal (Vision) Support (CONCEPT:ORCH-1.0)**: Direct processing of image context within the graph orchestrator. Decodes base64 image data into `pydantic_ai.BinaryContent` for high-fidelity multi-modal reasoning.
-- **Dynamic MCP Tool Distribution (CONCEPT:ECO-4.1)**: Load an `mcp_config.json` and the system automatically connects to each MCP server, extracts and tags every tool, partitions them into focused specialist agents (~10-20 tools each), and registers them as graph nodes at runtime. This keeps context windows light — "GitLab Projects" specialist only sees 10 project tools.
+- **Dynamic MCP Tool Distribution (CONCEPT:ECO-4.0)**: Load an `mcp_config.json` and the system automatically connects to each MCP server, extracts and tags every tool, partitions them into focused specialist agents (~10-20 tools each), and registers them as graph nodes at runtime. This keeps context windows light — "GitLab Projects" specialist only sees 10 project tools.
 - **Registry Hot Cache (CONCEPT:ORCH-1.2)**: Session-scoped O(1) specialist lookups with event-driven invalidation. Filters 50+ specialists down to the top-7 relevant per query, reducing prompt bloat by ~7x. Invalidates on MCP reload, pipeline completion, Self-Model updates, and TeamConfig promotions.
 - **TeamConfig Promotion (CONCEPT:AHE-3.3)**: Proven specialist coalitions are automatically persisted as reusable templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback. Includes RLM + TeamConfig synergy for automatic recursive decomposition on large inputs.
 - **AgentCapability Auto-Activation (CONCEPT:ORCH-1.2)**: First-class KG capability nodes with trigger conditions and handler modules. Capabilities like RLM, critic, and summarizer auto-activate based on input constraints (e.g., input size, domain, tool count).
-- **A2A-Native Graph Execution (CONCEPT:ECO-4.2)**: `PlannerGraphSkill` provides a direct A2A entry point that bypasses LLM orchestration overhead. When a graph is present, A2A requests route directly through the graph planner.
-- **A2A Config File (CONCEPT:ECO-4.2)**: File-based external A2A agent discovery via `a2a_config.json`. Supports `secret://`, `env://`, and `vault://` auth token resolution. Includes soft-fail startup and periodic background re-fetch of remote agent cards.
+- **A2A-Native Graph Execution (CONCEPT:ECO-4.1)**: `PlannerGraphSkill` provides a direct A2A entry point that bypasses LLM orchestration overhead. When a graph is present, A2A requests route directly through the graph planner.
+- **A2A Config File (CONCEPT:ECO-4.1)**: File-based external A2A agent discovery via `a2a_config.json`. Supports `secret://`, `env://`, and `vault://` auth token resolution. Includes soft-fail startup and periodic background re-fetch of remote agent cards.
 - **Unified Specialist Model (CONCEPT:ORCH-1.2)**: Collapses the `prompt`/`mcp` agent type distinction into a single `specialist` type. Any specialist can host any combination of MCP tools and/or agent skills. A2A agents remain their own execution protocol.
 - **Post-Execution Feedback Loop (CONCEPT:AHE-3.3)**: Verification outcomes feed back to both the Self-Model (domain success rates, tool proficiency) and TeamConfig (reward tracking), enabling continuous routing improvement.
 - **Process Lifecycle Management (CONCEPT:OS-5.2)**: `atexit` and signal handlers ensure all child processes (MCP servers, TUI, background threads) are gracefully killed on server exit.
-- **Flexible Skill Loading (CONCEPT:ECO-4.1)**: Unified `skill_types` parameter to dynamically load `universal` skills, `graphs`, or custom workspace toolsets.
+- **Flexible Skill Loading (CONCEPT:ECO-4.0)**: Unified `skill_types` parameter to dynamically load `universal` skills, `graphs`, or custom workspace toolsets.
 - **Advanced Graph Orchestration (CONCEPT:ORCH-1.0)**: Router → Planner → Dispatcher pipeline with parallel fan-out execution. Dynamic step registration for both hardcoded skill agents and MCP-discovered specialists.
-- **Self-Healing (CONCEPT:AHE-3.11)**: Circuit breaker for MCP Servers (closed/open/half-open), specialist fallback chain, tool-level retries with exponential backoff, per-node timeout, and automatic re-planning on failure.
+- **Self-Healing (CONCEPT:ORCH-1.3)**: Circuit breaker for MCP Servers (closed/open/half-open), specialist fallback chain, tool-level retries with exponential backoff, per-node timeout, and automatic re-planning on failure.
 - **Self-Correcting (CONCEPT:AHE-3.1)**: Verifier feedback loop with structured `ValidationResult` scoring. Low-quality results trigger re-dispatch with feedback injection and preserved message history.
 - **Self-Improving (CONCEPT:KG-2.1)**: Execution memory persisted natively to the Knowledge Graph after each run. Past failure patterns automatically inform future routing decisions via the Self-Model (CONCEPT:KG-2.1).
-- **Agentic Engineering Patterns (CONCEPT:AHE-3.14)**: Out-of-the-box support for **TDD Cycles** (Red-Green-Refactor), **First Run Tests** (baseline establishment), **Agentic Manual Testing** (exploratory verification), **Code Walkthroughs** (linear documentation), and **Interactive Explanations** (HTML/JS artifacts).
-- **Observability (CONCEPT:OS-5.9)**: Real-time **Graph Streaming** (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Early OTEL/logfire gate.
+- **Agentic Engineering Patterns (CONCEPT:AHE-3.2)**: Out-of-the-box support for **TDD Cycles** (Red-Green-Refactor), **First Run Tests** (baseline establishment), **Agentic Manual Testing** (exploratory verification), **Code Walkthroughs** (linear documentation), and **Interactive Explanations** (HTML/JS artifacts).
+- **Observability (CONCEPT:OS-5.4)**: Real-time **Graph Streaming** (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Early OTEL/logfire gate.
 - **Direct Graph Execution (CONCEPT:ORCH-1.0)**: Protocol adapters (AG-UI, ACP) can bypass the outer LLM agent and invoke `graph.iter()` directly, eliminating one full inference round-trip per request. Controlled via `GRAPH_DIRECT_EXECUTION` env var.
-- **Specialist Discovery (CONCEPT:ECO-4.6)**: Automated discovery of domain specialists directly from the **Knowledge Graph**.
+- **Specialist Discovery (CONCEPT:ECO-4.0)**: Automated discovery of domain specialists directly from the **Knowledge Graph**.
 - **Autonomous Memory Architecture (CONCEPT:KG-2.1)**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Autonomous Self-Improvement loops. Unifies code awareness, chat memory, and **Research Knowledge Bases** (Medical, Chemistry, etc.) into a singular, schema-enforced graph. Cross-domain relationships emerge automatically through shared concepts. Supports unified ingestion of MCP, A2A, and Skill-based resources with automated importance scoring and temporal decay.
 - **Agent Server (CONCEPT:ECO-4.0)**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/acp` (Standardized Protocol), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation (CONCEPT:ECO-4.0)**: Runtime generation of OpenAPI specifications for all agent server APIs.
@@ -87,7 +87,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Backlink-Density Retrieval Boost (CONCEPT:KG-2.2)**: Logarithmic in-degree retrieval weighting in `HybridRetriever`. Hub entities with many inbound edges are boosted proportionally. Pack-configurable strategy: `global`, `context_only`, or `disabled`.
 - **KG Eval Capture (CONCEPT:KG-2.2)**: Lightweight regression testing harness recording query-result pairs to a separate SQLite database. Enables Jaccard@k replay and top-1 stability tracking after KG changes.
 - **Conductor Workflow Specification (CONCEPT:ORCH-1.1)**: Refined natural-language subtask instructions per specialist step. The planner crafts focused sub-goals tailored to each specialist's strengths instead of forwarding the raw user query. Inspired by the RL Conductor (Nielsen et al., ICLR 2026).
-- **Multi-Level Abstraction Layering (CONCEPT:ORCH-1.5)**: Planners emit coarse-grained abstraction steps and delegate fine-grained execution to specialist nodes, reducing upfront planning token overhead.
+- **Multi-Level Abstraction Layering (CONCEPT:ORCH-1.3)**: Planners emit coarse-grained abstraction steps and delegate fine-grained execution to specialist nodes, reducing upfront planning token overhead.
 - **Execution Visibility Graph (CONCEPT:ORCH-1.1)**: Per-step `access_list` controlling which prior step results are visible to each specialist. Enables tree-structured workflows with precise context isolation, reducing prompt bloat and preventing context pollution.
 - **Model Synergy Tracker (CONCEPT:AHE-3.3)**: Tracks per-model-combination success rates in the SelfModel via EMA. When a preferred model becomes unavailable, the system queries historical synergies to find the best alternative combination.
 - **Recursive Graph Orchestration (CONCEPT:ORCH-1.1)**: Nested `run_graph()` calls for self-referential test-time scaling. When a plan fails, a recursive orchestrator spawns an inner graph with the parent's full error context to devise a corrected strategy. Controlled by `MAX_RECURSION_DEPTH` (default 2).
@@ -97,59 +97,59 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Wide-Search Orchestration (CONCEPT:ORCH-1.1)**: Pydantic-native Graph node architecture for orchestrating large-scale extractions. Automates batch decomposition within the SDD pipeline and uses a hybrid validation strategy (fast-path schema validation + slow-path `wide_search_joiner` LLM repair node).
 - **Trace Distillation Error Categorization (CONCEPT:AHE-3.1)**: Categorizes orchestrator (`ORCHESTRATOR_SKILL`) vs worker (`WORKER_SKILL`) failure modes through AHE skill distillation to enable targeted self-evolving updates.
 - **Context-Aware Entity Representations (CONCEPT:KG-2.2)**: Injects multi-hop topological structure (up to 2 levels of parents/children) and OWL-inferred relationships directly into node vector embeddings. Enables robust "topology-aware" semantic search and immediate re-embedding on inference downfeed.
-- **Experience Node Architecture (CONCEPT:AHE-3.5)**: Introduces `ExperienceNode` to natively store condition-action tactical rules inside the Knowledge Graph for continual learning.
-- **Cross-Rollout Critique (CONCEPT:AHE-3.5)**: Adds contrastive self-correction distillation. When a failure is followed by a successful retry, the system distills the action-level tactical fix and persists it as an `ExperienceNode`.
-- **Decomposed Context Retrieval (CONCEPT:AHE-3.5)**: Modifies `HybridRetriever` to decompose complex queries into abstract technical sub-queries for targeted multi-vector retrieval, expanding context precision.
+- **Experience Node Architecture (CONCEPT:AHE-3.4)**: Introduces `ExperienceNode` to natively store condition-action tactical rules inside the Knowledge Graph for continual learning.
+- **Cross-Rollout Critique (CONCEPT:AHE-3.4)**: Adds contrastive self-correction distillation. When a failure is followed by a successful retry, the system distills the action-level tactical fix and persists it as an `ExperienceNode`.
+- **Decomposed Context Retrieval (CONCEPT:AHE-3.4)**: Modifies `HybridRetriever` to decompose complex queries into abstract technical sub-queries for targeted multi-vector retrieval, expanding context precision.
 - **Inductive Knowledge Hypergraphs (CONCEPT:KG-2.4)**: Implements Positional Interaction Encodings (`EncPI`) to map true n-ary relationships (hyperedges) natively into the unified intelligence pipeline. By vectorizing relation intersections, the `HybridRetriever` achieves zero-shot generalization over entirely novel runtime topologies.
-- **Memory-Aware Test-Time Scaling (CONCEPT:AHE-3.5)**: Integrates batch-parallel trajectory generation into the HTN planner. Distills reasoning memory concurrently across multiple parallel attempts (successes and failures) yielding zero-shot hypergraph generalization and structural topological feedback.
+- **Memory-Aware Test-Time Scaling (CONCEPT:AHE-3.4)**: Integrates batch-parallel trajectory generation into the HTN planner. Distills reasoning memory concurrently across multiple parallel attempts (successes and failures) yielding zero-shot hypergraph generalization and structural topological feedback.
 - **Offline/Async Knowledge Compression (CONCEPT:KG-2.4)**: Adds `TraceDistiller` to periodically run `ConsolidationEngine` background tasks, abstracting episode-level execution traces into generalized `PreferenceNode` and `PrincipleNode` knowledge points.
 - **Topological Mincut Partitioning (CONCEPT:KG-2.5)**: Uses NetworkX Louvain detection to dynamically partition the Knowledge Graph into emergent topological clusters. Includes Label Propagation fallback for failed partitioning loops. Stable communities are persisted back to the cypher backend, providing hierarchical waypoints for graph traversal.
-- **Temporal Drift & EWC Consolidation (CONCEPT:AHE-3.6)**: Tracks concept drift across node embeddings via coefficient of variation. Mitigates catastrophic forgetting by applying a lightweight Fisher-proxy Elastic Weight Consolidation (EWC++) when modifying established knowledge graph representations.
-- **Heavy Thinking Orchestration (CONCEPT:AHE-3.7)**: Two-stage parallel-then-deliberate reasoning pipeline adapted from HEAVYSKILL research. Spawns K parallel thinker agents (default 4), prunes thinking tokens, shuffles trajectory order to prevent position bias, and synthesizes a consensus answer via sequential deliberation. Features tiered hybrid complexity gating (heuristic → confidence → LLM fallback), iterative convergence refinement, KG-native `TrajectoryNode`/`DeliberationNode` persistence, and `WorkspaceAttention.deliberation_score()` for cross-trajectory consensus analysis.
-- **Horizon-Aware Task Curriculum (CONCEPT:AHE-3.9)**: Progressive horizon scheduling derived from Long-Horizon Training research (Kim et al., ICML 2026). Implements `MacroAction` composition to reduce effective interaction steps, `SubgoalCheckpoint` milestones for intermediate credit assignment, and configurable promotion policies (threshold/plateau/adaptive EMA) to advance through progressively longer horizons.
-- **Decomposed Reward Signals (CONCEPT:AHE-3.10)**: Separates step-level reward (local constraint satisfaction) from trajectory-level reward (goal achievement) using `R_total = R_trajectory + α·ΣR_step`. Prevents penalizing correct intermediate steps in failed trajectories. `RewardDecomposer` extracts distillation insights (correct-in-failures, incorrect-in-successes patterns) for experience pipeline integration.
-- **Prompt Injection Scanner (CONCEPT:OS-5.4)**: Pattern-based runtime threat detection with 25+ threat vectors covering reverse shells, data exfiltration, privilege escalation, encoded payloads, and prompt override attempts. Adapted from Goose's `scanner.rs`. Integrates with `PolicyEngine` and persists findings as `SecurityFindingNode` in the KG for OWL transitive risk propagation.
-- **Tool Repetition Guard (CONCEPT:OS-5.5)**: Prevents infinite tool call loops by tracking consecutive identical calls and per-session budgets. Adapted from Goose's `tool_monitor.rs`. Denied repetitions distill into `ExperienceNode` tactical rules (CONCEPT:AHE-3.5) for cross-session loop avoidance.
-- **Token-Aware Context Compaction (CONCEPT:KG-2.10)**: Intelligent context window management with three strategies (`summarize_tools`, `drop_middle`, `progressive`). Adapted from Goose's `context_mgmt/mod.rs`. Compaction summaries persist as `EpisodeNode` snapshots for cross-session context recall via `MemoryRetriever`.
-- **Structured Retry Manager (CONCEPT:AHE-3.11)**: Shell-based success checks, on-failure hooks, and configurable timeouts. Adapted from Goose's `retry.rs`. Retry outcomes feed into `TeamConfigNode` reward signaling for routing improvement.
-- **Multi-Strategy EvalRunner (CONCEPT:AHE-3.12)**: Three scoring modes — exact match (Jaccard-normalized), semantic similarity (embedding cosine), and LLM-as-Judge (structured JSON prompt) — with configurable composite weights and `EvaluationMonitor` integration. Ported from MATE's `eval_runner.py`. OWL-promoted as `eval_run` nodes.
-- **Token Usage Tracker (CONCEPT:OS-5.6)**: 4-bucket granular token analytics (prompt/response/thoughts/tool_use) with session aggregation, per-agent breakdown, budget alerting, and `record_from_llm_response()` adapter for pydantic-ai. Ported from MATE's `token_usage_service.py`. OWL-promoted as `token_usage_record` nodes.
-- **Audit Logger (CONCEPT:OS-5.7)**: Append-only compliance audit trail with 30+ action constants, never-raise semantics, FIFO eviction, configurable retention, and query filtering. Ported from MATE's `audit_service.py`. OWL-promoted as `audit_log` nodes.
-- **Guardrail Callback Engine (CONCEPT:OS-5.8)**: Push-based input/output guardrail interception with block/redact/warn/log actions, regex and keyword pattern matching, and `PolicyEngine` adapter for unified evaluation. Ported from MATE's `guardrail_callback.py`. OWL-promoted as `guardrail_trigger` nodes.
-- **Agent Config Versioning (CONCEPT:AHE-3.13)**: Immutable configuration snapshots with sequential versioning, forward-only rollback, structured diffs, and SUPERSEDES edge chains. Ported from MATE's `AgentConfigVersion` model. OWL-promoted as `agent_config_version` nodes.
-- **Research Intelligence Pipeline (CONCEPT:KG-2.11)**: Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion (full KG + SQLite for relevant papers ≥3.0, abstract-only for marginal ≥1.0) → OWL Enrichment → Digest Generation. Supports arXiv papers via ScholarX, local files (PDF/HTML/Markdown), and web URLs. KG-backed watchlists via PolicyNodes.
-- **KG Source Resolver (CONCEPT:KG-2.12)**: Bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment. Enables `--kg-query` flag in `discover_projects.py` for KG-backed source resolution. Optional — gracefully returns empty when no KG is available.
-- **Cross-Session Chat Recall (CONCEPT:KG-2.13)**: Keyword-based search across stored chat sessions using the KG Cypher backend. Adapted from Goose's `ChatHistorySearch`. Provides `search_chat_history()` with relevance scoring and date filtering.
-- **Topological Analogy Engine (CONCEPT:KG-2.15)**: Leverages exact subgraph isomorphism (networkx VF2) and vectorized embeddings (`EncPI`) to find analogous subgraphs across different domains, enabling structural pattern matching and cross-domain innovation extraction.
-- **OWL-Driven Semantic Subsumption (CONCEPT:KG-2.16)**: Hierarchy-aware zero-shot ontology alignment. Automatically computes topological embedding cosine similarity against OWL class prototypes to infer and inject new concepts directly into the correct class lineage.
-- **JSON-as-Code Prompting & Governance (CONCEPT:OS-5.10)**: Standardized Pydantic models for structured prompting. Moves away from free-form Markdown to robust, versioned JSON blueprints for high-precision task specification. Engineering rule books have been migrated to the `agent_utilities/policies/` directory with versioned YAML frontmatter, and prompt-based governance uses an explicit `rules` key.
-- **Topological Vulnerability Scanner (CONCEPT:OS-5.11)**: Enhances security by moving beyond text-based pattern-matching. Scans execution graphs for structural vulnerabilities (e.g., untrusted data flows, circular dependency deadlocks) by matching them against known risk subgraphs in the KG.
-- **Formal Relations Engine (CONCEPT:KG-2.47)**: Mathematical relation properties (Reflexive, Symmetric, Transitive closures) and Equivalence Classes from MCS Ch 4 for zero-shot entity resolution.
-- **State Machine Invariant Engine (CONCEPT:KG-2.48)**: Deterministic Finite Automata (DFA) abstractions and provable state invariants from MCS Ch 6 to prevent infinite loops.
-- **Markov Transition Forecasting (CONCEPT:KG-2.49)**: Markov Chain transition matrices over agent interaction traces (Vectorized Topologies) from MCS Ch 21 to predict statistical failure nodes via stationary distribution.
-- **Graph-Native Durable Execution (CONCEPT:ECO-4.11)**: Integrates DBOS-style fault-tolerant resumability natively into the LadybugDB Knowledge Graph for multi-leg algorithmic trading.
-- **Secure Jupyter Sandbox (CONCEPT:ECO-4.12)**: Isolated execution environments for quantitative analysis with State Machine invariant checks and AST-based Vectorized Topology safety boundaries.
-- **OWL-Driven AgentSpecs Catalog (CONCEPT:AHE-3.23)**: Dynamic generation of JSON blueprints from Knowledge Graph configurations, ensuring strict semantic typing via OWL Ontologies.
-- **Project-Aware Memory (AGENTS.md) (CONCEPT:KG-2.14)**: Native support for Claude-style project rules and memory. Backend automatically loads and injects `AGENTS.md` (Project Rules) into the system prompt for high-fidelity codebase awareness.
-- **Agent-Interpretable Model Evolver (CONCEPT:AHE-3.15)**: Autoresearch loop that evolves scikit-learn-compatible model classes optimized for both predictive accuracy and LLM readability via `__str__()`. Manages Pareto frontier tracking, reward decomposition (AHE-3.10 integration), and KG-native evolutionary lineage via `EVOLVED_MODEL` edges. Actual model fitting delegated to `data-science-mcp` via MCP tool calls. Based on Microsoft Research's Agentic-iModels (arXiv:2605.03808).
-- **LLM-Graded Interpretability Tests (CONCEPT:AHE-3.16)**: 6-category, 200-test protocol measuring whether an LLM can simulate model behavior (predictions, feature effects, counterfactuals) from `__str__()` alone. Includes reward hacking detection, numerical tolerance grading, and EvalRunner (AHE-3.12) integration. Based on arXiv:2605.03808.
-- **Topological Graph Visualization (CONCEPT:KG-2.18)**: Scalable WebGL-based Knowledge Graph visualization engine using Sigma.js and ForceAtlas2 physics for the `agent-webui`. Implements intelligent mass assignment and radial clustering for high-mass structural nodes to prevent graph spaghetti at 100K+ scale. Provides full interactive CRUD capabilities via React overlay UIs.
-- **Model Display Optimization (CONCEPT:KG-2.17)**: Display-predict decoupling engine optimizing model `__str__()` for agent consumption independently of `predict()` logic. 5 strategies: linear_collapse, piecewise_table, symbolic_equation, coefficient_summary, and adaptive (SmartAdditive pattern). Bounded complexity budgets and per-feature R² gating. Based on arXiv:2605.03808.
-- **Learned Agent Routing (CONCEPT:ORCH-1.8)**: Jointly optimizes decomposition depth, worker choice, and inference budget from execution traces. Three policies: RuleBasedPolicy, TraceLearnedPolicy (softmax scoring from historical traces with EMA quality tracking), CostAwareRouter (Pareto-optimal cost/accuracy filtering). Derived from Uno-Orchestra research (arXiv:2605.05007v1).
-- **Elastic Context Operators (CONCEPT:KG-2.20)**: 5 atomic operators (Skip, Compress, Rollback, Snippet, Delete) for elastic context orchestration with checkpoint/rollback support. Derived from LongSeeker (arXiv:2605.05191v1).
-- **Multi-Timescale Memory Dynamics (CONCEPT:KG-2.21)**: Three-tier memory with timescale-aware exponential decay (Working 5min, Episodic 4hr, Semantic 30-day). Consolidation promotes high-activation memories. Derived from Continual Knowledge Updating (arXiv:2605.05097v1).
-- **Versioned KG Mutations (CONCEPT:KG-2.22)**: Git-like transactional mutation semantics: KGTransaction, KGCommit, KGVersionEngine (commit/rollback/diff), KGDiff. Derived from Evolving Idea Graphs (arXiv:2605.04922v1).
-- **Dynamic Skill Evolution (CONCEPT:ECO-4.8)**: On-the-fly skill creation and consolidation: SkillNeologismDetector, SkillFactory, SkillMerger. Derived from Skill Neologisms (arXiv:2605.04970v1).
-- **Jailbreak Robustness Hardening (CONCEPT:OS-5.12)**: 4-category SoK jailbreak taxonomy (template/optimization/LLM/manual) with 12 new threat patterns. Derived from SoK: Robustness against Jailbreak (arXiv:2605.05058v1).
-- **KG-Native Agentic Task Detection (CONCEPT:AHE-3.24)**: Evaluates topological complexity via KG subgraphs to route dense API toolchains to complex models automatically.
-- **Topological Reasoning Detection (CONCEPT:AHE-3.25)**: Maps user queries to `MathematicalFoundationNode` or quantitative financial concepts to trigger reasoning models natively.
-- **Ontological Fallback Chains (CONCEPT:ORCH-1.14)**: Uses the KG to find fallback models dynamically (via semantic equivalents) rather than relying on static lists during rate limits or server errors.
-- **Vectorized Context-Window Filtering (CONCEPT:KG-2.50)**: Semantically prunes non-relevant subgraph context before swapping models on token overflow, ensuring only contextually distant nodes are dropped.
-- **Topological Session Persistence (CONCEPT:OS-5.19)**: Pins the model for multi-turn conversations directly to the SessionNode to avoid jarring mid-thread model bouncing.
-- **KG-Driven Pydantic Graph Engine (CONCEPT:ORCH-1.20)**: Shifts from synthesizing graph configurations to dynamically polling the Knowledge Graph for state transitions at every step.
-- **Ontological State Checkpointing (CONCEPT:KG-2.53)**: Persists Pydantic Graph active states as ExecutionStateNodes, enabling zero-latency resume and background agent handoffs.
-- **Adaptive Tool Provisioning (CONCEPT:ECO-4.10)**: Real-time provisioning of MCP tools, APIs, and native functions into an execution context strictly driven by KG capabilities.
-- **Graph-Native Team Evolution (CONCEPT:AHE-3.18)**: Analyzes historical execution traces to autonomously propose architectural topological mutations and capability expansions.
+- **Temporal Drift & EWC Consolidation (CONCEPT:AHE-3.4)**: Tracks concept drift across node embeddings via coefficient of variation. Mitigates catastrophic forgetting by applying a lightweight Fisher-proxy Elastic Weight Consolidation (EWC++) when modifying established knowledge graph representations.
+- **Heavy Thinking Orchestration (CONCEPT:AHE-3.5)**: Two-stage parallel-then-deliberate reasoning pipeline adapted from HEAVYSKILL research. Spawns K parallel thinker agents (default 4), prunes thinking tokens, shuffles trajectory order to prevent position bias, and synthesizes a consensus answer via sequential deliberation. Features tiered hybrid complexity gating (heuristic → confidence → LLM fallback), iterative convergence refinement, KG-native `TrajectoryNode`/`DeliberationNode` persistence, and `WorkspaceAttention.deliberation_score()` for cross-trajectory consensus analysis.
+- **Horizon-Aware Task Curriculum (CONCEPT:AHE-3.6)**: Progressive horizon scheduling derived from Long-Horizon Training research (Kim et al., ICML 2026). Implements `MacroAction` composition to reduce effective interaction steps, `SubgoalCheckpoint` milestones for intermediate credit assignment, and configurable promotion policies (threshold/plateau/adaptive EMA) to advance through progressively longer horizons.
+- **Decomposed Reward Signals (CONCEPT:AHE-3.1)**: Separates step-level reward (local constraint satisfaction) from trajectory-level reward (goal achievement) using `R_total = R_trajectory + α·ΣR_step`. Prevents penalizing correct intermediate steps in failed trajectories. `RewardDecomposer` extracts distillation insights (correct-in-failures, incorrect-in-successes patterns) for experience pipeline integration.
+- **Prompt Injection Scanner (CONCEPT:OS-5.1)**: Pattern-based runtime threat detection with 25+ threat vectors covering reverse shells, data exfiltration, privilege escalation, encoded payloads, and prompt override attempts. Adapted from Goose's `scanner.rs`. Integrates with `PolicyEngine` and persists findings as `SecurityFindingNode` in the KG for OWL transitive risk propagation.
+- **Tool Repetition Guard (CONCEPT:OS-5.3)**: Prevents infinite tool call loops by tracking consecutive identical calls and per-session budgets. Adapted from Goose's `tool_monitor.rs`. Denied repetitions distill into `ExperienceNode` tactical rules (CONCEPT:AHE-3.4) for cross-session loop avoidance.
+- **Token-Aware Context Compaction (CONCEPT:KG-2.1)**: Intelligent context window management with three strategies (`summarize_tools`, `drop_middle`, `progressive`). Adapted from Goose's `context_mgmt/mod.rs`. Compaction summaries persist as `EpisodeNode` snapshots for cross-session context recall via `MemoryRetriever`.
+- **Structured Retry Manager (CONCEPT:ORCH-1.3)**: Shell-based success checks, on-failure hooks, and configurable timeouts. Adapted from Goose's `retry.rs`. Retry outcomes feed into `TeamConfigNode` reward signaling for routing improvement.
+- **Multi-Strategy EvalRunner (CONCEPT:AHE-3.1)**: Three scoring modes — exact match (Jaccard-normalized), semantic similarity (embedding cosine), and LLM-as-Judge (structured JSON prompt) — with configurable composite weights and `EvaluationMonitor` integration. Ported from MATE's `eval_runner.py`. OWL-promoted as `eval_run` nodes.
+- **Token Usage Tracker (CONCEPT:OS-5.4)**: 4-bucket granular token analytics (prompt/response/thoughts/tool_use) with session aggregation, per-agent breakdown, budget alerting, and `record_from_llm_response()` adapter for pydantic-ai. Ported from MATE's `token_usage_service.py`. OWL-promoted as `token_usage_record` nodes.
+- **Audit Logger (CONCEPT:OS-5.4)**: Append-only compliance audit trail with 30+ action constants, never-raise semantics, FIFO eviction, configurable retention, and query filtering. Ported from MATE's `audit_service.py`. OWL-promoted as `audit_log` nodes.
+- **Guardrail Callback Engine (CONCEPT:OS-5.3)**: Push-based input/output guardrail interception with block/redact/warn/log actions, regex and keyword pattern matching, and `PolicyEngine` adapter for unified evaluation. Ported from MATE's `guardrail_callback.py`. OWL-promoted as `guardrail_trigger` nodes.
+- **Agent Config Versioning (CONCEPT:AHE-3.2)**: Immutable configuration snapshots with sequential versioning, forward-only rollback, structured diffs, and SUPERSEDES edge chains. Ported from MATE's `AgentConfigVersion` model. OWL-promoted as `agent_config_version` nodes.
+- **Research Intelligence Pipeline (CONCEPT:KG-2.6)**: Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion (full KG + SQLite for relevant papers ≥3.0, abstract-only for marginal ≥1.0) → OWL Enrichment → Digest Generation. Supports arXiv papers via ScholarX, local files (PDF/HTML/Markdown), and web URLs. KG-backed watchlists via PolicyNodes.
+- **KG Source Resolver (CONCEPT:KG-2.6)**: Bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment. Enables `--kg-query` flag in `discover_projects.py` for KG-backed source resolution. Optional — gracefully returns empty when no KG is available.
+- **Cross-Session Chat Recall (CONCEPT:KG-2.1)**: Keyword-based search across stored chat sessions using the KG Cypher backend. Adapted from Goose's `ChatHistorySearch`. Provides `search_chat_history()` with relevance scoring and date filtering.
+- **Topological Analogy Engine (CONCEPT:KG-2.5)**: Leverages exact subgraph isomorphism (networkx VF2) and vectorized embeddings (`EncPI`) to find analogous subgraphs across different domains, enabling structural pattern matching and cross-domain innovation extraction.
+- **OWL-Driven Semantic Subsumption (CONCEPT:KG-2.2)**: Hierarchy-aware zero-shot ontology alignment. Automatically computes topological embedding cosine similarity against OWL class prototypes to infer and inject new concepts directly into the correct class lineage.
+- **JSON-as-Code Prompting & Governance (CONCEPT:OS-5.1)**: Standardized Pydantic models for structured prompting. Moves away from free-form Markdown to robust, versioned JSON blueprints for high-precision task specification. Engineering rule books have been migrated to the `agent_utilities/policies/` directory with versioned YAML frontmatter, and prompt-based governance uses an explicit `rules` key.
+- **Topological Vulnerability Scanner (CONCEPT:OS-5.1)**: Enhances security by moving beyond text-based pattern-matching. Scans execution graphs for structural vulnerabilities (e.g., untrusted data flows, circular dependency deadlocks) by matching them against known risk subgraphs in the KG.
+- **Formal Relations Engine (CONCEPT:KG-2.6)**: Mathematical relation properties (Reflexive, Symmetric, Transitive closures) and Equivalence Classes from MCS Ch 4 for zero-shot entity resolution.
+- **State Machine Invariant Engine (CONCEPT:KG-2.6)**: Deterministic Finite Automata (DFA) abstractions and provable state invariants from MCS Ch 6 to prevent infinite loops.
+- **Markov Transition Forecasting (CONCEPT:KG-2.6)**: Markov Chain transition matrices over agent interaction traces (Vectorized Topologies) from MCS Ch 21 to predict statistical failure nodes via stationary distribution.
+- **Graph-Native Durable Execution (CONCEPT:ECO-4.3)**: Integrates DBOS-style fault-tolerant resumability natively into the LadybugDB Knowledge Graph for multi-leg algorithmic trading.
+- **Secure Jupyter Sandbox (CONCEPT:ECO-4.3)**: Isolated execution environments for quantitative analysis with State Machine invariant checks and AST-based Vectorized Topology safety boundaries.
+- **OWL-Driven AgentSpecs Catalog (CONCEPT:AHE-3.5)**: Dynamic generation of JSON blueprints from Knowledge Graph configurations, ensuring strict semantic typing via OWL Ontologies.
+- **Project-Aware Memory (AGENTS.md) (CONCEPT:KG-2.1)**: Native support for Claude-style project rules and memory. Backend automatically loads and injects `AGENTS.md` (Project Rules) into the system prompt for high-fidelity codebase awareness.
+- **Agent-Interpretable Model Evolver (CONCEPT:AHE-3.3)**: Autoresearch loop that evolves scikit-learn-compatible model classes optimized for both predictive accuracy and LLM readability via `__str__()`. Manages Pareto frontier tracking, reward decomposition (AHE-3.10 integration), and KG-native evolutionary lineage via `EVOLVED_MODEL` edges. Actual model fitting delegated to `data-science-mcp` via MCP tool calls. Based on Microsoft Research's Agentic-iModels (arXiv:2605.03808).
+- **LLM-Graded Interpretability Tests (CONCEPT:AHE-3.3)**: 6-category, 200-test protocol measuring whether an LLM can simulate model behavior (predictions, feature effects, counterfactuals) from `__str__()` alone. Includes reward hacking detection, numerical tolerance grading, and EvalRunner (AHE-3.12) integration. Based on arXiv:2605.03808.
+- **Topological Graph Visualization (CONCEPT:KG-2.8)**: Scalable WebGL-based Knowledge Graph visualization engine using Sigma.js and ForceAtlas2 physics for the `agent-webui`. Implements intelligent mass assignment and radial clustering for high-mass structural nodes to prevent graph spaghetti at 100K+ scale. Provides full interactive CRUD capabilities via React overlay UIs.
+- **Model Display Optimization (CONCEPT:KG-2.6)**: Display-predict decoupling engine optimizing model `__str__()` for agent consumption independently of `predict()` logic. 5 strategies: linear_collapse, piecewise_table, symbolic_equation, coefficient_summary, and adaptive (SmartAdditive pattern). Bounded complexity budgets and per-feature R² gating. Based on arXiv:2605.03808.
+- **Learned Agent Routing (CONCEPT:ORCH-1.4)**: Jointly optimizes decomposition depth, worker choice, and inference budget from execution traces. Three policies: RuleBasedPolicy, TraceLearnedPolicy (softmax scoring from historical traces with EMA quality tracking), CostAwareRouter (Pareto-optimal cost/accuracy filtering). Derived from Uno-Orchestra research (arXiv:2605.05007v1).
+- **Elastic Context Operators (CONCEPT:KG-2.2)**: 5 atomic operators (Skip, Compress, Rollback, Snippet, Delete) for elastic context orchestration with checkpoint/rollback support. Derived from LongSeeker (arXiv:2605.05191v1).
+- **Multi-Timescale Memory Dynamics (CONCEPT:KG-2.2)**: Three-tier memory with timescale-aware exponential decay (Working 5min, Episodic 4hr, Semantic 30-day). Consolidation promotes high-activation memories. Derived from Continual Knowledge Updating (arXiv:2605.05097v1).
+- **Versioned KG Mutations (CONCEPT:KG-2.3)**: Git-like transactional mutation semantics: KGTransaction, KGCommit, KGVersionEngine (commit/rollback/diff), KGDiff. Derived from Evolving Idea Graphs (arXiv:2605.04922v1).
+- **Dynamic Skill Evolution (CONCEPT:ECO-4.0)**: On-the-fly skill creation and consolidation: SkillNeologismDetector, SkillFactory, SkillMerger. Derived from Skill Neologisms (arXiv:2605.04970v1).
+- **Jailbreak Robustness Hardening (CONCEPT:OS-5.3)**: 4-category SoK jailbreak taxonomy (template/optimization/LLM/manual) with 12 new threat patterns. Derived from SoK: Robustness against Jailbreak (arXiv:2605.05058v1).
+- **KG-Native Agentic Task Detection (CONCEPT:AHE-3.5)**: Evaluates topological complexity via KG subgraphs to route dense API toolchains to complex models automatically.
+- **Topological Reasoning Detection (CONCEPT:AHE-3.5)**: Maps user queries to `MathematicalFoundationNode` or quantitative financial concepts to trigger reasoning models natively.
+- **Ontological Fallback Chains (CONCEPT:ORCH-1.2)**: Uses the KG to find fallback models dynamically (via semantic equivalents) rather than relying on static lists during rate limits or server errors.
+- **Vectorized Context-Window Filtering (CONCEPT:KG-2.9)**: Semantically prunes non-relevant subgraph context before swapping models on token overflow, ensuring only contextually distant nodes are dropped.
+- **Topological Session Persistence (CONCEPT:OS-5.0)**: Pins the model for multi-turn conversations directly to the SessionNode to avoid jarring mid-thread model bouncing.
+- **KG-Driven Pydantic Graph Engine (CONCEPT:ORCH-1.4)**: Shifts from synthesizing graph configurations to dynamically polling the Knowledge Graph for state transitions at every step.
+- **Ontological State Checkpointing (CONCEPT:KG-2.6)**: Persists Pydantic Graph active states as ExecutionStateNodes, enabling zero-latency resume and background agent handoffs.
+- **Adaptive Tool Provisioning (CONCEPT:ECO-4.0)**: Real-time provisioning of MCP tools, APIs, and native functions into an execution context strictly driven by KG capabilities.
+- **Graph-Native Team Evolution (CONCEPT:AHE-3.5)**: Analyzes historical execution traces to autonomously propose architectural topological mutations and capability expansions.
 
 ## 🧠 Intelligence Graph
 
@@ -222,15 +222,15 @@ The graph engine supports policy-guided retrieval across four orthogonal views:
 
 ## 🧬 First Principles Architecture
 
-The **First Principles Architecture** (CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.2) rewires the routing, dispatch, and feedback layers from basic primitives. These four concepts solve the key scalability and intelligence bottlenecks that emerge when managing dozens of specialists and hundreds of tools.
+The **First Principles Architecture** (CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.1) rewires the routing, dispatch, and feedback layers from basic primitives. These four concepts solve the key scalability and intelligence bottlenecks that emerge when managing dozens of specialists and hundreds of tools.
 
 | Concept | Problem Solved | Solution |
 |:--------|:--------------|:---------|
 | **CONCEPT:ORCH-1.2: Registry Hot Cache** | O(N) specialist lookups on every routing call | Session-scoped cache with O(1) lookups, event-driven invalidation |
 | **CONCEPT:AHE-3.3: TeamConfig Promotion** | LLM re-discovers same specialist teams for recurring patterns | Persist proven coalitions as reusable templates in the KG |
 | **CONCEPT:ORCH-1.2: AgentCapability System** | Static tool bindings; no dynamic capability activation | First-class KG capability nodes with trigger conditions |
-| **CONCEPT:ECO-4.2: PlannerGraphSkill** | A2A requests require full LLM round-trip | Direct graph-backed A2A routing, bypassing LLM overhead |
-| **CONCEPT:ECO-4.2: A2A Config File** | No mechanism to discover/register external A2A agents | File-based auto-discovery with `secret://` auth & periodic refresh |
+| **CONCEPT:ECO-4.1: PlannerGraphSkill** | A2A requests require full LLM round-trip | Direct graph-backed A2A routing, bypassing LLM overhead |
+| **CONCEPT:ECO-4.1: A2A Config File** | No mechanism to discover/register external A2A agents | File-based auto-discovery with `secret://` auth & periodic refresh |
 | **CONCEPT:ORCH-1.2: Unified Specialist** | Artificial `prompt`/`mcp` type split complicates dispatch | Single `specialist` type hosting any tools/skills combination |
 
 ```mermaid
@@ -255,17 +255,18 @@ graph LR
 
 ## 🗺 Concept Map
 
-The full architecture has been ontologically compressed from 60+ flat concepts into **5 Unified Pillars**. Each pillar has a specific domain of responsibility within the ecosystem.
+Consolidated from 169 tags into **33 canonical concepts** across **5 Core Pillars**.
 
-→ **Full Concept Map table**: [docs/overview.md](docs/overview.md#concept-index) — includes all pillars with descriptions, source paths, and documentation links.
+→ **Full Concept Map**: [docs/concept_map.md](docs/concept_map.md) — canonical concept registry (single source of truth).
+→ **Concept Index**: [docs/overview.md](docs/overview.md#concept-index) — all pillars with descriptions and code paths.
 
-| Pillar | Sub-Concepts | Focus |
-|:------|:---------|:------|
-| **ORCH-1.0** Graph Orchestration | ORCH-1.1 to ORCH-1.8 | Hierarchical Task Network (HTN), Wide-Search, LATS, routing, execution budgets, swarm preset engine, SDD pipeline, learned agent routing |
-| **KG-2.0** Knowledge Graph | KG-2.1 to KG-2.40 | Active OGM, tiered memory, epistemology, structural fingerprinting, topological partitioning, trading pipeline, risk scoring, retrieval quality, research pipeline, analogy engine, semantic subsumption, model display, topology visualization, ecosystem topology, cross-pillar synergy, elastic context operators, multi-timescale memory, versioned KG mutations, research sub-agent, spectral clustering, blast radius analysis, auto-similarity memory graph, hybrid search index, RAG-KG unification, research orchestration, graph distillation migration |
-| **AHE-3.0** Agentic Harness | AHE-3.1 to AHE-3.23 | Prompt evolution, LLM-as-judge evaluation, trace distillation, synergy tracking, heavy thinking, backtest/evaluation harness, horizon curriculum, decomposed rewards, engineering patterns, iModel evolver, interpretability tests, AgentSpecs catalog |
-| **ECO-4.0** Ecosystem | ECO-4.1 to ECO-4.12 | Unified MCP tool interface, A2A network consensus, universal skills, market data connector protocol, provider prompt adaptation, function registry, ecosystem topology map, dynamic skill evolution, graph-native durable execution, secure jupyter sandbox |
-| **OS-5.0** Agent OS Kernel | OS-5.1 to OS-5.18 | Workspace management, scheduling, JWT auth, resource optimization, session concurrency, prompt injection scanning, repetition guard, token tracking, audit logging, guardrails, telemetry, policy governance, topological vulnerability scanning, jailbreak robustness, enhanced doom-loop detection |
+| Pillar | ID Range | Count | Focus |
+|:------|:---------|:---:|:------|
+| **ORCH-1** Graph Orchestration | ORCH-1.0 – 1.6 | 7 | Intelligence graph, HTN planning, routing, execution safety, DSTDD |
+| **KG-2** Knowledge Graph | KG-2.0 – 2.8 | 9 | Active KG, memory, ontology, retrieval, research, finance, enterprise |
+| **AHE-3** Agentic Harness | AHE-3.0 – 3.6 | 7 | Evaluation, evolution, teams, heavy thinking, backtest |
+| **ECO-4** Ecosystem | ECO-4.0 – 4.4 | 5 | MCP, A2A, telemetry, connectors, KG server |
+| **OS-5** Agent OS | OS-5.0 – 5.4 | 5 | Kernel, security, scheduling, guardrails, observability |
 
 ## Architecture & Orchestration
 
@@ -896,58 +897,23 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 
 > **New to the project?** Start with the [**Concept Overview Map**](docs/overview.md) to get oriented.
 
-### Getting Started
+### Core References
 
 | Guide | Description |
 | :--- | :--- |
-| [Overview Map](docs/overview.md) | The Concept Galaxy connecting all 94 concepts (CONCEPT:ORCH-1.0 to CONCEPT:KG-2.46), plus the **Concept Map table** |
-| [Creating an Agent](docs/pillars/4_ecosystem_and_tooling/creating-an-agent.md) | Step-by-step guide to bootstrapping a new Pydantic AI agent |
-| [Building MCP Servers](docs/pillars/4_ecosystem_and_tooling/building-mcp-servers.md) | Guide for creating FastMCP servers, API wrappers, and context helpers |
+| [Overview Map](docs/overview.md) | The Concept Galaxy — 33 canonical concepts, query lifecycle, concept index |
+| [Concept Map](docs/concept_map.md) | Canonical concept registry (single source of truth) |
+| [C4 Architecture](docs/pillars/architecture_c4.md) | System context, container, and component diagrams |
 
-### Architecture & Design
+### Pillar Deep-Dives
 
-| Guide | Description |
+| Pillar | Guide |
 | :--- | :--- |
-| [Architecture](docs/pillars/1_graph_orchestration/architecture.md) | System architecture, component diagrams, protocol adapters, 3-stage routing, direct graph execution |
-| [AHE Architecture](docs/pillars/3_agentic_harness_engineering/AHE_ARCHITECTURE.md) | Agentic Harness Engineering — trace distillation, prompt evolution, component observation |
-| [Design Patterns](docs/pillars/3_agentic_harness_engineering/design-patterns-alignment.md) | Alignment of codebase with established AHE and SDD design patterns |
-| [Hierarchical State Machines](docs/pillars/2_epistemic_knowledge_graph/hsm.md) | Orthogonal regions, entry/exit hooks, and static routing |
-
-### Intelligence & Learning
-
-| Guide | Description |
-| :--- | :--- |
-| [Knowledge Graph](docs/pillars/2_epistemic_knowledge_graph/knowledge-graph.md) | Unified Intelligence Graph, 14-phase pipeline, OWL Reasoning, MAGMA views, maintenance |
-| [Emergent Architecture](docs/pillars/2_epistemic_knowledge_graph/emergent-architecture.md) | OGM, Swarm Orchestration, Variant Selection, Self-Model, Global Workspace Attention (CONCEPT:KG-2.0–CONCEPT:ORCH-1.2) |
-| [First Principles Architecture](docs/pillars/1_graph_orchestration/first-principles.md) | Registry Hot Cache, TeamConfig Promotion, AgentCapability System, A2A PlannerGraphSkill (CONCEPT:ORCH-1.2–CONCEPT:ECO-4.2) |
-| [Registry Cache](docs/pillars/1_graph_orchestration/registry-cache.md) | Session-scoped O(1) specialist lookups, event-driven invalidation, performance analysis |
-
-### Execution & Orchestration
-
-| Guide | Description |
-| :--- | :--- |
-| [Agents & Orchestration](docs/pillars/1_graph_orchestration/agents.md) | Specialist registry, MCP loading, event system, memory CRUD, governance |
-| [SDD Orchestrator](docs/pillars/1_graph_orchestration/sdd.md) | Spec-Driven Development pipeline and task decomposition |
-| [RLM / REPL](docs/pillars/3_agentic_harness_engineering/rlm.md) | Recursive Language Model patterns, smart auto-triggers, AHE integration, KG/OWL helpers |
-| [Features](docs/pillars/3_agentic_harness_engineering/features.md) | Model registry, SDD lifecycle, human-in-the-loop, tool safety, agentic patterns, process lifecycle |
-
-### Configuration & Security
-
-| Guide | Description |
-| :--- | :--- |
-| [Configuration](docs/pillars/5_agent_os_infrastructure/configuration.md) | Unified reference for all environment variables, config files, and CLI flags |
-| [Models & Routing](docs/pillars/2_epistemic_knowledge_graph/models.md) | Multi-model registries, routing tiers, and `MODELS_CONFIG` |
-| [Secrets & Auth](docs/pillars/5_agent_os_infrastructure/secrets-auth.md) | `SecretsClient`, Vault integration, URI references, and `secret-manager` CLI |
-| [Capabilities](docs/pillars/1_graph_orchestration/capabilities.md) | Self-healing, circuit breakers, checkpointing, capability auto-activation, team dispatch |
-
-### Reference
-
-| Guide | Description |
-| :--- | :--- |
-| [Tools Registry](docs/pillars/4_ecosystem_and_tooling/tools.md) | 18 tool modules across 5 categories |
-| [Structured Prompts](docs/pillars/1_graph_orchestration/structured-prompts.md) | JSON prompt schema, Pydantic models, and prompt catalog |
-| [Process Lifecycle](docs/pillars/5_agent_os_infrastructure/process-lifecycle.md) | Sidecar cleanup, signal handling, and child process management |
-| [Development](docs/pillars/4_ecosystem_and_tooling/development.md) | Developer guide, testing strategies, contributing rules, and repository management |
+| Graph Orchestration | [docs/pillars/1_graph_orchestration.md](docs/pillars/1_graph_orchestration.md) |
+| Epistemic Knowledge Graph | [docs/pillars/2_epistemic_knowledge_graph.md](docs/pillars/2_epistemic_knowledge_graph.md) |
+| Agentic Harness Engineering | [docs/pillars/3_agentic_harness_engineering.md](docs/pillars/3_agentic_harness_engineering.md) |
+| Ecosystem & Peripherals | [docs/pillars/4_ecosystem_peripherals.md](docs/pillars/4_ecosystem_peripherals.md) |
+| Agent OS Infrastructure | [docs/pillars/5_agent_os_infrastructure.md](docs/pillars/5_agent_os_infrastructure.md) |
 
 ## Contributing
 

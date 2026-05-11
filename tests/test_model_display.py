@@ -1,6 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
-"""Tests for CONCEPT:KG-2.17 — Model Display Optimization.
+"""Tests for CONCEPT:KG-2.6 — Model Display Optimization.
 
 Validates display strategies, linearization, hinge collapse, adaptive
 display, and complexity budget enforcement.

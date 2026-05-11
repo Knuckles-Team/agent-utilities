@@ -1,12 +1,12 @@
-"""Tests for CONCEPT:KG-2.44 — Latent Space Anti-Collapse Regularizer."""
+"""Tests for CONCEPT:KG-2.6 — Latent Space Anti-Collapse Regularizer."""
 
 import numpy as np
 import pytest
 
-from agent_utilities.knowledge_graph.memory.latent_space_regularizer import (
+from agent_utilities.knowledge_graph.memory.knowledge_stability_engine import (
     CollapseReport,
     DiversityMetrics,
-    LatentSpaceRegularizer,
+    KnowledgeStabilityEngine as LatentSpaceRegularizer,
 )
 
 

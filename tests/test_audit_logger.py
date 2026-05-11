@@ -1,4 +1,4 @@
-"""Tests for AuditLogger — Compliance Logging (CONCEPT:OS-5.7).
+"""Tests for AuditLogger — Compliance Logging (CONCEPT:OS-5.4).
 
 @pytest.mark.concept("OS-5.7")
 """

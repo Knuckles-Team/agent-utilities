@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.70 — Kronos Foundation Model Forecaster."""
+"""Tests for CONCEPT:KG-2.6 — Kronos Foundation Model Forecaster."""
 
 import numpy as np
 import pytest

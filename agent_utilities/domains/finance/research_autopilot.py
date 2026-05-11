@@ -1,5 +1,5 @@
 """
-Research Autopilot — CONCEPT:KG-2.75
+Research Autopilot — CONCEPT:KG-2.6
 
 Automated hypothesis → backtest → report loop for overnight
 strategy research and discovery.

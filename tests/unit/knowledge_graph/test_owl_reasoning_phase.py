@@ -1,4 +1,6 @@
 #!/usr/bin/python
+"""CONCEPT:KG-2.2"""
+
 """Unit tests for OWL Reasoning Pipeline Phase."""
 
 from unittest.mock import MagicMock, patch

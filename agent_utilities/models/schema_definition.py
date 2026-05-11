@@ -6,7 +6,12 @@ which can be used by different backends (Ladybug, Neo4j, FalkorDB)
 to initialize tables or indices.
 """
 
+import os
+
 from .knowledge_graph import GraphSchemaDefinition, RelDefinition, TableDefinition
+
+EMBEDDING_DIM = os.environ.get("KG_EMBEDDING_DIM", "768")
+EMBEDDING_TYPE = f"FLOAT[{EMBEDDING_DIM}]"
 
 SCHEMA = GraphSchemaDefinition(
     nodes=[
@@ -21,8 +26,8 @@ SCHEMA = GraphSchemaDefinition(
                 "agent_type": "STRING",
                 "system_prompt": "STRING",
                 "capabilities": "STRING[]",
-                "tool_count": "INT64",
                 "mcp_server": "STRING",
+                "embedding": EMBEDDING_TYPE,
                 "last_sync": "INT64",
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
@@ -39,8 +44,8 @@ SCHEMA = GraphSchemaDefinition(
                 "description": "STRING",
                 "mcp_server": "STRING",
                 "relevance_score": "INT64",
-                "tags": "STRING[]",
                 "requires_approval": "BOOLEAN",
+                "embedding": EMBEDDING_TYPE,
                 "last_sync": "INT64",
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
@@ -102,8 +107,8 @@ SCHEMA = GraphSchemaDefinition(
                 "id": "STRING PRIMARY KEY",
                 "type": "STRING",
                 "name": "STRING",
-                "description": "STRING",
                 "version": "STRING",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
@@ -116,10 +121,11 @@ SCHEMA = GraphSchemaDefinition(
                 "id": "STRING PRIMARY KEY",
                 "type": "STRING",
                 "name": "STRING",
-                "description": "STRING",
                 "file_path": "STRING",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
+                "last_seen_timestamp": "STRING",
                 "metadata": "STRING",
                 "is_permanent": "BOOLEAN",
             },
@@ -232,7 +238,7 @@ SCHEMA = GraphSchemaDefinition(
                 "role": "STRING",
                 "content": "STRING",
                 "timestamp": "STRING",
-                "embedding": "FLOAT[1536]",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "metadata": "STRING",
                 "is_permanent": "BOOLEAN",
@@ -376,8 +382,8 @@ SCHEMA = GraphSchemaDefinition(
             name="Concept",
             columns={
                 "id": "STRING PRIMARY KEY",
-                "type": "STRING",
                 "name": "STRING",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
@@ -426,7 +432,7 @@ SCHEMA = GraphSchemaDefinition(
                 "agent_card": "STRING",
                 "skill_code_path": "STRING",
                 "metadata_id": "STRING",
-                "embedding": "FLOAT[1536]",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
@@ -459,7 +465,7 @@ SCHEMA = GraphSchemaDefinition(
                 "version": "STRING",
                 "tags": "STRING[]",
                 "parameters": "STRING",
-                "embedding": "FLOAT[1536]",
+                "embedding": EMBEDDING_TYPE,
                 "source": "STRING",
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
@@ -560,7 +566,7 @@ SCHEMA = GraphSchemaDefinition(
                 "content": "STRING",
                 "word_count": "INT64",
                 "tags": "STRING[]",
-                "embedding": "FLOAT[1536]",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
@@ -591,7 +597,7 @@ SCHEMA = GraphSchemaDefinition(
                 "type": "STRING",
                 "name": "STRING",
                 "description": "STRING",
-                "embedding": "FLOAT[1536]",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
@@ -606,7 +612,7 @@ SCHEMA = GraphSchemaDefinition(
                 "content": "STRING",
                 "certainty": "FLOAT",
                 "source_ids": "STRING[]",
-                "embedding": "FLOAT[1536]",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
@@ -735,7 +741,7 @@ SCHEMA = GraphSchemaDefinition(
                 "name": "STRING",
                 "description": "STRING",
                 "source": "STRING",
-                "embedding": "FLOAT[1536]",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
@@ -1381,6 +1387,30 @@ SCHEMA = GraphSchemaDefinition(
             connections=[
                 {"from": "Fact", "to": "Fact"},
                 {"from": "ReasoningTrace", "to": "ReasoningTrace"},
+            ],
+        ),
+        RelDefinition(
+            type="CALLS",
+            connections=[
+                {"from": "Code", "to": "Code"},
+                {"from": "Agent", "to": "Agent"},
+                {"from": "Agent", "to": "Tool"},
+                {"from": "Skill", "to": "Skill"},
+                {"from": "Tool", "to": "Tool"},
+                {"from": "Entity", "to": "Entity"},
+                {"from": "CallableResource", "to": "CallableResource"},
+            ],
+        ),
+        RelDefinition(
+            type="CALLSRAW",
+            connections=[
+                {"from": "Code", "to": "Code"},
+                {"from": "Agent", "to": "Agent"},
+                {"from": "Agent", "to": "Tool"},
+                {"from": "Skill", "to": "Skill"},
+                {"from": "Tool", "to": "Tool"},
+                {"from": "Entity", "to": "Entity"},
+                {"from": "CallableResource", "to": "CallableResource"},
             ],
         ),
         RelDefinition(

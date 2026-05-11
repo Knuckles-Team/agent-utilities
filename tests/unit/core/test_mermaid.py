@@ -1,3 +1,5 @@
+"""CONCEPT:OS-5.4"""
+
 import networkx as nx
 
 from agent_utilities.knowledge_graph.core.engine import (

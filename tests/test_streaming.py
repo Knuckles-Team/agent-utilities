@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:KG-2.67 — Universal Real-Time Streaming."""
+"""Tests for CONCEPT:KG-2.6 — Universal Real-Time Streaming."""
 
 import asyncio
 import json

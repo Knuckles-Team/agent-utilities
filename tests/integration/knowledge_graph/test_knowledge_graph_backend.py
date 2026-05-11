@@ -1,3 +1,5 @@
+"""CONCEPT:KG-2.0"""
+
 import importlib.util
 from unittest.mock import MagicMock, patch
 

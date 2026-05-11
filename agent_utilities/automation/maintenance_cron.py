@@ -26,7 +26,7 @@ Integrates with:
     - CONCEPT:OS-5.2 (AgentRegistry): Package health monitoring
     - CONCEPT:OS-5.0 (FileWatcher): Can be triggered by file changes
 
-See docs/maintenance-cron.md §CONCEPT:OS-5.2.
+See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
 """
 
 

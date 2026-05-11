@@ -1,5 +1,5 @@
 """
-Risk Management Engine — CONCEPT:KG-2.61
+Risk Management Engine — CONCEPT:KG-2.6
 
 Provides a risk-first guard pipeline with VaR calculation, stress testing,
 and pre-trade validation integrated with KG provenance.

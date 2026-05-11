@@ -1,5 +1,5 @@
 """
-Multi-Platform Strategy Export — CONCEPT:KG-2.74
+Multi-Platform Strategy Export — CONCEPT:KG-2.6
 
 Generates platform-specific trading strategy code from a universal
 strategy specification: Pine Script v6 (TradingView), MQL5 (MetaTrader 5),

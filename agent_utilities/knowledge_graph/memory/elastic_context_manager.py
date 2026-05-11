@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 # --- Merged from elastic_context_manager.py ---
 
 #!/usr/bin/python
-"""Token-Aware Context Compaction (CONCEPT:KG-2.10).
+"""Token-Aware Context Compaction (CONCEPT:KG-2.1).
 
 Intelligent context window management that replaces naive truncation
 with strategy-based compaction.  Adapted from Goose's
@@ -145,7 +145,7 @@ class CompactedResult(BaseModel):
 class ContextCompactor:
     """Intelligent context window compaction engine.
 
-    CONCEPT:KG-2.10 — Token-Aware Context Compaction
+    CONCEPT:KG-2.1 — Token-Aware Context Compaction
 
     Adapted from Goose's ``compact_messages()`` (Rust) with three
     strategies for reducing token usage while preserving semantic
@@ -461,7 +461,7 @@ class ContextCompactor:
 class ContextOperator(StrEnum):
     """Atomic context operations for elastic context orchestration.
 
-    CONCEPT:KG-2.10 — Derived from LongSeeker (arXiv:2605.05191v1).
+    CONCEPT:KG-2.1 — Derived from LongSeeker (arXiv:2605.05191v1).
 
     Five atomic operators for reshaping working context:
     - SKIP: Mark a message as irrelevant, exclude from future processing
@@ -521,7 +521,7 @@ class OperatorResult(BaseModel):
 class ElasticContextManager:
     """Elastic context orchestration with 5 atomic operators.
 
-    CONCEPT:KG-2.10 — Derived from LongSeeker's Context-ReAct paradigm.
+    CONCEPT:KG-2.1 — Derived from LongSeeker's Context-ReAct paradigm.
 
     Provides fine-grained control over working context using atomic
     operations that preserve important evidence, summarize resolved
@@ -967,7 +967,7 @@ class TimescaleMemoryStore:
 
 # --- Merged from elastic_context_manager.py ---
 
-"""Vectorized Context-Window Filtering (CONCEPT:KG-2.41).
+"""Vectorized Context-Window Filtering (CONCEPT:KG-2.6).
 
 This module implements token-aware context compaction by semantically pruning
 non-relevant subgraph context before swapping models on token overflow.

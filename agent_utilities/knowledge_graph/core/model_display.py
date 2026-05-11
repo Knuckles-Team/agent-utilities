@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.17 — Model Display Optimization.
+"""CONCEPT:KG-2.6 — Model Display Optimization.
 
 Implements the display-predict decoupling pattern from arXiv:2605.03808.
 Optimizes model ``__str__()`` output for LLM consumption independently
@@ -13,11 +13,11 @@ Key patterns from the paper:
     - Pattern 3: Reward hacking resistance (SmartAdditive adaptive display)
 
 Integrates with:
-    - CONCEPT:KG-2.10 (ContextCompactor): Uses display budgets in prompts
-    - CONCEPT:KG-2.16 (SemanticSubsumption): Classifies display strategies
-    - CONCEPT:KG-2.15 (AnalogyEngine): Finds similar model displays
+    - CONCEPT:KG-2.1 (ContextCompactor): Uses display budgets in prompts
+    - CONCEPT:KG-2.2 (SemanticSubsumption): Classifies display strategies
+    - CONCEPT:KG-2.5 (AnalogyEngine): Finds similar model displays
 
-See docs/overview.md §CONCEPT:KG-2.17.
+See docs/overview.md §CONCEPT:KG-2.6
 """
 
 
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 class ModelDisplayOptimizer:
     """Optimizes model ``__str__()`` for LLM consumption.
 
-    CONCEPT:KG-2.17 — Model Display Optimization
+    CONCEPT:KG-2.6 — Model Display Optimization
 
     Implements display-predict decoupling: the display representation
     of a model can be optimized for agent readability independently
