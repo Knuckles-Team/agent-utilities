@@ -28,9 +28,12 @@ from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 
 @pytest.fixture(autouse=True)
-def clean_graph_globals():
+def clean_graph_globals(monkeypatch, tmp_path):
     set_active_backend(None)
     IntelligenceGraphEngine.set_active(None)
+    
+    monkeypatch.setenv("GRAPH_DB_PATH", str(tmp_path / "test_knowledge_graph.db"))
+    
     yield
     set_active_backend(None)
     IntelligenceGraphEngine.set_active(None)
