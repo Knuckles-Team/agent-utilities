@@ -14,11 +14,11 @@ import networkx as nx
 
 from agent_utilities.core.config import (
     DEFAULT_ENABLE_LLM_VALIDATION,
-    DEFAULT_GRAPH_AGENT_MODEL,
     DEFAULT_GRAPH_PERSISTENCE_PATH,
     DEFAULT_GRAPH_ROUTER_TIMEOUT,
     DEFAULT_GRAPH_VERIFIER_TIMEOUT,
-    DEFAULT_PROVIDER,
+    DEFAULT_LITE_LLM_MODEL_ID,
+    DEFAULT_LLM_PROVIDER,
     DEFAULT_ROUTER_MODEL,
     DEFAULT_SSL_VERIFY,
 )
@@ -36,6 +36,7 @@ from .config_helpers import (
     emit_graph_event,
     load_node_agents_registry,
 )
+from .coordination import CoordinationLayer
 from .mermaid import get_graph_mermaid
 from .state import REQUESTED_MODEL_ID_CTX, GraphDeps, GraphState
 
@@ -65,6 +66,8 @@ class DynamicSubgraphOrchestrator:
 
     def __init__(self, engine: IntelligenceGraphEngine | None = None):
         self.engine = engine
+        # CONCEPT:ORCH-1.5 — Coordination Protocol Layer (Research: 2605.03310v1)
+        self.coordination_layer = CoordinationLayer(engine=engine)
 
     def synthesize_team(
         self,
@@ -132,12 +135,45 @@ class DynamicSubgraphOrchestrator:
         for agent in agents:
             # Step 5: Ask KG for tools
             tools = self._discover_tools_for_agent(str(agent["role"]), available_tools)
+
+            # CONCEPT:ORCH-1.2 - Adaptive Model Routing (Assimilated from Pydantic AI)
+            model_id = agent.get("model_id", "")
+            if self.engine and not model_id:
+                try:
+                    from .adaptive_agent_router import (
+                        RoutingCandidate,
+                        RoutingPrimitive,
+                        TopologicalRoutingPolicy,
+                    )
+
+                    # Generate candidate models dynamically
+                    candidates = [
+                        RoutingCandidate(
+                            model_id="gemini-2.5-pro",
+                            primitive=RoutingPrimitive.DECOMPOSE,
+                            confidence=0.9,
+                        ),
+                        RoutingCandidate(
+                            model_id="gemini-2.5-flash",
+                            primitive=RoutingPrimitive.DIRECT,
+                            confidence=0.7,
+                        ),
+                    ]
+                    policy = TopologicalRoutingPolicy(engine=self.engine)
+                    decision = policy.route(query, candidates)
+                    model_id = decision.selected.model_id
+                    logger.debug(
+                        f"[ORCH-1.2] Adaptive Model Routing selected {model_id} for role {agent['role']}"
+                    )
+                except Exception as e:
+                    logger.debug(f"Adaptive model routing failed: {e}")
+
             adaptive_agent_router.append(
                 {
                     "role": agent["role"],
                     "agent_id": agent["agent_id"],
                     "tools": tools,
-                    "model_id": agent.get("model_id", ""),
+                    "model_id": model_id,
                     "system_prompt": agent.get(
                         "system_prompt",
                         f"You are a dynamically spawned {agent['role']}.",
@@ -158,11 +194,36 @@ class DynamicSubgraphOrchestrator:
             reasoning=f"Dynamically synthesized topology via ORCH-1.19. Makespan: {critical_info.get('makespan', 1.0)}",
         )
 
+        # CONCEPT:ORCH-1.5 — Select and apply coordination protocol (Research: 2605.03310v1)
+        agent_ids: list[str] = [str(a["agent_id"]) for a in agents]
+        protocol = self.coordination_layer.select_protocol(
+            agent_count=len(agents),
+            task_type=domain,
+            execution_mode=mode,
+        )
+        coord_result = self.coordination_layer.apply_protocol(
+            protocol=protocol,
+            agent_ids=agent_ids,
+            task=query,
+            task_type=domain,
+        )
+        # Persist coordination trace to KG
+        self.coordination_layer.log_coordination_trace(coord_result)
+        # Attach protocol metadata to the composition
+        composition.coordination_protocol = {
+            "protocol_id": protocol.protocol_id,
+            "protocol_type": protocol.protocol_type.value,
+            "name": protocol.name,
+            "quality_score": coord_result.quality_score,
+            "converged": coord_result.converged,
+        }
+
         logger.info(
-            "[CONCEPT:ORCH-1.4] Dynamically synthesized subgraph '%s': %d adaptive_agent_router, mode=%s",
+            "[CONCEPT:ORCH-1.4] Dynamically synthesized subgraph '%s': %d adaptive_agent_router, mode=%s, protocol=%s",
             team_id,
             len(adaptive_agent_router),
             mode,
+            protocol.name,
         )
 
         return composition
@@ -439,21 +500,21 @@ async def run_graph(
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
             custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
+            provider=config.get("provider", DEFAULT_LLM_PROVIDER),
             ssl_verify=_ssl_verify,
         ),
         agent_model=create_model(
-            model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
+            model_id=config.get("agent_model", DEFAULT_LITE_LLM_MODEL_ID),
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
             custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
+            provider=config.get("provider", DEFAULT_LLM_PROVIDER),
             ssl_verify=_ssl_verify,
         ),
         nodes=config.get("nodes", {}),
         min_confidence=config.get("min_confidence", 0.6),
         sub_agents=config.get("sub_agents", {}),
-        provider=config.get("provider", DEFAULT_PROVIDER),
+        provider=config.get("provider", DEFAULT_LLM_PROVIDER),
         base_url=config.get("base_url"),
         api_key=config.get("api_key"),
         ssl_verify=_ssl_verify,
@@ -567,6 +628,15 @@ async def run_graph(
             svc_count = svc_registry.initialize()
             logger.debug(
                 "run_graph: Service registry initialized with %d services", svc_count
+            )
+
+            # --- CONCEPT:ECO-4.0 Dynamic Tool Hydration (Plugin Registry) ---
+            from .plugin_registry import PluginRegistry
+
+            plugin_registry = PluginRegistry.instance()
+            deps.plugin_registry = plugin_registry
+            logger.debug(
+                "run_graph: Plugin registry initialized for dynamic tool hydration."
             )
         except Exception as e:
             logger.debug("run_graph: Service registry init skipped: %s", e)
@@ -790,20 +860,20 @@ async def run_graph_stream(
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
             custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
+            provider=config.get("provider", DEFAULT_LLM_PROVIDER),
             ssl_verify=_ssl_verify,
         ),
         agent_model=create_model(
-            model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
+            model_id=config.get("agent_model", DEFAULT_LITE_LLM_MODEL_ID),
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
             custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
+            provider=config.get("provider", DEFAULT_LLM_PROVIDER),
             ssl_verify=_ssl_verify,
         ),
         min_confidence=config.get("min_confidence", 0.6),
         sub_agents=config.get("sub_agents", {}),
-        provider=config.get("provider", DEFAULT_PROVIDER),
+        provider=config.get("provider", DEFAULT_LLM_PROVIDER),
         base_url=config.get("base_url"),
         api_key=config.get("api_key"),
         ssl_verify=_ssl_verify,
@@ -1011,21 +1081,21 @@ async def run_graph_iter(
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
             custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
+            provider=config.get("provider", DEFAULT_LLM_PROVIDER),
             ssl_verify=_ssl_verify,
         ),
         agent_model=create_model(
-            model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
+            model_id=config.get("agent_model", DEFAULT_LITE_LLM_MODEL_ID),
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
             custom_headers=_custom_headers,
-            provider=config.get("provider", DEFAULT_PROVIDER),
+            provider=config.get("provider", DEFAULT_LLM_PROVIDER),
             ssl_verify=_ssl_verify,
         ),
         nodes=config.get("nodes", {}),
         min_confidence=config.get("min_confidence", 0.6),
         sub_agents=config.get("sub_agents", {}),
-        provider=config.get("provider", DEFAULT_PROVIDER),
+        provider=config.get("provider", DEFAULT_LLM_PROVIDER),
         base_url=config.get("base_url"),
         api_key=config.get("api_key"),
         ssl_verify=_ssl_verify,

@@ -11,7 +11,11 @@ that lack semantic web capabilities.
 
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+import requests
+
+from ..backends import create_backend
 
 if TYPE_CHECKING:
     pass
@@ -47,7 +51,7 @@ class FederationMixin:
         node_id = f"OntologyReference_{hash(uri)}"
         self.add_node(  # type: ignore[attr-defined]
             node_id=node_id,
-            node_type="external_graph_reference",
+            node_type="ExternalGraphReference",
             properties={
                 "externalUri": uri,
                 "sourceUrl": endpoint,
@@ -72,7 +76,7 @@ class FederationMixin:
     ) -> str:
         """Ingest a high-level metadata stub from an external KG (e.g. LeanIX).
 
-        Creates an `external_entity` node and links it to the specified `internal_node_id`
+        Creates an `ExternalEntity` node and links it to the specified `internal_node_id`
         via `mapped_to_external` to create a bridge between the internal structural graph
         and the external metadata graph.
 
@@ -82,7 +86,7 @@ class FederationMixin:
 
         self.add_node(  # type: ignore[attr-defined]
             node_id=stub_id,
-            node_type="external_entity",
+            node_type="ExternalEntity",
             properties={
                 "externalSystemId": external_id,
                 "externalUri": external_uri,
@@ -104,3 +108,108 @@ class FederationMixin:
             external_id,
         )
         return stub_id
+
+    def execute_federated_query(
+        self, reference_id: str, query: str, parameters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Execute a query against an external graph reference.
+
+        Args:
+            reference_id: The ID of the ExternalGraphReferenceNode in the local graph.
+            query: The SPARQL or Cypher query string.
+            parameters: Optional query parameters (mostly for Cypher/LPG).
+
+        Returns:
+            A list of dictionary records.
+        """
+        # 1. Retrieve the endpoint details from the local graph
+        if not hasattr(self, "backend") or not self.backend:  # type: ignore[attr-defined]
+            # Fallback to local memory graph if no persistent backend
+            node_data = self.graph.nodes.get(reference_id)  # type: ignore[attr-defined]
+            if not node_data:
+                raise ValueError(
+                    f"External graph reference {reference_id} not found in local graph."
+                )
+            endpoint_url = node_data.get("endpoint_url") or node_data.get("sourceUrl")
+            graph_type = node_data.get("graph_type") or node_data.get("platform")
+        else:
+            res = self.backend.execute(  # type: ignore[attr-defined]
+                "MATCH (n) WHERE n.id = $id RETURN n.endpoint_url as url, n.graph_type as type, n.sourceUrl as surl, n.platform as plat",
+                {"id": reference_id},
+            )
+            if not res:
+                raise ValueError(
+                    f"External graph reference {reference_id} not found in persistent graph."
+                )
+            row = res[0]
+            endpoint_url = row.get("url") or row.get("surl")
+            graph_type = row.get("type") or row.get("plat")
+
+        if not endpoint_url:
+            raise ValueError(
+                f"No endpoint URL configured for reference {reference_id}."
+            )
+
+        graph_type = str(graph_type).lower()
+
+        # 2. Route to the appropriate executor
+        if "sparql" in graph_type:
+            return self.execute_federated_sparql(endpoint=endpoint_url, query=query)
+        else:
+            return self.execute_federated_lpg(
+                endpoint=endpoint_url, query=query, parameters=parameters
+            )
+
+    def execute_federated_sparql(
+        self, endpoint: str, query: str
+    ) -> list[dict[str, Any]]:
+        """Execute a SPARQL query against an external HTTP endpoint using the `requests` library."""
+        headers = {
+            "Accept": "application/sparql-results+json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        logger.info("Executing federated SPARQL query against %s", endpoint)
+
+        try:
+            response = requests.post(
+                endpoint, data={"query": query}, headers=headers, timeout=30
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            # Flatten SPARQL XML/JSON bindings to a simple dict list
+            results = []
+            if "results" in data and "bindings" in data["results"]:
+                for binding in data["results"]["bindings"]:
+                    row = {k: v["value"] for k, v in binding.items()}
+                    results.append(row)
+            return results
+        except Exception as e:
+            logger.error("Federated SPARQL query failed: %s", e)
+            raise RuntimeError(f"Federated SPARQL execution failed: {e}") from e
+
+    def execute_federated_lpg(
+        self, endpoint: str, query: str, parameters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Execute a Cypher/LPG query against an external endpoint.
+
+        Uses the `create_backend` factory to abstract away the specific
+        LPG driver (Neo4j, FalkorDB, PostgreSQL, etc.).
+        """
+        logger.info("Executing federated LPG query against %s", endpoint)
+
+        try:
+            # create_backend parses the URI schema dynamically
+            ext_backend = create_backend(uri=endpoint)
+            if not ext_backend:
+                raise RuntimeError(
+                    f"Failed to create backend for endpoint {endpoint}. "
+                    "Ensure appropriate driver (e.g. agent-utilities[neo4j]) is installed."
+                )
+
+            # Use the abstracted GraphBackend execution method
+            results = ext_backend.execute(query, parameters or {})
+            return results
+        except Exception as e:
+            logger.error("Federated LPG query failed: %s", e)
+            raise RuntimeError(f"Federated LPG execution failed: {e}") from e

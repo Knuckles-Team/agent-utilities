@@ -4,6 +4,7 @@
 New code should import from the submodules directly:
 - ``agent_utilities.mcp.server_factory`` — parser, server creation, auth config
 - ``agent_utilities.mcp.context_helpers`` — ctx_* helpers
+- ``agent_utilities.mcp.delegated_auth`` — OAuth 2.0 delegation helpers
 
 CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 """
@@ -26,11 +27,23 @@ from agent_utilities.mcp.context_helpers import (  # noqa: F401
     ctx_sample,
     ctx_set_state,
 )
+
+# Re-export delegated auth helpers
+from agent_utilities.mcp.delegated_auth import (  # noqa: F401
+    exchange_authorization_code,
+    get_3lo_authorization_url,
+    get_delegated_token,
+    get_user_claims,
+    get_user_identity,
+    get_user_token,
+    is_delegation_enabled,
+    refresh_access_token,
+)
 from agent_utilities.mcp.server_factory import (  # noqa: F401
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
-    DEFAULT_MODEL_ID,
-    DEFAULT_PROVIDER,
+    DEFAULT_LLM_MODEL_ID,
+    DEFAULT_LLM_PROVIDER,
     DEFAULT_SSL_VERIFY,
     DEFAULT_TRANSPORT,
     create_mcp_parser,
@@ -49,8 +62,8 @@ __all__ = [
     "mcp_auth_config",
     "DEFAULT_TRANSPORT",
     "DEFAULT_SSL_VERIFY",
-    "DEFAULT_PROVIDER",
-    "DEFAULT_MODEL_ID",
+    "DEFAULT_LLM_PROVIDER",
+    "DEFAULT_LLM_MODEL_ID",
     "DEFAULT_LLM_BASE_URL",
     "DEFAULT_LLM_API_KEY",
     # ctx helpers
@@ -60,4 +73,13 @@ __all__ = [
     "ctx_set_state",
     "ctx_get_state",
     "ctx_sample",
+    # delegated auth
+    "get_delegated_token",
+    "get_user_token",
+    "get_user_claims",
+    "get_user_identity",
+    "is_delegation_enabled",
+    "get_3lo_authorization_url",
+    "exchange_authorization_code",
+    "refresh_access_token",
 ]

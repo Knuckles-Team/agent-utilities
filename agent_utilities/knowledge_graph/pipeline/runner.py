@@ -45,7 +45,45 @@ class PipelineRunner:
         return [self.phases[name] for name in sorted_names]
 
     async def run(self, ctx: PipelineContext) -> dict[str, PhaseResult]:
+        STAGE_MAPPING = {
+            "Stage 1: Context Hydration": [
+                "memory",
+                "scan",
+                "workspace_sync",
+                "registry",
+            ],
+            "Stage 2: Structural Extraction": ["parse", "resolve", "mro", "reference"],
+            "Stage 3: Topological & Semantic Enrichment": [
+                "communities",
+                "centrality",
+                "embedding",
+            ],
+            "Stage 4: Epistemic Consolidation": [
+                "sync",
+                "owl_reasoning",
+                "external_graphs",
+                "knowledge_base",
+            ],
+            "Stage 5: Governance & Evolution": [
+                "validate",
+                "experience_distillation",
+                "decision_evolution",
+            ],
+        }
+
+        phase_to_stage = {}
+        for stage, p_list in STAGE_MAPPING.items():
+            for p in p_list:
+                phase_to_stage[p] = stage
+
+        current_stage = None
+
         for phase in self.sorted_phases:
+            stage = phase_to_stage.get(phase.name, "Stage X: Unknown")
+            if stage != current_stage:
+                logger.info(f"=== Entering {stage} ===")
+                current_stage = stage
+
             logger.info(f"Executing phase: {phase.name}")
             start_time = time.time()
 

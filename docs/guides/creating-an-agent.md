@@ -151,17 +151,19 @@ List the MCP servers your agent should connect to. Environment variables are aut
 ```json
 {
   "mcpServers": {
-    "my-service": {
+    "agent-utilities-kg": {
       "command": "uv",
-      "args": ["run", "my-service-mcp", "-t", "stdio"],
+      "args": ["run", "agent-utilities-kg"],
       "env": {
-        "SERVICE_URL": "secret://my-service/url",
-        "SERVICE_TOKEN": "secret://my-service/token"
+        "AGENT_ID": "local-developer",
+        "WORKSPACE_PATH": "${workspaceFolder}"
       }
     }
   }
 }
 ```
+
+*Note: When using `kg_get_stats` tools, ensure `WORKSPACE_PATH` points to your project root to enable optimized graph indexing.*
 
 ## Step 4: Set Up `pyproject.toml`
 

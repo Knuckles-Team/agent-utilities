@@ -92,7 +92,7 @@ class DocumentCleanup:
             try:
                 # Check if document is soft-deleted
                 doc = self.knowledge_graph.graph.nodes.get(doc_id)
-                if doc and doc.get("is_deleted"):
+                if doc and doc.get("status") == "ARCHIVED":
                     if hard_delete_soft_deleted:
                         await deletion_pipeline.delete_document(
                             doc_id, hard_delete=True
@@ -201,7 +201,7 @@ class DocumentCleanup:
             # Get all soft-deleted documents older than threshold
             soft_deleted_docs = []
             for node_id, data in self.knowledge_graph.graph.nodes(data=True):
-                if data.get("is_deleted") and "deleted_at" in data:
+                if data.get("status") == "ARCHIVED" and "deleted_at" in data:
                     deleted_at = datetime.fromisoformat(data["deleted_at"])
                     if deleted_at < cutoff_date:
                         soft_deleted_docs.append(node_id)

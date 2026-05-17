@@ -285,7 +285,7 @@ async def test_sync_node_execute_raises() -> None:
         call_count["n"] += 1
         raise RuntimeError("db error")
 
-    backend.execute.side_effect = boom
+    backend.execute_batch.side_effect = boom
     g = nx.MultiDiGraph()
     g.add_node("n1", type="tool", name="t")
     ctx = _make_ctx(graph=g, backend=backend)

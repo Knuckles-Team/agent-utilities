@@ -357,6 +357,44 @@ class RetrievalQualityGate:
         except (ValueError, TypeError):
             return 1.0
 
+    def compute_ndcg(
+        self,
+        results: list[dict[str, Any]],
+        gold_doc_ids: set[str],
+        k: int = 10,
+    ) -> float:
+        """Compute Normalized Discounted Cumulative Gain at k.
+
+        CONCEPT:KG-2.3 — nDCG for retrieval quality (BrowseComp-Plus)
+
+        Uses binary relevance: 1 if doc_id ∈ gold_doc_ids, else 0.
+        Aligns with BrowseComp-Plus evaluation methodology (Section 4.1).
+
+        Args:
+            results: Retrieval results with ``id`` fields.
+            gold_doc_ids: IDs of documents known to contain the answer.
+            k: Cutoff rank for nDCG computation.
+
+        Returns:
+            nDCG@k score in [0.0, 1.0].
+        """
+        if not results or not gold_doc_ids:
+            return 0.0
+
+        top_k = results[:k]
+
+        # DCG: sum of relevance / log2(rank + 1)
+        dcg = 0.0
+        for i, r in enumerate(top_k):
+            rel = 1.0 if r.get("id") in gold_doc_ids else 0.0
+            dcg += rel / math.log2(i + 2)  # +2 because rank is 1-indexed
+
+        # Ideal DCG: all gold docs at top
+        ideal_count = min(len(gold_doc_ids), k)
+        idcg = sum(1.0 / math.log2(i + 2) for i in range(ideal_count))
+
+        return dcg / idcg if idcg > 0 else 0.0
+
     def gate_results(
         self,
         results: list[dict[str, Any]],

@@ -15,6 +15,65 @@ EMBEDDING_TYPE = f"FLOAT[{EMBEDDING_DIM}]"
 
 SCHEMA = GraphSchemaDefinition(
     nodes=[
+        TableDefinition(
+            name="BusinessRole",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "name": "STRING",
+                "description": "STRING",
+                "concept_id": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="ApplicationComponent",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "name": "STRING",
+                "description": "STRING",
+                "concept_id": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="BusinessProcess",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "name": "STRING",
+                "description": "STRING",
+                "concept_id": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        # Continuous Ingestion Nodes — CONCEPT:KG-2.0
+        TableDefinition(
+            name="DiffEntry",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "content": "STRING",
+                "embedding": EMBEDDING_TYPE,
+                "target_path": "STRING",
+                "last_seen_timestamp": "STRING",
+                "status": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
         # Core Registry Nodes
         TableDefinition(
             name="Agent",
@@ -27,6 +86,7 @@ SCHEMA = GraphSchemaDefinition(
                 "system_prompt": "STRING",
                 "capabilities": "STRING[]",
                 "mcp_server": "STRING",
+                "tool_count": "INT64",
                 "embedding": EMBEDDING_TYPE,
                 "last_sync": "INT64",
                 "importance_score": "FLOAT",
@@ -45,6 +105,7 @@ SCHEMA = GraphSchemaDefinition(
                 "mcp_server": "STRING",
                 "relevance_score": "INT64",
                 "requires_approval": "BOOLEAN",
+                "tags": "STRING[]",
                 "embedding": EMBEDDING_TYPE,
                 "last_sync": "INT64",
                 "importance_score": "FLOAT",
@@ -138,6 +199,7 @@ SCHEMA = GraphSchemaDefinition(
                 "name": "STRING",
                 "description": "STRING",
                 "category": "STRING",
+                "status": "STRING",
                 "timestamp": "STRING",
                 "tags": "STRING[]",
                 "importance_score": "FLOAT",
@@ -391,6 +453,36 @@ SCHEMA = GraphSchemaDefinition(
             },
         ),
         TableDefinition(
+            name="ExternalGraphReference",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "endpoint_url": "STRING",
+                "graph_type": "STRING",
+                "sourceUrl": "STRING",
+                "platform": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="ExternalEntity",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "externalSystemId": "STRING",
+                "externalUri": "STRING",
+                "platform": "STRING",
+                "name": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
             name="Capability",
             columns={
                 "id": "STRING PRIMARY KEY",
@@ -565,10 +657,13 @@ SCHEMA = GraphSchemaDefinition(
                 "summary": "STRING",
                 "content": "STRING",
                 "word_count": "INT64",
+                "target_path": "STRING",
+                "chunk_index": "INT64",
                 "tags": "STRING[]",
                 "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
+                "last_seen_timestamp": "STRING",
                 "metadata": "STRING",
                 "is_permanent": "BOOLEAN",
             },
@@ -1291,6 +1386,21 @@ SCHEMA = GraphSchemaDefinition(
     ],
     edges=[
         # Core Relationships
+        RelDefinition(
+            type="DEPENDS_ON_RAW",
+            connections=[{"from": "Code", "to": "Code"}],
+        ),
+        RelDefinition(
+            type="CALLS_RAW",
+            connections=[{"from": "Code", "to": "Code"}],
+        ),
+        RelDefinition(
+            type="IMPLEMENTS",
+            connections=[
+                {"from": "Code", "to": "Code"},
+                {"from": "Code", "to": "Concept"},
+            ],
+        ),
         RelDefinition(
             type="PROVIDES",
             connections=[

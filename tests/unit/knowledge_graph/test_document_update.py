@@ -66,12 +66,12 @@ class TestDocumentUpdatePipeline:
         knowledge_graph.graph.nodes.get.return_value = {
             "id": "doc_123",
             "content": "Old content",
-            "is_deleted": True,
+            "status": "ARCHIVED",
         }
 
         pipeline = DocumentUpdatePipeline(knowledge_graph=knowledge_graph)
 
-        with pytest.raises(ValueError, match="Document .* is soft-deleted"):
+        with pytest.raises(ValueError, match="archived"):
             await pipeline.update_document(
                 ontological_identifier="doc_123", new_content="New content"
             )
@@ -84,7 +84,7 @@ class TestDocumentUpdatePipeline:
             "id": "doc_123",
             "content": "Existing content",
             "metadata": {"title": "Old Title"},
-            "is_deleted": False,
+            "status": "ACTIVE",
         }
 
         # Register document in registry

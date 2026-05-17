@@ -17,7 +17,10 @@ else:
 from ...models.domains.finance import (
     ExecutionSignalNode,
     KellySizingNode,
+    MarkovRegimeStateNode,
+    MarkovTransitionMatrixNode,
     OrderCommitRecordNode,
+    RegimeSignalNode,
     TradingStrategyNode,
 )
 
@@ -136,3 +139,268 @@ class FinanceEngineMixin(_Base):
                 {"oid": order_id, "pid": portfolio_id},
             )
         return order_id
+
+    # --- Markov Regime Detection (CONCEPT:KG-2.6) ---
+
+    def fit_markov_regime(
+        self,
+        returns: list[float],
+        strategy_id: str,
+        asset_class: str = "equities",
+        *,
+        bull_threshold: float | None = None,
+        bear_threshold: float | None = None,
+        window: int | None = None,
+        method: str = "rolling_sum",
+    ) -> str:
+        """Fit a Markov regime model to returns and persist to the KG.
+
+        Creates a ``MarkovTransitionMatrixNode`` and links it to the
+        associated ``TradingStrategy``.
+
+        Args:
+            returns: List of period returns.
+            strategy_id: ID of the TradingStrategy node to link to.
+            asset_class: Asset class for default threshold selection.
+            bull_threshold: Override bull threshold.
+            bear_threshold: Override bear threshold.
+            window: Override rolling window.
+            method: 'rolling_sum' or 'compounding'.
+
+        Returns:
+            ID of the created MarkovTransitionMatrixNode.
+        """
+
+        import numpy as np
+
+        from ..core.markov_regime import AssetClass, MarkovRegimeModel
+
+        ac = (
+            AssetClass(asset_class)
+            if asset_class in AssetClass.__members__.values()
+            else AssetClass.EQUITIES
+        )
+        model = MarkovRegimeModel(
+            asset_class=ac,
+            bull_threshold=bull_threshold,
+            bear_threshold=bear_threshold,
+            window=window,
+            method=method,
+        )
+        model.fit(np.array(returns))
+
+        matrix_id = f"markov_matrix:{uuid.uuid4().hex[:8]}"
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        props = model.to_kg_properties()
+
+        node = MarkovTransitionMatrixNode(
+            id=matrix_id,
+            name=f"Regime Matrix ({asset_class})",
+            dimension=props["n_states"],
+            matrix_json=props["transition_matrix"],
+            sample_count=props["sample_count"],
+            estimation_window=model.detector.window,
+            asset_class=asset_class,
+            timestamp=ts,
+            metadata=props,
+        )
+        self.graph.add_node(node.id, **node.model_dump())
+
+        if self.backend:
+            data = self._serialize_node(node, label="MarkovTransitionMatrix")
+            self._upsert_node("MarkovTransitionMatrix", matrix_id, data)
+            self.backend.execute(
+                """
+                MATCH (m:RegistryNode {type: 'model', name: $model_name, id: $model_id})
+                RETURN m
+                """,
+                {
+                    "model_name": "MarkovRegimeModel",
+                    "model_id": f"markov_regime_{asset_class}",
+                },
+            )
+            self.backend.execute(
+                "MATCH (s:TradingStrategy {id: $sid}), (m:MarkovTransitionMatrix {id: $mid}) "
+                "MERGE (s)-[:MODELS_REGIME]->(m)",
+                {"sid": strategy_id, "mid": matrix_id},
+            )
+
+        # Also persist the current regime state
+        if model.regime_states is not None and len(model.regime_states) > 0:
+            current_regime = str(model.regime_states[-1])
+            regime_id = f"regime_state:{uuid.uuid4().hex[:8]}"
+            signal_data = model.generate_signal(current_regime)
+
+            regime_node = MarkovRegimeStateNode(
+                id=regime_id,
+                name=f"Regime: {current_regime}",
+                regime_type=current_regime,
+                confidence=abs(signal_data["signal"]),
+                returns_window=model.detector.window,
+                asset_class=asset_class,
+                timestamp=ts,
+            )
+            self.graph.add_node(regime_node.id, **regime_node.model_dump())
+
+            if self.backend:
+                data = self._serialize_node(regime_node, label="MarkovRegimeState")
+                self._upsert_node("MarkovRegimeState", regime_id, data)
+                self.backend.execute(
+                    "MATCH (m:MarkovTransitionMatrix {id: $mid}), (r:MarkovRegimeState {id: $rid}) "
+                    "MERGE (m)-[:DETECTED_REGIME]->(r)",
+                    {"mid": matrix_id, "rid": regime_id},
+                )
+
+        logger.info(
+            "[CONCEPT:KG-2.6] Fitted Markov regime model for strategy %s: %s",
+            strategy_id,
+            matrix_id,
+        )
+        return matrix_id
+
+    def forecast_regime(self, strategy_id: str, n_steps: int = 5) -> dict[str, float]:
+        """Forecast regime probabilities n steps ahead.
+
+        Loads the most recent ``MarkovTransitionMatrixNode`` linked to the
+        strategy, reconstructs the model, and forecasts.
+
+        Args:
+            strategy_id: TradingStrategy node ID.
+            n_steps: Number of forecast steps.
+
+        Returns:
+            Dict of {regime_state: probability}.
+        """
+        import json
+
+        import numpy as np
+
+        from ..core.markov_regime import MarkovRegimeModel
+
+        # Find the latest regime matrix for this strategy
+        matrix_data = None
+        for _, data in self.graph.nodes(data=True):
+            if data.get("type") == "markov_transition_matrix" and data.get(
+                "asset_class"
+            ):
+                matrix_data = data
+                break
+
+        if self.backend:
+            results = self.backend.execute(
+                """
+                MATCH (s:TradingStrategy {id: $sid})-[:MODELS_REGIME]->(m:MarkovTransitionMatrix)
+                RETURN m ORDER BY m.timestamp DESC LIMIT 1
+                """,
+                {"sid": strategy_id},
+            )
+            if results:
+                matrix_data = results[0].get("m", {})
+
+        if not matrix_data:
+            logger.warning("No Markov regime model found for strategy %s", strategy_id)
+            return {}
+
+        metadata = matrix_data.get("metadata", {})
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+
+        ac = metadata.get("asset_class", "equities")
+        model = MarkovRegimeModel(asset_class=ac)
+        # Reconstruct the Markov model from the serialized transition matrix
+        trans_json = metadata.get("transition_matrix", "{}")
+        if isinstance(trans_json, str):
+            trans_dict = json.loads(trans_json)
+        else:
+            trans_dict = trans_json
+
+        if trans_dict:
+            states = list(trans_dict.keys())
+            n_s = len(states)
+            matrix = np.zeros((n_s, n_s))
+            for i, src in enumerate(states):
+                for j, dst in enumerate(states):
+                    matrix[i][j] = trans_dict.get(src, {}).get(dst, 0.0)
+
+            model.markov.states = states
+            model.markov._state_to_idx = {s: i for i, s in enumerate(states)}
+            model.markov.transition_matrix = matrix
+            model._fitted = True
+
+        # Forecast from the current regime
+        current = metadata.get("states", "[]")
+        if isinstance(current, str):
+            state_list = json.loads(current)
+        else:
+            state_list = current
+        current_state = state_list[-1] if state_list else "sideways"
+
+        return model.forecast(current_state, n_steps)
+
+    def generate_regime_signal(self, strategy_id: str) -> str:
+        """Generate and persist a regime-based trading signal.
+
+        Args:
+            strategy_id: TradingStrategy node ID.
+
+        Returns:
+            ID of the created RegimeSignalNode.
+        """
+        forecast = self.forecast_regime(strategy_id, n_steps=1)
+        if not forecast:
+            return ""
+
+        signal_id = f"regime_sig:{uuid.uuid4().hex[:8]}"
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        bull_p = forecast.get("bull", 0.0)
+        bear_p = forecast.get("bear", 0.0)
+        sideways_p = forecast.get("sideways", 0.0)
+        signal_val = bull_p - bear_p
+
+        node = RegimeSignalNode(
+            id=signal_id,
+            name=f"Regime Signal {signal_val:+.3f}",
+            signal_value=signal_val,
+            bull_prob=bull_p,
+            bear_prob=bear_p,
+            sideways_prob=sideways_p,
+            timestamp=ts,
+        )
+        self.graph.add_node(node.id, **node.model_dump())
+
+        if self.backend:
+            data = self._serialize_node(node, label="RegimeSignal")
+            self._upsert_node("RegimeSignal", signal_id, data)
+            self.backend.execute(
+                "MATCH (s:TradingStrategy {id: $sid}), (sig:RegimeSignal {id: $sigid}) "
+                "MERGE (s)-[:GENERATES_SIGNAL]->(sig)",
+                {"sid": strategy_id, "sigid": signal_id},
+            )
+
+        return signal_id
+
+    def get_regime_history(self, strategy_id: str) -> list[dict]:
+        """Query the KG for historical regime states linked to a strategy.
+
+        Args:
+            strategy_id: TradingStrategy node ID.
+
+        Returns:
+            List of regime state dicts ordered by timestamp.
+        """
+        if self.backend:
+            results = self.backend.execute(
+                "MATCH (s:TradingStrategy {id: $sid})-[:MODELS_REGIME]->"
+                "(m:MarkovTransitionMatrix)-[:DETECTED_REGIME]->(r:MarkovRegimeState) "
+                "RETURN r ORDER BY r.timestamp ASC",
+                {"sid": strategy_id},
+            )
+            return [r.get("r", {}) for r in results] if results else []
+
+        # Fallback to in-memory graph
+        regime_nodes = []
+        for _, data in self.graph.nodes(data=True):
+            if data.get("type") == "markov_regime_state":
+                regime_nodes.append(data)
+        return sorted(regime_nodes, key=lambda x: x.get("timestamp", ""))

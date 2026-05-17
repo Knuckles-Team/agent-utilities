@@ -85,6 +85,27 @@ All features follow the DSTDD lifecycle:
 3. **Test Phase**: Generate TDD tests + validate against KG integrity (phase 15).
    Artifacts: `.specify/specs/<feature>/tasks.md`
 
+## Post-Modification Artifact Mandate
+
+After ANY code modification (whether driven by SDD, comparative analysis, or manual changes),
+the following artifacts MUST be reviewed and updated as appropriate:
+
+1. **`/docs`** — Update or create relevant documentation pages for changed functionality
+2. **`AGENTS.md`** — Update agent capability descriptions, tool listings, and architecture notes
+3. **`CHANGELOG.md`** — Add entry under the appropriate version section (Unreleased if pre-release)
+4. **`README.md`** — Update feature lists, architecture descriptions, and usage examples
+5. **`.specify/`** — Sync specs, tasks, and design docs; dual-write to KG via `kg_ingest`
+6. **`.specify/reports/`** — Generate/update C4 architecture diagrams for changed components
+7. **Pytests** — Add or update tests for ALL modified or new functionality
+
+### Enforcement
+
+- The `kg_inspect(view='constitution')` MCP tool MUST be consulted before SDD task execution
+- These rules are persisted as `Policy` nodes in the KG with `enforcement: MANDATORY`
+- SDD implementer MUST cross-check its generated plan against all MANDATORY policies
+- A plan that omits any of these 7 artifacts is INVALID and must be revised
+- The evolution pipeline (`agent-utilities-evolution` skill) auto-injects these into every SDD plan
+
 ## Shared Memory Architecture
 
 All agents in the `agent-packages` ecosystem share a unified Knowledge Graph:

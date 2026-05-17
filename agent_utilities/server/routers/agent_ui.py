@@ -12,8 +12,8 @@ from agent_utilities.core.config import (
     DEFAULT_APPROVAL_TIMEOUT,
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
-    DEFAULT_MODEL_ID,
-    DEFAULT_PROVIDER,
+    DEFAULT_LLM_MODEL_ID,
+    DEFAULT_LLM_PROVIDER,
 )
 from agent_utilities.core.workspace import WORKSPACE_DIR
 
@@ -87,8 +87,8 @@ async def ag_ui_endpoint(request: Request) -> Response:
         elicitation_queue=elicitation_queue,
         request_id=run_id,
         approval_timeout=DEFAULT_APPROVAL_TIMEOUT,
-        provider=DEFAULT_PROVIDER,
-        model_id=DEFAULT_MODEL_ID,
+        provider=DEFAULT_LLM_PROVIDER,
+        model_id=DEFAULT_LLM_MODEL_ID,
         base_url=DEFAULT_LLM_BASE_URL,
         api_key=DEFAULT_LLM_API_KEY,
         mcp_toolsets=_initialized_mcp_toolsets,

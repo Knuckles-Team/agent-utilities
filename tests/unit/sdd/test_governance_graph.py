@@ -46,7 +46,8 @@ def test_process_flow_model_validation():
 async def test_create_or_merge_node_idempotency():
     """Test that create_or_merge_node adds nodes to the graph."""
     graph = nx.MultiDiGraph()
-    engine = IntelligenceGraphEngine(graph=graph)
+    mock_backend = MagicMock()
+    engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
     IntelligenceGraphEngine.set_active(engine)
 
     policy = Policy(
@@ -75,7 +76,8 @@ async def test_process_step_sequence():
     )
 
     graph = nx.MultiDiGraph()
-    engine = IntelligenceGraphEngine(graph=graph)
+    mock_backend = MagicMock()
+    engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
     IntelligenceGraphEngine.set_active(engine)
 
     await create_or_merge_node(step1)
@@ -111,7 +113,7 @@ def test_engine_policy_discovery():
 
     assert len(policies) == 1
     assert policies[0]["name"] == "TDD Policy"
-    mock_backend.execute.assert_called_once()
+    assert mock_backend.execute.call_count >= 1
 
 
 def test_engine_process_discovery():

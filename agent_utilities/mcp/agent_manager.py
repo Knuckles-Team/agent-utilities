@@ -580,6 +580,7 @@ async def sync_mcp_agents(
             logger.info(
                 f"Starting Knowledge Graph ingestion for {len(tools_inventory)} tools"
             )
+            is_local_engine = False
             try:
                 engine = IntelligenceGraphEngine.get_active()
                 if not engine:
@@ -591,12 +592,15 @@ async def sync_mcp_agents(
                     engine = IntelligenceGraphEngine(
                         graph=nx.MultiDiGraph(), db_path=db_path
                     )
+                    is_local_engine = True
 
                 backend = engine.backend
                 if backend is None:
                     logger.error(
                         "Graph backend is not available. Cannot sync tools to graph."
                     )
+                    if is_local_engine:
+                        pass  # no backend to close
                     return
 
                 # 2a. Sync Prompts from registry builder
@@ -666,6 +670,9 @@ async def sync_mcp_agents(
 
             except Exception as e:
                 logger.exception(f"Failed to sync MCP agents to Knowledge Graph: {e}")
+            finally:
+                if is_local_engine and "backend" in locals() and backend:
+                    backend.close()
     except Timeout:
         logger.info("Another process is currently syncing MCP agents. Skipping...")
 

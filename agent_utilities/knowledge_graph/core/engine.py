@@ -48,6 +48,7 @@ from ..orchestration.engine_query import QueryMixin
 from .engine_ingestion import IngestionMixin
 from .engine_memory import MemoryMixin
 from .engine_registry import FocusedSubgraph, RegistryMixin
+from .engine_tasks import TaskManagerMixin
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class IntelligenceGraphEngine(
     FinanceEngineMixin,
     MachineLearningEngineMixin,
     InfrastructureEngineMixin,
+    TaskManagerMixin,
 ):
     """Engine for querying the unified intelligence graph (Agents, Tools, Code, Memory).
 
@@ -104,6 +106,7 @@ class IntelligenceGraphEngine(
         db_path: str | None = None,
         external_ontologies: list[str] | None = None,
     ):
+        super().__init__()
         self.graph = graph
         self.backend: GraphBackend | None = None
 
@@ -118,6 +121,24 @@ class IntelligenceGraphEngine(
                 self.backend = create_backend(db_path=db_path)
             else:
                 self.backend = None
+
+        # Start workers if there are pending tasks in the database natively
+        if self.backend:
+            try:
+                # Lightweight check to avoid locking if queue is empty
+                pending = self.query_cypher(
+                    "MATCH (t:Task {status: 'pending'}) RETURN count(t) as c"
+                )
+                if pending and pending[0]["c"] > 0:
+                    import os
+
+                    # Avoid auto-starting during unit tests to prevent thread deadlocks
+                    if os.getenv("AGENT_UTILITIES_TESTING", "false").lower() != "true":
+                        self.start_task_workers()
+            except Exception:
+                logger.debug(
+                    "Failed to start task workers on initialization", exc_info=True
+                )
 
         # Auto-register as active if none exists to support singleton pattern
         if IntelligenceGraphEngine._ACTIVE_ENGINE is None:
@@ -318,6 +339,11 @@ class IntelligenceGraphEngine(
             props["confidence"] = 1.0
         if "source" not in props:
             props["source"] = "system"
+        # Graphiti-inspired temporal metadata: valid_from enables temporal queries
+        if "valid_from" not in props:
+            from datetime import UTC, datetime
+
+            props["valid_from"] = datetime.now(UTC).isoformat()
 
         if self.backend and not ephemeral:
             # Tier 1: Backend is source of truth
@@ -489,6 +515,150 @@ class IntelligenceGraphEngine(
             "RETURN DISTINCT n, r",
             {"target": target_id},
         )
+
+    # --- Background Analysis Methods ---
+
+    def execute_deep_analysis(self, query: str, max_depth: int = 2) -> dict[str, Any]:
+        """Perform a native background deep analysis of a concept.
+
+        Architecture (Hybrid L1 + Free-Text LLM):
+            - **L1 (Structured)**: The ``discover_innovations`` engine provides
+              structured domain signals, scores, biomimicry mappings, and
+              innovation claims natively — no LLM needed.
+            - **L2 (Free-Text Synthesis)**: The LLM generates a natural language
+              synthesis summary. This plays to any model's strength (text gen)
+              and eliminates JSON schema validation failures entirely.
+            - **KG Writeback**: Domain recommendations from L1 are written as
+              ``ANALOGOUS_TO`` edges. The LLM summary is stored as a semantic
+              ``Memory`` node for future retrieval.
+        """
+
+        from pydantic_ai import Agent
+
+        from agent_utilities.core.config import (
+            DEFAULT_KG_MODEL_ID,
+            DEFAULT_LLM_PROVIDER,
+        )
+        from agent_utilities.core.model_factory import create_model
+
+        # ── L1: Structured Discovery (no LLM, instant) ──────────────
+        l1_results = self.discover_innovations(query, top_k=10)
+        enriched = l1_results.get("results", [])
+        domain_recs = l1_results.get("domain_recommendations", [])
+        if not enriched:
+            return {"status": "skipped", "reason": "No initial concepts found"}
+
+        # Build compact context for LLM from L1 signals
+        match_lines = []
+        for r in enriched[:7]:
+            match_lines.append(
+                f"- **{r.get('name', r.get('id', ''))}** "
+                f"(score={r.get('score', 0):.3f}, signals={r.get('total_signal_count', 0)})"
+            )
+            for claim in r.get("innovation_claims", [])[:2]:
+                match_lines.append(f"  > {claim[:250]}")
+            for sig in r.get("tech_signals", [])[:3]:
+                match_lines.append(
+                    f"  ↳ {sig['keyword']}: {sig['analogy']} → {sig['domain']}"
+                )
+
+        domain_lines = []
+        for d in domain_recs[:10]:
+            domain_lines.append(
+                f"- **{d['domain']}** ({d['analogy']}) — "
+                f"{d['source_count']} signals, priority={d['priority']}"
+            )
+
+        prompt = (
+            f"## Deep Analysis: {query}\n\n"
+            f"### Top Matches from Knowledge Graph\n"
+            + "\n".join(match_lines)
+            + "\n\n### Domain Recommendations (by signal frequency)\n"
+            + "\n".join(domain_lines)
+            + "\n\n---\n\n"
+            "Based on these research paper matches and domain signals, write a "
+            "detailed synthesis covering:\n"
+            "1. **Key Features to Implement**: Name each feature, explain what it does, "
+            "and which domain(s) it maps to.\n"
+            "2. **Implementation Priorities**: Rank features by expected impact.\n"
+            "3. **Cross-Domain Connections**: Identify non-obvious connections between "
+            "different research papers or domains.\n"
+            "4. **Architectural Recommendations**: Suggest concrete integration points.\n\n"
+            "Write in clear, structured markdown. Be specific and actionable."
+        )
+
+        # ── L2: Free-Text LLM Synthesis ─────────────────────────────
+        llm_summary = ""
+        try:
+            import nest_asyncio
+
+            nest_asyncio.apply()
+
+            model = create_model(
+                provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
+            )
+            agent = Agent(
+                model,
+                system_prompt=(
+                    "You are an expert software architect analyzing research papers "
+                    "and codebases. Produce clear, actionable synthesis reports in "
+                    "structured markdown. Focus on practical implementation guidance."
+                ),
+            )
+
+            result = agent.run_sync(prompt)
+            llm_summary = str(result.data)  # type: ignore[attr-defined]
+            logger.info(f"L2 synthesis complete: {len(llm_summary)} chars generated")
+        except Exception as e:
+            logger.warning(f"L2 LLM synthesis failed (non-fatal): {e}")
+            llm_summary = (
+                f"[LLM synthesis unavailable — L1 signals preserved]\n\n"
+                f"Query: {query}\n"
+                f"Matches: {len(enriched)}\n"
+                f"Top domains: {', '.join(d['domain'] for d in domain_recs[:5])}"
+            )
+
+        # ── KG Writeback: Domain edges + Memory node ─────────────────
+        source_id = (
+            query if "-" in query else (enriched[0].get("id") if enriched else query)
+        )
+
+        new_concepts = []
+        # Write ANALOGOUS_TO edges from L1 domain recommendations
+        for d in domain_recs:
+            if d.get("priority") in ("high", "medium"):
+                success = self.resolve_and_link(
+                    source_name=source_id,
+                    target_name=d["domain"],
+                    rel_type="ANALOGOUS_TO",
+                    properties={
+                        "source": "deep_analysis",
+                        "feature": d["analogy"],
+                        "signal_count": d.get("source_count", 0),
+                        "priority": d["priority"],
+                    },
+                )
+                if success:
+                    new_concepts.append(d["domain"])
+
+        # Store synthesis as a semantic memory for future recall
+        try:
+            self.add_memory(
+                content=llm_summary,
+                category="deep_analysis",
+                tags=["synthesis", query],
+            )
+        except Exception as mem_e:
+            logger.debug(f"Memory store skipped: {mem_e}")
+
+        return {
+            "status": "success",
+            "features_extracted": len(domain_recs),
+            "new_analogies": len(new_concepts),
+            "discovered_targets": new_concepts,
+            "llm_summary_length": len(llm_summary),
+            "llm_summary": llm_summary[:2000],
+        }
 
 
 # Alias for backward compatibility

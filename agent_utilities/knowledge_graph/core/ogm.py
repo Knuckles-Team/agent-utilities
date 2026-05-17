@@ -368,7 +368,7 @@ class KGMapper:
         if self.engine.backend:
             try:
                 self.engine.backend.execute(
-                    "MATCH (n {id: $id}) DETACH DELETE n",
+                    "MATCH (n {id: $id}) SET n.status = 'ARCHIVED'",
                     {"id": node_id},
                 )
                 found = True

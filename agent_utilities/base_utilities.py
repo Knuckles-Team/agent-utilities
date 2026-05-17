@@ -80,6 +80,8 @@ __version__ = "0.10.0"
 def to_float(string=None) -> float:
     """Convert a value to a float.
 
+    CONCEPT:UTIL-1.0 — Data Type Conversion
+
     Args:
         string: The value to convert. Defaults to None.
 
@@ -100,6 +102,8 @@ def to_float(string=None) -> float:
 def to_boolean(string=None) -> bool:
     """Convert a value to a boolean.
 
+    CONCEPT:UTIL-1.0 — Data Type Conversion
+
     Args:
         string: The value to convert. Defaults to None.
 
@@ -117,6 +121,8 @@ def to_boolean(string=None) -> bool:
 
 def to_integer(string=None) -> int:
     """Convert a value to an integer.
+
+    CONCEPT:UTIL-1.0 — Data Type Conversion
 
     Args:
         string: The value to convert. Defaults to None.
@@ -138,6 +144,8 @@ def to_integer(string=None) -> int:
 def to_list(string: str | list | None = None) -> list:
     """Convert a value to a list.
 
+    CONCEPT:UTIL-1.0 — Data Type Conversion
+
     Args:
         string: The value to convert (JSON string or list). Defaults to None.
 
@@ -158,6 +166,8 @@ def to_list(string: str | list | None = None) -> list:
 
 def to_dict(string: str | dict | None = None) -> dict:
     """Convert a value to a dictionary.
+
+    CONCEPT:UTIL-1.0 — Data Type Conversion
 
     Args:
         string: The value to convert (JSON string or dict). Defaults to None.

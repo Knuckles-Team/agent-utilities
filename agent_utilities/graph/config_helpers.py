@@ -197,6 +197,58 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
     except Exception as e:
         logger.debug(f"Failed to fetch Tool nodes: {e}")
 
+    # CONCEPT:ORCH-1.2 — Re-derive Server Agents from Tools (Dynamic Partitioning at read-time)
+    partitions: dict[str, list[MCPToolInfo]] = {}
+    for t in tools:
+        tags = t.all_tags if t.all_tags else ([t.tag] if t.tag else [])
+        server_tag = (
+            t.mcp_server.lower()
+            .replace("-mcp", "")
+            .replace("_mcp", "")
+            .replace("-manager", "")
+            .replace("-agent", "")
+            .replace("-server", "")
+        )
+        if not tags or tags == ["general"]:
+            all_partition_tags = {f"{t.mcp_server}_general"}
+        else:
+            all_partition_tags = set(tags)
+            all_partition_tags.add(server_tag)
+
+        for tag in all_partition_tags:
+            if tag not in partitions:
+                partitions[tag] = []
+            partitions[tag].append(t)
+
+    existing_agent_names = {a.name for a in agents}
+    for tag, partition_tools in partitions.items():
+        if tag in existing_agent_names:
+            continue
+
+        mcp_servers = list(set(t.mcp_server for t in partition_tools))
+        primary_server = mcp_servers[0] if mcp_servers else "unknown"
+
+        agents.append(
+            MCPAgent(
+                name=tag,
+                description=f"Dynamically synthesized agent for {tag} capabilities.",
+                agent_type="specialist",
+                system_prompt=f"You are the {tag} specialist.",
+                tool_count=len(partition_tools),
+                mcp_server=primary_server,
+                tools=[t.name for t in partition_tools],
+                capabilities=list(
+                    set(
+                        c_tag
+                        for t in partition_tools
+                        for c_tag in (
+                            t.all_tags if t.all_tags else ([t.tag] if t.tag else [])
+                        )
+                    )
+                ),
+            )
+        )
+
     return MCPAgentRegistryModel(agents=agents, tools=tools)
 
 

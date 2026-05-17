@@ -30,6 +30,22 @@ def main() -> None:
         "--vault-url",
         help="URL for vault backend. Overrides SECRETS_VAULT_URL env var.",
     )
+    parser.add_argument(
+        "--vault-auth",
+        help="Vault auth method: 'oidc', 'approle', 'token', 'kubernetes', 'auto'. Overrides VAULT_AUTH_METHOD.",
+    )
+    parser.add_argument(
+        "--vault-auth-mount",
+        help="Vault auth method mount path (e.g. 'jwt', 'oidc', 'my-okta-auth'). Overrides VAULT_AUTH_MOUNT.",
+    )
+    parser.add_argument(
+        "--vault-role",
+        help="Vault role for OIDC/JWT or Kubernetes login. Overrides VAULT_ROLE.",
+    )
+    parser.add_argument(
+        "--vault-path-prefix",
+        help="Path prefix within the KV v2 mount (e.g. 'agents/mcp/'). Overrides VAULT_PATH_PREFIX.",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -68,6 +84,26 @@ def main() -> None:
         config_kwargs["vault_url"] = args.vault_url
     elif os.getenv("SECRETS_VAULT_URL"):
         config_kwargs["vault_url"] = os.getenv("SECRETS_VAULT_URL")
+
+    if getattr(args, "vault_auth", None):
+        config_kwargs["vault_auth_method"] = args.vault_auth
+    elif os.getenv("VAULT_AUTH_METHOD"):
+        config_kwargs["vault_auth_method"] = os.getenv("VAULT_AUTH_METHOD")
+
+    if getattr(args, "vault_auth_mount", None):
+        config_kwargs["vault_auth_mount"] = args.vault_auth_mount
+    elif os.getenv("VAULT_AUTH_MOUNT"):
+        config_kwargs["vault_auth_mount"] = os.getenv("VAULT_AUTH_MOUNT")
+
+    if getattr(args, "vault_role", None):
+        config_kwargs["vault_role"] = args.vault_role
+    elif os.getenv("VAULT_ROLE"):
+        config_kwargs["vault_role"] = os.getenv("VAULT_ROLE")
+
+    if getattr(args, "vault_path_prefix", None):
+        config_kwargs["vault_path_prefix"] = args.vault_path_prefix
+    elif os.getenv("VAULT_PATH_PREFIX"):
+        config_kwargs["vault_path_prefix"] = os.getenv("VAULT_PATH_PREFIX")
 
     if config_kwargs:
         config = SecretsConfig(**config_kwargs)  # type: ignore[arg-type]

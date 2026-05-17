@@ -55,7 +55,7 @@ class TestDocumentDeletionPipeline:
         knowledge_graph.graph.nodes.get.return_value = {
             "id": "doc_123",
             "content": "Test content",
-            "is_deleted": False,
+            "status": "ACTIVE",
         }
 
         # Register document
@@ -79,7 +79,7 @@ class TestDocumentDeletionPipeline:
         knowledge_graph.graph.nodes.get.return_value = {
             "id": "doc_123",
             "content": "Test content",
-            "is_deleted": False,
+            "status": "ACTIVE",
         }
 
         # Register document
@@ -103,7 +103,7 @@ class TestDocumentDeletionPipeline:
         knowledge_graph.graph.nodes.get.return_value = {
             "id": "doc_123",
             "content": "Test content",
-            "is_deleted": True,
+            "status": "ARCHIVED",
             "deleted_at": "2025-01-01T00:00:00",
         }
 
@@ -121,7 +121,7 @@ class TestDocumentDeletionPipeline:
         knowledge_graph.graph.nodes.get.return_value = {
             "id": "doc_123",
             "content": "Test content",
-            "is_deleted": False,
+            "status": "ACTIVE",
         }
 
         pipeline = DocumentDeletionPipeline(knowledge_graph=knowledge_graph)
@@ -136,7 +136,7 @@ class TestDocumentDeletionPipeline:
         knowledge_graph.graph.nodes.get.return_value = {
             "id": "doc_123",
             "content": "Test content",
-            "is_deleted": False,
+            "status": "ACTIVE",
         }
 
         pipeline = DocumentDeletionPipeline(knowledge_graph=knowledge_graph)

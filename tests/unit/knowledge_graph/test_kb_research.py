@@ -71,8 +71,9 @@ async def test_pruning_with_permanent_flag():
 async def test_concept_merging():
     """Test merging of similar concepts based on embeddings."""
     mock_backend = MagicMock()
-    # Return two similar concepts
+    # Return empty list for the initial pending tasks check, then two similar concepts
     mock_backend.execute.side_effect = [
+        [],  # For the initial pending tasks check in __init__
         [
             {"id": "c1", "name": "Global Warming", "embedding": [0.1, 0.2, 0.3]},
             {"id": "c2", "name": "Climate Change", "embedding": [0.11, 0.21, 0.31]},

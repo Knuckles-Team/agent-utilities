@@ -78,68 +78,92 @@ async def execute_sync(
     edges_synced = 0
 
     # Sync Nodes
+    nodes_by_group: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
     for node_id, data in graph.nodes(data=True):
         raw_type = str(data.get("type", "")).lower()
-        # Use the mapping to get the correct DDL table name
-        label = _TYPE_TO_TABLE.get(raw_type)
-        if not label:
-            # Fallback: capitalize first letter of each word
-            label = "".join(
-                word.capitalize() for word in raw_type.replace("_", " ").split()
-            )
+        label = _TYPE_TO_TABLE.get(raw_type) or "".join(
+            word.capitalize() for word in raw_type.replace("_", " ").split()
+        )
         if not label:
             continue
 
         props = {k: v for k, v in data.items() if v is not None}
+        # Preserve original semantic type for Code nodes (file/symbol/module)
+        if label == "Code" and raw_type and raw_type != "code":
+            props["type"] = raw_type
         if "ingestion_timestamp" in ctx.metadata:
             props["last_seen_timestamp"] = ctx.metadata["ingestion_timestamp"]
 
+        valid_keys = None
+        if db.__class__.__name__ == "LadybugBackend":
+            from agent_utilities.models.schema_definition import SCHEMA
+
+            for node in SCHEMA.nodes:
+                if node.name == label:
+                    valid_keys = set(node.columns.keys())
+                    break
+
+        keys = sorted(
+            [
+                k
+                for k in props.keys()
+                if k != "id" and (valid_keys is None or k in valid_keys)
+            ]
+        )
+        group_key = (label, tuple(keys))
+        if group_key not in nodes_by_group:
+            nodes_by_group[group_key] = []
+
+        params = {"id": node_id}
+        for k in keys:
+            params[f"props_{k}"] = props[k]
+        nodes_by_group[group_key].append(params)
+
+    for (label, group_keys), batch in nodes_by_group.items():
+        set_clause = (
+            " SET " + ", ".join([f"n.{k} = $props_{k}" for k in group_keys])
+            if group_keys
+            else ""
+        )
+        query = f"MERGE (n:{label} {{id: $id}}){set_clause}"
         try:
-            valid_keys = None
-            is_ladybug = db.__class__.__name__ == "LadybugBackend"
-            if is_ladybug:
-                from agent_utilities.models.schema_definition import SCHEMA
-
-                for node in SCHEMA.nodes:
-                    if node.name == label:
-                        valid_keys = set(node.columns.keys())
-                        break
-
-            keys = [k for k in props.keys() if k != "id"]
-            if valid_keys is not None:
-                keys = [k for k in keys if k in valid_keys]
-
-            set_clause = (
-                " SET " + ", ".join([f"n.{k} = $props_{k}" for k in keys])
-                if keys
-                else ""
-            )
-            params: dict[str, Any] = {"id": node_id}
-            for k in keys:
-                params[f"props_{k}"] = props[k]
-
-            db.execute(
-                f"MERGE (n:{label} {{id: $id}}){set_clause}",
-                params,
-            )
-            nodes_synced += 1
+            db.execute_batch(query, batch)
+            nodes_synced += len(batch)
         except Exception as e:
-            logger.debug(f"Failed to sync node {node_id}: {e}")
+            logger.error(f"Failed to sync batch for label {label}: {e}")
 
     # Sync Edges
+    edges_by_type: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for u, v, data in graph.edges(data=True):
         etype = str(data.get("type", "rel")).upper()
         etype = "".join(c for c in etype if c.isalnum() or c == "_")
         if not etype:
             continue
+
+        u_type = str(graph.nodes[u].get("type", "")).lower()
+        v_type = str(graph.nodes[v].get("type", "")).lower()
+        u_label = _TYPE_TO_TABLE.get(u_type) or "".join(
+            word.capitalize() for word in u_type.replace("_", " ").split()
+        )
+        v_label = _TYPE_TO_TABLE.get(v_type) or "".join(
+            word.capitalize() for word in v_type.replace("_", " ").split()
+        )
+
+        u_label_str = f":{u_label}" if u_label else ":Code"
+        v_label_str = f":{v_label}" if v_label else ":Code"
+
+        edge_key = (etype, u_label_str, v_label_str)
+        if edge_key not in edges_by_type:
+            edges_by_type[edge_key] = []
+        edges_by_type[edge_key].append({"uid": u, "vid": v})
+
+    for (etype, u_label_str, v_label_str), batch in edges_by_type.items():
+        query = f"MATCH (a{u_label_str} {{id: $uid}}), (b{v_label_str} {{id: $vid}}) MERGE (a)-[r:{etype}]->(b)"
         try:
-            db.execute(
-                f"MATCH (a {{id: $uid}}), (b {{id: $vid}}) MERGE (a)-[r:{etype}]->(b)",
-                {"uid": u, "vid": v},
-            )
-            edges_synced += 1
+            db.execute_batch(query, batch)
+            edges_synced += len(batch)
         except Exception as e:
-            logger.debug(f"Failed to sync edge {u}->{v}: {e}")
+            logger.error(f"Failed to sync edges for type {etype}: {e}")
 
     # Sweep stale codebase nodes
     if "ingestion_timestamp" in ctx.metadata:

@@ -53,6 +53,7 @@ class RoutingPrimitive(StrEnum):
     DECOMPOSE = "decompose"  # Break into subtasks
     DELEGATE = "delegate"  # Send to specialist agent
     PARALLEL = "parallel"  # Fan-out to multiple workers
+    PLAN = "plan"  # Autonomous planning (Assimilated from OpenAGI)
 
 
 class RoutingCandidate(BaseModel):
@@ -145,6 +146,9 @@ _COMPLEXITY_SIGNALS: dict[str, tuple[str, float]] = {
     "simple": ("simplicity", 0.8),
     "quick": ("simplicity", 0.7),
     "just": ("simplicity", 0.6),
+    "plan": ("planning", 0.9),
+    "architect": ("planning", 0.85),
+    "design": ("planning", 0.8),
 }
 
 
@@ -244,7 +248,12 @@ class RuleBasedPolicy(RoutingPolicy):
         ideal_primitive = RoutingPrimitive.DIRECT
         reason = "Simple task — direct execution"
 
-        if features.get("coordination", 0) >= self.parallel_threshold:
+        if features.get("planning", 0) >= 0.75:
+            ideal_primitive = RoutingPrimitive.PLAN
+            reason = (
+                f"Planning signal ({features['planning']:.2f}) → autonomous planning"
+            )
+        elif features.get("coordination", 0) >= self.parallel_threshold:
             ideal_primitive = RoutingPrimitive.PARALLEL
             reason = f"Coordination signal ({features['coordination']:.2f}) → parallel execution"
         elif features.get("decomposition", 0) >= self.decompose_threshold:
@@ -297,7 +306,12 @@ class TraceLearnedPolicy(RoutingPolicy):
         self.temperature = temperature
         self._traces: list[ExecutionTrace] = []
         self._model_stats: dict[str, dict[str, float]] = defaultdict(
-            lambda: {"success_rate": 0.5, "avg_quality": 0.5, "avg_cost": 0.0}
+            lambda: {
+                "success_rate": 0.5,
+                "avg_quality": 0.5,
+                "avg_cost": 0.0,
+                "q_value": 0.5,
+            }
         )
 
     def add_trace(self, trace: ExecutionTrace) -> None:
@@ -310,11 +324,11 @@ class TraceLearnedPolicy(RoutingPolicy):
         self._update_stats(trace)
 
     def _update_stats(self, trace: ExecutionTrace) -> None:
-        """Update running statistics from a new trace."""
+        """Update running statistics and Q-values from a new trace."""
         key = f"{trace.model_used}:{trace.primitive_used.value}"
         stats = self._model_stats[key]
 
-        # Exponential moving average
+        # Exponential moving average for metrics
         alpha = 0.1
         stats["success_rate"] = (1 - alpha) * stats["success_rate"] + alpha * (
             1.0 if trace.success else 0.0
@@ -323,6 +337,12 @@ class TraceLearnedPolicy(RoutingPolicy):
             "avg_quality"
         ] + alpha * trace.quality_score
         stats["avg_cost"] = (1 - alpha) * stats["avg_cost"] + alpha * trace.cost_tokens
+
+        # Reinforcement-based feedback loop (OpenAGI assimilation)
+        # Calculate reward considering both quality and success
+        reward = trace.quality_score if trace.success else -0.5
+        current_q = stats.get("q_value", 0.5)
+        stats["q_value"] = current_q + alpha * (reward - current_q)
 
     def route(
         self,
@@ -357,20 +377,16 @@ class TraceLearnedPolicy(RoutingPolicy):
                     "success_rate": 0.5,
                     "avg_quality": 0.5,
                     "avg_cost": 0.0,
+                    "q_value": 0.5,
                 },
             )
 
             # Feature similarity to successful traces
             similarity = self._compute_similarity(features, candidate)
 
-            # Combined score: quality × success_rate × similarity / cost_factor
+            # Combined score utilizing RL q_value
             cost_factor = max(1.0, math.log1p(stats.get("avg_cost", 0) / 1000.0))
-            score = (
-                stats.get("avg_quality", 0.5)
-                * stats.get("success_rate", 0.5)
-                * (1.0 + similarity)
-                / cost_factor
-            )
+            score = stats.get("q_value", 0.5) * (1.0 + similarity) / cost_factor
             scored.append((score, candidate))
 
         # Softmax normalization
@@ -489,7 +505,9 @@ class OntologicalFallbackChain:
     def __init__(self, engine: Any):
         self.engine = engine
 
-    def get_fallback(self, failed_model_id: str, error_type: str = "429") -> str | None:
+    def get_fallback(
+        self, failed_model_id: str, _error_type: str = "429"
+    ) -> str | None:
         """Query the KG for a fallback model based on semantic equivalence.
 
         Args:

@@ -325,8 +325,9 @@ def test_get_discovery_registry_with_prompts(
         fake_kg,
     )
     result = ch.get_discovery_registry()
-    assert len(result.agents) == 1
-    assert result.agents[0].name == "router"
+    # Expect 1 prompt agent + 2 dynamically synthesized agents ("git" and "srv")
+    assert len(result.agents) == 3
+    assert any(a.name == "router" for a in result.agents)
     assert len(result.tools) == 1
     assert result.tools[0].name == "tool1"
 

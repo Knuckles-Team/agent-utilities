@@ -243,6 +243,10 @@ class RegistryNodeType(StrEnum):
     LEGAL_ENTITY = "legal_entity"
     MARKET_DATA_SOURCE = "market_data_source"
     MARKET_REGIME = "market_regime"
+    # Markov Regime Detection (CONCEPT:KG-2.6)
+    MARKOV_REGIME_STATE = "markov_regime_state"
+    MARKOV_TRANSITION_MATRIX = "markov_transition_matrix"
+    REGIME_SIGNAL = "regime_signal"
     MEDIA_MCP = "media_mcp"
     MERGE_REQUEST = "merge_request"
     NEURAL_NETWORK_MODEL = "neural_network_model"
@@ -271,6 +275,9 @@ class RegistryNodeType(StrEnum):
     TRANSITION_MATRIX = "transition_matrix"
     VAR_ESTIMATE = "var_estimate"
     VALUE_STREAM = "value_stream"
+    # Context Graph Architecture (CONCEPT:KG-2.7)
+    ARCHITECTURE_DECISION = "architecture_decision"
+    ARCHIMATE_ELEMENT = "archimate_element"
 
 
 class RegistryEdgeType(StrEnum):
@@ -605,6 +612,9 @@ class RegistryEdgeType(StrEnum):
     TOKEN_BUDGET_MAX = "token_budget_max"  # nosec
     TRUSTED_ANSWER = "trusted_answer"
     VIOLATION_COUNT = "violation_count"
+    # Context Graph Architecture — ADR edges (CONCEPT:KG-2.7)
+    IMPACTS_CONCEPT = "impacts_concept"
+    ALTERNATIVES_TO = "alternatives_to"
 
 
 class RegistryNode(BaseModel):
@@ -737,6 +747,7 @@ class MemoryNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.MEMORY
     category: str = "general"
     content: str = ""
+    status: str = "ACTIVE"
     tags: list[str] = Field(default_factory=list)
 
 
@@ -833,6 +844,22 @@ class PipelineConfig(BaseModel):
     owl_ontology_path: str | None = None
     owl_promotion_importance_threshold: float = 0.1
     owl_promotion_recency_days: int = 7
+    # External Graph Endpoints settings
+    enable_external_graphs: bool = True
+    external_sparql_endpoints: list[str] = Field(default_factory=list)
+    external_lpg_endpoints: dict[str, str] = Field(default_factory=dict)
+
+
+class ExternalGraphReferenceNode(RegistryNode):
+    """Reference to an external Knowledge Graph (SPARQL or LPG).
+
+    CONCEPT:KG-2.9 — External Graph Federation
+    """
+
+    type: RegistryNodeType = RegistryNodeType.EXTERNAL_GRAPH_REFERENCE
+    endpoint_url: str
+    graph_type: str  # "sparql", "lpg", etc.
+    properties: dict[str, Any] = Field(default_factory=dict)
 
 
 class ClientNode(RegistryNode):
@@ -1154,6 +1181,33 @@ class TopologicalVulnerabilityNode(RegistryNode):
     severity: str = "medium"
     detected_pattern: str = ""
     mitigation_strategy: str = ""
+
+
+class ArchitectureDecisionRecord(RegistryNode):
+    """First-class KG node for queryable decision traces.
+
+    CONCEPT:KG-2.7 — Architecture Decision Records
+
+    Captures the full decision context: what was decided, why, what
+    alternatives were considered, who approved, and what concepts/pillars
+    are impacted. Makes the 'decision trace layer' from the Context Graph
+    Architecture assessment fully queryable via Cypher and SPARQL.
+
+    Lifecycle: proposed → accepted → deprecated → superseded
+    """
+
+    type: RegistryNodeType = RegistryNodeType.ARCHITECTURE_DECISION
+    title: str = ""
+    status: Literal["proposed", "accepted", "deprecated", "superseded"] = "proposed"
+    context: str = ""  # Why this decision was needed
+    decision: str = ""  # What was decided
+    rationale: str = ""  # Why this option was chosen
+    alternatives: list[str] = Field(default_factory=list)  # Options considered
+    consequences: list[str] = Field(default_factory=list)  # Known tradeoffs
+    authority: str = ""  # Who/what approved (user, policy, daemon)
+    pillar: str = ""  # ORCH | KG | AHE | ECO | OS
+    impacted_concepts: list[str] = Field(default_factory=list)  # Concept IDs
+    superseded_by: str = ""  # ID of ADR that supersedes this one
 
 
 class TriggerBinding(BaseModel):
@@ -2615,6 +2669,12 @@ class TeamComposition(BaseModel):
     reasoning: str = Field(
         default="",
         description="Human-readable explanation of composition decisions",
+    )
+    coordination_protocol: dict[str, Any] = Field(
+        default_factory=dict,
+        description="CONCEPT:ORCH-1.5 — Selected coordination protocol metadata "
+        "(protocol_id, protocol_type, name, quality_score, converged). "
+        "Research: 2605.03310v1",
     )
 
 

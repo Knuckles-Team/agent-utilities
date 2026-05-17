@@ -107,7 +107,9 @@ class TestMemoryCRUD:
         engine.delete_memory(mem_id)
         assert mem_id not in engine.graph
         res = engine.query_cypher("MATCH (m:Memory {id: $id}) RETURN m", {"id": mem_id})
-        assert len(res) == 0
+        assert len(res) > 0
+        print("res:", res)
+        assert res[0].get("m", {}).get("status") == "ARCHIVED"
 
     def test_search_memories(self, engine):
         engine.add_memory("Python development tips", name="PythonMem", category="dev")

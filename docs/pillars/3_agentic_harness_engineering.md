@@ -38,3 +38,20 @@ The **Agent-Interpretable Model Evolver** autonomously evolves scikit-learn comp
 - **AHE-3.7**: Heavy Thinking Orchestration
 - **AHE-3.9**: Horizon-Aware Task Curriculum
 - **AHE-3.15**: Agent-Interpretable Model Evolver
+
+## BrowseComp-Plus Extensions (arXiv:2508.06600)
+
+### Adaptive Reasoning Budget (AHE-3.1)
+Continuous 0.0–1.0 float scale for test-time compute scaling. Maps effort level to discrete retrieval parameters (search calls, depth, decomposition). Lightweight heuristic `estimate_query_complexity()` auto-classifies query difficulty.
+- **Source**: `agent_utilities/harness/reasoning_effort.py`
+- **Hot Path**: `EvaluationEngine.evaluate_and_decompose(reasoning_effort=0.7)`
+
+### Disentangled Evaluation (AHE-3.1)
+Separates retriever quality from LLM reasoning quality in evaluation. Returns three independent metric groups: `retriever_metrics` (precision, recall, nDCG, MRR), `reasoning_metrics` (step accuracy, goal achievement), and `citation_metrics` (precision, recall, F1). Enables pinpointing whether failures stem from bad retrieval or bad reasoning.
+- **Source**: `agent_utilities/harness/evaluation_engine.py`
+- **Hot Path**: `EvaluationEngine.evaluate_disentangled(retrieval_results=..., gold_doc_ids=...)`
+
+### Citation Quality Tracking (AHE-3.1)
+Measures citation quality in agent responses. Extracts KG node references (`[KG:id]`), concept IDs (`CONCEPT:X`), external URLs, file paths, and arXiv IDs. Computes precision/recall/F1 against retrieved and gold document sets. Identifies hallucinated citations and uncited evidence.
+- **Source**: `agent_utilities/harness/citation_tracker.py`
+- **Hot Path**: Lazy-loaded in `EvaluationEngine._lazy_init()` → `CitationTracker.evaluate_citations()`

@@ -1,0 +1,167 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix bfo:    <http://purl.obolibrary.org/obo/BFO_> .
+
+<http://knuckles.team/kg/enterprise> a owl:Ontology ;
+    owl:imports <http://knuckles.team/kg> ;
+    rdfs:label "Enterprise Architecture Governance Ontology" ;
+    rdfs:comment """Enterprise-level governance, architecture decision records, and
+ArchiMate 3.2 metamodel alignment for centralized SPARQL federation.
+
+This ontology defines the importable enterprise standard that domain
+deployments can consume via owl:imports. It covers:
+- ArchiMate 3.2 layer classification
+- Architecture Decision Records (ADR) with decision trace
+- Enterprise governance properties (Policy, Principle, Goal)
+- SHACL-ready governance constraints
+
+CONCEPT:KG-2.7 — Context Graph Architecture (Enterprise Core)""" .
+
+# =====================================================================
+# ArchiMate 3.2 Layer Hierarchy (CONCEPT:KG-2.7)
+# =====================================================================
+
+:ArchiMateElement a owl:Class ;
+    rdfs:label "ArchiMate Element" ;
+    rdfs:comment "Root class for ArchiMate 3.2 metamodel element mappings." .
+
+:BusinessLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Business Layer" ;
+    rdfs:comment """ArchiMate Business Layer — business services, processes, actors,
+roles, collaborations, and business rules.""" .
+
+:ApplicationLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Application Layer" ;
+    rdfs:comment """ArchiMate Application Layer — application components, services,
+functions, interfaces, and data objects.""" .
+
+:TechnologyLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Technology Layer" ;
+    rdfs:comment """ArchiMate Technology Layer — nodes, devices, system software,
+infrastructure services, and artifacts.""" .
+
+:StrategyLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Strategy Layer" ;
+    rdfs:comment """ArchiMate Strategy Layer — capabilities, courses of action,
+resources, and value streams.""" .
+
+:MotivationLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Motivation Layer" ;
+    rdfs:comment """ArchiMate Motivation Layer — stakeholders, drivers, goals,
+principles, requirements, and constraints.""" .
+
+# ── Cross-references: Core KG types → ArchiMate layers ──
+
+:Agent rdfs:subClassOf :ApplicationLayer .
+:Tool rdfs:subClassOf :ApplicationLayer .
+:Skill rdfs:subClassOf :ApplicationLayer .
+:Policy rdfs:subClassOf :BusinessLayer .
+:Concept rdfs:subClassOf :StrategyLayer .
+:Goal rdfs:subClassOf :MotivationLayer .
+:Principle rdfs:subClassOf :MotivationLayer .
+:Regulation rdfs:subClassOf :MotivationLayer .
+:ProcessFlow rdfs:subClassOf :BusinessLayer .
+:Server rdfs:subClassOf :TechnologyLayer .
+:DataConnector rdfs:subClassOf :TechnologyLayer .
+
+# =====================================================================
+# Architecture Decision Records (CONCEPT:KG-2.7)
+# =====================================================================
+
+:ArchitectureDecisionRecord a owl:Class ;
+    rdfs:subClassOf :StrategyLayer ;
+    rdfs:label "Architecture Decision Record" ;
+    rdfs:comment """Queryable decision trace capturing who decided what, why,
+under what authority, and what alternatives were considered.
+Lifecycle: proposed → accepted → deprecated → superseded.
+ArchiMate: Strategy → CourseOfAction.""" .
+
+:decidedBy a owl:ObjectProperty ;
+    rdfs:domain :ArchitectureDecisionRecord ;
+    rdfs:range :Agent ;
+    rdfs:label "decided by" ;
+    rdfs:comment "The agent or authority that made/approved this decision." .
+
+:impactsConcept a owl:ObjectProperty ;
+    rdfs:domain :ArchitectureDecisionRecord ;
+    rdfs:range :Concept ;
+    rdfs:label "impacts concept" ;
+    rdfs:comment "Links an ADR to the concepts it directly affects." .
+
+:supersedes a owl:TransitiveProperty, owl:ObjectProperty ;
+    rdfs:domain :ArchitectureDecisionRecord ;
+    rdfs:range :ArchitectureDecisionRecord ;
+    rdfs:label "supersedes" ;
+    rdfs:comment """Transitive: if ADR-C supersedes ADR-B supersedes ADR-A,
+then ADR-C supersedes ADR-A. Enables full decision lineage queries.""" .
+
+:alternativesTo a owl:ObjectProperty ;
+    rdfs:domain :ArchitectureDecisionRecord ;
+    rdfs:range :ArchitectureDecisionRecord ;
+    rdfs:label "alternatives to" ;
+    rdfs:comment "Links an ADR to alternative decisions that were considered." .
+
+# =====================================================================
+# Enterprise Governance Properties
+# =====================================================================
+
+:governedBy a owl:ObjectProperty ;
+    rdfs:label "governed by" ;
+    rdfs:comment """Links any ArchiMate element to the Policy or Principle
+that governs its design and operation.""" .
+
+:enforces a owl:ObjectProperty ;
+    rdfs:domain :Policy ;
+    rdfs:label "enforces" ;
+    rdfs:comment "Links a Policy to the constraint or rule it enforces." .
+
+:complianceStatus a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "compliance status" ;
+    rdfs:comment "Values: compliant, non-compliant, waived, pending-review." .
+
+:governanceDomain a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "governance domain" ;
+    rdfs:comment """The enterprise domain this governance rule applies to.
+Examples: security, data-privacy, accessibility, performance.""" .
+
+:effectiveDate a owl:DatatypeProperty ;
+    rdfs:range xsd:date ;
+    rdfs:label "effective date" ;
+    rdfs:comment "Date when this governance rule becomes active." .
+
+:expirationDate a owl:DatatypeProperty ;
+    rdfs:range xsd:date ;
+    rdfs:label "expiration date" ;
+    rdfs:comment "Date when this governance rule expires or must be renewed." .
+
+# =====================================================================
+# Enterprise Integration Points
+# =====================================================================
+
+:LeanIXFactSheet a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "LeanIX Fact Sheet" ;
+    rdfs:comment """A reference to a SAP LeanIX Fact Sheet. Maps to ArchiMate
+elements for enterprise-tool interoperability. Populated via the
+leanix-agent MCP server at agents/leanix-agent.""" .
+
+:ARISProcess a owl:Class ;
+    rdfs:subClassOf :ProcessFlow ;
+    rdfs:label "ARIS Process" ;
+    rdfs:comment """A reference to an ARIS process model. Subclass of ProcessFlow
+for process mining and documentation integration.""" .
+
+:externalToolId a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "external tool ID" ;
+    rdfs:comment """Identifier linking this KG node to an external EA tool
+(LeanIX factSheetId, ARIS processId, Jira issueKey).""" .

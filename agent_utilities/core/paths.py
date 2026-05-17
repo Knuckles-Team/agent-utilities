@@ -103,13 +103,15 @@ def kg_db_path(workspace: Path | str | None = None) -> Path:
 
     Resolution order:
         1. ``GRAPH_DB_PATH`` environment variable (explicit override)
-        2. Workspace-local ``knowledge_graph.db`` (backward compatibility)
-        3. XDG data directory ``~/.local/share/agent-utilities/kg/knowledge_graph.db``
+        2. XDG data directory ``~/.local/share/agent-utilities/kg/knowledge_graph.db``
+           (shared KG — canonical location for all agents)
+        3. Workspace-local ``knowledge_graph.db`` (deprecated, emits warning)
 
     Args:
         workspace: Optional workspace root path. If provided and a
-            ``knowledge_graph.db`` exists there, it takes priority over
-            the XDG path for backward compatibility.
+            ``knowledge_graph.db`` exists there, a deprecation warning
+            is emitted. Set ``GRAPH_DB_PATH`` explicitly to use a
+            workspace-local database.
 
     Returns:
         Resolved path to the KG database file.
@@ -119,15 +121,25 @@ def kg_db_path(workspace: Path | str | None = None) -> Path:
     if env_path:
         return Path(env_path).expanduser()
 
-    # Priority 2: Workspace-local backward compatibility
+    # Priority 2: XDG data directory (shared KG — canonical location)
+    xdg_path = data_dir() / "kg" / "knowledge_graph.db"
+    xdg_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Priority 3: Workspace-local fallback (deprecated, warn if found)
     if workspace:
         ws = Path(workspace)
         local_db = ws / "knowledge_graph.db"
         if local_db.exists():
-            return local_db
+            logger.warning(
+                "DEPRECATED: Found workspace-local knowledge_graph.db at %s. "
+                "Set GRAPH_DB_PATH=%s to use it explicitly, or remove it to "
+                "use the shared XDG database at %s.",
+                local_db,
+                local_db,
+                xdg_path,
+            )
 
-    # Priority 3: XDG data directory (shared KG — default for new installs)
-    return data_dir() / "kg" / "knowledge_graph.db"
+    return xdg_path
 
 
 def mcp_config_path() -> Path:
