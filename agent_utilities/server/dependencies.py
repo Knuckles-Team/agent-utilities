@@ -165,14 +165,16 @@ def resolve_model_registry(
     if registry is not None:
         return registry
 
-    cfg_path = os.getenv("MODELS_CONFIG")
+    cfg_path = config.model_registry_path or os.getenv("MODELS_CONFIG")
     if cfg_path:
         p = Path(cfg_path)
         if p.is_file():
             try:
                 return ModelRegistry.load_from_file(p)
             except Exception as e:
-                logger.error("Failed to load MODELS_CONFIG from %s: %s", cfg_path, e)
+                logger.error(
+                    "Failed to load model registry config from %s: %s", cfg_path, e
+                )
 
     if model_id:
         _id = f"{provider}:{model_id}" if provider else model_id

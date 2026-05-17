@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **CONCEPT:KG-2.7: Enterprise Knowledge Architecture** — Full enterprise-grade SPARQL federation, modular ontology, and governance validation:
+  - **SDD Ontology Layer** (`ontology_sdd.ttl`) — 10 new OWL classes (Specification, SoftwareFeature, Requirement, UserStory, AcceptanceCriteria, SoftwareComponent, APIContract, TestCase, DesignGuideline, ComplianceConstraint) with 9 object/datatype properties. All mapped to ArchiMate 3.2.
+  - **Enterprise Core Ontology** (`ontology_enterprise.ttl`) — Standalone importable module with ArchiMate 3.2 layer hierarchy, ADR decision traces, governance properties, and enterprise integration points (LeanIX, ARIS).
+  - **SHACL Governance Validation** (`core/shacl_validator.py`) — Enterprise governance validation via `pyshacl`. Supports layered shapes (global + domain overrides). Default shapes in `shapes/governance.shapes.ttl` enforce ADR, Agent, Policy, Specification, and Requirement constraints. MCP: `kg_inspect(view="shacl_validate")`.
+  - **SPARQL HTTP Endpoint** (`core/sparql_http.py`) — W3C SPARQL Protocol HTTP endpoint backed by rdflib. Supports GET/POST, content negotiation, W3C Results JSON format. Mountable as Starlette ASGI app.
+  - **Ontology Publisher** (`core/ontology_publisher.py`) — Export and distribute ontologies to Stardog (pystardog) and Apache Jena Fuseki (REST API). Supports versioned publishing. MCP: `kg_inspect(view="export_ontology")`.
+  - **Ontology Loader** (`core/ontology_loader.py`) — Resolves `owl:imports` declarations at runtime. Supports file://, HTTP, and cached remote fetching. Enables "inherit from central, extend locally" enterprise pattern.
+  - **Modular Ontology Architecture** — Main `ontology.ttl` now declares `owl:imports` for enterprise and SDD modules. 13 new SDD ArchiMate mappings added to `archimate_layer.py`.
+  - **`pyshacl>=0.29.0`** added to `[owl]` optional dependency group.
+  - **55 tests** covering SPARQL, ArchiMate, ADR, SDD mappings, SHACL, publisher, loader, and enterprise modules. Test suite runs in 0.82s.
+  - **C4 Diagram**: KG component diagram updated with SDD Ontology, SHACL Validator, Ontology Publisher, and Ontology Loader. New Enterprise Federation data flow added.
+- **LLM Configuration Standardization** — Fully migrated all legacy `DEFAULT_MODEL_ID` and `DEFAULT_PROVIDER` references to `DEFAULT_LLM_MODEL_ID` and `DEFAULT_LLM_PROVIDER` across 5 files (`config.py`, `factory.py`, `mcp_utilities.py`, `server/app.py`, `server/routers/agent_ui.py`, `mcp/server_factory.py`). No backward-compatibility aliases — single standard enforced.
+- **CONCEPT:KG-2.5: Evolution Cycle Daemon** — Background daemon (`KG-Evolution-Daemon`) in `engine_tasks.py` that triggers every 60 minutes (configurable via `KG_EVOLUTION_INTERVAL` env var). Scans the KG for unresolved `ResearchTopic` / `Concept` nodes, runs relevance sweeps against the primary codebase, and logs each cycle as an `EvolutionCycle` node.
+- **`agent-utilities-evolution` Skill** — Meta-orchestration skill in `universal-skills` that chains: KG topic detection → `research-scanner` paper discovery → `kg_ingest` paper ingestion → `comparative-analysis` gap extraction → SDD implementation plan generation. Constitution artifact mandate auto-injected into every SDD plan.
+- **Post-Modification Artifact Mandate** — Constitution section mandating 7 artifact types (docs, AGENTS.md, CHANGELOG.md, README.md, .specify/, C4 diagrams, pytests) after every code change. Enforced via `Policy` nodes in the KG with `enforcement: MANDATORY`.
+- **LCM Documentation** — New guide `docs/guides/lcm_memory.md` documenting the Summary DAG architecture, MCP tool usage, partition-aware memory, compaction daemon, and evolution daemon.
+- 10 new tests in `test_lcm_integration.py` covering ContextCompactor persistence (persist_compaction, escalation, DAG retrieval) and ElasticContextManager LCM operations (compact_thread, expand, grep, describe).
+
+### Added
+- **CONCEPT:KG-2.6: Background Concept Research Daemon** — Native, persistent background intelligence integration within `agent-utilities`.
+  - `kg_analyze(action="background_research")` submits a persistent `deep_analysis` task to the `SQLiteTaskQueue`.
+  - Configurable via `KG_INFERENCE_MODEL`, `KG_LLM_CONCURRENCY` (respects local compute slots), and `KG_ANALYSIS_MAX_DEPTH` (default 2).
+  - Background workers natively load `IntelligenceGraphEngine.execute_deep_analysis()`, recursively inferring analogical relationships (`ANALOGOUS_TO`) without requiring an active FastMCP context.
+- **BrowseComp-Plus Innovation Transfer (arXiv:2508.06600)** — 5 research-driven enhancements for deep-research benchmarking and evaluation:
+  - **CONCEPT:KG-2.3: Evaluation Corpus** — Fixed corpus evaluation mode with `EvaluationCorpus` model, `CorpusManager` CRUD, freeze semantics, and `HybridRetriever` constrained search via `corpus_id` parameter. MCP tools: `kg_create_corpus`, `kg_list_corpora`, `kg_freeze_corpus`. New module: `agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py`.
+  - **CONCEPT:AHE-3.1: Adaptive Reasoning Budget** — Continuous 0.0–1.0 float scale for test-time compute scaling with `get_budget()` smooth interpolation and `estimate_query_complexity()` lightweight heuristic. Integrated into `EvaluationEngine.evaluate_and_decompose()`. New module: `agent_utilities/harness/reasoning_effort.py`.
+  - **CONCEPT:AHE-3.1: Disentangled Evaluation** — Separates retriever quality (precision, recall, nDCG, MRR) from LLM reasoning quality (step accuracy, goal achievement) and citation quality (precision, recall, F1). `EvaluationEngine.evaluate_disentangled()` returns three independent metric groups. New method: `RetrievalQualityGate.compute_ndcg()`.
+  - **CONCEPT:KG-2.3: Hard Negative Mining** — Mines challenging distractors via query decomposition for retriever calibration. `HardNegativeMiner` with penalty application. Gated behind `KG_ENABLE_HARD_NEGATIVE_MINING` env var. New module: `agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py`.
+  - **CONCEPT:AHE-3.1: Citation Quality Tracking** — Extracts and evaluates citations (KG refs, concept IDs, external URLs, file paths, arXiv IDs) in agent responses. `CitationTracker` with precision/recall/F1 computation. Lazy-loaded in `EvaluationEngine`. New module: `agent_utilities/harness/citation_tracker.py`.
+- 33 new tests in `test_browsecomp_innovations.py` covering all 5 components.
+- **CONCEPT:ECO-4.5: Terminal Agent Launcher** — `kg_launch_terminal_agent` MCP tool to spawn CLI-based agents (`agent-terminal-ui`, `claude`, `opencode`, `devin`) in managed tmux sessions. Supports configurable `--prompt` and `--override` (yolo) mode flags per agent type. Tmux auto-detects whether to create a new window (inside tmux) or a detached session (outside tmux).
+- **CONCEPT:ECO-4.4: KG Agent Execution** — `kg_execute_agent` MCP tool to trigger the Pydantic AI agent graph execution natively from the KG MCP server, dynamically initializing the orchestration graph and routing queries to specialist agents.
+- **CONCEPT:KG-2.0: Document Retrieval** — `kg_get_document` MCP tool to retrieve full documents from the Knowledge Graph by target path, with chunk reassembly and sorting.
+- **Configurable Default Terminal Agent** — Added `default_terminal_agent` to `AgentConfig` with `DEFAULT_TERMINAL_AGENT` constant export. Users can override via XDG `config.json` to switch the default CLI agent (e.g., `claude-code`, `opencode`, `devin`).
+
+### Fixed
+- **`kg_ontology_validate`** — Aligned schema bindings to use `SCHEMA.nodes[].name` and `node_def.columns.keys()` instead of deprecated `.label` and `.properties` accessors from `schema_definition.py`.
+
+### Changed
+- **Ecosystem API Client Standardization** — Standardized all `*_api.py` wrapper files across the agent ecosystem to the unified `api_client.py` convention to simplify downstream imports and skill tooling.
+- **Model Registry Loading** — Updated `AgentConfig` to include `model_registry_path` to support dynamic loading of custom JSON/YAML model registries.
+- **`kg_ingest` refactored** — Replaced inline document ingestion logic with a cleaner phase-based approach using `kg_get_document` for retrieval.
+
+### Previously Added
+- **5-Stage / 17-Phase Intelligence Pipeline** — Evolved the graph ingestion architecture from 15 phases to 5 logical stages: Context Hydration, Structural Extraction, Topological Enrichment, Epistemic Consolidation, and Governance & Evolution.
+- **Phase 16: Experience Distillation** & **Phase 17: Decision Evolution** — Added observational hooks to the IntelligencePipeline for self-improving reasoning capabilities.
+- **Structural Isomorphism** — Implemented semantic deduplication via AST/content hashing (`AST_hash`, `content_hash`) instead of naive ID-based node creation, using Cypher `MERGE` logic. Replaced `CONTAINS` edges with `IMPLEMENTS` edges for symbols to accurately reflect file-to-symbol relationships.
 - **CONCEPT:KG-2.6: Deterministic Mark-and-Sweep Garbage Collection** — Implemented temporal heartbeat mechanism (`last_seen_timestamp`) to atomically purge stale `:Code` and `:Article` nodes from the Knowledge Graph during ingestion runs, maintaining 1:1 codebase parity natively without MD5 overhead.
 - **CONCEPT:ORCH-1.4: Dynamic Subgraph Orchestrator** — Dynamically synthesizes subgraph transition logic from the Knowledge Graph on the fly without using predefined templates. Uses KG-2.41 Formal Graph Theory.
 - **CONCEPT:AHE-3.4: Long-Running Background Context Spawner** — Polling module that checks background tasks via KG state and autonomously spawns specialized sub-agents based on context shifts and impact scores.

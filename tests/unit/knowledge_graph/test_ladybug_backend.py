@@ -75,8 +75,8 @@ def test_ladybug_backend_cleanup_corrupted(temp_db_dir):
 
         LadybugBackend(str(db_path))
 
-        # Files should be gone after cleanup
-        assert not db_path.exists()
+        # Files should be gone after cleanup (except the main DB)
+        assert db_path.exists()
         assert not wal_path.exists()
         assert not shm_path.exists()
 

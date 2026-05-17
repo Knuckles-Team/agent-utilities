@@ -256,7 +256,7 @@ class ResearchSubagent:
         self,
         claim: str,
         confidence: float = 0.8,
-        source_paper_id: str | None = None,
+        _source_paper_id: str | None = None,
     ) -> EvidenceNode:
         """Record a research finding as an Evidence node.
 

@@ -52,6 +52,8 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 
 - **Multi-Domain Architectural Pattern**: Transitioned `agent-utilities` to a Multi-Domain Expert System supporting modular expansion into `finance`, `medical`, `law`, and `science`. Domain integrations leverage Vectorized Topological Memory and the core Knowledge Graph, with heavy domain-specific dependencies optionally loaded via tags (e.g., `agent-utilities[finance]`).
 - **Quantitative Finance Framework**: Production-grade, KG-native financial framework designed for global asset classes (Crypto, Equities, Forex, Derivatives). Includes Stationary Feature Engineering (ADF tests), Topological TradingLSTM (sequence processing + networkx regimes), Walk-Forward Validation, Kelly Criterion sizing, and Kolmogorov-Smirnov shift detection.
+- **Background Concept Research Daemon (CONCEPT:KG-2.6)**: Native, persistent background intelligence integration. Selects high-degree concepts and queues them for deep analysis using the configured inference model (configured via `model_registry_path` and `KG_INFERENCE_MODEL`).
+- **API Client Standardization**: Unified `api_client.py` file naming convention across the entire ecosystem, simplifying downstream imports and skill tooling.
 - **FIBO & Quant Ontology Alignment**: Extended `ontology.ttl` with `DomainEntity`, `ScientificEntity`, `LegalEntity`, and specialized finance classes (`FinancialInstrument`, `TradingStrategy`, `StationaryFeature`, `LSTMNetwork`, `MarketRegime`, `ExecutionSignal`, `KellySizing`).
 - **Native Multi-Modal (Vision) Support (CONCEPT:ORCH-1.0)**: Direct processing of image context within the graph orchestrator. Decodes base64 image data into `pydantic_ai.BinaryContent` for high-fidelity multi-modal reasoning.
 - **Dynamic MCP Tool Distribution (CONCEPT:ECO-4.0)**: Load an `mcp_config.json` and the system automatically connects to each MCP server, extracts and tags every tool, partitions them into focused specialist agents (~10-20 tools each), and registers them as graph nodes at runtime. This keeps context windows light — "GitLab Projects" specialist only sees 10 project tools.
@@ -150,38 +152,89 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Ontological State Checkpointing (CONCEPT:KG-2.6)**: Persists Pydantic Graph active states as ExecutionStateNodes, enabling zero-latency resume and background agent handoffs.
 - **Adaptive Tool Provisioning (CONCEPT:ECO-4.0)**: Real-time provisioning of MCP tools, APIs, and native functions into an execution context strictly driven by KG capabilities.
 - **Graph-Native Team Evolution (CONCEPT:AHE-3.5)**: Analyzes historical execution traces to autonomously propose architectural topological mutations and capability expansions.
+- **Terminal Agent Launcher (CONCEPT:ECO-4.5)**: `kg_launch_terminal_agent` MCP tool to spawn CLI agents (`agent-terminal-ui`, `claude`, `opencode`, `devin`) in managed tmux sessions with configurable `--prompt` and `--override` flags. Default agent configurable via `DEFAULT_TERMINAL_AGENT` in XDG config.
+- **Native Innovation Discovery Engine (CONCEPT:KG-2.0)**: Backend-native biomimicry and technology signal extraction via `discover_innovations()`. Performs vector search + keyword-driven signal enrichment (14 biomimicry, 28 tech keywords) with zero LLM calls. Exposed through `kg_search(mode='discover')` MCP tool for instant innovation cross-referencing across all ingested research papers and codebases.
+- **Native LLM Analysis via FastMCP Sampling (CONCEPT:KG-2.0)**: `kg_analyze` MCP tool leveraging FastMCP's `ctx.sample()` for server-side LLM processing. Supports 3-layer pipeline: L1 vector discovery → L2 LLM synthesis (feature recommendations) → L3 deep extraction (algorithms, patterns, integration blueprints). All processing happens inside the MCP server — skills consume enriched results.
+- **Background Concept Research Daemon (CONCEPT:KG-2.6)**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via `kg_analyze(action="background_research")`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow. Configurable via `KG_INFERENCE_MODEL` and `KG_LLM_CONCURRENCY`.
+- **Multi-IDE Conversation Log Ingestion (CONCEPT:KG-2.1)**: Native ingestion pipeline for external IDE/agent conversation logs from Antigravity, Windsurf, Claude Code, and Codex. Creates `Thread`/`Message` nodes with temporal metadata and source provenance. Triggered via `kg_ingest(target_path='conversations')` or filtered with `kg_ingest(target_path='conversations:antigravity,windsurf')`.
+- **Disk-Aware DB Backup (CONCEPT:KG-2.0)**: Self-healing database management with disk-space-aware backups (skips if <1GB free), non-destructive WAL corruption recovery (preserves main DB, only cleans transient WAL/journal files), and configurable backup retention via `DEFAULT_KG_BACKUPS`.
 
 ## 🧠 Intelligence Graph
 
-Agent Utilities implements a sophisticated 15-phase pipeline to map and analyze your workspace. This system unifies **NetworkX** (for topological algorithms) and **LadybugDB** (for persistent Cypher queries and hybrid search).
+Agent Utilities implements a sophisticated 5-Stage, 17-Phase pipeline to map and analyze your workspace. This system unifies **NetworkX** (for topological algorithms) and **LadybugDB** (for persistent Cypher queries and hybrid search) while enforcing strict Isomorphism (Structural Deduplication).
 
-### The 15-Phase Unified Intelligence Pipeline
+### The 17-Phase Unified Intelligence Pipeline
 
+#### Stage 1: Context Hydration
 | Phase | Name | Purpose |
 | :--- | :--- | :--- |
 | **1** | **Memory** | Hydrates existing state (Nodes/Edges) from **LadybugDB** to maintain session continuity. |
 | **2** | **Scan** | Performs the initial directory walk, respecting `.gitignore`, to identify all source code files. |
-| **3** | **Registry** | Ingests `prompts/*.md` and MCP server definitions into the **Knowledge Graph** as specialist nodes. |
-| **4** | **Parse** | AST parsing (**tree-sitter**) to extract symbols (Classes, Functions) and raw import statements. |
-| **5** | **Resolve** | Maps raw import strings into actual graph edges between `File` and `Symbol` nodes. |
-| **6** | **MRO** | Calculates Method Resolution Order and inheritance hierarchies for OOP structures. |
-| **7** | **Reference** | Builds the call graph by identifying where specific symbols are referenced or invoked. |
-| **8** | **Communities** | Clusters nodes into tightly-coupled modules using topological algorithms like **Louvain**. |
-| **9** | **Centrality** | Runs **PageRank** analysis to identify critical path "God Objects" and core utilities. |
-| **10** | **Embedding** | Generates semantic vector embeddings for all symbols to enable high-fidelity hybrid search. |
-| **11** | **Sync** | Projects the in-memory NetworkX graph into the persistent **LadybugDB** Cypher store. |
-| **12** | **OWL Reasoning** | Promotes stable nodes to OWL, runs HermiT/Stardog inference, downfeeds inferred facts. |
-| **13** | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
-| **14** | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
-| **15** | **Validate** | Runs **CONCEPT:KG-2.3 Graph Integrity Validator** — 4-tier non-blocking post-ingestion validation with auto-fix. |
+| **3** | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
+| **4** | **Registry** | Ingests `prompts/*.md` and MCP server definitions into the **Knowledge Graph** as specialist nodes. |
+
+#### Stage 2: Structural Extraction
+| Phase | Name | Purpose |
+| :--- | :--- | :--- |
+| **5** | **Parse** | AST parsing (**tree-sitter**) with **AST_hash** structural signatures for exact isomorphism deduplication. |
+| **6** | **Resolve** | Maps raw import strings into actual graph edges between `File` and `Symbol` nodes via `IMPLEMENTS`. |
+| **7** | **MRO** | Calculates Method Resolution Order and inheritance hierarchies for OOP structures. |
+| **8** | **Reference** | Builds the call graph by identifying where specific symbols are referenced or invoked. |
+
+#### Stage 3: Topological & Semantic Enrichment
+| Phase | Name | Purpose |
+| :--- | :--- | :--- |
+| **9** | **Communities** | Clusters nodes into tightly-coupled modules using topological algorithms like **Louvain**. |
+| **10** | **Centrality** | Runs **PageRank** analysis to identify critical path "God Objects" and core utilities. |
+| **11** | **Embedding** | Generates semantic vector embeddings for all symbols to enable high-fidelity hybrid search. |
+
+#### Stage 4: Epistemic Consolidation
+| Phase | Name | Purpose |
+| :--- | :--- | :--- |
+| **12** | **Sync** | Projects the in-memory NetworkX graph into the persistent **LadybugDB** via structural `MERGE` statements. |
+| **13** | **OWL Reasoning** | Promotes stable nodes to OWL, runs inference, and downfeeds inferred facts. |
+| **14** | **External Graphs** | Registers and queries federated SPARQL/LPG endpoints. |
+| **15** | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer with hash-based deduplication. |
+
+#### Stage 5: Governance & Evolution
+| Phase | Name | Purpose |
+| :--- | :--- | :--- |
+| **16** | **Validate** | Runs **CONCEPT:KG-2.3 Graph Integrity Validator** — 4-tier non-blocking post-ingestion validation with auto-fix. |
+| **17** | **Experience Distillation** | Synchronously parses local execution logs and extracts `ReasoningTrace` episodic topologies. |
+| **18** | **Decision Evolution** | (Async) Uses analogical search over `OutcomeEvaluation` nodes to autonomously propose `HypothesisNode` architectural mutations. |
 
 ### Architecture
 
 ```mermaid
 graph TD
-    subgraph Ingestion_Pipeline [15-Phase Intelligence Pipeline]
+    subgraph Ingestion_Pipeline [5-Stage / 17-Phase Intelligence Pipeline]
         direction LR
-        Scan --> Parse --> Resolve --> MRO --> Ref --> Comm --> Cent --> Emb --> Sync --> OWL[OWL Reasoning] --> KB[Knowledge Base] --> WS[Workspace Sync] --> Val[Validate]
+        S1[Stage 1: Context] --> S2[Stage 2: Structure] --> S3[Stage 3: Topology] --> S4[Stage 4: Epistemic] --> S5[Stage 5: Governance]
+
+        subgraph S1 [Stage 1: Context Hydration]
+            direction LR
+            Mem --> Scan --> WS[WS Sync] --> Reg
+        end
+
+        subgraph S2 [Stage 2: Structural Extraction]
+            direction LR
+            Parse --> Resolve --> MRO --> Ref
+        end
+
+        subgraph S3 [Stage 3: Topological Enrichment]
+            direction LR
+            Comm --> Cent --> Emb
+        end
+
+        subgraph S4 [Stage 4: Epistemic Consolidation]
+            direction LR
+            Sync --> OWL --> Ext[Ext Graphs] --> KB
+        end
+
+        subgraph S5 [Stage 5: Governance & Evolution]
+            direction LR
+            Val[Validate] --> Exp[Distill] -.->|Async| Evo[Evolution]
+        end
     end
 
     subgraph Memory_Layer [In-Memory Graph]
@@ -220,6 +273,13 @@ The graph engine supports policy-guided retrieval across four orthogonal views:
 - **Epistemic View** (CONCEPT:KG-2.2): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions. Powered by `retrieve_epistemic_view()`.
 - **Research Knowledge Base**: Grounded evidence and sources for domain-specific topics (e.g., Medical Journals).
 
+### Persistent Task Tracking (CONCEPT:KG-2.0)
+Background ingestion jobs across the entire ecosystem are no longer transient in-memory tasks. The `IntelligenceGraphEngine` provides a native, decoupled `TaskManagerMixin` where jobs are durably persisted natively as `Task` nodes directly within the Knowledge Graph.
+- **Job Recovery**: If the MCP server or your IDE restarts, pending ingestion jobs are automatically recovered from the cypher backend on startup and placed back into the execution queue.
+- **Provenance**: Jobs store `agent_id`, timestamp, and metadata (like `.git` directory mapping) as topological properties.
+- **Distributed Compute & LadybugDB Limits**: The task queue utilizes LadybugDB's underlying SQLite WAL mode with pessimistic locking to enable concurrent, multi-process workers. While LadybugDB is highly efficient for most agentic workloads, theoretical bottlenecks exist around heavy concurrent writes (SQLite's `BUSY` timeout) and memory bounds during massive full-workspace ingestion. To mitigate OOM errors on large codebases, ingestion workers are spawned as isolated sub-processes using `asyncio.create_subprocess_exec`, ensuring the main Engine process remains stable regardless of individual job memory pressure.
+- **Monitoring**: Check statuses reliably using `kg_list_jobs`, `kg_job_status`, and `kg_clear_jobs` tools, which interact natively with the Cypher engine instead of memory.
+
 ## 🧬 First Principles Architecture
 
 The **First Principles Architecture** (CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.1) rewires the routing, dispatch, and feedback layers from basic primitives. These four concepts solve the key scalability and intelligence bottlenecks that emerge when managing dozens of specialists and hundreds of tools.
@@ -255,7 +315,7 @@ graph LR
 
 ## 🗺 Concept Map
 
-Consolidated from 169 tags into **33 canonical concepts** across **5 Core Pillars**.
+Consolidated from 169 tags into **34 canonical concepts** across **5 Core Pillars**.
 
 → **Full Concept Map**: [docs/concept_map.md](docs/concept_map.md) — canonical concept registry (single source of truth).
 → **Concept Index**: [docs/overview.md](docs/overview.md#concept-index) — all pillars with descriptions and code paths.
@@ -265,7 +325,7 @@ Consolidated from 169 tags into **33 canonical concepts** across **5 Core Pillar
 | **ORCH-1** Graph Orchestration | ORCH-1.0 – 1.6 | 7 | Intelligence graph, HTN planning, routing, execution safety, DSTDD |
 | **KG-2** Knowledge Graph | KG-2.0 – 2.8 | 9 | Active KG, memory, ontology, retrieval, research, finance, enterprise |
 | **AHE-3** Agentic Harness | AHE-3.0 – 3.6 | 7 | Evaluation, evolution, teams, heavy thinking, backtest |
-| **ECO-4** Ecosystem | ECO-4.0 – 4.4 | 5 | MCP, A2A, telemetry, connectors, KG server |
+| **ECO-4** Ecosystem | ECO-4.0 – 4.5 | 6 | MCP, A2A, telemetry, connectors, KG server, terminal agent launcher |
 | **OS-5** Agent OS | OS-5.0 – 5.4 | 5 | Kernel, security, scheduling, guardrails, observability |
 
 ## Architecture & Orchestration
@@ -650,6 +710,24 @@ graph TD
 ```
 
 
+### External Agent Discovery (mcp_config.json)
+
+Register the Knowledge Graph in your IDE's `mcp_config.json` using the standard CLI pattern:
+
+```json
+{
+  "mcpServers": {
+    "agent-utilities-kg": {
+      "command": "uv",
+      "args": ["run", "agent-utilities-kg"],
+      "env": {
+        "AGENT_ID": "local-developer",
+        "WORKSPACE_PATH": "${workspaceFolder}"
+      }
+    }
+  }
+}
+```
 
 ## Quick Start
 
@@ -676,7 +754,19 @@ create_graph_agent_server(provider="openai", model_id="gpt-4o", port=8000)
 
 > See [docs/creating-an-agent.md](docs/pillars/4_ecosystem_and_tooling/creating-an-agent.md) for the complete walkthrough.
 
-## Multi-Model Config
+## Configuration & Environment Variables
+
+### Standardized LLM Environment Variables
+
+The ecosystem relies on a standardized, tiered LLM variable system defined in `.env`. These tiers allow for flexibility and cost optimization across the ecosystem:
+
+- **Core LLM**: `LLM_PROVIDER`, `LLM_MODEL_ID`, `LLM_BASE_URL`, `LLM_API_KEY`
+- **Lite LLM** *(Fast/Cheap tasks)*: `LITE_LLM_PROVIDER`, `LITE_LLM_MODEL_ID`, `LITE_LLM_BASE_URL`, `LITE_LLM_API_KEY`
+- **Super LLM** *(Complex reasoning)*: `SUPER_LLM_PROVIDER`, `SUPER_LLM_MODEL_ID`, `SUPER_LLM_BASE_URL`, `SUPER_LLM_API_KEY`
+- **Role-Specific**: `ROUTER_MODEL`, `KG_MODEL_ID`
+- **Embeddings**: `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL_ID`, `EMBEDDING_BASE_URL`, `EMBEDDING_API_KEY`
+
+> **Full Documentation:** See [docs/configuration.md](docs/pillars/5_agent_os_infrastructure/configuration.md) for a complete list of environment variables, defaults, and fallback logic.
 
 ### Multi-Model Configuration (`MODELS_CONFIG`)
 

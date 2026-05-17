@@ -15,6 +15,14 @@ from .codemap import (
     CodemapArtifact,
     CodemapNode,
 )
+from .goal import (
+    GoalCheckpoint,
+    GoalIteration,
+    GoalKGIntegration,
+    GoalResult,
+    GoalSpec,
+    GoalStatus,
+)
 from .graph import (
     ExecutionStep,
     GraphPlan,
@@ -122,4 +130,10 @@ __all__ = [
     "NewConceptProposal",
     "ExtensionStrategy",
     "RiskAssessment",
+    "GoalSpec",
+    "GoalStatus",
+    "GoalIteration",
+    "GoalResult",
+    "GoalCheckpoint",
+    "GoalKGIntegration",
 ]

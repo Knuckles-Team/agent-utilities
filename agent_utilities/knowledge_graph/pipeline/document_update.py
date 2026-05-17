@@ -84,10 +84,10 @@ class DocumentUpdatePipeline:
                 f"Document {ontological_identifier} not found in knowledge graph"
             )
 
-        # Check if document is soft-deleted
-        if existing_doc.get("is_deleted"):
+        # Check if document is soft-deleted (converged lifecycle: status='ARCHIVED')
+        if existing_doc.get("status") == "ARCHIVED":
             raise ValueError(
-                f"Document {ontological_identifier} is soft-deleted and cannot be updated"
+                f"Document {ontological_identifier} is archived and cannot be updated"
             )
 
         rollback_actions: list[Callable] = []

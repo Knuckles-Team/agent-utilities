@@ -42,8 +42,12 @@ mcp_auth_config = {
 
 DEFAULT_TRANSPORT = os.environ.get("TRANSPORT", "stdio")
 DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
-DEFAULT_PROVIDER = os.getenv("PROVIDER", "openai")
-DEFAULT_MODEL_ID = os.getenv("MODEL_ID", "text-embedding-nomic-embed-text-v2-moe")
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER") or os.getenv("PROVIDER") or "openai"
+DEFAULT_LLM_MODEL_ID = (
+    os.getenv("LLM_MODEL_ID")
+    or os.getenv("MODEL_ID")
+    or "text-embedding-nomic-embed-text-v2-moe"
+)
 DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
 DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "llama")
 
@@ -464,28 +468,29 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
 def _configure_middleware(args: argparse.Namespace) -> list[Any]:
     """Build the standard middleware stack for an MCP server."""
     from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
-    from fastmcp.server.middleware.logging import LoggingMiddleware
     from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
-    from fastmcp.server.middleware.timing import TimingMiddleware
 
     try:
         from agent_utilities.mcp.middlewares import (
+            EntityLinkingMiddleware,
             JWTClaimsLoggingMiddleware,
             UserTokenMiddleware,
         )
     except ImportError:
         UserTokenMiddleware = None  # type: ignore
         JWTClaimsLoggingMiddleware = None  # type: ignore
+        EntityLinkingMiddleware = None  # type: ignore
 
     middlewares: list[Any] = [
         ErrorHandlingMiddleware(include_traceback=True, transform_errors=True),
         RateLimitingMiddleware(max_requests_per_second=10.0, burst_capacity=20),
-        TimingMiddleware(),
-        LoggingMiddleware(),
     ]
 
     if JWTClaimsLoggingMiddleware is not None:
-        middlewares.append(JWTClaimsLoggingMiddleware())
+        pass  # Also do not add this as it logs to stdout
+
+    if EntityLinkingMiddleware is not None:
+        middlewares.append(EntityLinkingMiddleware())
 
     if mcp_auth_config["enable_delegation"] or args.auth_type == "jwt":
         if UserTokenMiddleware is not None:
@@ -540,7 +545,13 @@ def create_mcp_server(
             - middlewares: A list of configured middleware instances.
 
     """
+    import logging
+    import sys
+
     from fastmcp import FastMCP
+
+    # Force all logging to stderr to prevent JSON-RPC corruption over stdio
+    logging.basicConfig(stream=sys.stderr, level=logging.WARNING, force=True)
 
     parser = create_mcp_parser()
     args, _ = parser.parse_known_args(command_args)
@@ -560,6 +571,9 @@ def create_mcp_server(
     auth = _configure_auth(args)
     middlewares = _configure_middleware(args)
 
+    import os
+
+    os.environ["FASTMCP_LOG_LEVEL"] = "CRITICAL"
     mcp = FastMCP(name, auth=auth, instructions=instructions)
 
     return args, mcp, middlewares

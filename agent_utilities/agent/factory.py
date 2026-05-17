@@ -68,11 +68,12 @@ from agent_utilities.core.config import (
     DEFAULT_HOST,
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
+    DEFAULT_LLM_MODEL_ID,
+    DEFAULT_LLM_PROVIDER,
     DEFAULT_LOGIT_BIAS,
     DEFAULT_MAX_TOKENS,
     DEFAULT_MCP_CONFIG,
     DEFAULT_MCP_URL,
-    DEFAULT_MODEL_ID,
     DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
     DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
     DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
@@ -81,7 +82,6 @@ from agent_utilities.core.config import (
     DEFAULT_PARALLEL_TOOL_CALLS,
     DEFAULT_PORT,
     DEFAULT_PRESENCE_PENALTY,
-    DEFAULT_PROVIDER,
     DEFAULT_SEED,
     DEFAULT_SSL_VERIFY,
     DEFAULT_STOP_SEQUENCES,
@@ -133,7 +133,7 @@ def create_agent_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--provider",
-        default=DEFAULT_PROVIDER,
+        default=DEFAULT_LLM_PROVIDER,
         choices=[
             "openai",
             "anthropic",
@@ -145,7 +145,7 @@ def create_agent_parser() -> argparse.ArgumentParser:
         ],
         help="LLM Provider",
     )
-    parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="LLM Model ID")
+    parser.add_argument("--model-id", default=DEFAULT_LLM_MODEL_ID, help="LLM Model ID")
     parser.add_argument(
         "--base-url",
         default=DEFAULT_LLM_BASE_URL,
@@ -239,8 +239,8 @@ def create_agent_parser() -> argparse.ArgumentParser:
 
 
 def create_agent(
-    provider: str | None = DEFAULT_PROVIDER,
-    model_id: str | None = DEFAULT_MODEL_ID,
+    provider: str | None = DEFAULT_LLM_PROVIDER,
+    model_id: str | None = DEFAULT_LLM_MODEL_ID,
     base_url: str | None = DEFAULT_LLM_BASE_URL,
     api_key: str | None = DEFAULT_LLM_API_KEY,
     mcp_url: str | None = DEFAULT_MCP_URL,
@@ -434,7 +434,7 @@ def create_agent(
 
     from pydantic_ai_skills import SkillsToolset
 
-    if enable_skills:
+    if enable_skills and not DEFAULT_VALIDATION_MODE:
         skill_dirs = []
         _skill_types = (
             skill_types

@@ -440,7 +440,7 @@ class IngestionMixin(_Base):
         Returns:
             Statistics dict with counts of ingested books, rules, and edges.
         """
-        from .rule_ingestor import RuleIngestor
+        from ..security.rule_ingestor import RuleIngestor
 
         ingestor = RuleIngestor(self)  # type: ignore
         return ingestor.ingest_rules_books(
@@ -472,7 +472,7 @@ class IngestionMixin(_Base):
         Returns:
             Statistics dict with counts of ingested policies and edges.
         """
-        from .policy_ingestor import PolicyIngestor
+        from ..security.policy_ingestor import PolicyIngestor
 
         ingestor = PolicyIngestor(self)  # type: ignore
         return ingestor.ingest_constitution(
@@ -503,7 +503,7 @@ class IngestionMixin(_Base):
         Returns:
             Combined statistics dict.
         """
-        from .policy_ingestor import PolicyIngestor
+        from ..security.policy_ingestor import PolicyIngestor
 
         ingestor = PolicyIngestor(self)  # type: ignore
         return ingestor.ingest_all(

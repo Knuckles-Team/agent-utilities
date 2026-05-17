@@ -10,6 +10,7 @@ supporting strict schema-bound Cypher queries.
 import fcntl
 import logging
 import os
+import typing
 from contextlib import contextmanager
 from typing import Any
 
@@ -58,12 +59,13 @@ class LadybugBackend(GraphBackend):
                 "ladybug package is not installed. Install with 'pip install ladybug'"
             )
         self.db_path = db_path
+        self.read_only = False
         # Use Database and Connection objects as required by newer ladybug versions
         # Add retry logic with jitter for multi-agent startup resilience
         import random
         import time
 
-        max_retries = 5
+        max_retries = 10
         last_error: Exception = RuntimeError("Max retries exceeded")
         for attempt in range(max_retries):
             try:
@@ -91,26 +93,61 @@ class LadybugBackend(GraphBackend):
                 except Exception as e:
                     logger.debug(f"WAL pragma not supported or ignored: {e}")
 
-                # Successful connection, perform backup
-                self._backup_db()
+                # Load VECTOR extension for HNSW vector search
+                try:
+                    self.conn.execute("INSTALL VECTOR;")
+                    self.conn.execute("LOAD EXTENSION VECTOR;")
+                    logger.debug("LadybugDB VECTOR extension loaded successfully")
+                except Exception as ve:
+                    logger.debug(f"Could not load VECTOR extension: {ve}")
+
+                # Successful connection — backup only if recovering
+                if attempt > 0:
+                    self._backup_db()
                 return
             except Exception as e:
                 last_error = e
                 msg = str(e).lower()
-                if "lock" in msg or "busy" in msg:
+                if (
+                    "lock" in msg
+                    or "busy" in msg
+                    or "catalog exception" in msg
+                    or "already exists" in msg
+                    or "bad_alloc" in msg
+                    or "io exception" in msg
+                    or "no such file" in msg
+                ):
                     if attempt == max_retries - 1:
-                        logger.warning(
-                            f"Failed to acquire exclusive lock, falling back to read-only mode for {db_path}"
-                        )
-                        db_params["read_only"] = True
-                        self.db = ladybug.Database(
-                            db_path if db_path != ":memory:" else None, **db_params
-                        )
-                        self.conn = ladybug.Connection(self.db)
-                        return
+                        # Final attempt: fallback to read-only mode if it's a lock/busy issue
+                        if "lock" in msg or "busy" in msg or "io exception" in msg:
+                            logger.warning(
+                                f"Failed to acquire exclusive lock after {max_retries} attempts, "
+                                f"falling back to read-only mode for {db_path}"
+                            )
+                            self.read_only = True
+                            db_params["read_only"] = True
+                            self.db = ladybug.Database(
+                                db_path if db_path != ":memory:" else None,
+                                **db_params,  # type: ignore[arg-type]
+                            )
+                            self.conn = ladybug.Connection(self.db)
+
+                            # Load VECTOR extension for HNSW vector search
+                            try:
+                                self.conn.execute("INSTALL VECTOR;")
+                                self.conn.execute("LOAD EXTENSION VECTOR;")
+                                logger.debug(
+                                    "LadybugDB VECTOR extension loaded successfully"
+                                )
+                            except Exception as ve:
+                                logger.debug(f"Could not load VECTOR extension: {ve}")
+
+                            return
+                        raise e
+
                     wait_time = (2**attempt) + random.random()  # nosec B311
                     logger.warning(
-                        f"Graph DB locked, retrying in {wait_time:.2f}s (attempt {attempt + 1}/{max_retries})..."
+                        f"Graph DB locked or catalog race detected, retrying in {wait_time:.2f}s (attempt {attempt + 1}/{max_retries})..."
                     )
                     time.sleep(wait_time)
                 elif (
@@ -118,10 +155,15 @@ class LadybugBackend(GraphBackend):
                     or "invalid wal record" in msg
                     or "read out invalid" in msg
                     or "unreachable_code" in msg
+                    or "shadow file" in msg
+                    or "database id" in msg
                 ):
-                    logger.error(
-                        f"Detected database corruption in {db_path}: {e}. Attempting cleanup and repair..."
+                    logger.warning(
+                        f"Detected database corruption or stale WAL in {db_path} "
+                        f"(usually caused by a hard restart or process crash). "
+                        f"Self-healing: cleaning up stale WAL/lock files and retrying."
                     )
+                    self._backup_db()  # Safeguard before cleanup
                     self._cleanup_corrupted()
                     # retry immediately after cleanup
                     continue
@@ -137,16 +179,28 @@ class LadybugBackend(GraphBackend):
             del self.db
 
     def _cleanup_corrupted(self):
-        """Removes corrupted SQLite/WAL files."""
+        """Removes corrupted WAL/journal files to allow a clean restart.
+
+        Note: Does NOT delete the main DB file — only transient WAL/journal
+        artifacts that can cause UNREACHABLE_CODE assertions in ladybug.
+        """
         from pathlib import Path
 
         base_path = Path(self.db_path)
         if base_path.name == ":memory:":
             return
 
-        # Files to remove: main db, wal, shm
-        exts = ["", ".wal", "-wal", ".shm", "-shm"]
-        for ext in exts:
+        # Only remove transient WAL/journal files, NOT the main DB
+        wal_exts = [
+            ".wal",
+            "-wal",
+            ".shm",
+            "-shm",
+            ".lock",
+            ".shadow",
+            ".wal.checkpoint",
+        ]
+        for ext in wal_exts:
             p = base_path.parent / (base_path.name + ext)
             if p.exists():
                 try:
@@ -171,13 +225,24 @@ class LadybugBackend(GraphBackend):
             return
 
         try:
+            # Check disk space before backup (skip if < 1GB free)
+            db_size = base_path.stat().st_size
+            statvfs = os.statvfs(base_path.parent)
+            free_bytes = statvfs.f_bavail * statvfs.f_frsize
+            if free_bytes < max(db_size * 2, 1_073_741_824):  # Need 2x DB size or 1GB
+                logger.info(
+                    f"Skipping DB backup: only {free_bytes / 1e9:.1f}GB free "
+                    f"(need {max(db_size * 2, 1_073_741_824) / 1e9:.1f}GB)"
+                )
+                return
+
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_path = base_path.with_name(f"{base_path.name}.{timestamp}.bak")
 
             shutil.copy2(self.db_path, backup_path)
             logger.info(f"Database backed up to {backup_path}")
 
-            # Prune old backups (keep 3 most recent)
+            # Prune old backups (keep N most recent)
             backups = sorted(
                 base_path.parent.glob(f"{base_path.name}.*.bak"),
                 key=lambda x: x.stat().st_mtime,
@@ -248,24 +313,65 @@ class LadybugBackend(GraphBackend):
         return []
 
     def execute_batch(
-        self, query: str, batch: list[dict[str, Any]]
+        self, query: str, batch: list[dict[str, Any]], chunk_size: int = 500
     ) -> list[dict[str, Any]]:
-        """Execute a batch query. LadybugDB may not have native UNWIND, so we fallback to loops if necessary,
-        or implement native batch transactions.
-        """
+        """Execute a batch query in chunks to avoid blocking the DB for too long."""
+        import secrets
+        import time
+
         results = []
-        for params in batch:
-            # We strip out the UNWIND prefix natively if we are doing loop fallbacks.
-            # For this architectural stub, we just execute sequentially.
-            res = self.execute(query, params)
-            if res:
-                results.extend(res)
+        max_retries = 10
+        for i in range(0, len(batch), chunk_size):
+            chunk = batch[i : i + chunk_size]
+            attempt = 0
+            while attempt < max_retries:
+                try:
+                    with self._get_lock():
+                        for params in chunk:
+                            res = self.conn.execute(query, params or {})
+                            # ladybug return format: list of QueryResult objects
+                            if res and hasattr(res, "get_as_df"):
+                                df = res.get_as_df()
+                                results.extend(
+                                    typing.cast(
+                                        list[dict[str, Any]], df.to_dict("records")
+                                    )
+                                )
+                    break  # Success, move to next chunk
+                except Exception as e:
+                    msg = str(e).lower()
+                    if "lock" in msg or "busy" in msg or "database is locked" in msg:
+                        attempt += 1
+                        wait_time = (
+                            2**attempt
+                        ) * 0.05 + secrets.SystemRandom().random() * 0.1
+                        logger.warning(
+                            f"Database locked during batch, retrying chunk in {wait_time:.2f}s... (attempt {attempt}/{max_retries})"
+                        )
+                        time.sleep(wait_time)
+                        continue
+                    logger.warning(f"Batch execution chunk failed: {e}")
+                    break
         return results
+
+    def wal_checkpoint(self) -> bool:
+        """Perform a WAL checkpoint if the underlying engine supports it."""
+        try:
+            # For Ladybug (which uses Kuzu/SQLite-like storage),
+            # we try to run the checkpoint directly on the connection.
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            return True
+        except Exception as e:
+            logger.debug(f"WAL checkpoint not supported or failed: {e}")
+            return False
 
     def create_schema(self) -> None:
         """Create LadybugDB schema from the unified schema definition.
         Ladybug requires strict DDL for Node and Rel tables.
         """
+        logger.info(
+            f"Synchronizing Knowledge Graph Schema ({len(SCHEMA.nodes)} node tables, {len(SCHEMA.edges)} edge tables)..."
+        )
         # 1. Create Node Tables
         for node in SCHEMA.nodes:
             cols = ", ".join(
@@ -290,12 +396,16 @@ class LadybugBackend(GraphBackend):
                 if "already exists" not in str(e).lower():
                     logger.warning(f"Rel table creation issue ({rel.type}): {e}")
 
-    def build_vector_indices(self) -> None:
+    def build_vector_indices(self, tables: list[str] | None = None) -> None:
         """Create Vector Indices for any FLOAT column named 'embedding'.
 
         Note: LadybugDB (Kuzu) currently does not support updating properties
         (via SET) that are part of a vector index. Therefore, vector indices
         should only be built AFTER all initial ingestion is complete.
+
+        Args:
+            tables: Optional list of specific table names to build indexes for.
+                When None, builds for all tables with embedding columns.
         """
         embedding_tables = [
             node.name
@@ -303,6 +413,8 @@ class LadybugBackend(GraphBackend):
             if "embedding" in node.columns
             and "FLOAT" in node.columns["embedding"].upper()
         ]
+        if tables:
+            embedding_tables = [t for t in embedding_tables if t in tables]
         if embedding_tables:
             try:
                 self.conn.execute("INSTALL VECTOR;")
@@ -343,6 +455,39 @@ class LadybugBackend(GraphBackend):
                         len(embedding_tables),
                         skip_reason,
                     )
+
+    def drop_vector_indices(self, tables: list[str] | None = None) -> None:
+        """Drop HNSW vector indexes so that embedding SET operations succeed.
+
+        Must be called before ingestion if indexes were previously built,
+        since LadybugDB (Kuzu) does not support SET on indexed columns.
+
+        Args:
+            tables: Optional list of specific table names to drop indexes for.
+                When None, drops all embedding indexes.
+        """
+        embedding_tables = [
+            node.name
+            for node in SCHEMA.nodes
+            if "embedding" in node.columns
+            and "FLOAT" in node.columns["embedding"].upper()
+        ]
+        if tables:
+            embedding_tables = [t for t in embedding_tables if t in tables]
+        dropped = 0
+        for table in embedding_tables:
+            idx_name = f"idx_{table.lower()}_embedding"
+            try:
+                self.conn.execute(f"CALL DROP_VECTOR_INDEX('{table}', '{idx_name}');")
+                dropped += 1
+            except Exception as e:
+                if (
+                    "not found" not in str(e).lower()
+                    and "does not exist" not in str(e).lower()
+                ):
+                    logger.debug(f"Drop vector index issue ({idx_name}): {e}")
+        if dropped:
+            logger.info("Dropped %d HNSW vector indexes for re-ingestion.", dropped)
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Add embedding to an existing node."""
@@ -403,3 +548,20 @@ class LadybugBackend(GraphBackend):
 
         logger.info(f"Pruning nodes: {query} with params {params}")
         self.execute(query, params)
+
+        # Reclaim WAL space after bulk deletes
+        self.checkpoint_wal()
+
+    def checkpoint_wal(self) -> None:
+        """Force a WAL checkpoint to prevent unbounded WAL growth under multi-writer load.
+
+        Should be called periodically during maintenance or after bulk operations
+        to reclaim disk space and ensure readers see the latest committed state.
+        """
+        if self.db_path == ":memory:":
+            return
+        try:
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            logger.debug("WAL checkpoint completed for %s", self.db_path)
+        except Exception as e:
+            logger.warning("WAL checkpoint failed for %s: %s", self.db_path, e)

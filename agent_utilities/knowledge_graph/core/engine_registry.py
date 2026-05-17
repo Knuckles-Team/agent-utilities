@@ -1081,7 +1081,7 @@ class RegistryMixin(_Base):
             self.graph.remove_node(function_id)
             if self.backend:
                 self.backend.execute(
-                    "MATCH (n:CallableResource {id: $id}) DETACH DELETE n",
+                    "MATCH (n:CallableResource {id: $id}) SET n.status = 'ARCHIVED'",
                     {"id": function_id},
                 )
             logger.info("[CONCEPT:ECO-4.0] Deregistered function '%s'", function_id)

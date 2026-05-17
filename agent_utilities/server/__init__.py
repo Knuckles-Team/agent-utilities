@@ -25,23 +25,23 @@ from agent_utilities.core.config import (
     DEFAULT_ENABLE_TERMINAL_UI,
     DEFAULT_ENABLE_WEB_LOGS,
     DEFAULT_ENABLE_WEB_UI,
-    DEFAULT_GRAPH_AGENT_MODEL,
     DEFAULT_GRAPH_PERSISTENCE_PATH,
     DEFAULT_GRAPH_PERSISTENCE_TYPE,
     DEFAULT_HOST,
+    DEFAULT_LITE_LLM_MODEL_ID,
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
+    DEFAULT_LLM_MODEL_ID,
+    DEFAULT_LLM_PROVIDER,
     DEFAULT_MCP_CONFIG,
     DEFAULT_MCP_URL,
     DEFAULT_MIN_CONFIDENCE,
-    DEFAULT_MODEL_ID,
     DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
     DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
     DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
     DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
     DEFAULT_PORT,
-    DEFAULT_PROVIDER,
     DEFAULT_ROUTER_MODEL,
     DEFAULT_SSL_VERIFY,
 )
@@ -58,8 +58,8 @@ logger = logging.getLogger(__name__)
 
 
 def create_agent_server(
-    provider: str | None = DEFAULT_PROVIDER,
-    model_id: str | None = DEFAULT_MODEL_ID,
+    provider: str | None = DEFAULT_LLM_PROVIDER,
+    model_id: str | None = DEFAULT_LLM_MODEL_ID,
     base_url: str | None = DEFAULT_LLM_BASE_URL,
     api_key: str | None = DEFAULT_LLM_API_KEY,
     mcp_url: str | None = DEFAULT_MCP_URL,
@@ -269,10 +269,10 @@ def create_graph_agent_server(
     mcp_url: str | None = DEFAULT_MCP_URL,
     graph_name: str = "GraphAgent",
     router_model: str | None = DEFAULT_ROUTER_MODEL,
-    agent_model: str | None = DEFAULT_GRAPH_AGENT_MODEL,
+    agent_model: str | None = DEFAULT_LITE_LLM_MODEL_ID,
     min_confidence: float = DEFAULT_MIN_CONFIDENCE,
-    provider: str | None = DEFAULT_PROVIDER,
-    model_id: str | None = DEFAULT_MODEL_ID,
+    provider: str | None = DEFAULT_LLM_PROVIDER,
+    model_id: str | None = DEFAULT_LLM_MODEL_ID,
     base_url: str | None = DEFAULT_LLM_BASE_URL,
     api_key: str | None = DEFAULT_LLM_API_KEY,
     mcp_config: str | None = DEFAULT_MCP_CONFIG,
@@ -422,7 +422,13 @@ def create_graph_agent_server(
 
             _mcp_cfg_path = resolve_mcp_config_path(mcp_config or "")
 
-            if _mcp_cfg_path and should_sync(_mcp_cfg_path):
+            from agent_utilities.core.config import DEFAULT_VALIDATION_MODE
+
+            if (
+                _mcp_cfg_path
+                and should_sync(_mcp_cfg_path)
+                and not DEFAULT_VALIDATION_MODE
+            ):
                 from agent_utilities.mcp.agent_manager import sync_mcp_agents
 
                 logger.info(

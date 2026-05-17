@@ -1,9 +1,11 @@
 from .centrality import centrality_phase
 from .communities import communities_phase
 from .embedding import embedding_phase
+from .external_graphs import external_graphs_phase
 from .knowledge_base import knowledge_base_phase
 from .memory import memory_phase
 from .mro import mro_phase
+from .observability import decision_evolution_phase, experience_distillation_phase
 from .owl_reasoning import owl_reasoning_phase
 from .parse import parse_phase
 from .reference import reference_phase
@@ -26,6 +28,9 @@ PHASES = [
     embedding_phase,
     sync_phase,
     owl_reasoning_phase,
+    external_graphs_phase,
     knowledge_base_phase,
     validate_phase,
+    experience_distillation_phase,
+    decision_evolution_phase,
 ]

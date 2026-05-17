@@ -26,12 +26,12 @@ if TYPE_CHECKING:
     from .models import Policy, ProcessFlow
 
 from agent_utilities.core.config import (
-    DEFAULT_GRAPH_AGENT_MODEL,
     DEFAULT_GRAPH_ROUTER_TIMEOUT,
     DEFAULT_GRAPH_VERIFIER_TIMEOUT,
+    DEFAULT_LITE_LLM_MODEL_ID,
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
-    DEFAULT_PROVIDER,
+    DEFAULT_LLM_PROVIDER,
     DEFAULT_ROUTER_MODEL,
     DEFAULT_SSL_VERIFY,
     TOOL_GUARD_MODE,
@@ -88,10 +88,10 @@ class GraphDeps:
     mcp_url: str = ""
     mcp_config: str = ""
     router_model: Any | None = DEFAULT_ROUTER_MODEL
-    agent_model: Any | None = DEFAULT_GRAPH_AGENT_MODEL
+    agent_model: Any | None = DEFAULT_LITE_LLM_MODEL_ID
     min_confidence: float = 0.6
     sub_agents: dict[str, str | Agent] = field(default_factory=dict)
-    provider: str | None = DEFAULT_PROVIDER
+    provider: str | None = DEFAULT_LLM_PROVIDER
     base_url: str | None = DEFAULT_LLM_BASE_URL
     api_key: str | None = DEFAULT_LLM_API_KEY
     ssl_verify: bool = DEFAULT_SSL_VERIFY
@@ -114,6 +114,10 @@ class GraphDeps:
     secrets_client: Any | None = None
     """Optional SecretsClient for encrypted credential resolution.
     CONCEPT:OS-5.1 — Secrets & Authentication"""
+
+    plugin_registry: Any | None = None
+    """Optional PluginRegistry for dynamic tool hydration (ECO-4.0).
+    Assimilated from pydantic-ai hot-swappable plugin architecture."""
 
     plan_sync: PlanSyncCallback | None = None
     """Optional async callback for syncing graph plan state to ACP.

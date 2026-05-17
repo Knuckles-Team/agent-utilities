@@ -46,6 +46,7 @@ graph TD
         KG26["<b>KG-2.6: Domain: Finance</b>"]
         KG27["<b>KG-2.7: Research Intelligence</b>"]
         KG28["<b>KG-2.8: Domain: Enterprise</b>"]
+        KG29["<b>KG-2.9: External Graph Federation</b>"]
     end
 
     %% Pillar 3: Agentic Harness Engineering
@@ -130,6 +131,7 @@ graph TD
 | KG-2.6 | Domain: Finance | Trading pipeline, risk ontology, optimal execution |
 | KG-2.7 | Research Intelligence | Paper discovery, citation traversal, orchestration |
 | KG-2.8 | Domain: Enterprise | Enterprise core, governance, infrastructure, HR |
+| KG-2.9 | External Graph Federation | Integration with external SPARQL and LPG endpoints |
 
 ### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.6)
 
@@ -142,6 +144,8 @@ graph TD
 | AHE-3.4 | Distributed Agentic Evolution | Self-model, stability, ecosystem PR generation |
 | AHE-3.5 | Heavy Thinking & Background Intelligence | Heavy thinking, background intelligence |
 | AHE-3.6 | Backtest & Curriculum | Backtest harness, horizon-aware curriculum |
+| AHE-3.15 | IModelEvolver | Agentic-iModels workflows and model evolution |
+| AHE-3.16 | InterpretabilityTestSuite | Model interpretability and evaluation |
 
 ### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.4)
 

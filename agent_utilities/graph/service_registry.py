@@ -507,6 +507,22 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "domain": "finance",
         "desc": "Community strategy marketplace (KG-2.6)",
     },
+    {
+        "module": "agent_utilities.knowledge_graph.core.markov_regime",
+        "entry": "MarkovRegimeModel",
+        "capability": "markov_regime_detection",
+        "layer": "domain",
+        "domain": "finance",
+        "desc": "Markov chain market regime forecasting (KG-2.6)",
+    },
+    {
+        "module": "agent_utilities.knowledge_graph.core.markov_regime",
+        "entry": "HiddenMarkovRegimeModel",
+        "capability": "hmm_regime_detection",
+        "layer": "domain",
+        "domain": "finance",
+        "desc": "Gaussian HMM latent regime detection (KG-2.6)",
+    },
     # --- Consolidated Engine Facades ---
     {
         "module": "agent_utilities.observability",

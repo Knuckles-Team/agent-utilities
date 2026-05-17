@@ -279,10 +279,10 @@ my-agent-mcp = "my_agent.mcp_server:mcp_server"
 
 ```bash
 # MCP Server (stdio - for agent consumption)
-uv run my-agent-mcp -t stdio
+uv run agent-utilities-kg -t stdio
 
 # MCP Server (HTTP - for remote access)
-uv run my-agent-mcp -t streamable-http --host 0.0.0.0 --port 8001
+uv run agent-utilities-kg -t streamable-http --host 0.0.0.0 --port 8001
 
 # MCP Server (with JWT auth)
 uv run my-agent-mcp -t streamable-http --auth-type jwt \

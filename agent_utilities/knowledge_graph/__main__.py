@@ -53,6 +53,12 @@ async def main():
     parser.add_argument("--id", type=str, help="Memory ID for update")
     parser.add_argument("--content", type=str, help="New content for memory update")
 
+    parser.add_argument(
+        "--stage-to-queue",
+        type=str,
+        help="Job ID to serialize and stage the graph instead of persisting directly",
+    )
+
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -61,6 +67,9 @@ async def main():
         workspace_path=str(Path.cwd()),
         ladybug_path=str(kg_db_path()),
     )
+
+    if args.stage_to_queue:
+        config.persist_to_ladybug = False
 
     pipeline = IntelligencePipeline(config)
 
@@ -112,6 +121,30 @@ async def main():
         print(
             f"Intelligence Graph Updated: {metadata.node_count} nodes, {metadata.edge_count} edges."
         )
+        if args.stage_to_queue:
+            from agent_utilities.core.paths import data_dir
+            from agent_utilities.knowledge_graph.core.engine_tasks import (
+                SQLiteTaskQueue,
+            )
+
+            queue_db_path = data_dir() / "kg_task_queue.db"
+            queue = SQLiteTaskQueue(str(queue_db_path))
+
+            nodes = []
+            for nid, data in pipeline.graph.nodes(data=True):
+                node = data.copy()
+                node["id"] = nid
+                nodes.append(node)
+
+            edges = []
+            for u, v, data in pipeline.graph.edges(data=True):
+                edge = data.copy()
+                edge["source"] = u
+                edge["target"] = v
+                edges.append(edge)
+
+            queue.put_staged_graph(args.stage_to_queue, nodes, edges)
+            print(f"Graph staged to queue for job {args.stage_to_queue}")
 
     elif args.status:
         await pipeline.run()

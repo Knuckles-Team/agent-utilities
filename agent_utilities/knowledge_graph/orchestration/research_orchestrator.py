@@ -257,7 +257,7 @@ class ResearchOrchestrator:
                             subagent.add_finding(
                                 claim=f"Traversed {len(edges)} citations for: {record.title[:80]}",
                                 confidence=0.9,
-                                source_paper_id=record.paper_id,
+                                _source_paper_id=record.paper_id,
                             )
                             report.findings_recorded += 1
                         except Exception as e:

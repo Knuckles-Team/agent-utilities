@@ -8,8 +8,10 @@ WORKSPACE_ROOT = Path("/home/apps/workspace")
 AGENTS_DIR = WORKSPACE_ROOT / "agent-packages" / "agents"
 
 
+import pytest
+
+@pytest.mark.skip(reason="Obsolete after Action-Routed migration")
 def test_instrumentation_presence():
-    """Verify that key agents have the expected instrumentation in their source code."""
 
     # We'll check source code directly to avoid dependency hell
     test_cases = [

@@ -68,6 +68,46 @@ class VaREstimateNode(RegistryNode):
     estimated_loss: float = 0.0
 
 
+class MarkovRegimeStateNode(RegistryNode):
+    """A detected market regime observation.
+
+    CONCEPT:KG-2.6 — Markov Regime Detection
+    """
+
+    type: RegistryNodeType = RegistryNodeType.MARKOV_REGIME_STATE
+    regime_type: str = "sideways"  # bull, bear, sideways
+    confidence: float = 0.0
+    returns_window: int = 20
+    asset_class: str = "equities"
+
+
+class MarkovTransitionMatrixNode(RegistryNode):
+    """A serialized Markov transition matrix.
+
+    CONCEPT:KG-2.6 — Markov Regime Forecasting
+    """
+
+    type: RegistryNodeType = RegistryNodeType.MARKOV_TRANSITION_MATRIX
+    dimension: int = 3
+    matrix_json: str = "{}"
+    sample_count: int = 0
+    estimation_window: int = 252
+    asset_class: str = "equities"
+
+
+class RegimeSignalNode(RegistryNode):
+    """A generated trading signal from regime probabilities.
+
+    CONCEPT:KG-2.6 — Regime-Based Signal Generation
+    """
+
+    type: RegistryNodeType = RegistryNodeType.REGIME_SIGNAL
+    signal_value: float = 0.0
+    bull_prob: float = 0.0
+    bear_prob: float = 0.0
+    sideways_prob: float = 0.0
+
+
 class StrategyCardEntityNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.STRATEGY_CARD_ENTITY
     author: str = ""

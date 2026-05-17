@@ -37,22 +37,34 @@ The `GraphMaintainer` (`knowledge_graph/maintainer.py`) autonomously manages the
 
 ```mermaid
 graph TD
-    subgraph Ingestion_Pipeline ["15-Phase Unified Intelligence Pipeline"]
+    subgraph Ingestion_Pipeline ["5-Stage / 17-Phase Intelligence Pipeline"]
         direction LR
-        Memory["1. Memory"] --> Scan["2. Scan"]
-        Scan --> Registry["3. Registry"]
-        Registry --> Parse["4. Parse"]
-        Parse --> Resolve["5. Resolve"]
-        Resolve --> MRO["6. MRO"]
-        MRO --> Ref["7. Reference"]
-        Ref --> Comm["8. Communities"]
-        Comm --> Cent["9. Centrality"]
-        Cent --> Emb["10. Embedding"]
-        Emb --> RegInt["11. Registry Int"]
-        RegInt --> Sync["12. Sync"]
-        Sync --> OWL["13. OWL Reasoning"]
-        OWL --> KB["14. Knowledge Base"]
-        KB --> Val["15. Validate"]
+        S1[Stage 1: Context] --> S2[Stage 2: Structure] --> S3[Stage 3: Topology] --> S4[Stage 4: Epistemic] --> S5[Stage 5: Governance]
+
+        subgraph S1 [Stage 1: Context Hydration]
+            direction LR
+            Mem --> Scan --> WS[WS Sync] --> Reg
+        end
+
+        subgraph S2 [Stage 2: Structural Extraction]
+            direction LR
+            Parse --> Resolve --> MRO --> Ref
+        end
+
+        subgraph S3 [Stage 3: Topological Enrichment]
+            direction LR
+            Comm --> Cent --> Emb
+        end
+
+        subgraph S4 [Stage 4: Epistemic Consolidation]
+            direction LR
+            Sync --> OWL --> Ext[Ext Graphs] --> KB
+        end
+
+        subgraph S5 [Stage 5: Governance & Evolution]
+            direction LR
+            Val[Validate] --> Exp[Distill] -.->|Async| Evo[Evolution]
+        end
     end
 
     subgraph Memory_Layer ["In-Memory Graph"]
@@ -152,8 +164,9 @@ graph TB
 3. **LLM-Driven Consolidation**: The `GraphMaintainer` automatically evaluates low-level conversational episodes, rolling them up into highly dense semantic summaries to maintain long-term memory scalability.
 4. **Episodic Ingestion**: Agents can dynamically extract knowledge triples (`Entity -> Relation -> Entity`) from task episodes to autonomously extend the graph geometry (`kg_evolution_tools`).
 5. **P2P Graph Sharing**: Agents can selectively export context subgraphs or "agent cards" to share capabilities and learned knowledge across the A2A network (`kg_share_tools`).
+6. **Background Concept Research Daemon**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via `kg_analyze(action="background_research")`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow.
 
-## Unified Intelligence Pipeline (15 Phases)
+## Unified Intelligence Pipeline (5 Stages / 17 Phases)
 
 | Phase | Name | Purpose |
 |-------|------|---------|
@@ -775,7 +788,7 @@ The validator includes comprehensive alias maps for both node types (30+ aliases
 
 ### Pipeline Integration
 
-The validator runs as the **15th pipeline phase** (`validate`), executing after `knowledge_base` ingestion. Results are stored via `KGEvalCapture` (CONCEPT:KG-2.2) for trend analysis.
+The validator runs as the **16th pipeline phase** (`validate`), executing in Stage 5. Results are stored via `KGEvalCapture` (CONCEPT:KG-2.2) for trend analysis.
 
 ```python
 from agent_utilities.knowledge_graph.graph_validator import GraphValidator
@@ -871,7 +884,7 @@ The `PositionalInteractionEncoder` computes these intersections using a 2-layer 
 
 ### Vectorizing Positional Interactions
 
-This interaction logic is fully integrated with the 15-Phase Ingestion Pipeline (specifically Phase 10: Embedding) and the OWL ontology sync (CONCEPT:KG-2.2):
+This interaction logic is fully integrated with the 17-Phase Ingestion Pipeline (specifically Phase 11: Embedding) and the OWL ontology sync (CONCEPT:KG-2.2):
 
 1. **Topology & OWL Convergence**: As the OWL reasoning bridge infers new implicit facts (e.g., `subClassOf`), these new edges create additional positional intersections.
 2. **Native Vectorization**: The `EncPI` engine natively computes the dense vector embeddings for these positional interactions.

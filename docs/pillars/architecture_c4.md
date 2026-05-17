@@ -3,6 +3,11 @@
 This document provides formal C4 architecture diagrams showing how the 5 pillars
 of `agent-utilities` interconnect with each other and with external IDE consumers.
 
+> [!NOTE]
+> Components marked with 🔬 are research-backed additions from the
+> comparative analysis pipeline (papers 2605.05701v1, 2605.03310v1,
+> 2604.20874v1, 2605.05242v1).
+
 ## Level 1: System Context
 
 Shows `agent-utilities` in the broader ecosystem — all IDE and agent consumers.
@@ -48,7 +53,7 @@ C4Container
 
     System_Boundary(au, "agent-utilities") {
         Container(orch, "ORCH: Orchestration Engine", "Python", "Router, Planner, Dispatcher, Capability Wiring")
-        Container(kg, "KG: Knowledge Graph", "Python + LadybugDB", "15-phase pipeline, OWL ontology, hybrid retrieval")
+        Container(kg, "KG: Knowledge Graph", "Python + LadybugDB", "17-phase pipeline, OWL ontology, hybrid retrieval")
         Container(ahe, "AHE: Agentic Harness", "Python", "Self-model, TeamConfig, evolution, evaluation")
         Container(eco, "ECO: Ecosystem Peripherals", "Python + FastMCP", "MCP server factory, A2A, skill management")
         Container(os_k, "OS: Agent OS Kernel", "Python + FastAPI", "Auth, guardrails, lifecycle, telemetry")
@@ -79,12 +84,15 @@ C4Component
         Component(dispatcher, "Graph Dispatcher", "Python", "Parallel batch execution")
         Component(wiring, "Capability Wiring Engine", "Python", "Dynamic capability discovery")
         Component(orchestrator, "Agent Orchestrator", "Python", "Unified harness for multi-agent execution")
+        Component(coord, "🔬 Coordination Layer", "Python", "ORCH-1.5: Pluggable coordination protocols. Research: 2605.03310v1")
     }
 
     Rel(router, planner, "Routes task to planning")
     Rel(planner, dispatcher, "Decomposes into parallel batches")
     Rel(dispatcher, wiring, "Discovers required capabilities")
     Rel(orchestrator, router, "Entry point for all orchestration")
+    Rel(orchestrator, coord, "Selects protocol before execution")
+    Rel(coord, dispatcher, "Applies consensus/voting/delegation")
 ```
 
 ### Pillar 2: Knowledge Graph (KG)
@@ -96,17 +104,29 @@ C4Component
     Container_Boundary(kg, "Knowledge Graph") {
         Component(engine, "IntelligenceGraphEngine", "Python", "Core engine with 10 mixins")
         Component(backend, "Graph Backends", "Python", "LadybugDB, FalkorDB, Neo4j, PostgreSQL")
-        Component(pipeline, "15-Phase Pipeline", "Python", "Ingest, enrich, index, materialize")
+        Component(pipeline, "17-Phase Pipeline", "Python", "Ingest, enrich, index, materialize, evolve")
         Component(retrieval, "Hybrid Retriever", "Python", "Semantic 72% + keyword 28% search")
-        Component(ontology, "OWL Bridge", "Python + RDFLib", "Formal ontology with FIBO/BFO")
+        Component(dci, "🔬 DCI Retriever", "Python", "KG-2.3: Multi-hop graph traversal retrieval. Research: 2605.05242v1")
+        Component(ontology, "OWL Bridge + SPARQL", "Python + RDFLib", "Formal ontology, SPARQL endpoint, materialization")
+        Component(sdd_ont, "SDD Ontology", "OWL/Turtle", "KG-2.7: Spec, Feature, Requirement, TestCase classes")
+        Component(shacl, "SHACL Validator", "Python + pyshacl", "KG-2.7: Enterprise governance shape validation")
+        Component(publisher, "Ontology Publisher", "Python", "KG-2.7: Push to Stardog/Fuseki")
+        Component(loader, "Ontology Loader", "Python", "KG-2.7: owl:imports resolver with caching")
         Component(memory, "Memory Tiers", "Python", "Episodic, semantic, procedural memory")
+        Component(ctxbudget, "🔬 Context Budget Optimizer", "Python", "KG-2.1: Root Theorem compaction. Research: 2604.20874v1")
     }
 
     Rel(engine, backend, "Tier 1: Cypher persistence")
-    Rel(engine, pipeline, "Orchestrates 15-phase ingestion")
+    Rel(engine, pipeline, "Orchestrates 17-phase ingestion")
     Rel(retrieval, engine, "Queries via hybrid scoring")
+    Rel(dci, retrieval, "Seeds from hybrid, then graph traversal")
     Rel(ontology, engine, "Schema enforcement via OWL")
+    Rel(ontology, sdd_ont, "owl:imports SDD classes")
+    Rel(shacl, ontology, "Validates materialized RDF")
+    Rel(publisher, ontology, "Exports/pushes ontology")
+    Rel(loader, ontology, "Resolves owl:imports")
     Rel(memory, engine, "CRUD for tiered memories")
+    Rel(ctxbudget, memory, "Compacts recall results within budget")
 ```
 
 ### Pillar 3: Agentic Harness (AHE)
@@ -139,12 +159,14 @@ C4Component
         Component(mcp_factory, "MCP Server Factory", "Python + FastMCP", "create_mcp_server with auth stack")
         Component(kg_mcp, "KG MCP Server", "Python", "Thin wrapper exposing KG as MCP tools")
         Component(a2a, "A2A Network", "Python", "Agent-to-agent discovery and delegation")
+        Component(coord_a2a, "🔬 Coordinated A2A Skill", "Python", "ECO-4.1: A2A with coordination negotiation. Research: 2605.03310v1")
         Component(skill_mgr, "Skill Manager", "Python", "Dynamic tool loading and skill evolution")
         Component(bridge, "Ecosystem Bridge", "Python", "Cross-package integration")
     }
 
     Rel(mcp_factory, kg_mcp, "Creates KG MCP instance")
     Rel(kg_mcp, a2a, "Shares KG data across agent network")
+    Rel(coord_a2a, a2a, "Extends with coordination protocol negotiation")
     Rel(skill_mgr, bridge, "Loads skills from universal-skills")
 ```
 
@@ -158,6 +180,8 @@ C4Component
         Component(auth, "Security Policy Middleware", "Python", "JWT, API key, MCP auth")
         Component(threat, "Threat Defense Engine", "Python", "Prompt injection, jailbreak detection")
         Component(guardrails, "Guardrail Engine", "Python", "Tool guard, rate limit, content filter")
+        Component(scheduler, "Cognitive Scheduler", "Python", "Priority queue, preemption, context paging")
+        Component(budget, "🔬 Inference Budget Controller", "Python", "OS-5.2: Cost-aware tier fallback. Research: 2605.05701v1")
         Component(telemetry, "Telemetry Pipeline", "Python", "OTEL, token tracking, audit logging")
         Component(paths, "XDG Paths Module", "Python + platformdirs", "Centralized path resolution")
     }
@@ -165,6 +189,7 @@ C4Component
     Rel(auth, threat, "Validates before routing")
     Rel(threat, guardrails, "Applies runtime constraints")
     Rel(guardrails, telemetry, "Records enforcement decisions")
+    Rel(scheduler, budget, "Tracks cost + auto-downgrades model tier")
     Rel(paths, auth, "Provides config/data locations")
 ```
 
@@ -203,6 +228,39 @@ flowchart LR
             KG_RISK --> AHE_IMMUNE["AHE: Immunity"]
             AHE_IMMUNE --> OS_POLICY["OS: Policy Engine"]
         end
+
+        subgraph CONTINUOUS ["Continuous Ingestion Flow"]
+            direction LR
+            GIT_HOOK["Git: post-commit hook"] --> DIFF_SUBMIT["scripts/submit_diff.py"]
+            DIFF_SUBMIT --> KG_TASKS["KG: TaskManager"]
+            KG_TASKS --> KG_DIFF["KG: DiffEntry Node"]
+        end
+
+        subgraph LIFECYCLE ["Entity Lifecycle Flow"]
+            direction LR
+            KG_ACTIVE["KG: Active Node"] -->|"soft-delete"| KG_ARCHIVED["KG: status=ARCHIVED"]
+            KG_ARCHIVED -->|"restore"| KG_ACTIVE2["KG: status=ACTIVE"]
+            KG_ARCHIVED -->|"hard-delete (age)"| KG_REMOVED["KG: Permanently Removed"]
+        end
+
+        subgraph RESEARCH ["🔬 Research Integration Flow"]
+            direction LR
+            SCHOLAR["ScholarX: Paper Search"] -->|"download"| KG_INGEST2["KG: Ingest Paper"]
+            KG_INGEST2 -->|"discover mode"| KG_DISCOVER["KG: Innovation Discovery"]
+            KG_DISCOVER -->|"cross-ref"| CONCEPT_MAP["KG: Concept Map"]
+            CONCEPT_MAP -->|"assimilate"| KG_ASSIMILATE["KG: ASSIMILATED_INTO edges"]
+        end
+
+        subgraph ENTERPRISE ["Enterprise Federation Flow"]
+            direction LR
+            KG_MATERIALIZE["KG: OWL Materialize"] -->|"rdflib"| SPARQL_EP["SPARQL HTTP Endpoint"]
+            SPARQL_EP -->|"query"| EXT_CONSUMER["External Consumer"]
+            KG_MATERIALIZE -->|"validate"| SHACL_V["SHACL Validator"]
+            KG_MATERIALIZE -->|"export"| ONT_PUB["Ontology Publisher"]
+            ONT_PUB -->|"push"| STARDOG["Stardog / Fuseki"]
+            STARDOG -->|"owl:imports"| ONT_LOAD["Ontology Loader"]
+            ONT_LOAD -->|"merge"| KG_MATERIALIZE
+        end
     end
 ```
 
@@ -232,6 +290,8 @@ graph TD
     P4 -->|"MCP middleware stack enforces<br/>auth, rate limits, guardrails"| P5
 
     P5 -->|"Policy engine governs all<br/>execution paths and prompt safety"| P1
+    P5 -->|"🔬 InferenceBudget tracks cost<br/>auto-downgrades model tier"| P1
+    P1 -->|"🔬 CoordinationLayer selects<br/>protocol per team composition"| P4
 
     style P1 fill:#dae8fe,stroke:#6c8ebf,stroke-width:3px
     style P2 fill:#d5e8d4,stroke:#82b366,stroke-width:3px

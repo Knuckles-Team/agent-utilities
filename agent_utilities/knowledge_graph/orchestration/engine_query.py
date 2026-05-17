@@ -151,7 +151,7 @@ class QueryMixin(_Base):
 
             where_clause = " OR ".join(q)
             if where_clause:
-                query_str = f"MATCH (n) WHERE {where_clause} RETURN n"
+                query_str = f"MATCH (n) WHERE ({where_clause}) AND coalesce(n.status, '') <> 'ARCHIVED' RETURN n"
                 try:
                     res = self.backend.execute(query_str, params)
                     for row in res:
@@ -175,6 +175,10 @@ class QueryMixin(_Base):
                 if isinstance(req_class, int) and req_class > clearance_level:
                     continue
 
+                # Soft-delete enforcement
+                if str(data.get("status", "")).upper() == "ARCHIVED":
+                    continue
+
                 name = str(data.get("name", "")).lower()
                 desc = str(data.get("description", "")).lower()
                 nid = str(node_id).lower()
@@ -194,9 +198,138 @@ class QueryMixin(_Base):
 
         return results[:top_k]
 
-    def search_hybrid(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
+    def search_hybrid(
+        self,
+        query: str,
+        top_k: int = 10,
+        include_archived: bool = False,
+        skip_quality_gate: bool = False,
+        relevance_threshold: float | None = None,
+        target_paths: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Perform a multi-faceted search using Hybrid GraphRAG."""
-        return self.hybrid_retriever.retrieve_hybrid(query, context_window=top_k)
+        results = self.hybrid_retriever.retrieve_hybrid(
+            query,
+            context_window=top_k * 2,
+            skip_quality_gate=skip_quality_gate,
+            relevance_threshold=relevance_threshold,
+            target_paths=target_paths,
+        )
+        if not include_archived:
+            results = [
+                r for r in results if str(r.get("status", "")).upper() != "ARCHIVED"
+            ]
+        return results[:top_k]
+
+    def search_dci(
+        self,
+        query: str,
+        max_hops: int = 2,
+        top_k: int = 10,
+        evidence_chain: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Direct Corpus Interaction — multi-hop graph traversal retrieval.
+
+        CONCEPT:KG-2.3 — Research: 2605.05242v1
+
+        Unlike vector search (finds similar chunks by embedding distance),
+        DCI traverses the graph structure to find connected evidence chains.
+        This enables multi-hop reasoning: "What papers cite the same methods?"
+        or "Which concepts are connected through shared implementations?"
+
+        Operates in 3 layers (matching our existing L1/L2/L3 pipeline):
+            L1: Initial vector seed (fast, same as search_hybrid).
+            L2: Graph neighbor expansion — retrieve 1-hop neighbors of L1 results.
+            L3: Multi-hop traversal — follow edges up to ``max_hops`` deep,
+                building an evidence chain that tracks the traversal path.
+
+        Args:
+            query: Search query for the initial vector seed.
+            max_hops: Maximum graph traversal depth (default 2).
+            top_k: Maximum results to return.
+            evidence_chain: If True, include the traversal path in results.
+
+        Returns:
+            List of result dicts, each with:
+                - Standard node properties (id, name, type, score, etc.)
+                - ``hop_depth``: How many hops from the seed this result is.
+                - ``evidence_path``: List of (node_id, edge_type) tuples
+                  showing how this result was reached (if evidence_chain=True).
+        """
+        # L1: Vector seed — fast retrieval
+        seeds = self.search_hybrid(query, top_k=min(top_k, 5))
+        if not seeds:
+            return []
+
+        # Track all discovered nodes to avoid duplicates
+        seen: set[str] = set()
+        results: list[dict[str, Any]] = []
+
+        # Add seeds as hop-0 results
+        for seed in seeds:
+            sid = str(seed.get("id", ""))
+            if not sid or sid in seen:
+                continue
+            seen.add(sid)
+            seed["hop_depth"] = 0
+            seed["evidence_path"] = [(sid, "seed")]
+            results.append(seed)
+
+        # L2+L3: Graph traversal — expand outward from seeds
+        frontier = [
+            (str(s.get("id", "")), s.get("evidence_path", []))
+            for s in seeds
+            if s.get("id")
+        ]
+
+        for hop in range(1, max_hops + 1):
+            next_frontier: list[tuple[str, list]] = []
+
+            for node_id, path in frontier:
+                if node_id not in self.graph:
+                    continue
+
+                # Expand neighbors (both directions)
+                neighbors = list(self.graph.successors(node_id)) + list(
+                    self.graph.predecessors(node_id)
+                )
+
+                for neighbor_id in neighbors:
+                    if neighbor_id in seen:
+                        continue
+                    seen.add(neighbor_id)
+
+                    # Get edge data
+                    edge_data = self.graph.get_edge_data(node_id, neighbor_id) or {}
+                    if not edge_data:
+                        edge_data = self.graph.get_edge_data(neighbor_id, node_id) or {}
+                    edge_type = str(edge_data.get("type", "RELATED"))
+
+                    # Get node data
+                    node_data = dict(self.graph.nodes.get(neighbor_id, {}))
+                    node_data["id"] = neighbor_id
+                    node_data["hop_depth"] = hop
+
+                    if evidence_chain:
+                        node_data["evidence_path"] = path + [(neighbor_id, edge_type)]
+
+                    # Score decay: further hops get lower scores
+                    base_score = float(node_data.get("importance_score", 0.5))
+                    node_data["_score"] = round(base_score * (0.8**hop), 4)
+
+                    results.append(node_data)
+                    next_frontier.append(
+                        (neighbor_id, node_data.get("evidence_path", []))
+                    )
+
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        # Sort by score (seeds first, then by decayed importance)
+        results.sort(key=lambda x: (-x.get("_score", 0), x.get("hop_depth", 99)))
+
+        return results[:top_k]
 
     def search_memories(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         """Search specifically for memory nodes."""
@@ -356,6 +489,9 @@ class QueryMixin(_Base):
         for r in results:
             rid = r.get("id", "")
             if rid in seen_ids:
+                continue
+
+            if str(r.get("status", "")).upper() == "ARCHIVED":
                 continue
 
             r_type = str(r.get("type", "")).lower()
@@ -610,3 +746,387 @@ class QueryMixin(_Base):
             {"q": query},
         )
         return [r.get("f", r) for r in results]
+
+    # ── Native Innovation Discovery (CONCEPT:KG-2.0) ──────────────
+
+    # Signal dictionaries for innovation extraction — embedded in the engine
+    # so that all search modes can reuse them without external scripts.
+    _BIOMIMICRY_KEYWORDS: dict[str, dict[str, str]] = {
+        "swarm": {"analogy": "multi-agent coordination", "domain": "orchestration"},
+        "colony": {"analogy": "distributed task allocation", "domain": "scheduling"},
+        "pheromone": {
+            "analogy": "stigmergic communication channels",
+            "domain": "signal_boards",
+        },
+        "neural": {"analogy": "adaptive model routing", "domain": "model_selection"},
+        "immune": {
+            "analogy": "anomaly detection and self-healing",
+            "domain": "circuit_breakers",
+        },
+        "evolution": {
+            "analogy": "genetic algorithm optimization",
+            "domain": "prompt_evolution",
+        },
+        "mutation": {"analogy": "parametric exploration", "domain": "variant_pool"},
+        "symbiosis": {
+            "analogy": "plugin ecosystem composition",
+            "domain": "mcp_composition",
+        },
+        "quorum": {
+            "analogy": "distributed consensus thresholds",
+            "domain": "bft_voting",
+        },
+        "mycelium": {"analogy": "knowledge graph topology", "domain": "kg_routing"},
+        "plasticity": {
+            "analogy": "continual learning without forgetting",
+            "domain": "ewc",
+        },
+        "homeostasis": {
+            "analogy": "resource equilibrium maintenance",
+            "domain": "cost_governors",
+        },
+        "emergent": {
+            "analogy": "complex behavior from simple rules",
+            "domain": "swarm_presets",
+        },
+        "stigmergy": {
+            "analogy": "indirect coordination via environment",
+            "domain": "signal_boards",
+        },
+    }
+
+    _TECH_KEYWORDS: dict[str, dict[str, str]] = {
+        "attention": {
+            "analogy": "context-aware retrieval weighting",
+            "domain": "hybrid_retriever",
+        },
+        "transformer": {
+            "analogy": "parallel sequence processing",
+            "domain": "batch_processing",
+        },
+        "embedding": {
+            "analogy": "semantic vector representation",
+            "domain": "knowledge_graph",
+        },
+        "reinforcement": {
+            "analogy": "reward-driven routing optimization",
+            "domain": "confidence_gating",
+        },
+        "chain-of-thought": {
+            "analogy": "rationale persistence",
+            "domain": "quiet_star",
+        },
+        "tree search": {"analogy": "MCTS planning fallback", "domain": "lats"},
+        "consensus": {"analogy": "multi-agent agreement", "domain": "bft"},
+        "knowledge graph": {"analogy": "structured relational memory", "domain": "kg"},
+        "ontology": {"analogy": "formal domain modeling", "domain": "owl_reasoning"},
+        "retrieval": {
+            "analogy": "context-aware document fetching",
+            "domain": "hybrid_retriever",
+        },
+        "rag": {
+            "analogy": "retrieval-augmented generation",
+            "domain": "hybrid_retriever",
+        },
+        "multi-agent": {
+            "analogy": "coordinated specialist teams",
+            "domain": "orchestration",
+        },
+        "orchestration": {
+            "analogy": "workflow coordination engine",
+            "domain": "orchestration",
+        },
+        "planning": {
+            "analogy": "task decomposition and scheduling",
+            "domain": "htn_planning",
+        },
+        "tool use": {
+            "analogy": "dynamic capability invocation",
+            "domain": "tool_interface",
+        },
+        "mcp": {
+            "analogy": "model context protocol integration",
+            "domain": "mcp_factory",
+        },
+        "safety": {
+            "analogy": "guardrails and constraint enforcement",
+            "domain": "guardrails",
+        },
+        "evaluation": {
+            "analogy": "quality assessment framework",
+            "domain": "evaluation_engine",
+        },
+        "telemetry": {
+            "analogy": "runtime observability signals",
+            "domain": "telemetry",
+        },
+        "scheduling": {
+            "analogy": "resource allocation optimization",
+            "domain": "cognitive_scheduler",
+        },
+        "memory": {
+            "analogy": "persistent experience storage",
+            "domain": "tiered_memory",
+        },
+        "federated": {
+            "analogy": "distributed graph querying",
+            "domain": "external_federation",
+        },
+        "hypergraph": {
+            "analogy": "n-ary relationship modeling",
+            "domain": "hyperedges",
+        },
+        "topology": {"analogy": "structural graph analysis", "domain": "partitioning"},
+        "composability": {
+            "analogy": "modular building-block assembly",
+            "domain": "mcp_composition",
+        },
+        "middleware": {
+            "analogy": "cross-cutting concern interception",
+            "domain": "middleware",
+        },
+        "inference": {
+            "analogy": "derived knowledge from assertions",
+            "domain": "owl_reasoning",
+        },
+        "security": {"analogy": "threat defense mechanisms", "domain": "security"},
+        "context window": {
+            "analogy": "adaptive context management",
+            "domain": "context_management",
+        },
+    }
+
+    _INNOVATION_SIGNALS = [
+        "novel",
+        "new",
+        "propose",
+        "introduce",
+        "demonstrate",
+        "improve",
+        "outperform",
+        "achieve",
+        "enable",
+        "first",
+        "state-of-the-art",
+        "sota",
+        "surpass",
+        "advance",
+    ]
+
+    def _extract_signals(self, content: str) -> dict[str, Any]:
+        """Extract biomimicry and tech innovation signals from text content."""
+        import re
+
+        content_lower = content.lower()
+        bio_hits = []
+        tech_hits = []
+
+        for kw, info in self._BIOMIMICRY_KEYWORDS.items():
+            count = content_lower.count(kw)
+            if count > 0:
+                bio_hits.append(
+                    {
+                        "keyword": kw,
+                        "count": count,
+                        "analogy": info["analogy"],
+                        "domain": info["domain"],
+                    }
+                )
+
+        for kw, info in self._TECH_KEYWORDS.items():
+            count = content_lower.count(kw)
+            if count > 0:
+                tech_hits.append(
+                    {
+                        "keyword": kw,
+                        "count": count,
+                        "analogy": info["analogy"],
+                        "domain": info["domain"],
+                    }
+                )
+
+        # Extract key innovation claims
+        claims = []
+        for sent in re.split(r"[.!?]\s+", content):
+            if any(sig in sent.lower() for sig in self._INNOVATION_SIGNALS):
+                words = sent.split()
+                if 5 < len(words) < 50:
+                    claims.append(sent.strip())
+        claims = claims[:5]
+
+        return {
+            "biomimicry_signals": sorted(bio_hits, key=lambda x: -x["count"]),
+            "tech_signals": sorted(tech_hits, key=lambda x: -x["count"]),
+            "innovation_claims": claims,
+            "total_signal_count": len(bio_hits) + len(tech_hits),
+        }
+
+    def discover_innovations(
+        self,
+        query: str,
+        top_k: int = 20,
+        relevance_threshold: float = 0.2,
+        exclude_assimilated: bool = False,
+        target_codebase: str = "",
+    ) -> dict[str, Any]:
+        """Native Layer 1 cross-reference: vector search + innovation signal extraction.
+
+        CONCEPT:KG-2.0 — Active Knowledge Graph Discovery
+
+        Performs hybrid search, then enriches each result with biomimicry/tech
+        innovation signals extracted from the node content. Results include
+        signal counts, concept mappings, and innovation claims.
+
+        This is the backend-native equivalent of the Layer 1 cross-reference
+        pipeline, computed entirely on the KG without LLM calls.
+
+        Args:
+            query: Search query (concept name, research topic, etc.)
+            top_k: Maximum enriched results to return.
+            relevance_threshold: Minimum similarity score.
+            exclude_assimilated: If True, filter out Article nodes that have
+                ASSIMILATED_INTO edges with status='implemented' for the
+                given target_codebase. CONCEPT:KG-2.7
+            target_codebase: Codebase path to check assimilation against.
+                Only used when exclude_assimilated=True.
+
+        Returns:
+            Dict with enriched results, signal summary, and top recommendations.
+        """
+        # 0. Build set of assimilated target_paths to exclude
+        assimilated_paths: set[str] = set()
+        if exclude_assimilated and self.backend:
+            try:
+                if target_codebase:
+                    rows = self.query_cypher(
+                        "MATCH (a:Article)-[r:ASSIMILATED_INTO]->(c) "
+                        "WHERE r.status = 'implemented' AND r.codebase = $cb "
+                        "RETURN DISTINCT a.target_path AS path",
+                        {"cb": target_codebase},
+                    )
+                else:
+                    rows = self.query_cypher(
+                        "MATCH (a:Article)-[r:ASSIMILATED_INTO]->(c) "
+                        "WHERE r.status = 'implemented' "
+                        "RETURN DISTINCT a.target_path AS path",
+                    )
+                for row in rows:
+                    p = row.get("path", "")
+                    if p:
+                        assimilated_paths.add(p)
+                if assimilated_paths:
+                    logger.info(
+                        "Excluding %d assimilated paper paths from discovery",
+                        len(assimilated_paths),
+                    )
+            except Exception as exc:
+                logger.warning("Failed to load assimilated paths: %s", exc)
+
+        # 1. Run hybrid vector search with low threshold to cast wide net
+        raw_results = self.search_hybrid(
+            query,
+            top_k=top_k * 3,
+            skip_quality_gate=True,
+            relevance_threshold=relevance_threshold,
+        )
+
+        # 2. Enrich each result with innovation signals
+        enriched = []
+        domain_accumulator: dict[str, list[dict[str, Any]]] = {}
+
+        for r in raw_results:
+            # CONCEPT:KG-2.7 — Skip assimilated papers
+            if assimilated_paths:
+                r_path = r.get("target_path", "")
+                if r_path and r_path in assimilated_paths:
+                    continue
+
+            # Build content from available fields
+            content_parts = []
+            for field in (
+                "content",
+                "description",
+                "name",
+                "summary",
+                "text",
+                "claim_text",
+            ):
+                val = r.get(field)
+                if val and isinstance(val, str):
+                    content_parts.append(val)
+            content = " ".join(content_parts)
+
+            if not content or len(content) < 20:
+                continue
+
+            signals = self._extract_signals(content)
+
+            entry = {
+                "id": r.get("id", ""),
+                "name": r.get("name", r.get("title", "")),
+                "type": r.get("type", ""),
+                "target_path": r.get("target_path", ""),
+                "score": round(r.get("_score", 0.0), 4),
+                "concept_id": r.get("concept_id", ""),
+                **signals,
+            }
+
+            # Accumulate by domain for recommendations
+            for sig in signals["tech_signals"] + signals["biomimicry_signals"]:
+                domain = sig["domain"]
+                if domain not in domain_accumulator:
+                    domain_accumulator[domain] = []
+                domain_accumulator[domain].append(
+                    {
+                        "source": entry["name"] or entry["id"],
+                        "keyword": sig["keyword"],
+                        "analogy": sig["analogy"],
+                        "score": entry["score"],
+                    }
+                )
+
+            if signals["total_signal_count"] > 0:
+                enriched.append(entry)
+
+        # Sort by (score * signal_count) for emergent value ranking
+        enriched.sort(
+            key=lambda x: x["score"] * (1 + x["total_signal_count"]),
+            reverse=True,
+        )
+        enriched = enriched[:top_k]
+
+        # 3. Build domain-level recommendations
+        recommendations = []
+        for domain, sources in sorted(
+            domain_accumulator.items(),
+            key=lambda x: -len(x[1]),
+        ):
+            best = max(sources, key=lambda s: s["score"])
+            recommendations.append(
+                {
+                    "domain": domain,
+                    "analogy": best["analogy"],
+                    "source_count": len(sources),
+                    "top_source": best["source"],
+                    "top_score": best["score"],
+                    "priority": "high"
+                    if len(sources) >= 3
+                    else "medium"
+                    if len(sources) >= 2
+                    else "low",
+                }
+            )
+
+        return {
+            "query": query,
+            "total_matches": len(enriched),
+            "results": enriched,
+            "domain_recommendations": recommendations[:20],
+            "summary": {
+                "total_signals": sum((e["total_signal_count"] for e in enriched), 0),
+                "unique_domains": len(domain_accumulator),
+                "high_priority_domains": len(
+                    [r for r in recommendations if r["priority"] == "high"]
+                ),
+            },
+        }

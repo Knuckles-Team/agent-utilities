@@ -1,8 +1,10 @@
 {
   "mcpServers": {
     "example-mcp": {
-      "command": "example-mcp",
+      "command": "uv",
       "args": [
+        "run",
+        "example-mcp",
         "--transport",
         "stdio"
       ],

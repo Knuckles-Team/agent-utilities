@@ -152,6 +152,9 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "execution_plan",
     "market_making_quote",
     "pairs_trade_signal",
+    # Context Graph Architecture (CONCEPT:KG-2.7)
+    "architecture_decision",
+    "archimate_element",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -269,6 +272,11 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "executed_via",
     "pairs_with",
     "makes_market_in",
+    # Context Graph Architecture — ADR edges (CONCEPT:KG-2.7)
+    "impacts_concept",
+    "alternatives_to",
+    "decided_by",
+    "supersedes",
 }
 
 
@@ -304,6 +312,8 @@ class OWLBridge:
         self.importance_threshold = importance_threshold
         self.recency_days = recency_days
         self._schema_pack = schema_pack
+        self._rdf_cache: Any = None
+        self._rdf_cache_hash: int = -1
 
         # Compute effective promotable types filtered by schema pack (CONCEPT:KG-2.2)
         if schema_pack is not None:
@@ -373,7 +383,7 @@ class OWLBridge:
             if rel in symmetric_props:
                 if not self.graph.has_edge(v, u) or not any(
                     e.get("type") == rel
-                    for e in self.graph.get_edge_data(v, u, {}).values()
+                    for e in self.graph.get_edge_data(v, u, default={}).values()
                 ):
                     inferences.append(
                         {
@@ -392,7 +402,9 @@ class OWLBridge:
                         if w_data.get("type") == rel:
                             if not self.graph.has_edge(u, w) or not any(
                                 e.get("type") == rel
-                                for e in self.graph.get_edge_data(u, w, {}).values()
+                                for e in self.graph.get_edge_data(
+                                    u, w, default={}
+                                ).values()
                             ):
                                 inferences.append(
                                     {
@@ -571,43 +583,128 @@ class OWLBridge:
             logger.debug("Backend sync for inferred facts failed: %s", e)
 
     def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
-        """Execute a SPARQL query against the OWL backend.
+        """Execute a SPARQL query against the OWL backend or rdflib materialization.
 
-        CONCEPT:ORCH-1.1 — RLM × OWL Integration
+        CONCEPT:KG-2.7 — SPARQL Read-Only Endpoint
 
-        Exposes the OWL reasoner's SPARQL interface for programmatic
-        queries from the RLM REPL. Supports transitive property traversal,
-        SKOS hierarchy navigation, and provenance chain analysis.
+        Supports three execution strategies in priority order:
+        1. Native OWL backend SPARQL (if available)
+        2. rdflib in-memory RDF graph materialization (preferred fallback)
+        3. Basic regex-based LPG scan (last resort)
 
         Args:
-            sparql: A SPARQL SELECT query string.
+            sparql: A SPARQL SELECT, ASK, or CONSTRUCT query string.
 
         Returns:
             List of result bindings as dicts. Each dict maps variable
             names to their bound values.
-
-        Raises:
-            RuntimeError: If the OWL backend does not support SPARQL.
-
-        Example::
-
-            results = bridge.query_sparql('''
-                PREFIX au: <http://agent-utilities.dev/ontology#>
-                SELECT ?manifest ?edit WHERE {
-                    ?manifest a au:ChangeManifest .
-                    ?manifest au:hasEditFor ?edit .
-                }
-            ''')
         """
         if hasattr(self.owl, "query_sparql"):
             return self.owl.query_sparql(sparql)
 
-        # Fallback: convert to in-memory graph traversal
-        logger.warning(
-            "OWL backend does not support SPARQL directly. "
-            "Running a filtered graph scan instead."
-        )
+        # Try rdflib-based SPARQL execution
+        try:
+            return self._sparql_via_rdflib(sparql)
+        except ImportError:
+            logger.info(
+                "rdflib not installed. Install with 'pip install rdflib' "
+                "for full SPARQL support. Falling back to regex scan."
+            )
+        except Exception as e:
+            logger.warning("rdflib SPARQL execution failed: %s. Falling back.", e)
+
         return self._sparql_fallback(sparql)
+
+    def _build_rdf_graph(self) -> Any:
+        """Materialize the LPG into an rdflib Graph for SPARQL queries.
+
+        CONCEPT:KG-2.7 — RDF Materialization
+
+        Promotes all nodes as typed OWL individuals and all edges as
+        property assertions under the ``au:`` namespace. The result is
+        cached and invalidated when the LPG changes.
+
+        Returns:
+            An rdflib.Graph instance populated from the current LPG state.
+        """
+        import rdflib
+
+        g = rdflib.Graph()
+        AU = rdflib.Namespace("http://agent-utilities.dev/ontology#")
+        g.bind("au", AU)
+        g.bind("rdf", rdflib.RDF)
+        g.bind("rdfs", rdflib.RDFS)
+
+        # Promote nodes as typed individuals
+        for node_id, data in self.graph.nodes(data=True):
+            node_uri = AU[str(node_id).replace(" ", "_")]
+            node_type = data.get("type", "Thing")
+            # Type assertion
+            type_class = AU[node_type.replace(" ", "_").title().replace("_", "")]
+            g.add((node_uri, rdflib.RDF.type, type_class))
+            # Add string properties as datatype properties
+            for key, value in data.items():
+                if key in ("embedding", "ewc_fisher_diag"):
+                    continue  # Skip large float arrays
+                if isinstance(value, str) and value:
+                    g.add((node_uri, AU[key], rdflib.Literal(value)))
+                elif isinstance(value, (int, float)):
+                    g.add((node_uri, AU[key], rdflib.Literal(value)))
+
+        # Promote edges as property assertions
+        for src, tgt, data in self.graph.edges(data=True):
+            src_uri = AU[str(src).replace(" ", "_")]
+            tgt_uri = AU[str(tgt).replace(" ", "_")]
+            edge_type = data.get("type", "relatedTo")
+            prop = AU[edge_type]
+            g.add((src_uri, prop, tgt_uri))
+
+        return g
+
+    def _sparql_via_rdflib(self, sparql: str) -> list[dict[str, Any]]:
+        """Execute SPARQL via rdflib against a materialized RDF graph.
+
+        Args:
+            sparql: SPARQL query string.
+
+        Returns:
+            List of result row dicts.
+
+        Raises:
+            ImportError: If rdflib is not installed.
+        """
+
+        # Build (or use cached) RDF graph
+        graph_hash = len(self.graph.nodes) + len(self.graph.edges)
+        if not hasattr(self, "_rdf_cache") or self._rdf_cache_hash != graph_hash:
+            self._rdf_cache = self._build_rdf_graph()
+            self._rdf_cache_hash = graph_hash
+
+        # Inject default prefix if not present
+        if "PREFIX au:" not in sparql and "prefix au:" not in sparql:
+            sparql = "PREFIX au: <http://agent-utilities.dev/ontology#>\n" + sparql
+
+        qres = self._rdf_cache.query(sparql)
+
+        # Handle different result types
+        if isinstance(qres, bool):
+            # ASK query
+            return [{"result": qres}]
+
+        results: list[dict[str, Any]] = []
+        for row in qres:
+            binding: dict[str, Any] = {}
+            if hasattr(row, "labels"):
+                # SELECT result
+                for var in row.labels:
+                    val = row[var]
+                    binding[str(var)] = str(val) if val is not None else None
+            elif hasattr(row, "__iter__"):
+                # CONSTRUCT/DESCRIBE result (triples)
+                s, p, o = row
+                binding = {"subject": str(s), "predicate": str(p), "object": str(o)}
+            results.append(binding)
+        return results
 
     def _sparql_fallback(self, sparql: str) -> list[dict[str, Any]]:
         """Best-effort SPARQL fallback using the in-memory LPG.
@@ -633,6 +730,7 @@ class OWLBridge:
 
         return [
             {
-                "error": "Complex SPARQL queries require a backend with native SPARQL support."
+                "error": "Complex SPARQL queries require rdflib. "
+                "Install with: pip install rdflib"
             }
         ]

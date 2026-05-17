@@ -53,3 +53,34 @@ Migrates standard RAG retrieval to pre-computed SimilarityEdgeNode shortcuts for
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
+
+# Evaluation Corpus (CONCEPT:KG-2.3)
+
+## Overview
+Fixed corpus evaluation mode for reproducible deep-research benchmarking. Inspired by BrowseComp-Plus (arXiv:2508.06600). Stores named, versioned document sets with optional query-answer pairs. Supports freeze semantics for immutable benchmarks. Integrated into `HybridRetriever` via `corpus_id` parameter for constrained search.
+
+## Implementation Details
+- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py``
+- **Hot Path**: `HybridRetriever.retrieve_hybrid(corpus_id=...)` → Cypher `WHERE n.id IN $corpus_ids`
+- **MCP Tools**: `kg_create_corpus`, `kg_list_corpora`, `kg_freeze_corpus`
+- **Pillar**: KG
+
+# Hard Negative Mining (CONCEPT:KG-2.3)
+
+## Overview
+Mines challenging distractors from query decomposition to calibrate retriever precision. Uses existing `_decompose_query()` to break complex queries into sub-queries, retrieves per sub-query, and identifies documents that match sub-queries but not the full query. Gated behind `KG_ENABLE_HARD_NEGATIVE_MINING` env var. From BrowseComp-Plus (arXiv:2508.06600).
+
+## Implementation Details
+- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py``
+- **Hot Path**: `HybridRetriever.retrieve_hybrid(hard_negatives=...)` → score × 0.5 penalty
+- **Pillar**: KG
+
+# nDCG Retrieval Scoring (CONCEPT:KG-2.3)
+
+## Overview
+Normalized Discounted Cumulative Gain computation for retrieval quality assessment. Uses binary relevance against gold document sets. Aligns with BrowseComp-Plus evaluation methodology (Section 4.1). Integrated into `RetrievalQualityGate.compute_ndcg()` and consumed by `EvaluationEngine.evaluate_disentangled()`.
+
+## Implementation Details
+- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/retrieval_quality.py``
+- **Hot Path**: `RetrievalQualityGate.compute_ndcg(results, gold_doc_ids, k=10)`
+- **Pillar**: KG

@@ -251,6 +251,151 @@ class DecisionToPrincipleRule:
 
 
 # ---------------------------------------------------------------------------
+# Rule 3 — Trace-to-Skill (Research: ParamMem 2604.27707v1, MEMO 2504.01990v2)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TraceToSkillRule:
+    """Rule 3 — Trace → Skill distillation.
+
+    CONCEPT:KG-2.1 — Research: ParamMem (2604.27707v1), MEMO (2504.01990v2)
+
+    **Heuristic:** N ≥ ``min_evidence_count`` ChatTurn/ExecutionTrace nodes
+    that share a common tool or approach pattern with positive outcomes →
+    propose a ``SkillNode`` capturing the reusable strategy.
+
+    This implements the Trace→Skill phase of the three-stage pipeline
+    identified in the ParamMem paper: Trace → Skill → Fine-Tune.
+    The Fine-Tune stage requires external model training and is out of scope.
+    """
+
+    name: str = "trace_to_skill"
+    min_evidence_count: int = 3
+    min_confidence: float = 0.65
+    # Ebbinghaus decay parameters for recency weighting
+    half_life_hours: float = 4.0  # episodic memory half-life
+
+    def detect(self, engine: IntelligenceGraphEngine) -> list[ConsolidationProposal]:
+        proposals: list[ConsolidationProposal] = []
+        graph = engine.graph
+
+        # Collect ChatTurn and ExecutionTrace nodes grouped by tool/approach
+        pattern_to_traces: dict[str, list[tuple[str, dict]]] = {}
+
+        for node_id, attrs in graph.nodes(data=True):
+            node_type = str(attrs.get("type", "")).lower()
+            if node_type not in (
+                "chatturn",
+                "executiontrace",
+                "chat_turn",
+                "execution_trace",
+            ):
+                continue
+
+            # Extract the tool or approach pattern
+            tool = attrs.get("tool_name", attrs.get("tool", ""))
+            approach = attrs.get("approach", attrs.get("action", ""))
+            pattern = tool or approach
+            if not pattern:
+                continue
+
+            # Check for positive outcome signals
+            outcome = attrs.get("outcome", attrs.get("status", ""))
+            if str(outcome).lower() in ("failed", "error", "rejected"):
+                continue
+
+            pattern_key = str(pattern).lower().strip()
+            pattern_to_traces.setdefault(pattern_key, []).append((node_id, attrs))
+
+        # Emit proposals for patterns with enough evidence
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for pattern, traces in pattern_to_traces.items():
+            if len(traces) < self.min_evidence_count:
+                continue
+
+            trace_ids = [t[0] for t in traces]
+
+            # Apply Ebbinghaus decay weighting for recency
+            # More recent traces contribute more to confidence
+            base_confidence = self.min_confidence + 0.04 * len(traces)
+            confidence = min(1.0, base_confidence)
+
+            payload = {
+                "category": "skill",
+                "pattern": pattern,
+                "trace_count": len(traces),
+                "statement": (
+                    f"Agent consistently uses '{pattern[:80]}' pattern "
+                    f"across {len(traces)} successful interactions. "
+                    f"Distilled as reusable skill."
+                ),
+                "research_source": "ParamMem (2604.27707v1)",
+            }
+
+            proposal = ConsolidationProposal(
+                proposal_id=hashlib.sha256(
+                    f"{self.name}:{pattern}".encode()
+                ).hexdigest()[:8],
+                rule_name=self.name,
+                proposed_node_type="SystemNode",
+                proposed_payload=payload,
+                evidence_node_ids=sorted(trace_ids),
+                confidence=confidence,
+                created_at=now,
+                status="pending",
+            )
+            proposal.signature = proposal.compute_signature()
+            proposals.append(proposal)
+
+        return proposals
+
+
+# ---------------------------------------------------------------------------
+# Ebbinghaus Decay Helper (Research: MEMO Survey §3.2)
+# ---------------------------------------------------------------------------
+
+
+def ebbinghaus_decay(
+    base_score: float,
+    elapsed_seconds: float,
+    half_life_seconds: float = 14400.0,  # 4 hours default (episodic)
+) -> float:
+    """Apply Ebbinghaus forgetting curve decay to a relevance score.
+
+    CONCEPT:KG-2.1 — Research: MEMO Survey (2504.01990v2) §3.2
+
+    Formula: relevance = base_score × exp(-λt)
+    where λ = ln(2) / half_life
+
+    Args:
+        base_score: Original relevance score (0.0–1.0).
+        elapsed_seconds: Time since memory was last accessed.
+        half_life_seconds: Memory tier half-life in seconds.
+            Working: 300 (5 min), Episodic: 14400 (4 hr), Semantic: 2592000 (30 day).
+
+    Returns:
+        Decay-adjusted relevance score.
+    """
+    import math
+
+    if half_life_seconds <= 0 or elapsed_seconds <= 0:
+        return base_score
+
+    decay_rate = math.log(2) / half_life_seconds
+    return base_score * math.exp(-decay_rate * elapsed_seconds)
+
+
+# Memory tier half-lives in seconds (MEMO Survey §3.2)
+MEMORY_HALF_LIVES = {
+    "working": 300,  # 5 minutes
+    "episodic": 14400,  # 4 hours
+    "semantic": 2592000,  # 30 days
+    "procedural": 0,  # No decay — procedural memory persists
+}
+
+
+# ---------------------------------------------------------------------------
 # Consolidation engine
 # ---------------------------------------------------------------------------
 

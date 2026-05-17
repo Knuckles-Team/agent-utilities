@@ -19,13 +19,13 @@ from pydantic_graph.beta import GraphBuilder, StepContext
 
 from agent_utilities.agent.discovery import discover_agents, discover_all_specialists
 from agent_utilities.core.config import (
-    DEFAULT_GRAPH_AGENT_MODEL,
+    DEFAULT_LITE_LLM_MODEL_ID,
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
+    DEFAULT_LLM_PROVIDER,
     DEFAULT_MCP_CONFIG,
     DEFAULT_MCP_URL,
     DEFAULT_MIN_CONFIDENCE,
-    DEFAULT_PROVIDER,
     DEFAULT_ROUTER_MODEL,
     DEFAULT_ROUTING_STRATEGY,
     DEFAULT_SSL_VERIFY,
@@ -163,7 +163,7 @@ def initialize_graph_from_workspace(
 
         try:
             loop = asyncio.get_running_loop()
-            if loop.is_running():
+            if loop.is_running() and not DEFAULT_VALIDATION_MODE:
                 # Already in a loop, create a task
                 loop.create_task(ingest_prompts_to_graph())
         except RuntimeError:
@@ -172,23 +172,24 @@ def initialize_graph_from_workspace(
             # We'll use a thread or just let it be for now, but we'll optimize the functions themselves.
             try:
                 # We'll skip the blocking run if we are likely in a server startup
-                if (
-                    os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
-                    == "true"
-                ):
-                    logger.info("Backgrounding prompt ingestion...")
-                    # We can't easily background without a loop here, but we can optimize the call.
-                    # For now, let's just ensure it's not called twice.
-                    pass
-                else:
-                    asyncio.run(ingest_prompts_to_graph())
+                if not DEFAULT_VALIDATION_MODE:
+                    if (
+                        os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
+                        == "true"
+                    ):
+                        logger.info("Backgrounding prompt ingestion...")
+                        # We can't easily background without a loop here, but we can optimize the call.
+                        # For now, let's just ensure it's not called twice.
+                        pass
+                    else:
+                        asyncio.run(ingest_prompts_to_graph())
             except Exception as e:
                 logger.debug(f"Registry rebuild failed: {e}")
 
         try:
             # Check if sync is required first (querying graph last_sync vs mcp_config mtime)
             needs_sync = should_sync(_mcp_cfg_path)
-            if needs_sync:
+            if needs_sync and not DEFAULT_VALIDATION_MODE:
                 try:
                     if loop and loop.is_running():
                         loop.create_task(sync_mcp_agents(config_path=_mcp_cfg_path))
@@ -230,7 +231,7 @@ def initialize_graph_from_workspace(
 
     # --- CONCEPT:ECO-4.1: A2A Agent Sync ---
     _a2a_config = a2a_config or os.getenv("A2A_CONFIG")
-    if _a2a_config:
+    if _a2a_config and not DEFAULT_VALIDATION_MODE:
         try:
             from agent_utilities.protocols.a2a_config import sync_a2a_agents
 
@@ -254,17 +255,24 @@ def initialize_graph_from_workspace(
     # Unified Discovery: merge MCP, A2A, and prompt sources into a single roster
     logger.info("Initializing Graph: Discovering domain tags and agents...")
 
-    all_specialists = discover_all_specialists()
-    tag_prompts = {s.tag: s.description for s in all_specialists}
+    if not DEFAULT_VALIDATION_MODE:
+        all_specialists = discover_all_specialists()
+        tag_prompts = {s.tag: s.description for s in all_specialists}
 
-    if not tag_prompts:
-        from agent_utilities.agent.discovery import discover_agents
+        if not tag_prompts:
+            from agent_utilities.agent.discovery import discover_agents
 
-        discovered = discover_agents()
-        tag_prompts = {
-            tag: meta.get("description", "A2A Specialist")
-            for tag, meta in discovered.items()
-        }
+            logger.debug(
+                "No domain tags discovered, falling back to legacy agent discovery..."
+            )
+            discovered_legacy = discover_agents()
+            tag_prompts = {
+                tag: meta.get("description", "A2A Specialist")
+                for tag, meta in discovered_legacy.items()
+            }
+    else:
+        tag_prompts = {"validation": "dummy"}
+
     logger.info(f"Initializing Graph: Discovered {len(tag_prompts)} domain tags.")
 
     tag_env_vars = build_tag_env_map(list(tag_prompts.keys()))
@@ -280,7 +288,7 @@ def initialize_graph_from_workspace(
         verifier_timeout=verifier_timeout,
         discovery_metadata=discovery_metadata,
         router_model=router_model or DEFAULT_ROUTER_MODEL,
-        agent_model=agent_model or DEFAULT_GRAPH_AGENT_MODEL,
+        agent_model=agent_model or DEFAULT_LITE_LLM_MODEL_ID,
         api_key=api_key,
         base_url=base_url,
         workspace=workspace,
@@ -356,7 +364,7 @@ def create_graph_agent(
     mcp_config: str | None = DEFAULT_MCP_CONFIG,
     name: str = "GraphAgent",
     router_model: str | None = DEFAULT_ROUTER_MODEL,
-    agent_model: str | None = DEFAULT_GRAPH_AGENT_MODEL,
+    agent_model: str | None = DEFAULT_LITE_LLM_MODEL_ID,
     min_confidence: float = DEFAULT_MIN_CONFIDENCE,
     sub_agents: dict[str, str | Agent] | None = None,
     mcp_toolsets: list[Any] | None = None,
@@ -409,11 +417,15 @@ def create_graph_agent(
         if DEFAULT_VALIDATION_MODE:
             logger.info("Registry Graph: Skipping initialization in VALIDATION_MODE.")
         else:
+            from agent_utilities.core.paths import data_dir
+
             ws = get_agent_workspace()
+            registry_db = data_dir() / "kg" / "registry_graph.db"
+            registry_db.parent.mkdir(parents=True, exist_ok=True)
             reg_config = PipelineConfig(
                 workspace_path=str(ws),
                 persist_to_ladybug=True,
-                ladybug_path=str(ws / "registry_graph.db"),
+                ladybug_path=str(registry_db),
             )
             reg_pipeline = RegistryPipeline(reg_config)
             # We run the pipeline synchronously here during initialization
@@ -782,7 +794,7 @@ def create_graph_agent(
         ),
         "min_confidence": min_confidence,
         "valid_domains": tuple(tag_prompts.keys()),
-        "provider": kwargs.get("provider") or DEFAULT_PROVIDER,
+        "provider": kwargs.get("provider") or DEFAULT_LLM_PROVIDER,
         "base_url": _base_url if _base_url is not None else DEFAULT_LLM_BASE_URL,
         "api_key": _api_key if _api_key is not None else DEFAULT_LLM_API_KEY,
         "ssl_verify": kwargs.get("ssl_verify", DEFAULT_SSL_VERIFY),

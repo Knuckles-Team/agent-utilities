@@ -31,15 +31,15 @@ from agent_utilities.core.config import (
     DEFAULT_HOST,
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
+    DEFAULT_LLM_MODEL_ID,
+    DEFAULT_LLM_PROVIDER,
     DEFAULT_MCP_URL,
-    DEFAULT_MODEL_ID,
     DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
     DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
     DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
     DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
     DEFAULT_PORT,
-    DEFAULT_PROVIDER,
     DEFAULT_SSL_VERIFY,
     config,
 )
@@ -59,8 +59,8 @@ logger = logging.getLogger(__name__)
 
 
 def build_agent_app(
-    provider: str | None = DEFAULT_PROVIDER,
-    model_id: str | None = DEFAULT_MODEL_ID,
+    provider: str | None = DEFAULT_LLM_PROVIDER,
+    model_id: str | None = DEFAULT_LLM_MODEL_ID,
     base_url: str | None = DEFAULT_LLM_BASE_URL,
     api_key: str | None = DEFAULT_LLM_API_KEY,
     mcp_url: str | None = DEFAULT_MCP_URL,
@@ -169,31 +169,34 @@ def build_agent_app(
             )
 
         _skill_types = skill_types or []
-        if default_skills_path := get_skills_path():
+        from agent_utilities.core.config import DEFAULT_VALIDATION_MODE
+
+        if not DEFAULT_VALIDATION_MODE and (default_skills_path := get_skills_path()):
             skill_dirs.extend(default_skills_path)
 
-        if "universal" in _skill_types:
-            try:
-                from universal_skills.skill_utilities import (
-                    get_universal_skills_path,  # type: ignore
-                )
+        if not DEFAULT_VALIDATION_MODE:
+            if "universal" in _skill_types:
+                try:
+                    from universal_skills.skill_utilities import (
+                        get_universal_skills_path,  # type: ignore
+                    )
 
-                skill_dirs.extend(get_universal_skills_path())
-            except ImportError:
-                pass
+                    skill_dirs.extend(get_universal_skills_path())
+                except ImportError:
+                    pass
 
-        if "graphs" in _skill_types:
-            try:
-                from skill_graphs.skill_graph_utilities import (
-                    get_skill_graphs_path,  # type: ignore
-                )
+            if "graphs" in _skill_types:
+                try:
+                    from skill_graphs.skill_graph_utilities import (
+                        get_skill_graphs_path,  # type: ignore
+                    )
 
-                skill_dirs.extend(get_skill_graphs_path())
-            except ImportError:
-                logger.debug("skill-graphs package not found.")
+                    skill_dirs.extend(get_skill_graphs_path())
+                except ImportError:
+                    logger.debug("skill-graphs package not found.")
 
-        if custom_skills_directory and os.path.exists(custom_skills_directory):
-            skill_dirs.append(str(custom_skills_directory))
+            if custom_skills_directory and os.path.exists(custom_skills_directory):
+                skill_dirs.append(str(custom_skills_directory))
 
         skills_list = []
         for d in skill_dirs:
@@ -508,9 +511,7 @@ def build_agent_app(
                 def _graph_native_list_skills():
                     from ..knowledge_graph.backends import create_backend
 
-                    ws_path = get_workspace_path("")
-                    db_path = str(ws_path / "knowledge_graph.db")
-                    backend = create_backend(db_path=db_path)
+                    backend = create_backend()
                     if backend is None:
                         return []
 

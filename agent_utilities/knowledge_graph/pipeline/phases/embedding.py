@@ -87,10 +87,14 @@ async def execute_embedding(
 
     # Collect nodes that have text content worth embedding
     nodes_to_embed = []
+
+    import hashlib
+
     for node_id, data in graph.nodes(data=True):
-        # Skip if already has embedding
+        # Skip if already has embedding locally
         if data.get("embedding"):
             continue
+
         # Combine name + description for rich embedding
         text_parts = []
         if data.get("name"):
@@ -101,8 +105,31 @@ async def execute_embedding(
             text_parts.append(str(data["content"]))
 
         text = " ".join(text_parts).strip()
-        if text and len(text) > 10:  # Skip very short texts
-            nodes_to_embed.append((node_id, text))
+        if not text or len(text) <= 10:  # Skip very short texts
+            continue
+
+        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        data["content_hash"] = content_hash
+
+        # Check if backend already has this exact embedding
+        if ctx.backend:
+            try:
+                result = ctx.backend.execute(
+                    "MATCH (n) WHERE n.id = $id RETURN n", {"id": node_id}
+                )
+                if result and len(result) > 0:
+                    existing_node = result[0].get("n")
+                    if (
+                        existing_node
+                        and existing_node.get("content_hash") == content_hash
+                        and existing_node.get("embedding")
+                    ):
+                        data["embedding"] = existing_node["embedding"]
+                        continue
+            except Exception as e:
+                logger.debug(f"Failed to check backend cache for {node_id}: {e}")
+
+        nodes_to_embed.append((node_id, text))
 
     if not nodes_to_embed:
         return {

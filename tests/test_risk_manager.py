@@ -19,7 +19,7 @@ class TestPreTradeGuard:
     def test_approved_trade(self):
         guard = PreTradeGuard()
         result = guard.validate(
-            order_side="buy",
+            _order_side="buy",
             order_quantity=10,
             order_price=100.0,
             portfolio_value=100_000,
@@ -31,7 +31,7 @@ class TestPreTradeGuard:
     def test_position_size_violation(self):
         guard = PreTradeGuard(RiskLimits(max_position_pct=0.05))
         result = guard.validate(
-            order_side="buy",
+            _order_side="buy",
             order_quantity=100,
             order_price=100.0,
             portfolio_value=100_000,
@@ -42,7 +42,7 @@ class TestPreTradeGuard:
     def test_drawdown_violation(self):
         guard = PreTradeGuard(RiskLimits(max_drawdown_pct=0.10))
         result = guard.validate(
-            order_side="buy",
+            _order_side="buy",
             order_quantity=1,
             order_price=10.0,
             portfolio_value=100_000,
@@ -54,7 +54,7 @@ class TestPreTradeGuard:
     def test_sector_concentration_violation(self):
         guard = PreTradeGuard(RiskLimits(max_sector_concentration=0.20))
         result = guard.validate(
-            order_side="buy",
+            _order_side="buy",
             order_quantity=100,
             order_price=100.0,
             portfolio_value=100_000,
@@ -65,7 +65,7 @@ class TestPreTradeGuard:
     def test_risk_score_increases_with_violations(self):
         guard = PreTradeGuard(RiskLimits(max_position_pct=0.01, max_drawdown_pct=0.01))
         result = guard.validate(
-            order_side="buy",
+            _order_side="buy",
             order_quantity=100,
             order_price=100.0,
             portfolio_value=100_000,
@@ -146,7 +146,7 @@ class TestRiskManagerFacade:
     def test_check_order(self):
         rm = RiskManager()
         result = rm.check_order(
-            order_side="buy",
+            _order_side="buy",
             order_quantity=5,
             order_price=100.0,
             portfolio_value=100_000,

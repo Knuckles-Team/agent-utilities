@@ -7,6 +7,15 @@ Manages competing agent demands in real-time with priority preemption,
 context paging to the Knowledge Graph, and per-agent token/compute
 quota enforcement.
 
+Inference Budget Control (Research: 2605.05701v1):
+    - **Cost-aware tracking**: Each process tracks both token counts and
+      USD cost, enabling model-tier-aware budgeting.
+    - **Auto-downgrade**: When budget pressure exceeds threshold, the
+      scheduler automatically recommends a cheaper model tier instead
+      of preempting the process entirely.
+    - **Tier fallback chain**: Configurable degradation path
+      (super → standard → lite) per process.
+
 Architecture:
     - **Priority queue**: Agent processes sorted by ``SchedulerPriority``
       (CRITICAL > HIGH > NORMAL > LOW).
@@ -73,11 +82,98 @@ class ProcessState:
     FAILED = "failed"
 
 
+# ── Cost Constants ──────────────────────────────────────────────────
+# Approximate per-1K-token costs by model tier (USD).
+# These are defaults; override via InferenceBudget.tier_costs.
+DEFAULT_TIER_COSTS: dict[str, float] = {
+    "lite": 0.00015,  # e.g. Gemini Flash, GPT-4o-mini
+    "standard": 0.002,  # e.g. Gemini Pro, GPT-4o
+    "super": 0.015,  # e.g. Gemini Ultra, o3
+}
+
+DEFAULT_FALLBACK_CHAIN: list[str] = ["super", "standard", "lite"]
+
+
+class InferenceBudget(BaseModel):
+    """Per-process inference budget with cost and tier tracking.
+
+    CONCEPT:OS-5.2 — Research: 2605.05701v1 (Inference-Time Budget Control)
+
+    Rather than simply preempting processes that exceed token quotas,
+    this model enables graceful degradation: when budget pressure
+    rises, the scheduler recommends a cheaper model tier before
+    resorting to preemption.
+
+    Attributes:
+        cost_budget_usd: Maximum dollar spend for this process.
+        cost_used_usd: Dollars consumed so far.
+        current_tier: Active model tier (lite/standard/super).
+        initial_tier: Tier the process started with.
+        fallback_chain: Ordered degradation path.
+        auto_downgrade: Whether to auto-switch tiers on budget pressure.
+        tier_costs: Per-1K-token cost by tier (overridable).
+        downgrade_threshold: Budget usage fraction triggering downgrade.
+    """
+
+    cost_budget_usd: float = 1.0
+    cost_used_usd: float = 0.0
+    current_tier: str = "standard"
+    initial_tier: str = "standard"
+    fallback_chain: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_FALLBACK_CHAIN)
+    )
+    auto_downgrade: bool = True
+    tier_costs: dict[str, float] = Field(
+        default_factory=lambda: dict(DEFAULT_TIER_COSTS)
+    )
+    downgrade_threshold: float = 0.70
+
+    @property
+    def cost_remaining_usd(self) -> float:
+        """Remaining dollar budget."""
+        return max(0.0, self.cost_budget_usd - self.cost_used_usd)
+
+    @property
+    def budget_usage_pct(self) -> float:
+        """Budget utilization as a fraction (0.0–1.0)."""
+        if self.cost_budget_usd <= 0:
+            return 1.0
+        return min(1.0, self.cost_used_usd / self.cost_budget_usd)
+
+    def record_cost(self, tokens: int, tier: str | None = None) -> float:
+        """Record token usage and return the cost incurred.
+
+        Args:
+            tokens: Number of tokens consumed.
+            tier: Model tier used (defaults to current_tier).
+
+        Returns:
+            The dollar cost of this inference call.
+        """
+        tier = tier or self.current_tier
+        cost_per_k = self.tier_costs.get(tier, self.tier_costs.get("standard", 0.002))
+        cost = (tokens / 1000.0) * cost_per_k
+        self.cost_used_usd += cost
+        return cost
+
+    def next_cheaper_tier(self) -> str | None:
+        """Return the next cheaper tier in the fallback chain, or None."""
+        try:
+            idx = self.fallback_chain.index(self.current_tier)
+        except ValueError:
+            return None
+        if idx + 1 < len(self.fallback_chain):
+            return self.fallback_chain[idx + 1]
+        return None
+
+
 class AgentProcess(BaseModel):
     """A managed agent process in the Cognitive Scheduler.
 
     Wraps a running or queued specialist with priority, state tracking,
     token quota, and optional checkpoint reference for context paging.
+
+    CONCEPT:OS-5.2 — Extended with InferenceBudget (Research: 2605.05701v1)
 
     Attributes:
         id: Unique process identifier.
@@ -90,6 +186,7 @@ class AgentProcess(BaseModel):
         task_description: Human-readable task description.
         created_at: Process creation timestamp.
         preempted_at: Timestamp of last preemption (if any).
+        inference_budget: Cost-aware inference budget with tier management.
     """
 
     id: str = Field(default_factory=lambda: f"proc:{uuid.uuid4().hex[:8]}")
@@ -102,6 +199,7 @@ class AgentProcess(BaseModel):
     task_description: str = ""
     created_at: float = Field(default_factory=time.time)
     preempted_at: float | None = None
+    inference_budget: InferenceBudget = Field(default_factory=InferenceBudget)
 
 
 class CognitiveScheduler:
@@ -370,8 +468,146 @@ class CognitiveScheduler:
 
         return True
 
+    # ── Inference Budget Control (Research: 2605.05701v1) ──────────────
+
+    def record_inference(
+        self,
+        process_id: str,
+        tokens: int,
+        model_tier: str | None = None,
+    ) -> dict[str, Any]:
+        """Record an inference call with cost-aware budget tracking.
+
+        CONCEPT:OS-5.2 — Research: 2605.05701v1
+
+        Unlike ``record_tokens`` (which only counts raw tokens), this
+        method tracks dollar cost by model tier and triggers automatic
+        tier downgrade when budget pressure exceeds the threshold.
+
+        Args:
+            process_id: The process that consumed tokens.
+            tokens: Number of tokens consumed in this call.
+            model_tier: The model tier used (defaults to process's current tier).
+
+        Returns:
+            Dict with keys:
+                - ``within_budget``: Whether the process is still within budget.
+                - ``cost_incurred``: Dollar cost of this call.
+                - ``recommended_tier``: Tier the process should use next.
+                - ``downgraded``: Whether an auto-downgrade occurred.
+        """
+        proc = self._processes.get(process_id)
+        if not proc:
+            return {
+                "within_budget": True,
+                "cost_incurred": 0.0,
+                "recommended_tier": "standard",
+                "downgraded": False,
+            }
+
+        budget = proc.inference_budget
+        tier = model_tier or budget.current_tier
+
+        # Record cost and tokens
+        cost = budget.record_cost(tokens, tier)
+        proc.tokens_used += tokens
+
+        # Check for auto-downgrade
+        downgraded = False
+        if (
+            budget.auto_downgrade
+            and budget.budget_usage_pct >= budget.downgrade_threshold
+        ):
+            next_tier = budget.next_cheaper_tier()
+            if next_tier and next_tier != budget.current_tier:
+                old_tier = budget.current_tier
+                budget.current_tier = next_tier
+                downgraded = True
+                logger.info(
+                    "Scheduler: %s AUTO-DOWNGRADE %s → %s "
+                    "(budget %.1f%% used, $%.4f/$%.4f, agent=%s)",
+                    proc.id,
+                    old_tier,
+                    next_tier,
+                    budget.budget_usage_pct * 100,
+                    budget.cost_used_usd,
+                    budget.cost_budget_usd,
+                    proc.agent_id,
+                )
+
+        within_budget = budget.cost_used_usd < budget.cost_budget_usd
+        if not within_budget:
+            logger.warning(
+                "Scheduler: %s OVER COST BUDGET ($%.4f/$%.4f, agent=%s)",
+                proc.id,
+                budget.cost_used_usd,
+                budget.cost_budget_usd,
+                proc.agent_id,
+            )
+
+        return {
+            "within_budget": within_budget,
+            "cost_incurred": cost,
+            "recommended_tier": budget.current_tier,
+            "downgraded": downgraded,
+        }
+
+    def get_recommended_tier(self, process_id: str) -> str:
+        """Return the recommended model tier for a process.
+
+        CONCEPT:OS-5.2 — Research: 2605.05701v1
+
+        Based on remaining budget, returns the most capable tier the
+        process can afford. If budget is exhausted, returns the cheapest
+        available tier.
+
+        Args:
+            process_id: The process to query.
+
+        Returns:
+            The recommended model tier string.
+        """
+        proc = self._processes.get(process_id)
+        if not proc:
+            return "standard"
+        return proc.inference_budget.current_tier
+
+    def get_budget_stats(self, process_id: str) -> dict[str, Any]:
+        """Return detailed budget statistics for a process.
+
+        CONCEPT:OS-5.2 — Research: 2605.05701v1
+
+        Args:
+            process_id: The process to query.
+
+        Returns:
+            Dict with budget utilization details.
+        """
+        proc = self._processes.get(process_id)
+        if not proc:
+            return {}
+
+        budget = proc.inference_budget
+        return {
+            "process_id": proc.id,
+            "agent_id": proc.agent_id,
+            "current_tier": budget.current_tier,
+            "initial_tier": budget.initial_tier,
+            "cost_used_usd": round(budget.cost_used_usd, 6),
+            "cost_budget_usd": budget.cost_budget_usd,
+            "cost_remaining_usd": round(budget.cost_remaining_usd, 6),
+            "budget_usage_pct": round(budget.budget_usage_pct * 100, 1),
+            "tokens_used": proc.tokens_used,
+            "token_quota": proc.token_quota,
+            "auto_downgrade": budget.auto_downgrade,
+            "next_cheaper_tier": budget.next_cheaper_tier(),
+        }
+
     async def enforce_quotas(self) -> list[str]:
         """Check all running processes and preempt over-budget ones.
+
+        Checks both token quotas and cost budgets. Attempts auto-downgrade
+        before preemption when inference budgets are enabled.
 
         Returns:
             List of process IDs that were preempted.
@@ -381,6 +617,30 @@ class CognitiveScheduler:
         for proc in list(self._processes.values()):
             if proc.state != ProcessState.RUNNING:
                 continue
+
+            # Cost budget check (new — Research: 2605.05701v1)
+            budget = proc.inference_budget
+            if budget.cost_used_usd >= budget.cost_budget_usd:
+                # Try auto-downgrade first before preempting
+                if budget.auto_downgrade:
+                    next_tier = budget.next_cheaper_tier()
+                    if next_tier:
+                        budget.current_tier = next_tier
+                        logger.info(
+                            "Scheduler: %s BUDGET-DOWNGRADE → %s (avoiding preemption)",
+                            proc.id,
+                            next_tier,
+                        )
+                        continue
+                # No cheaper tier available — preempt
+                checkpoint_id = await self.preempt(
+                    proc.id, reason="cost_budget_exceeded"
+                )
+                if checkpoint_id:
+                    preempted.append(proc.id)
+                continue
+
+            # Legacy token quota check
             if proc.tokens_used >= proc.token_quota:
                 checkpoint_id = await self.preempt(proc.id, reason="quota_exceeded")
                 if checkpoint_id:

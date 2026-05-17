@@ -13,7 +13,6 @@ changed/new files are re-processed, saving both I/O and LLM tokens.
 import hashlib
 import logging
 import time
-import uuid
 from pathlib import Path
 
 import networkx as nx
@@ -102,8 +101,8 @@ class KBIngestionEngine:
         """
         graph_path = Path(graph_path)
         meta = self.parser.read_skill_graph_metadata(graph_path)
-        kb_name = meta.get("name", graph_path.name)
-        topic = meta.get("description", kb_name)
+        kb_name = str(meta.get("name", graph_path.name))
+        topic = str(meta.get("description", kb_name))
         tags = meta.get("tags", [])
 
         logger.info(f"Ingesting skill-graph: {kb_name}")
@@ -232,12 +231,17 @@ class KBIngestionEngine:
         await self._refresh_kb_index(kb_id)
         logger.info(f"KB update complete: {updated} sources changed")
 
+        from typing import Literal, cast
+
         return KnowledgeBaseMetadata(
             id=kb_id,
-            name=kb_data.get("name", kb_id),
-            topic=kb_data.get("topic", ""),
-            description=kb_data.get("description", ""),
-            source_type=kb_data.get("source_type", "directory"),
+            name=str(kb_data.get("name", kb_id)),
+            topic=str(kb_data.get("topic", "")),
+            description=str(kb_data.get("description", "")),
+            source_type=cast(
+                Literal["directory", "mixed", "skill_graph", "url"],
+                kb_data.get("source_type", "directory"),
+            ),
             article_count=kb_data.get("article_count", 0),
             source_count=kb_data.get("source_count", 0),
             status="ready",
@@ -272,7 +276,7 @@ class KBIngestionEngine:
 
         return await self.extractor.run_health_check(
             kb_id=kb_id,
-            kb_name=kb_data.get("name", kb_id),
+            kb_name=str(kb_data.get("name", kb_id)),
             articles=articles,
         )
 
@@ -565,6 +569,10 @@ class KBIngestionEngine:
         if not extracted:
             return 0
 
+        import hashlib
+
+        content_hash = hashlib.sha256(extracted.content.encode()).hexdigest()
+
         # Write Article node
         article_node = ArticleNode(
             id=article_id,
@@ -577,7 +585,9 @@ class KBIngestionEngine:
             importance_score=0.6,
             timestamp=_now(),
         )
-        self.graph.add_node(article_id, **article_node.model_dump())
+        article_dump = article_node.model_dump()
+        article_dump["content_hash"] = content_hash
+        self.graph.add_node(article_id, **article_dump)
         self.graph.add_edge(article_id, kb_id, type=RegistryEdgeType.BELONGS_TO_KB)
         self.graph.add_edge(article_id, source_id, type=RegistryEdgeType.COMPILED_FROM)
         self.graph.add_edge(article_id, source_id, type=RegistryEdgeType.CITES)
@@ -601,7 +611,11 @@ class KBIngestionEngine:
 
         # Write KBFact nodes
         for fact in extracted.facts:
-            fact_id = f"kbf:{uuid.uuid4().hex[:12]}"
+            import hashlib
+
+            fact_hash = hashlib.sha256(fact.content.encode()).hexdigest()
+            fact_id = f"kbf:{fact_hash[:12]}"
+
             fact_node = KBFactNode(
                 id=fact_id,
                 name=f"Fact from {extracted.title}",
@@ -612,7 +626,9 @@ class KBIngestionEngine:
                 importance_score=fact.certainty * 0.6,
                 timestamp=_now(),
             )
-            self.graph.add_node(fact_id, **fact_node.model_dump())
+            fact_dump = fact_node.model_dump()
+            fact_dump["content_hash"] = fact_hash
+            self.graph.add_node(fact_id, **fact_dump)
             self.graph.add_edge(fact_id, kb_id, type=RegistryEdgeType.BELONGS_TO_KB)
             self.graph.add_edge(fact_id, source_id, type=RegistryEdgeType.CITES)
 
@@ -636,8 +652,8 @@ class KBIngestionEngine:
 
                 articles_data.append(
                     ExtractedArticle(
-                        title=node_data.get("name", n),
-                        summary=node_data.get("description", ""),
+                        title=str(node_data.get("name", n)),
+                        summary=str(node_data.get("description", "")),
                         content="",
                         concepts=[],
                         facts=[],
@@ -725,8 +741,17 @@ class KBIngestionEngine:
                 for k, v in data.items()
                 if isinstance(v, str | int | float | bool) and k != "id"
             }
+
+            # Structural Deduplication: Use content_hash for isomorphism
+            if "content_hash" in fields and table in ("Article", "KBFact"):
+                merge_key = f"content_hash: '{fields['content_hash']}'"
+                # Keep ID to be updated via SET
+                fields["id"] = node_id
+            else:
+                merge_key = "id: $id"
+
             set_clause = ", ".join(f"n.{k} = ${k}" for k in fields)
-            query = f"MERGE (n:{table} {{id: $id}}) SET {set_clause}"
+            query = f"MERGE (n:{table} {{{merge_key}}}) SET {set_clause}"
             self.backend.execute(query, {"id": node_id, **fields})
         except Exception as e:
             logger.debug(f"Backend persist failed for {node_id}: {e}")

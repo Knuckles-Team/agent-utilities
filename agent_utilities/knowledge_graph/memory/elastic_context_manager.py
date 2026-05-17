@@ -452,6 +452,227 @@ class ContextCompactor:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
+    # ── KG-Persistent Compaction (LCM Integration) ────────────────────
+
+    def persist_compaction(
+        self,
+        result: CompactedResult,
+        thread_id: str,
+        source_message_ids: list[str],
+        engine: Any = None,
+        level: int = 1,
+        partition: str = "",
+    ) -> str | None:
+        """Persist a compaction result as a Summary node in the KG.
+
+        CONCEPT:KG-2.1 — LCM DAG-Based Summarization
+
+        Creates a Summary node linked to the source messages via SUMMARIZES
+        edges. The original messages are preserved (lossless). This is the
+        single entry point for all KG-persistent compaction — both manual
+        and daemon-triggered compaction flows through here.
+
+        Args:
+            result: CompactedResult from any compaction strategy.
+            thread_id: The Thread node ID this summary belongs to.
+            source_message_ids: IDs of the Message nodes being summarized.
+            engine: IntelligenceGraphEngine instance for KG writes.
+            level: Summary DAG level (1=first-pass, 2=escalated, etc.).
+            partition: Optional partition tag for filtering.
+
+        Returns:
+            Summary node ID, or None if no engine available.
+        """
+        if not engine or not getattr(engine, "backend", None):
+            return None
+
+        summary_id = f"summary:{result.compaction_id}"
+        timestamp = datetime.now(UTC).isoformat()
+
+        # Create Summary node
+        engine.add_node(
+            summary_id,
+            "Summary",
+            properties={
+                "content": result.summary_text,
+                "tokens_before": result.tokens_before,
+                "tokens_after": result.tokens_after,
+                "strategy": result.strategy_used,
+                "messages_summarized": result.messages_removed,
+                "level": level,
+                "thread_id": thread_id,
+                "partition": partition,
+                "timestamp": timestamp,
+            },
+        )
+
+        # Link Thread → Summary
+        engine.link_nodes(
+            thread_id,
+            summary_id,
+            "HAS_SUMMARY",
+            properties={
+                "level": level,
+                "created_at": timestamp,
+            },
+        )
+
+        # Link Summary → source Messages (lossless pointers)
+        for msg_id in source_message_ids:
+            engine.link_nodes(
+                summary_id,
+                msg_id,
+                "SUMMARIZES",
+                properties={
+                    "level": level,
+                    "compaction_id": result.compaction_id,
+                },
+            )
+
+        logger.info(
+            "Persisted Summary %s (L%d) for thread %s — %d messages → %d tokens",
+            summary_id,
+            level,
+            thread_id,
+            len(source_message_ids),
+            result.tokens_after,
+        )
+        return summary_id
+
+    def escalate(
+        self,
+        thread_id: str,
+        engine: Any = None,
+        batch_size: int = 5,
+    ) -> str | None:
+        """Build the next level of the summary DAG by summarizing summaries.
+
+        CONCEPT:KG-2.1 — LCM Escalated Summarization
+
+        Finds un-escalated Summary nodes at the current highest level,
+        groups them into batches, and creates a higher-level Summary that
+        SUMMARIZES the batch. This builds the DAG's vertical depth.
+
+        Args:
+            thread_id: Thread to escalate summaries for.
+            engine: IntelligenceGraphEngine instance.
+            batch_size: Number of summaries to group per escalation.
+
+        Returns:
+            New escalated Summary ID, or None if nothing to escalate.
+        """
+        if not engine or not getattr(engine, "backend", None):
+            return None
+
+        # Find the current max level for this thread
+        level_results = engine.query_cypher(
+            "MATCH (t {id: $tid})-[:HAS_SUMMARY]->(s:Summary) "
+            "RETURN max(s.level) AS max_level",
+            {"tid": thread_id},
+        )
+        max_level = 1
+        if level_results and level_results[0].get("max_level"):
+            max_level = int(level_results[0]["max_level"])
+
+        # Find summaries at max level that haven't been escalated
+        summaries = engine.query_cypher(
+            "MATCH (t {id: $tid})-[:HAS_SUMMARY]->(s:Summary) "
+            "WHERE s.level = $level "
+            "AND NOT exists { MATCH (:Summary)-[:SUMMARIZES]->(s) } "
+            "RETURN s.id AS id, s.content AS content "
+            "ORDER BY s.timestamp "
+            "LIMIT $batch",
+            {"tid": thread_id, "level": max_level, "batch": batch_size},
+        )
+
+        if len(summaries) < 2:
+            return None  # Need at least 2 summaries to escalate
+
+        # Combine summary texts
+        combined_text = "\n".join(
+            f"[Summary L{max_level}]: {s.get('content', '')[:200]}" for s in summaries
+        )
+        summary_ids = [s["id"] for s in summaries]
+
+        # Create escalated compaction result
+        escalated_result = CompactedResult(
+            messages=[{"role": "system", "content": combined_text}],
+            tokens_before=estimate_tokens(combined_text),
+            tokens_after=estimate_tokens(combined_text),
+            strategy_used="escalated",
+            summary_text=f"Escalated {len(summaries)} L{max_level} summaries",
+            messages_removed=len(summaries),
+        )
+
+        # Persist at next level, linking to child summaries
+        return self.persist_compaction(
+            escalated_result,
+            thread_id=thread_id,
+            source_message_ids=summary_ids,
+            engine=engine,
+            level=max_level + 1,
+        )
+
+    @staticmethod
+    def get_summary_dag(thread_id: str, engine: Any = None) -> dict[str, Any]:
+        """Traverse the summary DAG for a thread.
+
+        CONCEPT:KG-2.1 — LCM Summary Chain Retrieval
+
+        Returns a structured view of all summaries with their source links,
+        organized by level. This is the read-path counterpart to
+        persist_compaction/escalate.
+
+        Args:
+            thread_id: Thread to get summary DAG for.
+            engine: IntelligenceGraphEngine instance.
+
+        Returns:
+            Dict with levels, summaries, and source message IDs.
+        """
+        if not engine or not getattr(engine, "backend", None):
+            return {"thread_id": thread_id, "levels": {}, "total_summaries": 0}
+
+        summaries = engine.query_cypher(
+            "MATCH (t {id: $tid})-[:HAS_SUMMARY]->(s:Summary) "
+            "RETURN s.id AS id, s.content AS content, s.level AS level, "
+            "s.tokens_before AS tokens_before, s.tokens_after AS tokens_after, "
+            "s.strategy AS strategy, s.timestamp AS timestamp "
+            "ORDER BY s.level, s.timestamp",
+            {"tid": thread_id},
+        )
+
+        levels: dict[int, list[dict]] = {}
+        for s in summaries:
+            lvl = int(s.get("level", 1))
+            if lvl not in levels:
+                levels[lvl] = []
+
+            # Get source IDs for this summary
+            sources = engine.query_cypher(
+                "MATCH (s {id: $sid})-[:SUMMARIZES]->(child) RETURN child.id AS id",
+                {"sid": s["id"]},
+            )
+            source_ids = [src["id"] for src in sources]
+
+            levels[lvl].append(
+                {
+                    "id": s["id"],
+                    "content": s.get("content", ""),
+                    "tokens_before": s.get("tokens_before", 0),
+                    "tokens_after": s.get("tokens_after", 0),
+                    "strategy": s.get("strategy", ""),
+                    "timestamp": s.get("timestamp", ""),
+                    "source_ids": source_ids,
+                }
+            )
+
+        return {
+            "thread_id": thread_id,
+            "levels": {str(k): v for k, v in sorted(levels.items())},
+            "total_summaries": len(summaries),
+        }
+
 
 # ---------------------------------------------------------------------------
 # Elastic Context Operators (LongSeeker-inspired)
@@ -791,6 +1012,247 @@ class ElasticContextManager:
             affected_indices=indices,
             metadata={"messages_deleted": len(indices_set)},
         )
+
+    # ── Unified LCM Operations ────────────────────────────────────────
+    # These delegate to ContextCompactor for the actual work and use the
+    # KG for persistence. Single entry points — no parallel patterns.
+
+    def compact_thread(
+        self,
+        thread_id: str,
+        engine: Any = None,
+        strategy: str = "progressive",
+        compaction_threshold: int = 30,
+    ) -> dict[str, Any]:
+        """Compact a conversation thread's messages into summary DAG nodes.
+
+        CONCEPT:KG-2.1 — LCM Thread Compaction (Unified Entry Point)
+
+        This is the single entry point for all thread compaction. It:
+        1. Retrieves messages from the KG for the thread
+        2. Delegates to ContextCompactor.compact() for the actual work
+        3. Persists results via ContextCompactor.persist_compaction()
+        4. Escalates summaries if enough L1 summaries exist
+
+        Args:
+            thread_id: Thread node ID to compact.
+            engine: IntelligenceGraphEngine instance.
+            strategy: Compaction strategy (progressive, drop_middle, summarize_tools).
+            compaction_threshold: Min messages before compaction triggers.
+
+        Returns:
+            Dict with compaction results and summary IDs.
+        """
+        if not engine or not getattr(engine, "backend", None):
+            return {"error": "No KG engine available"}
+
+        # Get messages for this thread
+        messages_data = engine.query_cypher(
+            "MATCH (t {id: $tid})-[:CONTAINS]->(m:Message) "
+            "RETURN m.id AS id, m.role AS role, m.content AS content "
+            "ORDER BY m.timestamp",
+            {"tid": thread_id},
+        )
+
+        if len(messages_data) < compaction_threshold:
+            return {
+                "status": "below_threshold",
+                "message_count": len(messages_data),
+                "threshold": compaction_threshold,
+            }
+
+        # Get partition from thread
+        thread_data = engine.query_cypher(
+            "MATCH (t {id: $tid}) RETURN t.partition AS partition",
+            {"tid": thread_id},
+        )
+        partition = ""
+        if thread_data:
+            partition = str(thread_data[0].get("partition", "") or "")
+
+        # Convert to message dicts for ContextCompactor
+        messages = [
+            {"role": m.get("role", "user"), "content": m.get("content", "")}
+            for m in messages_data
+        ]
+        message_ids = [m["id"] for m in messages_data]
+
+        # Use the existing ContextCompactor for actual compaction work
+        compactor = ContextCompactor(max_tokens=self.max_tokens)
+        result = compactor.compact(messages, strategy=strategy)
+
+        # Persist via the compactor's KG persistence
+        summary_id = compactor.persist_compaction(
+            result,
+            thread_id=thread_id,
+            source_message_ids=message_ids,
+            engine=engine,
+            level=1,
+            partition=partition,
+        )
+
+        # Update thread with compaction timestamp
+        try:
+            engine.backend.execute(
+                "MATCH (t {id: $tid}) SET t.last_compacted = $ts",
+                {"tid": thread_id, "ts": datetime.now(UTC).isoformat()},
+            )
+        except Exception as e:
+            logger.debug("Failed to update thread compaction timestamp: %s", e)
+
+        # Try escalation if enough L1 summaries exist
+        escalated_id = compactor.escalate(thread_id, engine=engine)
+
+        return {
+            "status": "compacted",
+            "thread_id": thread_id,
+            "summary_id": summary_id,
+            "escalated_id": escalated_id,
+            "messages_compacted": len(messages_data),
+            "tokens_before": result.tokens_before,
+            "tokens_after": result.tokens_after,
+            "strategy": strategy,
+        }
+
+    @staticmethod
+    def expand_summary(
+        summary_id: str, engine: Any = None, max_depth: int = 3
+    ) -> dict[str, Any]:
+        """Drill down from a Summary node to recover original messages.
+
+        CONCEPT:KG-2.1 — LCM Expand (maps to lossless-claw's lcm_expand)
+
+        Traverses the SUMMARIZES edges up to max_depth levels to recover
+        the original raw messages. Works at any level of the DAG.
+
+        Args:
+            summary_id: Summary node ID to expand.
+            engine: IntelligenceGraphEngine instance.
+            max_depth: Max DAG levels to traverse.
+
+        Returns:
+            Dict with summary info and recovered messages.
+        """
+        if not engine or not getattr(engine, "backend", None):
+            return {"error": "No KG engine available"}
+
+        # Get the summary itself
+        summary_data = engine.query_cypher(
+            "MATCH (s {id: $sid}) RETURN s.content AS content, s.level AS level, "
+            "s.thread_id AS thread_id, s.strategy AS strategy",
+            {"sid": summary_id},
+        )
+        if not summary_data:
+            return {"error": f"Summary not found: {summary_id}"}
+
+        # Traverse SUMMARIZES edges to find original messages
+        # Use variable-length path traversal
+        children = engine.query_cypher(
+            f"MATCH (s {{id: $sid}})-[:SUMMARIZES*1..{max_depth}]->(child) "
+            "WHERE NOT exists { MATCH (child)-[:SUMMARIZES]->() } "
+            "RETURN child.id AS id, child.role AS role, child.content AS content, "
+            "child.timestamp AS timestamp "
+            "ORDER BY child.timestamp",
+            {"sid": summary_id},
+        )
+
+        return {
+            "summary_id": summary_id,
+            "summary_content": summary_data[0].get("content", ""),
+            "summary_level": summary_data[0].get("level", 1),
+            "thread_id": summary_data[0].get("thread_id", ""),
+            "original_messages": children,
+            "message_count": len(children),
+        }
+
+    @staticmethod
+    def grep_memories(
+        query: str,
+        engine: Any = None,
+        partition: str = "",
+        top_k: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Full-text search across Summary and Message nodes.
+
+        CONCEPT:KG-2.1 — LCM Grep (maps to lossless-claw's lcm_grep)
+
+        Searches content across both raw messages and their summaries,
+        with optional partition filtering. Returns results with context
+        (thread ID, partition, summary level).
+
+        Args:
+            query: Search query string.
+            engine: IntelligenceGraphEngine instance.
+            partition: Optional partition filter.
+            top_k: Maximum results.
+
+        Returns:
+            List of matching nodes with context metadata.
+        """
+        if not engine or not getattr(engine, "backend", None):
+            return []
+
+        partition_filter = ""
+        params: dict[str, Any] = {"q": query, "k": top_k}
+        if partition:
+            partition_filter = "AND n.partition = $partition "
+            params["partition"] = partition
+
+        results = engine.query_cypher(
+            "MATCH (n) WHERE (n.content CONTAINS $q OR n.summary CONTAINS $q) "
+            f"{partition_filter}"
+            "RETURN n.id AS id, n.content AS content, n.partition AS partition, "
+            "n.level AS level, n.thread_id AS thread_id, n.role AS role "
+            f"LIMIT $k",
+            params,
+        )
+
+        return results
+
+    @staticmethod
+    def describe_summary(summary_id: str, engine: Any = None) -> dict[str, Any]:
+        """Show a Summary node's metadata and direct children.
+
+        CONCEPT:KG-2.1 — LCM Describe (maps to lossless-claw's lcm_describe)
+
+        Returns the summary's content, level, strategy, and a list of
+        its direct children (messages or lower-level summaries).
+
+        Args:
+            summary_id: Summary node ID to describe.
+            engine: IntelligenceGraphEngine instance.
+
+        Returns:
+            Dict with summary metadata and child list.
+        """
+        if not engine or not getattr(engine, "backend", None):
+            return {"error": "No KG engine available"}
+
+        summary = engine.query_cypher(
+            "MATCH (s {id: $sid}) "
+            "RETURN s.content AS content, s.level AS level, "
+            "s.thread_id AS thread_id, s.strategy AS strategy, "
+            "s.tokens_before AS tokens_before, s.tokens_after AS tokens_after, "
+            "s.timestamp AS timestamp, s.partition AS partition, "
+            "s.messages_summarized AS messages_summarized",
+            {"sid": summary_id},
+        )
+        if not summary:
+            return {"error": f"Summary not found: {summary_id}"}
+
+        children = engine.query_cypher(
+            "MATCH (s {id: $sid})-[:SUMMARIZES]->(child) "
+            "RETURN child.id AS id, child.content AS content, "
+            "child.role AS role, child.level AS level",
+            {"sid": summary_id},
+        )
+
+        return {
+            "summary_id": summary_id,
+            **summary[0],
+            "children": children,
+            "child_count": len(children),
+        }
 
 
 # --- Merged from elastic_context_manager.py ---

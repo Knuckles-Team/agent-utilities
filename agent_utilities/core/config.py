@@ -4,14 +4,19 @@
 This module handles the loading and validation of agent settings from environment
 variables and .env files using Pydantic Settings. It defines a centralized
 AgentConfig class and exports default configuration constants used throughout
-the agent-utilities package.
+the agent-utilities package. Leverages XDG Standards for config file placement.
 """
 
 import os
 from typing import Any
 
+import platformdirs
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_DB_PATH = str(
+    platformdirs.user_data_path("agent-utilities", "knuckles-team") / "graph_state"
+)
 
 from agent_utilities.base_utilities import (
     GET_DEFAULT_SSL_VERIFY,
@@ -61,6 +66,16 @@ def get_env_file() -> str | None:
             if candidate.is_file():
                 return str(candidate)
     return ".env"
+
+
+try:
+    from dotenv import load_dotenv
+
+    _env_file = get_env_file()
+    if _env_file:
+        load_dotenv(_env_file)
+except ImportError:
+    pass
 
 
 def _load_xdg_json_config():
@@ -130,11 +145,27 @@ class AgentConfig(BaseSettings):
     enable_acp: bool = Field(default=False, alias="ENABLE_ACP")
     acp_port: int = Field(default=8001, alias="ACP_PORT")
     acp_session_root: str = Field(default=".acp-sessions", alias="ACP_SESSION_ROOT")
+    default_terminal_agent: str = Field(
+        default="agent-terminal-ui", alias="DEFAULT_TERMINAL_AGENT"
+    )
 
-    provider: str | None = Field(default=None, alias="PROVIDER")
-    model_id: str | None = Field(default=None, alias="MODEL_ID")
+    llm_provider: str | None = Field(default=None, alias="LLM_PROVIDER")
+    llm_model_id: str | None = Field(default=None, alias="LLM_MODEL_ID")
     llm_base_url: str | None = Field(default=None, alias="LLM_BASE_URL")
     llm_api_key: str | None = Field(default=None, alias="LLM_API_KEY")
+
+    lite_llm_provider: str | None = Field(default=None, alias="LITE_LLM_PROVIDER")
+    lite_llm_model_id: str | None = Field(default=None, alias="LITE_LLM_MODEL_ID")
+    lite_llm_base_url: str | None = Field(default=None, alias="LITE_LLM_BASE_URL")
+    lite_llm_api_key: str | None = Field(default=None, alias="LITE_LLM_API_KEY")
+
+    super_llm_provider: str | None = Field(default=None, alias="SUPER_LLM_PROVIDER")
+    super_llm_model_id: str | None = Field(default=None, alias="SUPER_LLM_MODEL_ID")
+    super_llm_base_url: str | None = Field(default=None, alias="SUPER_LLM_BASE_URL")
+    super_llm_api_key: str | None = Field(default=None, alias="SUPER_LLM_API_KEY")
+
+    router_model: str | None = Field(default=None, alias="ROUTER_MODEL")
+    kg_model_id: str | None = Field(default=None, alias="KG_MODEL_ID")
 
     mcp_url: str | None = Field(default=None, alias="MCP_URL")
     mcp_config: str | None = Field(default=None, alias="MCP_CONFIG")
@@ -152,6 +183,48 @@ class AgentConfig(BaseSettings):
     auth_jwt_audience: str | None = Field(default=None, alias="AUTH_JWT_AUDIENCE")
     """Expected JWT audience claim for validation."""
 
+    # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
+
+    oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")
+    """OIDC discovery URL (e.g. https://idp.example.com/.well-known/openid-configuration).
+    Works with any OIDC-compliant Identity Provider."""
+
+    oidc_client_id: str | None = Field(default=None, alias="OIDC_CLIENT_ID")
+    """OAuth 2.0 client ID registered with the Identity Provider."""
+
+    oidc_client_secret: str | None = Field(default=None, alias="OIDC_CLIENT_SECRET")
+    """OAuth 2.0 client secret registered with the Identity Provider."""
+
+    enable_delegation: bool = Field(default=False, alias="ENABLE_DELEGATION")
+    """Enable OIDC token delegation (RFC 8693 Token Exchange) for downstream API calls."""
+
+    delegation_audience: str | None = Field(default=None, alias="AUDIENCE")
+    """Target audience for delegated tokens (e.g. the downstream API base URL)."""
+
+    delegated_scopes: str = Field(default="api", alias="DELEGATED_SCOPES")
+    """Space-separated scopes requested during token delegation."""
+
+    # --- Vault Secrets Backend (CONCEPT:OS-5.1) ---
+
+    vault_url: str | None = Field(default=None, alias="SECRETS_VAULT_URL")
+    """HashiCorp Vault URL for the secrets backend."""
+
+    vault_mount: str = Field(default="secret", alias="SECRETS_VAULT_MOUNT")
+    """Vault KV v2 mount point."""
+
+    vault_auth_method: str = Field(default="auto", alias="VAULT_AUTH_METHOD")
+    """Vault auth method: 'oidc', 'approle', 'token', 'kubernetes', 'auto'."""
+
+    vault_auth_mount: str = Field(default="jwt", alias="VAULT_AUTH_MOUNT")
+    """Vault auth method mount path.  Supports custom mounts
+    (e.g. 'oidc', 'jwt', 'my-okta-auth')."""
+
+    vault_role: str | None = Field(default=None, alias="VAULT_ROLE")
+    """Vault role name for OIDC/JWT or Kubernetes login."""
+
+    vault_path_prefix: str | None = Field(default=None, alias="VAULT_PATH_PREFIX")
+    """Path prefix within the KV v2 mount (e.g. 'agents/mcp/')."""
+
     allowed_origins: str | None = Field(default=None, alias="ALLOWED_ORIGINS")
     """Comma-separated list of allowed CORS origins. Defaults to ``*`` if not set."""
 
@@ -161,16 +234,28 @@ class AgentConfig(BaseSettings):
     routing_strategy: str = Field(default="hybrid", alias="ROUTING_STRATEGY")
     graph_persistence_type: str = Field(default="file", alias="GRAPH_PERSISTENCE_TYPE")
     graph_persistence_path: str = Field(
-        default="graph_state", alias="GRAPH_PERSISTENCE_PATH"
+        default=DEFAULT_DB_PATH, alias="GRAPH_PERSISTENCE_PATH"
     )
     enable_llm_validation: bool = Field(default=False, alias="ENABLE_LLM_VALIDATION")
     graph_router_timeout: float = Field(default=300.0, alias="GRAPH_ROUTER_TIMEOUT")
     graph_verifier_timeout: float = Field(default=300.0, alias="GRAPH_VERIFIER_TIMEOUT")
     enable_kg_embeddings: bool = Field(default=True, alias="ENABLE_KG_EMBEDDINGS")
-    embedding_model: str = Field(
-        default="text-embedding-nomic-embed-text-v2-moe", alias="EMBEDDING_MODEL"
+    embedding_provider: str | None = Field(default=None, alias="EMBEDDING_PROVIDER")
+    embedding_model_id: str = Field(
+        default="text-embedding-nomic-embed-text-v2-moe", alias="EMBEDDING_MODEL_ID"
     )
+    embedding_base_url: str | None = Field(default=None, alias="EMBEDDING_BASE_URL")
+    embedding_api_key: str | None = Field(default=None, alias="EMBEDDING_API_KEY")
     kg_backups: int = Field(default=3, alias="KG_BACKUPS")
+    kg_ingestion_workers: int | None = Field(default=None, alias="KG_INGESTION_WORKERS")
+    kg_llm_concurrency: int = Field(default=4, alias="KG_LLM_CONCURRENCY")
+    """Max concurrent LLM calls for KG operations (Layer 2/3 analysis, embeddings).
+    Set to match your inference endpoint's parallel capacity (e.g. LM Studio slots)."""
+
+    kg_analysis_max_depth: int = Field(default=2, alias="KG_ANALYSIS_MAX_DEPTH")
+    """Maximum recursive depth for background knowledge graph research daemons."""
+    model_registry_path: str | None = Field(default=None, alias="MODEL_REGISTRY_PATH")
+    """Path to a YAML or JSON file defining the model registry."""
     graph_direct_execution: bool = Field(default=True, alias="GRAPH_DIRECT_EXECUTION")
     """When True, AG-UI and ACP adapters bypass the LLM tool-call hop
     and invoke graph execution directly.  Set to False to restore the
@@ -381,10 +466,62 @@ DEFAULT_AGENT_SYSTEM_PROMPT = config.agent_system_prompt
 DEFAULT_HOST = config.host
 DEFAULT_PORT = config.port
 DEFAULT_DEBUG = config.debug
-DEFAULT_PROVIDER = config.provider
-DEFAULT_MODEL_ID = config.model_id
-DEFAULT_LLM_BASE_URL = config.llm_base_url
-DEFAULT_LLM_API_KEY = config.llm_api_key
+DEFAULT_LLM_PROVIDER = (
+    os.getenv("LLM_PROVIDER")
+    or os.getenv("PROVIDER")
+    or config.llm_provider
+    or "openai"
+)
+DEFAULT_LLM_MODEL_ID = (
+    os.getenv("LLM_MODEL_ID")
+    or os.getenv("MODEL_ID")
+    or config.llm_model_id
+    or "qwen/qwen3.5-9b"
+)
+DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL") or config.llm_base_url
+DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY") or config.llm_api_key
+
+DEFAULT_LITE_LLM_PROVIDER = (
+    os.getenv("LITE_LLM_PROVIDER") or config.lite_llm_provider or DEFAULT_LLM_PROVIDER
+)
+DEFAULT_LITE_LLM_MODEL_ID = (
+    os.getenv("LITE_LLM_MODEL_ID") or config.lite_llm_model_id or DEFAULT_LLM_MODEL_ID
+)
+DEFAULT_LITE_LLM_BASE_URL = (
+    os.getenv("LITE_LLM_BASE_URL") or config.lite_llm_base_url or DEFAULT_LLM_BASE_URL
+)
+DEFAULT_LITE_LLM_API_KEY = (
+    os.getenv("LITE_LLM_API_KEY") or config.lite_llm_api_key or DEFAULT_LLM_API_KEY
+)
+
+DEFAULT_SUPER_LLM_PROVIDER = (
+    os.getenv("SUPER_LLM_PROVIDER") or config.super_llm_provider or DEFAULT_LLM_PROVIDER
+)
+DEFAULT_SUPER_LLM_MODEL_ID = (
+    os.getenv("SUPER_LLM_MODEL_ID") or config.super_llm_model_id or DEFAULT_LLM_MODEL_ID
+)
+DEFAULT_SUPER_LLM_BASE_URL = (
+    os.getenv("SUPER_LLM_BASE_URL") or config.super_llm_base_url or DEFAULT_LLM_BASE_URL
+)
+DEFAULT_SUPER_LLM_API_KEY = (
+    os.getenv("SUPER_LLM_API_KEY") or config.super_llm_api_key or DEFAULT_LLM_API_KEY
+)
+
+DEFAULT_EMBEDDING_PROVIDER = (
+    os.getenv("EMBEDDING_PROVIDER") or config.embedding_provider or DEFAULT_LLM_PROVIDER
+)
+DEFAULT_EMBEDDING_MODEL_ID = (
+    os.getenv("EMBEDDING_MODEL_ID")
+    or os.getenv("EMBEDDING_MODEL")
+    or config.embedding_model_id
+    or "text-embedding-nomic-embed-text-v2-moe"
+)
+DEFAULT_EMBEDDING_BASE_URL = (
+    os.getenv("EMBEDDING_BASE_URL") or config.embedding_base_url or DEFAULT_LLM_BASE_URL
+)
+DEFAULT_EMBEDDING_API_KEY = (
+    os.getenv("EMBEDDING_API_KEY") or config.embedding_api_key or DEFAULT_LLM_API_KEY
+)
 DEFAULT_MCP_URL = config.mcp_url
 
 
@@ -398,6 +535,7 @@ DEFAULT_ENABLE_OTEL = config.enable_otel
 DEFAULT_ENABLE_ACP = config.enable_acp
 DEFAULT_ACP_PORT = config.acp_port
 DEFAULT_ACP_SESSION_ROOT = config.acp_session_root
+DEFAULT_TERMINAL_AGENT = config.default_terminal_agent
 
 if not config.enable_otel:
     os.environ["OTEL_SDK_DISABLED"] = "true"
@@ -461,17 +599,12 @@ DEFAULT_MAX_CRON_LOG_ENTRIES = 50
 TOOL_GUARD_MODE = config.tool_guard_mode
 SENSITIVE_TOOL_PATTERNS = config.sensitive_tool_patterns
 
-DEFAULT_ROUTER_MODEL = os.getenv(
-    "GRAPH_ROUTER_MODEL", os.getenv("MODEL_ID", config.model_id)
+DEFAULT_ROUTER_MODEL = (
+    os.getenv("ROUTER_MODEL")
+    or os.getenv("GRAPH_ROUTER_MODEL")
+    or config.router_model
+    or DEFAULT_LITE_LLM_MODEL_ID
 )
-DEFAULT_GRAPH_AGENT_MODEL = os.getenv(
-    "GRAPH_AGENT_MODEL", os.getenv("MODEL_ID", config.model_id)
-)
-DEFAULT_ROUTER_PROVIDER = os.getenv(
-    "GRAPH_ROUTER_PROVIDER", os.getenv("PROVIDER", "openai")
-)
-DEFAULT_ROUTER_BASE_URL = os.getenv("GRAPH_ROUTER_BASE_URL", os.getenv("LLM_BASE_URL"))
-DEFAULT_ROUTER_API_KEY = os.getenv("GRAPH_ROUTER_API_KEY", os.getenv("LLM_API_KEY"))
 
 DEFAULT_GRAPH_PERSISTENCE_TYPE = config.graph_persistence_type
 DEFAULT_GRAPH_PERSISTENCE_PATH = config.graph_persistence_path
@@ -481,6 +614,15 @@ DEFAULT_GRAPH_ROUTER_TIMEOUT = config.graph_router_timeout
 DEFAULT_GRAPH_VERIFIER_TIMEOUT = config.graph_verifier_timeout
 DEFAULT_ENABLE_KG_EMBEDDINGS = config.enable_kg_embeddings
 DEFAULT_KG_BACKUPS = config.kg_backups
+DEFAULT_KG_INGESTION_WORKERS = config.kg_ingestion_workers
+DEFAULT_KG_LLM_CONCURRENCY = config.kg_llm_concurrency
+DEFAULT_KG_MODEL_ID = (
+    os.getenv("KG_MODEL_ID")
+    or os.getenv("KG_INFERENCE_MODEL")
+    or config.kg_model_id
+    or DEFAULT_LITE_LLM_MODEL_ID
+)
+DEFAULT_KG_ANALYSIS_MAX_DEPTH = config.kg_analysis_max_depth
 DEFAULT_GRAPH_DIRECT_EXECUTION = config.graph_direct_execution
 
 AGENT_API_KEY = config.agent_api_key

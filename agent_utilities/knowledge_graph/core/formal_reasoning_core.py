@@ -1811,7 +1811,7 @@ class MarkovTransitionModel:
 
     def get_transition_probability(self, src: str, dst: str) -> float:
         """Get the empirical probability of transitioning from src to dst."""
-        if not self.transition_matrix is not None:
+        if self.transition_matrix is None:
             return 0.0
         if src not in self._state_to_idx or dst not in self._state_to_idx:
             return 0.0
@@ -1847,6 +1847,71 @@ class MarkovTransitionModel:
             pi = next_pi
 
         return {self.states[i]: float(pi[i]) for i in range(n)}
+
+    def predict_next_states(
+        self, current_state: str, k: int = 3
+    ) -> list[tuple[str, float]]:
+        """Predict the top-k most likely next states from the current state.
+
+        Satisfies the ``PreemptiveCacheEngine`` contract for ``predict_next_states``.
+
+        Args:
+            current_state: The current state identifier.
+            k: Maximum number of next states to return.
+
+        Returns:
+            List of (state, probability) tuples sorted by probability descending.
+        """
+        if self.transition_matrix is None or current_state not in self._state_to_idx:
+            return []
+
+        idx = self._state_to_idx[current_state]
+        row = self.transition_matrix[idx]
+        ranked = sorted(
+            [(self.states[i], float(row[i])) for i in range(len(self.states))],
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        return ranked[:k]
+
+    def multi_step_transition(self, n_steps: int) -> np.ndarray | None:
+        """Compute n-step transition probabilities via Chapman-Kolmogorov.
+
+        CONCEPT:KG-2.6 — Chapman-Kolmogorov Equation
+
+        The n-step transition probability from state i to state j is the
+        (i,j) entry of the matrix P raised to the nth power: P^(n) = P^n.
+
+        Args:
+            n_steps: Number of steps to forecast.
+
+        Returns:
+            The n-step transition matrix, or None if no matrix exists.
+        """
+        if self.transition_matrix is None or n_steps < 1:
+            return None
+        return np.linalg.matrix_power(self.transition_matrix, n_steps)
+
+    def forecast_from_state(self, state: str, n_steps: int) -> dict[str, float]:
+        """Forecast the probability distribution over states after n steps.
+
+        Starting from a given state, computes the probability of being in
+        each state after ``n_steps`` transitions.
+
+        Args:
+            state: Starting state identifier.
+            n_steps: Number of transition steps.
+
+        Returns:
+            Dictionary mapping state names to probabilities.
+        """
+        p_n = self.multi_step_transition(n_steps)
+        if p_n is None or state not in self._state_to_idx:
+            return {}
+
+        idx = self._state_to_idx[state]
+        row = p_n[idx]
+        return {self.states[i]: float(row[i]) for i in range(len(self.states))}
 
     def predict_sink_nodes(self, threshold: float = 0.1) -> list[tuple[str, float]]:
         """Identify states where the agent gets stuck or terminates.

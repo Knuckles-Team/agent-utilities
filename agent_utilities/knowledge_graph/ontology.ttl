@@ -17,12 +17,19 @@
 @prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
 
 <http://knuckles.team/kg> a owl:Ontology ;
+    owl:imports <http://knuckles.team/kg/enterprise> ,
+               <http://knuckles.team/kg/sdd> ;
     rdfs:label "Agent Intelligence Graph Ontology" ;
     rdfs:comment """Formal OWL ontology for the Unified Intelligence Graph.
 Provides BFO-aligned upper ontology classification, industry-standard vocabulary
 mappings (PROV-O, Schema.org, Dublin Core, FOAF, SKOS, OWL-Time, BIBO, FIBO),
 transitive/subclass/inverse-property reasoning, and full SKOS taxonomy support
-over stable LPG data.""" .
+over stable LPG data.
+
+Modular imports:
+  - enterprise: ArchiMate EA governance, ADR decision traces
+  - sdd: Spec-driven development (Requirements, Features, TestCases)
+  - banking, government, hr, legal, medical: Domain-specific extensions""" .
 
 # =====================================================================
 # BFO Upper Ontology Stubs (ISO 21838-2)
@@ -480,6 +487,14 @@ bfo:0000008 a owl:Class ; rdfs:subClassOf bfo:0000003 ;
     rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Strategy Card" ;
     rdfs:comment "A shareable strategy card with configuration and performance data. CONCEPT:KG-2.6" .
+
+# ── External Graph Federation (KG-2.9) ──
+
+:ExternalGraphReference a owl:Class ;
+    rdfs:subClassOf bfo:0000031 ;
+    rdfs:label "External Graph Reference" ;
+    rdfs:comment "A reference to an external SPARQL or LPG knowledge graph endpoint. CONCEPT:KG-2.9" .
+
 
 # ── Phase 2+3 Properties ──
 :forecasts a owl:ObjectProperty ;
@@ -2117,3 +2132,118 @@ with A. Conflict resolution uses deterministic conflict_weight comparison.""" .
     rdfs:domain :Concept ; rdfs:range xsd:boolean ;
     rdfs:label "syndicatable" ;
     rdfs:comment "Opt-in flag for cross-tenant knowledge federation." .
+
+# ── ArchiMate Enterprise Architecture Alignment ──
+# CONCEPT:KG-2.8 — Enterprise Architecture types mapped to ArchiMate 3.1 standard
+
+:BusinessRole a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Business Role" ;
+    rdfs:comment "An ArchiMate Business Role representing a responsibility for performing specific behavior. Maps to ArchiMate 3.1 BusinessRole." ;
+    rdfs:seeAlso <https://pubs.opengroup.org/architecture/archimate3-doc/chap08.html#_Toc489946037> .
+
+:ApplicationComponent a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Application Component" ;
+    rdfs:comment "An ArchiMate Application Component representing a modular, deployable, and replaceable part of a software system. Maps to ArchiMate 3.1 ApplicationComponent." ;
+    rdfs:seeAlso <https://pubs.opengroup.org/architecture/archimate3-doc/chap09.html#_Toc489946063> .
+
+:BusinessProcess a owl:Class ;
+    rdfs:subClassOf :Concept ;
+    rdfs:label "Business Process" ;
+    rdfs:comment "An ArchiMate Business Process representing a sequence of business behaviors that achieves a specific outcome. Maps to ArchiMate 3.1 BusinessProcess." ;
+    rdfs:seeAlso <https://pubs.opengroup.org/architecture/archimate3-doc/chap08.html#_Toc489946042> .
+
+:DiffEntry a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Diff Entry" ;
+    rdfs:comment "A git diff patch captured by the post-commit hook for continuous KG ingestion. CONCEPT:KG-2.0." ;
+    rdfs:seeAlso prov:Entity .
+
+# ── Entity Lifecycle Status Property ──
+# CONCEPT:KG-2.0 — Lifecycle management for node archival/soft-delete
+
+:status a owl:DatatypeProperty ;
+    rdfs:domain owl:Thing ; rdfs:range xsd:string ;
+    rdfs:label "status" ;
+    rdfs:comment "Lifecycle status of a graph node. Values: ACTIVE, DEPRECATED, ARCHIVED. Nodes with status ARCHIVED are excluded from standard search and retrieval operations." .
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Context Graph Architecture — ArchiMate EA Governance Layer (CONCEPT:KG-2.7)
+# ══════════════════════════════════════════════════════════════════════════════
+
+:ArchiMateElement a owl:Class ;
+    rdfs:label "ArchiMate Element" ;
+    rdfs:comment "Root class for ArchiMate 3.2 metamodel element mappings." .
+
+# --- ArchiMate Layers ---
+
+:BusinessLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Business Layer" ;
+    rdfs:comment "ArchiMate Business Layer — business services, processes, roles." .
+
+:ApplicationLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Application Layer" ;
+    rdfs:comment "ArchiMate Application Layer — application components, services, data objects." .
+
+:TechnologyLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Technology Layer" ;
+    rdfs:comment "ArchiMate Technology Layer — nodes, devices, infrastructure services." .
+
+:StrategyLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Strategy Layer" ;
+    rdfs:comment "ArchiMate Strategy Layer — capabilities, courses of action, resources." .
+
+:MotivationLayer a owl:Class ;
+    rdfs:subClassOf :ArchiMateElement ;
+    rdfs:label "Motivation Layer" ;
+    rdfs:comment "ArchiMate Motivation Layer — goals, principles, requirements, constraints." .
+
+# --- Cross-references: KG types → ArchiMate layers ---
+
+:Agent rdfs:subClassOf :ApplicationLayer .
+:Tool rdfs:subClassOf :ApplicationLayer .
+:Skill rdfs:subClassOf :ApplicationLayer .
+:Policy rdfs:subClassOf :BusinessLayer .
+:Concept rdfs:subClassOf :StrategyLayer .
+:Goal rdfs:subClassOf :MotivationLayer .
+:Principle rdfs:subClassOf :MotivationLayer .
+:ProcessFlow rdfs:subClassOf :BusinessLayer .
+:Server rdfs:subClassOf :TechnologyLayer .
+:DataConnector rdfs:subClassOf :TechnologyLayer .
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Architecture Decision Records (CONCEPT:KG-2.7)
+# ══════════════════════════════════════════════════════════════════════════════
+
+:ArchitectureDecisionRecord a owl:Class ;
+    rdfs:label "Architecture Decision Record" ;
+    rdfs:comment "Queryable decision trace capturing who decided what, why, under what authority, and what alternatives were considered. Lifecycle: proposed → accepted → deprecated → superseded." .
+
+:decidedBy a owl:ObjectProperty ;
+    rdfs:domain :ArchitectureDecisionRecord ;
+    rdfs:range :Agent ;
+    rdfs:label "decided by" ;
+    rdfs:comment "The agent or authority that made/approved this decision." .
+
+:impactsConcept a owl:ObjectProperty ;
+    rdfs:domain :ArchitectureDecisionRecord ;
+    rdfs:range :Concept ;
+    rdfs:label "impacts concept" ;
+    rdfs:comment "Links an ADR to the concepts it directly affects." .
+
+:supersedes a owl:TransitiveProperty, owl:ObjectProperty ;
+    rdfs:domain :ArchitectureDecisionRecord ;
+    rdfs:range :ArchitectureDecisionRecord ;
+    rdfs:label "supersedes" ;
+    rdfs:comment "Transitive: if ADR-C supersedes ADR-B supersedes ADR-A, then ADR-C supersedes ADR-A. Enables full decision lineage queries." .
+
+:alternativesTo a owl:ObjectProperty ;
+    rdfs:domain :ArchitectureDecisionRecord ;
+    rdfs:range :ArchitectureDecisionRecord ;
+    rdfs:label "alternatives to" ;
+    rdfs:comment "Links an ADR to alternative decisions that were considered but not chosen." .

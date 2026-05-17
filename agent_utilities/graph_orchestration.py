@@ -61,6 +61,10 @@ class BaseProjectInitializerNode(_RouterNodeBase):
     async def run(
         self, ctx: GraphRunContext[GraphState, GraphDeps]
     ) -> End[dict[str, Any]]:
+        """Run the initializer node.
+
+        CONCEPT:ORCH-1.19 — Subgraph Synthesis
+        """
         state = ctx.state
         loader = getattr(state, "load_from_disk", None)
         if callable(loader):

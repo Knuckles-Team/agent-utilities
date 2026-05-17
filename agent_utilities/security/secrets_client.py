@@ -78,6 +78,43 @@ class SecretsConfig(BaseModel):
         default="secret",
         description="Vault KV v2 mount point.",
     )
+    vault_auth_method: str = Field(
+        default="auto",
+        description=(
+            "Vault authentication method: 'oidc', 'approle', 'token', "
+            "'kubernetes', or 'auto' (auto-detect)."
+        ),
+    )
+    vault_auth_mount: str = Field(
+        default="jwt",
+        description=(
+            "Mount path of the Vault auth method.  Supports custom mounts "
+            "(e.g. 'oidc', 'jwt', 'my-okta-auth').  Default: 'jwt'."
+        ),
+    )
+    vault_role: str | None = Field(
+        default=None,
+        description="Vault role name for OIDC/JWT or Kubernetes login.",
+    )
+    vault_path_prefix: str | None = Field(
+        default=None,
+        description=(
+            "Path prefix within the KV v2 mount.  E.g. 'agents/mcp/' scopes "
+            "all secret reads/writes under 'secret/data/agents/mcp/'."
+        ),
+    )
+    vault_role_id: str | None = Field(
+        default=None,
+        description="AppRole role_id for Vault authentication.",
+    )
+    vault_secret_id: str | None = Field(
+        default=None,
+        description="AppRole secret_id for Vault authentication.",
+    )
+    vault_k8s_sa_token_path: str = Field(
+        default="/var/run/secrets/kubernetes.io/serviceaccount/token",
+        description="Path to the Kubernetes service account token file.",
+    )
     master_key: str | None = Field(
         default=None,
         description="Master encryption key (base64-encoded Fernet key). Auto-generated if omitted.",
@@ -249,9 +286,31 @@ class SQLiteBackend(SecretsBackend):
 
 
 class VaultBackend(SecretsBackend):
-    """HashiCorp Vault KV v2 backend.
+    """HashiCorp Vault KV v2 backend with multi-auth support.
 
     Requires the ``hvac`` package (``pip install agent-utilities[vault]``).
+
+    Supports four authentication strategies (in priority order):
+
+    1. **OIDC/JWT** — Exchanges the SSO user token (from
+       ``UserTokenMiddleware``) for a user-scoped Vault token via
+       Vault's JWT/OIDC auth method.
+    2. **AppRole** — Machine-to-machine auth via ``role_id`` +
+       ``secret_id`` (ideal for CI/CD pipelines).
+    3. **Static Token** — Classic ``VAULT_TOKEN`` env var (backward
+       compatible).
+    4. **Kubernetes** — Auto-detects pod-mounted service-account JWT
+       (useful for K8s-native deployments).
+
+    The ``auth_mount`` parameter supports custom mount paths, so the
+    auth method does not need to be at the default ``/auth/jwt`` —
+    any path (e.g. ``/auth/my-okta-oidc``) works.
+
+    Path prefixes scope secret reads/writes within the KV v2 mount::
+
+        VaultBackend(path_prefix="agents/mcp/")
+        backend.get("gitlab/token")
+        # reads: secret/data/agents/mcp/gitlab/token
 
     CONCEPT:OS-5.1 — Secrets & Authentication
     """
@@ -261,6 +320,13 @@ class VaultBackend(SecretsBackend):
         url: str = "http://127.0.0.1:8200",
         token: str | None = None,
         mount_point: str = "secret",
+        auth_method: str = "auto",
+        auth_mount: str = "jwt",
+        role: str | None = None,
+        path_prefix: str | None = None,
+        role_id: str | None = None,
+        secret_id: str | None = None,
+        k8s_sa_token_path: str | None = None,
     ) -> None:
         try:
             import hvac  # type: ignore[import-untyped]
@@ -270,44 +336,241 @@ class VaultBackend(SecretsBackend):
                 "Install it with: pip install agent-utilities[vault]"
             ) from exc
 
-        self._client = hvac.Client(url=url, token=token or os.getenv("VAULT_TOKEN"))
         self._mount = mount_point
-        logger.info("Vault backend initialised at %s (mount: %s)", url, mount_point)
+        self._path_prefix = path_prefix.rstrip("/") if path_prefix else None
+        self._auth_method = auth_method
+        self._auth_mount = auth_mount
+        self._role = role or os.getenv("VAULT_ROLE", "default")
+        self._role_id = role_id or os.getenv("VAULT_ROLE_ID")
+        self._secret_id = secret_id or os.getenv("VAULT_SECRET_ID")
+        self._k8s_sa_token_path = (
+            k8s_sa_token_path or "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        )
+        self._token_lease_duration: float = 0.0
+        self._token_auth_time: float = 0.0
+
+        # Initialise hvac client — may not have a token yet
+        static_token = token or os.getenv("VAULT_TOKEN")
+        self._client = hvac.Client(url=url, token=static_token)
+
+        # Authenticate using the configured method
+        self._authenticate(static_token)
+
+        logger.info(
+            "Vault backend initialised at %s (mount: %s, auth: %s, prefix: %s)",
+            url,
+            mount_point,
+            self._auth_method,
+            self._path_prefix or "<root>",
+        )
+
+    # -- Authentication strategies -----------------------------------------
+
+    def _authenticate(self, static_token: str | None = None) -> None:
+        """Authenticate to Vault using the best available method.
+
+        When ``auth_method='auto'``, tries in order:
+        OIDC/JWT → AppRole → static token → Kubernetes.
+        """
+        import time as _time
+
+        method = self._auth_method
+
+        if method == "auto":
+            if self._try_oidc():
+                self._auth_method = "oidc"
+                return
+            if self._try_approle():
+                self._auth_method = "approle"
+                return
+            if static_token and self._client.is_authenticated():
+                self._auth_method = "token"
+                logger.info("Vault: Authenticated via static token.")
+                return
+            if self._try_kubernetes():
+                self._auth_method = "kubernetes"
+                return
+            # Fallback — hope the token is valid
+            logger.warning(
+                "Vault: No auth method succeeded; using unauthenticated client."
+            )
+            return
+
+        if method == "oidc":
+            if not self._try_oidc():
+                raise RuntimeError(
+                    "Vault OIDC auth failed. Ensure the MCP server has an active "
+                    "SSO session and VAULT_ROLE is set."
+                )
+        elif method == "approle":
+            if not self._try_approle():
+                raise RuntimeError(
+                    "Vault AppRole auth failed. Check VAULT_ROLE_ID and VAULT_SECRET_ID."
+                )
+        elif method == "kubernetes":
+            if not self._try_kubernetes():
+                raise RuntimeError(
+                    "Vault Kubernetes auth failed. Ensure a service account token "
+                    "is mounted and VAULT_ROLE is set."
+                )
+        elif method == "token":
+            if not self._client.is_authenticated():
+                raise RuntimeError(
+                    "Vault token auth failed. Set VAULT_TOKEN or provide a token."
+                )
+            logger.info("Vault: Authenticated via static token.")
+        else:
+            raise ValueError(f"Unsupported vault_auth_method: {method!r}")
+
+        self._token_auth_time = _time.monotonic()
+
+    def _try_oidc(self) -> bool:
+        """Authenticate using the SSO user token from ``UserTokenMiddleware``.
+
+        Uses Vault's JWT/OIDC auth method at the configured ``auth_mount``
+        path (default: ``jwt``).  Works with any custom mount path.
+        """
+        try:
+            from agent_utilities.mcp.delegated_auth import get_user_token
+
+            user_jwt = get_user_token()
+            if not user_jwt:
+                return False
+
+            resp = self._client.auth.jwt.jwt_login(
+                role=self._role,
+                jwt=user_jwt,
+                path=self._auth_mount,
+            )
+            self._client.token = resp["auth"]["client_token"]
+            self._token_lease_duration = float(resp["auth"].get("lease_duration", 3600))
+            import time as _time
+
+            self._token_auth_time = _time.monotonic()
+            logger.info(
+                "Vault: OIDC/JWT auth successful (mount: %s, role: %s, ttl: %ss)",
+                self._auth_mount,
+                self._role,
+                self._token_lease_duration,
+            )
+            return True
+        except Exception as e:
+            logger.debug("Vault OIDC auth failed: %s", e, exc_info=True)
+            return False
+
+    def _try_approle(self) -> bool:
+        """Authenticate using AppRole (role_id + secret_id)."""
+        if not self._role_id or not self._secret_id:
+            return False
+        try:
+            resp = self._client.auth.approle.login(
+                role_id=self._role_id,
+                secret_id=self._secret_id,
+            )
+            self._client.token = resp["auth"]["client_token"]
+            self._token_lease_duration = float(resp["auth"].get("lease_duration", 3600))
+            import time as _time
+
+            self._token_auth_time = _time.monotonic()
+            logger.info("Vault: AppRole auth successful.")
+            return True
+        except Exception as e:
+            logger.debug("Vault AppRole auth failed: %s", e, exc_info=True)
+            return False
+
+    def _try_kubernetes(self) -> bool:
+        """Authenticate using Kubernetes service account JWT."""
+        sa_path = Path(self._k8s_sa_token_path)
+        if not sa_path.exists():
+            return False
+        try:
+            sa_jwt = sa_path.read_text().strip()
+            resp = self._client.auth.kubernetes.login(
+                role=self._role,
+                jwt=sa_jwt,
+            )
+            self._client.token = resp["auth"]["client_token"]
+            self._token_lease_duration = float(resp["auth"].get("lease_duration", 3600))
+            import time as _time
+
+            self._token_auth_time = _time.monotonic()
+            logger.info("Vault: Kubernetes auth successful.")
+            return True
+        except Exception as e:
+            logger.debug("Vault Kubernetes auth failed: %s", e, exc_info=True)
+            return False
+
+    def _ensure_authenticated(self) -> None:
+        """Re-authenticate if the current Vault token is near expiry."""
+        import time as _time
+
+        if self._token_lease_duration <= 0:
+            return  # Static token or unknown TTL — skip
+
+        elapsed = _time.monotonic() - self._token_auth_time
+        # Renew when 80% of TTL has elapsed
+        if elapsed >= (self._token_lease_duration * 0.8):
+            logger.info("Vault: Token nearing expiry, re-authenticating...")
+            self._authenticate()
+
+    # -- Path prefix helper ------------------------------------------------
+
+    def _full_path(self, key: str) -> str:
+        """Prepend the configured path prefix to a secret key.
+
+        Example::
+
+            prefix = "agents/mcp"
+            _full_path("gitlab/token") → "agents/mcp/gitlab/token"
+        """
+        if self._path_prefix:
+            return f"{self._path_prefix}/{key}"
+        return key
+
+    # -- SecretsBackend interface -------------------------------------------
 
     def get(self, key: str) -> str | None:
+        self._ensure_authenticated()
+        full_key = self._full_path(key)
         try:
             resp = self._client.secrets.kv.v2.read_secret_version(
-                path=key, mount_point=self._mount
+                path=full_key, mount_point=self._mount
             )
             data = resp.get("data", {}).get("data", {})
             return data.get("value")
         except Exception:
-            logger.debug("Vault get('%s') failed.", key, exc_info=True)
+            logger.debug("Vault get('%s') failed.", full_key, exc_info=True)
             return None
 
     def set(self, key: str, value: str, **metadata: Any) -> None:
+        self._ensure_authenticated()
+        full_key = self._full_path(key)
         secret_data = {"value": value}
         if metadata:
             secret_data.update(metadata)
         self._client.secrets.kv.v2.create_or_update_secret(
-            path=key, secret=secret_data, mount_point=self._mount
+            path=full_key, secret=secret_data, mount_point=self._mount
         )
-        logger.info("Secret '%s' stored (Vault).", key)
+        logger.info("Secret '%s' stored (Vault, path: %s).", key, full_key)
 
     def delete(self, key: str) -> bool:
+        self._ensure_authenticated()
+        full_key = self._full_path(key)
         try:
             self._client.secrets.kv.v2.delete_metadata_and_all_versions(
-                path=key, mount_point=self._mount
+                path=full_key, mount_point=self._mount
             )
-            logger.info("Secret '%s' deleted (Vault).", key)
+            logger.info("Secret '%s' deleted (Vault, path: %s).", key, full_key)
             return True
         except Exception:
             return False
 
     def list_keys(self) -> list[str]:
+        self._ensure_authenticated()
+        prefix = self._full_path("")
         try:
             resp = self._client.secrets.kv.v2.list_secrets(
-                path="", mount_point=self._mount
+                path=prefix, mount_point=self._mount
             )
             return sorted(resp.get("data", {}).get("keys", []))
         except Exception:
@@ -444,6 +707,16 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
             sqlite_path=os.getenv("SECRETS_SQLITE_PATH"),
             vault_url=os.getenv("SECRETS_VAULT_URL"),
             vault_mount=os.getenv("SECRETS_VAULT_MOUNT", "secret"),
+            vault_auth_method=os.getenv("VAULT_AUTH_METHOD", "auto"),
+            vault_auth_mount=os.getenv("VAULT_AUTH_MOUNT", "jwt"),
+            vault_role=os.getenv("VAULT_ROLE"),
+            vault_path_prefix=os.getenv("VAULT_PATH_PREFIX"),
+            vault_role_id=os.getenv("VAULT_ROLE_ID"),
+            vault_secret_id=os.getenv("VAULT_SECRET_ID"),
+            vault_k8s_sa_token_path=os.getenv(
+                "VAULT_K8S_SA_TOKEN_PATH",
+                "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            ),
             master_key=os.getenv("AGENT_SECRETS_MASTER_KEY"),
         )
 
@@ -458,7 +731,17 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
         )
     elif config.backend == "vault":
         url = config.vault_url or "http://127.0.0.1:8200"
-        backend = VaultBackend(url=url, mount_point=config.vault_mount)
+        backend = VaultBackend(
+            url=url,
+            mount_point=config.vault_mount,
+            auth_method=config.vault_auth_method,
+            auth_mount=config.vault_auth_mount,
+            role=config.vault_role,
+            path_prefix=config.vault_path_prefix,
+            role_id=config.vault_role_id,
+            secret_id=config.vault_secret_id,
+            k8s_sa_token_path=config.vault_k8s_sa_token_path,
+        )
     else:
         backend = InMemoryBackend(master_key=master_key_bytes)
 

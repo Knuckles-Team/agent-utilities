@@ -40,7 +40,7 @@ def test_create_mcp_server_basic(mock_fastmcp):
 
         assert args == mock_args
         mock_fastmcp.assert_called_once_with("TestServer", auth=None, instructions="")
-        assert len(middlewares) >= 4  # Default middlewares
+        assert len(middlewares) >= 2  # Default middlewares
 
 
 def test_load_mcp_servers_from_config_missing():

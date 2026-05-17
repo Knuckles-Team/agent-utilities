@@ -131,8 +131,18 @@ def create_model(
 
         return TestModel()
 
-    _provider = provider or os.environ.get("PROVIDER") or "openai"
-    _model_id = model_id or os.environ.get("MODEL_ID") or "qwen/qwen3.5-9b"
+    _provider = (
+        provider
+        or os.environ.get("LLM_PROVIDER")
+        or os.environ.get("PROVIDER")
+        or "openai"
+    )
+    _model_id = (
+        model_id
+        or os.environ.get("LLM_MODEL_ID")
+        or os.environ.get("MODEL_ID")
+        or "qwen/qwen3.5-9b"
+    )
 
     http_client = None
     if http_client is None:

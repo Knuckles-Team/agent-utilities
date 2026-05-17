@@ -1,5 +1,6 @@
 """CONCEPT:KG-2.0"""
 
+import hashlib
 import logging
 import os
 from typing import Any
@@ -181,7 +182,9 @@ async def execute_parse(
                     name_node = node.child_by_field_name("name")
                     if name_node:
                         name = get_node_text(name_node, source)
-                        symbol_id = f"symbol:{name}"
+                        content_bytes = source[node.start_byte : node.end_byte]
+                        content_hash = hashlib.sha256(content_bytes).hexdigest()
+                        symbol_id = f"symbol:{content_hash}"
 
                         # Extract docstring if present
                         docstring = None
@@ -219,17 +222,18 @@ async def execute_parse(
                             symbol_type=s_type,
                             type=RegistryNodeType.SYMBOL,
                             file_path=file_path,
+                            ast_hash=content_hash,
                         )
-                        graph.add_edge(
-                            symbol_id, file_node_id, type=RegistryEdgeType.CONTAINS
-                        )
+                        graph.add_edge(file_node_id, symbol_id, type="IMPLEMENTS")
                         symbols_extracted += 1
 
                 elif node.type == "function_definition":
                     name_node = node.child_by_field_name("name")
                     if name_node:
                         name = get_node_text(name_node, source)
-                        symbol_id = f"symbol:{name}"
+                        content_bytes = source[node.start_byte : node.end_byte]
+                        content_hash = hashlib.sha256(content_bytes).hexdigest()
+                        symbol_id = f"symbol:{content_hash}"
                         meta = SymbolMetadata(
                             name=name, type="Function", line=node.start_point[0] + 1
                         )
@@ -241,10 +245,9 @@ async def execute_parse(
                             symbol_type=s_type,
                             type=RegistryNodeType.SYMBOL,
                             file_path=file_path,
+                            ast_hash=content_hash,
                         )
-                        graph.add_edge(
-                            symbol_id, file_node_id, type=RegistryEdgeType.CONTAINS
-                        )
+                        graph.add_edge(file_node_id, symbol_id, type="IMPLEMENTS")
                         symbols_extracted += 1
 
                 elif node.type == "call":
@@ -265,17 +268,18 @@ async def execute_parse(
                     name_node = node.child_by_field_name("name")
                     if name_node:
                         name = get_node_text(name_node, source)
-                        symbol_id = f"symbol:{name}"
+                        content_bytes = source[node.start_byte : node.end_byte]
+                        content_hash = hashlib.sha256(content_bytes).hexdigest()
+                        symbol_id = f"symbol:{content_hash}"
                         graph.add_node(
                             symbol_id,
                             type=RegistryNodeType.SYMBOL,
                             name=name,
                             file_path=file_path,
                             line=node.start_point[0] + 1,
+                            ast_hash=content_hash,
                         )
-                        graph.add_edge(
-                            symbol_id, file_node_id, type=RegistryEdgeType.CONTAINS
-                        )
+                        graph.add_edge(file_node_id, symbol_id, type="IMPLEMENTS")
                         symbols_extracted += 1
 
                 # Imports (Python)

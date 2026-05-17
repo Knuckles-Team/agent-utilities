@@ -77,11 +77,11 @@ class PreTradeGuard:
 
     def validate(
         self,
-        order_side: str,
+        _order_side: str,
         order_quantity: float,
         order_price: float,
         portfolio_value: float,
-        current_position_pct: float = 0.0,
+        _current_position_pct: float = 0.0,
         current_drawdown: float = 0.0,
         sector_exposure: float = 0.0,
     ) -> PreTradeResult:

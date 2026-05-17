@@ -1,12 +1,10 @@
 {
   "mcpServers": {
-    "agent-utilities-kg": {
+    "graph-os": {
       "command": "uv",
       "args": [
         "run",
-        "python",
-        "-m",
-        "agent_utilities.mcp.kg_server"
+        "graph-os"
       ],
       "env": {
         "AGENT_ID": "local-developer",

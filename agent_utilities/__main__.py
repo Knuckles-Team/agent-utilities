@@ -27,6 +27,10 @@ def setup_logging(debug=False):
 
 
 def agent_server():
+    """Main agent execution server.
+
+    CONCEPT:ORCH-1.0 — Unified Agent Entrypoint
+    """
     parser = create_agent_parser()
     args = parser.parse_args()
 

@@ -58,12 +58,10 @@ __version__ = "0.2.40"
 
 
 def create_embedding_model(
-    provider: str | None = os.environ.get("EMBEDDING_PROVIDER", "openai").lower(),
-    model: str | None = os.environ.get(
-        "EMBEDDING_MODEL", "text-embedding-nomic-embed-text-v2-moe"
-    ),
-    base_url: str | None = os.environ.get("LLM_BASE_URL", "http://localhost:1234/v1"),
-    api_key: str | None = os.environ.get("LLM_API_KEY", None),
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
     ssl_verify: bool = to_boolean(string=os.environ.get("SSL_VERIFY", "true")),
     timeout: float = 300.0,
 ) -> "BaseEmbedding":
@@ -88,11 +86,35 @@ def create_embedding_model(
     """
     from llama_index.embeddings.openai import OpenAIEmbedding
 
-    http_client = None
-    if not ssl_verify:
-        http_client = httpx.AsyncClient(verify=False, timeout=timeout)  # nosec B501
+    # Resolve defaults
+    provider_str = (
+        provider
+        or os.environ.get("EMBEDDING_PROVIDER")
+        or os.environ.get("LLM_PROVIDER")
+        or "openai"
+    )
+    provider_str = provider_str.lower()
+    model_str = (
+        model
+        or os.environ.get("EMBEDDING_MODEL_ID")
+        or os.environ.get("EMBEDDING_MODEL")
+        or "text-embedding-nomic-embed-text-v2-moe"
+    )
+    base_url_str = (
+        base_url
+        or os.environ.get("EMBEDDING_BASE_URL")
+        or os.environ.get("LLM_BASE_URL")
+        or "http://localhost:1234/v1"
+    )
+    api_key_str = (
+        api_key or os.environ.get("EMBEDDING_API_KEY") or os.environ.get("LLM_API_KEY")
+    )
 
-    if provider == "mock" or os.environ.get("AGENT_UTILITIES_TESTING") == "true":
+    http_client: httpx.Client | None = None
+    if not ssl_verify:
+        http_client = httpx.Client(verify=False, timeout=timeout)  # nosec B501
+
+    if provider_str == "mock" or os.environ.get("AGENT_UTILITIES_TESTING") == "true":
         from unittest.mock import MagicMock
 
         mock = MagicMock()
@@ -100,42 +122,50 @@ def create_embedding_model(
         mock.get_text_embedding.return_value = [1.0] + [0.0] * (dim - 1)
         return mock
 
-    if provider == "openai":
+    if provider_str == "openai":
+        # Fallback for LM Studio / Local Testing
+        if not api_key_str:
+            api_key_str = os.environ.get("OPENAI_API_KEY", "Test-1234")
+
+        import sys
+
+        print(f"Creating OpenAIEmbedding with key={api_key_str}", file=sys.stderr)
+
         return OpenAIEmbedding(
-            model_name=model,
-            api_key=api_key,
-            api_base=base_url,
+            model_name=model_str,
+            api_key=api_key_str,
+            api_base=base_url_str,
             timeout=timeout,
             http_client=http_client,
         )
 
-    elif provider == "huggingface":
+    elif provider_str == "huggingface":
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
         cache_folder = os.environ.get("HF_HOME")
 
         return HuggingFaceEmbedding(
-            model_name=model,
+            model_name=model_str,
             cache_folder=cache_folder,
             request_timeout=timeout,
         )
 
-    elif provider == "ollama":
+    elif provider_str == "ollama":
         if OllamaEmbedding is None:
             raise ImportError("llama-index-embeddings-ollama is not installed.")
 
         return OllamaEmbedding(
-            model_name=model,
-            base_url=base_url,
+            model_name=model_str,
+            base_url=base_url_str,
             timeout=timeout,
         )
 
-    elif provider == "local":
+    elif provider_str == "local":
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-        return HuggingFaceEmbedding(model_name=model)
+        return HuggingFaceEmbedding(model_name=model_str)
 
-    elif provider == "mock" or os.environ.get("AGENT_UTILITIES_TESTING") == "true":
+    elif provider_str == "mock" or os.environ.get("AGENT_UTILITIES_TESTING") == "true":
         from unittest.mock import MagicMock
 
         mock = MagicMock()

@@ -183,12 +183,15 @@ class DocumentDeletionPipeline:
         """
         Soft delete document from knowledge graph.
 
+        Sets status to ARCHIVED so QueryMixin filters exclude it
+        from all standard search and retrieval operations.
+
         Args:
             ontological_identifier: Unified document ID
         """
         if self.knowledge_graph.graph.has_node(ontological_identifier):
             node_data = self.knowledge_graph.graph.nodes[ontological_identifier]
-            node_data["is_deleted"] = True
+            node_data["status"] = "ARCHIVED"
             node_data["deleted_at"] = datetime.now().isoformat()
             self.knowledge_graph.graph.add_node(ontological_identifier, **node_data)
 
@@ -211,11 +214,11 @@ class DocumentDeletionPipeline:
         if not doc:
             raise ValueError(f"Document {ontological_identifier} not found")
 
-        if not doc.get("is_deleted"):
+        if doc.get("status") != "ARCHIVED":
             raise ValueError(f"Document {ontological_identifier} is not soft-deleted")
 
         # Restore document
-        doc["is_deleted"] = False
+        doc["status"] = "ACTIVE"
         doc["deleted_at"] = None
         doc["updated_at"] = datetime.now().isoformat()
         self.knowledge_graph.graph.add_node(ontological_identifier, **doc)

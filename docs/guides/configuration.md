@@ -103,9 +103,17 @@ This document provides a unified reference for all environment variables, config
 | `A2A_CONFIG` | *None* | Path to `a2a_config.json` for external A2A agent discovery |
 | `A2A_REFRESH_INTERVAL` | `300` | Seconds between periodic `.well-known/agent-card.json` re-fetch |
 
+### CLI Execution
+The preferred method for running `agent-utilities` servers is via the standardized `uv` scripts:
+
+| Script | Command | Description |
+|---|---|---|
+| **KG Server** | `uv run agent-utilities-kg` | Launches the Knowledge Graph MCP server |
+| **Main Server** | `uv run agent-utilities-server` | Launches the unified protocol server (ACP/A2A/AG-UI) |
+
 ## CLI Flags
 
-When running `python -m agent_utilities.server` or custom agent scripts, the following standard flags are available:
+When running `agent-utilities` commands (or `python -m agent_utilities.server`), the following standard flags are available:
 
 | Flag | Equivalent Env Var | Description |
 |---|---|---|

@@ -148,7 +148,7 @@ async def ingest_prompts_to_graph():
                 )
                 return None
 
-            prompts_dir = Path(__file__).parent / "prompts"
+            prompts_dir = Path(__file__).parent.parent / "prompts"
             if not prompts_dir.exists():
                 logger.info("No prompts directory found at %s", prompts_dir)
                 return None
