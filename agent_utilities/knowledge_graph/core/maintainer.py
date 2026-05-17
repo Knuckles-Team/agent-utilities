@@ -239,7 +239,7 @@ class GraphMaintainer:
                 [ep["description"] for ep in episodes if ep.get("description")]
             )
             result = agent.run_sync(combined_text)
-            summary_text = result.data  # type: ignore[attr-defined]
+            summary_text = str(result.data)
         except Exception as e:
             logger.warning(f"LLM summarization failed, using fallback: {e}")
             summary_text = f"Consolidated summary of {len(episodes)} episodes."

@@ -174,9 +174,20 @@ class LadybugBackend(GraphBackend):
     def close(self) -> None:
         """Close the database connection and database object."""
         if hasattr(self, "conn"):
+            try:
+                self.conn.close()
+            except Exception:  # nosec B110
+                pass
             del self.conn
         if hasattr(self, "db"):
             del self.db
+
+    def __del__(self) -> None:
+        """Ensure connection is destroyed before database to avoid C++ Kuzu abort."""
+        try:
+            self.close()
+        except Exception:  # nosec B110
+            pass
 
     def _cleanup_corrupted(self):
         """Removes corrupted WAL/journal files to allow a clean restart.

@@ -501,7 +501,7 @@ class HybridRetriever:
             try:
                 import re
 
-                json_str = re.search(r"\[.*\]", result.data, re.DOTALL)  # type: ignore[attr-defined]
+                json_str = re.search(r"\[.*\]", str(result.data), re.DOTALL)
                 if json_str:
                     queries = json.loads(json_str.group())
                     return queries[:max_subtasks]
