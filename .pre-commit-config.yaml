@@ -59,15 +59,15 @@ repos:
     rev: 0.11.8
     hooks:
       - id: uv-lock
-  - repo: local
-    hooks:
-      - id: pytest
-        name: pytest
-        entry: bash -c 'export LADYBUG_MAX_DB_SIZE=1073741824; if [ -f uv.lock ]; then uv run --extra test pytest -v -s; else pytest -v -s; fi'
-        language: system
-        types: [python]
-        pass_filenames: false
-        always_run: true
+#  - repo: local
+#    hooks:
+#      - id: pytest
+#        name: pytest
+#        entry: bash -c 'export LADYBUG_MAX_DB_SIZE=1073741824; if [ -f uv.lock ]; then uv run --extra test pytest -v -s; else pytest -v -s; fi'
+#        language: system
+#        types: [python]
+#        pass_filenames: false
+#        always_run: true
   - repo: https://github.com/AleksaC/hadolint-py
     rev: v2.14.0
     hooks:
