@@ -631,3 +631,397 @@ class IngestionMixin(_Base):
             engine._blocks[nid] = block
 
         return engine.distill(iterations=iterations, base_threshold=threshold)
+
+    # ------------------------------------------------------------------
+    # CONCEPT:ECO-4.10 — Unified Agent Toolkit Ingestion
+    # ------------------------------------------------------------------
+
+    async def ingest_agent_toolkit(
+        self,
+        sources: list[str],
+        agent_card_path: str = "/.well-known/agent.json",
+    ) -> dict[str, Any]:
+        """Ingest MCP server configs, agent skill directories, and A2A agent cards.
+
+        CONCEPT:ECO-4.10 — Unified MCP/Skill/A2A ingestion pipeline with live
+        tool discovery.
+
+        Accepts a list of mixed sources and auto-detects the type of each:
+
+        1. **URL** (``http://`` or ``https://``) → fetches the A2A agent card
+           from ``agent_card_path`` (default ``/.well-known/agent.json``,
+           override with ``/agent-card.json``).
+        2. **JSON file** containing ``"mcpServers"`` key → parses as an MCP
+           config and ingests each server entry with live tool discovery.
+        3. **Directory** containing ``SKILL.md`` → parses frontmatter and
+           ingests as an agent skill.
+        4. **Remote JSON URL** (ending ``.json``) → fetches and checks for
+           ``mcpServers`` key to determine if it is an MCP config.
+
+        For MCP servers, the pipeline will:
+        - Parse the config to extract server entries and tool-enable flags.
+        - Attempt live connection (``list_tools()``) to discover real tools.
+        - Fall back to tool-flag parsing if live connect fails.
+        - Check KG freshness via config hash before re-ingesting.
+
+        Args:
+            sources: List of file paths, directory paths, or URLs.
+            agent_card_path: Well-known path for A2A agent cards.
+                Defaults to ``/.well-known/agent.json``. Override with
+                ``/agent-card.json`` for non-standard agents.
+
+        Returns:
+            Summary dict with keys: ``mcp_servers``, ``tools_discovered``,
+            ``skills``, ``a2a_agents``, ``errors``, ``skipped``.
+
+        """
+
+        summary: dict[str, Any] = {
+            "mcp_servers": 0,
+            "tools_discovered": 0,
+            "skills": 0,
+            "a2a_agents": 0,
+            "errors": [],
+            "skipped": 0,
+        }
+
+        for source in sources:
+            source = source.strip()
+            if not source:
+                continue
+
+            try:
+                source_type = self._detect_toolkit_source_type(source)
+                logger.info(
+                    "[ECO-4.10] Processing source '%s' (detected: %s)",
+                    source,
+                    source_type,
+                )
+
+                if source_type == "a2a_url":
+                    await self._ingest_a2a_from_url(source, agent_card_path, summary)
+                elif source_type == "mcp_config":
+                    await self._ingest_mcp_from_path(source, summary)
+                elif source_type == "skill_directory":
+                    self._ingest_skill_from_directory(source, summary)
+                elif source_type == "remote_json":
+                    await self._ingest_remote_json(source, agent_card_path, summary)
+                else:
+                    summary["errors"].append(f"Unknown source type for '{source}'")
+
+            except Exception as e:
+                logger.error("[ECO-4.10] Failed to ingest source '%s': %s", source, e)
+                summary["errors"].append(f"{source}: {e}")
+
+        logger.info(
+            "[ECO-4.10] Toolkit ingestion complete: %d MCP servers, "
+            "%d tools, %d skills, %d A2A agents, %d errors, %d skipped",
+            summary["mcp_servers"],
+            summary["tools_discovered"],
+            summary["skills"],
+            summary["a2a_agents"],
+            len(summary["errors"]),
+            summary["skipped"],
+        )
+        return summary
+
+    # ------------------------------------------------------------------
+    # Auto-detection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_toolkit_source_type(source: str) -> str:
+        """Auto-detect the type of a toolkit source.
+
+        Returns one of: ``a2a_url``, ``mcp_config``, ``skill_directory``,
+        ``remote_json``, ``unknown``.
+        """
+        from pathlib import Path
+
+        # URLs
+        if source.startswith(("http://", "https://")):
+            if source.rstrip("/").endswith(".json"):
+                return "remote_json"
+            return "a2a_url"
+
+        # Local paths
+        p = Path(source)
+        if p.is_file() and p.suffix.lower() == ".json":
+            try:
+                import json
+
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if "mcpServers" in data:
+                    return "mcp_config"
+            except Exception:
+                pass
+            return "unknown"
+
+        if p.is_dir():
+            skill_md = p / "SKILL.md"
+            if skill_md.exists():
+                return "skill_directory"
+            # Check for mcp_config.json inside the directory
+            mcp_config = p / "mcp_config.json"
+            if mcp_config.exists():
+                return "mcp_config"
+            return "unknown"
+
+        return "unknown"
+
+    # ------------------------------------------------------------------
+    # MCP config ingestion
+    # ------------------------------------------------------------------
+
+    async def _ingest_mcp_from_path(self, path: str, summary: dict[str, Any]) -> None:
+        """Ingest MCP servers from a local config file path.
+
+        Also handles a directory by looking for ``mcp_config.json`` inside it.
+        """
+        import json
+        from pathlib import Path
+
+        p = Path(path)
+        if p.is_dir():
+            p = p / "mcp_config.json"
+
+        config_data = json.loads(p.read_text(encoding="utf-8"))
+        await self._ingest_mcp_from_config(config_data, str(p), summary)
+
+    async def _ingest_mcp_from_config(
+        self,
+        config_data: dict[str, Any],
+        source_path: str,
+        summary: dict[str, Any],
+    ) -> None:
+        """Ingest all servers from a parsed mcp_config.json payload."""
+        import json
+        from typing import cast
+
+        engine_self = cast(Any, self)
+        # Use MCPDiscoveryMixin methods (available via IntelligenceGraphEngine)
+        server_entries = engine_self.parse_mcp_config(config_data)
+
+        for entry in server_entries:
+            server_name = entry["name"]
+
+            # Freshness check — skip if KG cache is current
+            if engine_self.check_server_freshness(server_name, entry["config_hash"]):
+                logger.info(
+                    "[ECO-4.10] Server '%s' is fresh in KG — skipping",
+                    server_name,
+                )
+                summary["skipped"] += 1
+                continue
+
+            # Attempt live tool discovery
+            live_tools = await engine_self.discover_mcp_tools(entry, timeout=30.0)
+
+            if live_tools:
+                # Live discovery succeeded — ingest real tools
+                self.ingest_mcp_server(
+                    name=server_name,
+                    url=f"stdio://{entry['command']} {' '.join(entry['args'])}",
+                    tools=live_tools,
+                    resources={"source_config": source_path},
+                )
+                summary["tools_discovered"] += len(live_tools)
+            else:
+                # Fallback: synthesize tools from tool flags
+                flag_tools = [
+                    {
+                        "name": f"{server_name}_{flag}",
+                        "description": f"{flag} tools for {server_name}",
+                        "tags": [flag],
+                        "capabilities": [flag],
+                    }
+                    for flag in entry["tool_flags"]
+                ]
+                if flag_tools:
+                    self.ingest_mcp_server(
+                        name=server_name,
+                        url=f"stdio://{entry['command']} {' '.join(entry['args'])}",
+                        tools=flag_tools,
+                        resources={"source_config": source_path},
+                    )
+                    summary["tools_discovered"] += len(flag_tools)
+                else:
+                    # No tools at all — still register the server node
+                    self.ingest_mcp_server(
+                        name=server_name,
+                        url=f"stdio://{entry['command']} {' '.join(entry['args'])}",
+                        tools=[],
+                        resources={"source_config": source_path},
+                    )
+
+            # Update server node with config hash and disabled tools
+            if self.backend:
+                server_id = f"srv:{server_name}"
+                ts = __import__("time").strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()
+                )
+                self.backend.execute(
+                    "MATCH (s:Server {id: $sid}) "
+                    "SET s.config_hash = $hash, s.timestamp = $ts, "
+                    "s.source_config = $src, s.tool_count = $tc, "
+                    "s.command = $cmd, s.args = $args",
+                    {
+                        "sid": server_id,
+                        "hash": entry["config_hash"],
+                        "ts": ts,
+                        "src": source_path,
+                        "tc": len(live_tools)
+                        if live_tools
+                        else len(entry["tool_flags"]),
+                        "cmd": entry["command"],
+                        "args": json.dumps(entry["args"]),
+                    },
+                )
+
+            summary["mcp_servers"] += 1
+
+    # ------------------------------------------------------------------
+    # Skill directory ingestion
+    # ------------------------------------------------------------------
+
+    def _ingest_skill_from_directory(
+        self, dir_path: str, summary: dict[str, Any]
+    ) -> None:
+        """Ingest an agent skill from a directory containing SKILL.md."""
+        from pathlib import Path
+
+        skill_md = Path(dir_path) / "SKILL.md"
+        if not skill_md.exists():
+            summary["errors"].append(f"No SKILL.md found in {dir_path}")
+            return
+
+        content = skill_md.read_text(encoding="utf-8")
+        frontmatter = self._parse_skill_frontmatter(content)
+
+        if not frontmatter.get("name"):
+            frontmatter["name"] = Path(dir_path).name
+
+        self.ingest_agent_skill(
+            skill_file_path=str(skill_md),
+            frontmatter=frontmatter,
+            content=content,
+        )
+        summary["skills"] += 1
+
+    @staticmethod
+    def _parse_skill_frontmatter(content: str) -> dict[str, Any]:
+        """Parse YAML frontmatter from a SKILL.md file.
+
+        Expects the standard format::
+
+            ---
+            name: my-skill
+            description: Does things
+            ---
+            # Skill instructions...
+
+        """
+        import re
+
+        frontmatter: dict[str, Any] = {}
+        match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
+        if not match:
+            return frontmatter
+
+        fm_text = match.group(1)
+        for line in fm_text.strip().split("\n"):
+            line = line.strip()
+            if ":" in line:
+                key, _, value = line.partition(":")
+                key = key.strip()
+                value = value.strip().strip("\"'")
+                if key:
+                    frontmatter[key] = value
+
+        return frontmatter
+
+    # ------------------------------------------------------------------
+    # A2A agent card ingestion
+    # ------------------------------------------------------------------
+
+    async def _ingest_a2a_from_url(
+        self,
+        base_url: str,
+        agent_card_path: str,
+        summary: dict[str, Any],
+    ) -> None:
+        """Fetch an A2A agent card from a URL and ingest it.
+
+        Tries the primary ``agent_card_path`` first, then falls back to
+        ``/agent-card.json`` if the primary path fails.
+        """
+        card = await self._fetch_a2a_card(base_url, agent_card_path)
+
+        # Fallback to secondary standard path
+        if card is None and agent_card_path != "/agent-card.json":
+            logger.info("[ECO-4.10] Primary A2A path failed, trying /agent-card.json")
+            card = await self._fetch_a2a_card(base_url, "/agent-card.json")
+
+        if card is None:
+            summary["errors"].append(f"Failed to fetch A2A agent card from {base_url}")
+            return
+
+        self.ingest_a2a_agent_card(url=base_url, card=card)
+        summary["a2a_agents"] += 1
+
+    @staticmethod
+    async def _fetch_a2a_card(base_url: str, path: str) -> dict[str, Any] | None:
+        """Fetch an A2A agent card JSON from a URL.
+
+        Args:
+            base_url: The base URL of the A2A agent (e.g., ``http://agent.local``).
+            path: The well-known path (e.g., ``/.well-known/agent.json``).
+
+        Returns:
+            Parsed JSON dict, or None if the fetch fails.
+
+        """
+        import httpx
+
+        url = base_url.rstrip("/") + path
+        try:
+            async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as e:
+            logger.debug("A2A card fetch from '%s' failed: %s", url, e)
+            return None
+
+    # ------------------------------------------------------------------
+    # Remote JSON handling
+    # ------------------------------------------------------------------
+
+    async def _ingest_remote_json(
+        self,
+        url: str,
+        agent_card_path: str,
+        summary: dict[str, Any],
+    ) -> None:
+        """Fetch a remote JSON file and determine if it's an MCP config or A2A card."""
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as e:
+            summary["errors"].append(f"Failed to fetch remote JSON from {url}: {e}")
+            return
+
+        if "mcpServers" in data:
+            await self._ingest_mcp_from_config(data, url, summary)
+        elif "name" in data and ("capabilities" in data or "skills" in data):
+            # Looks like an A2A agent card
+            self.ingest_a2a_agent_card(url=url, card=data)
+            summary["a2a_agents"] += 1
+        else:
+            summary["errors"].append(
+                f"Remote JSON from {url} does not match MCP config or A2A card format"
+            )

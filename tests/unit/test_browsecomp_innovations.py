@@ -65,9 +65,7 @@ class TestEvaluationCorpus:
             EvaluationCorpus,
         )
 
-        corpus = EvaluationCorpus(
-            corpus_id="c1", name="test", document_ids=[]
-        )
+        corpus = EvaluationCorpus(corpus_id="c1", name="test", document_ids=[])
         assert corpus.frozen is False
 
     def test_corpus_serialization(self):

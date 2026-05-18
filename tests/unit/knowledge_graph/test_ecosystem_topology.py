@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """Tests for Ecosystem Topology Builder.
 
 CONCEPT:ECO-4.2 — Ecosystem Topology Map

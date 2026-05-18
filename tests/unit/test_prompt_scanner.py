@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """Tests for Prompt Injection Scanner (CONCEPT:OS-5.1)."""
 
 
@@ -215,20 +216,26 @@ class TestThreshold:
         assert scanner.threshold == 0.8
 
     def test_custom_threshold(self):
-        from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
+        from agent_utilities.security.threat_defense_engine import (
+            PromptInjectionScanner,
+        )
 
         s = PromptInjectionScanner(threshold=0.5)
         assert s.threshold == 0.5
 
     def test_env_threshold(self, monkeypatch):
-        from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
+        from agent_utilities.security.threat_defense_engine import (
+            PromptInjectionScanner,
+        )
 
         monkeypatch.setenv("SECURITY_PROMPT_THRESHOLD", "0.6")
         s = PromptInjectionScanner()
         assert s.threshold == 0.6
 
     def test_below_threshold_not_malicious(self):
-        from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
+        from agent_utilities.security.threat_defense_engine import (
+            PromptInjectionScanner,
+        )
 
         # env dump is MEDIUM risk (0.6 confidence), threshold 0.8
         s = PromptInjectionScanner(threshold=0.8)

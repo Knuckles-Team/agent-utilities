@@ -85,6 +85,9 @@ C4Component
         Component(wiring, "Capability Wiring Engine", "Python", "Dynamic capability discovery")
         Component(orchestrator, "Agent Orchestrator", "Python", "Unified harness for multi-agent execution")
         Component(coord, "🔬 Coordination Layer", "Python", "ORCH-1.5: Pluggable coordination protocols. Research: 2605.03310v1")
+        Component(kgfactory, "KG Graph Factory", "Python", "ORCH-1.20: Materializes pydantic-graph topologies from KG AgentTemplates")
+        Component(agentrunner, "Agent Runner", "Python", "ORCH-1.21: KG-to-LLM execution bridge — resolves agents, binds tools, tracks provenance")
+        Component(pll, "🔬 Prediction Linkage Layer", "Python", "ORCH-1.7: Fuses confidence matrices for ensemble modeling")
     }
 
     Rel(router, planner, "Routes task to planning")
@@ -92,7 +95,13 @@ C4Component
     Rel(dispatcher, wiring, "Discovers required capabilities")
     Rel(orchestrator, router, "Entry point for all orchestration")
     Rel(orchestrator, coord, "Selects protocol before execution")
+    Rel(orchestrator, pll, "Aggregates quant predictions")
     Rel(coord, dispatcher, "Applies consensus/voting/delegation")
+    Rel(router, kgfactory, "Materializes graph from KG templates")
+    Rel(kgfactory, dispatcher, "Provides topology + specialist configs")
+    Rel(agentrunner, kgfactory, "Materializes agent-specific graph")
+    Rel(agentrunner, router, "Resolves agent from KG, dispatches task")
+    Rel(pll, orchestrator, "Returns fused predictions")
 ```
 
 ### Pillar 2: Knowledge Graph (KG)
@@ -114,6 +123,8 @@ C4Component
         Component(loader, "Ontology Loader", "Python", "KG-2.7: owl:imports resolver with caching")
         Component(memory, "Memory Tiers", "Python", "Episodic, semantic, procedural memory")
         Component(ctxbudget, "🔬 Context Budget Optimizer", "Python", "KG-2.1: Root Theorem compaction. Research: 2604.20874v1")
+        Component(argraph, "🔬 AR-Graph", "Python", "KG-2.11: Dynamic Agent Relationship Graph")
+        Component(tsgraph, "🔬 Time-Series Graph", "Python", "KG-2.12: Temporal weighted decay graphs")
     }
 
     Rel(engine, backend, "Tier 1: Cypher persistence")
@@ -127,6 +138,8 @@ C4Component
     Rel(loader, ontology, "Resolves owl:imports")
     Rel(memory, engine, "CRUD for tiered memories")
     Rel(ctxbudget, memory, "Compacts recall results within budget")
+    Rel(engine, argraph, "Tracks inter-agent communication topologies")
+    Rel(engine, tsgraph, "Applies temporal decay to HNSW edges")
 ```
 
 ### Pillar 3: Agentic Harness (AHE)
@@ -141,12 +154,14 @@ C4Component
         Component(selfmodel, "Self-Model", "Python", "Dynamic capability self-assessment")
         Component(team, "TeamConfig Composer", "Python", "Coalition formation & promotion")
         Component(sdd, "DSTDD Manager", "Python", "Design-Spec-Test pipeline")
+        Component(dasm, "🔬 Distributed Agent State Manager", "Python", "AHE-3.7: Optimistic locking with optional Redis support")
     }
 
     Rel(eval, selfmodel, "Updates self-assessment scores")
     Rel(evolve, eval, "Triggers evolution on failure patterns")
     Rel(team, selfmodel, "Uses capability scores for composition")
     Rel(sdd, eval, "Validates features against KG integrity")
+    Rel(team, dasm, "Syncs concurrent agent state")
 ```
 
 ### Pillar 4: Ecosystem Peripherals (ECO)
@@ -162,12 +177,24 @@ C4Component
         Component(coord_a2a, "🔬 Coordinated A2A Skill", "Python", "ECO-4.1: A2A with coordination negotiation. Research: 2605.03310v1")
         Component(skill_mgr, "Skill Manager", "Python", "Dynamic tool loading and skill evolution")
         Component(bridge, "Ecosystem Bridge", "Python", "Cross-package integration")
+        Component(quantapi, "🔬 Quant Agent API (SAAPI)", "Python", "ECO-4.7: Base QuantAgentTemplate")
+        Component(dataflows, "🔬 Market Dataflows", "Python", "ECO-4.8: Temporal ticker stream connector")
+        Component(quant_mcp, "Unified Quant MCP Tool", "Python", "ECO-4.9: Single 'quant' tool routing to orchestrate, data, execute, portfolio")
+        Component(toolkit_ingest, "Agent Toolkit Ingestor", "Python", "ECO-4.10: Unified MCP/Skill/A2A ingestion with auto-detection")
+        Component(mcp_discover, "MCP Live Discovery", "Python", "ECO-4.11: Live list_tools() + KG cache + freshness verification")
     }
 
     Rel(mcp_factory, kg_mcp, "Creates KG MCP instance")
     Rel(kg_mcp, a2a, "Shares KG data across agent network")
     Rel(coord_a2a, a2a, "Extends with coordination protocol negotiation")
     Rel(skill_mgr, bridge, "Loads skills from universal-skills")
+    Rel(quantapi, a2a, "Provides trading execution interfaces")
+    Rel(dataflows, quantapi, "Streams continuous temporal events")
+    Rel(quant_mcp, dataflows, "Telemetry and Orders via SAAPI")
+    Rel(toolkit_ingest, mcp_discover, "Delegates live tool discovery")
+    Rel(toolkit_ingest, skill_mgr, "Ingests skill directories")
+    Rel(toolkit_ingest, a2a, "Fetches A2A agent cards")
+    Rel(mcp_discover, mcp_factory, "Connects to MCP servers via stdio")
 ```
 
 ### Pillar 5: Agent OS Kernel (OS)
@@ -260,6 +287,40 @@ flowchart LR
             ONT_PUB -->|"push"| STARDOG["Stardog / Fuseki"]
             STARDOG -->|"owl:imports"| ONT_LOAD["Ontology Loader"]
             ONT_LOAD -->|"merge"| KG_MATERIALIZE
+        end
+
+        subgraph MATERIALIZE ["KG Graph Materialization Flow (ORCH-1.20)"]
+            direction LR
+            QUERY_IN["User Query"] -->|"router_step"| KG_SEARCH["KG: Hybrid Search"]
+            KG_SEARCH -->|"AgentTemplate nodes"| TOPO_SORT["Factory: Topological Sort"]
+            TOPO_SORT -->|"DEPENDS_ON edges"| PROMPT_RESOLVE["Factory: Prompt Resolution"]
+            PROMPT_RESOLVE -->|"USES_PROMPT edges"| TOOL_BIND["Factory: Tool Binding"]
+            TOOL_BIND -->|"REQUIRES_TOOLSET edges"| GRAPH_BUILD["Factory: Graph Build"]
+            GRAPH_BUILD -->|"KGGraphResult"| DISPATCH_OUT["ORCH: Dispatcher"]
+        end
+
+        subgraph TOOLKIT ["Agent Toolkit Ingestion Flow (ECO-4.10 / ECO-4.11)"]
+            direction LR
+            TK_SRC["Sources: mcp_config.json / skill dirs / A2A URLs"] -->|"auto-detect"| TK_DETECT["Type Detector"]
+            TK_DETECT -->|"JSON + mcpServers"| TK_MCP["MCP Config Parser"]
+            TK_DETECT -->|"directory + SKILL.md"| TK_SKILL["Skill Parser"]
+            TK_DETECT -->|"http:// URL"| TK_A2A["A2A Card Fetcher"]
+            TK_MCP -->|"live connect"| TK_LIVE["ECO-4.11: Live list_tools()"]
+            TK_LIVE -->|"tool metadata"| TK_KG["KG: Server + CallableResource nodes"]
+            TK_MCP -->|"fallback"| TK_FLAGS["Tool Flag Parser"]
+            TK_FLAGS --> TK_KG
+            TK_SKILL --> TK_KG
+            TK_A2A -->|"/.well-known/agent.json"| TK_KG
+            TK_KG -->|"config hash"| TK_FRESH["Freshness Check"]
+        end
+
+        subgraph AGENT_EXEC ["Agent Execution Flow (ORCH-1.21)"]
+            direction LR
+            AE_CMD["graph_orchestrate: execute_agent"] -->|"agent_name"| AE_RESOLVE["KG: Agent Resolution"]
+            AE_RESOLVE -->|"Server/Skill/A2A nodes"| AE_CONFIG["Config Builder"]
+            AE_CONFIG -->|"tag_prompts + mcp_toolsets"| AE_GRAPH["create_graph_agent()"]
+            AE_GRAPH -->|"materialized graph"| AE_RUN["run_graph() → LM Studio"]
+            AE_RUN -->|"GraphResponse"| AE_TRACE["KG: RunTrace provenance"]
         end
     end
 ```

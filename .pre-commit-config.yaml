@@ -1,84 +1,106 @@
 exclude: ^scripts/
 repos:
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
-    hooks:
-      - id: check-added-large-files
-        args: ["--maxkb=2000"]
-        exclude: ^uv\.lock$|.*\.db$|.*\.bak$|.*\.sqlite$
-      - id: check-ast
-        exclude: ^(tests/|test/|scripts/|script/)
-      - id: check-yaml
-      - id: check-toml
-      - id: check-json
-      - id: fix-byte-order-marker
-        exclude: .gitignore
-      - id: check-merge-conflict
-      - id: detect-private-key
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
-    hooks:
-      - id: ruff
-        args: ["--fix", "--ignore=E402"]
-        exclude: ^(tests/|test/|scripts/|script/)
-      - id: ruff-format
-        exclude: ^(tests/|test/|scripts/|script/)
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.20.2
-    hooks:
-      - id: mypy
-        additional_dependencies: [pydantic, types-PyYAML, types-requests]
-        args: ["--ignore-missing-imports"]
-  - repo: https://github.com/jendrikseipp/vulture
-    rev: v2.16
-    hooks:
-      - id: vulture
-        pass_filenames: false
-        args: [ ".", "vulture_whitelist.py", "--min-confidence", "95", "--exclude", "node_modules,dotnet,.venv,build,tests" ]
-        require_serial: true
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.2
-    hooks:
-      - id: codespell
-        args: ["-L", "ans,linar,nam,tread,ot,disjointness", "--ignore-words=.codespellignore"]
-        exclude: ^(tests/|test/|scripts/|script/)
-  - repo: https://github.com/PyCQA/bandit
-    rev: 1.9.4
-    hooks:
-      - id: bandit
-        args: ["--skip", "B101,B404,B603"]
-        exclude: ^(tests/|test/|scripts/|script/|__tests__/|run_test\.py)
-  - repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.9.1
-    hooks:
-      - id: nbqa-ruff
-        args: ["--fix"]
-  - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.8
-    hooks:
-      - id: uv-lock
-  - repo: local
-    hooks:
-      - id: pytest
-        name: pytest
-        entry: bash -c 'export LADYBUG_MAX_DB_SIZE=1073741824; if [ -f uv.lock ]; then uv run --extra test pytest -v -s; else pytest -v -s; fi'
-        language: system
-        types: [python]
-        pass_filenames: false
-        always_run: true
-  - repo: https://github.com/AleksaC/hadolint-py
-    rev: v2.14.0
-    hooks:
-      - id: hadolint
-        args:
-          - --ignore=DL3008
-          - --ignore=DL3015
-          - --ignore=DL3009
-          - --ignore=DL4006
-          - --ignore=SC2102
-  - repo: https://github.com/IamTheFij/docker-pre-commit
-    rev: v3.0.1
-    hooks:
-      - id: docker-compose-check
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: check-added-large-files
+    args: ["--maxkb=2000"]
+    exclude: ^uv\.lock$|.*\.db$|.*\.bak$|.*\.sqlite$
+  - id: check-ast
+    exclude: ^(tests/|test/|scripts/|script/)
+  - id: check-yaml
+  - id: check-toml
+  - id: check-json
+  - id: fix-byte-order-marker
+    exclude: .gitignore
+  - id: check-merge-conflict
+  - id: detect-private-key
+  - id: trailing-whitespace
+  - id: end-of-file-fixer
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.15.12
+  hooks:
+  - id: ruff
+    args: ["--fix", "--ignore=E402"]
+    exclude: ^(tests/|test/|scripts/|script/)
+  - id: ruff-format
+    exclude: ^(tests/|test/|scripts/|script/)
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v1.20.2
+  hooks:
+  - id: mypy
+    additional_dependencies: [pydantic, types-PyYAML, types-requests]
+    args: ["--ignore-missing-imports"]
+- repo: https://github.com/jendrikseipp/vulture
+  rev: v2.16
+  hooks:
+  - id: vulture
+    pass_filenames: false
+    args: [".", "vulture_whitelist.py", "--min-confidence", "95", "--exclude", "node_modules,dotnet,.venv,build,tests"]
+    require_serial: true
+- repo: https://github.com/codespell-project/codespell
+  rev: v2.4.2
+  hooks:
+  - id: codespell
+    args: ["-L", "ans,linar,nam,tread,ot,disjointness", "--ignore-words=.codespellignore"]
+    exclude: ^(tests/|test/|scripts/|script/)
+- repo: https://github.com/PyCQA/bandit
+  rev: 1.9.4
+  hooks:
+  - id: bandit
+    args: ["--skip", "B101,B404,B603"]
+    exclude: ^(tests/|test/|scripts/|script/|__tests__/|run_test\.py)
+- repo: https://github.com/nbQA-dev/nbQA
+  rev: 1.9.1
+  hooks:
+  - id: nbqa-ruff
+    args: ["--fix"]
+- repo: https://github.com/astral-sh/uv-pre-commit
+  rev: 0.11.8
+  hooks:
+  - id: uv-lock
+- repo: local
+  hooks:
+  - id: pytest
+    name: pytest
+    entry: bash -c 'export LADYBUG_MAX_DB_SIZE=1073741824; if [ -f uv.lock ];
+      then uv run --extra test pytest -v -s; else pytest -v -s; fi'
+    language: system
+    types: [python]
+    pass_filenames: false
+    always_run: true
+  - id: check-agent-standards
+    name: check agent standards
+    entry: |-
+      bash -c 'for f in $(find . -type f -name "agent_server.py" -not -path "*/\.venv/*" -not -path "*/__pycache__/*"); do grep -q "warnings.filterwarnings" "$f" && grep -q "file=sys.stderr" "$f" || { echo "Missing warnings.filterwarnings or file=sys.stderr in $f"; exit 1; }; done'
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-cli-help
+    name: check cli help
+    entry: |-
+      bash -c 'for f in $(find . -type f \( -name "mcp_server.py" -o -name "agent_server.py" \) -not -path "*/\.venv/*" -not -path "*/__pycache__/*"); do mod=$(echo "$f" | sed -e "s/^\.\///" -e "s/\.py$//" -e "s/\//./g"); uv run python -m "$mod" --help >/dev/null || exit 1; done'
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-bumpversion
+    name: validate bumpversion config
+    entry: |-
+      bash -c 'if [ -f ".bumpversion.cfg" ]; then bump2version patch --dry-run --allow-dirty; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+- repo: https://github.com/AleksaC/hadolint-py
+  rev: v2.14.0
+  hooks:
+  - id: hadolint
+    args:
+    - --ignore=DL3008
+    - --ignore=DL3015
+    - --ignore=DL3009
+    - --ignore=DL4006
+    - --ignore=SC2102
+- repo: https://github.com/IamTheFij/docker-pre-commit
+  rev: v3.0.1
+  hooks:
+  - id: docker-compose-check

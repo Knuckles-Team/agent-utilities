@@ -20,6 +20,7 @@ fi
 uv run python "$SCRIPT_PATH" .kg_ingest_diff.patch || true
 """
 
+
 def install_hooks(workspace_path: Path):
     git_dir = workspace_path / ".git"
     if not git_dir.exists():
@@ -28,14 +29,15 @@ def install_hooks(workspace_path: Path):
 
     hooks_dir = git_dir / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
-    
+
     post_commit_path = hooks_dir / "post-commit"
     post_commit_path.write_text(HOOK_CONTENT)
-    
+
     # Make executable
     st = os.stat(post_commit_path)
     os.chmod(post_commit_path, st.st_mode | stat.S_IEXEC)
     print(f"Installed post-commit hook in {post_commit_path}")
+
 
 def main():
     workspace_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -43,9 +45,10 @@ def main():
     for item in workspace_root.iterdir():
         if item.is_dir() and (item / ".git").exists():
             install_hooks(item)
-    
+
     # Also check the agent-utilities repo itself
     install_hooks(workspace_root / "agent-packages" / "agent-utilities")
+
 
 if __name__ == "__main__":
     main()

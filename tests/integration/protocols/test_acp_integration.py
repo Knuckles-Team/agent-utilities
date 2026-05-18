@@ -33,7 +33,8 @@ async def test_acp_graph_integration():
     mock_result.results = {"output": "Graph processed this request"}
 
     with patch(
-        "agent_utilities.graph.protocol_agnostic_execution.execute_graph", return_value=mock_result
+        "agent_utilities.graph.protocol_agnostic_execution.execute_graph",
+        return_value=mock_result,
     ) as mock_execute:
         # Create the graph-backed ACP app
         graph_bundle: tuple[Any, ...] = (MagicMock(), {"mcp_toolsets": []})

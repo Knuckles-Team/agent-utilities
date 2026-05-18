@@ -53,15 +53,11 @@ class TestGoalSpecParsing:
         assert "removing indexes" in spec.constraints
 
     def test_validation_cmd_extraction_exits(self):
-        spec = GoalSpec.parse_goal_input(
-            "optimize code until npm test exits 0"
-        )
+        spec = GoalSpec.parse_goal_input("optimize code until npm test exits 0")
         assert spec.validation_cmd == "npm test"
 
     def test_validation_cmd_extraction_passes(self):
-        spec = GoalSpec.parse_goal_input(
-            "fix bugs until pytest passes"
-        )
+        spec = GoalSpec.parse_goal_input("fix bugs until pytest passes")
         assert spec.validation_cmd == "pytest"
 
     def test_raw_input_preserved(self):

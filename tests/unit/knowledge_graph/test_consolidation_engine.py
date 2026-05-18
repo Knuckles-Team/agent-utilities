@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """CONCEPT:KG-2.1"""
 
 """Tests for the Memory Consolidation Engine.

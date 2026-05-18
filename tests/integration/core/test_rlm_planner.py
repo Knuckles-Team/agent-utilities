@@ -25,7 +25,7 @@ async def test_router_rlm_trigger():
     deps.sub_agents = {}
     deps.event_queue = MagicMock()
     deps.message_history_cache = {}
-    deps.knowledge_engine = MagicMock()
+    deps.knowledge_engine = None
     deps.plan_sync = None
 
     ctx = MagicMock()
@@ -40,7 +40,8 @@ async def test_router_rlm_trigger():
 
         # Patch fetch_unified_context to return a large string
         with patch(
-            "agent_utilities.graph.steps.fetch_unified_context", new_callable=AsyncMock
+            "agent_utilities.graph.routing.fetch_unified_context",
+            new_callable=AsyncMock,
         ) as mock_fetch:
             mock_fetch.return_value = "A" * 60000
 

@@ -51,7 +51,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 ## Key Features
 
 - **Multi-Domain Architectural Pattern**: Transitioned `agent-utilities` to a Multi-Domain Expert System supporting modular expansion into `finance`, `medical`, `law`, and `science`. Domain integrations leverage Vectorized Topological Memory and the core Knowledge Graph, with heavy domain-specific dependencies optionally loaded via tags (e.g., `agent-utilities[finance]`).
-- **Quantitative Finance Framework**: Production-grade, KG-native financial framework designed for global asset classes (Crypto, Equities, Forex, Derivatives). Includes Stationary Feature Engineering (ADF tests), Topological TradingLSTM (sequence processing + networkx regimes), Walk-Forward Validation, Kelly Criterion sizing, and Kolmogorov-Smirnov shift detection.
+- **Quantitative Finance Framework**: Production-grade, KG-native financial framework designed for global asset classes (Crypto, Equities, Forex, Derivatives). Includes Stationary Feature Engineering (ADF tests), Topological TradingLSTM (sequence processing + networkx regimes), Walk-Forward Validation, Kelly Criterion sizing, and Kolmogorov-Smirnov shift detection. Orchestrated entirely via a **single, omnipotent `quant` MCP Tool**, dynamically routing across intelligence, data, execution, and portfolio risk domains to minimize LLM token bloat.
 - **Background Concept Research Daemon (CONCEPT:KG-2.6)**: Native, persistent background intelligence integration. Selects high-degree concepts and queues them for deep analysis using the configured inference model (configured via `model_registry_path` and `KG_INFERENCE_MODEL`).
 - **API Client Standardization**: Unified `api_client.py` file naming convention across the entire ecosystem, simplifying downstream imports and skill tooling.
 - **FIBO & Quant Ontology Alignment**: Extended `ontology.ttl` with `DomainEntity`, `ScientificEntity`, `LegalEntity`, and specialized finance classes (`FinancialInstrument`, `TradingStrategy`, `StationaryFeature`, `LSTMNetwork`, `MarketRegime`, `ExecutionSignal`, `KellySizing`).
@@ -71,7 +71,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Self-Correcting (CONCEPT:AHE-3.1)**: Verifier feedback loop with structured `ValidationResult` scoring. Low-quality results trigger re-dispatch with feedback injection and preserved message history.
 - **Self-Improving (CONCEPT:KG-2.1)**: Execution memory persisted natively to the Knowledge Graph after each run. Past failure patterns automatically inform future routing decisions via the Self-Model (CONCEPT:KG-2.1).
 - **Agentic Engineering Patterns (CONCEPT:AHE-3.2)**: Out-of-the-box support for **TDD Cycles** (Red-Green-Refactor), **First Run Tests** (baseline establishment), **Agentic Manual Testing** (exploratory verification), **Code Walkthroughs** (linear documentation), and **Interactive Explanations** (HTML/JS artifacts).
-- **Observability (CONCEPT:OS-5.4)**: Real-time **Graph Streaming** (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Early OTEL/logfire gate.
+- **Observability (CONCEPT:OS-5.4)**: Real-time **Graph Streaming** (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Native **Langfuse Tracing** with continuous learning loop evaluators, alongside OTEL/logfire gates.
 - **Direct Graph Execution (CONCEPT:ORCH-1.0)**: Protocol adapters (AG-UI, ACP) can bypass the outer LLM agent and invoke `graph.iter()` directly, eliminating one full inference round-trip per request. Controlled via `GRAPH_DIRECT_EXECUTION` env var.
 - **Specialist Discovery (CONCEPT:ECO-4.0)**: Automated discovery of domain specialists directly from the **Knowledge Graph**.
 - **Autonomous Memory Architecture (CONCEPT:KG-2.1)**: MAGMA-inspired orthogonal reasoning views (Semantic, Temporal, Causal, Entity) combined with Autonomous Self-Improvement loops. Unifies code awareness, chat memory, and **Research Knowledge Bases** (Medical, Chemistry, etc.) into a singular, schema-enforced graph. Cross-domain relationships emerge automatically through shared concepts. Supports unified ingestion of MCP, A2A, and Skill-based resources with automated importance scoring and temporal decay.
@@ -82,6 +82,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Unified Intelligence Graph (CONCEPT:ORCH-1.0)**: A powerful 15-phase topological pipeline that unifies **NetworkX** in-memory analysis with Cypher persistence. Enables deep structural codebase awareness, cross-repository symbol mapping, and long-term agent memory. Includes a **Hybrid OWL Reasoning Sidecar** for deterministic transitive inference and a **Graph Integrity Validator** for post-ingestion validation.
 - **Graph Database Abstraction (CONCEPT:KG-2.0)**: Out-of-the-box support for multiple Cypher-compatible backends including **LadybugDB** (default embedded), **FalkorDB**, and **Neo4j**.
 - **Graph-Native Ecosystem State (CONCEPT:KG-2.0)**: Flat-file management (`MEMORY.md`, `USER.md`, `HEARTBEAT.md`, `CRON.md`) has been fully deprecated. Agent memory, execution logs, client profiles, and background scheduled tasks are now stored natively as highly-relational nodes within the Knowledge Graph.
+- **Cross-Agent Observational Memory Bridge (CONCEPT:KG-2.10)**: Shared local memory layer across 10 terminal agents (Claude Code, Codex, Grok Build, Devin, Antigravity, Windsurf, OpenCode, agent-terminal-ui, Cowork, Hermes). KG is the source of truth; materialized Markdown files (`observations.md`, `reflections.md`, `profile.md`, `active.md`) provide inspectable, editable views at `~/.local/share/agent-utilities/memory/`. Bidirectional sync ensures user edits flow back to the KG. Includes LLM-powered Observer/Reflector pipeline, budgeted startup context injection via agent hooks (ECO-4.6), and `agent-utilities-memory` CLI.
 - **Automated Graph Maintenance (CONCEPT:KG-2.0)**: Built-in Cypher-driven maintenance routines (`maintenance.py`) that handle vector embedding enrichment, scheduled cron log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
 - **Confidence-Gated & Adaptive Model Routing (CONCEPT:ORCH-1.2)**: Adaptive model tier selection using runtime confidence signals from specialist consensus, plus fast-path model routing (`gpt-4o-mini`) for simple queries. High-confidence groups route to cheaper models; low-confidence groups escalate. Also leverages ACO pheromone trails to actively down-weight specialists with historically low success rates.
 - **Evolutionary Aggregation (CONCEPT:ORCH-1.2)**: Group-level diversity scoring with three-tier aggregation (majority vote / light synthesis / deep aggregation). Convergence-aware early stopping prevents diversity collapse in multi-loop specialist tasks.
@@ -149,6 +150,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Vectorized Context-Window Filtering (CONCEPT:KG-2.9)**: Semantically prunes non-relevant subgraph context before swapping models on token overflow, ensuring only contextually distant nodes are dropped.
 - **Topological Session Persistence (CONCEPT:OS-5.0)**: Pins the model for multi-turn conversations directly to the SessionNode to avoid jarring mid-thread model bouncing.
 - **KG-Driven Pydantic Graph Engine (CONCEPT:ORCH-1.4)**: Shifts from synthesizing graph configurations to dynamically polling the Knowledge Graph for state transitions at every step.
+- **KG Graph Materialization Factory (CONCEPT:ORCH-1.20)**: `build_pydantic_graph_from_kg()` factory that materializes executable pydantic-graph topologies from KG-stored `AgentTemplate` blueprints. Performs topological sort (Kahn's algorithm) on `DEPENDS_ON` edges, resolves prompts via `USES_PROMPT`, binds tools via `REQUIRES_TOOLSET`, and produces `KGGraphResult` structures with full provenance tracking. Integrated into the router hot path as a 3-stage strategy: TeamConfig match → KG Template materialization → LLM fallback.
 - **Ontological State Checkpointing (CONCEPT:KG-2.6)**: Persists Pydantic Graph active states as ExecutionStateNodes, enabling zero-latency resume and background agent handoffs.
 - **Adaptive Tool Provisioning (CONCEPT:ECO-4.0)**: Real-time provisioning of MCP tools, APIs, and native functions into an execution context strictly driven by KG capabilities.
 - **Graph-Native Team Evolution (CONCEPT:AHE-3.5)**: Analyzes historical execution traces to autonomously propose architectural topological mutations and capability expansions.
@@ -158,6 +160,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **Background Concept Research Daemon (CONCEPT:KG-2.6)**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via `kg_analyze(action="background_research")`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow. Configurable via `KG_INFERENCE_MODEL` and `KG_LLM_CONCURRENCY`.
 - **Multi-IDE Conversation Log Ingestion (CONCEPT:KG-2.1)**: Native ingestion pipeline for external IDE/agent conversation logs from Antigravity, Windsurf, Claude Code, and Codex. Creates `Thread`/`Message` nodes with temporal metadata and source provenance. Triggered via `kg_ingest(target_path='conversations')` or filtered with `kg_ingest(target_path='conversations:antigravity,windsurf')`.
 - **Disk-Aware DB Backup (CONCEPT:KG-2.0)**: Self-healing database management with disk-space-aware backups (skips if <1GB free), non-destructive WAL corruption recovery (preserves main DB, only cleans transient WAL/journal files), and configurable backup retention via `DEFAULT_KG_BACKUPS`.
+- **Super-Assimilation Evolution Pipeline (CONCEPT:KG-2.0 + AHE-3.2)**: Autonomous, KG-driven feature assimilation from external codebases and research papers. Ingests 60+ repositories via the 17-phase Intelligence Pipeline, preserves each codebase's `constitution.md` as KG PolicyNodes, and runs parallelized comparative analysis across all 5 pillars (ORCH, KG, AHE, ECO, OS) with 34-concept cross-referencing. Enforces the **Wire or Discard** heuristic: every assimilated feature MUST connect to an existing hot path within ≤3 hops, extend existing concepts (not duplicate), and produce zero dead code. Constitution rules from ingested codebases inform integration constraints during SDD plan generation.
 
 ## 🧠 Intelligence Graph
 
@@ -432,11 +435,27 @@ C4Container
 
 | Ecosystem Category | MCP Server | Tool / Agent |
 | :--- | :--- | :--- |
+| **Finance & Quant** | `graph-os` | `quant` (Unified Finance Suite) |
 | **Infrastructure** | `adguard-mcp` | AdGuard Home Agent |
 | **Infrastructure** | `systems-mcp` | Systems Manager |
 | **Development** | `github-mcp` | GitHub Agent |
 | **Development** | `gitlab-mcp` | GitLab API |
 | **Media & HomeLab** | `jellyfin-mcp` | Jellyfin Agent |
+
+### Cross-Agent Memory Bridge (KG-2.10)
+
+| MCP Tool | Action | Description |
+| :--- | :--- | :--- |
+| `graph_ingest` | `observe` | Process JSONL transcripts into KG observations |
+| `graph_ingest` | `materialize` | Render KG memory to 4 Markdown files |
+| `graph_ingest` | `sync` | Detect user edits and ingest back to KG |
+| `graph_ingest` | `reflect` | Condense observations into long-term reflections |
+| `graph_analyze` | `context` | Generate budgeted startup payload for agent hooks |
+| `graph_configure` | `install_hooks` | Install hooks into external agent configs |
+| `graph_configure` | `uninstall_hooks` | Remove hooks from external agents |
+| `graph_configure` | `doctor` | Verify hook installations and memory health |
+
+**CLI**: `agent-utilities-memory context|recall|observe|reflect|materialize|sync|install|uninstall|doctor|export`
 
 ### Human-in-the-Loop (Tool Approval & Elicitation)
 
@@ -991,9 +1010,10 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 
 | Guide | Description |
 | :--- | :--- |
-| [Overview Map](docs/overview.md) | The Concept Galaxy — 33 canonical concepts, query lifecycle, concept index |
+| [Overview Map](docs/overview.md) | The Concept Galaxy — 34 canonical concepts, query lifecycle, concept index |
 | [Concept Map](docs/concept_map.md) | Canonical concept registry (single source of truth) |
 | [C4 Architecture](docs/pillars/architecture_c4.md) | System context, container, and component diagrams |
+| [Evolution Pipeline](docs/overview.md#evolution-pipeline--super-assimilation-architecture) | Assimilation governance, wire-or-discard heuristic, 4-phase pipeline |
 
 ### Pillar Deep-Dives
 

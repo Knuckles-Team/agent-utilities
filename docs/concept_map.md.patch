@@ -1,0 +1,9 @@
+--- docs/concept_map.md
++++ docs/concept_map.md
+@@ -47,6 +47,7 @@
+ | `KG-2.6` | Domain: Finance | 46 | 31 | [KG-2.6](pillars/2_epistemic_knowledge_graph/KG-2.6-Domain_Finance.md) |
+ | `KG-2.7` | Research Intelligence | 2 | 0 | [KG-2.7](pillars/2_epistemic_knowledge_graph/KG-2.7-Research_Intelligence.md) |
+ | `KG-2.8` | Domain: Enterprise | 13 | 2 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
++| `KG-2.9` | Quant Orchestration (Debate/Fusion) | 6 | 2 | [KG-2.9](pillars/2_epistemic_knowledge_graph/KG-2.9-Quant_Orchestration.md) |
+ | `KG-2.9` | External Graph Federation | 1 | 0 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
+ | `KG-2.10` | Observational Memory Bridge 🔬 | 4 | 1 | [KG-2.10](pillars/2_epistemic_knowledge_graph/KG-2.10-Observational_Memory_Bridge.md) |

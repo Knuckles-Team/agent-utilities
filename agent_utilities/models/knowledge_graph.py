@@ -278,6 +278,13 @@ class RegistryNodeType(StrEnum):
     # Context Graph Architecture (CONCEPT:KG-2.7)
     ARCHITECTURE_DECISION = "architecture_decision"
     ARCHIMATE_ELEMENT = "archimate_element"
+    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.20)
+    AGENT_TEMPLATE = "agent_template"
+    # Observational Memory Bridge (CONCEPT:KG-2.10)
+    OBSERVATION_RECORD = "observation_record"
+    USER_PROFILE = "user_profile"
+    ACTIVE_CONTEXT = "active_context"
+    MEMORY_MATERIALIZATION_EVENT = "memory_materialization_event"
 
 
 class RegistryEdgeType(StrEnum):
@@ -615,6 +622,15 @@ class RegistryEdgeType(StrEnum):
     # Context Graph Architecture — ADR edges (CONCEPT:KG-2.7)
     IMPACTS_CONCEPT = "impacts_concept"
     ALTERNATIVES_TO = "alternatives_to"
+    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.20)
+    REQUIRES_TOOLSET = "requires_toolset"
+    COMPATIBLE_WITH_MODEL = "compatible_with_model"
+    HAS_RESULT_TYPE = "has_result_type"
+    # Observational Memory Bridge (CONCEPT:KG-2.10)
+    MATERIALIZED_AS = "materialized_as"
+    OBSERVED_THROUGH = "observed_through"
+    REFLECTED_FROM = "reflected_from"
+    PROFILE_ATTRIBUTE = "profile_attribute"
 
 
 class RegistryNode(BaseModel):
@@ -1271,6 +1287,38 @@ class SystemPromptNode(RegistryNode):
     tags: list[str] = Field(default_factory=list)
     parameters: dict[str, Any] = Field(default_factory=dict)
     source: str  # MANUAL, GENERATED, etc.
+
+
+class AgentTemplateNode(RegistryNode):
+    """KG node that declaratively defines a pydantic-graph step.
+
+    CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+
+    Each AgentTemplateNode maps 1:1 to a dynamically instantiated
+    BaseNode subclass in the materialized pydantic-graph. The KG
+    edges (USES_PROMPT, REQUIRES_TOOLSET, DEPENDS_ON,
+    COMPATIBLE_WITH_MODEL) fully specify the step's configuration.
+
+    Attributes:
+        role: Specialist role tag (e.g., 'researcher', 'coder').
+        system_prompt_id: FK → Prompt node for system prompt resolution.
+        toolset_ids: FK → Tool/CallableResource nodes for MCP binding.
+        model_preference: Preferred model ID (routing policy gets final say).
+        execution_tier: LLM tier hint: lite | standard | super.
+        step_order: Ordering hint for sequential graphs.
+        is_parallel: Whether this step can run in parallel with peers.
+        max_retries: Maximum retry attempts on failure.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_TEMPLATE
+    role: str = ""
+    system_prompt_id: str = ""
+    toolset_ids: list[str] = Field(default_factory=list)
+    model_preference: str = ""
+    execution_tier: str = "standard"
+    step_order: int = 0
+    is_parallel: bool = False
+    max_retries: int = 2
 
 
 # --- Self-Improvement & Learning Nodes ---

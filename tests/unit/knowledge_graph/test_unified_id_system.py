@@ -38,18 +38,35 @@ class TestOntologicalIdentifierManager:
         entity_id = OntologicalIdentifierManager.generate_entity_id(doc_id, "PERSON", 0)
         assert entity_id == f"{doc_id}_entity_PERSON_0000"
 
-        entity_id_5 = OntologicalIdentifierManager.generate_entity_id(doc_id, "ORGANIZATION", 5)
+        entity_id_5 = OntologicalIdentifierManager.generate_entity_id(
+            doc_id, "ORGANIZATION", 5
+        )
         assert entity_id_5 == f"{doc_id}_entity_ORGANIZATION_0005"
 
     def test_is_ontological_identifier(self):
         """Test unified ID validation."""
-        assert OntologicalIdentifierManager.is_ontological_identifier("doc_1234567890abcdef") is True
-        assert OntologicalIdentifierManager.is_ontological_identifier("doc_1234567890abcdef_chunk_0000") is True
         assert (
-            OntologicalIdentifierManager.is_ontological_identifier("doc_1234567890abcdef_entity_PERSON_0000")
+            OntologicalIdentifierManager.is_ontological_identifier(
+                "doc_1234567890abcdef"
+            )
             is True
         )
-        assert OntologicalIdentifierManager.is_ontological_identifier("not_a_doc_id") is False
+        assert (
+            OntologicalIdentifierManager.is_ontological_identifier(
+                "doc_1234567890abcdef_chunk_0000"
+            )
+            is True
+        )
+        assert (
+            OntologicalIdentifierManager.is_ontological_identifier(
+                "doc_1234567890abcdef_entity_PERSON_0000"
+            )
+            is True
+        )
+        assert (
+            OntologicalIdentifierManager.is_ontological_identifier("not_a_doc_id")
+            is False
+        )
         assert OntologicalIdentifierManager.is_ontological_identifier("") is False
         assert OntologicalIdentifierManager.is_ontological_identifier("12345") is False
 
@@ -76,8 +93,13 @@ class TestOntologicalIdentifierManager:
         doc_id = "doc_1234567890abcdef1234567890abcdef"
 
         assert OntologicalIdentifierManager.get_id_type(doc_id) == "document"
-        assert OntologicalIdentifierManager.get_id_type(f"{doc_id}_chunk_0000") == "chunk"
-        assert OntologicalIdentifierManager.get_id_type(f"{doc_id}_entity_PERSON_0000") == "entity"
+        assert (
+            OntologicalIdentifierManager.get_id_type(f"{doc_id}_chunk_0000") == "chunk"
+        )
+        assert (
+            OntologicalIdentifierManager.get_id_type(f"{doc_id}_entity_PERSON_0000")
+            == "entity"
+        )
         assert OntologicalIdentifierManager.get_id_type("invalid") is None
 
     def test_parse_chunk_id(self):

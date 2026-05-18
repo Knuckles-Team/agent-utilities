@@ -23,11 +23,14 @@ Append-only compliance audit trail with 30+ action constants, never-raise semant
 # Telemetry & Observability (CONCEPT:OS-5.4)
 
 ## Overview
-Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Early OTEL/logfire gate.
+Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Early OTEL/logfire gate. Includes Native Langfuse Tracing hooks via `@trace` decorators and automated continuous improvement dataset promotion.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/observability/telemetry.py``
+- **Source Code**: ``agent_utilities/observability/telemetry.py``, ``agent_utilities/harness/tracing.py``, ``agent_utilities/harness/evaluators.py``
 - **Pillar**: OS
+
+## Native Langfuse Integration
+`agent-utilities` integrates directly with the Langfuse API client (`langfuse-agent`) to provide zero-overhead, batch-flushed tracing. By providing `LANGFUSE_SECRET_KEY` in the environment, agents automatically push traces, metrics, and LLM-as-a-judge scores. Traces that fall below `LANGFUSE_DATASET_CAPTURE_THRESHOLD` are automatically promoted to Langfuse Datasets to enable closed-loop continuous improvement.
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*

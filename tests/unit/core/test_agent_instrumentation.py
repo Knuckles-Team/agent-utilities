@@ -10,6 +10,7 @@ AGENTS_DIR = WORKSPACE_ROOT / "agent-packages" / "agents"
 
 import pytest
 
+
 @pytest.mark.skip(reason="Obsolete after Action-Routed migration")
 def test_instrumentation_presence():
 

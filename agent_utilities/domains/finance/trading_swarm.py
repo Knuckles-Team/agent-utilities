@@ -27,6 +27,10 @@ class SwarmRole(StrEnum):
     PATTERN_ANALYST = "pattern_analyst"
     TREND_ANALYST = "trend_analyst"
     SENTIMENT_ANALYST = "sentiment_analyst"
+    BULL_RESEARCHER = "bull_researcher"
+    BEAR_RESEARCHER = "bear_researcher"
+    FUNDAMENTAL_ANALYST = "fundamental_analyst"
+    NEWS_ANALYST = "news_analyst"
 
 
 class SwarmDecision(StrEnum):
@@ -91,6 +95,10 @@ class SwarmConfig:
             SwarmRole.PATTERN_ANALYST: 0.8,
             SwarmRole.TREND_ANALYST: 0.9,
             SwarmRole.SENTIMENT_ANALYST: 0.7,
+            SwarmRole.BULL_RESEARCHER: 1.1,
+            SwarmRole.BEAR_RESEARCHER: 1.1,
+            SwarmRole.FUNDAMENTAL_ANALYST: 1.0,
+            SwarmRole.NEWS_ANALYST: 0.8,
         }
     )
 

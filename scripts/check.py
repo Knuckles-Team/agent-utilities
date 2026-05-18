@@ -1,6 +1,7 @@
-import sys
 import asyncio
 import subprocess
+import sys
+
 
 async def main():
     process = await asyncio.create_subprocess_exec(
@@ -14,5 +15,6 @@ async def main():
     stdout, stderr = await process.communicate()
     print("STDOUT:", stdout.decode())
     print("STDERR:", stderr.decode())
+
 
 asyncio.run(main())

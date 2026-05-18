@@ -34,6 +34,8 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any
 
+from agent_utilities.core.config import config
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +47,7 @@ class TraceBackend(ABC):
     """
 
     @abstractmethod
-    async def get_traces(self, round_id: str, **filters: Any) -> list[dict[str, Any]]:
+    async def get_traces(self, round_id: str, **_filters: Any) -> list[dict[str, Any]]:
         """Retrieve traces for a specific evolution round.
 
         Args:
@@ -106,9 +108,19 @@ class LangfuseTraceBackend(TraceBackend):
         """Lazy-load the Langfuse API client."""
         if self._api is None:
             try:
-                from langfuse_agent.langfuse_api import LangfuseAPI
+                from langfuse_agent.api_client import LangfuseApi
 
-                self._api = LangfuseAPI()
+                if not config.langfuse_public_key or not config.langfuse_secret_key:
+                    raise ValueError(
+                        "LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY not set in configuration."
+                    )
+                host = config.langfuse_host or "https://cloud.langfuse.com"
+
+                self._api = LangfuseApi(
+                    public_key=config.langfuse_public_key,
+                    secret_key=config.langfuse_secret_key,
+                    host=host,
+                )
                 logger.info("LangfuseTraceBackend: API client initialized.")
             except ImportError:
                 raise ImportError(
@@ -117,21 +129,21 @@ class LangfuseTraceBackend(TraceBackend):
                 ) from None
         return self._api
 
-    async def get_traces(self, round_id: str, **filters: Any) -> list[dict[str, Any]]:
+    async def get_traces(self, round_id: str, **_filters: Any) -> list[dict[str, Any]]:
         """Retrieve traces from Langfuse for an evolution round.
 
-        Uses the ``tags`` filter to match traces tagged with the round_id,
-        or falls back to session-based filtering.
+        Uses the `tags` filter to match traces tagged with the round_id.
         """
         api = self._get_api()
         try:
-            # Try to get traces tagged with this round
-            if hasattr(api, "get_traces_for_round"):
-                return await api.get_traces_for_round(round_id, **filters)
-
-            # Fallback: use standard trace listing with tag filter
-            traces = api.list_traces(tags=[round_id], **filters)
-            return traces if isinstance(traces, list) else []
+            # LangfuseApi.observations_get_many expects trace/observation queries
+            # Wait, api_client.py provides `observations_get_many` which can filter by tag if supported,
+            # or `legacy_observations_v1_get_many`. Actually we can filter by `traceName` or `tags`.
+            # Let's pass the tag or traceName as filter.
+            response = api.observations_get_many(
+                type="TRACE", filter=f"tags='{round_id}'", limit=100
+            )
+            return response.get("data", [])
         except Exception as e:
             logger.error(f"LangfuseTraceBackend: Failed to get traces: {e}")
             return []
@@ -140,26 +152,70 @@ class LangfuseTraceBackend(TraceBackend):
         """Get a lightweight trace summary from Langfuse."""
         api = self._get_api()
         try:
-            if hasattr(api, "get_trace_summary"):
-                return await api.get_trace_summary(trace_id)
+            response = api.observations_get_many(
+                trace_id=trace_id, limit=1, fields="core,basic,metrics"
+            )
+            data = response.get("data", [])
+            if not data:
+                return {"id": trace_id, "error": "not_found"}
 
-            # Fallback: fetch full trace and extract summary fields
-            trace = api.get_trace(trace_id)
+            trace = data[0]
             return {
                 "id": trace.get("id", trace_id),
                 "name": trace.get("name", ""),
-                "status": trace.get("status", "unknown"),
+                "status": trace.get("statusMessage") or "unknown",
                 "duration_ms": trace.get("latency", 0),
-                "input_tokens": trace.get("input", {}).get("token_count", 0),
-                "output_tokens": trace.get("output", {}).get("token_count", 0),
-                "score": trace.get("scores", [{}])[0].get("value", 0.0)
-                if trace.get("scores")
-                else 0.0,
+                "input_tokens": trace.get("usageDetails", {}).get("input", 0)
+                if trace.get("usageDetails")
+                else 0,
+                "output_tokens": trace.get("usageDetails", {}).get("output", 0)
+                if trace.get("usageDetails")
+                else 0,
+                "score": 0.0,  # Would need a separate score fetch
                 "error": trace.get("statusMessage"),
             }
         except Exception as e:
             logger.error(f"LangfuseTraceBackend: Failed to get trace summary: {e}")
             return {"id": trace_id, "error": str(e)}
+
+    async def submit_score(
+        self, trace_id: str, name: str, value: float, comment: str | None = None
+    ) -> bool:
+        """Submit an evaluation score for a trace."""
+        api = self._get_api()
+        try:
+            payload = {"traceId": trace_id, "name": name, "value": value}
+            if comment:
+                payload["comment"] = comment
+            api.legacy_score_v1_create(payload)
+            return True
+        except Exception as e:
+            logger.error(f"LangfuseTraceBackend: Failed to submit score: {e}")
+            return False
+
+    async def add_to_dataset(
+        self,
+        dataset_name: str,
+        trace_id: str,
+        input_data: Any = None,
+        expected_output: Any = None,
+    ) -> bool:
+        """Add a trace to a Langfuse dataset for continuous learning."""
+        api = self._get_api()
+        try:
+            payload = {
+                "datasetName": dataset_name,
+                "sourceTraceId": trace_id,
+                "input": input_data,
+                "expectedOutput": expected_output,
+            }
+            api.dataset_items_create(payload)
+            return True
+        except Exception as e:
+            logger.error(
+                f"LangfuseTraceBackend: Failed to add trace {trace_id} to dataset {dataset_name}: {e}"
+            )
+            return False
 
     async def get_trace_scores(self, trace_ids: list[str]) -> dict[str, float]:
         """Batch-fetch scores from Langfuse."""
@@ -193,7 +249,7 @@ class OTelTraceBackend(TraceBackend):
         self.endpoint = endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
         self.export_dir = export_dir
 
-    async def get_traces(self, round_id: str, **filters: Any) -> list[dict[str, Any]]:
+    async def get_traces(self, round_id: str, **_filters: Any) -> list[dict[str, Any]]:
         """Retrieve traces from OTel/Logfire.
 
         If an export directory is configured, reads from JSON files.
@@ -247,7 +303,7 @@ class FileTraceBackend(TraceBackend):
     def __init__(self, trace_dir: str) -> None:
         self.trace_dir = trace_dir
 
-    async def get_traces(self, round_id: str, **filters: Any) -> list[dict[str, Any]]:
+    async def get_traces(self, round_id: str, **_filters: Any) -> list[dict[str, Any]]:
         """Load traces from JSON files in the trace directory."""
         import json
 
@@ -308,10 +364,12 @@ def create_trace_backend(
         return FileTraceBackend(trace_dir=kwargs.get("trace_dir", "."))
 
     # Auto-detect
-    if os.environ.get("LANGFUSE_SECRET_KEY"):
+    if config.langfuse_secret_key or os.environ.get("LANGFUSE_SECRET_KEY"):
         logger.info("TraceBackend: Auto-detected Langfuse credentials.")
         return LangfuseTraceBackend()
-    if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+    if config.otel_exporter_otlp_endpoint or os.environ.get(
+        "OTEL_EXPORTER_OTLP_ENDPOINT"
+    ):
         logger.info("TraceBackend: Auto-detected OTel endpoint.")
         return OTelTraceBackend(**kwargs)
 

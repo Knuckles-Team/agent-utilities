@@ -46,6 +46,7 @@ from ..orchestration.engine_infra import InfrastructureEngineMixin
 from ..orchestration.engine_ml_rlm import MachineLearningEngineMixin
 from ..orchestration.engine_query import QueryMixin
 from .engine_ingestion import IngestionMixin
+from .engine_mcp_discovery import MCPDiscoveryMixin
 from .engine_memory import MemoryMixin
 from .engine_registry import FocusedSubgraph, RegistryMixin
 from .engine_tasks import TaskManagerMixin
@@ -76,6 +77,7 @@ class IntelligenceGraphEngine(
     QueryMixin,
     MemoryMixin,
     IngestionMixin,
+    MCPDiscoveryMixin,
     AHEMixin,
     RegistryMixin,
     FederationMixin,

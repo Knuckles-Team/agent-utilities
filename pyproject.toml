@@ -148,7 +148,9 @@ science = []
 law = []
 government = []
 postgresql = [
-    "psycopg[binary]>=3.2.0"
+    "psycopg[binary]>=3.2.0",
+    "psycopg-pool>=3.2.0",
+    "pgvector>=0.3.0"
 ]
 test = [
     "hypothesis>=6.152.1",
@@ -170,6 +172,7 @@ all = [
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:main"
+agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
 
 [tool.setuptools]
 include-package-data = true

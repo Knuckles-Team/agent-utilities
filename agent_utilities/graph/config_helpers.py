@@ -462,6 +462,12 @@ _PHASE_MAP: dict[str, str] = {
     "council_advisor_complete": "COUNCIL",
     "council_reviewer_complete": "COUNCIL",
     "council_completed": "COUNCIL",
+    # ── KG-Driven Graph Materialization (CONCEPT:ORCH-1.20) ─────────────
+    "kg_query_start": "KG_BRIDGE",
+    "kg_query_complete": "KG_BRIDGE",
+    "kg_template_resolved": "KG_BRIDGE",
+    "kg_prompt_injected": "KG_BRIDGE",
+    "kg_topology_materialized": "KG_BRIDGE",
 }
 
 

@@ -190,3 +190,66 @@ The Agent OS is a multi-subsystem architecture where the **Active Knowledge Grap
 7. **Execution (ECO-4.0)**: Specialists interact with MCP servers or Universal Skills.
 8. **Verification (AHE-3.1)**: Quality scoring with feedback loop on `< 0.7`.
 9. **Persistence (KG-2.0)**: Traces/evaluations stored into the Knowledge Graph.
+
+## Evolution Pipeline — Super-Assimilation Architecture
+
+The evolution pipeline (`agent-utilities-evolution`) provides autonomous, KG-driven
+assimilation of external codebases and research papers into the `agent-utilities` core.
+
+### Assimilation Heuristic
+
+All assimilation follows the **Wire or Discard** principle:
+
+1. **Wire-First**: Every feature MUST connect to an existing hot path (≤3 hops from entry point)
+2. **Extend, Don't Duplicate**: Overlap ≥ 0.7 similarity → extend existing CONCEPT:ID
+3. **No Dead Code**: No live call path → rejected
+4. **Constitution Preservation**: External codebases' governance rules are ingested as PolicyNodes
+
+### 4-Phase Pipeline
+
+```mermaid
+flowchart TD
+    A[Phase 1: Ecosystem Ingestion] --> B[Phase 2: Assimilation Codification]
+    B --> C[Phase 3: Parallel Comparative Analysis]
+    C --> D[Phase 4: SDD Plan Generation]
+
+    subgraph P1 [Phase 1: Ingestion]
+        A1[agent-packages] --> A3[IntelligencePipeline]
+        A2[open-source-libraries] --> A3
+        A3 --> A4[PolicyIngestor: Constitution Rules]
+    end
+
+    subgraph P3 [Phase 3: Analysis]
+        C1[ORCH Background Research] --> C6[Synthesis]
+        C2[KG Background Research] --> C6
+        C3[AHE Background Research] --> C6
+        C4[ECO Background Research] --> C6
+        C5[OS Background Research] --> C6
+        C6 --> C7[Concept Cross-Reference Matrix]
+    end
+
+    subgraph P4 [Phase 4: SDD]
+        D1[Feature Recommendations] --> D2[Wiring Audit]
+        D2 --> D3[Constitution Compliance]
+        D3 --> D4[SDD Implementation Plan]
+    end
+```
+
+### Integration Points
+
+| Component | Role in Evolution |
+|-----------|------------------|
+| `PolicyIngestor` (KG-2.2) | Ingests external constitutions as PolicyNodes |
+| `IntelligencePipeline` (KG-2.0) | Bulk codebase ingestion via 17-phase pipeline |
+| `graph_analyze` (KG-2.0) | Parallelized L1→L2→L3→OWL analysis per pillar |
+| `concept_map.md` | Source of truth for 34 canonical concepts to cross-reference |
+| `constitution.md` | Assimilation Governance rules enforced during SDD |
+
+### KG Node Types
+
+| Node Type | Purpose |
+|-----------|---------|
+| `EvolutionCycle` | Tracks each evolution pipeline run with metrics |
+| `SDDPlan` | Generated implementation plan from analysis |
+| `ResearchTopic` | Topics detected for research scanning |
+| `PolicyNode` | Constitution rules from ingested codebases |

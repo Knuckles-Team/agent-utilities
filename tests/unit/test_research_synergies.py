@@ -57,7 +57,9 @@ def test_single_shot_sira(mock_engine):
 
 
 def test_voi_budget_controller():
-    controller = VOIBudgetController(engine=MagicMock(spec=IntelligenceGraphEngine), base_budget=100)
+    controller = VOIBudgetController(
+        engine=MagicMock(spec=IntelligenceGraphEngine), base_budget=100
+    )
 
     # Should continue early on
     assert controller.should_continue_traversal(10) is True
@@ -105,9 +107,7 @@ def test_experience_alignment(mock_engine):
     alignment = ExperienceAlignmentEngine(mock_engine)
     alignment.ingest_experience(exp)
     mock_engine.add_node.assert_called_once_with(
-        node_id=exp.id,
-        node_type="Experience",
-        properties=exp.model_dump()
+        node_id=exp.id, node_type="Experience", properties=exp.model_dump()
     )
 
     # Test retrieval

@@ -58,7 +58,6 @@ class MockStream:
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(strict=False, reason=_LIFECYCLE_XFAIL_REASON)
-
 async def test_full_graph_lifecycle():
     # 1. Initialize graph
     with (
@@ -110,7 +109,10 @@ async def test_full_graph_lifecycle():
     with (
         patch.object(Agent, "run", new=mock_run_call),
         patch.object(Agent, "run_stream", new=mock_run_stream),
-        patch("agent_utilities.graph.dynamic_graph_orchestrator.create_model", return_value=MagicMock()),
+        patch(
+            "agent_utilities.graph.dynamic_graph_orchestrator.create_model",
+            return_value=MagicMock(),
+        ),
         patch(
             "agent_utilities.graph.steps.fetch_unified_context", return_value="context"
         ),
@@ -124,7 +126,6 @@ async def test_full_graph_lifecycle():
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(strict=False, reason=_LIFECYCLE_XFAIL_REASON)
-
 async def test_graph_parallel_and_fallback():
     # 1. Initialize graph
     with (
@@ -201,14 +202,20 @@ async def test_graph_parallel_and_fallback():
 
         if agent_self.output_type == GraphPlan:
             m = MagicMock()
-            out = plan_a if test_graph_parallel_and_fallback.routed_count == 0 else plan_b
+            out = (
+                plan_a if test_graph_parallel_and_fallback.routed_count == 0 else plan_b
+            )
             test_graph_parallel_and_fallback.routed_count += 1
             m.data = out
             m.output = out
             return m
         elif agent_self.output_type == ValidationResult:
             m = MagicMock()
-            val_out = validation_fail if test_graph_parallel_and_fallback.verified_count == 0 else validation_ok
+            val_out = (
+                validation_fail
+                if test_graph_parallel_and_fallback.verified_count == 0
+                else validation_ok
+            )
             test_graph_parallel_and_fallback.verified_count += 1
             m.data = val_out
             m.output = val_out
@@ -219,7 +226,10 @@ async def test_graph_parallel_and_fallback():
     with (
         patch.object(Agent, "run", new=mock_run_call),
         patch.object(Agent, "run_stream", new=mock_run_stream),
-        patch("agent_utilities.graph.dynamic_graph_orchestrator.create_model", return_value=MagicMock()),
+        patch(
+            "agent_utilities.graph.dynamic_graph_orchestrator.create_model",
+            return_value=MagicMock(),
+        ),
         patch(
             "agent_utilities.graph.steps.fetch_unified_context", return_value="context"
         ),

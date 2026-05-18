@@ -63,6 +63,12 @@ from .hsm import (
     run_orthogonal_regions,
     static_route_query,
 )
+from .kg_graph_factory import (
+    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.20)
+    KGGraphResult,
+    KGMaterializedStep,
+    build_pydantic_graph_from_kg,
+)
 from .memory_cache import (
     MemoryCache,
     TrajectoryEntry,
@@ -168,4 +174,8 @@ __all__ = [
     "TrajectoryReward",
     "StepOutcome",
     "TrajectoryOutcome",
+    # CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+    "build_pydantic_graph_from_kg",
+    "KGGraphResult",
+    "KGMaterializedStep",
 ]

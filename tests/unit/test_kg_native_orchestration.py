@@ -45,7 +45,13 @@ class TestKGTeamComposer:
         composer = KGTeamComposer(engine=None)
         team = composer.compose_team("Analyze this codebase architecture", complexity=4)
         assert len(team.adaptive_agent_router) >= 1
-        assert team.execution_mode in ("sequential", "mixed", "parallel", "fan_out", "fan_in")
+        assert team.execution_mode in (
+            "sequential",
+            "mixed",
+            "parallel",
+            "fan_out",
+            "fan_in",
+        )
 
     def test_compose_finance_domain(self):
         from agent_utilities.graph.team_composer import KGTeamComposer
@@ -503,7 +509,9 @@ class TestKGNativeModels:
 
         team = TeamComposition(
             team_id="team:test",
-            adaptive_agent_router=[{"role": "expert", "agent_id": "a1", "tools": ["search"]}],
+            adaptive_agent_router=[
+                {"role": "expert", "agent_id": "a1", "tools": ["search"]}
+            ],
             execution_mode="parallel",
             confidence=0.85,
         )

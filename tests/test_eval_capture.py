@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for KG Eval Capture harness.
 
 CONCEPT:AHE-3.1

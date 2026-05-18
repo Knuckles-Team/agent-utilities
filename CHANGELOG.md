@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Super-Assimilation Evolution Pipeline (CONCEPT:KG-2.0 + AHE-3.2)** — Constitution-governed, KG-driven feature assimilation framework for ingesting 60+ external repositories and research papers:
+  - **Assimilation Governance** section added to `constitution.md`: Wire-First (≤3 hops), Extend Don't Duplicate (≥0.7 similarity), No Dead Code, Constitution Preservation, Unified Downstream.
+  - **Constitution Preservation**: External codebases' `constitution.md`/`CONSTITUTION.md` ingested as tagged `PolicyNode` entries for cross-project rule synthesis.
+  - **4-Phase Pipeline**: Ecosystem Ingestion → Assimilation Codification → Parallel Comparative Analysis (5 pillar-parallel background_research jobs) → SDD Plan Generation.
+  - **34-Concept Cross-Reference Matrix**: Every canonical concept cross-referenced against all ingested codebases for targeted innovation extraction.
+  - **Evolution Pipeline docs** added to `docs/overview.md` with Mermaid architecture diagram, integration point table, and KG node type catalog.
+  - **README updated** with feature entry and documentation reference link.
+
 - **CONCEPT:KG-2.7: Enterprise Knowledge Architecture** — Full enterprise-grade SPARQL federation, modular ontology, and governance validation:
   - **SDD Ontology Layer** (`ontology_sdd.ttl`) — 10 new OWL classes (Specification, SoftwareFeature, Requirement, UserStory, AcceptanceCriteria, SoftwareComponent, APIContract, TestCase, DesignGuideline, ComplianceConstraint) with 9 object/datatype properties. All mapped to ArchiMate 3.2.
   - **Enterprise Core Ontology** (`ontology_enterprise.ttl`) — Standalone importable module with ArchiMate 3.2 layer hierarchy, ADR decision traces, governance properties, and enterprise integration points (LeanIX, ARIS).

@@ -120,7 +120,7 @@ class HybridRetriever:
                 try:
                     res = self.engine.backend.execute(
                         f"CALL QUERY_VECTOR_INDEX('{table}', '{idx_name}', $emb, $k) "
-                        f"YIELD node, score RETURN node as data, score",
+                        f"YIELD node, distance RETURN node as data, (1.0 - distance) as score",
                         {"emb": query_emb, "k": top_k * 3},
                     )
 

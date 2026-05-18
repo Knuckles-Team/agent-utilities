@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """CONCEPT:AHE-3.1 — Prompt Integrity Tests.
 
 Validates the structural integrity and consistency of all JSON prompt

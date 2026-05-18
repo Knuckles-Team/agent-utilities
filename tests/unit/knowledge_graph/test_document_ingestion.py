@@ -51,7 +51,9 @@ class TestDocumentIngestionPipeline:
         assert pipeline.id_manager == id_manager
         assert pipeline.id_registry == id_registry
 
-    @patch("agent_utilities.knowledge_graph.distillation.distillation_engine.chunk_text")
+    @patch(
+        "agent_utilities.knowledge_graph.distillation.distillation_engine.chunk_text"
+    )
     def test_chunk_document(self, mock_chunk_text):
         """Test document chunking."""
         knowledge_graph = MagicMock()

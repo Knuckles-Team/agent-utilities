@@ -1,144 +1,821 @@
-from __future__ import annotations
+"""PostgreSQL + pgGraph + pgvector + ParadeDB Backend (CONCEPT:OS-5.0).
 
-"""PostgreSQL + Apache AGE Graph Backend (CONCEPT:OS-5.0).
-
-Production-grade backend using PostgreSQL with the Apache AGE
-graph extension for Cypher query support. Suitable for
-10-1000 concurrent agents with full ACID transactions.
+Production-grade backend combining:
+- PostgreSQL relational tables for node/edge storage
+- pgGraph extension for graph traversal (BFS/DFS, shortest path)
+- pgvector for embedding storage and cosine similarity search
+- ParadeDB BM25 / native FTS for lexical search
+- psycopg connection pooling for multi-agent concurrency
 
 Requires: pip install agent-utilities[postgresql]
 """
 
+from __future__ import annotations
 
 import logging
+import os
+import time
+from contextlib import contextmanager
 from typing import Any
 
 from .base import GraphBackend
 
 logger = logging.getLogger(__name__)
 
+# Embedding dimension from env (must match model output)
+_EMBEDDING_DIM = int(os.environ.get("KG_EMBEDDING_DIM", "768"))
+
 
 class PostgreSQLBackend(GraphBackend):
-    """PostgreSQL + Apache AGE graph backend.
-
-    Uses the AGE (A Graph Extension) for PostgreSQL to provide
-    Cypher query support with full ACID transaction guarantees.
-
-    This backend is designed for production deployments requiring:
-    - Multi-writer concurrent access
-    - Full ACID transactions
-    - Horizontal read scaling via replicas
-    - Point-in-time recovery
+    """PostgreSQL backend with pgGraph, pgvector, and ParadeDB.
 
     Args:
         dsn: PostgreSQL connection string.
-        graph_name: AGE graph name. Default: "agent_graph".
+        graph_name: Logical graph name (used for pgGraph schema prefix).
+        pool_min: Minimum pool connections.
+        pool_max: Maximum pool connections.
+        pggraph_schema: Schema name for pgGraph registration.
     """
 
     def __init__(
         self,
         dsn: str = "postgresql://localhost:5432/agent_utilities",
         graph_name: str = "agent_graph",
+        pool_min: int = 2,
+        pool_max: int = 10,
+        pggraph_schema: str | None = None,
     ) -> None:
         self._dsn = dsn
         self._graph_name = graph_name
-        self._connection: Any = None
+        self._pool_min = pool_min
+        self._pool_max = pool_max
+        self._pggraph_schema = pggraph_schema or os.environ.get(
+            "GRAPH_PGGRAPH_SCHEMA", "public"
+        )
+        self._pool: Any = None
+        self._known_tables: set[str] = set()
+        self._pggraph_available: bool | None = None  # lazy check
+        self._pgvector_available: bool | None = None
+        self._paradedb_available: bool | None = None
         logger.info("PostgreSQLBackend initialized (dsn=%s, graph=%s)", dsn, graph_name)
 
-    def _ensure_connection(self) -> Any:
-        """Lazy connection initialization."""
-        if self._connection is None:
-            try:
-                import psycopg
+    # ── Connection Pool ─────────────────────────────────────────────
 
-                self._connection = psycopg.connect(self._dsn)
-                logger.info("Connected to PostgreSQL")
-            except ImportError:
-                raise ImportError(
-                    "PostgreSQL backend requires psycopg. "
-                    "Install with: pip install agent-utilities[postgresql]"
-                ) from None
-        return self._connection
+    def _ensure_pool(self) -> Any:
+        """Lazy pool initialization with retry."""
+        if self._pool is not None:
+            return self._pool
+        try:
+            from psycopg_pool import ConnectionPool
+
+            self._pool = ConnectionPool(
+                self._dsn,
+                min_size=self._pool_min,
+                max_size=self._pool_max,
+                open=True,
+                kwargs={"autocommit": False},
+            )
+            logger.info(
+                "PostgreSQL connection pool opened (min=%d, max=%d)",
+                self._pool_min,
+                self._pool_max,
+            )
+        except ImportError:
+            # Fallback to single connection if pool not installed
+            import psycopg
+
+            self._pool = _SingleConnPool(psycopg.connect(self._dsn))
+            logger.info("PostgreSQL single connection (psycopg_pool not installed)")
+        return self._pool
+
+    @contextmanager
+    def _conn(self):
+        """Get a connection from the pool."""
+        pool = self._ensure_pool()
+        if isinstance(pool, _SingleConnPool):
+            yield pool.conn
+            try:
+                pool.conn.commit()
+            except Exception:
+                pool.conn.rollback()
+        else:
+            with pool.connection() as conn:
+                yield conn
+
+    # ── Extension Detection ──────────────────────────────────────────
+
+    def _check_extension(self, name: str) -> bool:
+        """Check if a PostgreSQL extension is available."""
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM pg_extension WHERE extname = %s", (name,)
+                    )
+                    return cur.fetchone() is not None
+        except Exception:
+            return False
+
+    @property
+    def pggraph_available(self) -> bool:
+        if self._pggraph_available is None:
+            self._pggraph_available = self._check_extension("pggraph")
+            if self._pggraph_available:
+                logger.info("pgGraph extension detected")
+            else:
+                logger.info(
+                    "pgGraph extension not available — graph traversal disabled"
+                )
+        return self._pggraph_available
+
+    @property
+    def pgvector_available(self) -> bool:
+        if self._pgvector_available is None:
+            self._pgvector_available = self._check_extension("vector")
+        return self._pgvector_available
+
+    @property
+    def paradedb_available(self) -> bool:
+        if self._paradedb_available is None:
+            self._paradedb_available = self._check_extension("pg_search")
+        return self._paradedb_available
+
+    # ── Schema Management ────────────────────────────────────────────
+
+    def create_schema(self) -> None:
+        """Create PostgreSQL tables from the unified graph schema."""
+        from agent_utilities.models.schema_definition import SCHEMA
+
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                # Enable extensions
+                for ext in ("vector", "pg_trgm"):
+                    try:
+                        cur.execute(f"CREATE EXTENSION IF NOT EXISTS {ext}")
+                    except Exception as e:
+                        logger.debug("Extension %s not available: %s", ext, e)
+                        conn.rollback()
+
+                # Create node tables
+                for table_def in SCHEMA.nodes:
+                    cols = self._translate_columns(table_def.columns)
+                    ddl = f'CREATE TABLE IF NOT EXISTS "{table_def.name}" ({cols})'
+                    try:
+                        cur.execute(ddl)
+                    except Exception as e:
+                        logger.debug("Table %s DDL error: %s", table_def.name, e)
+                        conn.rollback()
+                    self._known_tables.add(table_def.name)
+
+                # Create unified edge table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS kg_edges (
+                        source_id TEXT NOT NULL,
+                        target_id TEXT NOT NULL,
+                        rel_type TEXT NOT NULL,
+                        properties JSONB DEFAULT '{}'::jsonb,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        PRIMARY KEY (source_id, target_id, rel_type)
+                    )
+                """)
+
+                # Create indexes on edge table
+                for idx_sql in (
+                    "CREATE INDEX IF NOT EXISTS idx_edges_source ON kg_edges(source_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_edges_target ON kg_edges(target_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_edges_type ON kg_edges(rel_type)",
+                ):
+                    try:
+                        cur.execute(idx_sql)
+                    except Exception:
+                        conn.rollback()
+
+                conn.commit()
+
+        # Register with pgGraph if available
+        if self.pggraph_available:
+            self._register_pggraph()
+
+        logger.info(
+            "PostgreSQL schema initialized (%d tables)", len(self._known_tables)
+        )
+
+    def _translate_columns(self, columns: dict[str, str]) -> str:
+        """Translate schema column definitions to PostgreSQL DDL."""
+        type_map = {
+            "STRING": "TEXT",
+            "STRING PRIMARY KEY": "TEXT PRIMARY KEY",
+            "INT64": "BIGINT",
+            "FLOAT": "DOUBLE PRECISION",
+            "BOOLEAN": "BOOLEAN",
+            "STRING[]": "TEXT[]",
+        }
+        parts = []
+        for col_name, col_type in columns.items():
+            if col_type.startswith("FLOAT["):
+                # Embedding column → pgvector
+                dim = col_type.split("[")[1].rstrip("]")
+                pg_type = (
+                    f"vector({dim})"
+                    if self.pgvector_available
+                    else "DOUBLE PRECISION[]"
+                )
+            else:
+                pg_type = type_map.get(col_type, "TEXT")
+            parts.append(f'"{col_name}" {pg_type}')
+        return ", ".join(parts)
+
+    def _register_pggraph(self) -> None:
+        """Register tables and edges with pgGraph extension."""
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    for tbl in sorted(self._known_tables):
+                        # Get searchable text columns
+                        searchable = self._get_text_columns(cur, tbl)
+                        cols_array = (
+                            "ARRAY[" + ", ".join(f"'{c}'" for c in searchable) + "]"
+                            if searchable
+                            else "NULL"
+                        )
+                        try:
+                            cur.execute(f"""
+                                SELECT graph.add_table(
+                                    table_name := '{self._pggraph_schema}.{tbl}'::regclass,
+                                    id_column := 'id',
+                                    columns := {cols_array}
+                                )
+                            """)
+                        except Exception as e:
+                            logger.debug("pgGraph add_table %s failed: %s", tbl, e)
+                            conn.rollback()
+
+                    # Register edge table as edges
+                    try:
+                        cur.execute("""
+                            SELECT graph.add_edge(
+                                from_table := 'kg_edges'::regclass,
+                                from_column := 'source_id',
+                                to_table := 'kg_edges'::regclass,
+                                to_column := 'target_id',
+                                label := 'rel_type',
+                                label_column := 'rel_type',
+                                bidirectional := true
+                            )
+                        """)
+                    except Exception as e:
+                        logger.debug("pgGraph edge registration failed: %s", e)
+                        conn.rollback()
+
+                    # Build the graph index
+                    try:
+                        cur.execute("SELECT * FROM graph.build()")
+                        conn.commit()
+                        logger.info("pgGraph index built successfully")
+                    except Exception as e:
+                        logger.debug("pgGraph build failed: %s", e)
+                        conn.rollback()
+        except Exception as e:
+            logger.warning("pgGraph registration failed (non-fatal): %s", e)
+
+    def _get_text_columns(self, cur: Any, table: str) -> list[str]:
+        """Get TEXT columns for a table (for pgGraph search registration)."""
+        target = ("name", "description", "content", "summary", "type", "status")
+        try:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = %s AND data_type = 'text' "
+                "AND column_name = ANY(%s)",
+                (table, list(target)),
+            )
+            return [row[0] for row in cur.fetchall()]
+        except Exception:
+            return []
+
+    # ── Cypher Execution (Transpiled to SQL) ─────────────────────────
 
     def execute(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Execute a Cypher query via Apache AGE."""
-        conn = self._ensure_connection()
-        with conn.cursor() as cur:
-            # AGE requires wrapping Cypher in SELECT * FROM cypher()
-            age_query = f"SELECT * FROM cypher('{self._graph_name}', $$ {query} $$) AS (result agtype)"  # nosec
-            cur.execute(age_query)
-            rows = cur.fetchall()
-            return [{"result": row[0]} for row in rows]
+        """Execute a Cypher query by transpiling to SQL."""
+        from .cypher_transpiler import QueryType, transpile
+
+        params = params or {}
+        tq = transpile(query, params, self._known_tables)
+
+        if tq.query_type == QueryType.UNKNOWN:
+            logger.debug("Skipping unknown Cypher pattern: %.120s", query)
+            return []
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with self._conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(tq.sql, tq.params)
+
+                        if tq.query_type in (
+                            QueryType.SELECT,
+                            QueryType.LABEL_LOOKUP,
+                            QueryType.COUNT,
+                        ):
+                            cols = (
+                                [desc.name for desc in cur.description]
+                                if cur.description
+                                else []
+                            )
+                            rows = cur.fetchall()
+                            results = []
+                            for row in rows:
+                                d = dict(zip(cols, row, strict=False))
+                                # Wrap in node alias if engine expects {n: {...}}
+                                if tq.node_alias and tq.query_type == QueryType.SELECT:
+                                    results.append({tq.node_alias: d})
+                                else:
+                                    results.append(d)
+                            return results
+
+                        elif tq.query_type == QueryType.UPDATE:
+                            if cur.description:
+                                cols = [desc.name for desc in cur.description]
+                                rows = cur.fetchall()
+                                return [dict(zip(cols, r, strict=False)) for r in rows]
+                            return [{"affected": cur.rowcount}] if cur.rowcount else []
+
+                        elif tq.query_type in (
+                            QueryType.INSERT,
+                            QueryType.UPSERT_EDGE,
+                            QueryType.DELETE,
+                        ):
+                            conn.commit()
+                            return []
+
+                        return []
+            except Exception as e:
+                msg = str(e).lower()
+                if ("lock" in msg or "deadlock" in msg) and attempt < max_retries - 1:
+                    wait = (2**attempt) * 0.1
+                    logger.warning(
+                        "PG locked, retrying in %.2fs (attempt %d)", wait, attempt + 1
+                    )
+                    time.sleep(wait)
+                    continue
+                logger.error("PostgreSQL execute error: %s | SQL: %.200s", e, tq.sql)
+                return []
+        return []  # All retries exhausted
 
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Execute batch Cypher queries."""
-        results = []
-        for params in batch:
-            results.extend(self.execute(query, params))
+        """Execute a Cypher query over a batch of parameters."""
+        from .cypher_transpiler import QueryType, transpile
+
+        if not batch:
+            return []
+
+        results: list[dict[str, Any]] = []
+        chunk_size = 500
+
+        for i in range(0, len(batch), chunk_size):
+            chunk = batch[i : i + chunk_size]
+            try:
+                with self._conn() as conn:
+                    with conn.cursor() as cur:
+                        for params in chunk:
+                            tq = transpile(query, params, self._known_tables)
+                            if tq.query_type == QueryType.UNKNOWN:
+                                continue
+                            cur.execute(tq.sql, tq.params)
+                    conn.commit()
+            except Exception as e:
+                logger.error("Batch execute error at chunk %d: %s", i, e)
+
         return results
 
-    def create_schema(self) -> None:
-        """Initialize AGE graph and required labels."""
-        conn = self._ensure_connection()
-        with conn.cursor() as cur:
-            cur.execute("CREATE EXTENSION IF NOT EXISTS age")
-            cur.execute(f"SELECT create_graph('{self._graph_name}')")
-            conn.commit()
-        logger.info("PostgreSQL AGE schema initialized")
+    # ── Vector Operations ────────────────────────────────────────────
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        """Store embedding using pgvector extension."""
-        conn = self._ensure_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO node_embeddings (node_id, embedding) "
-                "VALUES (%s, %s) ON CONFLICT (node_id) DO UPDATE SET embedding = %s",
-                (node_id, embedding, embedding),
-            )
-            conn.commit()
+        """Store embedding in the node's vector column."""
+        if not self.pgvector_available:
+            logger.debug("pgvector not available — skipping embedding for %s", node_id)
+            return
+
+        # Find which table has this node
+        table = self._find_node_table(node_id)
+        if not table:
+            return
+
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f'UPDATE "{table}" SET embedding = %s::vector WHERE id = %s',
+                        (str(embedding), node_id),
+                    )
+                    conn.commit()
+        except Exception as e:
+            logger.debug("add_embedding failed for %s: %s", node_id, e)
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
     ) -> list[dict[str, Any]]:
-        """Vector similarity search via pgvector."""
-        conn = self._ensure_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT node_id, 1 - (embedding <=> %s::vector) AS similarity "
-                "FROM node_embeddings ORDER BY embedding <=> %s::vector LIMIT %s",
-                (query_embedding, query_embedding, n_results),
+        """Cosine similarity search across all tables with embeddings."""
+        if not self.pgvector_available:
+            return []
+
+        results: list[dict[str, Any]] = []
+        embedding_str = str(query_embedding)
+
+        # Tables known to have embedding columns
+        embedding_tables = self._get_embedding_tables()
+
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    for tbl in embedding_tables:
+                        try:
+                            cur.execute(
+                                f"SELECT *, 1 - (embedding <=> %s::vector) AS _similarity "
+                                f'FROM "{tbl}" WHERE embedding IS NOT NULL '
+                                f"ORDER BY embedding <=> %s::vector LIMIT %s",
+                                (embedding_str, embedding_str, n_results),
+                            )
+                            cols = [d.name for d in cur.description]
+                            for row in cur.fetchall():
+                                d = dict(zip(cols, row, strict=False))
+                                d["_table_label"] = tbl
+                                results.append(d)
+                        except Exception:
+                            continue
+        except Exception as e:
+            logger.error("semantic_search error: %s", e)
+
+        results.sort(key=lambda x: x.get("_similarity", 0), reverse=True)
+        return results[:n_results]
+
+    def lexical_search(self, query: str, n_results: int = 10) -> list[dict[str, Any]]:
+        """BM25/FTS search using ParadeDB or native PostgreSQL FTS."""
+        results: list[dict[str, Any]] = []
+        text_tables = [
+            t
+            for t in self._known_tables
+            if t
+            in (
+                "Article",
+                "Memory",
+                "Code",
+                "Agent",
+                "Tool",
+                "Skill",
+                "KBConcept",
+                "KBFact",
+                "Message",
+                "Concept",
             )
-            return [{"id": row[0], "_similarity": row[1]} for row in cur.fetchall()]
+        ]
+
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    for tbl in text_tables:
+                        try:
+                            if self.paradedb_available:
+                                cur.execute(
+                                    f"""SELECT *, paradedb.rank_bm25(id) AS _score
+                                    FROM "{tbl}"
+                                    WHERE "{tbl}" @@@ paradedb.parse(%s)
+                                    ORDER BY _score DESC LIMIT %s""",
+                                    (query, n_results),
+                                )
+                            else:
+                                # Native FTS fallback
+                                cur.execute(
+                                    f"""SELECT *, ts_rank(
+                                        to_tsvector('english', COALESCE(name,'') || ' ' || COALESCE(description,'') || ' ' || COALESCE(content,'')),
+                                        plainto_tsquery('english', %s)
+                                    ) AS _score
+                                    FROM "{tbl}"
+                                    WHERE to_tsvector('english', COALESCE(name,'') || ' ' || COALESCE(description,'') || ' ' || COALESCE(content,''))
+                                        @@ plainto_tsquery('english', %s)
+                                    ORDER BY _score DESC LIMIT %s""",
+                                    (query, query, n_results),
+                                )
+                            cols = [d.name for d in cur.description]
+                            for row in cur.fetchall():
+                                d = dict(zip(cols, row, strict=False))
+                                d["_table_label"] = tbl
+                                results.append(d)
+                        except Exception:
+                            continue
+        except Exception as e:
+            logger.debug("lexical_search error: %s", e)
+
+        results.sort(key=lambda x: x.get("_score", 0), reverse=True)
+        return results[:n_results]
+
+    def build_vector_indices(self) -> None:
+        """Create HNSW indexes on embedding columns."""
+        if not self.pgvector_available:
+            return
+        for tbl in self._get_embedding_tables():
+            try:
+                with self._conn() as conn:
+                    with conn.cursor() as cur:
+                        idx_name = f"idx_{tbl.lower()}_embedding_hnsw"
+                        cur.execute(
+                            f"CREATE INDEX IF NOT EXISTS {idx_name} "
+                            f'ON "{tbl}" USING hnsw (embedding vector_cosine_ops)'
+                        )
+                        conn.commit()
+                        logger.info("HNSW index created on %s", tbl)
+            except Exception as e:
+                logger.debug("HNSW index on %s failed: %s", tbl, e)
+
+    # ── pgGraph Operations ───────────────────────────────────────────
+
+    def graph_traverse(
+        self,
+        seed_table: str,
+        seed_id: str,
+        max_depth: int = 2,
+        direction: str = "any",
+        hydrate: bool = True,
+        max_rows: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Traverse the graph using pgGraph's CSR index."""
+        if not self.pggraph_available:
+            return []
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """SELECT * FROM graph.traverse(
+                            seed_table := %s::regclass,
+                            seed_id := %s,
+                            max_depth := %s,
+                            direction := %s,
+                            hydrate := %s,
+                            max_rows := %s
+                        )""",
+                        (
+                            f"{self._pggraph_schema}.{seed_table}",
+                            seed_id,
+                            max_depth,
+                            direction,
+                            hydrate,
+                            max_rows,
+                        ),
+                    )
+                    cols = [d.name for d in cur.description]
+                    return [
+                        dict(zip(cols, row, strict=False)) for row in cur.fetchall()
+                    ]
+        except Exception as e:
+            logger.error("pgGraph traverse error: %s", e)
+            return []
+
+    def graph_shortest_path(
+        self,
+        source_table: str,
+        source_id: str,
+        target_table: str,
+        target_id: str,
+        max_depth: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Find shortest path using pgGraph."""
+        if not self.pggraph_available:
+            return []
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """SELECT * FROM graph.shortest_path(
+                            %s::regclass, %s,
+                            %s::regclass, %s,
+                            max_depth := %s, hydrate := true
+                        )""",
+                        (
+                            f"{self._pggraph_schema}.{source_table}",
+                            source_id,
+                            f"{self._pggraph_schema}.{target_table}",
+                            target_id,
+                            max_depth,
+                        ),
+                    )
+                    cols = [d.name for d in cur.description]
+                    return [
+                        dict(zip(cols, row, strict=False)) for row in cur.fetchall()
+                    ]
+        except Exception as e:
+            logger.error("pgGraph shortest_path error: %s", e)
+            return []
+
+    def graph_search(
+        self,
+        property_key: str,
+        property_value: str,
+        table_filter: str | None = None,
+        max_rows: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Search graph nodes using pgGraph's search API."""
+        if not self.pggraph_available:
+            return []
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    tbl_clause = (
+                        f"table_filter := '{self._pggraph_schema}.{table_filter}'::regclass,"
+                        if table_filter
+                        else ""
+                    )
+                    cur.execute(
+                        f"""
+                        SELECT * FROM graph.search(
+                            property_key := %s,
+                            property_value := %s,
+                            {tbl_clause}
+                            mode := 'contains',
+                            case_sensitive := false,
+                            max_rows := %s,
+                            hydrate := true
+                        )
+                    """,
+                        (property_key, property_value, max_rows),
+                    )
+                    cols = [d.name for d in cur.description]
+                    return [
+                        dict(zip(cols, row, strict=False)) for row in cur.fetchall()
+                    ]
+        except Exception as e:
+            logger.error("pgGraph search error: %s", e)
+            return []
+
+    def graph_build(self) -> dict[str, Any]:
+        """Rebuild the pgGraph CSR index."""
+        if not self.pggraph_available:
+            return {"status": "skipped", "reason": "pgGraph not available"}
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM graph.build()")
+                    cols = [d.name for d in cur.description]
+                    row = cur.fetchone()
+                    conn.commit()
+                    return dict(zip(cols, row, strict=False)) if row else {}
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+    def graph_status(self) -> dict[str, Any]:
+        """Get pgGraph engine status."""
+        if not self.pggraph_available:
+            return {"available": False}
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT * FROM graph.status()")
+                    cols = [d.name for d in cur.description]
+                    row = cur.fetchone()
+                    return dict(zip(cols, row, strict=False)) if row else {}
+        except Exception as e:
+            return {"available": True, "error": str(e)}
+
+    # ── Pruning ──────────────────────────────────────────────────────
 
     def prune(self, criteria: dict[str, Any]) -> None:
-        """Prune nodes matching criteria."""
-        logger.info("Pruning with criteria: %s", criteria)
+        """Prune nodes by timestamp or importance_score threshold."""
+        max_age = criteria.get("max_age")
+        min_importance = criteria.get("min_importance")
+
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    for tbl in self._known_tables:
+                        conditions = []
+                        values: list[Any] = []
+                        if max_age:
+                            conditions.append('"timestamp" < %s')
+                            values.append(max_age)
+                        if min_importance is not None:
+                            conditions.append('"importance_score" < %s')
+                            values.append(min_importance)
+                        # Never prune permanent nodes
+                        conditions.append('COALESCE("is_permanent", false) = false')
+
+                        if conditions:
+                            where = " AND ".join(conditions)
+                            # Cascade: delete edges first
+                            cur.execute(
+                                f"DELETE FROM kg_edges WHERE source_id IN "
+                                f'(SELECT id FROM "{tbl}" WHERE {where}) '
+                                f"OR target_id IN "
+                                f'(SELECT id FROM "{tbl}" WHERE {where})',
+                                values + values,
+                            )
+                            cur.execute(f'DELETE FROM "{tbl}" WHERE {where}', values)
+                    conn.commit()
+                    logger.info("Pruning complete with criteria: %s", criteria)
+        except Exception as e:
+            logger.error("Prune error: %s", e)
+
+    # ── Lifecycle ────────────────────────────────────────────────────
 
     def close(self) -> None:
-        """Close the database connection."""
-        if self._connection:
-            self._connection.close()
-            self._connection = None
-            logger.info("PostgreSQL connection closed")
+        """Close the connection pool."""
+        if self._pool is not None:
+            if isinstance(self._pool, _SingleConnPool):
+                self._pool.close()
+            else:
+                self._pool.close()
+            self._pool = None
+            logger.info("PostgreSQL connection pool closed")
 
     def health_check(self) -> bool:
         """Check database connectivity."""
         try:
-            conn = self._ensure_connection()
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
             return True
         except Exception:
             return False
 
     def get_stats(self) -> dict[str, Any]:
         """Return database statistics."""
-        return {
+        stats: dict[str, Any] = {
             "backend": "postgresql",
             "graph_name": self._graph_name,
-            "connected": self._connection is not None,
+            "tables": len(self._known_tables),
+            "pgvector": self.pgvector_available,
+            "pggraph": self.pggraph_available,
+            "paradedb": self.paradedb_available,
         }
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    total_nodes = 0
+                    for tbl in self._known_tables:
+                        try:
+                            cur.execute(f'SELECT COUNT(*) FROM "{tbl}"')
+                            total_nodes += cur.fetchone()[0]
+                        except Exception:
+                            continue
+                    cur.execute("SELECT COUNT(*) FROM kg_edges")
+                    total_edges = cur.fetchone()[0]
+                    stats["total_nodes"] = total_nodes
+                    stats["total_edges"] = total_edges
+        except Exception:
+            pass
+
+        if self.pggraph_available:
+            stats["pggraph_status"] = self.graph_status()
+
+        return stats
+
+    # ── Helpers ───────────────────────────────────────────────────────
+
+    def _find_node_table(self, node_id: str) -> str | None:
+        """Find which table contains a node by ID."""
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    for tbl in self._known_tables:
+                        cur.execute(
+                            f'SELECT 1 FROM "{tbl}" WHERE id = %s LIMIT 1',
+                            (node_id,),
+                        )
+                        if cur.fetchone():
+                            return tbl
+        except Exception:
+            pass
+        return None
+
+    def _get_embedding_tables(self) -> list[str]:
+        """Get tables that have an embedding column."""
+        tables = []
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT table_name FROM information_schema.columns "
+                        "WHERE column_name = 'embedding' AND table_schema = %s",
+                        (self._pggraph_schema,),
+                    )
+                    tables = [
+                        r[0] for r in cur.fetchall() if r[0] in self._known_tables
+                    ]
+        except Exception:
+            pass
+        return tables
+
+
+class _SingleConnPool:
+    """Minimal shim when psycopg_pool is not installed."""
+
+    def __init__(self, conn: Any):
+        self.conn = conn
+
+    def close(self):
+        try:
+            self.conn.close()
+        except Exception:
+            pass

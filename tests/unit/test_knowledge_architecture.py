@@ -74,9 +74,7 @@ class TestSPARQL:
         assert triple_count > 0, "RDF graph should have triples"
 
         # Should have at least 6 type triples (one per node)
-        type_triples = list(
-            rdf_graph.triples((None, None, None))
-        )
+        type_triples = list(rdf_graph.triples((None, None, None)))
         assert len(type_triples) >= 6, f"Expected >= 6 triples, got {len(type_triples)}"
 
     def test_sparql_select_by_type(self, sample_graph, mock_owl_backend):
@@ -99,9 +97,7 @@ class TestSPARQL:
         bridge = OWLBridge(graph=sample_graph, owl_backend=mock_owl_backend)
 
         # Query without explicit PREFIX — should be auto-injected
-        results = bridge.query_sparql(
-            "SELECT ?s WHERE { ?s a au:Tool }"
-        )
+        results = bridge.query_sparql("SELECT ?s WHERE { ?s a au:Tool }")
 
         assert len(results) >= 1, "Should find at least 1 tool"
 
@@ -111,9 +107,7 @@ class TestSPARQL:
 
         bridge = OWLBridge(graph=sample_graph, owl_backend=mock_owl_backend)
 
-        results = bridge.query_sparql(
-            "ASK { ?s a au:Agent }"
-        )
+        results = bridge.query_sparql("ASK { ?s a au:Agent }")
 
         assert isinstance(results, list)
         assert len(results) >= 1
@@ -223,7 +217,13 @@ class TestArchiMate:
         layer = ArchiMateLayer()
         all_layers = layer.get_all_layers()
 
-        expected_layers = {"business", "application", "technology", "strategy", "motivation"}
+        expected_layers = {
+            "business",
+            "application",
+            "technology",
+            "strategy",
+            "motivation",
+        }
         assert set(all_layers.keys()) == expected_layers
 
         for layer_name, members in all_layers.items():
@@ -366,7 +366,12 @@ class TestArchitectureDecisionRecords:
         """ADR authority field accepts various sources."""
         from agent_utilities.models.knowledge_graph import ArchitectureDecisionRecord
 
-        for authority in ["user", "evolution_daemon", "policy:no-delete", "team:platform"]:
+        for authority in [
+            "user",
+            "evolution_daemon",
+            "policy:no-delete",
+            "team:platform",
+        ]:
             adr = ArchitectureDecisionRecord(
                 id=f"adr-auth-{authority}",
                 name="Test",
@@ -376,13 +381,17 @@ class TestArchitectureDecisionRecords:
 
     def test_adr_owl_promotion(self):
         """ADR node type should be in PROMOTABLE_NODE_TYPES."""
-        from agent_utilities.knowledge_graph.core.owl_bridge import PROMOTABLE_NODE_TYPES
+        from agent_utilities.knowledge_graph.core.owl_bridge import (
+            PROMOTABLE_NODE_TYPES,
+        )
 
         assert "architecture_decision" in PROMOTABLE_NODE_TYPES
 
     def test_adr_edge_types_promotable(self):
         """ADR edge types should be in PROMOTABLE_EDGE_TYPES."""
-        from agent_utilities.knowledge_graph.core.owl_bridge import PROMOTABLE_EDGE_TYPES
+        from agent_utilities.knowledge_graph.core.owl_bridge import (
+            PROMOTABLE_EDGE_TYPES,
+        )
 
         assert "impacts_concept" in PROMOTABLE_EDGE_TYPES
         assert "alternatives_to" in PROMOTABLE_EDGE_TYPES
@@ -557,8 +566,10 @@ class TestSHACLValidation:
 
         assert result["conforms"] is True
         # Either "not found" (pyshacl present) or "not installed" (pyshacl missing)
-        assert ("not found" in result["results_text"] or
-                "not installed" in result["results_text"])
+        assert (
+            "not found" in result["results_text"]
+            or "not installed" in result["results_text"]
+        )
 
     def test_shacl_parse_violations(self):
         """Should parse violation text into structured dicts."""
@@ -774,9 +785,7 @@ class TestOntologyLoader:
 
         loader = OntologyLoader(cache_dir=tmp_path)
 
-        path = loader._uri_to_local_path(
-            "http://knuckles.team/kg/enterprise", tmp_path
-        )
+        path = loader._uri_to_local_path("http://knuckles.team/kg/enterprise", tmp_path)
         assert path is not None
         assert path.name == "ontology_enterprise.ttl"
 

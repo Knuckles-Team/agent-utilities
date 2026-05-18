@@ -15,9 +15,13 @@ def graph_engine():
     yield engine
     backend.close()
 
+
 from unittest.mock import patch, MagicMock
 
-@patch("agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model")
+
+@patch(
+    "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
+)
 def test_mcp_server_ingestion_and_discovery(mock_create_model, graph_engine):
     mock_model = MagicMock()
     mock_model.get_text_embedding.return_value = [0.1] * 768
