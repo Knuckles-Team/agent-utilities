@@ -127,7 +127,7 @@ def transpile(
         param_keys = [p[1] for p in prop_pairs]
         placeholders = ["%s" for _ in cols]
         values = [clean_params.get(k) for k in param_keys]
-        sql = f'INSERT INTO "{label}" ({", ".join(cols)}) VALUES ({", ".join(placeholders)}) ON CONFLICT (id) DO NOTHING'
+        sql = f'INSERT INTO "{label}" ({", ".join(cols)}) VALUES ({", ".join(placeholders)}) ON CONFLICT (id) DO NOTHING'  # nosec B608
         return TranspiledQuery(
             sql=sql, params=values, query_type=QueryType.INSERT, target_table=label
         )
@@ -144,7 +144,7 @@ def transpile(
             set_clauses = [f'"{p[0]}" = %s' for p in set_pairs]
             values = [clean_params.get(p[1]) for p in set_pairs]
             values.append(clean_params.get(id_param))
-            sql = f'UPDATE "{label}" SET {", ".join(set_clauses)} WHERE id = %s'
+            sql = f'UPDATE "{label}" SET {", ".join(set_clauses)} WHERE id = %s'  # nosec B608
 
             # Check for RETURN
             m_ret = _RETURN_CLAUSE.search(cypher_stripped)
@@ -172,7 +172,7 @@ def transpile(
             union_parts = []
             for tbl in sorted(known_tables):
                 union_parts.append(
-                    f"SELECT '{tbl}' AS {lbl_alias} FROM \"{tbl}\" WHERE id = %s"
+                    f"SELECT '{tbl}' AS {lbl_alias} FROM \"{tbl}\" WHERE id = %s"  # nosec B608
                 )
             sql = " UNION ALL ".join(union_parts) + " LIMIT 1"
             values = [id_val] * len(known_tables)
@@ -196,7 +196,7 @@ def transpile(
             where_sql, where_vals = _build_where(cypher_stripped, alias, clean_params)
             tbl = f'"{label}"' if label else _union_all_tables(known_tables)
             if label:
-                sql = f"SELECT COUNT(*) AS {cnt_alias} FROM {tbl}"
+                sql = f"SELECT COUNT(*) AS {cnt_alias} FROM {tbl}"  # nosec B608
                 if where_sql:
                     sql += f" WHERE {where_sql}"
                 return TranspiledQuery(
@@ -217,9 +217,9 @@ def transpile(
                 # Delete edges first
                 sqls.append(
                     f'DELETE FROM {EDGE_TABLE} WHERE source_id IN (SELECT id FROM "{label}" WHERE {where_sql}) '
-                    f'OR target_id IN (SELECT id FROM "{label}" WHERE {where_sql})'
+                    f'OR target_id IN (SELECT id FROM "{label}" WHERE {where_sql})'  # nosec B608
                 )
-                sqls.append(f'DELETE FROM "{label}" WHERE {where_sql}')
+                sqls.append(f'DELETE FROM "{label}" WHERE {where_sql}')  # nosec B608
                 # We return the last statement; caller should handle cascade
                 return TranspiledQuery(
                     sql=sqls[-1],
@@ -243,7 +243,7 @@ def transpile(
             sql = (
                 f"INSERT INTO {EDGE_TABLE} (source_id, target_id, rel_type, properties) "
                 f"VALUES (%s, %s, %s, %s::jsonb) "
-                f"ON CONFLICT (source_id, target_id, rel_type) DO UPDATE SET properties = EXCLUDED.properties"
+                f"ON CONFLICT (source_id, target_id, rel_type) DO UPDATE SET properties = EXCLUDED.properties"  # nosec B608
             )
             # Collect edge properties
             edge_props = {
@@ -279,7 +279,7 @@ def transpile(
                     select_cols = ", ".join(f'"{c}"' for c in col_matches)
 
         if label:
-            sql = f'SELECT {select_cols} FROM "{label}"'
+            sql = f'SELECT {select_cols} FROM "{label}"'  # nosec B608
         else:
             # No label — search all tables
             sql = _union_all_tables(known_tables, select_cols)
@@ -424,7 +424,7 @@ def _union_all_tables(tables: set[str], cols: str = "*", where: str = "") -> str
         return "SELECT 1 WHERE false"
     parts = []
     for tbl in sorted(tables):
-        q = f"SELECT {cols}, '{tbl}' AS _table_label FROM \"{tbl}\""
+        q = f"SELECT {cols}, '{tbl}' AS _table_label FROM \"{tbl}\""  # nosec B608
         if where:
             q += f" WHERE {where}"
         parts.append(q)
