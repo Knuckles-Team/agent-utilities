@@ -226,3 +226,4 @@ knowledge_graph.db-shm
 agent_utilities/knowledge_graph.db
 agent_utilities/knowledge_graph.db.*.bak
 .kg_ingest_diff.patch
+knowledge_graph.db.lock
