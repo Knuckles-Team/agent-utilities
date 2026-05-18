@@ -225,3 +225,4 @@ knowledge_graph.db-shm
 # Runtime knowledge graph database
 agent_utilities/knowledge_graph.db
 agent_utilities/knowledge_graph.db.*.bak
+.kg_ingest_diff.patch
