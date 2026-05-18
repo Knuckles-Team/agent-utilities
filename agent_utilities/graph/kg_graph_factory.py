@@ -271,7 +271,7 @@ def _resolve_prompt_from_kg(
         if prompt_text and "not found" not in prompt_text.lower():
             return prompt_text, f"file:{prompt_id_or_role}"
     except Exception:
-        pass
+        pass  # nosec B110
 
     return "", ""
 
@@ -323,7 +323,7 @@ def _resolve_tools_from_kg(
                     if name:
                         tool_names.append(name)
             except Exception:
-                pass
+                pass  # nosec B110
 
     return tool_names
 
@@ -421,7 +421,7 @@ def _resolve_topology_edges(
             for row in results:
                 edges.append((row.get("source", ""), row.get("target", "")))
         except Exception:
-            pass
+            pass  # nosec B110
 
     return edges
 

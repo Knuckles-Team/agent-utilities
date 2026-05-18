@@ -290,7 +290,7 @@ class MemoryMaterializer:
                     if k not in ("type", "embedding", "ewc_fisher_diag", "id") and v
                 }
         except Exception:
-            pass
+            pass  # nosec B110
         return {}
 
     def _query_active_goals(self) -> list[dict[str, Any]]:

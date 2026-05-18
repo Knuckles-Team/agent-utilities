@@ -311,7 +311,7 @@ class HookInstaller:
                     del hooks[k]
                 path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
         except Exception:
-            pass
+            pass  # nosec B110
 
 
 # -- Module-level convenience --

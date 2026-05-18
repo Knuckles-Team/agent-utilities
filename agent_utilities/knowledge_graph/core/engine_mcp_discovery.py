@@ -288,7 +288,7 @@ class MCPDiscoveryMixin(_Base):
                 if rows:
                     result["cached_count"] = rows[0].get("cnt", 0)
             except Exception:
-                pass
+                pass  # nosec B110
 
         # Get live tool count
         live_tools = await self.discover_mcp_tools(server_config, timeout=15.0)

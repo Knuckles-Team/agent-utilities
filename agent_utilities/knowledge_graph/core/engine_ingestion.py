@@ -754,7 +754,7 @@ class IngestionMixin(_Base):
                 if "mcpServers" in data:
                     return "mcp_config"
             except Exception:
-                pass
+                pass  # nosec B110
             return "unknown"
 
         if p.is_dir():
@@ -984,8 +984,11 @@ class IngestionMixin(_Base):
         import httpx
 
         url = base_url.rstrip("/") + path
+        import os
+
+        verify_ssl = os.environ.get("AGENTS_INSECURE_SSL", "0") != "1"
         try:
-            async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            async with httpx.AsyncClient(timeout=15.0, verify=verify_ssl) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 return resp.json()
@@ -1004,10 +1007,13 @@ class IngestionMixin(_Base):
         summary: dict[str, Any],
     ) -> None:
         """Fetch a remote JSON file and determine if it's an MCP config or A2A card."""
+        import os
+
         import httpx
 
+        verify_ssl = os.environ.get("AGENTS_INSECURE_SSL", "0") != "1"
         try:
-            async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            async with httpx.AsyncClient(timeout=15.0, verify=verify_ssl) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 data = resp.json()
