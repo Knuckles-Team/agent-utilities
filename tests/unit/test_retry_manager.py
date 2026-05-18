@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """Tests for Structured Retry Manager (CONCEPT:ORCH-1.3)."""
 
 
@@ -20,7 +21,10 @@ def manager():
 
 @pytest.fixture
 def success_config():
-    from agent_utilities.security.execution_stability_engine import RetryConfig, SuccessCheck
+    from agent_utilities.security.execution_stability_engine import (
+        RetryConfig,
+        SuccessCheck,
+    )
 
     return RetryConfig(
         max_retries=3,
@@ -31,7 +35,10 @@ def success_config():
 
 @pytest.fixture
 def fail_config():
-    from agent_utilities.security.execution_stability_engine import RetryConfig, SuccessCheck
+    from agent_utilities.security.execution_stability_engine import (
+        RetryConfig,
+        SuccessCheck,
+    )
 
     return RetryConfig(
         max_retries=2,
@@ -52,7 +59,9 @@ class TestShellExecution:
 
     @pytest.mark.asyncio
     async def test_successful_command(self):
-        from agent_utilities.security.execution_stability_engine import execute_shell_command
+        from agent_utilities.security.execution_stability_engine import (
+            execute_shell_command,
+        )
 
         result = await execute_shell_command("echo 'hello world'", timeout_seconds=10)
         assert result.success
@@ -62,7 +71,9 @@ class TestShellExecution:
 
     @pytest.mark.asyncio
     async def test_failing_command(self):
-        from agent_utilities.security.execution_stability_engine import execute_shell_command
+        from agent_utilities.security.execution_stability_engine import (
+            execute_shell_command,
+        )
 
         result = await execute_shell_command("false", timeout_seconds=10)
         assert not result.success
@@ -71,7 +82,9 @@ class TestShellExecution:
 
     @pytest.mark.asyncio
     async def test_command_timeout(self):
-        from agent_utilities.security.execution_stability_engine import execute_shell_command
+        from agent_utilities.security.execution_stability_engine import (
+            execute_shell_command,
+        )
 
         result = await execute_shell_command("sleep 5", timeout_seconds=1)
         assert not result.success
@@ -80,7 +93,9 @@ class TestShellExecution:
 
     @pytest.mark.asyncio
     async def test_command_with_stderr(self):
-        from agent_utilities.security.execution_stability_engine import execute_shell_command
+        from agent_utilities.security.execution_stability_engine import (
+            execute_shell_command,
+        )
 
         result = await execute_shell_command(
             "echo 'error' >&2 && exit 1", timeout_seconds=10
@@ -122,7 +137,10 @@ class TestSuccessChecks:
 
     @pytest.mark.asyncio
     async def test_fail_fast(self, manager):
-        from agent_utilities.security.execution_stability_engine import RetryConfig, SuccessCheck
+        from agent_utilities.security.execution_stability_engine import (
+            RetryConfig,
+            SuccessCheck,
+        )
 
         config = RetryConfig(
             checks=[
@@ -173,7 +191,10 @@ class TestRetryLogic:
 
     @pytest.mark.asyncio
     async def test_skip_when_no_checks(self, manager):
-        from agent_utilities.security.execution_stability_engine import RetryConfig, RetryResult
+        from agent_utilities.security.execution_stability_engine import (
+            RetryConfig,
+            RetryResult,
+        )
 
         config = RetryConfig(checks=[])
         outcome = await manager.handle_retry(config)
@@ -187,7 +208,10 @@ class TestRetryLogic:
 
     @pytest.mark.asyncio
     async def test_on_failure_hook_absent(self, manager):
-        from agent_utilities.security.execution_stability_engine import RetryConfig, SuccessCheck
+        from agent_utilities.security.execution_stability_engine import (
+            RetryConfig,
+            SuccessCheck,
+        )
 
         config = RetryConfig(
             checks=[SuccessCheck(command="false")],
@@ -254,7 +278,10 @@ class TestRewardSignal:
     """Tests for TeamConfig reward signal creation."""
 
     def test_success_reward(self, manager):
-        from agent_utilities.security.execution_stability_engine import RetryOutcome, RetryResult
+        from agent_utilities.security.execution_stability_engine import (
+            RetryOutcome,
+            RetryResult,
+        )
 
         outcome = RetryOutcome(result=RetryResult.SUCCESS, attempts=0)
         signal = manager.create_reward_signal(outcome, session_id="s1")
@@ -263,21 +290,30 @@ class TestRewardSignal:
         assert signal["session_id"] == "s1"
 
     def test_retried_reward(self, manager):
-        from agent_utilities.security.execution_stability_engine import RetryOutcome, RetryResult
+        from agent_utilities.security.execution_stability_engine import (
+            RetryOutcome,
+            RetryResult,
+        )
 
         outcome = RetryOutcome(result=RetryResult.RETRIED, attempts=1)
         signal = manager.create_reward_signal(outcome)
         assert signal["reward"] == 0.5
 
     def test_max_attempts_reward(self, manager):
-        from agent_utilities.security.execution_stability_engine import RetryOutcome, RetryResult
+        from agent_utilities.security.execution_stability_engine import (
+            RetryOutcome,
+            RetryResult,
+        )
 
         outcome = RetryOutcome(result=RetryResult.MAX_ATTEMPTS_REACHED, attempts=3)
         signal = manager.create_reward_signal(outcome)
         assert signal["reward"] == -0.5
 
     def test_skipped_reward(self, manager):
-        from agent_utilities.security.execution_stability_engine import RetryOutcome, RetryResult
+        from agent_utilities.security.execution_stability_engine import (
+            RetryOutcome,
+            RetryResult,
+        )
 
         outcome = RetryOutcome(result=RetryResult.SKIPPED, attempts=0)
         signal = manager.create_reward_signal(outcome)

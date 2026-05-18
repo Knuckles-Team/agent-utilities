@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """CONCEPT:KG-2.0"""
 
 """Unit tests for the ``consolidation.py`` minimum-viable skeleton.

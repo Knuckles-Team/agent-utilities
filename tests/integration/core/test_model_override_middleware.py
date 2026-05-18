@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Integration tests for the per-turn model override middleware.
 
 CONCEPT:ECO-4.0 Protocol Layer

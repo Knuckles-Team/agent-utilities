@@ -275,6 +275,64 @@ async def router_step(
                     f"TeamConfig lookup failed, continuing with LLM planning: {e}"
                 )
 
+        # CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+        # Check for AgentTemplate nodes before falling back to LLM planning
+        if deps.knowledge_engine:
+            try:
+                from .kg_graph_factory import build_pydantic_graph_from_kg
+
+                kg_result = build_pydantic_graph_from_kg(
+                    query=ctx.state.query,
+                    engine=deps.knowledge_engine,
+                    deps=deps,
+                    top_k=7,
+                )
+                if kg_result.specialist_configs:
+                    logger.info(
+                        "[CONCEPT:ORCH-1.20] KG graph materialized with %d steps. "
+                        "Using KG-driven topology.",
+                        len(kg_result.specialist_configs),
+                    )
+                    # Convert KG result into a standard GraphPlan for the dispatcher
+                    steps = [
+                        ExecutionStep(
+                            node_id=cfg["agent_id"],
+                            input_data=ctx.state.query,
+                        )
+                        for cfg in kg_result.specialist_configs.values()
+                    ]
+                    plan = GraphPlan(
+                        steps=steps,
+                        metadata={
+                            "reasoning": f"KG-driven graph materialization ({len(steps)} templates)",
+                            "kg_topology_id": kg_result.topology_id,
+                            "kg_provenance": kg_result.kg_provenance,
+                        },
+                    )
+                    ctx.state.plan = plan
+
+                    # Store KG provenance in state for observability
+                    if hasattr(ctx.state, "output_data") and isinstance(
+                        ctx.state.output_data, dict
+                    ):
+                        ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
+                        ctx.state.output_data["kg_specialist_configs"] = (
+                            kg_result.specialist_configs
+                        )
+
+                    emit_graph_event(
+                        deps.event_queue,
+                        "routing_completed",
+                        plan=plan.model_dump(),
+                        reasoning="KG AgentTemplate materialization",
+                    )
+                    _emit_node_lifecycle(deps.event_queue, "router", "node_complete")
+                    return "dispatcher"
+            except Exception as e:
+                logger.debug(
+                    f"KG AgentTemplate routing failed, continuing with LLM planning: {e}"
+                )
+
         # CONCEPT:KG-2.1 — Inject Self-Model proficiency into discovery context
         if deps.knowledge_engine:
             try:

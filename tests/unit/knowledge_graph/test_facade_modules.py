@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """Tests for Chat Search, Agents MD, and Engineering Patterns facade modules.
 
 CONCEPT:KG-2.1

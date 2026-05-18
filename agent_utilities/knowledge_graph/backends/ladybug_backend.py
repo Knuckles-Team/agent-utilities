@@ -277,6 +277,11 @@ class LadybugBackend(GraphBackend):
 
         for attempt in range(max_retries):
             try:
+                if not hasattr(self, "conn"):
+                    logger.warning(
+                        "LadybugBackend.execute: connection closed, returning empty."
+                    )
+                    return []
                 with self._get_lock():
                     res = self.conn.execute(query, params or {})
                     if isinstance(res, list):
@@ -337,6 +342,11 @@ class LadybugBackend(GraphBackend):
             attempt = 0
             while attempt < max_retries:
                 try:
+                    if not hasattr(self, "conn"):
+                        logger.warning(
+                            "LadybugBackend.execute_batch: connection closed, skipping chunk."
+                        )
+                        break
                     with self._get_lock():
                         for params in chunk:
                             res = self.conn.execute(query, params or {})
@@ -368,8 +378,8 @@ class LadybugBackend(GraphBackend):
     def wal_checkpoint(self) -> bool:
         """Perform a WAL checkpoint if the underlying engine supports it."""
         try:
-            # For Ladybug (which uses Kuzu/SQLite-like storage),
-            # we try to run the checkpoint directly on the connection.
+            if not hasattr(self, "conn"):
+                return False
             self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
             return True
         except Exception as e:
@@ -572,6 +582,8 @@ class LadybugBackend(GraphBackend):
         if self.db_path == ":memory:":
             return
         try:
+            if not hasattr(self, "conn"):
+                return
             self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
             logger.debug("WAL checkpoint completed for %s", self.db_path)
         except Exception as e:

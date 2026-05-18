@@ -93,7 +93,6 @@ def test_a2a_and_skill_ingestion(engine):
 import pytest
 
 
-
 def test_resource_discovery(engine):
     """Test find_relevant_callable_resources."""
     engine.ingest_a2a_agent_card(
@@ -104,6 +103,10 @@ def test_resource_discovery(engine):
             "capabilities": ["coding"],
         },
     )
+
+    # Explicitly build vector indices for LadybugDB before querying
+    if hasattr(engine.backend, "build_vector_indices"):
+        engine.backend.build_vector_indices(["CallableResource"])
 
     # Discovery
     resources = engine.find_relevant_callable_resources("coding")

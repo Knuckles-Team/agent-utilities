@@ -48,6 +48,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import Field
+
 logger = logging.getLogger(__name__)
 
 
@@ -127,21 +129,26 @@ def _build_server():
 
     # ═══ Consolidated Tools (7 tools, action-routed) ═══
 
-    @mcp.tool()
+    @mcp.tool(
+        name="graph_query",
+        description="Execute a read-only Cypher query against the Knowledge Graph.",
+        tags=["graph-os", "query"],
+    )
     def graph_query(
-        cypher: str, params: str = "{}", scope: str = "local", reference_id: str = ""
+        cypher: str = Field(
+            description="A Cypher query string (read-only — no CREATE/MERGE/DELETE)."
+        ),
+        params: str = Field(default="{}", description="JSON-encoded query parameters."),
+        scope: str = Field(
+            default="local",
+            description="'local' for the internal KG, 'federated' to query an external graph endpoint.",
+        ),
+        reference_id: str = Field(
+            default="",
+            description="Required when scope='federated'. The ExternalGraphReference node ID.",
+        ),
     ) -> str:
-        """Execute a read-only Cypher query against the Knowledge Graph.
-
-        Args:
-            cypher: A Cypher query string (read-only — no CREATE/MERGE/DELETE).
-            params: JSON-encoded query parameters.
-            scope: 'local' for the internal KG, 'federated' to query an external graph endpoint.
-            reference_id: Required when scope='federated'. The ExternalGraphReference node ID.
-
-        Returns:
-            JSON-encoded list of result rows.
-        """
+        """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
         engine = _get_engine()
         parsed_params = json.loads(params) if params else {}
 
@@ -177,43 +184,34 @@ def _build_server():
     # 2. kg_search — Unified search (hybrid, concept, analogy, memory)
     # ══════════════════════════════════════════════════════════════════
 
-    @mcp.tool()
-    def graph_search(query: str, mode: str = "hybrid", top_k: int = 10) -> str:
-        """This is a tool from the graph-os MCP server.
-        Search the Knowledge Graph using multiple strategies.
-
-        Args:
-            query: Natural language search query or concept ID.
-            mode: Search strategy:
-                - 'hybrid': Semantic + keyword weighted search (default).
-                - 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.15', 'ORCH-1.0').
-                - 'analogy': Find structurally similar concepts.
-                - 'memory': Search tiered memory (episodic/semantic/procedural).
-                - 'discover': Cross-reference query against all ingested content.
-                - 'dci': Direct Corpus Interaction.
-            top_k: Maximum results to return.
-        """
+    @mcp.tool(
+        name="graph_search",
+        description="Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, memory, discover, dci).",
+        tags=["graph-os", "search"],
+    )
+    def graph_search(
+        query: str = Field(description="Natural language search query or concept ID."),
+        mode: str = Field(
+            default="hybrid",
+            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.15', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.",
+        ),
+        top_k: int = Field(default=10, description="Maximum results to return."),
+    ) -> str:
+        """Search the Knowledge Graph using multiple strategies. Useful for finding context, concepts, memories, and capabilities across the ecosystem."""
         engine = _get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
         try:
-            if mode in ("hybrid", "concept", "analogy", "dci", "memory"):
-                results = engine.search(query=query, mode=mode, limit=top_k)
-                if not results:
-                    return f"No results found for query: '{query}'"
-
-                formatted_results = []
-                for res in results:
-                    score = res.get("score", 0)
-                    node = res.get("node", {})
-                    label = node.get("label", "Unknown")
-                    name = node.get("name", "Unnamed")
-                    desc = node.get("description", "")
-                    nid = node.get("id", "N/A")
-                    formatted_results.append(
-                        f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
-                    )
-                return "\n---\n".join(formatted_results)
+            if mode == "hybrid":
+                results = engine.search_hybrid(query=query, top_k=top_k)
+            elif mode == "concept":
+                results = engine.search_hybrid(query=query, top_k=top_k)
+            elif mode == "analogy":
+                results = engine.search_hybrid(query=query, top_k=top_k)
+            elif mode == "dci":
+                results = engine.search_dci(query=query, top_k=top_k)
+            elif mode == "memory":
+                results = engine.search_memories(query=query, top_k=top_k)
             elif mode == "discover":
                 try:
                     from agent_utilities.capabilities.manager import CapabilityManager
@@ -227,26 +225,69 @@ def _build_server():
                     return "Error: capabilities module not available"
             else:
                 return f"Error: Unknown search mode '{mode}'"
+
+            if not results:
+                return f"No results found for query: '{query}'"
+
+            formatted_results = []
+            for res in results:
+                score = res.get("score", 0)
+                score = float(score) if score is not None else 0.0
+                node = res.get("node", res)
+                label = node.get("type", node.get("label", "Unknown"))
+                name = node.get("name", "Unnamed")
+                desc = node.get("description", "")
+                nid = node.get("id", "N/A")
+                formatted_results.append(
+                    f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
+                )
+            return "\n---\n".join(formatted_results)
         except Exception as e:
             return f"Search error: {str(e)}"
 
-    @mcp.tool()
+    @mcp.tool(
+        name="graph_write",
+        description="Write nodes, relationships, or register external graphs to the Knowledge Graph.",
+        tags=["graph-os", "write", "mutation"],
+    )
     def graph_write(
-        action: str,
-        node_id: str = "",
-        node_type: str = "",
-        properties: str = "{}",
-        source_id: str = "",
-        target_id: str = "",
-        rel_type: str = "",
-        endpoint_url: str = "",
-        graph_type: str = "",
-        agent_id: str = "",
-        nodes: str = "[]",
+        action: str = Field(
+            description="Action to perform (add_node, add_edge, delete_node, delete_edge, register_external_graph, bulk_ingest, store_memory, recall_memory, log_chat, submit_sdd, register_execution, check_loop)."
+        ),
+        node_id: str = Field(
+            default="", description="The unique identifier for the node."
+        ),
+        node_type: str = Field(
+            default="", description="The type or label of the node."
+        ),
+        properties: str = Field(
+            default="{}", description="JSON-encoded dictionary of properties."
+        ),
+        source_id: str = Field(
+            default="", description="The source node ID for an edge."
+        ),
+        target_id: str = Field(
+            default="", description="The target node ID for an edge."
+        ),
+        rel_type: str = Field(
+            default="", description="The relationship type for an edge."
+        ),
+        endpoint_url: str = Field(
+            default="", description="URL for external graph registration."
+        ),
+        graph_type: str = Field(
+            default="",
+            description="Type of external graph (e.g., 'sparql', 'graphql').",
+        ),
+        agent_id: str = Field(
+            default="", description="ID of the agent performing the action."
+        ),
+        nodes: str = Field(
+            default="[]",
+            description="JSON-encoded list of nodes or tags for bulk operations.",
+        ),
     ) -> str:
-        """This is a tool from the graph-os MCP server.
-        Write nodes, relationships, or register external graphs.
-        """
+        """Write nodes, relationships, or register external graphs. This is the primary mutation interface for the Knowledge Graph."""
         engine = _get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
@@ -336,21 +377,35 @@ def _build_server():
         except Exception as e:
             return f"Write error: {str(e)}"
 
-    @mcp.tool()
+    @mcp.tool(
+        name="graph_ingest",
+        description="Smart ingestion for codebases, documents, directories, and conversation logs. Also handles corpus management and job status.",
+        tags=["graph-os", "ingest"],
+    )
     async def graph_ingest(
-        target_path: str,
-        max_depth: int = 3,
-        agent_id: str = "",
-        action: str = "ingest",
-        job_id: str = "",
-        corpus_name: str = "",
-        base_path: str = "",
-        description: str = "",
+        target_path: str = Field(
+            default="", description="Path or JSON list of paths to ingest."
+        ),
+        max_depth: int = Field(
+            default=3, description="Maximum directory depth for codebase ingestion."
+        ),
+        agent_id: str = Field(
+            default="", description="ID of the agent performing the ingestion."
+        ),
+        action: str = Field(
+            default="ingest",
+            description="Action to perform (ingest, agent_toolkit, corpus, jobs, job_status, status, rebuild_indexes, observe, materialize, sync, reflect).",
+        ),
+        job_id: str = Field(
+            default="", description="ID of the job to check status for."
+        ),
+        corpus_name: str = Field(
+            default="", description="Name of the corpus to add/update."
+        ),
+        base_path: str = Field(default="", description="Base path for the corpus."),
+        description: str = Field(default="", description="Description of the corpus."),
     ) -> str:
-        """This is a tool from the graph-os MCP server.
-        Smart ingestion for codebases, documents, directories, and conversation logs.
-        Also handles corpus management and job status.
-        """
+        """Smart ingestion tool to populate the Knowledge Graph with codebases, documents, and memory observations. Monitors async ingestion jobs."""
         engine = _get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
@@ -358,13 +413,19 @@ def _build_server():
         try:
             if action == "ingest":
                 import json
+                from pathlib import Path
 
-                try:
-                    from agent_utilities.ingestion.pipeline import IngestionPipeline
-
-                    pipeline = IngestionPipeline(engine)
-                except ImportError:
-                    return "Error: ingestion pipeline module not available"
+                def get_task_type(p: str) -> str:
+                    p_path = Path(p.strip())
+                    if p_path.is_file() and p_path.suffix.lower() in [
+                        ".pdf",
+                        ".docx",
+                        ".doc",
+                        ".txt",
+                        ".md",
+                    ]:
+                        return "document"
+                    return "codebase"
 
                 if target_path.startswith("[") or "," in target_path:
                     try:
@@ -375,14 +436,32 @@ def _build_server():
                         )
                         job_ids = []
                         for path in paths:
-                            jid = await pipeline.submit_job(
-                                path.strip(), max_depth, agent_id
+                            p_strip = path.strip()
+                            if not p_strip:
+                                continue
+                            t_type = get_task_type(p_strip)
+                            jid = engine.submit_task(
+                                target_path=p_strip,
+                                is_codebase=(t_type == "codebase"),
+                                provenance={
+                                    "agent_id": agent_id,
+                                    "max_depth": max_depth,
+                                },
+                                task_type=t_type,
                             )
                             job_ids.append(jid)
                         return f"Submitted {len(job_ids)} jobs: {', '.join(job_ids)}"
                     except json.JSONDecodeError:
                         pass
-                jid = await pipeline.submit_job(target_path, max_depth, agent_id)
+                if not target_path:
+                    return "Error: target_path required for ingest action"
+                t_type = get_task_type(target_path)
+                jid = engine.submit_task(
+                    target_path=target_path,
+                    is_codebase=(t_type == "codebase"),
+                    provenance={"agent_id": agent_id, "max_depth": max_depth},
+                    task_type=t_type,
+                )
                 return f"Started ingestion job {jid} for {target_path}"
 
             elif action == "corpus":
@@ -397,49 +476,154 @@ def _build_server():
                 return f"Corpus {corpus_name} added/updated."
 
             elif action == "jobs":
-                try:
-                    from agent_utilities.ingestion.pipeline import IngestionPipeline
+                from agent_utilities.knowledge_graph.core.engine_tasks import (
+                    _decode_metadata,
+                )
 
-                    pipeline = IngestionPipeline(engine)
-                    jobs = pipeline.get_jobs()
-                    if not jobs:
-                        return "No active or recent ingestion jobs."
-                    return "\n".join(
-                        [f"{j['id']}: {j['status']} ({j['target']})" for j in jobs]
-                    )
-                except ImportError:
-                    return "Error: ingestion pipeline module not available"
+                jobs = engine.query_cypher(
+                    "MATCH (t:Task) RETURN t.id as id, t.status as status, t.metadata as meta LIMIT 20"
+                )
+                if not jobs:
+                    return "No active or recent ingestion jobs."
+                lines = []
+                for j in jobs:
+                    meta = _decode_metadata(j.get("meta"))
+                    target = meta.get("target", "unknown")
+                    lines.append(f"{j['id']}: {j['status']} ({target})")
+                return "\n".join(lines)
 
-            elif action == "job_status":
+            elif action in ("job_status", "status"):
                 if not job_id:
                     return "Error: job_id required"
-                try:
-                    from agent_utilities.ingestion.pipeline import IngestionPipeline
+                from agent_utilities.knowledge_graph.core.engine_tasks import (
+                    _decode_metadata,
+                )
 
-                    pipeline = IngestionPipeline(engine)
-                    status = pipeline.get_job_status(job_id)
-                    if not status:
-                        return f"Job {job_id} not found."
-                    return f"Job {job_id} status: {status['status']}\nProgress: {status.get('progress', 0)}%"
-                except ImportError:
-                    return "Error: ingestion pipeline module not available"
+                jobs = engine.query_cypher(
+                    "MATCH (t:Task) WHERE t.id = $job_id RETURN t.status as status, t.metadata as meta",
+                    {"job_id": job_id},
+                )
+                if not jobs:
+                    return f"Job {job_id} not found."
+                status = jobs[0]["status"]
+                meta = _decode_metadata(jobs[0].get("meta"))
+                error_info = ""
+                if status == "failed" and meta.get("error"):
+                    error_info = f"\nError: {meta['error']}"
+                return f"Job {job_id} status: {status}{error_info}"
+
+            elif action == "rebuild_indexes":
+                engine.build_indexes()
+                return "Indexes rebuilt successfully."
+
+            # ── KG-2.10: Observational Memory Bridge Actions ──
+            elif action == "observe":
+                try:
+                    from pathlib import Path as _Path
+
+                    from agent_utilities.knowledge_graph.memory.observer import (
+                        observe_from_file,
+                    )
+
+                    if not target_path:
+                        return "Error: target_path required (path to JSONL transcript)"
+                    result = observe_from_file(
+                        engine, _Path(target_path), source=agent_id or "mcp"
+                    )
+                    return result or "No new observations extracted."
+                except Exception as e:
+                    return f"Observe error: {e}"
+
+            elif action == "materialize":
+                try:
+                    from agent_utilities.knowledge_graph.memory.memory_materializer import (
+                        materialize_memory,
+                    )
+
+                    paths = materialize_memory(engine)
+                    return json.dumps(
+                        {
+                            "status": "materialized",
+                            "files": {k: str(v) for k, v in paths.items()},
+                        }
+                    )
+                except Exception as e:
+                    return f"Materialize error: {e}"
+
+            elif action == "sync":
+                try:
+                    from agent_utilities.knowledge_graph.memory.memory_materializer import (
+                        ingest_memory_edits,
+                    )
+
+                    results = ingest_memory_edits(engine)
+                    return (
+                        json.dumps({"status": "synced", "ingested": results})
+                        if results
+                        else "No edits detected."
+                    )
+                except Exception as e:
+                    return f"Sync error: {e}"
+
+            elif action == "reflect":
+                try:
+                    from agent_utilities.knowledge_graph.memory.reflector import (
+                        run_reflector,
+                    )
+
+                    result = run_reflector(engine)
+                    return result or "No observations to reflect on."
+                except Exception as e:
+                    return f"Reflect error: {e}"
+
+            elif action == "agent_toolkit":
+                import json
+
+                sources = (
+                    json.loads(target_path)
+                    if target_path.startswith("[")
+                    else [target_path]
+                )
+                # Use `description` param as optional agent_card_path override
+                agent_card_path = (
+                    description if description else "/.well-known/agent.json"
+                )
+                result = await engine.ingest_agent_toolkit(
+                    sources, agent_card_path=agent_card_path
+                )
+                return json.dumps(result, default=str)
+
             else:
                 return f"Error: Unknown ingest action '{action}'"
         except Exception as e:
             return f"Ingest error: {str(e)}"
 
-    @mcp.tool()
+    @mcp.tool(
+        name="graph_analyze",
+        description="Execute complex analysis across the Knowledge Graph (synthesize, deep_extract, evaluate, security_scan, etc).",
+        tags=["graph-os", "analyze"],
+    )
     async def graph_analyze(
-        action: str = "synthesize",
-        query: str = "",
-        top_k: int = 10,
-        node_id: str = "",
-        depth: int = 2,
-        target: str = "",
+        action: str = Field(
+            default="synthesize",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan).",
+        ),
+        query: str = Field(default="", description="Query or path for the analysis."),
+        top_k: int = Field(
+            default=10, description="Number of results or complexity budget."
+        ),
+        node_id: str = Field(
+            default="",
+            description="Specific node ID to analyze (e.g., for blast_radius).",
+        ),
+        depth: int = Field(
+            default=2, description="Depth of traversal (e.g., for blast_radius)."
+        ),
+        target: str = Field(
+            default="", description="Target for the analysis or inspection."
+        ),
     ) -> str:
-        """This is a tool from the graph-os MCP server.
-        Execute complex analysis across the Knowledge Graph.
-        """
+        """Execute complex analysis across the Knowledge Graph. Enables advanced semantic synthesis, causal dependency mapping, and structural inspection."""
         engine = _get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
@@ -450,21 +634,19 @@ def _build_server():
                 "background_research",
                 "relevance_sweep",
             ):
-                try:
-                    from agent_utilities.analysis.analyzer import GraphAnalyzer
-
-                    analyzer = GraphAnalyzer(engine)
-                    if action == "synthesize":
-                        return await analyzer.synthesize(query, top_k)
-                    elif action == "deep_extract":
-                        return await analyzer.deep_extract(query)
-                    elif action == "background_research":
-                        return await analyzer.background_research(query)
-                    elif action == "relevance_sweep":
-                        return await analyzer.relevance_sweep(query)
-                    return f"Error: Action '{action}' not implemented."
-                except ImportError:
-                    return "Error: analysis module not available"
+                job_id = engine.submit_task(
+                    target_path=query or target or "none",
+                    is_codebase=False,
+                    task_type=action,
+                    provenance={
+                        "top_k": top_k,
+                        "node_id": node_id,
+                        "depth": depth,
+                        "target": target,
+                    },
+                    skip_dedupe=True,
+                )
+                return f"Job submitted as '{job_id}'. Use graph_ingest(action='status', job_id='{job_id}') to check the result."
             elif action == "blast_radius":
                 if not node_id:
                     return "Error: node_id required for blast_radius"
@@ -476,6 +658,31 @@ def _build_server():
                 )
             elif action == "inspect":
                 return engine.inspect(target)
+            # ── KG-2.10: Startup Context Generation ──
+            elif action == "context":
+                try:
+                    from agent_utilities.knowledge_graph.memory.startup_context import (
+                        build_startup_payload,
+                    )
+
+                    payload = build_startup_payload(
+                        engine,
+                        agent=target or None,
+                        cwd=query or None,
+                        budget_chars=top_k * 1000 if top_k != 10 else 24000,
+                    )
+                    return payload.text
+                except Exception as e:
+                    return f"Context generation error: {e}"
+            elif action == "evaluate_alpha":
+                from agent_utilities.knowledge_graph.core.quant_tasks import (
+                    execute_quant_task,
+                )
+
+                res = execute_quant_task(
+                    engine, "run_qlib_backtest", {"target": target or query}
+                )
+                return json.dumps(res)
             elif action in (
                 "evaluate",
                 "evolve_model",
@@ -491,19 +698,36 @@ def _build_server():
         except Exception as e:
             return f"Analysis error: {str(e)}"
 
-    @mcp.tool()
+    @mcp.tool(
+        name="graph_orchestrate",
+        description="Orchestrate multi-agent workflows, dispatch subagents, and manage execution loops.",
+        tags=["graph-os", "orchestrate"],
+    )
     async def graph_orchestrate(
-        action: str = "dispatch",
-        task: str = "",
-        job_id: str = "",
-        approval_status: str = "",
-        agent_name: str = "",
-        max_steps: int = 30,
-        dependencies: str = "[]",
+        action: str = Field(
+            default="dispatch",
+            description="Action to perform (dispatch, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto).",
+        ),
+        task: str = Field(
+            default="", description="Task description or payload to dispatch."
+        ),
+        job_id: str = Field(
+            default="", description="Job ID for checking status or granting approval."
+        ),
+        approval_status: str = Field(
+            default="", description="Approval status (e.g., 'approved', 'rejected')."
+        ),
+        agent_name: str = Field(
+            default="", description="Name of the agent to execute."
+        ),
+        max_steps: int = Field(
+            default=30, description="Maximum steps for agent execution."
+        ),
+        dependencies: str = Field(
+            default="[]", description="JSON-encoded list of dependency job IDs."
+        ),
     ) -> str:
-        """This is a tool from the graph-os MCP server.
-        Orchestrate multi-agent workflows.
-        """
+        """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution."""
         engine = _get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
@@ -533,34 +757,58 @@ def _build_server():
                     return "Error: orchestration module not available"
             elif action == "execute_agent":
                 try:
-                    from agent_utilities.orchestration.agent_runner import run_agent
+                    from agent_utilities.orchestration.agent_runner import (
+                        run_agent,
+                    )
 
-                    return await run_agent(agent_name, task, max_steps)
-                except ImportError:
-                    return "Error: agent_runner module not available"
+                    result = await run_agent(
+                        agent_name=agent_name,
+                        task=task,
+                        max_steps=max_steps,
+                        engine=engine,
+                    )
+                    return result
+                except ImportError as exc:
+                    return f"Error: agent_runner module not available: {exc}"
             elif action == "consensus":
                 return f"Consensus reached for {task}."
+            elif action == "start_debate":
+                engine.add_node(
+                    f"debate_{job_id}", "TradingDebate", topic=task, status="ongoing"
+                )
+                return f"Started Trading Debate for {task}."
+            elif action == "submit_risk_veto":
+                engine.add_node(
+                    f"veto_{job_id}", "RiskVeto", reason=task, target=job_id
+                )
+                engine.add_edge(
+                    f"veto_{job_id}", f"debate_{job_id}", "CONTRADICTS_BELIEF_PROP"
+                )
+                return f"Submitted Risk Veto for debate {job_id}."
             else:
                 return f"Error: Unknown orchestration action '{action}'"
         except Exception as e:
             return f"Orchestration error: {str(e)}"
 
-    @mcp.tool()
+    @mcp.tool(
+        name="graph_configure",
+        description="Manage backend configurations, system credentials, and tool registration within the unified agent ecosystem.",
+        tags=["graph-os", "configure"],
+    )
     def graph_configure(
-        action: str = "register_mcp", config_key: str = "", config_value: str = ""
+        action: str = Field(
+            default="register_mcp",
+            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor').",
+        ),
+        config_key: str = Field(
+            default="", description="The key or ID of the configuration/secret."
+        ),
+        config_value: str = Field(
+            default="",
+            description="JSON string containing the payload or secret value.",
+        ),
     ) -> str:
-        """Manage backend configurations and abstract credentials.
-
-        Args:
-            action: Operation:
-                - 'set_secret': Save credentials via the abstracted backend layer.
-                - 'register_mcp': Register new MCP server configurations.
-            config_key: The key or ID of the configuration/secret.
-            config_value: JSON string containing the payload or secret value.
-
-        Returns:
-            JSON string confirming the update.
-        """
+        """Manage backend configurations and abstract credentials. Allows dynamic registry updates and credential injection during agent provisioning."""
         try:
             if action == "set_secret":
                 # Integrates with the ecosystem's backend abstraction layer
@@ -596,6 +844,40 @@ def _build_server():
                     except Exception as e:
                         return json.dumps({"error": f"Invalid config_value JSON: {e}"})
                 return json.dumps({"error": "MCP config not found in workspace."})
+            # ── KG-2.10 / ECO-4.6: Memory Hook Management ──
+            if action == "install_hooks":
+                try:
+                    from agent_utilities.ecosystem.hook_installer import HookInstaller
+
+                    installer = HookInstaller()
+                    agents = config_value.split(",") if config_value else None
+                    results = installer.install(agents)
+                    return json.dumps(
+                        {
+                            "status": "success",
+                            "results": results,
+                            "installed": installer.installed,
+                            "errors": installer.errors,
+                        }
+                    )
+                except Exception as e:
+                    return json.dumps({"error": f"Hook install failed: {e}"})
+            if action == "uninstall_hooks":
+                try:
+                    from agent_utilities.ecosystem.hook_installer import HookInstaller
+
+                    agents = config_value.split(",") if config_value else None
+                    results = HookInstaller().uninstall(agents)
+                    return json.dumps({"status": "success", "results": results})
+                except Exception as e:
+                    return json.dumps({"error": f"Hook uninstall failed: {e}"})
+            if action == "doctor":
+                try:
+                    from agent_utilities.ecosystem.hook_installer import HookInstaller
+
+                    return json.dumps(HookInstaller().doctor(), default=str)
+                except Exception as e:
+                    return json.dumps({"error": f"Doctor failed: {e}"})
             return json.dumps({"error": f"Unknown action: {action}"})
         except Exception as e:
             return json.dumps({"error": str(e)})
@@ -604,203 +886,6 @@ def _build_server():
 
 
 # ══════════════════════════════════════════════════════════════════
-# Helper functions for kg_analyze — Pydantic structured output
-# ══════════════════════════════════════════════════════════════════
-
-
-async def _run_l2_synthesis(
-    ctx: Any, engine: Any, query: str, enriched: list[dict]
-) -> dict[str, Any]:
-    """Layer 2: LLM synthesis with Pydantic result_type for guaranteed JSON.
-
-    Uses grammar-constrained decoding via pydantic-ai's ``result_type`` to
-    eliminate regex JSON parsing and guarantee valid, validated output.
-    Falls back from ctx.sample() → direct pydantic-ai Agent.
-    """
-    import asyncio
-
-    from agent_utilities.knowledge_graph.core.analysis_models import (
-        SynthesisResult,
-    )
-
-    # Build synthesis prompt from L1 results
-    match_lines = []
-    for r in enriched[:15]:
-        match_lines.append(
-            f"- **{r.get('name', r.get('id', ''))}** "
-            f"(score={r.get('score', 0):.3f}, signals={r.get('total_signal_count', 0)})"
-        )
-        for claim in r.get("innovation_claims", [])[:2]:
-            match_lines.append(f"  > {claim[:200]}")
-        for sig in r.get("tech_signals", [])[:3]:
-            match_lines.append(
-                f"  ↳ {sig['keyword']}: {sig['analogy']} → {sig['domain']}"
-            )
-
-    synthesis_prompt = (
-        f"## Cross-Reference Analysis: {query}\n\n"
-        f"The following {len(enriched)} results were found via semantic "
-        f"cross-reference against the Knowledge Graph:\n\n"
-        + "\n".join(match_lines)
-        + "\n\n---\n\n"
-        "Analyze these matches and extract actionable feature recommendations. "
-        "For each recommendation provide: feature name, target concepts it enhances, "
-        "implementation sketch (key classes and methods), expected impact, "
-        "integration complexity (low/medium/high), and priority (1-10)."
-    )
-
-    system_prompt = (
-        "You are an expert software architect analyzing research papers and "
-        "codebases cross-referenced against an agent framework's Knowledge Graph. "
-        "Extract actionable features as structured recommendations."
-    )
-
-    # Always use the Pydantic-ai Agent with result_type for schema enforcement
-    try:
-        from pydantic_ai import Agent
-
-        from agent_utilities.core.model_factory import create_model
-
-        agent = Agent(
-            model=create_model(),
-            system_prompt=system_prompt,
-            output_type=SynthesisResult,
-        )
-        result = await asyncio.to_thread(agent.run_sync, synthesis_prompt)
-        synthesis: SynthesisResult = result.data  # type: ignore[assignment]
-
-        return {
-            "layer": 2,
-            "features": [r.model_dump() for r in synthesis.recommendations],
-            "feature_count": len(synthesis.recommendations),
-        }
-    except Exception as e:
-        logger.warning("L2 synthesis failed: %s", e)
-        return {
-            "layer": 2,
-            "error": f"LLM synthesis failed: {e}",
-            "fallback": "Use L1 results directly or configure LLM endpoint",
-        }
-
-
-async def _run_l3_extraction(
-    ctx: Any, engine: Any, query: str, enriched: list[dict]
-) -> dict[str, Any]:
-    """Layer 3: Batched deep extraction with Pydantic result_type.
-
-    Batches all high-weight matches into a SINGLE LLM call (leveraging
-    large context windows like 256K) to minimize inference requests.
-    """
-    import asyncio
-
-    from agent_utilities.knowledge_graph.core.analysis_models import (
-        DeepExtractionResult,
-    )
-
-    high_weight = [r for r in enriched if r.get("score", 0) > 0.3]
-    if not high_weight:
-        return {
-            "layer": 3,
-            "papers_analyzed": 0,
-            "extractions": [],
-            "note": "No high-weight matches for deep extraction",
-        }
-
-    # Build a SINGLE batched prompt for all high-weight matches
-    match_sections = []
-    for i, hw in enumerate(high_weight[:10], 1):
-        claims_text = "\n".join(f"  - {c}" for c in hw.get("innovation_claims", []))
-        match_sections.append(
-            f"### Match {i}: {hw.get('name', hw.get('id', ''))}\n"
-            f"- Score: {hw.get('score', 0):.3f}\n"
-            f"- Innovation Signals: {hw.get('total_signal_count', 0)}\n"
-            f"- Claims:\n{claims_text or '  (none)'}\n"
-        )
-
-    batched_prompt = (
-        f"## Batched Deep Extraction for: {query}\n\n"
-        f"Analyze the following {len(match_sections)} high-scoring matches and "
-        f"extract structured knowledge for each:\n\n"
-        + "\n".join(match_sections)
-        + "\n---\n\n"
-        "For EACH match, extract: key algorithms/techniques, data structures, "
-        "architectural patterns, and an integration blueprint. "
-        "Include the source_name for each extraction."
-    )
-
-    system_prompt = (
-        "You are a deep technical analyst extracting structured knowledge from "
-        "research papers and codebases for integration into an agent framework. "
-        "Provide one extraction per match analyzed."
-    )
-
-    try:
-        from pydantic_ai import Agent
-
-        from agent_utilities.core.model_factory import create_model
-
-        agent = Agent(
-            model=create_model(),
-            system_prompt=system_prompt,
-            output_type=DeepExtractionResult,
-        )
-        result = await asyncio.to_thread(agent.run_sync, batched_prompt)
-        deep_result: DeepExtractionResult = result.data  # type: ignore[assignment]
-
-        # Write discovered relationships to the KG
-        new_analogies = 0
-        for extraction in deep_result.extractions:
-            if extraction.source_name and extraction.patterns:
-                for pattern in extraction.patterns[:3]:
-                    success = engine.resolve_and_link(
-                        source_name=extraction.source_name,
-                        target_name=pattern,
-                        rel_type="ANALOGOUS_TO",
-                        properties={
-                            "source": "deep_extraction",
-                            "query": query,
-                        },
-                    )
-                    if success:
-                        new_analogies += 1
-
-        return {
-            "layer": 3,
-            "papers_analyzed": len(deep_result.extractions),
-            "extractions": [e.model_dump() for e in deep_result.extractions],
-            "new_analogies_created": new_analogies,
-        }
-    except Exception as e:
-        logger.warning("L3 deep extraction failed: %s", e)
-        return {
-            "layer": 3,
-            "error": f"Deep extraction failed: {e}",
-            "papers_analyzed": 0,
-            "extractions": [],
-        }
-
-
-def _run_owl_cycle(engine: Any) -> dict[str, Any]:
-    """Trigger a lightweight OWL reasoning cycle on the engine's graph.
-
-    Performs transitive/symmetric closure to discover inferred relationships
-    from the edges created during L3 deep extraction.
-    """
-    try:
-        from agent_utilities.knowledge_graph.backends.owl import create_owl_backend
-        from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
-
-        owl_backend = create_owl_backend()
-        bridge = OWLBridge(
-            graph=engine.graph,
-            owl_backend=owl_backend,
-            backend=engine.backend,
-        )
-        stats = bridge.run_cycle(lightweight=True)
-        return {"status": "success", **stats}
-    except Exception as e:
-        logger.debug("OWL cycle skipped: %s", e)
-        return {"status": "skipped", "reason": str(e)}
 
 
 def main():

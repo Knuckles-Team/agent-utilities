@@ -565,6 +565,46 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
+        # KG-Driven Graph Materialization (CONCEPT:ORCH-1.20)
+        TableDefinition(
+            name="AgentTemplate",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "name": "STRING",
+                "description": "STRING",
+                "role": "STRING",
+                "system_prompt_id": "STRING",
+                "toolset_ids": "STRING[]",
+                "model_preference": "STRING",
+                "execution_tier": "STRING",
+                "step_order": "INT64",
+                "is_parallel": "BOOLEAN",
+                "max_retries": "INT64",
+                "embedding": EMBEDDING_TYPE,
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        # Evolution Cycle Tracking (CONCEPT:KG-2.5)
+        TableDefinition(
+            name="EvolutionCycle",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "triggered_by": "STRING",
+                "topics_scanned": "INT64",
+                "papers_scored": "INT64",
+                "primary_codebase": "STRING",
+                "created_at": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
         # Self-Improvement & Learning
         TableDefinition(
             name="OutcomeEvaluation",
@@ -1964,6 +2004,35 @@ SCHEMA = GraphSchemaDefinition(
                 {"from": "Agent", "to": "FinancialTransaction"},
                 {"from": "Person", "to": "FinancialTransaction"},
                 {"from": "Organization", "to": "FinancialTransaction"},
+            ],
+        ),
+        # KG-Driven Graph Materialization (CONCEPT:ORCH-1.20)
+        RelDefinition(
+            type="USES_PROMPT",
+            connections=[
+                {"from": "AgentTemplate", "to": "Prompt"},
+                {"from": "AgentTemplate", "to": "SystemPrompt"},
+            ],
+        ),
+        RelDefinition(
+            type="REQUIRES_TOOLSET",
+            connections=[
+                {"from": "AgentTemplate", "to": "Tool"},
+                {"from": "AgentTemplate", "to": "CallableResource"},
+            ],
+        ),
+        RelDefinition(
+            type="COMPATIBLE_WITH_MODEL",
+            connections=[{"from": "AgentTemplate", "to": "Concept"}],
+        ),
+        RelDefinition(
+            type="HAS_RESULT_TYPE",
+            connections=[{"from": "AgentTemplate", "to": "Concept"}],
+        ),
+        RelDefinition(
+            type="DEPENDS_ON",
+            connections=[
+                {"from": "AgentTemplate", "to": "AgentTemplate"},
             ],
         ),
     ],

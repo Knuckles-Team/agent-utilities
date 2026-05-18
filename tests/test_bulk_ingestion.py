@@ -18,7 +18,9 @@ class MockBackend(GraphBackend):
         self.queries.append((query, params))
         return []
 
-    def execute_batch(self, query: str, batch_params: list[dict]) -> list[dict[str, Any]]:
+    def execute_batch(
+        self, query: str, batch_params: list[dict]
+    ) -> list[dict[str, Any]]:
         self.batches.append((query, batch_params))
         return []
 

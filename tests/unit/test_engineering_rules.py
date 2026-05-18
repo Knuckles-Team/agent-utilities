@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Unit tests for the Engineering Rules Engine (CONCEPT:KG-2.2).
 
 Tests the rule ingestor's markdown parser, node creation, conflict

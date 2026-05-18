@@ -129,9 +129,15 @@ class TestContextCompactorPersistence:
         )
 
         mock_engine.query_cypher.return_value = [
-            {"id": "s1", "content": "L1 summary", "level": 1,
-             "tokens_before": 1000, "tokens_after": 100,
-             "strategy": "progressive", "timestamp": "2026-01-01"},
+            {
+                "id": "s1",
+                "content": "L1 summary",
+                "level": 1,
+                "tokens_before": 1000,
+                "tokens_after": 100,
+                "strategy": "progressive",
+                "timestamp": "2026-01-01",
+            },
         ]
 
         dag = ContextCompactor.get_summary_dag(
@@ -229,13 +235,27 @@ class TestElasticContextManagerLCM:
 
         # First call: summary itself, Second call: children
         mock_engine.query_cypher.side_effect = [
-            [{"content": "Summary text", "level": 1,
-              "thread_id": "t1", "strategy": "progressive"}],
             [
-                {"id": "msg_1", "role": "user", "content": "Original msg 1",
-                 "timestamp": "2026-01-01"},
-                {"id": "msg_2", "role": "assistant", "content": "Original msg 2",
-                 "timestamp": "2026-01-02"},
+                {
+                    "content": "Summary text",
+                    "level": 1,
+                    "thread_id": "t1",
+                    "strategy": "progressive",
+                }
+            ],
+            [
+                {
+                    "id": "msg_1",
+                    "role": "user",
+                    "content": "Original msg 1",
+                    "timestamp": "2026-01-01",
+                },
+                {
+                    "id": "msg_2",
+                    "role": "assistant",
+                    "content": "Original msg 2",
+                    "timestamp": "2026-01-02",
+                },
             ],
         ]
 
@@ -267,9 +287,14 @@ class TestElasticContextManagerLCM:
         )
 
         mock_engine.query_cypher.return_value = [
-            {"id": "msg_1", "content": "Matching content",
-             "partition": "antigravity", "level": None,
-             "thread_id": "t1", "role": "user"},
+            {
+                "id": "msg_1",
+                "content": "Matching content",
+                "partition": "antigravity",
+                "level": None,
+                "thread_id": "t1",
+                "role": "user",
+            },
         ]
 
         result = ElasticContextManager.grep_memories(
@@ -303,14 +328,27 @@ class TestElasticContextManagerLCM:
 
         # First call: summary metadata, Second call: children
         mock_engine.query_cypher.side_effect = [
-            [{"content": "Summary of 5 msgs", "level": 1,
-              "thread_id": "t1", "strategy": "progressive",
-              "tokens_before": 5000, "tokens_after": 200,
-              "timestamp": "2026-01-01", "partition": "antigravity",
-              "messages_summarized": 5}],
+            [
+                {
+                    "content": "Summary of 5 msgs",
+                    "level": 1,
+                    "thread_id": "t1",
+                    "strategy": "progressive",
+                    "tokens_before": 5000,
+                    "tokens_after": 200,
+                    "timestamp": "2026-01-01",
+                    "partition": "antigravity",
+                    "messages_summarized": 5,
+                }
+            ],
             [
                 {"id": "msg_1", "content": "Child 1", "role": "user", "level": None},
-                {"id": "msg_2", "content": "Child 2", "role": "assistant", "level": None},
+                {
+                    "id": "msg_2",
+                    "content": "Child 2",
+                    "role": "assistant",
+                    "level": None,
+                },
             ],
         ]
 

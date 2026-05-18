@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """Unit tests for KG V2 node / edge model additions.
 
 Covers the 10 new ``RegistryNode`` subclasses and 20 new ``RegistryEdgeType``

@@ -16,9 +16,17 @@ graph TD
     User([User/A2A]) --> Server[A2A Server / FastAPI]
     Server --> Agent[Pydantic AI Agent]
     Agent --> Skills[Modular Skills]
-    Agent --> MCP[MCP Server / FastMCP]
-    MCP --> Client[API Client / Wrapper]
-    Client --> ExternalAPI([External Service API])
+    Agent --> MCP[graph-os MCP Server]
+
+    subgraph Knowledge Graph [KG-2.0 Epistemic Graph]
+        MCP --> Core[Intelligence Graph Engine]
+        Core --> Quant[KG-2.6 Quant Domain]
+        Quant --> Debate[Debate Engine]
+        Quant --> Fusion[Signal Fusion]
+        Quant --> Market[Market Data Bridge]
+    end
+
+    Market --> ExternalAPI([Exchanges / Data APIs])
 ```
 
 ### Workflow Diagram

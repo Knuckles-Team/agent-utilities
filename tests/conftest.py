@@ -14,6 +14,7 @@ import shutil
 _test_db_dir = tempfile.mkdtemp(prefix="agent_utilities_test_db_")
 os.environ["GRAPH_DB_PATH"] = os.path.join(_test_db_dir, "test_knowledge_graph.db")
 
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
@@ -31,9 +32,9 @@ from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 def clean_graph_globals(monkeypatch, tmp_path):
     set_active_backend(None)
     IntelligenceGraphEngine.set_active(None)
-    
+
     monkeypatch.setenv("GRAPH_DB_PATH", str(tmp_path / "test_knowledge_graph.db"))
-    
+
     yield
     set_active_backend(None)
     IntelligenceGraphEngine.set_active(None)

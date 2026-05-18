@@ -43,7 +43,7 @@ def synthetic_returns() -> np.ndarray:
     - Days 100-149: Sideways (near-zero)
     """
     rng = np.random.default_rng(42)
-    bull = rng.normal(0.005, 0.01, 50)   # ~0.5% daily, mild vol
+    bull = rng.normal(0.005, 0.01, 50)  # ~0.5% daily, mild vol
     bear = rng.normal(-0.005, 0.01, 50)  # ~-0.5% daily
     sideways = rng.normal(0.0, 0.005, 50)  # ~0% daily, low vol
     return np.concatenate([bull, bear, sideways])
@@ -140,9 +140,7 @@ class TestAssetClassDefaults:
 class TestMarkovRegimeModel:
     def test_fit(self, synthetic_returns: np.ndarray):
         """Model should fit without error and set _fitted=True."""
-        model = MarkovRegimeModel(
-            asset_class=AssetClass.EQUITIES, window=10
-        )
+        model = MarkovRegimeModel(asset_class=AssetClass.EQUITIES, window=10)
         result = model.fit(synthetic_returns)
         assert result is model  # Method chaining
         assert model.is_fitted
@@ -186,7 +184,9 @@ class TestMarkovRegimeModel:
         assert "bear_prob" in sig
         assert "sideways_prob" in sig
         assert -1.0 <= sig["signal"] <= 1.0
-        assert abs(sig["bull_prob"] + sig["bear_prob"] + sig["sideways_prob"] - 1.0) < 0.01
+        assert (
+            abs(sig["bull_prob"] + sig["bear_prob"] + sig["sideways_prob"] - 1.0) < 0.01
+        )
 
     def test_transition_matrix_rows_sum_to_one(self, synthetic_returns: np.ndarray):
         """Transition matrix rows must sum to 1.0."""

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """CONCEPT:KG-2.0"""
 
 """Coverage push for agent_utilities.knowledge_graph.pipeline.phases.*.

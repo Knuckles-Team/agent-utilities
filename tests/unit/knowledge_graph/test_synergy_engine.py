@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """Tests for Cross-Pillar Synergy Engine.
 
 CONCEPT:KG-2.4 — Cross-Pillar Synergy Engine

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """CONCEPT:OS-5.2"""
 
 """Coverage push for agent_utilities.scheduler.

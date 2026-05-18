@@ -1,0 +1,11 @@
+--- docs/README.md
++++ docs/README.md
+@@ -170,7 +170,7 @@
+ | Prefix | Pillar | Range |
+ |:-------|:-------|:------|
+ | `ORCH-1.x` | Graph Orchestration Engine | 1.0 – 1.6 |
+-| `KG-2.x` | Epistemic Knowledge Graph | 2.0 – 2.8 |
++| `KG-2.x` | Epistemic Knowledge Graph | 2.0 – 2.10 |
+ | `AHE-3.x` | Agentic Harness Engineering | 3.0 – 3.6 |
+ | `ECO-4.x` | Ecosystem & Peripherals | 4.0 – 4.4 |
+ | `OS-5.x` | Agent OS Infrastructure | 5.0 – 5.4 |

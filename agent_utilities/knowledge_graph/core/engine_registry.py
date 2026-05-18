@@ -1282,3 +1282,237 @@ class RegistryMixin(_Base):
                         )
 
         return configs
+
+    # ------------------------------------------------------------------
+    # AgentTemplate CRUD (CONCEPT:ORCH-1.20)
+    # ------------------------------------------------------------------
+
+    def get_agent_templates(
+        self,
+        query: str = "",
+        top_k: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search for AgentTemplate nodes matching a task query.
+
+        CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+
+        Uses hybrid search when a query is provided, otherwise returns
+        all templates ordered by step_order.
+
+        Args:
+            query: Natural language task description (optional).
+            top_k: Maximum results to return.
+
+        Returns:
+            List of template dicts.
+        """
+        templates: list[dict[str, Any]] = []
+
+        # Try hybrid search if query is provided
+        if query and hasattr(self, "search"):
+            try:
+                results = self.search(
+                    query=query,
+                    top_k=top_k,
+                    node_types=["AgentTemplate"],
+                )
+                if results:
+                    for r in results:
+                        if isinstance(r, dict):
+                            templates.append(r)
+                        elif hasattr(r, "model_dump"):
+                            templates.append(r.model_dump())
+                    if templates:
+                        return templates[:top_k]
+            except Exception as e:
+                logger.debug("Hybrid search for AgentTemplate failed: %s", e)
+
+        # Fallback: cypher scan
+        if hasattr(self, "backend") and self.backend:
+            try:
+                results = self.backend.execute(
+                    "MATCH (at:AgentTemplate) "
+                    "RETURN at.id AS id, at.name AS name, at.role AS role, "
+                    "at.system_prompt_id AS system_prompt_id, "
+                    "at.toolset_ids AS toolset_ids, "
+                    "at.model_preference AS model_preference, "
+                    "at.execution_tier AS execution_tier, "
+                    "at.step_order AS step_order, "
+                    "at.is_parallel AS is_parallel, "
+                    "at.max_retries AS max_retries, "
+                    "at.description AS description "
+                    "ORDER BY at.step_order ASC "
+                    f"LIMIT {top_k}",
+                    {},
+                )
+                for row in results:
+                    templates.append(dict(row))
+            except Exception as e:
+                logger.debug("AgentTemplate scan failed: %s", e)
+
+        # Also include NX graph entries
+        for nid, data in self.graph.nodes(data=True):
+            if data.get("type") == "agent_template":
+                if not any(t.get("id") == nid for t in templates):
+                    templates.append(
+                        {
+                            "id": nid,
+                            "name": data.get("name", ""),
+                            "role": data.get("role", ""),
+                            "system_prompt_id": data.get("system_prompt_id", ""),
+                            "toolset_ids": data.get("toolset_ids", []),
+                            "model_preference": data.get("model_preference", ""),
+                            "execution_tier": data.get("execution_tier", "standard"),
+                            "step_order": data.get("step_order", 0),
+                            "is_parallel": data.get("is_parallel", False),
+                            "max_retries": data.get("max_retries", 2),
+                            "description": data.get("description", ""),
+                        }
+                    )
+
+        return sorted(templates, key=lambda t: t.get("step_order", 0))[:top_k]
+
+    def create_agent_template(
+        self,
+        template: dict[str, Any],
+    ) -> str:
+        """Create or update an AgentTemplate node with edges.
+
+        CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+
+        Upserts the template node and creates USES_PROMPT,
+        REQUIRES_TOOLSET, and COMPATIBLE_WITH_MODEL edges.
+
+        Args:
+            template: Dict with id, name, role, system_prompt_id,
+                     toolset_ids, model_preference, etc.
+
+        Returns:
+            The AgentTemplate node ID.
+        """
+        node_id = template.get("id", f"at:{uuid.uuid4().hex[:8]}")
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        node_data = {
+            "id": node_id,
+            "type": "agent_template",
+            "name": template.get("name", f"Template: {template.get('role', '')}"),
+            "description": template.get("description", ""),
+            "role": template.get("role", ""),
+            "system_prompt_id": template.get("system_prompt_id", ""),
+            "toolset_ids": template.get("toolset_ids", []),
+            "model_preference": template.get("model_preference", ""),
+            "execution_tier": template.get("execution_tier", "standard"),
+            "step_order": template.get("step_order", 0),
+            "is_parallel": template.get("is_parallel", False),
+            "max_retries": template.get("max_retries", 2),
+            "timestamp": timestamp,
+        }
+
+        # Upsert to NX graph
+        self.graph.add_node(node_id, **node_data)
+
+        # Upsert to backend if available
+        if hasattr(self, "_upsert_node"):
+            try:
+                self._upsert_node("AgentTemplate", node_id, node_data)
+            except Exception as e:
+                logger.debug("Backend upsert for AgentTemplate failed: %s", e)
+
+        # Wire USES_PROMPT edge
+        prompt_id = template.get("system_prompt_id", "")
+        if prompt_id:
+            self.graph.add_edge(
+                node_id,
+                prompt_id,
+                type=RegistryEdgeType.USES_PROMPT.value,
+                weight=1.0,
+            )
+
+        # Wire REQUIRES_TOOLSET edges
+        for tool_id in template.get("toolset_ids", []):
+            self.graph.add_edge(
+                node_id,
+                tool_id,
+                type=RegistryEdgeType.REQUIRES_TOOLSET.value,
+                weight=1.0,
+            )
+
+        # Wire COMPATIBLE_WITH_MODEL if specified
+        model_pref = template.get("model_preference", "")
+        if model_pref:
+            # Store as a property edge (model is a string, not a node)
+            self.graph.nodes[node_id]["model_preference"] = model_pref
+
+        logger.info(
+            "[CONCEPT:ORCH-1.20] Created AgentTemplate '%s' (role=%s)",
+            node_id,
+            template.get("role", ""),
+        )
+
+        return node_id
+
+    def get_workflow_topology(
+        self,
+        template_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        """Return the DEPENDS_ON edge DAG between AgentTemplate nodes.
+
+        CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+
+        Args:
+            template_ids: List of AgentTemplate node IDs.
+
+        Returns:
+            List of edge dicts with source, target, and metadata.
+        """
+        edges: list[dict[str, Any]] = []
+
+        if not template_ids or len(template_ids) < 2:
+            return edges
+
+        # Check NX graph
+        for src_id in template_ids:
+            for tgt_id in template_ids:
+                if src_id != tgt_id and self.graph.has_edge(src_id, tgt_id):
+                    edge_data = self.graph.edges[src_id, tgt_id]
+                    if edge_data.get("type") in (
+                        "depends_on",
+                        RegistryEdgeType.DEPENDS_ON.value,
+                    ):
+                        edges.append(
+                            {
+                                "source": src_id,
+                                "target": tgt_id,
+                                "type": "depends_on",
+                                "weight": edge_data.get("weight", 1.0),
+                            }
+                        )
+
+        # Also check backend
+        if hasattr(self, "backend") and self.backend:
+            try:
+                results = self.backend.execute(
+                    "MATCH (a:AgentTemplate)-[r:DEPENDS_ON]->(b:AgentTemplate) "
+                    "WHERE a.id IN $ids AND b.id IN $ids "
+                    "RETURN a.id AS source, b.id AS target",
+                    {"ids": template_ids},
+                )
+                for row in results:
+                    src = row.get("source", "")
+                    tgt = row.get("target", "")
+                    if not any(
+                        e["source"] == src and e["target"] == tgt for e in edges
+                    ):
+                        edges.append(
+                            {
+                                "source": src,
+                                "target": tgt,
+                                "type": "depends_on",
+                                "weight": 1.0,
+                            }
+                        )
+            except Exception:
+                pass  # nosec
+
+        return edges

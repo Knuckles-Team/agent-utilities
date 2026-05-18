@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """CONCEPT:ECO-4.0"""
 
 """Integration tests for the agent-utilities FastAPI server routes.

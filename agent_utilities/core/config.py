@@ -295,6 +295,15 @@ class AgentConfig(BaseSettings):
         default="http/protobuf", alias="OTEL_EXPORTER_OTLP_PROTOCOL"
     )
 
+    langfuse_public_key: str | None = Field(default=None, alias="LANGFUSE_PUBLIC_KEY")
+    langfuse_secret_key: str | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
+    langfuse_host: str = Field(
+        default="https://cloud.langfuse.com", alias="LANGFUSE_HOST"
+    )
+    langfuse_dataset_capture_threshold: float = Field(
+        default=0.0, alias="LANGFUSE_DATASET_CAPTURE_THRESHOLD"
+    )
+
     a2a_broker: str = Field(default="in-memory", alias="A2A_BROKER")
     a2a_broker_url: str | None = Field(default=None, alias="A2A_BROKER_URL")
     a2a_storage: str = Field(default="in-memory", alias="A2A_STORAGE")
@@ -548,6 +557,11 @@ DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY = config.otel_exporter_otlp_public_key
 DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY = config.otel_exporter_otlp_secret_key
 DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL = config.otel_exporter_otlp_protocol
 
+DEFAULT_LANGFUSE_PUBLIC_KEY = config.langfuse_public_key
+DEFAULT_LANGFUSE_SECRET_KEY = config.langfuse_secret_key
+DEFAULT_LANGFUSE_HOST = config.langfuse_host
+DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD = config.langfuse_dataset_capture_threshold
+
 DEFAULT_A2A_BROKER = config.a2a_broker
 DEFAULT_A2A_BROKER_URL = config.a2a_broker_url
 DEFAULT_A2A_STORAGE = config.a2a_storage
@@ -588,8 +602,10 @@ DEFAULT_EXTRA_BODY = (
 )
 
 DEFAULT_MIN_CONFIDENCE = config.min_confidence
-DEFAULT_VALIDATION_MODE = config.validation_mode or to_boolean(
-    os.getenv("VALIDATION_MODE", "False")
+DEFAULT_VALIDATION_MODE = (
+    config.validation_mode
+    or to_boolean(os.getenv("VALIDATION_MODE", "False"))
+    or to_boolean(os.getenv("AGENT_UTILITIES_TESTING", "False"))
 )
 DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 DEFAULT_APPROVAL_TIMEOUT = config.approval_timeout

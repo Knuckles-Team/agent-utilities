@@ -36,3 +36,5 @@ For financial workflows (linked to KG-2.46 Optimal Execution), the ecosystem imp
 - **ECO-4.2**: A2A Network & Consensus
 - **ECO-4.4**: Market Data Connector Protocol
 - **ECO-4.8**: Skill Evolution Engine
+- **ECO-4.10**: Agent Toolkit Ingestor — unified MCP/Skill/A2A ingestion with auto-detection heuristics
+- **ECO-4.11**: MCP Live Discovery — live `list_tools()` invocation, config hash freshness, and KG caching

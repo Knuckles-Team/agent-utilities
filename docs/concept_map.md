@@ -1,7 +1,7 @@
 # agent-utilities Canonical Concept Registry
 
 > **Single source of truth** for all CONCEPT: tags in the ecosystem.
-> Consolidated to **34 canonical concepts** with gap-free numbering.
+> Consolidated to **42 canonical concepts** with gap-free numbering.
 > Components marked 🔬 have research-backed enhancements.
 >
 > **Rule**: All new concept proposals must go through the DSTDD design phase.
@@ -29,8 +29,12 @@ Every concept has 1:1:1 traceability across:
 | `ORCH-1.4` | Capability Wiring Engine | 11 | 2 | [ORCH-1.4](pillars/1_graph_orchestration/ORCH-1.4-Capability_Wiring_Engine.md) |
 | `ORCH-1.5` | Agent Orchestrator 🔬 | 3 | 1 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.6` | DSTDD Pipeline | 3 | 3 | [ORCH-1.6](pillars/1_graph_orchestration/ORCH-1.6-DSTDD_Pipeline.md) |
+| `ORCH-1.7` | Prediction Linkage Layer 🔬 | 1 | 0 | [Pillar Summary](pillars/1_graph_orchestration.md) |
+| `ORCH-1.19` | Subgraph Synthesis (Legacy Compat) | 1 | 0 | [Pillar Summary](pillars/1_graph_orchestration.md) |
+| `ORCH-1.20` | KG-Driven Graph Factory | 7 | 1 | [ORCH-1.20](pillars/1_graph_orchestration/ORCH-1.20-KG_Graph_Factory.md) |
+| `ORCH-1.21` | Agent Runner — KG-to-LLM Bridge | 1 | 1 | [ORCH-1.21](pillars/1_graph_orchestration/ORCH-1.21-Agent_Runner.md) |
 
-Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/routing.py`, `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `graph/dynamic_graph_orchestrator.py`, `graph/agent_orchestrator.py`, `sdd/orchestrator.py`, 🔬 `graph/coordination.py`
+Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/routing.py`, `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `graph/dynamic_graph_orchestrator.py`, `graph/agent_orchestrator.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
 
 ---
 
@@ -47,9 +51,13 @@ Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/ro
 | `KG-2.6` | Domain: Finance | 46 | 31 | [KG-2.6](pillars/2_epistemic_knowledge_graph/KG-2.6-Domain_Finance.md) |
 | `KG-2.7` | Research Intelligence | 2 | 0 | [KG-2.7](pillars/2_epistemic_knowledge_graph/KG-2.7-Research_Intelligence.md) |
 | `KG-2.8` | Domain: Enterprise | 13 | 2 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.9` | Quant Orchestration (Debate/Fusion) | 6 | 2 | [KG-2.9](pillars/2_epistemic_knowledge_graph/KG-2.9-Quant_Orchestration.md) |
 | `KG-2.9` | External Graph Federation | 1 | 0 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.10` | Observational Memory Bridge 🔬 | 4 | 1 | [KG-2.10](pillars/2_epistemic_knowledge_graph/KG-2.10-Observational_Memory_Bridge.md) |
+| `KG-2.11` | Dynamic Agent Relationship Graph (AR-Graph) 🔬 | 1 | 0 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.12` | Time-Series Weighted Graph Structure 🔬 | 1 | 0 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
 
-Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/consolidation.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`
+Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/consolidation.py`, `knowledge_graph/memory/memory_materializer.py`, `knowledge_graph/memory/observer.py`, `knowledge_graph/memory/reflector.py`, `knowledge_graph/memory/startup_context.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`, 🔬 `knowledge_graph/core/ar_graph.py`, 🔬 `knowledge_graph/core/time_series_graph.py`
 
 ---
 
@@ -64,8 +72,9 @@ Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memo
 | `AHE-3.4` | Distributed Agentic Evolution | 11 | 1 | [AHE-3.4](pillars/3_agentic_harness_engineering/AHE-3.4-Distributed_Agentic_Evolution.md) |
 | `AHE-3.5` | Heavy Thinking & Background Intelligence | 11 | 1 | [AHE-3.5](pillars/3_agentic_harness_engineering/AHE-3.5-Heavy_Thinking_And_Background_Intelligence.md) |
 | `AHE-3.6` | Backtest & Curriculum | 10 | 2 | [AHE-3.6](pillars/3_agentic_harness_engineering/AHE-3.6-Backtest_And_Curriculum.md) |
+| `AHE-3.7` | Distributed Agent State Manager 🔬 | 1 | 0 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
 
-Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.py`, `graph/team_composer.py`, `agentic_evolution/forge.py`, `knowledge_graph/orchestration/engine_ahe.py`
+Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.py`, `graph/team_composer.py`, `agentic_evolution/forge.py`, `knowledge_graph/orchestration/engine_ahe.py`, 🔬 `harness/distributed_state_manager.py`
 
 ---
 
@@ -79,8 +88,14 @@ Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.p
 | `ECO-4.3` | Market Data Connectors | 9 | 3 | [ECO-4.3](pillars/4_ecosystem_peripherals/ECO-4.3-Market_Data_Connectors.md) |
 | `ECO-4.4` | KG MCP Server & Execution | 2 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
 | `ECO-4.5` | Terminal Agent Launcher | 1 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
+| `ECO-4.6` | Agent Hook Installer | 1 | 1 | [KG-2.10](pillars/2_epistemic_knowledge_graph/KG-2.10-Observational_Memory_Bridge.md) |
+| `ECO-4.7` | Standardized Quant Agent API (SAAPI) 🔬 | 1 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
+| `ECO-4.8` | Market Dataflows 🔬 | 1 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
+| `ECO-4.9` | Generalized Quant MCP Suite 🔬 | 1 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
+| `ECO-4.10` | Agent Toolkit Ingestor | 1 | 1 | [ECO-4.10](pillars/4_ecosystem_peripherals/ECO-4.10-Agent_Toolkit_Ingestor.md) |
+| `ECO-4.11` | MCP Live Discovery | 1 | 1 | [ECO-4.11](pillars/4_ecosystem_peripherals/ECO-4.11-MCP_Live_Discovery.md) |
 
-Key modules: `mcp/server_factory.py`, `mcp/kg_server.py` (incl. `kg_launch_terminal_agent`), `ecosystem/bridge.py`, `protocols/a2a_graph_skill.py`, `protocols/data_connector.py`, `tools/tool_filtering.py`
+Key modules: `mcp/server_factory.py`, `mcp/kg_server.py` (incl. `kg_launch_terminal_agent`), `ecosystem/bridge.py`, `ecosystem/hook_installer.py`, `protocols/a2a_graph_skill.py`, `protocols/data_connector.py`, `tools/tool_filtering.py`, `knowledge_graph/core/engine_ingestion.py`, `knowledge_graph/core/engine_mcp_discovery.py`, 🔬 `protocols/quant_agent.py`, 🔬 `protocols/dataflows.py`, 🔬 `domains/finance/quant_mcp_tools.py`
 
 ---
 

@@ -1,0 +1,32 @@
+# pgGraph + pgvector PostgreSQL Stack
+# Provides a graph-enabled PostgreSQL instance for the agent-utilities KG backend.
+#
+# Usage:
+#   docker compose -f docker/pggraph.compose.yml up -d
+#
+# Environment:
+#   GRAPH_BACKEND=postgresql
+#   GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
+
+services:
+  pggraph-db:
+    image: paradedb/paradedb:latest
+    container_name: agent-pggraph
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent
+      POSTGRES_DB: agent_kg
+    ports:
+      - "5433:5432"
+    volumes:
+      - pggraph-data:/var/lib/postgresql/data
+      - ./pggraph-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_kg"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pggraph-data:

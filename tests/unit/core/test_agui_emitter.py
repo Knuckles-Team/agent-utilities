@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for the AG-UI wire format emitter.
 
 Validates that :class:`AGUIGraphEmitter` correctly translates graph

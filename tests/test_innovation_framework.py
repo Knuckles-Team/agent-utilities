@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """Tests for Innovation Framework modules (CONCEPT:OS-5.2 through CONCEPT:OS-5.2).
 
 Tests cover:

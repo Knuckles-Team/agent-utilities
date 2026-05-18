@@ -61,7 +61,9 @@ def test_inference_engine_fallback(memory_engine):
     assert edge_data["inferred"] is True
 
 
-@patch("agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model")
+@patch(
+    "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
+)
 def test_hybrid_retriever_fallback(mock_create_model, memory_engine):
     """Test HybridRetriever fallback when vector backend isn't available."""
     # Setup mock to avoid hitting real APIs

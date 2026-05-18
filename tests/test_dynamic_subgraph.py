@@ -41,6 +41,7 @@ def test_dynamic_subgraph_synthesize_team():
     assert team.adaptive_agent_router[0]["role"] == "planner"
     assert team.adaptive_agent_router[1]["tools"] == ["search_web", "read_doc"]
 
+
 def test_dynamic_subgraph_with_delegated_authority():
     """Test synthesizing a team dynamically with delegated authority constraints."""
     mock_engine = Mock()
@@ -51,7 +52,11 @@ def test_dynamic_subgraph_with_delegated_authority():
     mock_backend.execute.side_effect = [
         # Query 1: Retrieve candidate agents with authority
         [
-            {"agent_id": "agent_secure", "role": "financial_auditor", "name": "Secure Auditor"},
+            {
+                "agent_id": "agent_secure",
+                "role": "financial_auditor",
+                "name": "Secure Auditor",
+            },
         ],
         # Query 2: Tools for financial_auditor
         [{"tool_name": "read_ledger"}],
@@ -61,7 +66,7 @@ def test_dynamic_subgraph_with_delegated_authority():
     team = orchestrator.synthesize_team(
         query="Audit the Q3 ledger",
         domain="finance",
-        delegated_authority="human_cf_officer_01"
+        delegated_authority="human_cf_officer_01",
     )
 
     assert isinstance(team, TeamComposition)

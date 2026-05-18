@@ -106,6 +106,37 @@ the following artifacts MUST be reviewed and updated as appropriate:
 - A plan that omits any of these 7 artifacts is INVALID and must be revised
 - The evolution pipeline (`agent-utilities-evolution` skill) auto-injects these into every SDD plan
 
+## Assimilation Governance — Wire or Discard
+
+When assimilating features from external codebases, open-source libraries, or research papers
+into `agent-utilities`, the following rules are **MANDATORY**:
+
+### Core Heuristic
+- **Wire-First**: Every assimilated feature MUST connect to an existing hot path within ≤3 hops
+  of an MCP tool, A2A skill, or API entry point. Features without a live call path are rejected.
+- **Extend, Don't Duplicate**: If the feature overlaps with an existing concept (similarity ≥ 0.7
+  via KG search), it MUST extend that concept — not create a parallel implementation.
+- **No Dead Code**: Features that cannot demonstrate a live call path from an entry point to the
+  new code are architectural debt and MUST NOT be merged.
+- **Unified Downstream**: Assimilated features should be wired downstream from existing hot paths,
+  not bolted on as independent silos. Prefer composition over addition.
+
+### Constitution Preservation
+- When ingesting an external codebase into the KG, its `constitution.md` / `CONSTITUTION.md`
+  MUST be saved as `PolicyNode` entries via `PolicyIngestor.ingest_constitution()`.
+- Cross-project rule synthesis: Ingested constitution rules are tagged with their originating
+  project and used during comparative analysis to inform integration constraints.
+- Conflicting rules between projects are flagged for human resolution during SDD plan review.
+
+### Evolution Pipeline Integration
+- The `agent-utilities-evolution` skill enforces this section automatically during SDD plan generation.
+- Every recommendation in an evolution SDD plan MUST include:
+  1. Which existing hot-path module it wires into
+  2. Which entry point (MCP tool, A2A skill, API route) exposes it
+  3. Which C4 component it belongs to
+  4. Which existing CONCEPT:ID it extends (or a New Concept Proposal if none match)
+- Plans that violate Wire-First or introduce dead code are **INVALID** and must be revised.
+
 ## Shared Memory Architecture
 
 All agents in the `agent-packages` ecosystem share a unified Knowledge Graph:

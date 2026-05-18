@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """Tests for CONCEPT:AHE-3.3 — Agent-Interpretable Model Evolver.
 
 Validates the autoresearch loop engine, Pareto frontier management,

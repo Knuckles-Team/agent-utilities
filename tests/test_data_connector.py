@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for CONCEPT:ECO-4.3 — Market Data Connector Protocol."""
 
 

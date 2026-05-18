@@ -13,8 +13,9 @@ from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import (
 
 
 @pytest.fixture
-def ontology_path():
+def ontology_path(monkeypatch):
     """Path to the standard ontology file."""
+    monkeypatch.setenv("OWL_ALLOW_REMOTE_IMPORTS", "true")
     return str(
         Path(__file__).parent.parent.parent.parent
         / "agent_utilities"
@@ -109,11 +110,15 @@ def test_owlready2_reasoning(ontology_path, monkeypatch):
     # Mock reasoner to simulate transitive inference
     def mock_reasoner(*args, **kwargs):
         # Manually add the inference to the ontology
-        onto = backend._onto
-        symbol_A = onto.search_one(iri="*symbol_A")
-        symbol_C = onto.search_one(iri="*symbol_C")
+        world = backend._world
+        symbol_A = world.search_one(iri="*symbol_A")
+        symbol_C = world.search_one(iri="*symbol_C")
         if symbol_A and symbol_C:
-            symbol_A.dependsOn.append(symbol_C)
+            prop = backend._get_owl_property("depends_on")
+            if prop:
+                prop[symbol_A].append(symbol_C)
+            else:
+                raise RuntimeError("'dependsOn' property is not defined.")
 
     import owlready2
 

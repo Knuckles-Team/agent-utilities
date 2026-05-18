@@ -190,6 +190,28 @@ def research_dir() -> Path:
     return data_dir() / "research"
 
 
+def memory_view_dir() -> Path:
+    """Return the path for materialized memory views.
+
+    CONCEPT:KG-2.10 — Observational Memory Bridge
+
+    Default: ``~/.local/share/agent-utilities/memory/``
+
+    Override via ``AGENT_UTILITIES_MEMORY_DIR`` environment variable.
+
+    Contains:
+        - ``observations.md`` — Recent observation notes with priorities
+        - ``reflections.md`` — Long-term condensed memory
+        - ``profile.md`` — Stable user identity context
+        - ``active.md`` — Current working context
+        - ``.memory_cursor.json`` — Materialization state tracking
+    """
+    override = os.environ.get("AGENT_UTILITIES_MEMORY_DIR")
+    if override:
+        return Path(override).expanduser()
+    return data_dir() / "memory"
+
+
 def ensure_dirs() -> None:
     """Create all XDG directories on first run.
 
@@ -203,6 +225,7 @@ def ensure_dirs() -> None:
         ontology_dir(),
         runtime_dir(),
         research_dir(),
+        memory_view_dir(),
     ]
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)

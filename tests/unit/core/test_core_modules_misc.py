@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Coverage uplift tests for agent-utilities.
 
 Targets 0%-covered and low-covered modules:

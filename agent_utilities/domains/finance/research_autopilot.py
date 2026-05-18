@@ -11,8 +11,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 import numpy as np
+
+from agent_utilities.domains.finance.debate_engine import DebateContext, DebateEngine
 
 logger = logging.getLogger(__name__)
 
@@ -194,9 +197,12 @@ class ResearchAutopilot:
         report = autopilot.run()
     """
 
-    def __init__(self, config: AutopilotConfig | None = None):
+    def __init__(
+        self, config: AutopilotConfig | None = None, engine: Any | None = None
+    ):
         self.config = config or AutopilotConfig()
         self.backtester = SimpleBacktester()
+        self.debate_engine = DebateEngine(engine=engine) if engine else None
         self._hypotheses: list[Hypothesis] = []
         self._session_count = 0
 
@@ -215,6 +221,42 @@ class ResearchAutopilot:
         hypothesis.status = HypothesisStatus.TESTING
 
         try:
+            # 1. Peer Review via Debate Engine (if wired to KG engine)
+            debate_summary = ""
+            if self.debate_engine:
+                context = DebateContext(
+                    ticker="HYPOTHETICAL",
+                    asset_class=hypothesis.asset_class,
+                    market_report=f"Hypothesis: {hypothesis.title}\n{hypothesis.description}",
+                )
+                debate_session = self.debate_engine.run_debate(
+                    session_id=f"peer_review_{hypothesis.hypothesis_id}",
+                    context=context,
+                    num_rounds=2,
+                )
+
+                # If risk manager vetoes the hypothesis, reject early before expensive backtest
+                if (
+                    debate_session.risk_assessment
+                    and not debate_session.risk_assessment.approved
+                ):
+                    hypothesis.status = HypothesisStatus.REJECTED
+                    return HypothesisResult(
+                        hypothesis=hypothesis,
+                        metrics=BacktestMetrics(),
+                        passed=False,
+                        report=f"❌ REJECTED IN PEER REVIEW\nReasoning: {debate_session.risk_assessment.reasoning}",
+                    )
+                reasoning = (
+                    debate_session.risk_assessment.reasoning
+                    if debate_session.risk_assessment
+                    else "No risk assessment available"
+                )
+                debate_summary = (
+                    f"\n\n**Peer Review**: ✅ APPROVED\nReasoning: {reasoning}\n"
+                )
+
+            # 2. Backtest Phase
             metrics = self.backtester.run(entry_signals, exit_signals, returns)
 
             # Evaluate pass criteria
@@ -244,6 +286,7 @@ class ResearchAutopilot:
                 f"| Trades | {metrics.total_trades} | ≥{self.config.min_trades} | {'✅' if criteria['trades'] else '❌'} |",
                 f"| Win Rate | {metrics.win_rate:.1%} | ≥{self.config.min_win_rate:.0%} | {'✅' if criteria['win_rate'] else '❌'} |",
                 f"| Profit Factor | {metrics.profit_factor:.2f} | ≥{self.config.min_profit_factor} | {'✅' if criteria['profit_factor'] else '❌'} |",
+                debate_summary,
             ]
 
             return HypothesisResult(

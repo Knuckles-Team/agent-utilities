@@ -4,6 +4,19 @@
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix bfo:    <http://purl.obolibrary.org/obo/BFO_> .
 
+
+# ── Standard Namespace Prefixes ──────────────────────────────────────
+@prefix bfo:    <http://purl.obolibrary.org/obo/BFO_> .
+@prefix schema: <http://schema.org/> .
+@prefix dc:     <http://purl.org/dc/terms/> .
+@prefix foaf:   <http://xmlns.com/foaf/0.1/> .
+@prefix prov:   <http://www.w3.org/ns/prov#> .
+@prefix skos:   <http://www.w3.org/2004/02/skos/core#> .
+@prefix time:   <http://www.w3.org/2006/time#> .
+@prefix bibo:   <http://purl.org/ontology/bibo/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+
 <http://knuckles.team/kg/government> a owl:Ontology ;
     owl:imports <http://knuckles.team/kg> ;
     rdfs:label "Government & Public Sector Ontology" ;

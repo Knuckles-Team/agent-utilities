@@ -23,17 +23,32 @@ All backends implement the `GraphBackend` abstract base class defined in `base.p
 - **Status**: Stub / Experimental.
 - **Use Case**: High-throughput graph workloads requiring Redis speeds.
 
+### 4. PostgreSQL + pgGraph (`postgresql_backend.py`)
+- **Type**: Enterprise PostgreSQL with pgGraph graph extension + pgvector + ParadeDB.
+- **Status**: Production.
+- **Use Case**: Teams with existing PostgreSQL infrastructure wanting graph, vector, and BM25 capabilities without a separate graph database.
+- **Extensions**: pgGraph (CSR graph traversal), pgvector (HNSW embedding search), ParadeDB (BM25 lexical search).
+- **Features**: Connection pooling (psycopg_pool), Cypher-to-SQL transpilation, graceful degradation when extensions are absent.
+
+### 5. Memory (`memory_backend.py`)
+- **Type**: Pure in-memory NetworkX graph.
+- **Status**: Testing / Development.
+- **Use Case**: Unit tests, CI pipelines, edge devices, and ephemeral containers.
+
 ## Configuration
 
 Backends are selected via environment variables:
 
-- `GRAPH_BACKEND`: `ladybug` (default), `neo4j`, or `falkordb`.
+- `GRAPH_BACKEND`: `ladybug` (default), `neo4j`, `falkordb`, `postgresql`, or `memory`.
 - `GRAPH_DB_PATH`: Local path for LadybugDB (default: `knowledge_graph.db`).
-- `GRAPH_DB_URI`: Connection URI for Neo4j.
+- `GRAPH_DB_URI`: Connection URI for Neo4j or PostgreSQL.
 - `GRAPH_DB_HOST`: Host for FalkorDB.
+- `GRAPH_POOL_MIN` / `GRAPH_POOL_MAX`: PostgreSQL connection pool sizing.
+- `GRAPH_PGGRAPH_SCHEMA`: Schema for pgGraph table registration (default: `public`).
 
 ## Implementing a New Backend
 
 1. Inherit from `GraphBackend` in `base.py`.
-2. Implement the required methods: `execute()`, `create_schema()`, `prune()`, and vector-related operations.
+2. Implement the required methods: `execute()`, `execute_batch()`, `create_schema()`, `add_embedding()`, `semantic_search()`, `prune()`, and `close()`.
 3. Register the new backend in the `create_backend()` factory in `__init__.py`.
+4. See `docs/graph_backends_architecture.md` for the full architecture reference.

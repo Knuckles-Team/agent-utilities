@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Tests for the iter()-based graph execution path.
 
 Validates that :func:`run_graph_iter` correctly uses ``graph.iter()``
@@ -14,7 +15,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities.graph.dynamic_graph_orchestrator import _build_state_snapshot, run_graph_iter
+from agent_utilities.graph.dynamic_graph_orchestrator import (
+    _build_state_snapshot,
+    run_graph_iter,
+)
 from agent_utilities.graph.state import GraphState
 
 

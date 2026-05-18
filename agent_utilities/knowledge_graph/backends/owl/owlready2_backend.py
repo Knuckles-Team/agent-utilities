@@ -161,6 +161,63 @@ class Owlready2Backend(OWLBackend):
         if ontology_path:
             self.load_ontology(ontology_path)
 
+    def _register_local_imports(self, ontology_path: Path) -> None:
+        """Pre-load sibling .ttl files so owl:imports resolve locally.
+
+        owlready2 resolves owl:imports by name-matching files in
+        ``onto_path``.  Our files (``ontology_*.ttl``) don't match the
+        IRI convention, so we use rdflib (which ignores owl:imports) to
+        parse each sibling into the owlready2 world first.
+
+        When ``OWL_ALLOW_REMOTE_IMPORTS=true`` is set, any import IRI
+        that can't be resolved locally will still be fetched over HTTP —
+        allowing users to inherit external domain-level ontologies and
+        extend/override them locally.
+        """
+        if not self._world:
+            return
+
+        parent = ontology_path.parent
+        for ttl_file in sorted(parent.glob("ontology*.ttl")):
+            if ttl_file == ontology_path:
+                continue
+            try:
+                self._preload_ttl_via_rdflib(ttl_file)
+            except Exception as e:
+                logger.debug(
+                    "Pre-load of %s failed (non-fatal): %s",
+                    ttl_file.name,
+                    e,
+                )
+
+    def _preload_ttl_via_rdflib(self, ttl_file: Path) -> None:
+        """Parse a Turtle file via rdflib and inject into the owlready2 world.
+
+        rdflib ignores owl:imports directives, so this avoids recursive
+        HTTP fetching while still making the ontology's classes and
+        properties available for the main ontology to reference.
+        """
+        from tempfile import NamedTemporaryFile
+
+        import rdflib
+
+        g = rdflib.Graph()
+        g.parse(str(ttl_file), format="turtle")
+
+        # Strip owl:imports so owlready2 doesn't try to resolve them
+        OWL = rdflib.Namespace("http://www.w3.org/2002/07/owl#")
+        for s, p, o in list(g.triples((None, OWL.imports, None))):
+            g.remove((s, p, o))
+
+        with NamedTemporaryFile(suffix=".xml", delete=False) as tmp:
+            tmp_path = tmp.name
+            g.serialize(destination=tmp_path, format="pretty-xml")
+
+        try:
+            self._world.get_ontology(Path(tmp_path).as_uri()).load()
+        finally:
+            os.unlink(tmp_path)
+
     def _init_world(self) -> None:
         """Initialize owlready2 World (isolated store)."""
         import owlready2
@@ -171,59 +228,74 @@ class Owlready2Backend(OWLBackend):
             self._world = owlready2.World()
 
     def load_ontology(self, ontology_path: str) -> None:
-        """Load an OWL/Turtle ontology into the backend."""
+        """Load an OWL/Turtle ontology into the backend.
+
+        Import resolution strategy:
+
+        1. All sibling ``ontology_*.ttl`` files are pre-parsed via rdflib
+           (which ignores owl:imports) and loaded into the owlready2 world.
+        2. The main ontology is also parsed via rdflib and loaded.
+        3. If ``OWL_ALLOW_REMOTE_IMPORTS=true`` is set, any remaining
+           unresolved owl:imports will be fetched over HTTP — enabling
+           users to inherit external domain ontologies.
+        """
         path = Path(ontology_path)
         if not path.exists():
             raise FileNotFoundError(f"Ontology file not found: {ontology_path}")
 
+        allow_remote = (
+            os.environ.get("OWL_ALLOW_REMOTE_IMPORTS", "false").lower() == "true"
+        )
+
         try:
-            # Try native load first
+            # Pre-load sibling ontologies so owl:imports resolve locally
+            self._register_local_imports(path)
+
+            # Load the main ontology via rdflib (no remote owl:imports)
+            self._preload_ttl_via_rdflib(path)
+
+            # Grab a reference to the loaded ontology from the world
             if self._world is not None:
-                self._onto = self._world.get_ontology(path.as_uri()).load()
-            else:
-                raise RuntimeError("owlready2 World not initialized")
+                for onto in self._world.ontologies.values():
+                    if onto.loaded:
+                        self._onto = onto
+            if self._onto is None:
+                raise RuntimeError("Ontology loaded but not found in world")
         except Exception as e:
-            logger.debug(
-                "Native owlready2 load failed: %s. Trying rdflib conversion...", e
-            )
-            try:
-                from tempfile import NamedTemporaryFile
-
-                import rdflib
-
-                g = rdflib.Graph()
-                g.parse(str(path), format="turtle")
-
-                with NamedTemporaryFile(suffix=".xml", delete=False) as tmp:
-                    tmp_path = tmp.name
-                    g.serialize(destination=tmp_path, format="pretty-xml")
-
-                try:
-                    self._onto = self._world.get_ontology(
-                        Path(tmp_path).as_uri()
-                    ).load()
-                finally:
-                    os.unlink(tmp_path)
-            except Exception as e2:
+            if allow_remote:
+                # User opted into remote imports — try native owlready2 load
+                logger.debug(
+                    "Local-only load failed: %s. Retrying with remote "
+                    "imports (OWL_ALLOW_REMOTE_IMPORTS=true)...",
+                    e,
+                )
+                if self._world is not None:
+                    self._onto = self._world.get_ontology(path.as_uri()).load()
+                else:
+                    raise RuntimeError("owlready2 World not initialized") from e
+            else:
                 raise RuntimeError(
-                    f"Failed to load ontology from {ontology_path}: {e2}"
-                ) from e2
+                    f"Failed to load ontology from {ontology_path}. "
+                    f"Set OWL_ALLOW_REMOTE_IMPORTS=true to allow remote "
+                    f"owl:imports resolution: {e}"
+                ) from e
 
         logger.info("Loaded ontology from %s", ontology_path)
 
     def _get_owl_class(self, node_type: str):
         """Resolve a LPG node type string to an owlready2 class."""
         class_name = _NODE_TYPE_TO_OWL_CLASS.get(node_type)
-        if not class_name or not self._onto:
+        if not class_name or not self._world:
             return None
-        return getattr(self._onto, class_name, None)
+        # We search the world because the class might be in a sibling/imported ontology
+        return self._world.search_one(iri=f"*{class_name}")
 
     def _get_owl_property(self, edge_type: str):
         """Resolve a LPG edge type string to an owlready2 object property."""
         prop_name = _EDGE_TYPE_TO_OWL_PROP.get(edge_type)
-        if not prop_name or not self._onto:
+        if not prop_name or not self._world:
             return None
-        return getattr(self._onto, prop_name, None)
+        return self._world.search_one(iri=f"*{prop_name}")
 
     def _safe_id(self, node_id: str) -> str:
         """Sanitize a node ID for use as an OWL individual name."""
@@ -282,7 +354,8 @@ class Owlready2Backend(OWLBackend):
             if (
                 node_key in node
                 and node[node_key]
-                and hasattr(self._onto, owl_prop_name)
+                and self._world
+                and self._world.search_one(iri=f"*{owl_prop_name}")
             ):
                 try:
                     getattr(individual, owl_prop_name).append(str(node[node_key]))
@@ -291,7 +364,7 @@ class Owlready2Backend(OWLBackend):
 
     def promote_edges(self, edges: list[dict[str, Any]]) -> int:
         """Create OWL property assertions from stable LPG edges."""
-        if not self._onto:
+        if not self._world:
             return 0
 
         count = 0
@@ -305,8 +378,8 @@ class Owlready2Backend(OWLBackend):
             if not src_id or not tgt_id:
                 continue
 
-            src_individual = self._onto.search_one(iri=f"*{src_id}")
-            tgt_individual = self._onto.search_one(iri=f"*{tgt_id}")
+            src_individual = self._world.search_one(iri=f"*{src_id}")
+            tgt_individual = self._world.search_one(iri=f"*{tgt_id}")
 
             if src_individual and tgt_individual:
                 if tgt_individual not in prop[src_individual]:
@@ -319,10 +392,10 @@ class Owlready2Backend(OWLBackend):
     def _snapshot_facts(self) -> set[tuple[str, str, str]]:
         """Take a snapshot of all current triples for diff-based inference."""
         facts: set[tuple[str, str, str]] = set()
-        if not self._onto:
+        if not self._world:
             return facts
 
-        for individual in self._onto.individuals():
+        for individual in self._world.individuals():
             for prop in individual.get_properties():
                 for value in prop[individual]:
                     obj_str = value.name if hasattr(value, "name") else str(value)
@@ -431,11 +504,11 @@ class Owlready2Backend(OWLBackend):
 
     def get_stats(self) -> dict[str, int]:
         """Return counts of key ontology elements."""
-        if not self._onto:
+        if not self._world:
             return {"individuals": 0, "classes": 0, "properties": 0}
 
         return {
-            "individuals": len(list(self._onto.individuals())),
-            "classes": len(list(self._onto.classes())),
-            "properties": len(list(self._onto.properties())),
+            "individuals": len(list(self._world.individuals())),
+            "classes": len(list(self._world.classes())),
+            "properties": len(list(self._world.properties())),
         }

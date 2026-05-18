@@ -41,7 +41,14 @@ def test_diff_entry_in_schema():
 def test_diff_entry_has_required_columns():
     """DiffEntry schema must include content, embedding, target_path, status."""
     diff_def = next(n for n in SCHEMA.nodes if n.name == "DiffEntry")
-    required = {"id", "content", "embedding", "target_path", "status", "last_seen_timestamp"}
+    required = {
+        "id",
+        "content",
+        "embedding",
+        "target_path",
+        "status",
+        "last_seen_timestamp",
+    }
     actual = set(diff_def.columns.keys())
     missing = required - actual
     assert not missing, f"DiffEntry schema missing columns: {missing}"
@@ -74,30 +81,45 @@ def test_archimate_business_process_in_schema():
 def test_archived_node_excluded_from_networkx_search(engine):
     """Nodes with status=ARCHIVED must be excluded from keyword search."""
     # Add an active node
-    engine.graph.add_node("active-node", name="TaxService", description="Handles tax", status="ACTIVE")
+    engine.graph.add_node(
+        "active-node", name="TaxService", description="Handles tax", status="ACTIVE"
+    )
     # Add an archived node
-    engine.graph.add_node("archived-node", name="TaxService-OLD", description="Handles tax", status="ARCHIVED")
+    engine.graph.add_node(
+        "archived-node",
+        name="TaxService-OLD",
+        description="Handles tax",
+        status="ARCHIVED",
+    )
 
     results = engine.search_hybrid("TaxService")
     result_ids = [r.get("id") for r in results]
 
     assert "active-node" in result_ids, "Active node should appear in search"
-    assert "archived-node" not in result_ids, "Archived node must be excluded from search"
+    assert "archived-node" not in result_ids, (
+        "Archived node must be excluded from search"
+    )
 
 
 def test_archived_node_visible_via_direct_graph_query(engine):
     """ARCHIVED nodes must be accessible via direct graph query for restore/audit operations."""
-    engine.graph.add_node("archived-node", name="Legacy", description="Old system", status="ARCHIVED")
+    engine.graph.add_node(
+        "archived-node", name="Legacy", description="Old system", status="ARCHIVED"
+    )
 
     # Direct graph access should still see the node (bypasses search filtering)
     node_data = engine.graph.nodes.get("archived-node")
-    assert node_data is not None, "ARCHIVED nodes must be accessible via direct graph query"
+    assert node_data is not None, (
+        "ARCHIVED nodes must be accessible via direct graph query"
+    )
     assert node_data["status"] == "ARCHIVED"
 
     # But keyword search should exclude it
     results = engine._search_keyword("Legacy")
     result_ids = [r.get("id") for r in results]
-    assert "archived-node" not in result_ids, "ARCHIVED nodes must be excluded from keyword search"
+    assert "archived-node" not in result_ids, (
+        "ARCHIVED nodes must be excluded from keyword search"
+    )
 
 
 @pytest.mark.asyncio
@@ -107,7 +129,10 @@ async def test_soft_delete_pipeline_uses_archived_status():
     engine = IntelligenceGraphEngine(graph=graph)
     engine.graph.add_node("doc-001", name="TestDoc", content="test", status="ACTIVE")
 
-    from agent_utilities.knowledge_graph.pipeline.document_deletion import DocumentDeletionPipeline
+    from agent_utilities.knowledge_graph.pipeline.document_deletion import (
+        DocumentDeletionPipeline,
+    )
+
     pipeline = DocumentDeletionPipeline(knowledge_graph=engine)
 
     await pipeline._soft_delete_from_knowledge_graph("doc-001")
@@ -124,16 +149,27 @@ async def test_restore_document_resets_to_active():
     """Restoring a soft-deleted document must set status=ACTIVE."""
     graph = nx.MultiDiGraph()
     engine = IntelligenceGraphEngine(graph=graph)
-    engine.graph.add_node("doc-002", name="TestDoc", content="test", status="ARCHIVED", deleted_at="2024-01-01")
+    engine.graph.add_node(
+        "doc-002",
+        name="TestDoc",
+        content="test",
+        status="ARCHIVED",
+        deleted_at="2024-01-01",
+    )
 
-    from agent_utilities.knowledge_graph.pipeline.document_deletion import DocumentDeletionPipeline
+    from agent_utilities.knowledge_graph.pipeline.document_deletion import (
+        DocumentDeletionPipeline,
+    )
+
     pipeline = DocumentDeletionPipeline(knowledge_graph=engine)
 
     result = await pipeline.restore_document("doc-002")
 
     assert result["status"] == "restored"
     node_data = engine.graph.nodes["doc-002"]
-    assert node_data.get("status") == "ACTIVE", "Restored document must have status=ACTIVE"
+    assert node_data.get("status") == "ACTIVE", (
+        "Restored document must have status=ACTIVE"
+    )
 
 
 @pytest.mark.asyncio
@@ -143,7 +179,10 @@ async def test_document_update_rejects_archived():
     engine = IntelligenceGraphEngine(graph=graph)
     engine.graph.add_node("doc-003", name="Archived", content="old", status="ARCHIVED")
 
-    from agent_utilities.knowledge_graph.pipeline.document_update import DocumentUpdatePipeline
+    from agent_utilities.knowledge_graph.pipeline.document_update import (
+        DocumentUpdatePipeline,
+    )
+
     pipeline = DocumentUpdatePipeline(knowledge_graph=engine)
 
     with pytest.raises(ValueError, match="archived"):
@@ -167,7 +206,9 @@ def test_task_submit_and_list(engine):
 
     tasks = engine.list_tasks()
     all_jobs = tasks["pending"] + tasks["running"]
-    assert any(j["job_id"] == job_id for j in all_jobs), "Submitted task must appear in list"
+    assert any(j["job_id"] == job_id for j in all_jobs), (
+        "Submitted task must appear in list"
+    )
 
 
 # ── Gap 6: Lifecycle States in Schema ──

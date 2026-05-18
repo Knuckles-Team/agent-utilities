@@ -1,12 +1,13 @@
 import os
 import ast
 
+
 def check_file_for_stubs(filepath):
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath, "r") as f:
             content = f.read()
         tree = ast.parse(content)
-        
+
         stubs = []
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -15,13 +16,25 @@ def check_file_for_stubs(filepath):
                 for expr in node.body:
                     if isinstance(expr, ast.Pass):
                         continue
-                    if isinstance(expr, ast.Expr) and isinstance(expr.value, (ast.Str, ast.Constant)): # Docstring
+                    if isinstance(expr, ast.Expr) and isinstance(
+                        expr.value, (ast.Str, ast.Constant)
+                    ):  # Docstring
                         continue
-                    if isinstance(expr, ast.Expr) and isinstance(expr.value, ast.Ellipsis):
+                    if isinstance(expr, ast.Expr) and isinstance(
+                        expr.value, ast.Ellipsis
+                    ):
                         continue
-                    if isinstance(expr, ast.Raise) and isinstance(expr.exc, ast.Name) and expr.exc.id == 'NotImplementedError':
+                    if (
+                        isinstance(expr, ast.Raise)
+                        and isinstance(expr.exc, ast.Name)
+                        and expr.exc.id == "NotImplementedError"
+                    ):
                         continue
-                    if isinstance(expr, ast.Raise) and isinstance(expr.exc, ast.Call) and getattr(expr.exc.func, 'id', '') == 'NotImplementedError':
+                    if (
+                        isinstance(expr, ast.Raise)
+                        and isinstance(expr.exc, ast.Call)
+                        and getattr(expr.exc.func, "id", "") == "NotImplementedError"
+                    ):
                         continue
                     is_stub = False
                     break
@@ -31,10 +44,11 @@ def check_file_for_stubs(filepath):
     except Exception as e:
         return []
 
+
 stub_report = {}
-for root, _, files in os.walk('agent_utilities'):
+for root, _, files in os.walk("agent_utilities"):
     for file in files:
-        if file.endswith('.py'):
+        if file.endswith(".py"):
             filepath = os.path.join(root, file)
             stubs = check_file_for_stubs(filepath)
             if stubs:

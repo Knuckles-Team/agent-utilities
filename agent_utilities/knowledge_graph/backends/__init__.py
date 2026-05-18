@@ -158,7 +158,16 @@ def create_backend(
             or "postgresql://localhost:5432/agent_utilities"
         )
         resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
-        backend = PostgreSQLBackend(dsn=resolved_uri, graph_name=resolved_name)
+        pool_min = int(os.environ.get("GRAPH_POOL_MIN", "2"))
+        pool_max = int(os.environ.get("GRAPH_POOL_MAX", "10"))
+        pggraph_schema = os.environ.get("GRAPH_PGGRAPH_SCHEMA", "public")
+        backend = PostgreSQLBackend(
+            dsn=resolved_uri,
+            graph_name=resolved_name,
+            pool_min=pool_min,
+            pool_max=pool_max,
+            pggraph_schema=pggraph_schema,
+        )
 
     else:
         logger.error(

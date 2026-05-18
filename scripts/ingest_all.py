@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from agent_utilities.mcp.kg_server import _get_engine
 
+
 async def ingest_codebase(target: Path, engine):
     from agent_utilities.core.paths import kg_db_path
     from agent_utilities.knowledge_graph.pipeline import IntelligencePipeline
     from agent_utilities.models.knowledge_graph import PipelineConfig
-    
+
     print(f"Ingesting codebase: {target}")
     config = PipelineConfig(
         workspace_path=str(target),
@@ -21,10 +22,11 @@ async def ingest_codebase(target: Path, engine):
     metadata = await pipeline.run()
     print(f"  -> Added {metadata.node_count} nodes, {metadata.edge_count} edges")
 
+
 def ingest_document(target: Path, engine, provenance):
     from llama_index.core import SimpleDirectoryReader
     from agent_utilities.core.embedding_utilities import create_embedding_model
-    
+
     print(f"Ingesting document: {target}")
     embed_model = create_embedding_model()
     if target.is_dir():
@@ -70,37 +72,40 @@ def ingest_document(target: Path, engine, provenance):
     )
     print(f"  -> Added {len(created)} document chunks")
 
+
 async def main():
     try:
         engine = _get_engine()
         print("Engine initialized.")
-        stats = engine.query_cypher("MATCH (n) RETURN n.type AS type, count(*) AS count ORDER BY count DESC LIMIT 50")
+        stats = engine.query_cypher(
+            "MATCH (n) RETURN n.type AS type, count(*) AS count ORDER BY count DESC LIMIT 50"
+        )
         print("Initial Stats:", stats)
-        
+
         with open("/home/apps/workspace/scratch/paths.txt", "r") as f:
             paths = [line.strip() for line in f if line.strip()]
-            
+
         provenance = {
             "agent_id": "test-ingest-script",
             "session_id": "test-session",
             "workspace_path": "/home/apps/workspace",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "source": "mcp"
+            "source": "mcp",
         }
-        
+
         for t_path in paths:
             target = Path(t_path)
             if not target.exists():
                 print(f"Skipping {t_path}, does not exist.")
                 continue
-                
+
             is_codebase = False
             if target.is_dir():
                 for indicator in [".git", "pyproject.toml", "package.json", "setup.py"]:
                     if (target / indicator).exists():
                         is_codebase = True
                         break
-            
+
             try:
                 if is_codebase:
                     await ingest_codebase(target, engine)
@@ -110,13 +115,17 @@ async def main():
                     print(f"Skipping {target}: not a codebase and not a file.")
             except Exception as e:
                 print(f"Failed to ingest {target}: {e}")
-                
-        final_stats = engine.query_cypher("MATCH (n) RETURN n.type AS type, count(*) AS count ORDER BY count DESC LIMIT 50")
+
+        final_stats = engine.query_cypher(
+            "MATCH (n) RETURN n.type AS type, count(*) AS count ORDER BY count DESC LIMIT 50"
+        )
         print("Final Stats:", final_stats)
     except Exception as e:
         print(f"Top-level Error: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

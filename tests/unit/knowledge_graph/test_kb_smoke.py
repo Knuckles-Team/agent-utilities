@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """CONCEPT:KG-2.0"""
 
 """Knowledge Base ingestion smoke test.

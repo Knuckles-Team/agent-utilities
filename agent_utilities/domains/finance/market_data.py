@@ -110,6 +110,133 @@ class YFinanceProvider:
         return df
 
 
+class AKShareProvider:
+    """
+    AKShare-based market data provider for Chinese equities (A-shares) and index data.
+    """
+
+    @property
+    def name(self) -> str:
+        return "akshare"
+
+    def supports(self, symbol: str) -> bool:
+        """AKShare supports 6-digit Chinese tickers."""
+        return bool(symbol and symbol.isdigit() and len(symbol) == 6)
+
+    def fetch(
+        self, symbol: str, period: str = "1y", interval: str = "1d"
+    ) -> pd.DataFrame:
+        try:
+            import akshare as ak
+        except ImportError as e:
+            raise ImportError(
+                "akshare is required for Chinese markets. Install agent-utilities[finance]"
+            ) from e
+
+        try:
+            # Default to A-share daily
+            df = ak.stock_zh_a_hist(symbol=symbol, period="daily", adjust="qfq")
+            if df.empty:
+                return pd.DataFrame()
+
+            # Rename columns from Chinese to standard OHLCV
+            df = df.rename(
+                columns={
+                    "日期": "Date",
+                    "开盘": "Open",
+                    "收盘": "Close",
+                    "最高": "High",
+                    "最低": "Low",
+                    "成交量": "Volume",
+                }
+            )
+            df.set_index("Date", inplace=True)
+            df.index = pd.to_datetime(df.index)
+            return df[["Open", "High", "Low", "Close", "Volume"]]
+        except Exception as e:
+            logger.warning(f"AKShare fetch failed for {symbol}: {e}")
+            return pd.DataFrame()
+
+
+class CryptoProvider:
+    """
+    CCXT-based provider for global cryptocurrency exchange data (Binance, Coinbase, etc.).
+    """
+
+    @property
+    def name(self) -> str:
+        return "crypto"
+
+    def supports(self, symbol: str) -> bool:
+        """Crypto usually formatted as BASE/QUOTE (e.g. BTC/USDT)."""
+        return "/" in symbol
+
+    def fetch(
+        self, symbol: str, period: str = "1y", interval: str = "1d"
+    ) -> pd.DataFrame:
+        try:
+            import ccxt
+        except ImportError as e:
+            raise ImportError(
+                "ccxt is required for crypto markets. Install agent-utilities[finance]"
+            ) from e
+
+        # Map '1d' to CCXT timeframe format
+        tf_map = {"1d": "1d", "1h": "1h", "5m": "5m"}
+        tf = tf_map.get(interval, "1d")
+
+        try:
+            exchange = ccxt.binance({"enableRateLimit": True})
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=1000)
+
+            if not ohlcv:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(
+                ohlcv, columns=["timestamp", "Open", "High", "Low", "Close", "Volume"]
+            )
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df.set_index("timestamp", inplace=True)
+            return df
+        except Exception as e:
+            logger.warning(f"CCXT fetch failed for {symbol}: {e}")
+            return pd.DataFrame()
+
+
+class PredictionMarketProvider:
+    """
+    Polymarket/Kalshi provider for prediction market probability data.
+    Maps prediction odds to 'price' and liquidity to 'volume'.
+    """
+
+    @property
+    def name(self) -> str:
+        return "prediction_market"
+
+    def supports(self, symbol: str) -> bool:
+        """Prediction markets use specific question IDs or prefixes."""
+        return symbol.startswith("POLY:") or symbol.startswith("KALSHI:")
+
+    def fetch(
+        self, symbol: str, period: str = "1y", interval: str = "1d"
+    ) -> pd.DataFrame:
+        # Stub for actual prediction market API (requires Py-Polymarket or Kalshi SDK)
+        # Returns synthetic probability data for now to satisfy the abstraction
+        logger.info(f"Using synthetic prediction market data for {symbol}")
+        provider = SyntheticProvider()
+        df = provider.fetch(
+            symbol=symbol,
+            period=period,
+            interval=interval,
+            initial_price=0.5,
+            volatility=0.05,
+        )
+        # Bound between 0 and 1 (0% to 100% probability)
+        for col in ["Open", "High", "Low", "Close"]:
+            df[col] = df[col].clip(0.01, 0.99)
+        return df
+
+
 class SyntheticProvider:
     """
     Synthetic data provider for testing — generates realistic OHLCV data
@@ -169,8 +296,14 @@ class DataRegistry:
         if providers is not None:
             self._providers = providers
         else:
-            # Default chain: yfinance → synthetic
-            self._providers = [YFinanceProvider(), SyntheticProvider()]
+            # Default chain: yfinance → akshare → crypto → synthetic
+            self._providers = [
+                YFinanceProvider(),
+                AKShareProvider(),
+                CryptoProvider(),
+                PredictionMarketProvider(),
+                SyntheticProvider(),
+            ]
 
     def add_provider(self, provider, priority: int | None = None):
         """Add a data provider. Lower priority index = higher priority."""

@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from __future__ import annotations
+
 """CONCEPT:KG-2.0"""
 
 """Unit tests for standard ontology integration.
@@ -138,7 +139,7 @@ class TestOntologyFile:
 
     def test_prov_o_provenance_properties(self) -> None:
         """Verify PROV-O property alignments exist."""
-        content = ONTOLOGY_PATH.read_text()
+        content = (ONTOLOGY_PATH.parent / "ontology_quant.ttl").read_text()
         assert ":wasGeneratedBy" in content
         assert ":wasDerivedFrom" in content
         assert ":wasAttributedTo" in content
@@ -146,7 +147,7 @@ class TestOntologyFile:
 
     def test_skos_taxonomy_properties(self) -> None:
         """Verify full SKOS taxonomy property support."""
-        content = ONTOLOGY_PATH.read_text()
+        content = (ONTOLOGY_PATH.parent / "ontology_quant.ttl").read_text()
         assert ":broader" in content
         assert ":narrower" in content
         assert ":related" in content
@@ -159,7 +160,7 @@ class TestOntologyFile:
 
     def test_dublin_core_metadata_properties(self) -> None:
         """Verify Dublin Core datatype properties."""
-        content = ONTOLOGY_PATH.read_text()
+        content = (ONTOLOGY_PATH.parent / "ontology_quant.ttl").read_text()
         assert ":title" in content
         assert ":subject" in content
         assert ":identifier" in content
@@ -170,7 +171,7 @@ class TestOntologyFile:
 
     def test_finance_domain_classes(self) -> None:
         """Verify FIBO-aligned finance classes."""
-        content = ONTOLOGY_PATH.read_text()
+        content = (ONTOLOGY_PATH.parent / "ontology_quant.ttl").read_text()
         assert ":FinancialInstrument" in content
         assert ":FinancialTransaction" in content
         assert ":Account" in content

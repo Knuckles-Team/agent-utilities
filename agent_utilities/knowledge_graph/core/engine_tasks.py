@@ -760,6 +760,14 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def start_task_workers(self, worker_count: int | None = None):
         """Start background workers to poll and execute tasks from the graph."""
+        import os
+
+        if os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "false").lower() == "false":
+            logger.debug(
+                "KNOWLEDGE_GRAPH_SYNC_BACKGROUND is false, skipping task workers."
+            )
+            return
+
         if worker_count is None:
             worker_count = DEFAULT_KG_INGESTION_WORKERS
             try:
@@ -857,6 +865,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                             "type": "unknown",
                         },
                     )
+                    time.sleep(2.0)
                     continue
 
                 # Execute the task asynchronously inside this thread (lock is released)
@@ -1076,6 +1085,40 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # Score all ingested papers and codebases against a target
                 result = await self._run_relevance_sweep(job_id, str(target))
                 self._update_task_status(job_id, "completed", result)
+            elif task_type in ("synthesize", "deep_extract", "background_research"):
+                from agent_utilities.analysis.analyzer import GraphAnalyzer
+
+                analyzer = GraphAnalyzer(self)
+                query = str(target)
+
+                # Fetch metadata to get top_k if provided
+                res = self.query_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
+                )
+                t_props = res[0]["t"] if res else {}
+                top_k = int(t_props.get("top_k", 10))
+
+                try:
+                    if task_type == "synthesize":
+                        result = await analyzer.synthesize(query, top_k)
+                    elif task_type == "deep_extract":
+                        result = await analyzer.deep_extract(query)
+                    elif task_type == "background_research":
+                        result = await analyzer.background_research(query)
+
+                    self._update_task_status(
+                        job_id,
+                        "completed",
+                        {
+                            "target": query,
+                            "type": task_type,
+                            "result": result,
+                        },
+                    )
+                except Exception as e:
+                    self._update_task_status(
+                        job_id, "failed", {"error": str(e), "type": task_type}
+                    )
             else:
                 import hashlib
 
