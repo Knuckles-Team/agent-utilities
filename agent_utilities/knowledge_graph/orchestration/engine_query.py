@@ -986,7 +986,7 @@ class QueryMixin(_Base):
             relevance_threshold: Minimum similarity score.
             exclude_assimilated: If True, filter out Article nodes that have
                 ASSIMILATED_INTO edges with status='implemented' for the
-                given target_codebase. CONCEPT:KG-2.7
+                given target_codebase. CONCEPT:KG-2.6
             target_codebase: Codebase path to check assimilation against.
                 Only used when exclude_assimilated=True.
 
@@ -1035,7 +1035,7 @@ class QueryMixin(_Base):
         domain_accumulator: dict[str, list[dict[str, Any]]] = {}
 
         for r in raw_results:
-            # CONCEPT:KG-2.7 — Skip assimilated papers
+            # CONCEPT:KG-2.6 — Skip assimilated papers
             if assimilated_paths:
                 r_path = r.get("target_path", "")
                 if r_path and r_path in assimilated_paths:

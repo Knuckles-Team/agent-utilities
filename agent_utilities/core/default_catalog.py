@@ -93,6 +93,7 @@ def get_default_catalog() -> tuple[SpecialistPackage, ...]:
             "Systems Manager — host OS operations, package management, and Agent OS MCP wrappers.",
             "systems-manager-mcp",
             ["os_subsystem", "devops", "system"],
+            env={"MEMENTO_ENABLED": "true"},
             tools=[
                 "identity_issue",
                 "identity_verify",
@@ -113,6 +114,7 @@ def get_default_catalog() -> tuple[SpecialistPackage, ...]:
             "Container Manager — Docker, Podman, Compose, and Swarm lifecycle with multi-endpoint support.",
             "container-manager-mcp",
             ["os_subsystem", "devops", "containers"],
+            env={"MEMENTO_ENABLED": "true"},
             tools=[
                 "list_containers",
                 "run_container",

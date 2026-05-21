@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.7 — KG Source Resolver for Comparative Analysis.
+"""CONCEPT:KG-2.6 — KG Source Resolver for Comparative Analysis.
 
 Bridges the Knowledge Graph (indexing/discovery layer) to the
 comparative-analysis skill (analysis layer) by materializing stored
@@ -19,7 +19,7 @@ When a KG is available, it provides an additional discovery mechanism.
 
 Integrates with:
     - CONCEPT:KG-2.0 (IntelligenceGraphEngine): Source discovery
-    - CONCEPT:KG-2.7 (ResearchPipeline): Paper ingestion
+    - CONCEPT:KG-2.6 (ResearchPipeline): Paper ingestion
     - comparative-analysis skill: discover_projects.py --kg-query
 
 See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:KG-2.6

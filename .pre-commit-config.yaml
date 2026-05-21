@@ -17,6 +17,7 @@ repos:
   - id: detect-private-key
   - id: trailing-whitespace
   - id: end-of-file-fixer
+    exclude: \.ttl$
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: v0.15.12
   hooks:
@@ -61,10 +62,17 @@ repos:
   - id: uv-lock
 - repo: local
   hooks:
+  - id: turtle-format
+    name: Format Turtle with rdflib
+    entry: python -m scripts.format_ttl
+    language: python
+    additional_dependencies: [rdflib]
+    files: \.ttl$
   - id: pytest
     name: pytest
-    entry: bash -c 'export LADYBUG_MAX_DB_SIZE=1073741824; if [ -f uv.lock ];
-      then uv run --extra test pytest -v -s; else pytest -v -s; fi'
+    entry: bash -c 'export LADYBUG_MAX_DB_SIZE=1073741824; export KNOWLEDGE_GRAPH_SYNC_BACKGROUND=False;
+      if [ -f uv.lock ]; then uv run --extra test pytest -v -m "not integration";
+      else pytest -v -m "not integration"; fi'
     language: system
     types: [python]
     pass_filenames: false

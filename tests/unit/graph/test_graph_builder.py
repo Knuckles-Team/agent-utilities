@@ -63,6 +63,10 @@ def test_initialize_graph_from_workspace(
             {"KNOWLEDGE_GRAPH_SYNC_BACKGROUND": "false", "VALIDATION_MODE": "false"},
         ),
         patch("agent_utilities.graph.builder.DEFAULT_VALIDATION_MODE", False),
+        patch(
+            "agent_utilities.graph.builder.DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+            False,
+        ),
     ):
         graph, config = builder.initialize_graph_from_workspace()
 

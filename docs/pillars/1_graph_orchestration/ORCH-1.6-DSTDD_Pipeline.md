@@ -1,4 +1,4 @@
-# DSTDD Pipeline: Design-Spec-Test Driven Development (CONCEPT:ORCH-1.6)
+# DSTDD Pipeline: Design-Spec-Test Driven Development (CONCEPT:ORCH-1.3)
 
 ## Overview
 The DSTDD (Design-Spec-Test Driven Development) pipeline is the formalized workflow that prevents architectural bloat. It ensures that all new features, external integrations, or research ideas are woven natively into the existing Knowledge Graph and 5-Pillar topology.

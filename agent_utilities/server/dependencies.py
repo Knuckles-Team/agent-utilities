@@ -62,7 +62,7 @@ def setup_server_file_logging(workspace: str | None = None) -> str | None:
 
 async def process_parts(parts: list[dict[str, Any]]) -> list[Any]:
     """Process incoming message parts from the Agent UI."""
-    processed = []
+    processed: list[Any] = []
     from pydantic_ai.messages import TextPart
 
     for part in parts:
@@ -165,7 +165,7 @@ def resolve_model_registry(
     if registry is not None:
         return registry
 
-    cfg_path = config.model_registry_path or os.getenv("MODELS_CONFIG")
+    cfg_path = config.model_registry_path
     if cfg_path:
         p = Path(cfg_path)
         if p.is_file():

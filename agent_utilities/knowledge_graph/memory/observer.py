@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """LLM-Powered Transcript Observer.
 
-CONCEPT:KG-2.10 -- Observational Memory Bridge
+CONCEPT:KG-2.1 -- Observational Memory Bridge
 
 Compresses agent session transcripts into structured observations using LLM,
 then persists them as ObservationNode entries in the Knowledge Graph.
@@ -107,6 +107,16 @@ def observe_transcript(
 
     # Parse and persist observations as KG nodes
     _persist_observations(engine, observations_text, source=source)
+
+    # Trigger Memento compression for the block as well
+    if len(messages) >= 5:
+        from .memento_compressor import compress_to_memento
+
+        try:
+            compress_to_memento(engine, messages, source=source, dry_run=dry_run)
+        except Exception as e:
+            logger.warning("Failed to compress Memento: %s", e)
+
     return observations_text
 
 

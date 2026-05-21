@@ -1,5 +1,5 @@
 """
-Jupyter Kernel Adapter (CONCEPT:ECO-4.3)
+Jupyter Kernel Adapter (CONCEPT:ECO-4.1)
 
 Provides an isolated Jupyter kernel executor for dynamic code generation,
 acting as a safe sandbox for quantitative analysis and backtesting.

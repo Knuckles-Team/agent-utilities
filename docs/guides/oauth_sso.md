@@ -64,12 +64,12 @@ graph TB
     end
 
     subgraph "Full Delegation Agents"
-        GL["gitlab-api/auth.py"]
-        GH["github-agent/auth.py"]
-        SN["servicenow-api/auth.py"]
-        AT["atlassian-agent/auth.py"]
-        LX["leanix-agent/auth.py"]
-        AN["ansible-tower-mcp/auth.py"]
+        GL["OS-5.1: gitlab-api/auth.py"]
+        GH["OS-5.1: github-agent/auth.py"]
+        SN["OS-5.1: servicenow-api/auth.py"]
+        AT["OS-5.1: atlassian-agent/auth.py"]
+        LX["KG-2.13: leanix-agent/auth.py"]
+        AN["OS-5.1: ansible-tower-mcp/auth.py"]
     end
 
     subgraph "Hybrid Agent"

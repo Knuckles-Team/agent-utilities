@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """LLM-Powered Reflection Condenser.
 
-CONCEPT:KG-2.10 -- Observational Memory Bridge
+CONCEPT:KG-2.1 -- Observational Memory Bridge
 
 Condenses observations into durable long-term reflections using LLM.
 Wired into the existing ConsolidationEngine (KG-2.4) pipeline.

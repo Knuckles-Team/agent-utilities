@@ -38,8 +38,8 @@ graph TD
         Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp_agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
         KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"] -.->|Read Hash| Manager
 
-        Manager -->|Config Hash Match?| Branch{Decision}
-        Branch -- "Yes (Cache Hit)" --> Skip["Skip Tool Extraction"]
+        Manager -->|Config Hash Match?| Branch{ORCH-1.1: Decision}
+        Branch -- "Yes (Cache Hit)" --> Skip["ECO-4.10: Skip Tool Extraction"]
         Branch -- "No (Cache Miss)" --> Parallel["<b>Parallel Dispatch</b><br/>(Semaphore 30)"]
 
         Parallel -->|Deploy STDIO / HTTPs| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]

@@ -1,5 +1,5 @@
 """
-Capabilities Manager — CONCEPT:ECO-4.1
+Capabilities Manager — CONCEPT:ECO-4.0
 Discovers, enriches, and manages agent capabilities within the Knowledge Graph.
 """
 

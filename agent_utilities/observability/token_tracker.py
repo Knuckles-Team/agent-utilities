@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Token Usage Tracker — 4-Bucket Granular Analytics (CONCEPT:OS-5.4).
+"""Token Usage Tracker — 4-Bucket Granular Analytics (CONCEPT:OS-5.1).
 
 Provides granular token usage tracking with four distinct buckets:
 prompt, response, thoughts, and tool_use. Ported from MATE's
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class TokenBucket(StrEnum):
     """Token usage bucket categories.
 
-    CONCEPT:OS-5.4 — Granular Token Analytics
+    CONCEPT:OS-5.1 — Granular Token Analytics
 
     Ported from MATE's 4-bucket tracking in ``token_usage_callback.py``:
     prompt_tokens, response_tokens, thoughts_tokens, tool_use_tokens.
@@ -45,7 +45,7 @@ class TokenBucket(StrEnum):
 class TokenUsageRecord(BaseModel):
     """A single token usage record with per-bucket counts.
 
-    CONCEPT:OS-5.4 — Granular Token Analytics
+    CONCEPT:OS-5.1 — Granular Token Analytics
 
     Mirrors MATE's ``token_data`` dict structure but expressed as a
     Pydantic model for KG persistence and type safety.
@@ -61,6 +61,8 @@ class TokenUsageRecord(BaseModel):
     response_tokens: int = 0
     thoughts_tokens: int = 0
     tool_use_tokens: int = 0
+    mementos_generated: int = 0
+    kv_cache_saved: int = 0
     total_tokens: int = 0
     timestamp: float = Field(default_factory=time.time)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -79,13 +81,15 @@ class TokenUsageRecord(BaseModel):
 class TokenUsageSummary(BaseModel):
     """Aggregated token usage summary.
 
-    CONCEPT:OS-5.4 — Granular Token Analytics
+    CONCEPT:OS-5.1 — Granular Token Analytics
     """
 
     total_prompt_tokens: int = 0
     total_response_tokens: int = 0
     total_thoughts_tokens: int = 0
     total_tool_use_tokens: int = 0
+    total_mementos_generated: int = 0
+    total_kv_cache_saved: int = 0
     total_tokens: int = 0
     call_count: int = 0
 
@@ -103,7 +107,7 @@ class TokenUsageSummary(BaseModel):
 class TokenBudgetAlert(BaseModel):
     """Alert triggered when a token bucket exceeds its threshold.
 
-    CONCEPT:OS-5.4 — Granular Token Analytics
+    CONCEPT:OS-5.1 — Granular Token Analytics
     """
 
     bucket: TokenBucket
@@ -119,7 +123,7 @@ class TokenBudgetAlert(BaseModel):
 class TokenUsageTracker:
     """Granular token usage tracker with 4-bucket analytics.
 
-    CONCEPT:OS-5.4 — Granular Token Analytics
+    CONCEPT:OS-5.1 — Granular Token Analytics
 
     Ported from MATE's ``token_usage_service.py`` and
     ``token_usage_callback.py``. Provides:
@@ -215,6 +219,8 @@ class TokenUsageTracker:
             summary.total_response_tokens += r.response_tokens
             summary.total_thoughts_tokens += r.thoughts_tokens
             summary.total_tool_use_tokens += r.tool_use_tokens
+            summary.total_mementos_generated += r.mementos_generated
+            summary.total_kv_cache_saved += r.kv_cache_saved
         summary.compute_total()
         return summary
 

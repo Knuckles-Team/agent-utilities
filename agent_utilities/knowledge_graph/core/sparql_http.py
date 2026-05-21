@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """SPARQL HTTP Endpoint.
 
-CONCEPT:KG-2.7 — W3C SPARQL Protocol HTTP Endpoint
+CONCEPT:KG-2.6 — W3C SPARQL Protocol HTTP Endpoint
 
 Provides a standards-compliant SPARQL endpoint that other agent-utilities
 deployments can consume via HTTP. Backed by rdflib materialization from
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class SPARQLEndpoint:
     """W3C SPARQL Protocol endpoint backed by rdflib.
 
-    CONCEPT:KG-2.7 — SPARQL HTTP Endpoint
+    CONCEPT:KG-2.6 — SPARQL HTTP Endpoint
 
     Provides GET and POST handlers for SPARQL queries. The endpoint
     materializes the LPG into an rdflib Graph (via OWLBridge) and

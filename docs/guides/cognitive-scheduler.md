@@ -16,14 +16,14 @@ It composes three existing primitives into a kernel-level orchestration layer:
 ```mermaid
 flowchart TB
     subgraph CognitiveScheduler
-        PQ[Priority Queue] --> SE{Slot Available?}
-        SE -- Yes --> RUN[RUNNING]
-        SE -- No --> WAIT[WAITING]
-        RUN --> QE{Quota Exceeded?}
-        QE -- Yes --> PREEMPT[PREEMPT]
-        PREEMPT --> CKP[Checkpoint to KG]
+        PQ[ORCH-1.21: Priority Queue] --> SE{OS-5.2: Slot Available?}
+        SE -- Yes --> RUN[ORCH-1.21: RUNNING]
+        SE -- No --> WAIT[ORCH-1.21: WAITING]
+        RUN --> QE{ORCH-1.21: Quota Exceeded?}
+        QE -- Yes --> ORCH-1.21: PREEMPT[PREEMPT]
+        PREEMPT --> CKP[KG-2.0: Checkpoint to KG]
         CKP --> WAIT
-        RUN --> DONE[COMPLETED]
+        RUN --> DONE[ORCH-1.21: COMPLETED]
     end
 
     subgraph Integrations

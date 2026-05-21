@@ -1,4 +1,4 @@
-# Quant Orchestration (CONCEPT:KG-2.9)
+# Quant Orchestration (CONCEPT:KG-2.6)
 
 ## Overview
 The KG-Native Quant Orchestration layer transforms `agent-utilities` into a master quantitative trading framework. It introduces a multi-agent debate architecture (Bull vs Bear) for consensus-driven trading, regime-aware signal fusion, and comprehensive unified market data abstraction. All state, lifecycle, and provenance of hypotheses and backtests are persisted as first-class nodes in the Knowledge Graph.
@@ -56,5 +56,5 @@ The framework registers several new `OntologySchema` types into the core KG engi
 
 ## Related Concepts
 - `CONCEPT:KG-2.6` - Domain: Finance (Base Layer)
-- `CONCEPT:ECO-4.3` - Market Data Connectors
+- `CONCEPT:ECO-4.1` - Market Data Connectors
 - `CONCEPT:KG-2.0` - Active Knowledge Graph

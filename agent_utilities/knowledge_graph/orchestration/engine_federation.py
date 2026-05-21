@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class FederationMixin:
     """Mixin for external ontology federation and external KG metadata ingestion.
 
-    CONCEPT:ORCH-1.2 — External Integration & SDLC Entities
+    CONCEPT:KG-2.1 — External Graph Federation
     """
 
     def register_external_ontology(self, uri: str, endpoint: str | None = None) -> None:

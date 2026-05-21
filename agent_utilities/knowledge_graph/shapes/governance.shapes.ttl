@@ -1,114 +1,82 @@
-@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
 @prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-
-# =====================================================================
-# Enterprise Governance SHACL Shapes (CONCEPT:KG-2.7)
-#
-# Layered validation rules for enterprise knowledge graph governance.
-# These shapes can be tightened by domain-specific overlays.
-# =====================================================================
-
-# ── ADR must have context, decision, and authority ──────────────────
 
 :ADRShape a sh:NodeShape ;
-    sh:targetClass :ArchitectureDecisionRecord ;
-    sh:name "Architecture Decision Record Shape" ;
     sh:description "ADRs must capture context, decision, and authority." ;
-    sh:property [
-        sh:path :context ;
-        sh:minCount 1 ;
-        sh:datatype xsd:string ;
-        sh:message "ADR must have a context describing why the decision was needed." ;
-    ] ;
-    sh:property [
-        sh:path :decision ;
-        sh:minCount 1 ;
-        sh:datatype xsd:string ;
-        sh:message "ADR must have a decision describing what was decided." ;
-    ] ;
-    sh:property [
-        sh:path :authority ;
-        sh:minCount 1 ;
-        sh:datatype xsd:string ;
-        sh:message "ADR must have an authority identifying who approved it." ;
-    ] .
-
-# ── Agent must have a name ──────────────────────────────────────────
+    sh:name "Architecture Decision Record Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "ADR must have a context describing why the decision was needed." ;
+            sh:minCount 1 ;
+            sh:path :context ],
+        [ sh:datatype xsd:string ;
+            sh:message "ADR must have a decision describing what was decided." ;
+            sh:minCount 1 ;
+            sh:path :decision ],
+        [ sh:datatype xsd:string ;
+            sh:message "ADR must have an authority identifying who approved it." ;
+            sh:minCount 1 ;
+            sh:path :authority ] ;
+    sh:targetClass :ArchitectureDecisionRecord .
 
 :AgentShape a sh:NodeShape ;
-    sh:targetClass :Agent ;
-    sh:name "Agent Shape" ;
     sh:description "Agents must have a name." ;
-    sh:property [
-        sh:path :name ;
-        sh:minCount 1 ;
-        sh:datatype xsd:string ;
-        sh:message "Agent must have a name." ;
-    ] .
-
-# ── Policy must link to at least one concept ────────────────────────
+    sh:name "Agent Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Agent must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ] ;
+    sh:targetClass :Agent .
 
 :PolicyShape a sh:NodeShape ;
-    sh:targetClass :Policy ;
-    sh:name "Policy Shape" ;
     sh:description "Policies should be linked to the concepts they govern." ;
-    sh:property [
-        sh:path :motivatedBy ;
-        sh:minCount 0 ;
-        sh:severity sh:Warning ;
-        sh:message "Policy should be linked to at least one Concept via motivatedBy." ;
-    ] .
-
-# ── Specification must have a name ──────────────────────────────────
-
-:SpecificationShape a sh:NodeShape ;
-    sh:targetClass :Specification ;
-    sh:name "Specification Shape" ;
-    sh:description "Specifications must have a name and description." ;
-    sh:property [
-        sh:path :name ;
-        sh:minCount 1 ;
-        sh:datatype xsd:string ;
-        sh:message "Specification must have a name." ;
-    ] .
-
-# ── Requirement must have a priority ────────────────────────────────
+    sh:name "Policy Shape" ;
+    sh:property [ sh:message "Policy should be linked to at least one Concept via motivatedBy." ;
+            sh:minCount 0 ;
+            sh:path :motivatedBy ;
+            sh:severity sh:Warning ] ;
+    sh:targetClass :Policy .
 
 :RequirementShape a sh:NodeShape ;
-    sh:targetClass :Requirement ;
-    sh:name "Requirement Shape" ;
     sh:description "Requirements should have a priority level." ;
-    sh:property [
-        sh:path :priority ;
-        sh:minCount 0 ;
-        sh:severity sh:Warning ;
-        sh:message "Requirement should have a priority (critical/high/medium/low)." ;
-    ] .
-
-# ── SoftwareFeature must link to a Specification ────────────────────
+    sh:name "Requirement Shape" ;
+    sh:property [ sh:message "Requirement should have a priority (critical/high/medium/low)." ;
+            sh:minCount 0 ;
+            sh:path :priority ;
+            sh:severity sh:Warning ] ;
+    sh:targetClass :Requirement .
 
 :SoftwareFeatureShape a sh:NodeShape ;
-    sh:targetClass :SoftwareFeature ;
-    sh:name "Software Feature Shape" ;
     sh:description "Software features should be traceable to specifications." ;
-    sh:property [
-        sh:path :name ;
-        sh:minCount 1 ;
-        sh:datatype xsd:string ;
-        sh:message "SoftwareFeature must have a name." ;
-    ] .
+    sh:name "Software Feature Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "SoftwareFeature must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ] ;
+    sh:targetClass :SoftwareFeature .
 
-# ── TestCase must have a test status ────────────────────────────────
+:SpecificationShape a sh:NodeShape ;
+    sh:description "Specifications must have a name and description." ;
+    sh:name "Specification Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Specification must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ] ;
+    sh:targetClass :Specification .
 
 :TestCaseShape a sh:NodeShape ;
-    sh:targetClass :TestCase ;
-    sh:name "Test Case Shape" ;
     sh:description "Test cases should track their execution status." ;
-    sh:property [
-        sh:path :testStatus ;
-        sh:minCount 0 ;
-        sh:severity sh:Info ;
-        sh:message "TestCase should have a testStatus (passed/failed/skipped/pending)." ;
-    ] .
+    sh:name "Test Case Shape" ;
+    sh:property [ sh:message "TestCase should have a testStatus (passed/failed/skipped/pending)." ;
+            sh:minCount 0 ;
+            sh:path :testStatus ;
+            sh:severity sh:Info ] ;
+    sh:targetClass :TestCase .
+

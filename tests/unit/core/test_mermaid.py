@@ -1,4 +1,4 @@
-"""CONCEPT:OS-5.4"""
+"""CONCEPT:OS-5.1"""
 
 import networkx as nx
 

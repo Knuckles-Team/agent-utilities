@@ -1,0 +1,462 @@
+{
+  "domain": "CA-003b",
+  "domain_name": "Architecture Differential",
+  "source": "/home/apps/workspace/open-source-libraries/hermes-agent",
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "component_topology_diff": {
+    "source_only": [
+      "ACP Clients",
+      "MCP Clients",
+      "REST Clients",
+      "WebSocket Clients",
+      "acp_adapter",
+      "agent",
+      "browser",
+      "builtin_hooks",
+      "context_engine",
+      "cron",
+      "disk-cleanup",
+      "gRPC Clients",
+      "gateway",
+      "google_meet",
+      "hermes-agent",
+      "hermes_cli",
+      "lsp",
+      "platforms",
+      "plugins",
+      "proxy",
+      "transports"
+    ],
+    "target_only": [
+      ".specify/",
+      "A2A Network",
+      "AHE-3.0\\nAgentic Harness",
+      "AHE: Agentic Harness",
+      "Agent Ecosystem",
+      "Agent Gateway (FastAPI)",
+      "Agent OS Kernel",
+      "Agent Orchestrator",
+      "Agent Runner",
+      "Agent Terminal UI",
+      "Agent Toolkit Ingestor",
+      "Agent WebUI",
+      "Agentic Harness",
+      "Agentic Planner",
+      "Antigravity IDE",
+      "Assimilation Tracker",
+      "AutoRefine + Scoring",
+      "Autonomous Agent",
+      "Capability Wiring Engine",
+      "Claude Code",
+      "Cognitive Scheduler",
+      "Consolidation Loop",
+      "ConsolidationEngine",
+      "Continuous Evaluation Engine",
+      "DSTDD Manager",
+      "Developer",
+      "Developer / Agent",
+      "Devin",
+      "Domain Sub-Agents",
+      "ECO-4.0\\nEcosystem",
+      "ECO: Ecosystem Peripherals",
+      "Ecosystem Bridge",
+      "Ecosystem Peripherals",
+      "Evolution Engine",
+      "Graph Backends",
+      "Graph Dispatcher",
+      "Graph Orchestrator",
+      "Graph-OS Ingestion",
+      "Guardrail Engine",
+      "Hybrid Retriever",
+      "IntelligenceGraphEngine",
+      "KG Graph Factory",
+      "KG MCP Server",
+      "KG Router",
+      "KG-2.0\\nKnowledge Graph",
+      "KG-2.1 Tiered Memory",
+      "KG-2.3 Graph Integrity",
+      "KG-2.7 Research Intelligence",
+      "KG: Knowledge Graph",
+      "Knowledge Graph",
+      "Knowledge Graph DB",
+      "LadybugDB HNSW",
+      "MCP Live Discovery",
+      "MCP Server Factory",
+      "MCP Servers",
+      "Memory Tiers",
+      "ORCH-1.0\\nGraph Orchestration",
+      "ORCH: Orchestration Engine",
+      "OS-5.0\\nAgent OS Kernel",
+      "OS: Agent OS Kernel",
+      "OWL Bridge + SPARQL",
+      "Ontology Loader",
+      "Ontology Publisher",
+      "OpenCode",
+      "OpenTelemetry Collector",
+      "Orchestration Engine",
+      "Periodic Consolidation",
+      "SDD Ontology",
+      "SDDFeature Nodes",
+      "SHACL Validator",
+      "Security Policy Middleware",
+      "Self-Model",
+      "Skill Manager",
+      "TeamConfig Composer",
+      "Telemetry Pipeline",
+      "Threat Defense Engine",
+      "Unified Quant MCP Tool",
+      "User",
+      "XDG Paths Module",
+      "[Extended Concept]",
+      "[Feature Name]",
+      "agent-terminal-ui",
+      "agent-utilities",
+      "agent-webui",
+      "kg_memory",
+      "kg_search discover",
+      "kg_trace submit_sdd",
+      "kg_write assimilate",
+      "universal-skills",
+      "\ud83d\udd2c AR-Graph",
+      "\ud83d\udd2c Context Budget Optimizer",
+      "\ud83d\udd2c Coordinated A2A Skill",
+      "\ud83d\udd2c Coordination Layer",
+      "\ud83d\udd2c DCI Retriever",
+      "\ud83d\udd2c Distributed Agent State Manager",
+      "\ud83d\udd2c Inference Budget Controller",
+      "\ud83d\udd2c Market Dataflows",
+      "\ud83d\udd2c Prediction Linkage Layer",
+      "\ud83d\udd2c Quant Agent API (SAAPI)",
+      "\ud83d\udd2c Time-Series Graph"
+    ],
+    "shared": [],
+    "source_count": 21,
+    "target_count": 100,
+    "gap_count": 21
+  },
+  "hot_path_diff": {
+    "source_entry_types": [
+      "cli_main",
+      "fastapi_route",
+      "mcp_tool"
+    ],
+    "target_entry_types": [
+      "cli_main"
+    ],
+    "missing_entry_types": [
+      "fastapi_route",
+      "mcp_tool"
+    ],
+    "source_coverage_pct": 99.8,
+    "target_coverage_pct": 96.2,
+    "coverage_delta": 3.6,
+    "target_cold_modules": [
+      "scratch",
+      "scratch.print_eg",
+      "scratch.test_discovery",
+      "scratch.test_env",
+      "scratch.test_env_diff",
+      "scratch.test_logger",
+      "scripts.check",
+      "scripts.check_concepts",
+      "scripts.check_stubs",
+      "scripts.patch_schema"
+    ]
+  },
+  "design_pattern_diff": {
+    "pattern_diffs": {
+      "dependency_injection": {
+        "source": 112,
+        "target": 114,
+        "delta": -2,
+        "recommendation": "Target already uses dependency_injection more than source"
+      },
+      "event_driven": {
+        "source": 29,
+        "target": 7,
+        "delta": 22,
+        "recommendation": "Target could adopt event_driven pattern (source uses 29x)"
+      },
+      "factory": {
+        "source": 214,
+        "target": 73,
+        "delta": 141,
+        "recommendation": "Target could adopt factory pattern (source uses 214x)"
+      },
+      "lazy_init": {
+        "source": 9,
+        "target": 8,
+        "delta": 1,
+        "recommendation": "Target could adopt lazy_init pattern (source uses 9x)"
+      },
+      "mixin": {
+        "source": 3,
+        "target": 6,
+        "delta": -3,
+        "recommendation": "Target already uses mixin more than source"
+      },
+      "plugin_registry": {
+        "source": 116,
+        "target": 24,
+        "delta": 92,
+        "recommendation": "Target could adopt plugin_registry pattern (source uses 116x)"
+      },
+      "protocol_oriented": {
+        "source": 17,
+        "target": 22,
+        "delta": -5,
+        "recommendation": "Target already uses protocol_oriented more than source"
+      }
+    },
+    "divergence_count": 7
+  },
+  "protocol_diff": {
+    "source_only": [],
+    "target_only": [
+      "A2A",
+      "mcp_config.json"
+    ],
+    "shared": [
+      "ACP",
+      "MCP",
+      "REST",
+      "WebSocket",
+      "gRPC"
+    ],
+    "gap_count": 0
+  },
+  "wiring_opportunities": [
+    {
+      "type": "component_gap",
+      "component": "ACP Clients",
+      "action": "Add 'ACP Clients' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "MCP Clients",
+      "action": "Add 'MCP Clients' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "REST Clients",
+      "action": "Add 'REST Clients' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "WebSocket Clients",
+      "action": "Add 'WebSocket Clients' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "acp_adapter",
+      "action": "Add 'acp_adapter' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "agent",
+      "action": "Add 'agent' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "browser",
+      "action": "Add 'browser' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "builtin_hooks",
+      "action": "Add 'builtin_hooks' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "context_engine",
+      "action": "Add 'context_engine' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "cron",
+      "action": "Add 'cron' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "disk-cleanup",
+      "action": "Add 'disk-cleanup' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "gRPC Clients",
+      "action": "Add 'gRPC Clients' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "gateway",
+      "action": "Add 'gateway' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "google_meet",
+      "action": "Add 'google_meet' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "hermes-agent",
+      "action": "Add 'hermes-agent' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "hermes_cli",
+      "action": "Add 'hermes_cli' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "lsp",
+      "action": "Add 'lsp' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "platforms",
+      "action": "Add 'platforms' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "plugins",
+      "action": "Add 'plugins' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "proxy",
+      "action": "Add 'proxy' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "component_gap",
+      "component": "transports",
+      "action": "Add 'transports' component to target architecture",
+      "priority": "high",
+      "wiring_hint": "Wire into existing hot path via the nearest entry point"
+    },
+    {
+      "type": "entry_point_gap",
+      "entry_type": "fastapi_route",
+      "action": "Add fastapi_route entry point to target",
+      "priority": "medium",
+      "wiring_hint": "Create handler that delegates to existing engine methods"
+    },
+    {
+      "type": "entry_point_gap",
+      "entry_type": "mcp_tool",
+      "action": "Add mcp_tool entry point to target",
+      "priority": "medium",
+      "wiring_hint": "Create handler that delegates to existing engine methods"
+    },
+    {
+      "type": "design_pattern",
+      "pattern": "event_driven",
+      "action": "Consider adopting event_driven pattern (29x in source)",
+      "priority": "medium",
+      "wiring_hint": "Source examples: see analyze_design_patterns output"
+    },
+    {
+      "type": "design_pattern",
+      "pattern": "factory",
+      "action": "Consider adopting factory pattern (214x in source)",
+      "priority": "medium",
+      "wiring_hint": "Source examples: see analyze_design_patterns output"
+    },
+    {
+      "type": "design_pattern",
+      "pattern": "lazy_init",
+      "action": "Consider adopting lazy_init pattern (9x in source)",
+      "priority": "medium",
+      "wiring_hint": "Source examples: see analyze_design_patterns output"
+    },
+    {
+      "type": "design_pattern",
+      "pattern": "plugin_registry",
+      "action": "Consider adopting plugin_registry pattern (116x in source)",
+      "priority": "medium",
+      "wiring_hint": "Source examples: see analyze_design_patterns output"
+    },
+    {
+      "type": "cold_code",
+      "module": "scratch",
+      "action": "Wire 'scratch' into hot path or remove if dead code",
+      "priority": "low",
+      "wiring_hint": "Import from nearest hot-path module or add entry point"
+    },
+    {
+      "type": "cold_code",
+      "module": "scratch.print_eg",
+      "action": "Wire 'scratch.print_eg' into hot path or remove if dead code",
+      "priority": "low",
+      "wiring_hint": "Import from nearest hot-path module or add entry point"
+    },
+    {
+      "type": "cold_code",
+      "module": "scratch.test_discovery",
+      "action": "Wire 'scratch.test_discovery' into hot path or remove if dead code",
+      "priority": "low",
+      "wiring_hint": "Import from nearest hot-path module or add entry point"
+    },
+    {
+      "type": "cold_code",
+      "module": "scratch.test_env",
+      "action": "Wire 'scratch.test_env' into hot path or remove if dead code",
+      "priority": "low",
+      "wiring_hint": "Import from nearest hot-path module or add entry point"
+    },
+    {
+      "type": "cold_code",
+      "module": "scratch.test_env_diff",
+      "action": "Wire 'scratch.test_env_diff' into hot path or remove if dead code",
+      "priority": "low",
+      "wiring_hint": "Import from nearest hot-path module or add entry point"
+    }
+  ],
+  "wiring_opportunity_count": 32,
+  "summary": {
+    "component_gaps": 21,
+    "missing_entry_types": 2,
+    "pattern_divergences": 7,
+    "protocol_gaps": 0,
+    "total_opportunities": 32
+  }
+}

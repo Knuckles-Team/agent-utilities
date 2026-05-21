@@ -1,0 +1,374 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/open-source-libraries/hermes-agent",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [
+          {
+            "keyword": "mutation",
+            "count": 195,
+            "analogy": "parametric exploration",
+            "target_domain": "variant_pool"
+          },
+          {
+            "keyword": "neural",
+            "count": 50,
+            "analogy": "adaptive model routing",
+            "target_domain": "model_selection"
+          },
+          {
+            "keyword": "swarm",
+            "count": 47,
+            "analogy": "multi-agent coordination",
+            "target_domain": "orchestration"
+          },
+          {
+            "keyword": "evolution",
+            "count": 31,
+            "analogy": "genetic algorithm optimization",
+            "target_domain": "prompt_evolution"
+          },
+          {
+            "keyword": "emergent",
+            "count": 4,
+            "analogy": "complex behavior from simple rules",
+            "target_domain": "swarm_presets"
+          },
+          {
+            "keyword": "immune",
+            "count": 1,
+            "analogy": "anomaly detection and self-healing",
+            "target_domain": "circuit_breakers"
+          }
+        ],
+        "tech_signals": [
+          {
+            "keyword": "plugin",
+            "count": 3670,
+            "analogy": "hot-swappable capability extension",
+            "target_domain": "plugin_registry"
+          },
+          {
+            "keyword": "join",
+            "count": 1147,
+            "analogy": "cross-entity relationship resolution",
+            "target_domain": "entity_linking"
+          },
+          {
+            "keyword": "owl",
+            "count": 679,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          },
+          {
+            "keyword": "inference",
+            "count": 576,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          },
+          {
+            "keyword": "transformer",
+            "count": 495,
+            "analogy": "parallel sequence processing",
+            "target_domain": "batch_processing"
+          },
+          {
+            "keyword": "embedding",
+            "count": 427,
+            "analogy": "semantic vector representation",
+            "target_domain": "knowledge_graph"
+          },
+          {
+            "keyword": "attention",
+            "count": 326,
+            "analogy": "context-aware retrieval weighting",
+            "target_domain": "hybrid_retriever"
+          },
+          {
+            "keyword": "middleware",
+            "count": 104,
+            "analogy": "cross-cutting concern interception layer",
+            "target_domain": "middleware"
+          },
+          {
+            "keyword": "reinforcement",
+            "count": 75,
+            "analogy": "reward-driven routing optimization",
+            "target_domain": "confidence_gating"
+          },
+          {
+            "keyword": "subgoal",
+            "count": 44,
+            "analogy": "intermediate milestone decomposition",
+            "target_domain": "task_decomposition"
+          },
+          {
+            "keyword": "spectral",
+            "count": 37,
+            "analogy": "eigenvalue-based graph decomposition",
+            "target_domain": "spectral_analysis"
+          },
+          {
+            "keyword": "zero-shot",
+            "count": 28,
+            "analogy": "inductive generalization",
+            "target_domain": "encpi"
+          },
+          {
+            "keyword": "hierarchical",
+            "count": 22,
+            "analogy": "multi-level abstraction layering",
+            "target_domain": "hierarchical_planning"
+          },
+          {
+            "keyword": "vector database",
+            "count": 20,
+            "analogy": "embedding-native similarity search",
+            "target_domain": "vector_retrieval"
+          },
+          {
+            "keyword": "few-shot",
+            "count": 19,
+            "analogy": "rapid domain adaptation",
+            "target_domain": "experience_nodes"
+          },
+          {
+            "keyword": "topology",
+            "count": 17,
+            "analogy": "structural graph analysis and shape metrics",
+            "target_domain": "partitioning"
+          },
+          {
+            "keyword": "transitive",
+            "count": 15,
+            "analogy": "inferred multi-hop relationship chains",
+            "target_domain": "owl_transitivity"
+          },
+          {
+            "keyword": "entity resolution",
+            "count": 14,
+            "analogy": "cross-source identity deduplication",
+            "target_domain": "entity_linking"
+          },
+          {
+            "keyword": "knowledge graph",
+            "count": 12,
+            "analogy": "structured relational memory",
+            "target_domain": "kg"
+          },
+          {
+            "keyword": "chain-of-thought",
+            "count": 9,
+            "analogy": "rationale persistence",
+            "target_domain": "quiet_star"
+          },
+          {
+            "keyword": "consensus",
+            "count": 9,
+            "analogy": "multi-agent agreement",
+            "target_domain": "bft"
+          },
+          {
+            "keyword": "sparql",
+            "count": 9,
+            "analogy": "structured graph query language",
+            "target_domain": "kg_query"
+          },
+          {
+            "keyword": "rdf",
+            "count": 7,
+            "analogy": "resource description framework triple encoding",
+            "target_domain": "triple_store"
+          },
+          {
+            "keyword": "vectorized",
+            "count": 4,
+            "analogy": "batch-parallel numerical computation",
+            "target_domain": "vector_ops"
+          },
+          {
+            "keyword": "partitioning",
+            "count": 3,
+            "analogy": "graph decomposition into coherent substructures",
+            "target_domain": "topological_partitioning"
+          },
+          {
+            "keyword": "foreign key",
+            "count": 2,
+            "analogy": "cross-table referential integrity",
+            "target_domain": "relational_edges"
+          },
+          {
+            "keyword": "composability",
+            "count": 2,
+            "analogy": "modular building-block assembly",
+            "target_domain": "mcp_composition"
+          },
+          {
+            "keyword": "layered architecture",
+            "count": 2,
+            "analogy": "dependency-ordered abstraction tiers",
+            "target_domain": "clean_architecture"
+          },
+          {
+            "keyword": "distillation",
+            "count": 1,
+            "analogy": "knowledge compression",
+            "target_domain": "trace_distillation"
+          },
+          {
+            "keyword": "curriculum",
+            "count": 1,
+            "analogy": "progressive complexity scheduling",
+            "target_domain": "horizon_curriculum"
+          }
+        ],
+        "innovation_claims": [
+          "The self-improvement loop that reviews what to save got a substantial upgrade",
+          "Four new inference providers, a 18th messaging platform, a 19th via Teams plugin, native Spotify + Google Meet integrations, ComfyUI and TouchDesigner-MCP moved from optional to bundled-by-default, and a ~57% cut to visible TUI cold start",
+          "**TouchDesigner-MCP** bundled by default, expanded with GLSL, post-FX, audio, geometry, and 9 new reference docs ([#16753](https://github.com/NousResearch/hermes-agent/pull/16753), [#16624](https://github.com/NousResearch/hermes-agent/pull/16624), [#16768](https://github.com/NousResearch/hermes-agent/pull/16768) \u2014 @kshitijk4poor + @SHL0MS)",
+          "([#16358](https://github.com/NousResearch/hermes-agent/pull/16358), [#14876](https://github.com/NousResearch/hermes-agent/pull/14876), [#16291](https://github.com/NousResearch/hermes-agent/pull/16291), [#17512](https://github.com/NousResearch/hermes-agent/pull/17512), [#16323](https://github.com/NousResearch/hermes-agent/pull/16323), [#17744](https://github.com/NousResearch/hermes-agent/pull/17744))\n\n- **LM Studio \u2014 first-class provider** \u2014 upgraded from a custom-endpoint alias to a full-blown native provider: dedicated auth, `hermes doctor` checks, reasoning transport, live `/models` listing",
+          "(Salvage of @kshitijk4poor's #17061.) ([#17102](https://github.com/NousResearch/hermes-agent/pull/17102))\n\n- **Four more new inference providers** \u2014 **GMI Cloud** (first-class, salvage of #11955 \u2014 @isaachuangGMICLOUD), **Azure AI Foundry** with auto-detection, **MiniMax OAuth** with PKCE browser flow (salvage #15203), **Tencent Tokenhub** (salvage of #16860)",
+          "Drop-in messaging adapters live outside the core, and Microsoft Teams is the first plugin-shipped platform",
+          "([#17745](https://github.com/NousResearch/hermes-agent/pull/17745), [#17802](https://github.com/NousResearch/hermes-agent/pull/17802))\n\n- **Remote model catalog manifest** \u2014 OpenRouter + Nous Portal model catalogs are now pulled from a remote manifest so new models show up without a release",
+          "([#17175](https://github.com/NousResearch/hermes-agent/pull/17175), [#17286](https://github.com/NousResearch/hermes-agent/pull/17286), [#17150](https://github.com/NousResearch/hermes-agent/pull/17150), [#17130](https://github.com/NousResearch/hermes-agent/pull/17130), [#17113](https://github.com/NousResearch/hermes-agent/pull/17113), [#17668](https://github.com/NousResearch/hermes-agent/pull/17668), [#17669](https://github.com/NousResearch/hermes-agent/pull/17669), [#15488](https://github.com/NousResearch/hermes-agent/pull/15488))\n\n- **Observability + achievements plugins** \u2014 bundled Langfuse observability plugin (salvage #16845) + bundled hermes-achievements plugin that scans full session history",
+          "Opt in via `redaction.enabled: true` when you need it",
+          "``<HERMES_HOME>/skills`` last-resort\n    \"\"\"\n    override = os.getenv(\"HERMES_BUNDLED_SKILLS\", \"\").strip()\n    if override:\n        return Path(override)\n    packaged = _get_packaged_data_dir(\"skills\")\n    if packaged is not None:\n        return packaged\n    if default is not None:\n        return default\n    return get_hermes_home() / \"skills\"\n\n\ndef get_hermes_dir(new_subpath: str, old_name: str) -> Path:\n    \"\"\"Resolve a Hermes subdirectory with backward compatibility"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "cross-table referential integrity",
+          "source_keyword": "foreign key",
+          "target_domain": "relational_edges",
+          "already_in_target": false,
+          "integration_type": "new_capability",
+          "estimated_value": "medium"
+        },
+        {
+          "innovation": "modular building-block assembly",
+          "source_keyword": "composability",
+          "target_domain": "mcp_composition",
+          "already_in_target": false,
+          "integration_type": "new_capability",
+          "estimated_value": "medium"
+        },
+        {
+          "innovation": "parametric exploration",
+          "source_keyword": "mutation",
+          "target_domain": "variant_pool",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "adaptive model routing",
+          "source_keyword": "neural",
+          "target_domain": "model_selection",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "multi-agent coordination",
+          "source_keyword": "swarm",
+          "target_domain": "orchestration",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "genetic algorithm optimization",
+          "source_keyword": "evolution",
+          "target_domain": "prompt_evolution",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "complex behavior from simple rules",
+          "source_keyword": "emergent",
+          "target_domain": "swarm_presets",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "anomaly detection and self-healing",
+          "source_keyword": "immune",
+          "target_domain": "circuit_breakers",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "hot-swappable capability extension",
+          "source_keyword": "plugin",
+          "target_domain": "plugin_registry",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "cross-entity relationship resolution",
+          "source_keyword": "join",
+          "target_domain": "entity_linking",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "parallel sequence processing",
+          "source_keyword": "transformer",
+          "target_domain": "batch_processing",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "semantic vector representation",
+          "source_keyword": "embedding",
+          "target_domain": "knowledge_graph",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "context-aware retrieval weighting",
+          "source_keyword": "attention",
+          "target_domain": "hybrid_retriever",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 2,
+      "enhancements": 34
+    }
+  ]
+}

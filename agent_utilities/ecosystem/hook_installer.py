@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Agent Hook Installer.
 
-CONCEPT:ECO-4.6 -- Cross-Agent Memory Hook Installer
+CONCEPT:ECO-4.0 -- Cross-Agent Memory Hook Installer
 
 Writes startup/checkpoint hooks into external agent configurations so they
 call ``agent-utilities context`` at session start and ``agent-utilities observe``
@@ -167,7 +167,7 @@ AGENT_SURFACES: dict[str, dict[str, Any]] = {
 class HookInstaller:
     """Installs agent-utilities memory hooks into external agent configurations.
 
-    CONCEPT:ECO-4.6 -- Cross-Agent Memory Hook Installer
+    CONCEPT:ECO-4.0 -- Cross-Agent Memory Hook Installer
     """
 
     def __init__(self) -> None:

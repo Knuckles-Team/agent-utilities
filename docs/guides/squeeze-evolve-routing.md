@@ -122,14 +122,14 @@ The engine computes two signals for each group of specialist proposals:
 ```mermaid
 flowchart TB
     subgraph Input
-        P1[Proposal 1]
-        P2[Proposal 2]
-        P3[Proposal 3]
-        P4[Proposal 4]
+        P1[ORCH-1.2: Proposal 1]
+        P2[ORCH-1.2: Proposal 2]
+        P3[ORCH-1.2: Proposal 3]
+        P4[ORCH-1.2: Proposal 4]
     end
 
-    P1 & P2 --> G1[Group 1]
-    P3 & P4 --> G2[Group 2]
+    P1 & P2 --> G1[ORCH-1.21: Group 1]
+    P3 & P4 --> G2[ORCH-1.21: Group 2]
 
     G1 --> F1{GC=0.9<br/>D=1}
     G2 --> F2{GC=0.3<br/>D=3}
@@ -186,7 +186,7 @@ graph LR
     AU033[CONCEPT:OS-5.2<br/>Homeostatic Downgrade] -->|budget tier| AU039
     AU030[CONCEPT:OS-5.2<br/>Cognitive Scheduler] -->|hosts| CM[Convergence<br/>Monitor]
     CM --> AU040
-    AU039 -->|adaptive model| REG[Model Registry]
+    AU039 -->|adaptive model| REG[ECO-4.10: Model Registry]
 
     style AU039 fill:#e6f2ff,stroke:#0066cc,stroke-width:2px
     style AU040 fill:#e6f2ff,stroke:#0066cc,stroke-width:2px

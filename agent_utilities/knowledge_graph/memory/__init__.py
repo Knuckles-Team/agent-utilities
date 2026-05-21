@@ -1,7 +1,7 @@
 """Memory subsystem for the Knowledge Graph.
 
 CONCEPT:KG-2.1 — Tiered Memory & Context
-CONCEPT:KG-2.10 — Observational Memory Bridge
+CONCEPT:KG-2.1 — Observational Memory Bridge
 
 This package contains:
 - Consolidation engine (KG-2.4) — Episode→Preference, Decision→Principle rules

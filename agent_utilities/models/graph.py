@@ -44,7 +44,7 @@ class ExecutionStep(BaseModel):
         default=False, description="Whether this step starts a parallel batch"
     )
     status: str = Field(default="pending", description="Current execution status")
-    timeout: float = Field(default=120.0, description="Per-node timeout in seconds")
+    timeout: float = Field(default=3600.0, description="Per-node timeout in seconds")
     depends_on: list[str] = Field(
         default_factory=list, description="Node IDs that must complete before this step"
     )

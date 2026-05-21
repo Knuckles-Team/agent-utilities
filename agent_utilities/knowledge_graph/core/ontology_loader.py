@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Ontology Loader — Remote OWL Import Resolver.
 
-CONCEPT:KG-2.7 — Modular Ontology Federation
+CONCEPT:KG-2.6 — Modular Ontology Federation
 
 Resolves owl:imports declarations in TTL files, fetching remote ontologies
 from HTTP URLs or SPARQL endpoints and merging them into the local rdflib
@@ -34,7 +34,7 @@ _DEFAULT_CACHE_TTL_SECONDS = 3600  # 1 hour
 class OntologyLoader:
     """Resolves and loads modular ontologies with owl:imports support.
 
-    CONCEPT:KG-2.7 — Enterprise Ontology Federation
+    CONCEPT:KG-2.6 — Enterprise Ontology Federation
 
     Enables hierarchical ontology inheritance where:
     - A central enterprise ontology is served at a known URL

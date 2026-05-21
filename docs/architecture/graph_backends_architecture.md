@@ -9,33 +9,33 @@ capabilities: Cypher query execution, vector search, and node/edge CRUD.
 ```mermaid
 graph TB
     subgraph "IntelligenceGraphEngine"
-        A["query_cypher()"] --> B["backend.execute()"]
-        C["add_node()"] --> B
-        D["link_nodes()"] --> B
-        E["search_hybrid()"] --> F["backend.semantic_search()"]
-        G["load_subgraph()"] --> H["NetworkX\n(Tier 2 Compute)"]
+        A["KG-2.0: query_cypher()"] --> B["KG-2.0: backend.execute()"]
+        C["KG-2.0: add_node()"] --> B
+        D["KG-2.0: link_nodes()"] --> B
+        E["KG-2.3: search_hybrid()"] --> F["KG-2.3: backend.semantic_search()"]
+        G["KG-2.0: load_subgraph()"] --> H["NetworkX\n(Tier 2 Compute)"]
     end
 
-    B --> I{"Backend Type?"}
+    B --> I{"KG-2.0: Backend Type?"}
 
-    subgraph "LadybugDB (Default)"
+    subgraph "KG-2.0: LadybugDB (Default)"
         I -->|ladybug| J["Native Cypher\nSQLite + HNSW"]
     end
 
-    subgraph "Neo4j"
-        I -->|neo4j| K["Native Cypher\nBolt Protocol"]
+    subgraph "KG-2.0: Neo4j"
+        I -->|neo4j| K["KG-2.0: Native Cypher\nBolt Protocol"]
     end
 
     subgraph "FalkorDB"
-        I -->|falkordb| L["Cypher via\nRedis Protocol"]
+        I -->|falkordb| L["KG-2.0: Cypher via\nRedis Protocol"]
     end
 
     subgraph "PostgreSQL + pgGraph"
-        I -->|postgresql| M["Cypher → SQL\nTranspiler"]
+        I -->|postgresql| M["KG-2.0: Cypher → SQL\nTranspiler"]
         M --> N["PostgreSQL Tables"]
-        M --> O["pgGraph Extension\n(CSR Traversal)"]
-        F --> P["pgvector\n(Cosine Search)"]
-        F --> Q["ParadeDB BM25\n(Lexical Search)"]
+        M --> O["KG-2.0: pgGraph Extension\n(CSR Traversal)"]
+        F --> P["KG-2.3: pgvector\n(Cosine Search)"]
+        F --> Q["KG-2.3: ParadeDB BM25\n(Lexical Search)"]
     end
 
     subgraph "Memory (Testing)"
@@ -68,16 +68,16 @@ graph + vector + search layer:
 ```mermaid
 graph LR
     subgraph "Layer 1: Storage"
-        A["Node Tables\n(Agent, Tool, Memory, ...)"] --- B["kg_edges Table"]
+        A["KG-2.0: Node Tables\n(Agent, Tool, Memory, ...)"] --- B["KG-2.0: kg_edges Table"]
     end
 
     subgraph "Layer 2: Graph Index"
-        C["pgGraph CSR\n(graph.traverse)\n(graph.shortest_path)\n(graph.search)"]
+        C["KG-2.0: pgGraph CSR\n(graph.traverse)\n(graph.shortest_path)\n(graph.search)"]
     end
 
     subgraph "Layer 3: Search"
-        D["pgvector HNSW\n(Cosine Similarity)"]
-        E["ParadeDB BM25\n(Lexical Ranking)"]
+        D["KG-2.3: pgvector HNSW\n(Cosine Similarity)"]
+        E["KG-2.3: ParadeDB BM25\n(Lexical Ranking)"]
     end
 
     A --> C

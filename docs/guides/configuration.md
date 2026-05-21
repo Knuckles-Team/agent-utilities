@@ -5,15 +5,9 @@ This document provides a unified reference for all environment variables, config
 ## Environment Variables
 
 ### LLM Configuration
-| Variable | Default | Description |
-|---|---|---|
-| `PROVIDER` | `openai` | Primary LLM provider (e.g., `openai`, `anthropic`, `groq`, `ollama`) |
-| `MODEL_ID` | `llama-3.2-3b-instruct` | Specific model identifier to use |
-| `LLM_BASE_URL` | `http://host.docker.internal:1234/v1` | Base URL for the LLM API |
-| `LLM_API_KEY` | `llama` | API key for the provider |
-| `MODELS_CONFIG` | *None* | Path to a multi-model registry JSON configuration. See [models.md](../2_epistemic_knowledge_graph/models.md) |
-| `MODEL_OVERRIDE` | *None* | Override model specified per-request via middleware |
-| `LLM_CUSTOM_HEADERS` | *None* | Comma-separated list of custom headers to pass to the LLM |
+All LLM configuration (models, API keys, endpoints) is now managed centrally via the XDG configuration file at `~/.config/agent-utilities/config.json`.
+
+Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated** and will be ignored. API keys can optionally be provided in the `.env` file or directly inside the `config.json` model entries.
 
 ### Graph Database
 | Variable | Default | Description |
@@ -97,7 +91,7 @@ This document provides a unified reference for all environment variables, config
 | `TOOL_GUARD_MODE` | `on` | Strictness of the tool execution guard (`on`, `off`, `custom`) |
 | `DISABLE_TOOL_GUARD` | `False` | Completely bypass tool elicitation and safety checks |
 
-### A2A Agent Discovery (CONCEPT:ECO-4.1)
+### A2A Agent Discovery (CONCEPT:ECO-4.0)
 | Variable | Default | Description |
 |---|---|---|
 | `A2A_CONFIG` | *None* | Path to `a2a_config.json` for external A2A agent discovery |
@@ -117,13 +111,44 @@ When running `agent-utilities` commands (or `python -m agent_utilities.server`),
 
 | Flag | Equivalent Env Var | Description |
 |---|---|---|
-| `--provider` | `PROVIDER` | LLM Provider |
-| `--model-id` | `MODEL_ID` | LLM Model |
-| `--base-url` | `LLM_BASE_URL` | Base URL |
-| `--api-key` | `LLM_API_KEY` | API Key |
+| `--base-url` | Base URL (Overrides `config.json`) |
+| `--api-key` | API Key (Overrides `config.json`) |
 | `--port` | *None* | Server listen port (default: 8000) |
 | `--host` | *None* | Server bind host (default: 0.0.0.0) |
 | `--web` | *None* | Enables the bundled web UI proxy if present |
 | `--mcp-config` | `MCP_CONFIG` | Path to MCP config file |
 | `--debug` | *None* | Sets log level to DEBUG |
 | `--skill-types`| *None* | Comma-separated list of skills to load (`universal`, `graphs`) |
+
+
+## Configuration & Environment Variables
+
+### Standardized LLM Environment Variables
+
+The ecosystem relies on a standardized set of API keys in `.env` for security, while routing and capabilities are managed via the unified JSON configuration:
+
+- **API Keys**: While models are defined in `config.json`, sensitive API keys like `LLM_API_KEY` can optionally remain in the `.env` file to prevent committing secrets to version control.
+
+> **Full Documentation:** See [docs/configuration.md](docs/pillars/5_agent_os_infrastructure/configuration.md) for a complete list of environment variables.
+
+### Unified Agent Configuration (`config.json`)
+
+Define a registry of models mapped to routing tiers (`light`, `normal`, `super`) and capabilities directly in the XDG-compliant `~/.config/agent-utilities/config.json`. The graph orchestrator autonomously selects the right model for each task based on required complexity.
+
+**Configuration Example:**
+```json
+{
+  "chat_models": [
+    {
+      "id": "gpt-4o-mini",
+      "provider": "openai",
+      "intelligence_level": "normal",
+      "supports_json": true,
+      "vision": true
+    }
+  ]
+}
+```
+
+*The graph orchestrator automatically accesses this file globally via `AgentConfig`.*
+> **Full Documentation:** See [docs/models.md](docs/pillars/2_epistemic_knowledge_graph/models.md) for advanced schema options, local model fallbacks, and routing logic.

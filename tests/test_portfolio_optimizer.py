@@ -117,3 +117,97 @@ class TestBlackLittermanOptimizer:
         opt = BlackLittermanOptimizer()
         result = opt.optimize(np.array([]), np.array([[]]), [])
         assert len(result.weights) == 0
+
+
+class TestEmpiricalKellyOptimizer:
+    def test_basic_kelly(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            EmpiricalKellyOptimizer,
+        )
+
+        opt = EmpiricalKellyOptimizer()
+        # High win rate, good payout, no variance (stable edge)
+        historical_returns = np.array([[0.1] * 100])  # Single path of returns
+        f = opt.compute_fraction(0.6, 1.5, historical_returns, n_simulations=10)
+        # f_kelly = (0.6 * 1.5 - 0.4) / 1.5 = (0.9 - 0.4)/1.5 = 0.5/1.5 = 0.333
+        assert 0.0 < f < 0.4
+
+    def test_zero_edge(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            EmpiricalKellyOptimizer,
+        )
+
+        opt = EmpiricalKellyOptimizer()
+        # 50% win rate, 1:1 payout = 0 edge
+        f = opt.compute_fraction(0.5, 1.0, np.array([[0.0] * 100]), n_simulations=10)
+        assert f == 0.0
+
+    def test_negative_edge(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            EmpiricalKellyOptimizer,
+        )
+
+        opt = EmpiricalKellyOptimizer()
+        f = opt.compute_fraction(0.4, 1.0, np.array([[-0.1] * 100]), n_simulations=10)
+        assert f == 0.0
+
+    def test_high_variance_penalty(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            EmpiricalKellyOptimizer,
+        )
+
+        opt = EmpiricalKellyOptimizer()
+        stable_returns = np.array([[0.05] * 100])
+        volatile_returns = np.array([[0.05, -0.1, 0.2, -0.15, 0.25] * 20])
+
+        f_stable = opt.compute_fraction(0.6, 2.0, stable_returns, n_simulations=100)
+        f_volatile = opt.compute_fraction(0.6, 2.0, volatile_returns, n_simulations=100)
+
+        assert f_volatile < f_stable
+
+
+class TestFractionalKellyOptimizer:
+    def test_basic_fractional_kelly(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            FractionalKellyOptimizer,
+        )
+
+        opt = FractionalKellyOptimizer()
+        # p = 0.6, b = 1.0 (win_loss_ratio)
+        # f_kelly = (0.6 * 1.0 - 0.4) / 1.0 = 0.2
+        # scaled by 0.15 = 0.03
+        f = opt.compute_fraction(0.6, 1.0, fraction=0.15)
+        assert np.isclose(f, 0.03)
+
+    def test_negative_edge(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            FractionalKellyOptimizer,
+        )
+
+        opt = FractionalKellyOptimizer()
+        f = opt.compute_fraction(0.4, 1.0, fraction=0.15)
+        assert f == 0.0
+
+    def test_zero_win_loss_ratio(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            FractionalKellyOptimizer,
+        )
+
+        opt = FractionalKellyOptimizer()
+        f = opt.compute_fraction(0.6, 0.0, fraction=0.15)
+        assert f == 0.0
+
+
+class TestCircuitBreaker:
+    def test_circuit_breaker_not_tripped(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import CircuitBreaker
+
+        cb = CircuitBreaker()
+        assert not cb.is_tripped(150.0, 300.0)
+
+    def test_circuit_breaker_tripped(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import CircuitBreaker
+
+        cb = CircuitBreaker()
+        assert cb.is_tripped(350.0, 300.0)
+        assert cb.is_tripped(300.0, 300.0)

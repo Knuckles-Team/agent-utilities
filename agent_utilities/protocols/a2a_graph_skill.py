@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:ECO-4.1 — A2A-Native PlannerAgent (Graph-Backed Skill).
+"""CONCEPT:ECO-4.0 — A2A-Native PlannerAgent (Graph-Backed Skill).
 
 Graph-backed A2A Skill that delegates directly to ``execute_graph()``.
 
@@ -10,7 +10,7 @@ External A2A agents still see the same JSON-RPC interface
 (``message/send``, ``tasks/get``).  The only change is internal: we skip
 the LLM wrapper hop.  The agent card stays identical.
 
-See docs/pillars/architecture_c4.md §CONCEPT:ECO-4.1
+See docs/pillars/architecture_c4.md §CONCEPT:ECO-4.0
 """
 
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class PlannerGraphSkill:
     """A2A Skill backed by the full pydantic graph pipeline.
 
-    CONCEPT:ECO-4.1 — A2A-Native PlannerAgent
+    CONCEPT:ECO-4.0 — A2A-Native PlannerAgent
 
     External A2A agents see the same JSON-RPC interface.  Internally,
     queries go directly through router→dispatcher→adaptive_agent_router→verifier
@@ -66,7 +66,7 @@ class PlannerGraphSkill:
     async def run(self, messages: list[dict[str, Any]], context: Any = None) -> str:
         """Execute the graph pipeline directly for an A2A request.
 
-        CONCEPT:ECO-4.1 — A2A-Native PlannerAgent
+        CONCEPT:ECO-4.0 — A2A-Native PlannerAgent
 
         Args:
             messages: A2A message list (JSON-RPC format).
@@ -129,7 +129,7 @@ class PlannerGraphSkill:
 class CoordinatedGraphSkill(PlannerGraphSkill):
     """A2A Skill with coordination protocol negotiation.
 
-    CONCEPT:ECO-4.1 — Research: 2605.03310v1, social_theory
+    CONCEPT:ECO-4.0 — Research: 2605.03310v1, social_theory
 
     Extends ``PlannerGraphSkill`` with an explicit coordination phase
     before graph execution. When an A2A request arrives:
@@ -197,7 +197,7 @@ class CoordinatedGraphSkill(PlannerGraphSkill):
     async def run(self, messages: list[dict[str, Any]], context: Any = None) -> str:
         """Execute the graph pipeline with coordination negotiation.
 
-        CONCEPT:ECO-4.1 — Research: 2605.03310v1
+        CONCEPT:ECO-4.0 — Research: 2605.03310v1
 
         Args:
             messages: A2A message list (JSON-RPC format).
@@ -216,7 +216,7 @@ class CoordinatedGraphSkill(PlannerGraphSkill):
         agent_ids = self._extract_agent_ids(messages, context)
         task_type = self._infer_task_type(query)
 
-        # CONCEPT:ORCH-1.5 — Coordination negotiation before execution
+        # CONCEPT:ORCH-1.3 — Coordination negotiation before execution
         protocol = self.coordination_layer.select_protocol(
             agent_count=len(agent_ids),
             task_type=task_type,

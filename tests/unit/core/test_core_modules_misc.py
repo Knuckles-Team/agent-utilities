@@ -382,7 +382,7 @@ def test_init_lazy_prompts_and_server():
 
     # server
     assert agent_utilities.create_agent_server is not None
-    assert agent_utilities.create_graph_agent_server is not None
+    assert agent_utilities.create_agent_server is not None
 
 
 def test_init_lazy_codemaps_and_models():

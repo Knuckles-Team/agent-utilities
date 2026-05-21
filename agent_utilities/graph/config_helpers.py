@@ -117,7 +117,7 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
     # 1. Fetch Prompt Agents
     try:
         prompt_rows = engine.backend.execute(
-            "MATCH (p:Prompt) RETURN p.name AS name, p.description AS description, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
+            "MATCH (p:Prompt) RETURN p.name AS name, p.description AS descriptionription, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
         )
         for row in prompt_rows:
             blueprint = row.get("json_blueprint")
@@ -158,7 +158,7 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
     # 1b. Fetch Specialist Agents
     try:
         agent_rows = engine.backend.execute(
-            "MATCH (a:Agent) RETURN a.name AS name, a.description AS description, a.agent_type AS agent_type, a.system_prompt AS system_prompt, a.tool_count AS tool_count, a.mcp_server AS mcp_server"
+            "MATCH (a:Agent) RETURN a.name AS name, a.description AS descriptionription, a.agent_type AS agent_type, a.system_prompt AS system_prompt, a.tool_count AS tool_count, a.mcp_server AS mcp_server"
         )
         for row in agent_rows:
             # CONCEPT:ORCH-1.2: Normalize legacy prompt/mcp to unified specialist
@@ -462,7 +462,7 @@ _PHASE_MAP: dict[str, str] = {
     "council_advisor_complete": "COUNCIL",
     "council_reviewer_complete": "COUNCIL",
     "council_completed": "COUNCIL",
-    # ── KG-Driven Graph Materialization (CONCEPT:ORCH-1.20) ─────────────
+    # ── KG-Driven Graph Materialization (CONCEPT:ORCH-1.4) ─────────────
     "kg_query_start": "KG_BRIDGE",
     "kg_query_complete": "KG_BRIDGE",
     "kg_template_resolved": "KG_BRIDGE",

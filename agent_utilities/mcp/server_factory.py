@@ -12,7 +12,13 @@ CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 import argparse
 import logging
 import os
+import warnings
 from typing import Any
+
+# Global suppression for Authlib deprecations to prevent standard output pollution
+# that breaks JSON-RPC protocol parser and leads to "0 tools" or "EOF" errors
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="authlib")
+warnings.filterwarnings("ignore", message=".*authlib.jose module is deprecated.*")
 
 from agent_utilities.base_utilities import GET_DEFAULT_SSL_VERIFY, to_boolean
 from agent_utilities.core.config import (
@@ -253,6 +259,9 @@ def _configure_auth(args: argparse.Namespace) -> Any:
 
     Returns the auth provider instance or None.
     """
+    if args.auth_type == "none" or not args.auth_type:
+        return None
+
     import sys as _sys
 
     import requests as _requests

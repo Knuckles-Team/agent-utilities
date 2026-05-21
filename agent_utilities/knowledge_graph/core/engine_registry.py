@@ -1284,7 +1284,7 @@ class RegistryMixin(_Base):
         return configs
 
     # ------------------------------------------------------------------
-    # AgentTemplate CRUD (CONCEPT:ORCH-1.20)
+    # AgentTemplate CRUD (CONCEPT:ORCH-1.4)
     # ------------------------------------------------------------------
 
     def get_agent_templates(
@@ -1294,7 +1294,7 @@ class RegistryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Search for AgentTemplate nodes matching a task query.
 
-        CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+        CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
 
         Uses hybrid search when a query is provided, otherwise returns
         all templates ordered by step_order.
@@ -1340,7 +1340,7 @@ class RegistryMixin(_Base):
                     "at.step_order AS step_order, "
                     "at.is_parallel AS is_parallel, "
                     "at.max_retries AS max_retries, "
-                    "at.description AS description "
+                    "at.description AS descriptionription "
                     "ORDER BY at.step_order ASC "
                     f"LIMIT {top_k}",
                     {},
@@ -1378,7 +1378,7 @@ class RegistryMixin(_Base):
     ) -> str:
         """Create or update an AgentTemplate node with edges.
 
-        CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+        CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
 
         Upserts the template node and creates USES_PROMPT,
         REQUIRES_TOOLSET, and COMPATIBLE_WITH_MODEL edges.
@@ -1445,7 +1445,7 @@ class RegistryMixin(_Base):
             self.graph.nodes[node_id]["model_preference"] = model_pref
 
         logger.info(
-            "[CONCEPT:ORCH-1.20] Created AgentTemplate '%s' (role=%s)",
+            "[CONCEPT:ORCH-1.4] Created AgentTemplate '%s' (role=%s)",
             node_id,
             template.get("role", ""),
         )
@@ -1458,7 +1458,7 @@ class RegistryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Return the DEPENDS_ON edge DAG between AgentTemplate nodes.
 
-        CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+        CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
 
         Args:
             template_ids: List of AgentTemplate node IDs.

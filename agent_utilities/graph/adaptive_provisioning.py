@@ -40,7 +40,7 @@ class AdaptiveProvisioner:
             # Look up tools the agent specifically has the HAS_TOOL relationship with
             query = """
             MATCH (a {id: $agent_id})-[:HAS_TOOL]->(t:Tool)
-            RETURN t.id as tool_id, t.name as name, t.mcp_server as server, t.description as desc
+            RETURN t.id as tool_id, t.name as name, t.mcp_server as server, t.description AS description
             """
             res = self.engine.backend.execute(query, {"agent_id": agent_node_id})
 
@@ -50,7 +50,7 @@ class AdaptiveProvisioner:
                         "id": row.get("tool_id"),
                         "name": row.get("name"),
                         "mcp_server": row.get("server"),
-                        "description": row.get("desc"),
+                        "description": row.get("description"),
                     }
                 )
 

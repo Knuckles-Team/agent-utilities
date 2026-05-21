@@ -268,3 +268,33 @@ if token:
 7. **JWT over API keys**: Prefer JWT Bearer auth for production — tokens
    expire, carry claims, and can be revoked at the IdP
 8. **Restrict CORS**: Set `ALLOWED_ORIGINS` to specific trusted origins
+
+
+## Local Secret Storage (Vault & SQLite)
+
+The ecosystem provides a unified `SecretsClient` designed to replace static `.env` files, supporting `inmemory`, `sqlite`, and HashiCorp `vault` backends.
+
+**Light Configuration Example (SQLite):**
+```bash
+export SECRETS_BACKEND=sqlite
+export SECRETS_SQLITE_PATH=~/.agent-utilities/secrets.db
+```
+
+**Usage in Code & URI Schemes:**
+Secrets can be resolved securely in Python via the context, or directly in `mcp_config.json` via URI schemes:
+```python
+# Direct code resolution without os.environ
+token = ctx.deps.secrets_client.get_or_env("gitlab/token", "GITLAB_TOKEN")
+
+# URI Scheme support for configuration files
+"env_vars": { "GITLAB_TOKEN": "secret://gitlab/token" }
+```
+
+**Secret Manager CLI:**
+Use the built-in CLI to easily populate your local database before running your agent:
+```bash
+secret-manager set gitlab/token glpat-xxx
+secret-manager list
+```
+
+> **Full Documentation:** See [docs/secrets-auth.md](docs/pillars/5_agent_os_infrastructure/secrets-auth.md) for HashiCorp Vault setup, encryption details, and API references.

@@ -92,10 +92,10 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    elif name in ["create_agent", "create_agent_parser"]:
-        from .agent.factory import create_agent, create_agent_parser
+    elif name == "create_agent_parser":
+        from .agent.factory import create_agent_parser
 
-        return create_agent if name == "create_agent" else create_agent_parser
+        return create_agent_parser
     elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
         from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
 
@@ -113,7 +113,7 @@ def __getattr__(name):
     elif name in [
         "GraphState",
         "build_tag_env_map",
-        "create_graph_agent",
+        "create_agent",
         "create_master_graph",
         "get_graph_mermaid",
         "initialize_graph_from_workspace",
@@ -127,7 +127,7 @@ def __getattr__(name):
         from .graph import (
             GraphState,
             build_tag_env_map,
-            create_graph_agent,
+            create_agent,
             create_master_graph,
             get_graph_mermaid,
             initialize_graph_from_workspace,
@@ -152,14 +152,10 @@ def __getattr__(name):
             if name == "build_system_prompt_from_workspace"
             else load_identity
         )
-    elif name in ["create_agent_server", "create_graph_agent_server"]:
-        from .server import create_agent_server, create_graph_agent_server
+    elif name == "create_agent_server":
+        from .server import create_agent_server
 
-        return (
-            create_agent_server
-            if name == "create_agent_server"
-            else create_graph_agent_server
-        )
+        return create_agent_server
     elif name == "CodemapGenerator":
         from .knowledge_graph.core.codemaps import CodemapGenerator
 
@@ -316,7 +312,7 @@ def __getattr__(name):
                 if name == "ModelDisplayOptimizer"
                 else DisplayComplexityBudget
             )
-    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
     elif name in ["EcosystemTopologyBuilder", "PackageCategory", "PackageInfo"]:
         from .knowledge_graph.core.ecosystem_topology import (
             EcosystemTopologyBuilder,
@@ -361,7 +357,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Agent-Runtimes Capabilities (CONCEPT:ECO-4.3, ECO-4.12, AHE-3.23)
+    # Agent-Runtimes Capabilities (CONCEPT:ECO-4.1, ECO-4.12, AHE-3.23)
     elif name == "DurableExecutionManager":
         from .orchestration.durable_execution import DurableExecutionManager
 
@@ -392,17 +388,15 @@ if os.environ.get("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
 # Disabled by default to avoid import overhead during testing
 # Can be enabled by setting ENABLE_GRAPH_INTEGRATION=true and calling initialize_graph_integration() explicitly
 
-__version__ = "0.11.0"
+__version__ = "0.11.1"
 
 __all__ = [
-    # Agent creation
+    # Agent creation (graph-based)
     "create_agent",
     "create_agent_parser",
     "create_agent_server",
-    "create_graph_agent_server",
     # Graph orchestration
     "GraphState",
-    "create_graph_agent",
     "create_master_graph",
     "run_graph",
     "run_graph_stream",
@@ -481,21 +475,21 @@ __all__ = [
     "EvalStrategy",
     "TestCase",
     "EvalResult",
-    # MATE Integration — Token Tracking (CONCEPT:OS-5.4)
+    # MATE Integration — Token Tracking (CONCEPT:OS-5.1)
     "TokenUsageTracker",
     "TokenUsageRecord",
     "TokenBucket",
-    # MATE Integration — Audit Logging (CONCEPT:OS-5.4)
+    # MATE Integration — Audit Logging (CONCEPT:OS-5.1)
     "AuditLogger",
     "AuditRecord",
-    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.3)
+    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.1)
     "GuardrailEngine",
     "GuardrailRule",
     "GuardrailAction",
     # MATE Integration — Config Versioning (CONCEPT:AHE-3.2)
     "AgentConfigVersionManager",
     "AgentConfigSnapshot",
-    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
     "EcosystemTopologyBuilder",
     "PackageCategory",
     "PackageInfo",

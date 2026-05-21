@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Tests for CONCEPT:AHE-3.6 — Backtest Evaluation Harness."""
+"""Tests for CONCEPT:AHE-3.4 — Backtest Evaluation Harness."""
 
 
 import os

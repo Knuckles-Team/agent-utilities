@@ -6,6 +6,7 @@ This package provides a modular entrypoint for graph orchestration
 from .builder import (
     build_tag_env_map,
     # Builder
+    create_agent,
     create_graph_agent,
     create_master_graph,
     initialize_graph_from_workspace,
@@ -35,14 +36,14 @@ from .graph_models import (
     ValidationResult,
 )
 from .heavy_thinking import (
-    # CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
+    # CONCEPT:AHE-3.4 — Heavy Thinking Orchestration
     ComplexityEstimator,
     HeavyThinkingConfig,
     HeavyThinkingOrchestrator,
     HeavyThinkingPlanner,
 )
 from .horizon_curriculum import (
-    # CONCEPT:AHE-3.6 — Horizon-Aware Task Curriculum
+    # CONCEPT:AHE-3.4 — Horizon-Aware Task Curriculum
     CurriculumStage,
     HorizonCurriculum,
     HorizonStageConfig,
@@ -64,7 +65,7 @@ from .hsm import (
     static_route_query,
 )
 from .kg_graph_factory import (
-    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.20)
+    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.4)
     KGGraphResult,
     KGMaterializedStep,
     build_pydantic_graph_from_kg,
@@ -133,6 +134,7 @@ __all__ = [
     # Builder
     "get_step_descriptions",
     "agent_matches_node_id",
+    "create_agent",
     "create_graph_agent",
     "create_master_graph",
     "initialize_graph_from_workspace",
@@ -151,7 +153,7 @@ __all__ = [
     "ACPEventHandler",
     # Mermaid
     "get_graph_mermaid",
-    # CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
+    # CONCEPT:AHE-3.4 — Heavy Thinking Orchestration
     "HeavyThinkingOrchestrator",
     "HeavyThinkingConfig",
     "HeavyThinkingPlanner",
@@ -160,7 +162,7 @@ __all__ = [
     "TrajectoryEntry",
     "TrajectoryPruner",
     "TrajectoryShuffler",
-    # CONCEPT:AHE-3.6 — Horizon-Aware Task Curriculum
+    # CONCEPT:AHE-3.4 — Horizon-Aware Task Curriculum
     "HorizonCurriculum",
     "HorizonStageConfig",
     "CurriculumStage",
@@ -174,7 +176,7 @@ __all__ = [
     "TrajectoryReward",
     "StepOutcome",
     "TrajectoryOutcome",
-    # CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+    # CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
     "build_pydantic_graph_from_kg",
     "KGGraphResult",
     "KGMaterializedStep",

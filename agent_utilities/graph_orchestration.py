@@ -63,7 +63,7 @@ class BaseProjectInitializerNode(_RouterNodeBase):
     ) -> End[dict[str, Any]]:
         """Run the initializer node.
 
-        CONCEPT:ORCH-1.19 — Subgraph Synthesis
+        CONCEPT:ORCH-1.4 — Subgraph Synthesis
         """
         state = ctx.state
         loader = getattr(state, "load_from_disk", None)

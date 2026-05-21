@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from agent_utilities.harness.tracing import trace
 from agent_utilities.protocols.a2a import (
     delete_a2a_peer as delete_a2a_peer_util,
 )
@@ -18,6 +19,7 @@ from .versioning import tool_version
 logger = logging.getLogger(__name__)
 
 
+@trace(name="list_a2a_peers", trace_type="TOOL")
 @tool_version("1.0.0")
 async def list_a2a_peers(ctx: RunContext[Any]) -> list[str]:
     """List all known A2A peer agents in the Knowledge Graph.
@@ -35,6 +37,7 @@ async def list_a2a_peers(ctx: RunContext[Any]) -> list[str]:
     ]
 
 
+@trace(name="register_a2a_peer", trace_type="TOOL")
 @tool_version("1.0.0")
 async def register_a2a_peer(
     ctx: RunContext[Any],
@@ -61,6 +64,7 @@ async def register_a2a_peer(
     return register_a2a_peer_util(name, url, description, capabilities, auth)
 
 
+@trace(name="delete_a2a_peer", trace_type="TOOL")
 @tool_version("1.0.0")
 async def delete_a2a_peer(ctx: RunContext[Any], name: str) -> str:
     """Remove an A2A peer agent from the Knowledge Graph.

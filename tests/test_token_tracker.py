@@ -1,4 +1,4 @@
-"""Tests for TokenUsageTracker — 4-Bucket Analytics (CONCEPT:OS-5.4).
+"""Tests for TokenUsageTracker — 4-Bucket Analytics (CONCEPT:OS-5.1).
 
 @pytest.mark.concept("OS-5.6")
 """

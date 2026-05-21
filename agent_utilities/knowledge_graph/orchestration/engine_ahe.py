@@ -293,7 +293,7 @@ class AHEMixin(_Base):
         """Autonomous loop for background optimization (Lightning trainer)."""
         # 1. Pull recent failures (low reward)
         failures = self.query_cypher(
-            "MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward < 0.5 RETURN e.id as id, e.description as description LIMIT 5"
+            "MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward < 0.5 RETURN e.id as id, e.description AS descriptionription LIMIT 5"
         )
         logger.info(f"Self-improvement cycle: found {len(failures)} failures.")
         for fail in failures:

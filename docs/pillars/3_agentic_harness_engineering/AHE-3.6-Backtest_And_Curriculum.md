@@ -1,4 +1,4 @@
-# Backtest Evaluation Harness (CONCEPT:AHE-3.6)
+# Backtest Evaluation Harness (CONCEPT:AHE-3.4)
 
 ## Overview
 Strategy evaluation harness with SQLite storage, walk-forward validation windows, benchmark comparison, and KG integration via `BacktestRunNode`/`BacktestMetricNode`.
@@ -9,10 +9,10 @@ Strategy evaluation harness with SQLite storage, walk-forward validation windows
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Horizon-Aware Task Curriculum (CONCEPT:AHE-3.6)
+# Horizon-Aware Task Curriculum (CONCEPT:AHE-3.4)
 
 ## Overview
-Progressive horizon scheduling with macro-action composition, subgoal checkpoints, and configurable promotion policies (threshold/plateau/adaptive). Based on Long-Horizon Training research (CONCEPT:AHE-3.6).
+Progressive horizon scheduling with macro-action composition, subgoal checkpoints, and configurable promotion policies (threshold/plateau/adaptive). Based on Long-Horizon Training research (CONCEPT:AHE-3.4).
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/graph/horizon_curriculum.py``

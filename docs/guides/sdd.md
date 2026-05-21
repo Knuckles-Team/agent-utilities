@@ -14,34 +14,34 @@ The SDD orchestrator (`sdd/orchestrator.py`) implements a **specification-first 
 graph TD
     subgraph Phase1 [1. Specification Ingestion]
         direction TB
-        Req[requirements.md] --> Spec[Spec]
-        Cons[constraints.md] --> Spec
-        Acc[acceptance.md] --> Spec
+        Req[ORCH-1.6: requirements.md] --> ORCH-1.6: Spec[Spec]
+        Cons[ORCH-1.6: constraints.md] --> Spec
+        Acc[ORCH-1.6: acceptance.md] --> Spec
     end
 
     subgraph Phase2 [2. Plan Generation]
-        Spec --> PlanAgent[Planning Agent]
-        PlanAgent --> ImplPlan[Implementation Plan]
+        Spec --> PlanAgent[ORCH-1.2: Planning Agent]
+        PlanAgent --> ImplPlan[ORCH-1.6: Implementation Plan]
     end
 
     subgraph Phase3 [3. Task Decomposition]
-        ImplPlan --> TaskAgent[Task Decomposer]
-        TaskAgent --> TaskA[Task A]
-        TaskAgent --> TaskB[Task B]
-        TaskAgent --> TaskC[Task C]
+        ImplPlan --> TaskAgent[ORCH-1.1: Task Decomposer]
+        TaskAgent --> TaskA[ORCH-1.1: Task A]
+        TaskAgent --> TaskB[ORCH-1.1: Task B]
+        TaskAgent --> TaskC[ORCH-1.1: Task C]
     end
 
     subgraph Phase4 [4. Parallel Execution]
-        TaskA --> PySpecialist[Python Specialist]
-        TaskB --> TSSpecialist[TypeScript Specialist]
-        TaskC --> DevOpsSpecialist[DevOps Specialist]
+        TaskA --> PySpecialist[ORCH-1.2: Python Specialist]
+        TaskB --> TSSpecialist[ORCH-1.2: TypeScript Specialist]
+        TaskC --> DevOpsSpecialist[ORCH-1.2: DevOps Specialist]
 
-        PySpecialist --> Joiner[Execution Joiner]
+        PySpecialist --> Joiner[ORCH-1.0: Execution Joiner]
         TSSpecialist --> Joiner
         DevOpsSpecialist --> Joiner
     end
 
-    Joiner --> Verifier[Spec Verifier]
+    Joiner --> Verifier[AHE-3.1: Spec Verifier]
 
     style Phase1 fill:#f5f5f5,stroke:#666
     style Phase2 fill:#dae8fe,stroke:#6c8ebf

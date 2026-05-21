@@ -13,6 +13,8 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from agent_utilities.harness.tracing import trace
+
 from .versioning import tool_version
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,7 @@ BUILTIN_STYLES = {
 }
 
 
+@trace(name="set_output_style", trace_type="TOOL")
 @tool_version("1.0.0")
 async def set_output_style(ctx: RunContext[Any], style_name: str) -> str:
     """Set the agent's response style for the current session.
@@ -57,6 +60,7 @@ async def set_output_style(ctx: RunContext[Any], style_name: str) -> str:
     return f"Output style set to '{style_name}'. Instruction: {style_content[:100]}..."
 
 
+@trace(name="list_output_styles", trace_type="TOOL")
 @tool_version("1.0.0")
 async def list_output_styles(ctx: RunContext[Any]) -> str:
     """List all available output styles including those in the KB."""

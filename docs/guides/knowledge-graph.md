@@ -43,7 +43,7 @@ graph TD
 
         subgraph S1 [Stage 1: Context Hydration]
             direction LR
-            Mem --> Scan --> WS[WS Sync] --> Reg
+            Mem --> Scan --> WS[ECO-4.1: WS Sync] --> Reg
         end
 
         subgraph S2 [Stage 2: Structural Extraction]
@@ -58,12 +58,12 @@ graph TD
 
         subgraph S4 [Stage 4: Epistemic Consolidation]
             direction LR
-            Sync --> OWL --> Ext[Ext Graphs] --> KB
+            Sync --> OWL --> Ext[KG-2.13: Ext Graphs] --> KB
         end
 
         subgraph S5 [Stage 5: Governance & Evolution]
             direction LR
-            Val[Validate] --> Exp[Distill] -.->|Async| Evo[Evolution]
+            Val[AHE-3.1: Validate] --> Exp[AHE-3.1: Distill] -.->|Async| Evo[AHE-3.2: Evolution]
         end
     end
 
@@ -75,9 +75,9 @@ graph TD
 
     subgraph Persistence_Layer ["Persistent Graph Storage"]
         direction TB
-        BackendNode("GraphBackend Abstraction")
-        LDB[("LadybugDB")]
-        FDB[("FalkorDB")]
+        BackendNode("KG-2.0: GraphBackend Abstraction")
+        LDB[("KG-2.0: LadybugDB")]
+        FDB[("KG-2.0: FalkorDB")]
         N4J[("Neo4j")]
 
         BackendNode -- default --> LDB
@@ -88,9 +88,9 @@ graph TD
 
     subgraph Query_Layer ["MCP / CLI / Tool Interface"]
         direction LR
-        Q_Impact[get_code_impact]
-        Q_Query[search_knowledge_graph]
-        Q_CRUD[Memory CRUD]
+        Q_Impact[KG-2.5: get_code_impact]
+        Q_Query[KG-2.3: search_knowledge_graph]
+        Q_CRUD[KG-2.0: Memory CRUD]
     end
 
     Ingestion_Pipeline -- "Mutates" --> Memory_Layer
@@ -100,8 +100,8 @@ graph TD
 
     subgraph Autonomous_Loop ["Autonomous Self-Improvement Loop"]
         direction TB
-        Outcome[Outcome Evaluation] --> Critique["Critique / Textual Gradient"]
-        Critique --> PromptEvolution["Prompt/Skill Evolution"]
+        Outcome[AHE-3.1: Outcome Evaluation] --> Critique["Critique / Textual Gradient"]
+        Critique --> PromptEvolution["AHE-3.2: Prompt/Skill Evolution"]
         PromptEvolution --> Persistence_Layer
     end
 
@@ -119,28 +119,28 @@ The Knowledge Graph supports an optional **Hybrid OWL Reasoning Layer** that enr
 ```mermaid
 graph TB
     subgraph HotPath ["Agent Runtime - Hot Path"]
-        A[IntelligenceGraphEngine] --> B[NetworkX MultiDiGraph]
-        A --> C[GraphBackend ABC]
-        C --> D[LadybugDB]
+        A[ORCH-1.0: IntelligenceGraphEngine] --> B[NetworkX MultiDiGraph]
+        A --> C[KG-2.0: GraphBackend ABC]
+        C --> D[KG-2.0: LadybugDB]
         C --> E[Neo4j]
-        C --> F[FalkorDB]
-        C --> G[VectorMCPBackend]
+        C --> F[KG-2.0: FalkorDB]
+        C --> G[KG-2.3: VectorMCPBackend]
     end
 
     subgraph WarmPath ["OWL Reasoning - Warm Path"]
-        H[OWLBackend ABC] --> I[Owlready2Backend]
-        H --> J[StardogBackend]
-        H --> K[JenaBackend stub]
-        I --> L["ontology.ttl"]
-        I --> M[HermiT Reasoner]
-        J --> N[pystardog SPARQL]
+        H[KG-2.2: OWLBackend ABC] --> I[KG-2.2: Owlready2Backend]
+        H --> J[KG-2.13: StardogBackend]
+        H --> K[KG-2.13: JenaBackend stub]
+        I --> L["KG-2.2: ontology.ttl"]
+        I --> M[KG-2.2: HermiT Reasoner]
+        J --> N[KG-2.13: pystardog SPARQL]
     end
 
     subgraph HybridBridge ["Hybrid Bridge"]
-        O[OWLBridge] -->|promote| H
+        O[KG-2.2: OWLBridge] -->|promote| H
         O -->|downfeed| A
-        O -->|"triggered by"| P[PipelineRunner post-hook]
-        O -->|"triggered by"| Q[GraphMaintainer.run_all]
+        O -->|"triggered by"| P[ORCH-1.21: PipelineRunner post-hook]
+        O -->|"triggered by"| Q[KG-2.0: GraphMaintainer.run_all]
     end
 
     A -.->|stable nodes| O
@@ -327,13 +327,13 @@ The Document Pipeline provides a tightly-wired system for managing documents nat
 graph TD
     subgraph Document_Pipeline ["Document Pipeline Architecture"]
         direction TB
-        Ingest[Document Ingestion Pipeline]
-        Update[Document Update Pipeline]
-        Delete[Document Deletion Pipeline]
-        Cleanup[Document Cleanup Manager]
+        Ingest[KG-2.7: Document Ingestion Pipeline]
+        Update[KG-2.7: Document Update Pipeline]
+        Delete[KG-2.7: Document Deletion Pipeline]
+        Cleanup[KG-2.7: Document Cleanup Manager]
 
-        Ingest --> KGNode[("Knowledge Graph")]
-        Ingest --> IDReg[("Unified ID Registry")]
+        Ingest --> KGNode[("KG-2.0: Knowledge Graph")]
+        Ingest --> IDReg[("OS-5.1: Unified ID Registry")]
 
         Update --> KGNode
         Update --> IDReg
@@ -398,15 +398,15 @@ Every entity class is formally classified under the BFO (Basic Formal Ontology, 
 
 ```mermaid
 graph TB
-    subgraph "BFO Upper Ontology (ISO 21838-2)"
-        Entity["bfo:Entity"]
-        Continuant["bfo:Continuant"]
-        Occurrent["bfo:Occurrent"]
-        IndCont["bfo:IndependentContinuant"]
-        SpecDep["bfo:SpecificallyDependentContinuant"]
-        GenDep["bfo:GenericallyDependentContinuant"]
-        Process["bfo:Process"]
-        TempReg["bfo:TemporalRegion"]
+    subgraph "KG-2.2: BFO Upper Ontology (ISO 21838-2)"
+        Entity["KG-2.2: bfo:Entity"]
+        Continuant["KG-2.2: bfo:Continuant"]
+        Occurrent["KG-2.2: bfo:Occurrent"]
+        IndCont["KG-2.2: bfo:IndependentContinuant"]
+        SpecDep["KG-2.2: bfo:SpecificallyDependentContinuant"]
+        GenDep["KG-2.2: bfo:GenericallyDependentContinuant"]
+        Process["KG-2.2: bfo:Process"]
+        TempReg["KG-2.2: bfo:TemporalRegion"]
 
         Entity --> Continuant
         Entity --> Occurrent
@@ -418,46 +418,46 @@ graph TB
     end
 
     subgraph "Independent Continuants"
-        Agent[":Agent ≡ prov:SoftwareAgent"]
+        Agent["KG-2.2: :Agent ≡ prov:SoftwareAgent"]
         Person[":Person ≡ foaf:Person"]
-        Organization[":Organization ≡ foaf:Organization"]
-        Tool[":Tool → schema:SoftwareApplication"]
+        Organization["KG-2.2: :Organization ≡ foaf:Organization"]
+        Tool["KG-2.2: :Tool → schema:SoftwareApplication"]
         System[":System"]
-        Place[":Place → schema:Place"]
-        SoftwareProject[":SoftwareProject"]
-        MedicalEntity[":MedicalEntity"]
+        Place["KG-2.2: :Place → schema:Place"]
+        SoftwareProject["KG-2.2: :SoftwareProject"]
+        MedicalEntity["KG-2.2: :MedicalEntity"]
     end
 
     subgraph "Generically Dependent Continuants"
-        Memory[":Memory → prov:Entity"]
-        Fact[":Fact → skos:Concept"]
-        Concept[":Concept ⊂ skos:Concept"]
-        Document[":Document → bibo:Document"]
-        CreativeWork[":CreativeWork ≡ schema:CreativeWork"]
-        Dataset[":Dataset ≡ schema:Dataset"]
-        FinInstrument[":FinancialInstrument → FIBO"]
-        Regulation[":Regulation"]
-        Policy[":Policy"]
-        Evidence[":Evidence"]
+        Memory["KG-2.2: :Memory → prov:Entity"]
+        Fact["KG-2.2: :Fact → skos:Concept"]
+        Concept["KG-2.2: :Concept ⊂ skos:Concept"]
+        Document["KG-2.2: :Document → bibo:Document"]
+        CreativeWork["KG-2.2: :CreativeWork ≡ schema:CreativeWork"]
+        Dataset["KG-2.2: :Dataset ≡ schema:Dataset"]
+        FinInstrument["KG-2.2: :FinancialInstrument → FIBO"]
+        Regulation["KG-2.2: :Regulation"]
+        Policy["KG-2.2: :Policy"]
+        Evidence["KG-2.2: :Evidence"]
     end
 
     subgraph "Specifically Dependent Continuants"
-        Belief[":Belief"]
-        Hypothesis[":Hypothesis ⊂ Belief"]
-        Role[":Role"]
-        Reflection[":Reflection"]
+        Belief["KG-2.2: :Belief"]
+        Hypothesis["KG-2.2: :Hypothesis ⊂ Belief"]
+        Role["KG-2.2: :Role"]
+        Reflection["KG-2.2: :Reflection"]
     end
 
     subgraph "Processes (Occurrents)"
-        Event[":Event ≡ schema:Event"]
-        Episode[":Episode → prov:Activity"]
-        Action[":Action → prov:Activity"]
-        Incident[":Incident ⊂ Event"]
-        Decision[":Decision ⊂ Event"]
-        Observation[":Observation ⊂ Event"]
-        ReasoningTrace[":ReasoningTrace"]
-        Procedure[":Procedure → schema:HowTo"]
-        FinTxn[":FinancialTransaction"]
+        Event["KG-2.2: :Event ≡ schema:Event"]
+        Episode["KG-2.2: :Episode → prov:Activity"]
+        Action["KG-2.2: :Action → prov:Activity"]
+        Incident["KG-2.2: :Incident ⊂ Event"]
+        Decision["KG-2.2: :Decision ⊂ Event"]
+        Observation["KG-2.2: :Observation ⊂ Event"]
+        ReasoningTrace["KG-2.2: :ReasoningTrace"]
+        Procedure["KG-2.2: :Procedure → schema:HowTo"]
+        FinTxn["KG-2.2: :FinancialTransaction"]
     end
 
     subgraph "Temporal Regions"
@@ -526,13 +526,13 @@ The ontology provides full SKOS (Simple Knowledge Organization System) taxonomy 
 
 ```mermaid
 graph TD
-    A["Concept: Computer Science<br/>(skos:Concept)"] -->|broader| B["Concept: Science"]
-    C["Concept: Machine Learning"] -->|broader| A
-    D["Concept: Deep Learning"] -->|broader| C
-    E["Concept: NLP"] -->|broader| C
-    F["Concept: Transformer Models"] -->|broader| E
+    A["Concept: Computer Science<br/>(skos:Concept)"] -->|broader| B["KG-2.2: Concept: Science"]
+    C["KG-2.2: Concept: Machine Learning"] -->|broader| A
+    D["KG-2.2: Concept: Deep Learning"] -->|broader| C
+    E["KG-2.2: Concept: NLP"] -->|broader| C
+    F["KG-2.2: Concept: Transformer Models"] -->|broader| E
 
-    C ---|related| G["Concept: Statistics"]
+    C ---|related| G["KG-2.2: Concept: Statistics"]
     D ---|exactMatch| H["Concept: Neural Networks<br/>(external vocabulary)"]
 
     style A fill:#1565c0,stroke:#0d47a1,color:#fff

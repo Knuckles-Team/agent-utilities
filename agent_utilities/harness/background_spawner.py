@@ -68,7 +68,7 @@ class BackgroundContextSpawner:
         try:
             results = self.engine.backend.execute(
                 "MATCH (e:Event) WHERE e.resolved = false AND e.impact_score > 0.8 "
-                "RETURN e.id AS event_id, e.description AS description "
+                "RETURN e.id AS event_id, e.description AS descriptionription "
                 "LIMIT 1"
             )
 

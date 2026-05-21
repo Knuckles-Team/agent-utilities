@@ -14,7 +14,7 @@ clients, and SSL verification settings.
 
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -26,49 +26,57 @@ try:
     from pydantic_ai.models.openai import OpenAIChatModel
 except ImportError:
     try:
-        from pydantic_ai.providers.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import (
+            OpenAIChatModel,  # type: ignore[no-redef]
+        )
     except ImportError:
-        OpenAIChatModel = None
+        OpenAIChatModel: Any = None  # type: ignore[no-redef]
 
 try:
-    from pydantic_ai.models.gemini import GeminiModel as GoogleModel
+    from pydantic_ai.models.google import GoogleModel
 except ImportError:
     try:
-        from pydantic_ai.providers.gemini import GeminiModel as GoogleModel
+        from pydantic_ai.models.gemini import (
+            GeminiModel as GoogleModel,  # type: ignore[no-redef]
+        )
     except ImportError:
-        GoogleModel = None
+        GoogleModel: Any = None  # type: ignore[no-redef]
 
 try:
     from pydantic_ai.models.anthropic import AnthropicModel
 except ImportError:
     try:
-        from pydantic_ai.providers.anthropic import AnthropicModel
+        from pydantic_ai.providers.anthropic import (
+            AnthropicModel,  # type: ignore[no-redef]
+        )
     except ImportError:
-        AnthropicModel = None
+        AnthropicModel: Any = None  # type: ignore[no-redef]
 
 try:
     from pydantic_ai.models.groq import GroqModel
 except ImportError:
     try:
-        from pydantic_ai.providers.groq import GroqModel
+        from pydantic_ai.providers.groq import GroqModel  # type: ignore[no-redef]
     except ImportError:
-        GroqModel = None
+        GroqModel: Any = None  # type: ignore[no-redef]
 
 try:
     from pydantic_ai.models.mistral import MistralModel
 except ImportError:
     try:
-        from pydantic_ai.providers.mistral import MistralModel
+        from pydantic_ai.providers.mistral import MistralModel  # type: ignore[no-redef]
     except ImportError:
-        MistralModel = None
+        MistralModel: Any = None  # type: ignore[no-redef]
 
 try:
     from pydantic_ai.models.huggingface import HuggingFaceModel
 except ImportError:
     try:
-        from pydantic_ai.providers.huggingface import HuggingFaceModel
+        from pydantic_ai.providers.huggingface import (
+            HuggingFaceModel,  # type: ignore[no-redef]
+        )
     except ImportError:
-        HuggingFaceModel = None
+        HuggingFaceModel: Any = None  # type: ignore[no-redef]
 
 
 try:
@@ -94,6 +102,23 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
+
+
+def get_model_config(model_id: str | None = None) -> dict | None:
+    from agent_utilities.core.config import config
+
+    _cfg = config
+    _cfg.reload()
+
+    for m in getattr(_cfg, "chat_models", []):
+        if m.id == model_id:
+            return m.model_dump()
+
+    for m in getattr(_cfg, "embedding_models", []):
+        if m.id == model_id:
+            return m.model_dump()
+
+    return None
 
 
 def create_model(
@@ -131,18 +156,18 @@ def create_model(
 
         return TestModel()
 
-    _provider = (
-        provider
-        or os.environ.get("LLM_PROVIDER")
-        or os.environ.get("PROVIDER")
-        or "openai"
-    )
-    _model_id = (
-        model_id
-        or os.environ.get("LLM_MODEL_ID")
-        or os.environ.get("MODEL_ID")
-        or "qwen/qwen3.5-9b"
-    )
+    _model_id = model_id or "qwen/qwen3.5-9b"
+    _provider = provider or "openai"
+
+    # Check if this model is defined in models.json, and override settings if so
+    model_info = get_model_config(_model_id)
+    if model_info:
+        if "provider" in model_info:
+            _provider = model_info["provider"]
+        if "base_url" in model_info and base_url is None:
+            base_url = model_info["base_url"]
+        if "api_key" in model_info and api_key is None:
+            api_key = model_info["api_key"]
 
     http_client = None
     if http_client is None:

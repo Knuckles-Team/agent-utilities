@@ -13,12 +13,15 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from agent_utilities.harness.tracing import trace
+
 from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 from .versioning import tool_version
 
 logger = logging.getLogger(__name__)
 
 
+@trace(name="run_self_improvement_cycle", trace_type="TOOL")
 @tool_version("1.0.0")
 async def run_self_improvement_cycle(ctx: RunContext[Any]) -> str:
     """Trigger an autonomous self-improvement cycle.
@@ -45,6 +48,7 @@ async def run_self_improvement_cycle(ctx: RunContext[Any]) -> str:
         return f"Error during self-improvement cycle: {e}"
 
 
+@trace(name="propose_skills_from_history", trace_type="TOOL")
 @tool_version("1.0.0")
 async def propose_skills_from_history(ctx: RunContext[Any]) -> str:
     """Analyze recent history and propose new skills for the agent library.
@@ -66,6 +70,7 @@ async def propose_skills_from_history(ctx: RunContext[Any]) -> str:
         return "No significant patterns found to warrant a new skill proposal at this time."
 
 
+@trace(name="query_experiment_results", trace_type="TOOL")
 @tool_version("1.0.0")
 async def query_experiment_results(ctx: RunContext[Any], experiment_name: str) -> str:
     """Query the results of an A/B experiment for prompt or tool variants.

@@ -88,11 +88,11 @@ async def list_tools():
         return []
 
     # Query for Tools
-    tool_query = "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS description, t.mcp_server AS source_name, 'tool' AS type"
+    tool_query = "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS descriptionription, t.mcp_server AS source_name, 'tool' AS type"
     tools = kg.backend.execute(tool_query) or []
 
     # Query for Skills
-    skill_query = "MATCH (s:Skill) RETURN s.id AS id, s.name AS name, s.description AS description, s.category AS source_name, 'skill' AS type"
+    skill_query = "MATCH (s:Skill) RETURN s.id AS id, s.name AS name, s.description AS descriptionription, s.category AS source_name, 'skill' AS type"
     skills = kg.backend.execute(skill_query) or []
 
     return tools + skills

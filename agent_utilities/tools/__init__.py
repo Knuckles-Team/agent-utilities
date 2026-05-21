@@ -6,90 +6,70 @@ the agent ecosystem, categorized into workspace management, memory,
 scheduling, A2A communication, developer utilities, and browser automation.
 """
 
+import importlib
 from typing import Any
 
-from agent_utilities.tools.tool_registry import register_agent_tools
-
-from .a2a_tools import (
-    delete_a2a_peer,
-    list_a2a_peers,
-    register_a2a_peer,
-)
-from .agent_tools import (
-    invoke_specialized_agent,
-    list_available_agents,
-    share_reasoning,
-)
-from .developer_tools import (
-    ShellCommandOutput,
-    create_file,
-    delete_file,
-    project_search,
-    replace_in_file,
-    run_shell_with_diagnostics,
-)
-from .git_tools import (
-    create_worktree,
-    get_git_status,
-    list_worktrees,
-    remove_worktree,
-)
-from .memory_tools import (
-    init_agents_md,
-    read_agents_md,
-    update_agents_md,
-)
-from .scheduler_tools import (
-    delete_task,
-    list_tasks,
-    schedule_task,
-    view_cron_log,
-)
-from .style_tools import list_output_styles, set_output_style
-from .team_tools import TEAM_TOOLS
-from .workspace_tools import (
-    append_note_to_file,
-    create_skill,
-    delete_skill,
-    edit_skill,
-    get_skill_content,
-    list_files,
-    read_workspace_file,
-)
-
-try:
-    from .browser import (
-        browser_go_back,
-        browser_go_forward,
-        browser_new_page,
-        browser_status,
-        click_element,
-        close_browser,
-        get_element_text,
-        initialize_browser,
-        navigate_to_url,
-        reload_page,
-        select_option,
-        take_element_screenshot,
-        take_screenshot,
-        type_text,
-    )
-except ImportError:
-    # Define placeholders or just omit from __all__ if missing
-    initialize_browser: Any = None  # type: ignore
-    close_browser: Any = None  # type: ignore
-    browser_status: Any = None  # type: ignore
-    browser_new_page: Any = None  # type: ignore
-    click_element: Any = None  # type: ignore
-    type_text: Any = None  # type: ignore
-    get_element_text: Any = None  # type: ignore
-    select_option: Any = None  # type: ignore
-    navigate_to_url: Any = None  # type: ignore
-    browser_go_back: Any = None  # type: ignore
-    browser_go_forward: Any = None  # type: ignore
-    reload_page: Any = None  # type: ignore
-    take_screenshot: Any = None  # type: ignore
-    take_element_screenshot: Any = None  # type: ignore
+_ATTR_MAP = {
+    # tool_registry
+    "register_agent_tools": ".tool_registry",
+    # a2a_tools
+    "delete_a2a_peer": ".a2a_tools",
+    "list_a2a_peers": ".a2a_tools",
+    "register_a2a_peer": ".a2a_tools",
+    # agent_tools
+    "invoke_specialized_agent": ".agent_tools",
+    "list_available_agents": ".agent_tools",
+    "share_reasoning": ".agent_tools",
+    # developer_tools
+    "ShellCommandOutput": ".developer_tools",
+    "create_file": ".developer_tools",
+    "delete_file": ".developer_tools",
+    "project_search": ".developer_tools",
+    "replace_in_file": ".developer_tools",
+    "run_shell_with_diagnostics": ".developer_tools",
+    # git_tools
+    "create_worktree": ".git_tools",
+    "get_git_status": ".git_tools",
+    "list_worktrees": ".git_tools",
+    "remove_worktree": ".git_tools",
+    # memory_tools
+    "init_agents_md": ".memory_tools",
+    "read_agents_md": ".memory_tools",
+    "update_agents_md": ".memory_tools",
+    # scheduler_tools
+    "delete_task": ".scheduler_tools",
+    "list_tasks": ".scheduler_tools",
+    "schedule_task": ".scheduler_tools",
+    "view_cron_log": ".scheduler_tools",
+    # style_tools
+    "list_output_styles": ".style_tools",
+    "set_output_style": ".style_tools",
+    # team_tools
+    "TEAM_TOOLS": ".team_tools",
+    # workspace_tools
+    "append_note_to_file": ".workspace_tools",
+    "create_skill": ".workspace_tools",
+    "delete_skill": ".workspace_tools",
+    "edit_skill": ".workspace_tools",
+    "get_skill_content": ".workspace_tools",
+    "list_files": ".workspace_tools",
+    "read_workspace_file": ".workspace_tools",
+    # browser
+    "browser_go_back": ".browser",
+    "browser_go_forward": ".browser",
+    "browser_new_page": ".browser",
+    "browser_status": ".browser",
+    "click_element": ".browser",
+    "close_browser": ".browser",
+    "get_element_text": ".browser",
+    "initialize_browser": ".browser",
+    "navigate_to_url": ".browser",
+    "reload_page": ".browser",
+    "select_option": ".browser",
+    "take_element_screenshot": ".browser",
+    "take_screenshot": ".browser",
+    "type_text": ".browser",
+}
 
 __all__ = [
     "register_agent_tools",
@@ -151,3 +131,27 @@ __all__ = [
     "read_agents_md",
     "update_agents_md",
 ]
+
+_cached_modules = {}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _ATTR_MAP:
+        submodule_path = _ATTR_MAP[name]
+        if submodule_path not in _cached_modules:
+            try:
+                _cached_modules[submodule_path] = importlib.import_module(
+                    submodule_path, __package__
+                )
+            except ImportError:
+                # Browser or other optional tool failure fallback
+                if submodule_path == ".browser":
+                    return None
+                raise
+        module = _cached_modules[submodule_path]
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(list(__all__) + ["__getattr__", "__dir__"])

@@ -1,6 +1,6 @@
 """MCP Discovery Mixin — Live tool discovery and freshness verification.
 
-CONCEPT:ECO-4.11 — MCP Server Live Tool Discovery
+CONCEPT:ECO-4.2 — MCP Server Live Tool Discovery
 
 Provides the ability to connect to MCP servers at ingestion time,
 discover their tools via ``list_tools()``, and cache the metadata
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class MCPDiscoveryMixin(_Base):
     """Live MCP server tool discovery and KG cache management.
 
-    CONCEPT:ECO-4.11 — MCP Server Live Tool Discovery
+    CONCEPT:ECO-4.2 — MCP Server Live Tool Discovery
 
     Enables the ingestion pipeline to:
     1. Parse ``mcp_config.json`` files to extract server entries.
@@ -98,7 +98,7 @@ class MCPDiscoveryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Start an MCP server from its config, call ``list_tools()``, return tool metadata.
 
-        CONCEPT:ECO-4.11 — Live MCP server connection for tool metadata caching.
+        CONCEPT:ECO-4.2 — Live MCP server connection for tool metadata caching.
 
         This attempts to start the server as a subprocess (using the command/args
         from the config), connect via stdio, and retrieve the tool list. If the
@@ -133,12 +133,40 @@ class MCPDiscoveryMixin(_Base):
             return []
 
         import asyncio
+        import os
+        import shutil
 
         tools: list[dict[str, Any]] = []
+
+        env_vars = os.environ.copy()
+
+        # Ensure ~/.local/bin is in PATH for GUI environments that don't source .bashrc
+        local_bin = os.path.expanduser("~/.local/bin")
+        if local_bin not in env_vars.get("PATH", ""):
+            env_vars["PATH"] = f"{local_bin}:{env_vars.get('PATH', '')}".strip(":")
+
+        server_env = server_config.get("env")
+        if server_env:
+            for k, v in server_env.items():
+                env_vars[k] = str(v)
+
+        # Silence FastMCP startup output to prevent stdout pollution breaking JSON-RPC
+        env_vars["FASTMCP_SHOW_SERVER_BANNER"] = "false"
+        env_vars["FASTMCP_LOG_LEVEL"] = "WARNING"
+
+        # Prevent spawned MCP servers from acquiring a write lock on the knowledge graph
+        # They only expose tools, the orchestrator handles writing
+        env_vars["LADYBUG_DB_READ_ONLY"] = "1"
+
+        # Resolve command to an absolute path using the updated environment PATH
+        resolved_command = shutil.which(command, path=env_vars.get("PATH"))
+        if resolved_command:
+            command = resolved_command
+
         server_params = StdioServerParameters(
             command=command,
             args=args,
-            env=server_config.get("env"),
+            env=env_vars,
         )
 
         try:

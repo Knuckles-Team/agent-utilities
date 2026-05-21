@@ -44,37 +44,8 @@ T = TypeVar("T")
 P = ParamSpec("P")
 F = TypeVar("F", bound=Callable[..., Any])
 
-try:
-    from openai import AsyncOpenAI
-    from pydantic_ai.providers.openai import OpenAIProvider
-except ImportError:
-    AsyncOpenAI = None
-    OpenAIProvider = None
 
-try:
-    from groq import AsyncGroq
-    from pydantic_ai.providers.groq import GroqProvider
-except ImportError:
-    AsyncGroq = None
-    GroqProvider = None
-
-try:
-    from mistralai import Mistral
-    from pydantic_ai.providers.mistral import MistralProvider
-except ImportError:
-    Mistral = None
-    MistralProvider = None
-
-try:
-    from anthropic import AsyncAnthropic
-    from pydantic_ai.models.anthropic import AnthropicModel
-    from pydantic_ai.providers.anthropic import AnthropicProvider
-except ImportError:
-    AnthropicModel = None
-    AsyncAnthropic = None
-    AnthropicProvider = None
-
-__version__ = "0.11.0"
+__version__ = "0.11.1"
 
 
 def to_float(string=None) -> float:
@@ -93,6 +64,8 @@ def to_float(string=None) -> float:
         return string
     if not string:
         return 0.0
+    if isinstance(string, str):
+        string = expand_env_vars(string)
     try:
         return float(str(string).strip())
     except (ValueError, TypeError):
@@ -115,6 +88,8 @@ def to_boolean(string=None) -> bool:
         return string
     if not string:
         return False
+    if isinstance(string, str):
+        string = expand_env_vars(string)
     normalized = str(string).strip().lower()
     return normalized in {"t", "true", "y", "yes", "1"}
 
@@ -135,6 +110,8 @@ def to_integer(string=None) -> int:
         return string
     if not string:
         return 0
+    if isinstance(string, str):
+        string = expand_env_vars(string)
     try:
         return int(str(string).strip())
     except (ValueError, TypeError):
@@ -158,6 +135,8 @@ def to_list(string: str | list | None = None) -> list:
         return string
     if not string:
         return []
+    if isinstance(string, str):
+        string = expand_env_vars(string)
     try:
         return json.loads(string)
     except Exception:
@@ -183,6 +162,8 @@ def to_dict(string: str | dict | None = None) -> dict:
         return string
     if not string:
         return {}
+    if isinstance(string, str):
+        string = expand_env_vars(string)
     try:
         return json.loads(string)
     except Exception:
@@ -207,9 +188,14 @@ def expand_env_vars(text: str) -> str:
     def replace(match):
         var_name = match.group(1)
         default_value = match.group(2)
+        raw_placeholder = match.group(0)
 
         val = os.getenv(var_name)
         if val is not None:
+            if val == raw_placeholder:
+                if default_value is not None:
+                    return default_value
+                return ""
             return val.strip("\r")
 
         if default_value is not None:

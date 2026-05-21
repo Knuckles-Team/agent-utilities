@@ -8,16 +8,17 @@ CONCEPT:AHE-3.3
 Exposes team management, task assignment, and P2P messaging to agents,
 backed by the TeamCapability and ACP.
 """
-
-
 from typing import Any
 
 from pydantic_ai import RunContext
+
+from agent_utilities.harness.tracing import trace
 
 from ..capabilities.teams import TeamCapability
 from .versioning import tool_version
 
 
+@trace(name="spawn_team", trace_type="TOOL")
 @tool_version("1.0.0")
 async def spawn_team(
     ctx: RunContext[Any], team_name: str, member_ids: list[str]
@@ -36,6 +37,7 @@ async def spawn_team(
     return f"Team '{team_name}' created with ID: {team_id}. Members: {', '.join(member_ids)}"
 
 
+@trace(name="assign_team_task", trace_type="TOOL")
 @tool_version("1.0.0")
 async def assign_team_task(
     ctx: RunContext[Any], content: str, assigned_to: str | None = None
@@ -53,6 +55,7 @@ async def assign_team_task(
     return f"Task assigned to {target}. Task ID: {task_id}"
 
 
+@trace(name="message_teammate", trace_type="TOOL")
 @tool_version("1.0.0")
 async def message_teammate(ctx: RunContext[Any], member_id: str, message: str) -> str:
     """Send a direct message to a team member via ACP.
@@ -69,6 +72,7 @@ async def message_teammate(ctx: RunContext[Any], member_id: str, message: str) -
     return f"Failed to send message to {member_id}. Ensure ACP session is active."
 
 
+@trace(name="list_team_tasks", trace_type="TOOL")
 @tool_version("1.0.0")
 async def list_team_tasks(ctx: RunContext[Any]) -> str:
     """List all tasks associated with the current team from the knowledge graph."""
@@ -90,6 +94,7 @@ async def list_team_tasks(ctx: RunContext[Any]) -> str:
     return "Team Tasks:\n" + "\n".join(tasks)
 
 
+@trace(name="discover_teams", trace_type="TOOL")
 @tool_version("1.0.0")
 async def discover_teams(ctx: RunContext[Any]) -> str:
     """Discover all active teams from the knowledge graph.
@@ -112,6 +117,7 @@ async def discover_teams(ctx: RunContext[Any]) -> str:
     return "\n".join(lines)
 
 
+@trace(name="update_task_status", trace_type="TOOL")
 @tool_version("1.0.0")
 async def update_task_status(ctx: RunContext[Any], task_id: str, status: str) -> str:
     """Update the status of a team task.

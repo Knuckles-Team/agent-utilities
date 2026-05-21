@@ -1,83 +1,87 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
 @prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix bfo:    <http://purl.obolibrary.org/obo/BFO_> .
-
-
-# ── Standard Namespace Prefixes ──────────────────────────────────────
-@prefix bfo:    <http://purl.obolibrary.org/obo/BFO_> .
-@prefix schema: <http://schema.org/> .
-@prefix dc:     <http://purl.org/dc/terms/> .
-@prefix foaf:   <http://xmlns.com/foaf/0.1/> .
-@prefix prov:   <http://www.w3.org/ns/prov#> .
-@prefix skos:   <http://www.w3.org/2004/02/skos/core#> .
-@prefix time:   <http://www.w3.org/2006/time#> .
-@prefix bibo:   <http://purl.org/ontology/bibo/> .
-@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
-@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
-
-<http://knuckles.team/kg/legal> a owl:Ontology ;
-    owl:imports <http://knuckles.team/kg> ;
-    rdfs:label "Legal Domain Ontology" ;
-    rdfs:comment "Legal domain ontology aligned to LKIF-Core and Akoma Ntoso." .
-
-:CaseLaw a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Case Law" ;
-    rdfs:comment "A judicial precedent. BFO:GDC. Aligned to LKIF-Core." .
-
-:Statute a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Statute" ;
-    rdfs:comment "A legislative enactment. BFO:GDC. Aligned to Akoma Ntoso." .
-
-:ContractClause a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Contract Clause" ;
-    rdfs:comment "A specific clause within a legal contract." .
-
-:LegalMatter a owl:Class ;
-    rdfs:subClassOf bfo:0000015 ;
-    rdfs:label "Legal Matter" ;
-    rdfs:comment "Client matter lifecycle: intake, staffing, billing, outcome. BFO:Process." .
 
 :Jurisdiction a owl:Class ;
-    rdfs:subClassOf :Place ;
     rdfs:label "Jurisdiction" ;
-    rdfs:comment "A legal jurisdiction with authority scope." .
-
-:LegalPrecedent a owl:Class ;
-    rdfs:subClassOf :CaseLaw ;
-    rdfs:label "Legal Precedent" ;
-    rdfs:comment "A binding or persuasive precedent." .
-
-:precedentFor a owl:ObjectProperty, owl:TransitiveProperty ;
-    rdfs:domain :CaseLaw ; rdfs:range :CaseLaw ;
-    rdfs:label "precedent for" .
-
-:governedByStatute a owl:ObjectProperty ;
-    rdfs:domain :LegalMatter ; rdfs:range :Statute ;
-    rdfs:label "governed by statute" .
-
-:hasClause a owl:ObjectProperty ;
-    rdfs:domain :Contract ; rdfs:range :ContractClause ;
-    rdfs:label "has clause" .
-
-:conflictsWithParty a owl:ObjectProperty, owl:SymmetricProperty ;
-    rdfs:domain :Person ; rdfs:range :Person ;
-    rdfs:label "conflicts with party" ;
-    rdfs:comment "Symmetric conflict of interest. ABA Rule 1.7." .
+    rdfs:comment "A legal jurisdiction with authority scope." ;
+    rdfs:subClassOf :Place .
 
 :citation a owl:DatatypeProperty ;
-    rdfs:domain :CaseLaw ; rdfs:range xsd:string ;
-    rdfs:label "legal citation" .
+    rdfs:label "legal citation" ;
+    rdfs:domain :CaseLaw ;
+    rdfs:range xsd:string .
+
+:conflictsWithParty a owl:ObjectProperty,
+        owl:SymmetricProperty ;
+    rdfs:label "conflicts with party" ;
+    rdfs:comment "Symmetric conflict of interest. ABA Rule 1.7." ;
+    rdfs:domain :Person ;
+    rdfs:range :Person .
+
+:governedByStatute a owl:ObjectProperty ;
+    rdfs:label "governed by statute" ;
+    rdfs:domain :LegalMatter ;
+    rdfs:range :Statute .
+
+:hasClause a owl:ObjectProperty ;
+    rdfs:label "has clause" ;
+    rdfs:domain :Contract ;
+    rdfs:range :ContractClause .
 
 :matterStatus a owl:DatatypeProperty ;
-    rdfs:domain :LegalMatter ; rdfs:range xsd:string ;
-    rdfs:label "matter status" .
+    rdfs:label "matter status" ;
+    rdfs:domain :LegalMatter ;
+    rdfs:range xsd:string .
+
+:precedentFor a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "precedent for" ;
+    rdfs:domain :CaseLaw ;
+    rdfs:range :CaseLaw .
 
 :precedentStrength a owl:DatatypeProperty ;
-    rdfs:domain :LegalPrecedent ; rdfs:range xsd:string ;
     rdfs:label "precedent strength" ;
-    rdfs:comment "binding, persuasive, distinguishable." .
+    rdfs:comment "binding, persuasive, distinguishable." ;
+    rdfs:domain :LegalPrecedent ;
+    rdfs:range xsd:string .
+
+<http://knuckles.team/kg/legal> a owl:Ontology ;
+    rdfs:label "Legal Domain Ontology" ;
+    rdfs:comment "Legal domain ontology aligned to LKIF-Core and Akoma Ntoso." ;
+    owl:imports <http://knuckles.team/kg> .
+
+:ContractClause a owl:Class ;
+    rdfs:label "Contract Clause" ;
+    rdfs:comment "A specific clause within a legal contract." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:LegalPrecedent a owl:Class ;
+    rdfs:label "Legal Precedent" ;
+    rdfs:comment "A binding or persuasive precedent." ;
+    rdfs:subClassOf :CaseLaw .
+
+:Statute a owl:Class ;
+    rdfs:label "Statute" ;
+    rdfs:comment "A legislative enactment. BFO:GDC. Aligned to Akoma Ntoso." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:LegalMatter a owl:Class ;
+    rdfs:label "Legal Matter" ;
+    rdfs:comment "Client matter lifecycle: intake, staffing, billing, outcome. BFO:Process." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:CaseLaw a owl:Class ;
+    rdfs:label "Case Law" ;
+    rdfs:comment "A judicial precedent. BFO:GDC. Aligned to LKIF-Core." ;
+    rdfs:subClassOf bfo:0000031 .
+

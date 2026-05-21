@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Budgeted Startup Context Builder.
 
-CONCEPT:KG-2.10 -- Observational Memory Bridge
+CONCEPT:KG-2.1 -- Observational Memory Bridge
 
 Produces a deterministic, budget-bounded startup payload for injecting into
 external agent hooks (Claude Code SessionStart, Codex startup, Grok Build, etc.).
@@ -65,7 +65,7 @@ class StartupPayload:
 class StartupContextBuilder:
     """Builds budgeted startup context from KG memory.
 
-    CONCEPT:KG-2.10 -- Observational Memory Bridge
+    CONCEPT:KG-2.1 -- Observational Memory Bridge
 
     Queries the KG via HybridRetriever, scores and ranks chunks by relevance
     to the current agent/task/cwd, then assembles a budget-bounded Markdown

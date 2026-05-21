@@ -16,6 +16,8 @@ import subprocess
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
+from agent_utilities.harness.tracing import trace
+
 from ..models import AgentDeps
 from .knowledge_tools import (
     add_knowledge_memory,
@@ -64,6 +66,7 @@ def _get_diff(old_content: str, new_content: str, filename: str) -> str:
     )
 
 
+@trace(name="project_search", trace_type="TOOL")
 @tool_version("1.0.0")
 async def project_search(
     ctx: RunContext[AgentDeps], query: str, path: str = "."
@@ -105,6 +108,7 @@ async def project_search(
         return f"Error during search: {e}"
 
 
+@trace(name="replace_in_file", trace_type="TOOL")
 @tool_version("1.0.0")
 async def replace_in_file(
     ctx: RunContext[AgentDeps], path: str, old_str: str, new_str: str
@@ -146,6 +150,7 @@ async def replace_in_file(
         return f"Error updating file: {e}"
 
 
+@trace(name="run_shell_with_diagnostics", trace_type="TOOL")
 @tool_version("1.0.0")
 async def run_shell_with_diagnostics(
     ctx: RunContext[AgentDeps], command: str, cwd: str = ".", timeout: int = 120
@@ -204,6 +209,7 @@ async def run_shell_with_diagnostics(
 
 
 # Ported from code_puppy: create_file, delete_file, delete_snippet
+@trace(name="create_file", trace_type="TOOL")
 @tool_version("1.0.0")
 async def create_file(ctx: RunContext[AgentDeps], path: str, content: str) -> str:
     """Create a new file in the workspace, creating parent directories if needed.
@@ -227,6 +233,7 @@ async def create_file(ctx: RunContext[AgentDeps], path: str, content: str) -> st
         return f"Error creating file: {e}"
 
 
+@trace(name="delete_file", trace_type="TOOL")
 @tool_version("1.0.0")
 async def delete_file(ctx: RunContext[AgentDeps], path: str) -> str:
     """Permanently delete a file from the local workspace.

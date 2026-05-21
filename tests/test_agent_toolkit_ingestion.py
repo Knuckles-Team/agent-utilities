@@ -1,7 +1,7 @@
 """Tests for the unified Agent Toolkit Ingestion pipeline.
 
-CONCEPT:ECO-4.10 — Unified MCP/Skill/A2A ingestion pipeline tests.
-CONCEPT:ECO-4.11 — MCP Live Discovery tests (parse_mcp_config, _parse_tool_flags).
+CONCEPT:ECO-4.0 — Unified MCP/Skill/A2A ingestion pipeline tests.
+CONCEPT:ECO-4.2 — MCP Live Discovery tests (parse_mcp_config, _parse_tool_flags).
 
 Uses real mcp_config.json fixtures from the agent-packages ecosystem
 (portainer, langfuse, gitlab, container-manager, etc.) to verify

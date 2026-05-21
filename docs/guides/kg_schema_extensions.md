@@ -1,6 +1,6 @@
 # KG Schema Extensions: Research Assimilation
 
-> **CONCEPT:KG-2.7** — Research Intelligence Extensions
+> **CONCEPT:KG-2.6** — Research Intelligence Extensions
 
 This document describes the node and edge types added to support research-to-feature linkage and assimilation tracking across any codebase.
 

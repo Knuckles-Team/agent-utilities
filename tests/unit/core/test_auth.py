@@ -98,10 +98,10 @@ class TestDecodeJWT:
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_decode_valid_token(self):
         """Decoding a valid JWT with matching claims succeeds."""
-        from authlib.jose import JsonWebKey
-        from authlib.jose import jwt as authlib_jwt
+        from joserfc import jwt as joserfc_jwt
+        from joserfc.jwk import RSAKey
 
-        key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
+        key = RSAKey.generate_key(2048)
         jwks = {"keys": [key.as_dict(is_private=False)]}
 
         header = {"alg": "RS256"}
@@ -112,7 +112,7 @@ class TestDecodeJWT:
             "exp": int(time.time()) + 3600,
             "iat": int(time.time()),
         }
-        token = authlib_jwt.encode(header, payload, key).decode()
+        token = joserfc_jwt.encode(header, payload, key)
 
         claims = _decode_jwt(
             token, jwks, issuer="https://auth.example.com", audience="my-api"
@@ -123,11 +123,11 @@ class TestDecodeJWT:
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_decode_expired_token_raises(self):
         """Expired tokens raise HTTPException with 401."""
-        from authlib.jose import JsonWebKey
-        from authlib.jose import jwt as authlib_jwt
         from fastapi import HTTPException
+        from joserfc import jwt as joserfc_jwt
+        from joserfc.jwk import RSAKey
 
-        key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
+        key = RSAKey.generate_key(2048)
         jwks = {"keys": [key.as_dict(is_private=False)]}
 
         header = {"alg": "RS256"}
@@ -138,7 +138,7 @@ class TestDecodeJWT:
             "exp": int(time.time()) - 3600,
             "iat": int(time.time()) - 7200,
         }
-        token = authlib_jwt.encode(header, payload, key).decode()
+        token = joserfc_jwt.encode(header, payload, key)
 
         with pytest.raises(HTTPException) as exc_info:
             _decode_jwt(
@@ -149,11 +149,11 @@ class TestDecodeJWT:
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_decode_wrong_issuer_raises(self):
         """Token with wrong issuer raises HTTPException."""
-        from authlib.jose import JsonWebKey
-        from authlib.jose import jwt as authlib_jwt
         from fastapi import HTTPException
+        from joserfc import jwt as joserfc_jwt
+        from joserfc.jwk import RSAKey
 
-        key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
+        key = RSAKey.generate_key(2048)
         jwks = {"keys": [key.as_dict(is_private=False)]}
 
         header = {"alg": "RS256"}
@@ -164,7 +164,7 @@ class TestDecodeJWT:
             "exp": int(time.time()) + 3600,
             "iat": int(time.time()),
         }
-        token = authlib_jwt.encode(header, payload, key).decode()
+        token = joserfc_jwt.encode(header, payload, key)
 
         with pytest.raises(HTTPException) as exc_info:
             _decode_jwt(
@@ -178,11 +178,11 @@ class TestDecodeJWT:
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_decode_wrong_audience_raises(self):
         """Token with wrong audience raises HTTPException."""
-        from authlib.jose import JsonWebKey
-        from authlib.jose import jwt as authlib_jwt
         from fastapi import HTTPException
+        from joserfc import jwt as joserfc_jwt
+        from joserfc.jwk import RSAKey
 
-        key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
+        key = RSAKey.generate_key(2048)
         jwks = {"keys": [key.as_dict(is_private=False)]}
 
         header = {"alg": "RS256"}
@@ -193,7 +193,7 @@ class TestDecodeJWT:
             "exp": int(time.time()) + 3600,
             "iat": int(time.time()),
         }
-        token = authlib_jwt.encode(header, payload, key).decode()
+        token = joserfc_jwt.encode(header, payload, key)
 
         with pytest.raises(HTTPException) as exc_info:
             _decode_jwt(
@@ -207,12 +207,12 @@ class TestDecodeJWT:
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_decode_bad_signature_raises(self):
         """Token signed with a different key raises HTTPException."""
-        from authlib.jose import JsonWebKey
-        from authlib.jose import jwt as authlib_jwt
         from fastapi import HTTPException
+        from joserfc import jwt as joserfc_jwt
+        from joserfc.jwk import RSAKey
 
-        key1 = JsonWebKey.generate_key("RSA", 2048, is_private=True)
-        key2 = JsonWebKey.generate_key("RSA", 2048, is_private=True)
+        key1 = RSAKey.generate_key(2048)
+        key2 = RSAKey.generate_key(2048)
         jwks = {"keys": [key2.as_dict(is_private=False)]}  # Different key
 
         header = {"alg": "RS256"}
@@ -223,7 +223,7 @@ class TestDecodeJWT:
             "exp": int(time.time()) + 3600,
             "iat": int(time.time()),
         }
-        token = authlib_jwt.encode(header, payload, key1).decode()
+        token = joserfc_jwt.encode(header, payload, key1)
 
         with pytest.raises(HTTPException) as exc_info:
             _decode_jwt(
@@ -234,10 +234,10 @@ class TestDecodeJWT:
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_decode_no_issuer_audience_check(self):
         """Decoding without issuer/audience validation succeeds."""
-        from authlib.jose import JsonWebKey
-        from authlib.jose import jwt as authlib_jwt
+        from joserfc import jwt as joserfc_jwt
+        from joserfc.jwk import RSAKey
 
-        key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
+        key = RSAKey.generate_key(2048)
         jwks = {"keys": [key.as_dict(is_private=False)]}
 
         header = {"alg": "RS256"}
@@ -246,7 +246,7 @@ class TestDecodeJWT:
             "exp": int(time.time()) + 3600,
             "iat": int(time.time()),
         }
-        token = authlib_jwt.encode(header, payload, key).decode()
+        token = joserfc_jwt.encode(header, payload, key)
 
         claims = _decode_jwt(token, jwks, issuer=None, audience=None)
         assert claims["sub"] == "user123"
@@ -254,10 +254,10 @@ class TestDecodeJWT:
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_decode_audience_list_valid(self):
         """Token with audience as list containing expected value succeeds."""
-        from authlib.jose import JsonWebKey
-        from authlib.jose import jwt as authlib_jwt
+        from joserfc import jwt as joserfc_jwt
+        from joserfc.jwk import RSAKey
 
-        key = JsonWebKey.generate_key("RSA", 2048, is_private=True)
+        key = RSAKey.generate_key(2048)
         jwks = {"keys": [key.as_dict(is_private=False)]}
 
         header = {"alg": "RS256"}
@@ -268,7 +268,7 @@ class TestDecodeJWT:
             "exp": int(time.time()) + 3600,
             "iat": int(time.time()),
         }
-        token = authlib_jwt.encode(header, payload, key).decode()
+        token = joserfc_jwt.encode(header, payload, key)
 
         claims = _decode_jwt(
             token, jwks, issuer="https://auth.example.com", audience="my-api"

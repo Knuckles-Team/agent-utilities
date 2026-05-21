@@ -4,91 +4,82 @@ The `agent-utilities` ecosystem supports a dynamic **multi-model registry**. Ins
 
 When the graph orchestrator dispatches tasks to specialist agents, it uses `pick_for_task()` to autonomously select the right model based on the task's required complexity and capabilities.
 
-## The `MODELS_CONFIG` File
+## The `config.json` File
 
-Define your models in a JSON or YAML file and set the `MODELS_CONFIG` environment variable to its path:
+Define your models directly in the unified `config.json` file located in the XDG-compliant path: `~/.config/agent-utilities/config.json`.
 
-```bash
-export MODELS_CONFIG=/path/to/models.json
-```
-
-### Example `models.json`
+### Example `config.json`
 
 ```json
 {
-  "models": [
+  "chat_models": [
     {
-      "id": "fast-local",
-      "name": "Local LM Studio",
+      "id": "gpt-4o-mini",
       "provider": "openai",
-      "model_id": "llama-3.2-3b-instruct",
-      "base_url": "http://localhost:1234/v1",
-      "tier": "light",
-      "is_default": true,
-      "tags": ["fast"],
-      "cost": {
-        "input": 0.0,
-        "output": 0.0
-      }
+      "intelligence_level": "normal",
+      "supports_json": true,
+      "vision": true,
+      "reasoning": false,
+      "tools_enabled": true,
+      "parallel_instances": 1,
+      "can_route": true,
+      "can_kg": true
     },
     {
-      "id": "gpt-mini",
-      "name": "GPT-4o Mini",
-      "provider": "openai",
-      "model_id": "gpt-4o-mini",
-      "api_key_env": "OPENAI_API_KEY",
-      "tier": "medium",
-      "tags": ["code", "tools"],
-      "cost": {
-        "input": 0.15,
-        "output": 0.60
-      }
-    },
-    {
-      "id": "claude-opus",
-      "name": "Claude 3 Opus",
+      "id": "claude-3-opus",
       "provider": "anthropic",
-      "model_id": "claude-3-opus-20240229",
-      "api_key_env": "ANTHROPIC_API_KEY",
-      "tier": "heavy",
-      "tags": ["reasoning", "complex"],
-      "cost": {
-        "input": 15.0,
-        "output": 75.0
-      }
+      "intelligence_level": "super",
+      "supports_json": true,
+      "vision": true,
+      "reasoning": true,
+      "tools_enabled": true,
+      "parallel_instances": 1,
+      "can_route": true,
+      "can_kg": false
+    }
+  ],
+  "embedding_models": [
+    {
+      "id": "text-embedding-3-small",
+      "provider": "openai",
+      "parallel_instances": 100,
+      "chunk_size": 1536
     }
   ]
 }
 ```
 
-## Schema Breakdown (`ModelDefinition`)
+## Schema Breakdown (`ChatModelConfig` & `EmbeddingModelConfig`)
 
-- `id`: Stable identifier used by the system.
-- `name`: Human-readable name displayed in UIs.
-- `provider`: Provider string (`openai`, `anthropic`, `google-gla`, `ollama`).
-- `model_id`: The actual model string sent to the provider API.
-- `base_url`: Override for the API endpoint (useful for local models).
-- `api_key_env`: Environment variable name holding the API key. Null means no auth needed.
-- `tier`: The routing tier (`light`, `medium`, `heavy`, `reasoning`).
-- `tags`: List of string capabilities (e.g. `vision`, `tools`).
-- `cost`: Per-1M-token cost (`input`, `output`). Use zero for local models.
-- `is_default`: Boolean indicating the default fallback model.
+- `id`: Stable identifier used by the system (e.g., `gpt-4o-mini`).
+- `provider`: Provider string (`openai`, `anthropic`, `google`, `ollama`).
+- `intelligence_level`: The routing tier (`light`, `normal`, `super`).
+- `supports_json`: Boolean indicating if the model supports native JSON output.
+- `vision`: Boolean indicating if the model supports multimodal vision inputs.
+- `reasoning`: Boolean indicating if the model supports chain-of-thought reasoning constraints.
+- `tools_enabled`: Boolean indicating if the model supports function calling.
+- `parallel_instances`: Integer indicating concurrency limits for this model.
+- `context_window`: Optional integer specifying max context tokens.
+- `can_route`: Boolean indicating if this model is eligible to act as a routing coordinator.
+- `can_kg`: Boolean indicating if this model is eligible for Knowledge Graph extraction tasks.
 
 ## Autonomous Routing
 
 In your code, you don't need to specify model strings. The graph orchestrator resolves the best fit dynamically:
 
 ```python
-# Selects a fast model for a simple summarization task
-model = registry.pick_for_task(complexity="light")
+from agent_utilities.core.config import config
 
-# Selects a heavy model that explicitly supports code generation
-model = registry.pick_for_task(complexity="heavy", required_tags=["code"])
+# Retrieves a fast, JSON-capable model
+model = config.get_chat_model(intelligence_level="light", require_json=True)
+
+# Retrieves a heavy model with vision support
+model = config.get_chat_model(intelligence_level="super", require_vision=True)
 ```
 
 ### Selection Algorithm
 
-1. **Tag Filtering**: Only models with all `required_tags` are considered.
-2. **Tier Matching**: An exact match on `complexity` tier is preferred.
-3. **Graceful Fallback**: If an exact tier isn't available, heavier tiers fall back to reasoning, while lighter tiers fall back through medium/heavy.
-4. **Safety Net**: If tag filtering eliminates all candidates, it retries without tags before defaulting to the `is_default` model.
+1. **Feature Filtering**: Only models that meet required features (`supports_json`, `vision`, `tools_enabled`) are considered.
+2. **Tier Matching**: An exact match on `intelligence_level` is preferred.
+3. **Graceful Fallback**: If an exact tier isn't available, heavier tiers fall back to reasoning, while lighter tiers fall back through normal/super.
+4. **Safety Net**: Defaults to the first matching configuration if multiple are found.

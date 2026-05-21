@@ -19,6 +19,7 @@ from pydantic_graph.beta import GraphBuilder, StepContext
 
 from agent_utilities.agent.discovery import discover_agents, discover_all_specialists
 from agent_utilities.core.config import (
+    DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND,
     DEFAULT_LITE_LLM_MODEL_ID,
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
@@ -128,7 +129,7 @@ def initialize_graph_from_workspace(
 
     Args:
         mcp_config: Filename or path to the MCP configuration file.
-        a2a_config: Filename or path to the A2A agent configuration file (CONCEPT:ECO-4.1).
+        a2a_config: Filename or path to the A2A agent configuration file (CONCEPT:ECO-4.0).
         router_model: Optional override for the router's LLM model ID.
         agent_model: Optional override for the specialist agents' LLM model ID.
         api_key: Optional API key for the LLM provider.
@@ -173,10 +174,7 @@ def initialize_graph_from_workspace(
             try:
                 # We'll skip the blocking run if we are likely in a server startup
                 if not DEFAULT_VALIDATION_MODE:
-                    if (
-                        os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
-                        == "true"
-                    ):
+                    if DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND:
                         logger.info("Backgrounding prompt ingestion...")
                         # We can't easily background without a loop here, but we can optimize the call.
                         # For now, let's just ensure it's not called twice.
@@ -194,10 +192,7 @@ def initialize_graph_from_workspace(
                     if loop and loop.is_running():
                         loop.create_task(sync_mcp_agents(config_path=_mcp_cfg_path))
                     else:
-                        if (
-                            os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
-                            == "true"
-                        ):
+                        if DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND:
                             logger.info("Backgrounding MCP agent sync...")
                         else:
                             asyncio.run(sync_mcp_agents(config_path=_mcp_cfg_path))
@@ -229,7 +224,7 @@ def initialize_graph_from_workspace(
         except Exception as e:
             logger.warning(f"Failed to load MCP discovery metadata: {e}")
 
-    # --- CONCEPT:ECO-4.1: A2A Agent Sync ---
+    # --- CONCEPT:ECO-4.0: A2A Agent Sync ---
     _a2a_config = a2a_config or os.getenv("A2A_CONFIG")
     if _a2a_config and not DEFAULT_VALIDATION_MODE:
         try:
@@ -238,10 +233,7 @@ def initialize_graph_from_workspace(
             if loop and loop.is_running():
                 loop.create_task(sync_a2a_agents(config_path=_a2a_config))
             else:
-                sync_bg = (
-                    os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
-                    == "true"
-                )
+                sync_bg = DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND
                 if sync_bg:
                     logger.info("Backgrounding A2A agent sync...")
                 else:
@@ -279,7 +271,7 @@ def initialize_graph_from_workspace(
 
     # Initialize Graph & Deps
     logger.info("Initializing Graph: Building graph topology...")
-    graph, config = create_graph_agent(
+    graph, config = create_agent(
         tag_prompts=tag_prompts,
         tag_env_vars=tag_env_vars,
         mcp_url=DEFAULT_MCP_URL,
@@ -349,7 +341,7 @@ def create_master_graph(
         if tag not in sub_agents:
             sub_agents[tag] = tag
 
-    return create_graph_agent(
+    return create_agent(
         tag_prompts=tag_prompts,
         name=name,
         sub_agents=sub_agents,
@@ -357,7 +349,7 @@ def create_master_graph(
     )
 
 
-def create_graph_agent(
+def create_agent(
     tag_prompts: dict[str, str],
     tag_env_vars: dict[str, str] | None = None,
     mcp_url: str | None = DEFAULT_MCP_URL,
@@ -449,10 +441,7 @@ def create_graph_agent(
 
                     # Only run the pipeline if we can acquire the lock (non-blocking)
                     # or if we are forced to run it.
-                    sync_background = (
-                        os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "true").lower()
-                        == "true"
-                    )
+                    sync_background = DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND
 
                     try:
                         with lock.acquire(timeout=0 if sync_background else 60):
@@ -665,6 +654,26 @@ def create_graph_agent(
     _execution_joiner_route.branches.append(
         g.match(Literal["dispatcher"]).to(_dispatcher)
     )
+    _execution_joiner_route.branches.append(g.match(Literal["verifier"]).to(_verifier))
+    _execution_joiner_route.branches.append(g.match(type(None)).to(g.end_node))
+
+    _memory_selection_route = g.decision(node_id="memory_selection_route")
+    _memory_selection_route.branches.append(
+        g.match(Literal["dispatcher"]).to(_dispatcher)
+    )
+    _memory_selection_route.branches.append(
+        g.match(Literal["researcher"]).to(_researcher)
+    )
+
+    _verifier_route = g.decision(node_id="verifier_route")
+    _verifier_route.branches.append(g.match(Literal["synthesizer"]).to(_synthesizer))
+    _verifier_route.branches.append(g.match(Literal["dispatcher"]).to(_dispatcher))
+    _verifier_route.branches.append(g.match(Literal["planner"]).to(_planner))
+
+    _execution_joiner_route = g.decision(node_id="execution_joiner_route")
+    _execution_joiner_route.branches.append(
+        g.match(Literal["dispatcher"]).to(_dispatcher)
+    )
     _execution_joiner_route.branches.append(g.match(Literal["router_step"]).to(_router))
     _execution_joiner_route.branches.append(g.match(Literal["router"]).to(_router))
     _execution_joiner_route.branches.append(
@@ -683,8 +692,7 @@ def create_graph_agent(
         # Dead-end elimination for unused but registered nodes
         g.edge_from(_planner).to(_dispatcher),
         g.edge_from(_process_executor).to(_dispatcher),
-        g.edge_from(_memory_selection).to(_dispatcher),
-        g.edge_from(_memory_selection).label("Context Gap").to(_researcher),
+        g.edge_from(_memory_selection).to(_memory_selection_route),
         # Rest of the graph
         g.edge_from(_parallel_batch_processor).map().to(_expert_executor),
         # Expert Nodes: Return to Joiner for synchronization
@@ -701,11 +709,8 @@ def create_graph_agent(
         g.edge_from(_execution_joiner).to(_execution_joiner_route),
         g.edge_from(_wide_search_joiner).to(_dispatcher_route),
         # Error handling and Finalization
-        g.edge_from(_error).label("error_recovery").to(g.end_node),
-        g.edge_from(_error).label("planner").to(_planner),
-        g.edge_from(_verifier).label("synthesizer").to(_synthesizer),
-        g.edge_from(_verifier).label("dispatcher").to(_dispatcher),
-        g.edge_from(_verifier).label("planner").to(_planner),
+        g.edge_from(_error).to(_planner),
+        g.edge_from(_verifier).to(_verifier_route),
         g.edge_from(_synthesizer).to(g.end_node),
         g.edge_from(_onboarding).to(g.end_node),
     )
@@ -807,7 +812,11 @@ def create_graph_agent(
     }
 
     logger.debug(
-        f"create_graph_agent: returning config with mcp_toolsets of len: {len(config['mcp_toolsets'])}"
+        f"create_agent: returning config with mcp_toolsets of len: {len(config['mcp_toolsets'])}"
     )
 
     return graph, config
+
+
+# Alias for backward compatibility
+create_graph_agent = create_agent

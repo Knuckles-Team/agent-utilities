@@ -33,6 +33,8 @@ graph TD
         ORCH14["<b>ORCH-1.4: Capability Wiring</b>"]
         ORCH15["<b>ORCH-1.5: Agent Orchestrator</b>"]
         ORCH16["<b>ORCH-1.6: DSTDD Pipeline</b>"]
+        ORCH17["<b>ORCH-1.7: Prediction Linkage Layer</b>"]
+        ORCH18["<b>ORCH-1.8: RecursiveMAS Latent Orchestrator</b>"]
     end
 
     %% Pillar 2: Epistemic Knowledge Graph
@@ -46,7 +48,11 @@ graph TD
         KG26["<b>KG-2.6: Domain: Finance</b>"]
         KG27["<b>KG-2.7: Research Intelligence</b>"]
         KG28["<b>KG-2.8: Domain: Enterprise</b>"]
-        KG29["<b>KG-2.9: External Graph Federation</b>"]
+        KG29["<b>KG-2.9: Quant Orchestration</b>"]
+        KG210["<b>KG-2.10: Observational Memory</b>"]
+        KG211["<b>KG-2.11: Dynamic AR-Graph</b>"]
+        KG212["<b>KG-2.12: Time-Series Graph</b>"]
+        KG213["<b>KG-2.13: External Graph Federation</b>"]
     end
 
     %% Pillar 3: Agentic Harness Engineering
@@ -67,6 +73,8 @@ graph TD
         ECO42["<b>ECO-4.2: Telemetry & Ecosystem</b>"]
         ECO43["<b>ECO-4.3: Market Data</b>"]
         ECO44["<b>ECO-4.4: KG MCP Server</b>"]
+        ECO410["<b>ECO-4.10: Agent Ingestor</b>"]
+        ECO411["<b>ECO-4.11: MCP Discovery</b>"]
     end
 
     %% Pillar 5: Agent OS Infrastructure
@@ -87,10 +95,17 @@ graph TD
     KG21 --> KG20
     KG25 --> KG20
     KG27 --> KG20
+    KG29 --> KG20
+    KG210 --> KG20
+    KG211 --> KG20
+    KG212 --> KG20
+    KG213 --> KG20
     AHE31 --> KG20
     AHE33 --> ORCH12
     AHE34 --> ECO42
     ECO44 --> KG20
+    ECO410 --> ECO40
+    ECO411 --> ECO40
     OS51 --> ORCH13
     OS53 --> OS51
     OS54 --> KG20
@@ -106,34 +121,38 @@ graph TD
 
 > **Canonical Registry**: See [concept_map.md](concept_map.md) for the full canonical concept registry with module paths.
 
-### Pillar 1: Graph Orchestration Engine (ORCH-1.0 – 1.6)
+### Pillar 1: Graph Orchestration Engine (ORCH-1.0 – 1.7)
 
 | ID | Concept | Description |
 |---|---|---|
 | ORCH-1.0 | Intelligence Graph Core | Pydantic Graph-based DAG execution with state management |
 | ORCH-1.1 | HTN Planning Pipeline | Recursive hierarchical task network decomposition |
-| ORCH-1.2 | Specialist Routing & Discovery | Ontological routing, fallback chains, auto-routing |
-| ORCH-1.3 | Execution Safety & State | Checkpointing, retry, state persistence |
-| ORCH-1.4 | Capability Wiring Engine | Dynamic capability discovery, auto-activation |
-| ORCH-1.5 | Agent Orchestrator | Entry point for multi-agent execution harness |
+| ORCH-1.2 | Specialist Routing & Discovery | Ontological routing, specialist tag loading, and fallback chains |
+| ORCH-1.3 | Execution Safety & State | Checkpointing, retry, and state persistence |
+| ORCH-1.4 | Capability Wiring Engine | Dynamic capability discovery and capability auto-activation |
+| ORCH-1.5 | Agent Orchestrator 🔬 | Entry point for multi-agent execution harness and runner |
 | ORCH-1.6 | DSTDD Pipeline | Design-Spec-Test Driven Development lifecycle |
+| ORCH-1.7 | Prediction Linkage Layer 🔬 | Prediction linking across execution iterations |
+| ORCH-1.8 | RecursiveMAS Latent Orchestrator 🔬 | Continuous latent space multi-agent recursion and projection |
 
-### Pillar 2: Epistemic Knowledge Graph (KG-2.0 – 2.8)
+### Pillar 2: Epistemic Knowledge Graph (KG-2.0 – 2.11)
 
 | ID | Concept | Description |
 |---|---|---|
 | KG-2.0 | Active Knowledge Graph | Core 15-phase pipeline, OGM, IntelligenceGraphEngine |
-| KG-2.1 | Tiered Memory & Context | Episodic/semantic/procedural memory, context compaction |
+| KG-2.1 | Tiered Memory & Context 🔬 | Episodic/semantic/procedural memory, context compaction |
 | KG-2.2 | Ontology & Epistemics | OWL ontology bridge, FIBO/BFO, semantic subsumption |
-| KG-2.3 | Graph Integrity & Retrieval | Fingerprinting, hybrid retriever, consistency validation |
-| KG-2.4 | Inductive Knowledge & Hypergraphs | Knowledge synthesis, cross-pillar synergy engine |
+| KG-2.3 | Graph Integrity & Retrieval 🔬 | Fingerprinting, hybrid retriever, consistency validation |
+| KG-2.4 | Inductive Knowledge | Knowledge synthesis and cross-pillar synergy engine |
 | KG-2.5 | Topological Analysis | Analogy engine, spectral clusters, blast radius |
 | KG-2.6 | Domain: Finance | Trading pipeline, risk ontology, optimal execution |
 | KG-2.7 | Research Intelligence | Paper discovery, citation traversal, orchestration |
-| KG-2.8 | Domain: Enterprise | Enterprise core, governance, infrastructure, HR |
-| KG-2.9 | External Graph Federation | Integration with external SPARQL and LPG endpoints |
+| KG-2.8 | Memory Stability | Self-reflecting memory observer and stability checks |
+| KG-2.9 | Multi-Domain Architecture | Decoupled graph frameworks and multi-domain graph orchestration |
+| KG-2.10 | Domain: Enterprise | Observational memory bridge and enterprise models |
+| KG-2.11 | Vectorized Retrieval | Semantic retrieval and vectorized indexing |
 
-### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.6)
+### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.7)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -144,18 +163,19 @@ graph TD
 | AHE-3.4 | Distributed Agentic Evolution | Self-model, stability, ecosystem PR generation |
 | AHE-3.5 | Heavy Thinking & Background Intelligence | Heavy thinking, background intelligence |
 | AHE-3.6 | Backtest & Curriculum | Backtest harness, horizon-aware curriculum |
-| AHE-3.15 | IModelEvolver | Agentic-iModels workflows and model evolution |
-| AHE-3.16 | InterpretabilityTestSuite | Model interpretability and evaluation |
+| AHE-3.7 | KG-Native Task Detection | KG-native task detection and goal tracking |
 
-### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.4)
+### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.11)
 
 | ID | Concept | Description |
 |---|---|---|
 | ECO-4.0 | Tool Interface & MCP Factory | MCP server factory, skill loading, tool assignment |
-| ECO-4.1 | A2A Network & Consensus | Agent-to-agent discovery, delegation, consensus |
+| ECO-4.1 | A2A Network & Consensus 🔬 | Agent-to-agent discovery, delegation, consensus |
 | ECO-4.2 | Community Telemetry & Ecosystem Map | Ecosystem topology, 40-repo graph, telemetry |
 | ECO-4.3 | Market Data Connectors | External data source protocols for finance domain |
 | ECO-4.4 | KG MCP Server & Execution | KG MCP exposure, durable execution, sandbox |
+| ECO-4.10 | Agent Toolkit Ingestor | Ingest and persist external agent toolkits |
+| ECO-4.11 | MCP Live Discovery | Real-time MCP capability discovery and mapping |
 
 ### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.4)
 
@@ -163,7 +183,7 @@ graph TD
 |---|---|---|
 | OS-5.0 | Agent OS Kernel & XDG Paths | Kernel lifecycle, XDG path resolution |
 | OS-5.1 | Security & Auth | JWT/API auth, session concurrency, injection scanner |
-| OS-5.2 | Resource Scheduling | Cognitive scheduler, token quotas, preemption |
+| OS-5.2 | Resource Scheduling 🔬 | Cognitive scheduler, token quotas, preemption |
 | OS-5.3 | Guardrails & Safety | Tool guard, rate limiting, content filtering |
 | OS-5.4 | Telemetry & Observability | OTEL, token tracking, audit logging |
 
@@ -214,9 +234,9 @@ flowchart TD
     C --> D[Phase 4: SDD Plan Generation]
 
     subgraph P1 [Phase 1: Ingestion]
-        A1[agent-packages] --> A3[IntelligencePipeline]
-        A2[open-source-libraries] --> A3
-        A3 --> A4[PolicyIngestor: Constitution Rules]
+        A1[ECO-4.10: agent-packages] --> A3[ORCH-1.0: IntelligencePipeline]
+        A2[ECO-4.10: open-source-libraries] --> A3
+        A3 --> A4[KG-2.2: PolicyIngestor: Constitution Rules]
     end
 
     subgraph P3 [Phase 3: Analysis]
@@ -225,13 +245,13 @@ flowchart TD
         C3[AHE Background Research] --> C6
         C4[ECO Background Research] --> C6
         C5[OS Background Research] --> C6
-        C6 --> C7[Concept Cross-Reference Matrix]
+        C6 --> C7[KG-2.2: Concept Cross-Reference Matrix]
     end
 
     subgraph P4 [Phase 4: SDD]
         D1[Feature Recommendations] --> D2[Wiring Audit]
-        D2 --> D3[Constitution Compliance]
-        D3 --> D4[SDD Implementation Plan]
+        D2 --> D3[KG-2.2: Constitution Compliance]
+        D3 --> D4[ORCH-1.6: SDD Implementation Plan]
     end
 ```
 
@@ -240,7 +260,7 @@ flowchart TD
 | Component | Role in Evolution |
 |-----------|------------------|
 | `PolicyIngestor` (KG-2.2) | Ingests external constitutions as PolicyNodes |
-| `IntelligencePipeline` (KG-2.0) | Bulk codebase ingestion via 17-phase pipeline |
+| `IntelligencePipeline` (KG-2.0) | Bulk codebase ingestion via graph-os MCP native ingestion |
 | `graph_analyze` (KG-2.0) | Parallelized L1→L2→L3→OWL analysis per pillar |
 | `concept_map.md` | Source of truth for 34 canonical concepts to cross-reference |
 | `constitution.md` | Assimilation Governance rules enforced during SDD |

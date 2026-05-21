@@ -113,6 +113,33 @@ def _load_xdg_json_config():
             logging.getLogger(__name__).debug(f"Failed to load XDG JSON config: {e}")
 
 
+from pydantic import BaseModel
+
+
+class ChatModelConfig(BaseModel):
+    id: str
+    provider: str
+    intelligence_level: str = "normal"
+    base_url: str | None = None
+    api_key: str | None = None
+    supports_json: bool = False
+    vision: bool = False
+    reasoning: bool = False
+    tools_enabled: bool = False
+    parallel_instances: int = 1
+    can_route: bool = False
+    can_kg: bool = False
+
+
+class EmbeddingModelConfig(BaseModel):
+    id: str
+    provider: str
+    base_url: str | None = None
+    api_key: str | None = None
+    parallel_instances: int = 1
+    chunk_size: int = 768
+
+
 _load_xdg_json_config()
 
 
@@ -130,11 +157,31 @@ class AgentConfig(BaseSettings):
         extra="ignore",
     )
 
+    chat_models: list[ChatModelConfig] = Field(
+        default_factory=list, alias="CHAT_MODELS"
+    )
+    embedding_models: list[EmbeddingModelConfig] = Field(
+        default_factory=list, alias="EMBEDDING_MODELS"
+    )
+
+    def reload(self):
+        """Reload configuration from XDG config.json dynamically."""
+        _load_xdg_json_config()
+        # Reparse from environment
+        new_config = self.__class__()
+        for field in self.__class__.model_fields.keys():
+            setattr(self, field, getattr(new_config, field))
+
     default_agent_name: str = Field(default=meta["name"], alias="DEFAULT_AGENT_NAME")
     agent_description: str = Field(
         default=meta["description"], alias="AGENT_DESCRIPTION"
     )
     agent_system_prompt: str | None = Field(default=None, alias="AGENT_SYSTEM_PROMPT")
+
+    workspace_path: str | None = Field(default=None, alias="WORKSPACE_PATH")
+    agent_utilities_config_dir: str | None = Field(
+        default=None, alias="AGENT_UTILITIES_CONFIG_DIR"
+    )
 
     host: str = Field(default="0.0.0.0", alias="HOST")  # nosec B104
     port: int = Field(default=9000, alias="PORT")
@@ -148,24 +195,6 @@ class AgentConfig(BaseSettings):
     default_terminal_agent: str = Field(
         default="agent-terminal-ui", alias="DEFAULT_TERMINAL_AGENT"
     )
-
-    llm_provider: str | None = Field(default=None, alias="LLM_PROVIDER")
-    llm_model_id: str | None = Field(default=None, alias="LLM_MODEL_ID")
-    llm_base_url: str | None = Field(default=None, alias="LLM_BASE_URL")
-    llm_api_key: str | None = Field(default=None, alias="LLM_API_KEY")
-
-    lite_llm_provider: str | None = Field(default=None, alias="LITE_LLM_PROVIDER")
-    lite_llm_model_id: str | None = Field(default=None, alias="LITE_LLM_MODEL_ID")
-    lite_llm_base_url: str | None = Field(default=None, alias="LITE_LLM_BASE_URL")
-    lite_llm_api_key: str | None = Field(default=None, alias="LITE_LLM_API_KEY")
-
-    super_llm_provider: str | None = Field(default=None, alias="SUPER_LLM_PROVIDER")
-    super_llm_model_id: str | None = Field(default=None, alias="SUPER_LLM_MODEL_ID")
-    super_llm_base_url: str | None = Field(default=None, alias="SUPER_LLM_BASE_URL")
-    super_llm_api_key: str | None = Field(default=None, alias="SUPER_LLM_API_KEY")
-
-    router_model: str | None = Field(default=None, alias="ROUTER_MODEL")
-    kg_model_id: str | None = Field(default=None, alias="KG_MODEL_ID")
 
     mcp_url: str | None = Field(default=None, alias="MCP_URL")
     mcp_config: str | None = Field(default=None, alias="MCP_CONFIG")
@@ -240,12 +269,6 @@ class AgentConfig(BaseSettings):
     graph_router_timeout: float = Field(default=300.0, alias="GRAPH_ROUTER_TIMEOUT")
     graph_verifier_timeout: float = Field(default=300.0, alias="GRAPH_VERIFIER_TIMEOUT")
     enable_kg_embeddings: bool = Field(default=True, alias="ENABLE_KG_EMBEDDINGS")
-    embedding_provider: str | None = Field(default=None, alias="EMBEDDING_PROVIDER")
-    embedding_model_id: str = Field(
-        default="text-embedding-nomic-embed-text-v2-moe", alias="EMBEDDING_MODEL_ID"
-    )
-    embedding_base_url: str | None = Field(default=None, alias="EMBEDDING_BASE_URL")
-    embedding_api_key: str | None = Field(default=None, alias="EMBEDDING_API_KEY")
     kg_backups: int = Field(default=3, alias="KG_BACKUPS")
     kg_ingestion_workers: int | None = Field(default=None, alias="KG_INGESTION_WORKERS")
     kg_llm_concurrency: int = Field(default=4, alias="KG_LLM_CONCURRENCY")
@@ -254,6 +277,10 @@ class AgentConfig(BaseSettings):
 
     kg_analysis_max_depth: int = Field(default=2, alias="KG_ANALYSIS_MAX_DEPTH")
     """Maximum recursive depth for background knowledge graph research daemons."""
+    knowledge_graph_sync_background: bool = Field(
+        default=True, alias="KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
+    )
+    """Enable or disable background task workers for the Knowledge Graph pipeline."""
     model_registry_path: str | None = Field(default=None, alias="MODEL_REGISTRY_PATH")
     """Path to a YAML or JSON file defining the model registry."""
     graph_direct_execution: bool = Field(default=True, alias="GRAPH_DIRECT_EXECUTION")
@@ -303,15 +330,22 @@ class AgentConfig(BaseSettings):
     langfuse_dataset_capture_threshold: float = Field(
         default=0.0, alias="LANGFUSE_DATASET_CAPTURE_THRESHOLD"
     )
+    langfuse_latency_baseline_seconds: float = Field(
+        default=60.0, alias="LANGFUSE_LATENCY_BASELINE_SECONDS"
+    )
+    langfuse_token_baseline: int = Field(default=20000, alias="LANGFUSE_TOKEN_BASELINE")
+    langfuse_verifier_fallback_limit: int = Field(
+        default=1, alias="LANGFUSE_VERIFIER_FALLBACK_LIMIT"
+    )
 
     a2a_broker: str = Field(default="in-memory", alias="A2A_BROKER")
     a2a_broker_url: str | None = Field(default=None, alias="A2A_BROKER_URL")
     a2a_storage: str = Field(default="in-memory", alias="A2A_STORAGE")
     a2a_storage_url: str | None = Field(default=None, alias="A2A_STORAGE_URL")
     a2a_config: str | None = Field(default=None, alias="A2A_CONFIG")
-    """Path to a2a_config.json for external A2A agent discovery (CONCEPT:ECO-4.1)."""
+    """Path to a2a_config.json for external A2A agent discovery (CONCEPT:ECO-4.0)."""
     a2a_refresh_interval: int = Field(default=300, alias="A2A_REFRESH_INTERVAL")
-    """Interval in seconds for periodic A2A agent card re-fetch (CONCEPT:ECO-4.1)."""
+    """Interval in seconds for periodic A2A agent card re-fetch (CONCEPT:ECO-4.0)."""
 
     max_tokens: int = Field(default=16384, alias="MAX_TOKENS")
     temperature: float = Field(default=0.7, alias="TEMPERATURE")
@@ -475,62 +509,31 @@ DEFAULT_AGENT_SYSTEM_PROMPT = config.agent_system_prompt
 DEFAULT_HOST = config.host
 DEFAULT_PORT = config.port
 DEFAULT_DEBUG = config.debug
-DEFAULT_LLM_PROVIDER = (
-    os.getenv("LLM_PROVIDER")
-    or os.getenv("PROVIDER")
-    or config.llm_provider
-    or "openai"
-)
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER") or os.getenv("PROVIDER") or "openai"
 DEFAULT_LLM_MODEL_ID = (
-    os.getenv("LLM_MODEL_ID")
-    or os.getenv("MODEL_ID")
-    or config.llm_model_id
-    or "qwen/qwen3.5-9b"
+    os.getenv("LLM_MODEL_ID") or os.getenv("MODEL_ID") or "qwen/qwen3.5-9b"
 )
-DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL") or config.llm_base_url
-DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY") or config.llm_api_key
+DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL")
+DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY")
 
-DEFAULT_LITE_LLM_PROVIDER = (
-    os.getenv("LITE_LLM_PROVIDER") or config.lite_llm_provider or DEFAULT_LLM_PROVIDER
-)
-DEFAULT_LITE_LLM_MODEL_ID = (
-    os.getenv("LITE_LLM_MODEL_ID") or config.lite_llm_model_id or DEFAULT_LLM_MODEL_ID
-)
-DEFAULT_LITE_LLM_BASE_URL = (
-    os.getenv("LITE_LLM_BASE_URL") or config.lite_llm_base_url or DEFAULT_LLM_BASE_URL
-)
-DEFAULT_LITE_LLM_API_KEY = (
-    os.getenv("LITE_LLM_API_KEY") or config.lite_llm_api_key or DEFAULT_LLM_API_KEY
-)
+DEFAULT_LITE_LLM_PROVIDER = os.getenv("LITE_LLM_PROVIDER") or DEFAULT_LLM_PROVIDER
+DEFAULT_LITE_LLM_MODEL_ID = os.getenv("LITE_LLM_MODEL_ID") or DEFAULT_LLM_MODEL_ID
+DEFAULT_LITE_LLM_BASE_URL = os.getenv("LITE_LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
+DEFAULT_LITE_LLM_API_KEY = os.getenv("LITE_LLM_API_KEY") or DEFAULT_LLM_API_KEY
 
-DEFAULT_SUPER_LLM_PROVIDER = (
-    os.getenv("SUPER_LLM_PROVIDER") or config.super_llm_provider or DEFAULT_LLM_PROVIDER
-)
-DEFAULT_SUPER_LLM_MODEL_ID = (
-    os.getenv("SUPER_LLM_MODEL_ID") or config.super_llm_model_id or DEFAULT_LLM_MODEL_ID
-)
-DEFAULT_SUPER_LLM_BASE_URL = (
-    os.getenv("SUPER_LLM_BASE_URL") or config.super_llm_base_url or DEFAULT_LLM_BASE_URL
-)
-DEFAULT_SUPER_LLM_API_KEY = (
-    os.getenv("SUPER_LLM_API_KEY") or config.super_llm_api_key or DEFAULT_LLM_API_KEY
-)
+DEFAULT_SUPER_LLM_PROVIDER = os.getenv("SUPER_LLM_PROVIDER") or DEFAULT_LLM_PROVIDER
+DEFAULT_SUPER_LLM_MODEL_ID = os.getenv("SUPER_LLM_MODEL_ID") or DEFAULT_LLM_MODEL_ID
+DEFAULT_SUPER_LLM_BASE_URL = os.getenv("SUPER_LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
+DEFAULT_SUPER_LLM_API_KEY = os.getenv("SUPER_LLM_API_KEY") or DEFAULT_LLM_API_KEY
 
-DEFAULT_EMBEDDING_PROVIDER = (
-    os.getenv("EMBEDDING_PROVIDER") or config.embedding_provider or DEFAULT_LLM_PROVIDER
-)
+DEFAULT_EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER") or DEFAULT_LLM_PROVIDER
 DEFAULT_EMBEDDING_MODEL_ID = (
     os.getenv("EMBEDDING_MODEL_ID")
     or os.getenv("EMBEDDING_MODEL")
-    or config.embedding_model_id
     or "text-embedding-nomic-embed-text-v2-moe"
 )
-DEFAULT_EMBEDDING_BASE_URL = (
-    os.getenv("EMBEDDING_BASE_URL") or config.embedding_base_url or DEFAULT_LLM_BASE_URL
-)
-DEFAULT_EMBEDDING_API_KEY = (
-    os.getenv("EMBEDDING_API_KEY") or config.embedding_api_key or DEFAULT_LLM_API_KEY
-)
+DEFAULT_EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL") or DEFAULT_LLM_BASE_URL
+DEFAULT_EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY") or DEFAULT_LLM_API_KEY
 DEFAULT_MCP_URL = config.mcp_url
 
 
@@ -618,7 +621,6 @@ SENSITIVE_TOOL_PATTERNS = config.sensitive_tool_patterns
 DEFAULT_ROUTER_MODEL = (
     os.getenv("ROUTER_MODEL")
     or os.getenv("GRAPH_ROUTER_MODEL")
-    or config.router_model
     or DEFAULT_LITE_LLM_MODEL_ID
 )
 
@@ -635,10 +637,10 @@ DEFAULT_KG_LLM_CONCURRENCY = config.kg_llm_concurrency
 DEFAULT_KG_MODEL_ID = (
     os.getenv("KG_MODEL_ID")
     or os.getenv("KG_INFERENCE_MODEL")
-    or config.kg_model_id
     or DEFAULT_LITE_LLM_MODEL_ID
 )
 DEFAULT_KG_ANALYSIS_MAX_DEPTH = config.kg_analysis_max_depth
+DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND = config.knowledge_graph_sync_background
 DEFAULT_GRAPH_DIRECT_EXECUTION = config.graph_direct_execution
 
 AGENT_API_KEY = config.agent_api_key

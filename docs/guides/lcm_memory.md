@@ -13,16 +13,16 @@ are always recoverable by traversing the DAG.
 ```mermaid
 flowchart TD
     subgraph Thread["Conversation Thread"]
-        M1[Message 1] --> M2[Message 2]
-        M2 --> M3[Message 3]
-        M3 --> M4[Message 4]
-        M4 --> M5[Message 5]
+        M1[KG-2.10: Message 1] --> M2[KG-2.10: Message 2]
+        M2 --> M3[KG-2.10: Message 3]
+        M3 --> M4[KG-2.10: Message 4]
+        M4 --> M5[KG-2.10: Message 5]
     end
 
     subgraph DAG["Summary DAG"]
-        S1["L1 Summary\n(msgs 1-5)"]
-        S2["L1 Summary\n(msgs 6-10)"]
-        S3["L2 Summary\n(L1 summaries)"]
+        S1["KG-2.10: L1 Summary\n(msgs 1-5)"]
+        S2["KG-2.10: L1 Summary\n(msgs 6-10)"]
+        S3["KG-2.10: L2 Summary\n(L1 summaries)"]
     end
 
     M1 -.->|SUMMARIZES| S1

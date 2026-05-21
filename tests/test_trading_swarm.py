@@ -1,6 +1,6 @@
 """Tests for CONCEPT:KG-2.6 — Multi-Agent Trading Swarm.
 
-CONCEPT:KG-2.9 — Quant Orchestration (Debate/Fusion)
+CONCEPT:KG-2.6 — Quant Orchestration (Debate/Fusion)
 """
 
 import pytest

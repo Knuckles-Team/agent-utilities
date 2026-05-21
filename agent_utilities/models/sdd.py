@@ -234,7 +234,7 @@ class RiskAssessment(BaseModel):
 class DesignDocument(BaseModel):
     """Design Document — First phase of the DSTDD pipeline.
 
-    CONCEPT:ORCH-1.6 Extension — Design-Spec-Test Driven Development
+    CONCEPT:ORCH-1.3 Extension — Design-Spec-Test Driven Development
 
     Every feature begins with a design document that gates creation through
     the Knowledge Graph. The design must demonstrate:

@@ -38,9 +38,9 @@ async def test_router_rlm_trigger():
     ) as mock_rlm:
         mock_rlm.return_value = '{"steps": [{"node_id": "test", "input_data": {}}], "metadata": {"reasoning": "test"}}'
 
-        # Patch fetch_unified_context to return a large string
+        # Patch fetch_epistemic_context to return a large string
         with patch(
-            "agent_utilities.graph.routing.fetch_unified_context",
+            "agent_utilities.graph.routing.fetch_epistemic_context",
             new_callable=AsyncMock,
         ) as mock_fetch:
             mock_fetch.return_value = "A" * 60000

@@ -193,7 +193,7 @@ def research_dir() -> Path:
 def memory_view_dir() -> Path:
     """Return the path for materialized memory views.
 
-    CONCEPT:KG-2.10 — Observational Memory Bridge
+    CONCEPT:KG-2.1 — Observational Memory Bridge
 
     Default: ``~/.local/share/agent-utilities/memory/``
 

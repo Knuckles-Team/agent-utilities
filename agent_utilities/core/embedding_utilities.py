@@ -24,35 +24,6 @@ try:
 except ImportError:
     OllamaEmbedding = None
 
-try:
-    from openai import AsyncOpenAI
-    from pydantic_ai.providers.openai import OpenAIProvider
-except ImportError:
-    AsyncOpenAI = None
-    OpenAIProvider = None
-
-try:
-    from groq import AsyncGroq
-    from pydantic_ai.providers.groq import GroqProvider
-except ImportError:
-    AsyncGroq = None
-    GroqProvider = None
-
-try:
-    from mistralai import Mistral
-    from pydantic_ai.providers.mistral import MistralProvider
-except ImportError:
-    Mistral = None
-    MistralProvider = None
-
-try:
-    from anthropic import AsyncAnthropic
-    from pydantic_ai.models.anthropic import AnthropicModel
-    from pydantic_ai.providers.anthropic import AnthropicProvider
-except ImportError:
-    AnthropicModel = None
-    AsyncAnthropic = None
-    AnthropicProvider = None
 
 __version__ = "0.2.40"
 

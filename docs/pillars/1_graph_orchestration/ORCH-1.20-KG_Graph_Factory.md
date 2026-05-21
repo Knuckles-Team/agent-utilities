@@ -22,12 +22,12 @@ requirements from the KG at runtime.
 
 ```mermaid
 flowchart LR
-    Q["User Query"] -->|"router_step"| SEARCH["KG: Hybrid Search"]
-    SEARCH -->|"AgentTemplate nodes"| TOPO["Topological Sort"]
-    TOPO -->|"DEPENDS_ON edges"| PROMPT["Prompt Resolution"]
-    PROMPT -->|"USES_PROMPT edges"| TOOL["Tool Binding"]
-    TOOL -->|"REQUIRES_TOOLSET edges"| BUILD["Graph Build"]
-    BUILD -->|"KGGraphResult"| DISPATCH["ORCH: Dispatcher"]
+    Q["ORCH-1.0: User Query"] -->|"router_step"| SEARCH["KG-2.3: KG: Hybrid Search"]
+    SEARCH -->|"AgentTemplate nodes"| TOPO["ORCH-1.20: Topological Sort"]
+    TOPO -->|"DEPENDS_ON edges"| PROMPT["AHE-3.2: Prompt Resolution"]
+    PROMPT -->|"USES_PROMPT edges"| TOOL["ORCH-1.20: Tool Binding"]
+    TOOL -->|"REQUIRES_TOOLSET edges"| BUILD["KG-2.0: Graph Build"]
+    BUILD -->|"KGGraphResult"| DISPATCH["ORCH-1.0: ORCH: Dispatcher"]
 ```
 
 ## Key Components

@@ -1,173 +1,186 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dc: <http://purl.org/dc/terms/> .
 @prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-@prefix bfo:    <http://purl.obolibrary.org/obo/BFO_> .
-@prefix schema: <http://schema.org/> .
-@prefix foaf:   <http://xmlns.com/foaf/0.1/> .
-@prefix prov:   <http://www.w3.org/ns/prov#> .
+
+:HiringPipeline a owl:Class ;
+    rdfs:label "Hiring Pipeline" ;
+    rdfs:comment """Requisition → sourcing → screening → offer → onboarding lifecycle.
+BFO:Process via Procedure.""" ;
+    rdfs:subClassOf :Procedure .
+
+:assignedToDepartment a owl:ObjectProperty ;
+    rdfs:label "assigned to department" ;
+    rdfs:comment "Maps an employee to their organizational unit." ;
+    rdfs:domain :Employee ;
+    rdfs:range :Department .
+
+:bandMaxSalary a owl:DatatypeProperty ;
+    rdfs:label "band max salary" ;
+    rdfs:domain :CompensationBand ;
+    rdfs:range xsd:float .
+
+:bandMinSalary a owl:DatatypeProperty ;
+    rdfs:label "band min salary" ;
+    rdfs:domain :CompensationBand ;
+    rdfs:range xsd:float .
+
+:cascadesTo a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "cascades to" ;
+    rdfs:comment "OKR hierarchy: org OKR cascades to dept OKR cascades to individual OKR. Transitive." ;
+    rdfs:domain :OKR ;
+    rdfs:range :OKR .
+
+:certifiedFor a owl:ObjectProperty ;
+    rdfs:label "certified for" ;
+    rdfs:comment "Maps certifications to the activities they authorize." ;
+    rdfs:domain :Credential ;
+    rdfs:range :Procedure .
+
+:compensatedAt a owl:ObjectProperty ;
+    rdfs:label "compensated at" ;
+    rdfs:comment "Links a position to its compensation band." ;
+    rdfs:domain :PositionRole ;
+    rdfs:range :CompensationBand .
+
+:credentialExpiry a owl:DatatypeProperty ;
+    rdfs:label "credential expiry" ;
+    rdfs:domain :Credential ;
+    rdfs:range xsd:date .
+
+:departmentPartOf a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "department part of" ;
+    rdfs:comment "Transitive department hierarchy for org chart traversal." ;
+    rdfs:domain :Department ;
+    rdfs:range :Department .
+
+:employeeId a owl:DatatypeProperty ;
+    rdfs:label "employee id" ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
+:employmentStatus a owl:DatatypeProperty ;
+    rdfs:label "employment status" ;
+    rdfs:comment "Active, On Leave, Terminated, Contractor." ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
+:hasCompetency a owl:ObjectProperty ;
+    rdfs:label "has competency" ;
+    rdfs:comment "Links an employee to their skills and knowledge areas." ;
+    rdfs:domain :Employee ;
+    rdfs:range :Competency .
+
+:hireDate a owl:DatatypeProperty ;
+    rdfs:label "hire date" ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:date .
+
+:holdsCredential a owl:ObjectProperty ;
+    rdfs:label "holds credential" ;
+    rdfs:comment "Links an employee to their certifications and licenses." ;
+    rdfs:domain :Employee ;
+    rdfs:range :Credential .
+
+:okrProgress a owl:DatatypeProperty ;
+    rdfs:label "okr progress" ;
+    rdfs:comment "Completion percentage 0.0–1.0." ;
+    rdfs:domain :OKR ;
+    rdfs:range xsd:float .
+
+:proficiencyLevel a owl:DatatypeProperty ;
+    rdfs:label "proficiency level" ;
+    rdfs:comment "SFIA-aligned proficiency level 1-5." ;
+    rdfs:domain :Competency ;
+    rdfs:range xsd:integer .
+
+:reportsTo a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "reports to" ;
+    rdfs:comment """Transitive organizational hierarchy. If A reportsTo B
+and B reportsTo C, then A transitively reportsTo C. Enables automatic
+escalation chain traversal.""" ;
+    rdfs:domain :Employee ;
+    rdfs:range :Employee .
+
+:reviewRating a owl:DatatypeProperty ;
+    rdfs:label "review rating" ;
+    rdfs:comment "Performance rating 0.0–5.0." ;
+    rdfs:domain :PerformanceReview ;
+    rdfs:range xsd:float .
+
+:reviewedIn a owl:ObjectProperty ;
+    rdfs:label "reviewed in" ;
+    rdfs:comment "Links an employee to their performance evaluation history." ;
+    rdfs:domain :Employee ;
+    rdfs:range :PerformanceReview .
 
 <http://knuckles.team/kg/hr> a owl:Ontology ;
-    owl:imports <http://knuckles.team/kg> ;
     rdfs:label "Human Capital & Workforce Ontology" ;
     rdfs:comment """HR/Workforce Management domain ontology.
 Provides BFO-aligned classes for employee lifecycle, organizational
 hierarchy, competency tracking, and performance management.
-Aligned to HR-XML, W3C ORG, and SFIA frameworks.""" .
+Aligned to HR-XML, W3C ORG, and SFIA frameworks.""" ;
+    owl:imports <http://knuckles.team/kg> .
 
-# =====================================================================
-# HR Core Classes (CONCEPT:KG-2.8)
-# =====================================================================
+:PositionRole a owl:Class ;
+    rdfs:label "Position Role" ;
+    rdfs:comment """A time-bounded position a person occupies within a department.
+BFO:SpecificallyDependentContinuant via Role. Has start/end dates,
+level, and compensation band.""" ;
+    rdfs:subClassOf :Role .
+
+:Competency a owl:Class ;
+    rdfs:label "Competency" ;
+    rdfs:comment """A skill or knowledge area with proficiency levels (1-5).
+BFO:GenericallyDependentContinuant. Aligned to SFIA Framework.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:PerformanceReview a owl:Class ;
+    rdfs:label "Performance Review" ;
+    rdfs:comment """A periodic evaluation event linking Employee to Reviewer
+and Ratings. BFO:Process.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:CompensationBand a owl:Class ;
+    rdfs:label "Compensation Band" ;
+    rdfs:comment """A salary range tied to position levels and geographies.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Credential a owl:Class ;
+    rdfs:label "Credential" ;
+    rdfs:comment """A certification, license, or qualification with expiry tracking.
+BFO:GenericallyDependentContinuant. Aligned to Open Badges.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Department a owl:Class ;
+    rdfs:label "Department" ;
+    rdfs:comment """An organizational unit within the enterprise hierarchy.
+BFO:IndependentContinuant. Aligned to W3C ORG org:OrganizationalUnit.""" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:OKR a owl:Class ;
+    rdfs:label "OKR" ;
+    rdfs:comment """An Objective & Key Result, cascading from org to department
+to individual. BFO:SpecificallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000020 .
 
 :Employee a owl:Class ;
-    rdfs:subClassOf :Person ;
     rdfs:label "Employee" ;
     rdfs:comment """A person employed by the organization. Extends Person
 with employment metadata (hire date, status, employee ID).
 BFO:IndependentContinuant via Person. Aligned to foaf:Person + HR-XML.""" ;
-    rdfs:seeAlso foaf:Person .
+    rdfs:seeAlso foaf:Person ;
+    rdfs:subClassOf :Person .
 
-:Department a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Department" ;
-    rdfs:comment """An organizational unit within the enterprise hierarchy.
-BFO:IndependentContinuant. Aligned to W3C ORG org:OrganizationalUnit.""" .
-
-:PositionRole a owl:Class ;
-    rdfs:subClassOf :Role ;
-    rdfs:label "Position Role" ;
-    rdfs:comment """A time-bounded position a person occupies within a department.
-BFO:SpecificallyDependentContinuant via Role. Has start/end dates,
-level, and compensation band.""" .
-
-:Competency a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Competency" ;
-    rdfs:comment """A skill or knowledge area with proficiency levels (1-5).
-BFO:GenericallyDependentContinuant. Aligned to SFIA Framework.""" .
-
-:Credential a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Credential" ;
-    rdfs:comment """A certification, license, or qualification with expiry tracking.
-BFO:GenericallyDependentContinuant. Aligned to Open Badges.""" .
-
-:PerformanceReview a owl:Class ;
-    rdfs:subClassOf bfo:0000015 ;
-    rdfs:label "Performance Review" ;
-    rdfs:comment """A periodic evaluation event linking Employee to Reviewer
-and Ratings. BFO:Process.""" .
-
-:CompensationBand a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Compensation Band" ;
-    rdfs:comment """A salary range tied to position levels and geographies.
-BFO:GenericallyDependentContinuant.""" .
-
-:OKR a owl:Class ;
-    rdfs:subClassOf bfo:0000020 ;
-    rdfs:label "OKR" ;
-    rdfs:comment """An Objective & Key Result, cascading from org to department
-to individual. BFO:SpecificallyDependentContinuant.""" .
-
-:HiringPipeline a owl:Class ;
-    rdfs:subClassOf :Procedure ;
-    rdfs:label "Hiring Pipeline" ;
-    rdfs:comment """Requisition → sourcing → screening → offer → onboarding lifecycle.
-BFO:Process via Procedure.""" .
-
-# =====================================================================
-# HR Object Properties (CONCEPT:KG-2.8)
-# =====================================================================
-
-:reportsTo a owl:ObjectProperty, owl:TransitiveProperty ;
-    rdfs:domain :Employee ; rdfs:range :Employee ;
-    rdfs:label "reports to" ;
-    rdfs:comment """Transitive organizational hierarchy. If A reportsTo B
-and B reportsTo C, then A transitively reportsTo C. Enables automatic
-escalation chain traversal.""" .
-
-:hasCompetency a owl:ObjectProperty ;
-    rdfs:domain :Employee ; rdfs:range :Competency ;
-    rdfs:label "has competency" ;
-    rdfs:comment "Links an employee to their skills and knowledge areas." .
-
-:holdsCredential a owl:ObjectProperty ;
-    rdfs:domain :Employee ; rdfs:range :Credential ;
-    rdfs:label "holds credential" ;
-    rdfs:comment "Links an employee to their certifications and licenses." .
-
-:assignedToDepartment a owl:ObjectProperty ;
-    rdfs:domain :Employee ; rdfs:range :Department ;
-    rdfs:label "assigned to department" ;
-    rdfs:comment "Maps an employee to their organizational unit." .
-
-:reviewedIn a owl:ObjectProperty ;
-    rdfs:domain :Employee ; rdfs:range :PerformanceReview ;
-    rdfs:label "reviewed in" ;
-    rdfs:comment "Links an employee to their performance evaluation history." .
-
-:compensatedAt a owl:ObjectProperty ;
-    rdfs:domain :PositionRole ; rdfs:range :CompensationBand ;
-    rdfs:label "compensated at" ;
-    rdfs:comment "Links a position to its compensation band." .
-
-:certifiedFor a owl:ObjectProperty ;
-    rdfs:domain :Credential ; rdfs:range :Procedure ;
-    rdfs:label "certified for" ;
-    rdfs:comment "Maps certifications to the activities they authorize." .
-
-:cascadesTo a owl:ObjectProperty, owl:TransitiveProperty ;
-    rdfs:domain :OKR ; rdfs:range :OKR ;
-    rdfs:label "cascades to" ;
-    rdfs:comment "OKR hierarchy: org OKR cascades to dept OKR cascades to individual OKR. Transitive." .
-
-:departmentPartOf a owl:ObjectProperty, owl:TransitiveProperty ;
-    rdfs:domain :Department ; rdfs:range :Department ;
-    rdfs:label "department part of" ;
-    rdfs:comment "Transitive department hierarchy for org chart traversal." .
-
-# =====================================================================
-# HR Datatype Properties (CONCEPT:KG-2.8)
-# =====================================================================
-
-:employeeId a owl:DatatypeProperty ;
-    rdfs:domain :Employee ; rdfs:range xsd:string ;
-    rdfs:label "employee id" .
-
-:hireDate a owl:DatatypeProperty ;
-    rdfs:domain :Employee ; rdfs:range xsd:date ;
-    rdfs:label "hire date" .
-
-:employmentStatus a owl:DatatypeProperty ;
-    rdfs:domain :Employee ; rdfs:range xsd:string ;
-    rdfs:label "employment status" ;
-    rdfs:comment "Active, On Leave, Terminated, Contractor." .
-
-:proficiencyLevel a owl:DatatypeProperty ;
-    rdfs:domain :Competency ; rdfs:range xsd:integer ;
-    rdfs:label "proficiency level" ;
-    rdfs:comment "SFIA-aligned proficiency level 1-5." .
-
-:credentialExpiry a owl:DatatypeProperty ;
-    rdfs:domain :Credential ; rdfs:range xsd:date ;
-    rdfs:label "credential expiry" .
-
-:reviewRating a owl:DatatypeProperty ;
-    rdfs:domain :PerformanceReview ; rdfs:range xsd:float ;
-    rdfs:label "review rating" ;
-    rdfs:comment "Performance rating 0.0–5.0." .
-
-:bandMinSalary a owl:DatatypeProperty ;
-    rdfs:domain :CompensationBand ; rdfs:range xsd:float ;
-    rdfs:label "band min salary" .
-
-:bandMaxSalary a owl:DatatypeProperty ;
-    rdfs:domain :CompensationBand ; rdfs:range xsd:float ;
-    rdfs:label "band max salary" .
-
-:okrProgress a owl:DatatypeProperty ;
-    rdfs:domain :OKR ; rdfs:range xsd:float ;
-    rdfs:label "okr progress" ;
-    rdfs:comment "Completion percentage 0.0–1.0." .

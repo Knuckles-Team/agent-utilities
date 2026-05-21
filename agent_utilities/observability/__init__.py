@@ -1,6 +1,6 @@
 """Telemetry Engine — Consolidated Observability Facade.
 
-CONCEPT:OS-5.4 — Telemetry Engine
+CONCEPT:OS-5.1 — Telemetry Engine
 
 Provides a single entry point for all observability concerns:
 - Token usage tracking (OS-5.6 via ``TokenTracker``)
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class TelemetryEngine:
     """Consolidated observability engine.
 
-    CONCEPT:OS-5.4 — Telemetry Engine
+    CONCEPT:OS-5.1 — Telemetry Engine
 
     Usage::
 

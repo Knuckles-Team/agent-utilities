@@ -1,0 +1,5280 @@
+{
+  "domain": "CA-003",
+  "domain_name": "Architecture",
+  "project": "/home/apps/workspace/agent-packages/agent-utilities",
+  "protocols": {
+    "mcp_config.json": true,
+    "MCP": true,
+    "A2A": true,
+    "ACP": true,
+    "REST": true,
+    "gRPC": true,
+    "WebSocket": true
+  },
+  "type_coverage": {
+    "total_functions": 7008,
+    "typed_functions": 3989,
+    "coverage_pct": 56.9
+  },
+  "module_structure": {
+    "package_count": 51,
+    "max_nesting_depth": 4,
+    "packages": [
+      "agent_utilities",
+      "agent_utilities/agent",
+      "agent_utilities/analysis",
+      "agent_utilities/automation",
+      "agent_utilities/capabilities",
+      "agent_utilities/core",
+      "agent_utilities/domains",
+      "agent_utilities/domains/finance",
+      "agent_utilities/domains/government",
+      "agent_utilities/domains/hr",
+      "agent_utilities/domains/law",
+      "agent_utilities/domains/medical",
+      "agent_utilities/graph",
+      "agent_utilities/harness",
+      "agent_utilities/knowledge_graph",
+      "agent_utilities/knowledge_graph/adaptation",
+      "agent_utilities/knowledge_graph/backends",
+      "agent_utilities/knowledge_graph/backends/owl",
+      "agent_utilities/knowledge_graph/core",
+      "agent_utilities/knowledge_graph/id_management"
+    ]
+  },
+  "config_patterns": {
+    "env_vars": true,
+    "config_files": true,
+    "dotenv": true,
+    "docker": false,
+    "port_binding": true,
+    "graceful_shutdown": true
+  },
+  "c4_architecture": {
+    "diagrams": [
+      {
+        "file": "docs/pillars/architecture_c4.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "Person",
+            "id": "dev",
+            "name": "Developer"
+          },
+          {
+            "kind": "Person",
+            "id": "agent",
+            "name": "Autonomous Agent"
+          },
+          {
+            "kind": "System",
+            "id": "au",
+            "name": "agent-utilities"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "antigravity",
+            "name": "Antigravity IDE"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "claude",
+            "name": "Claude Code"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "opencode",
+            "name": "OpenCode"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "devin",
+            "name": "Devin"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "terminal",
+            "name": "agent-terminal-ui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "webui",
+            "name": "agent-webui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "skills",
+            "name": "universal-skills"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "Developer / Agent"
+          },
+          {
+            "kind": "Container",
+            "id": "orch",
+            "name": "ORCH: Orchestration Engine"
+          },
+          {
+            "kind": "Container",
+            "id": "kg",
+            "name": "KG: Knowledge Graph"
+          },
+          {
+            "kind": "Container",
+            "id": "ahe",
+            "name": "AHE: Agentic Harness"
+          },
+          {
+            "kind": "Container",
+            "id": "eco",
+            "name": "ECO: Ecosystem Peripherals"
+          },
+          {
+            "kind": "Container",
+            "id": "os_k",
+            "name": "OS: Agent OS Kernel"
+          },
+          {
+            "kind": "ContainerDb",
+            "id": "kgdb",
+            "name": "Knowledge Graph DB"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "orch",
+            "name": "Orchestration Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "router",
+            "name": "KG Router"
+          },
+          {
+            "kind": "Component",
+            "id": "planner",
+            "name": "Agentic Planner"
+          },
+          {
+            "kind": "Component",
+            "id": "dispatcher",
+            "name": "Graph Dispatcher"
+          },
+          {
+            "kind": "Component",
+            "id": "wiring",
+            "name": "Capability Wiring Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "orchestrator",
+            "name": "Agent Orchestrator"
+          },
+          {
+            "kind": "Component",
+            "id": "coord",
+            "name": "\ud83d\udd2c Coordination Layer"
+          },
+          {
+            "kind": "Component",
+            "id": "kgfactory",
+            "name": "KG Graph Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "agentrunner",
+            "name": "Agent Runner"
+          },
+          {
+            "kind": "Component",
+            "id": "pll",
+            "name": "\ud83d\udd2c Prediction Linkage Layer"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "kg",
+            "name": "Knowledge Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "engine",
+            "name": "IntelligenceGraphEngine"
+          },
+          {
+            "kind": "Component",
+            "id": "backend",
+            "name": "Graph Backends"
+          },
+          {
+            "kind": "Component",
+            "id": "pipeline",
+            "name": "Graph-OS Ingestion"
+          },
+          {
+            "kind": "Component",
+            "id": "retrieval",
+            "name": "Hybrid Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "dci",
+            "name": "\ud83d\udd2c DCI Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "ontology",
+            "name": "OWL Bridge + SPARQL"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd_ont",
+            "name": "SDD Ontology"
+          },
+          {
+            "kind": "Component",
+            "id": "shacl",
+            "name": "SHACL Validator"
+          },
+          {
+            "kind": "Component",
+            "id": "publisher",
+            "name": "Ontology Publisher"
+          },
+          {
+            "kind": "Component",
+            "id": "loader",
+            "name": "Ontology Loader"
+          },
+          {
+            "kind": "Component",
+            "id": "memory",
+            "name": "Memory Tiers"
+          },
+          {
+            "kind": "Component",
+            "id": "ctxbudget",
+            "name": "\ud83d\udd2c Context Budget Optimizer"
+          },
+          {
+            "kind": "Component",
+            "id": "argraph",
+            "name": "\ud83d\udd2c AR-Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "tsgraph",
+            "name": "\ud83d\udd2c Time-Series Graph"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "ahe",
+            "name": "Agentic Harness"
+          },
+          {
+            "kind": "Component",
+            "id": "eval",
+            "name": "Continuous Evaluation Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "evolve",
+            "name": "Evolution Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "selfmodel",
+            "name": "Self-Model"
+          },
+          {
+            "kind": "Component",
+            "id": "team",
+            "name": "TeamConfig Composer"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd",
+            "name": "DSTDD Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "dasm",
+            "name": "\ud83d\udd2c Distributed Agent State Manager"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "eco",
+            "name": "Ecosystem Peripherals"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_factory",
+            "name": "MCP Server Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "kg_mcp",
+            "name": "KG MCP Server"
+          },
+          {
+            "kind": "Component",
+            "id": "a2a",
+            "name": "A2A Network"
+          },
+          {
+            "kind": "Component",
+            "id": "coord_a2a",
+            "name": "\ud83d\udd2c Coordinated A2A Skill"
+          },
+          {
+            "kind": "Component",
+            "id": "skill_mgr",
+            "name": "Skill Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "bridge",
+            "name": "Ecosystem Bridge"
+          },
+          {
+            "kind": "Component",
+            "id": "quantapi",
+            "name": "\ud83d\udd2c Quant Agent API (SAAPI)"
+          },
+          {
+            "kind": "Component",
+            "id": "dataflows",
+            "name": "\ud83d\udd2c Market Dataflows"
+          },
+          {
+            "kind": "Component",
+            "id": "quant_mcp",
+            "name": "Unified Quant MCP Tool"
+          },
+          {
+            "kind": "Component",
+            "id": "toolkit_ingest",
+            "name": "Agent Toolkit Ingestor"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_discover",
+            "name": "MCP Live Discovery"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "os_k",
+            "name": "Agent OS Kernel"
+          },
+          {
+            "kind": "Component",
+            "id": "auth",
+            "name": "Security Policy Middleware"
+          },
+          {
+            "kind": "Component",
+            "id": "threat",
+            "name": "Threat Defense Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "guardrails",
+            "name": "Guardrail Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "scheduler",
+            "name": "Cognitive Scheduler"
+          },
+          {
+            "kind": "Component",
+            "id": "budget",
+            "name": "\ud83d\udd2c Inference Budget Controller"
+          },
+          {
+            "kind": "Component",
+            "id": "telemetry",
+            "name": "Telemetry Pipeline"
+          },
+          {
+            "kind": "Component",
+            "id": "paths",
+            "name": "XDG Paths Module"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "User"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "c1",
+            "name": "Agent Ecosystem"
+          },
+          {
+            "kind": "Container",
+            "id": "webui",
+            "name": "Agent WebUI"
+          },
+          {
+            "kind": "Container",
+            "id": "tui",
+            "name": "Agent Terminal UI"
+          },
+          {
+            "kind": "Container",
+            "id": "gateway",
+            "name": "Agent Gateway (FastAPI)"
+          },
+          {
+            "kind": "Container",
+            "id": "orchestrator",
+            "name": "Graph Orchestrator"
+          },
+          {
+            "kind": "Container",
+            "id": "subagent",
+            "name": "Domain Sub-Agents"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "mcp",
+            "name": "MCP Servers"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "otel",
+            "name": "OpenTelemetry Collector"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "dev",
+            "to": "antigravity",
+            "label": "Develops in"
+          },
+          {
+            "from": "dev",
+            "to": "terminal",
+            "label": "CLI interaction"
+          },
+          {
+            "from": "antigravity",
+            "to": "au",
+            "label": "MCP: KG queries, tool execution"
+          },
+          {
+            "from": "claude",
+            "to": "au",
+            "label": "MCP: shared KG read/write"
+          },
+          {
+            "from": "opencode",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "devin",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "terminal",
+            "to": "au",
+            "label": "Direct Python API (zero-copy)"
+          },
+          {
+            "from": "webui",
+            "to": "au",
+            "label": "ACP/AG-UI protocol"
+          },
+          {
+            "from": "skills",
+            "to": "au",
+            "label": "DSTDD pipeline, skill ingestion"
+          },
+          {
+            "from": "agent",
+            "to": "au",
+            "label": "Orchestrated execution"
+          },
+          {
+            "from": "user",
+            "to": "os_k",
+            "label": "Authenticated request"
+          },
+          {
+            "from": "os_k",
+            "to": "orch",
+            "label": "Validated task dispatch"
+          },
+          {
+            "from": "orch",
+            "to": "kg",
+            "label": "Queries for routing & specialist selection"
+          },
+          {
+            "from": "kg",
+            "to": "kgdb",
+            "label": "Cypher queries / persistence"
+          },
+          {
+            "from": "kg",
+            "to": "ahe",
+            "label": "Feeds Self-Model & TeamConfig"
+          },
+          {
+            "from": "ahe",
+            "to": "eco",
+            "label": "Promotes proven coalitions to MCP/A2A"
+          },
+          {
+            "from": "eco",
+            "to": "os_k",
+            "label": "Tool execution through kernel guardrails"
+          },
+          {
+            "from": "os_k",
+            "to": "kg",
+            "label": "Persists execution traces & telemetry"
+          },
+          {
+            "from": "router",
+            "to": "planner",
+            "label": "Routes task to planning"
+          },
+          {
+            "from": "planner",
+            "to": "dispatcher",
+            "label": "Decomposes into parallel batches"
+          },
+          {
+            "from": "dispatcher",
+            "to": "wiring",
+            "label": "Discovers required capabilities"
+          },
+          {
+            "from": "orchestrator",
+            "to": "router",
+            "label": "Entry point for all orchestration"
+          },
+          {
+            "from": "orchestrator",
+            "to": "coord",
+            "label": "Selects protocol before execution"
+          },
+          {
+            "from": "orchestrator",
+            "to": "pll",
+            "label": "Aggregates quant predictions"
+          },
+          {
+            "from": "coord",
+            "to": "dispatcher",
+            "label": "Applies consensus/voting/delegation"
+          },
+          {
+            "from": "router",
+            "to": "kgfactory",
+            "label": "Materializes graph from KG templates"
+          },
+          {
+            "from": "kgfactory",
+            "to": "dispatcher",
+            "label": "Provides topology + specialist configs"
+          },
+          {
+            "from": "agentrunner",
+            "to": "kgfactory",
+            "label": "Materializes agent-specific graph"
+          },
+          {
+            "from": "agentrunner",
+            "to": "router",
+            "label": "Resolves agent from KG, dispatches task"
+          },
+          {
+            "from": "pll",
+            "to": "orchestrator",
+            "label": "Returns fused predictions"
+          },
+          {
+            "from": "engine",
+            "to": "backend",
+            "label": "Tier 1: Cypher persistence"
+          },
+          {
+            "from": "engine",
+            "to": "pipeline",
+            "label": "Orchestrates graph-os native ingestion"
+          },
+          {
+            "from": "retrieval",
+            "to": "engine",
+            "label": "Queries via hybrid scoring"
+          },
+          {
+            "from": "dci",
+            "to": "retrieval",
+            "label": "Seeds from hybrid, then graph traversal"
+          },
+          {
+            "from": "ontology",
+            "to": "engine",
+            "label": "Schema enforcement via OWL"
+          },
+          {
+            "from": "ontology",
+            "to": "sdd_ont",
+            "label": "owl:imports SDD classes"
+          },
+          {
+            "from": "shacl",
+            "to": "ontology",
+            "label": "Validates materialized RDF"
+          },
+          {
+            "from": "publisher",
+            "to": "ontology",
+            "label": "Exports/pushes ontology"
+          },
+          {
+            "from": "loader",
+            "to": "ontology",
+            "label": "Resolves owl:imports"
+          },
+          {
+            "from": "memory",
+            "to": "engine",
+            "label": "CRUD for tiered memories"
+          },
+          {
+            "from": "ctxbudget",
+            "to": "memory",
+            "label": "Compacts recall results within budget"
+          },
+          {
+            "from": "engine",
+            "to": "argraph",
+            "label": "Tracks inter-agent communication topologies"
+          },
+          {
+            "from": "engine",
+            "to": "tsgraph",
+            "label": "Applies temporal decay to HNSW edges"
+          },
+          {
+            "from": "eval",
+            "to": "selfmodel",
+            "label": "Updates self-assessment scores"
+          },
+          {
+            "from": "evolve",
+            "to": "eval",
+            "label": "Triggers evolution on failure patterns"
+          },
+          {
+            "from": "team",
+            "to": "selfmodel",
+            "label": "Uses capability scores for composition"
+          },
+          {
+            "from": "sdd",
+            "to": "eval",
+            "label": "Validates features against KG integrity"
+          },
+          {
+            "from": "team",
+            "to": "dasm",
+            "label": "Syncs concurrent agent state"
+          },
+          {
+            "from": "mcp_factory",
+            "to": "kg_mcp",
+            "label": "Creates KG MCP instance"
+          },
+          {
+            "from": "kg_mcp",
+            "to": "a2a",
+            "label": "Shares KG data across agent network"
+          },
+          {
+            "from": "coord_a2a",
+            "to": "a2a",
+            "label": "Extends with coordination protocol negotiation"
+          },
+          {
+            "from": "skill_mgr",
+            "to": "bridge",
+            "label": "Loads skills from universal-skills"
+          },
+          {
+            "from": "quantapi",
+            "to": "a2a",
+            "label": "Provides trading execution interfaces"
+          },
+          {
+            "from": "dataflows",
+            "to": "quantapi",
+            "label": "Streams continuous temporal events"
+          },
+          {
+            "from": "quant_mcp",
+            "to": "dataflows",
+            "label": "Telemetry and Orders via SAAPI"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "mcp_discover",
+            "label": "Delegates live tool discovery"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "skill_mgr",
+            "label": "Ingests skill directories"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "a2a",
+            "label": "Fetches A2A agent cards"
+          },
+          {
+            "from": "mcp_discover",
+            "to": "mcp_factory",
+            "label": "Connects to MCP servers via stdio"
+          },
+          {
+            "from": "auth",
+            "to": "threat",
+            "label": "Validates before routing"
+          },
+          {
+            "from": "threat",
+            "to": "guardrails",
+            "label": "Applies runtime constraints"
+          },
+          {
+            "from": "guardrails",
+            "to": "telemetry",
+            "label": "Records enforcement decisions"
+          },
+          {
+            "from": "scheduler",
+            "to": "budget",
+            "label": "Tracks cost + auto-downgrades model tier"
+          },
+          {
+            "from": "paths",
+            "to": "auth",
+            "label": "Provides config/data locations"
+          },
+          {
+            "from": "user",
+            "to": "webui",
+            "label": "Uses"
+          },
+          {
+            "from": "user",
+            "to": "tui",
+            "label": "Uses"
+          },
+          {
+            "from": "webui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "tui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "gateway",
+            "to": "orchestrator",
+            "label": "Dispatches"
+          },
+          {
+            "from": "orchestrator",
+            "to": "subagent",
+            "label": "Delegates"
+          },
+          {
+            "from": "subagent",
+            "to": "mcp",
+            "label": "Invokes Tools"
+          },
+          {
+            "from": "orchestrator",
+            "to": "otel",
+            "label": "Exports Spans"
+          }
+        ]
+      },
+      {
+        "file": "docs/pillars/architecture_c4.md",
+        "level": "container",
+        "components": [
+          {
+            "kind": "Person",
+            "id": "dev",
+            "name": "Developer"
+          },
+          {
+            "kind": "Person",
+            "id": "agent",
+            "name": "Autonomous Agent"
+          },
+          {
+            "kind": "System",
+            "id": "au",
+            "name": "agent-utilities"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "antigravity",
+            "name": "Antigravity IDE"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "claude",
+            "name": "Claude Code"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "opencode",
+            "name": "OpenCode"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "devin",
+            "name": "Devin"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "terminal",
+            "name": "agent-terminal-ui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "webui",
+            "name": "agent-webui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "skills",
+            "name": "universal-skills"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "Developer / Agent"
+          },
+          {
+            "kind": "Container",
+            "id": "orch",
+            "name": "ORCH: Orchestration Engine"
+          },
+          {
+            "kind": "Container",
+            "id": "kg",
+            "name": "KG: Knowledge Graph"
+          },
+          {
+            "kind": "Container",
+            "id": "ahe",
+            "name": "AHE: Agentic Harness"
+          },
+          {
+            "kind": "Container",
+            "id": "eco",
+            "name": "ECO: Ecosystem Peripherals"
+          },
+          {
+            "kind": "Container",
+            "id": "os_k",
+            "name": "OS: Agent OS Kernel"
+          },
+          {
+            "kind": "ContainerDb",
+            "id": "kgdb",
+            "name": "Knowledge Graph DB"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "orch",
+            "name": "Orchestration Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "router",
+            "name": "KG Router"
+          },
+          {
+            "kind": "Component",
+            "id": "planner",
+            "name": "Agentic Planner"
+          },
+          {
+            "kind": "Component",
+            "id": "dispatcher",
+            "name": "Graph Dispatcher"
+          },
+          {
+            "kind": "Component",
+            "id": "wiring",
+            "name": "Capability Wiring Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "orchestrator",
+            "name": "Agent Orchestrator"
+          },
+          {
+            "kind": "Component",
+            "id": "coord",
+            "name": "\ud83d\udd2c Coordination Layer"
+          },
+          {
+            "kind": "Component",
+            "id": "kgfactory",
+            "name": "KG Graph Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "agentrunner",
+            "name": "Agent Runner"
+          },
+          {
+            "kind": "Component",
+            "id": "pll",
+            "name": "\ud83d\udd2c Prediction Linkage Layer"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "kg",
+            "name": "Knowledge Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "engine",
+            "name": "IntelligenceGraphEngine"
+          },
+          {
+            "kind": "Component",
+            "id": "backend",
+            "name": "Graph Backends"
+          },
+          {
+            "kind": "Component",
+            "id": "pipeline",
+            "name": "Graph-OS Ingestion"
+          },
+          {
+            "kind": "Component",
+            "id": "retrieval",
+            "name": "Hybrid Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "dci",
+            "name": "\ud83d\udd2c DCI Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "ontology",
+            "name": "OWL Bridge + SPARQL"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd_ont",
+            "name": "SDD Ontology"
+          },
+          {
+            "kind": "Component",
+            "id": "shacl",
+            "name": "SHACL Validator"
+          },
+          {
+            "kind": "Component",
+            "id": "publisher",
+            "name": "Ontology Publisher"
+          },
+          {
+            "kind": "Component",
+            "id": "loader",
+            "name": "Ontology Loader"
+          },
+          {
+            "kind": "Component",
+            "id": "memory",
+            "name": "Memory Tiers"
+          },
+          {
+            "kind": "Component",
+            "id": "ctxbudget",
+            "name": "\ud83d\udd2c Context Budget Optimizer"
+          },
+          {
+            "kind": "Component",
+            "id": "argraph",
+            "name": "\ud83d\udd2c AR-Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "tsgraph",
+            "name": "\ud83d\udd2c Time-Series Graph"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "ahe",
+            "name": "Agentic Harness"
+          },
+          {
+            "kind": "Component",
+            "id": "eval",
+            "name": "Continuous Evaluation Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "evolve",
+            "name": "Evolution Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "selfmodel",
+            "name": "Self-Model"
+          },
+          {
+            "kind": "Component",
+            "id": "team",
+            "name": "TeamConfig Composer"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd",
+            "name": "DSTDD Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "dasm",
+            "name": "\ud83d\udd2c Distributed Agent State Manager"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "eco",
+            "name": "Ecosystem Peripherals"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_factory",
+            "name": "MCP Server Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "kg_mcp",
+            "name": "KG MCP Server"
+          },
+          {
+            "kind": "Component",
+            "id": "a2a",
+            "name": "A2A Network"
+          },
+          {
+            "kind": "Component",
+            "id": "coord_a2a",
+            "name": "\ud83d\udd2c Coordinated A2A Skill"
+          },
+          {
+            "kind": "Component",
+            "id": "skill_mgr",
+            "name": "Skill Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "bridge",
+            "name": "Ecosystem Bridge"
+          },
+          {
+            "kind": "Component",
+            "id": "quantapi",
+            "name": "\ud83d\udd2c Quant Agent API (SAAPI)"
+          },
+          {
+            "kind": "Component",
+            "id": "dataflows",
+            "name": "\ud83d\udd2c Market Dataflows"
+          },
+          {
+            "kind": "Component",
+            "id": "quant_mcp",
+            "name": "Unified Quant MCP Tool"
+          },
+          {
+            "kind": "Component",
+            "id": "toolkit_ingest",
+            "name": "Agent Toolkit Ingestor"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_discover",
+            "name": "MCP Live Discovery"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "os_k",
+            "name": "Agent OS Kernel"
+          },
+          {
+            "kind": "Component",
+            "id": "auth",
+            "name": "Security Policy Middleware"
+          },
+          {
+            "kind": "Component",
+            "id": "threat",
+            "name": "Threat Defense Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "guardrails",
+            "name": "Guardrail Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "scheduler",
+            "name": "Cognitive Scheduler"
+          },
+          {
+            "kind": "Component",
+            "id": "budget",
+            "name": "\ud83d\udd2c Inference Budget Controller"
+          },
+          {
+            "kind": "Component",
+            "id": "telemetry",
+            "name": "Telemetry Pipeline"
+          },
+          {
+            "kind": "Component",
+            "id": "paths",
+            "name": "XDG Paths Module"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "User"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "c1",
+            "name": "Agent Ecosystem"
+          },
+          {
+            "kind": "Container",
+            "id": "webui",
+            "name": "Agent WebUI"
+          },
+          {
+            "kind": "Container",
+            "id": "tui",
+            "name": "Agent Terminal UI"
+          },
+          {
+            "kind": "Container",
+            "id": "gateway",
+            "name": "Agent Gateway (FastAPI)"
+          },
+          {
+            "kind": "Container",
+            "id": "orchestrator",
+            "name": "Graph Orchestrator"
+          },
+          {
+            "kind": "Container",
+            "id": "subagent",
+            "name": "Domain Sub-Agents"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "mcp",
+            "name": "MCP Servers"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "otel",
+            "name": "OpenTelemetry Collector"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "dev",
+            "to": "antigravity",
+            "label": "Develops in"
+          },
+          {
+            "from": "dev",
+            "to": "terminal",
+            "label": "CLI interaction"
+          },
+          {
+            "from": "antigravity",
+            "to": "au",
+            "label": "MCP: KG queries, tool execution"
+          },
+          {
+            "from": "claude",
+            "to": "au",
+            "label": "MCP: shared KG read/write"
+          },
+          {
+            "from": "opencode",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "devin",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "terminal",
+            "to": "au",
+            "label": "Direct Python API (zero-copy)"
+          },
+          {
+            "from": "webui",
+            "to": "au",
+            "label": "ACP/AG-UI protocol"
+          },
+          {
+            "from": "skills",
+            "to": "au",
+            "label": "DSTDD pipeline, skill ingestion"
+          },
+          {
+            "from": "agent",
+            "to": "au",
+            "label": "Orchestrated execution"
+          },
+          {
+            "from": "user",
+            "to": "os_k",
+            "label": "Authenticated request"
+          },
+          {
+            "from": "os_k",
+            "to": "orch",
+            "label": "Validated task dispatch"
+          },
+          {
+            "from": "orch",
+            "to": "kg",
+            "label": "Queries for routing & specialist selection"
+          },
+          {
+            "from": "kg",
+            "to": "kgdb",
+            "label": "Cypher queries / persistence"
+          },
+          {
+            "from": "kg",
+            "to": "ahe",
+            "label": "Feeds Self-Model & TeamConfig"
+          },
+          {
+            "from": "ahe",
+            "to": "eco",
+            "label": "Promotes proven coalitions to MCP/A2A"
+          },
+          {
+            "from": "eco",
+            "to": "os_k",
+            "label": "Tool execution through kernel guardrails"
+          },
+          {
+            "from": "os_k",
+            "to": "kg",
+            "label": "Persists execution traces & telemetry"
+          },
+          {
+            "from": "router",
+            "to": "planner",
+            "label": "Routes task to planning"
+          },
+          {
+            "from": "planner",
+            "to": "dispatcher",
+            "label": "Decomposes into parallel batches"
+          },
+          {
+            "from": "dispatcher",
+            "to": "wiring",
+            "label": "Discovers required capabilities"
+          },
+          {
+            "from": "orchestrator",
+            "to": "router",
+            "label": "Entry point for all orchestration"
+          },
+          {
+            "from": "orchestrator",
+            "to": "coord",
+            "label": "Selects protocol before execution"
+          },
+          {
+            "from": "orchestrator",
+            "to": "pll",
+            "label": "Aggregates quant predictions"
+          },
+          {
+            "from": "coord",
+            "to": "dispatcher",
+            "label": "Applies consensus/voting/delegation"
+          },
+          {
+            "from": "router",
+            "to": "kgfactory",
+            "label": "Materializes graph from KG templates"
+          },
+          {
+            "from": "kgfactory",
+            "to": "dispatcher",
+            "label": "Provides topology + specialist configs"
+          },
+          {
+            "from": "agentrunner",
+            "to": "kgfactory",
+            "label": "Materializes agent-specific graph"
+          },
+          {
+            "from": "agentrunner",
+            "to": "router",
+            "label": "Resolves agent from KG, dispatches task"
+          },
+          {
+            "from": "pll",
+            "to": "orchestrator",
+            "label": "Returns fused predictions"
+          },
+          {
+            "from": "engine",
+            "to": "backend",
+            "label": "Tier 1: Cypher persistence"
+          },
+          {
+            "from": "engine",
+            "to": "pipeline",
+            "label": "Orchestrates graph-os native ingestion"
+          },
+          {
+            "from": "retrieval",
+            "to": "engine",
+            "label": "Queries via hybrid scoring"
+          },
+          {
+            "from": "dci",
+            "to": "retrieval",
+            "label": "Seeds from hybrid, then graph traversal"
+          },
+          {
+            "from": "ontology",
+            "to": "engine",
+            "label": "Schema enforcement via OWL"
+          },
+          {
+            "from": "ontology",
+            "to": "sdd_ont",
+            "label": "owl:imports SDD classes"
+          },
+          {
+            "from": "shacl",
+            "to": "ontology",
+            "label": "Validates materialized RDF"
+          },
+          {
+            "from": "publisher",
+            "to": "ontology",
+            "label": "Exports/pushes ontology"
+          },
+          {
+            "from": "loader",
+            "to": "ontology",
+            "label": "Resolves owl:imports"
+          },
+          {
+            "from": "memory",
+            "to": "engine",
+            "label": "CRUD for tiered memories"
+          },
+          {
+            "from": "ctxbudget",
+            "to": "memory",
+            "label": "Compacts recall results within budget"
+          },
+          {
+            "from": "engine",
+            "to": "argraph",
+            "label": "Tracks inter-agent communication topologies"
+          },
+          {
+            "from": "engine",
+            "to": "tsgraph",
+            "label": "Applies temporal decay to HNSW edges"
+          },
+          {
+            "from": "eval",
+            "to": "selfmodel",
+            "label": "Updates self-assessment scores"
+          },
+          {
+            "from": "evolve",
+            "to": "eval",
+            "label": "Triggers evolution on failure patterns"
+          },
+          {
+            "from": "team",
+            "to": "selfmodel",
+            "label": "Uses capability scores for composition"
+          },
+          {
+            "from": "sdd",
+            "to": "eval",
+            "label": "Validates features against KG integrity"
+          },
+          {
+            "from": "team",
+            "to": "dasm",
+            "label": "Syncs concurrent agent state"
+          },
+          {
+            "from": "mcp_factory",
+            "to": "kg_mcp",
+            "label": "Creates KG MCP instance"
+          },
+          {
+            "from": "kg_mcp",
+            "to": "a2a",
+            "label": "Shares KG data across agent network"
+          },
+          {
+            "from": "coord_a2a",
+            "to": "a2a",
+            "label": "Extends with coordination protocol negotiation"
+          },
+          {
+            "from": "skill_mgr",
+            "to": "bridge",
+            "label": "Loads skills from universal-skills"
+          },
+          {
+            "from": "quantapi",
+            "to": "a2a",
+            "label": "Provides trading execution interfaces"
+          },
+          {
+            "from": "dataflows",
+            "to": "quantapi",
+            "label": "Streams continuous temporal events"
+          },
+          {
+            "from": "quant_mcp",
+            "to": "dataflows",
+            "label": "Telemetry and Orders via SAAPI"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "mcp_discover",
+            "label": "Delegates live tool discovery"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "skill_mgr",
+            "label": "Ingests skill directories"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "a2a",
+            "label": "Fetches A2A agent cards"
+          },
+          {
+            "from": "mcp_discover",
+            "to": "mcp_factory",
+            "label": "Connects to MCP servers via stdio"
+          },
+          {
+            "from": "auth",
+            "to": "threat",
+            "label": "Validates before routing"
+          },
+          {
+            "from": "threat",
+            "to": "guardrails",
+            "label": "Applies runtime constraints"
+          },
+          {
+            "from": "guardrails",
+            "to": "telemetry",
+            "label": "Records enforcement decisions"
+          },
+          {
+            "from": "scheduler",
+            "to": "budget",
+            "label": "Tracks cost + auto-downgrades model tier"
+          },
+          {
+            "from": "paths",
+            "to": "auth",
+            "label": "Provides config/data locations"
+          },
+          {
+            "from": "user",
+            "to": "webui",
+            "label": "Uses"
+          },
+          {
+            "from": "user",
+            "to": "tui",
+            "label": "Uses"
+          },
+          {
+            "from": "webui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "tui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "gateway",
+            "to": "orchestrator",
+            "label": "Dispatches"
+          },
+          {
+            "from": "orchestrator",
+            "to": "subagent",
+            "label": "Delegates"
+          },
+          {
+            "from": "subagent",
+            "to": "mcp",
+            "label": "Invokes Tools"
+          },
+          {
+            "from": "orchestrator",
+            "to": "otel",
+            "label": "Exports Spans"
+          }
+        ]
+      },
+      {
+        "file": "docs/pillars/architecture_c4.md",
+        "level": "component",
+        "components": [
+          {
+            "kind": "Person",
+            "id": "dev",
+            "name": "Developer"
+          },
+          {
+            "kind": "Person",
+            "id": "agent",
+            "name": "Autonomous Agent"
+          },
+          {
+            "kind": "System",
+            "id": "au",
+            "name": "agent-utilities"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "antigravity",
+            "name": "Antigravity IDE"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "claude",
+            "name": "Claude Code"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "opencode",
+            "name": "OpenCode"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "devin",
+            "name": "Devin"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "terminal",
+            "name": "agent-terminal-ui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "webui",
+            "name": "agent-webui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "skills",
+            "name": "universal-skills"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "Developer / Agent"
+          },
+          {
+            "kind": "Container",
+            "id": "orch",
+            "name": "ORCH: Orchestration Engine"
+          },
+          {
+            "kind": "Container",
+            "id": "kg",
+            "name": "KG: Knowledge Graph"
+          },
+          {
+            "kind": "Container",
+            "id": "ahe",
+            "name": "AHE: Agentic Harness"
+          },
+          {
+            "kind": "Container",
+            "id": "eco",
+            "name": "ECO: Ecosystem Peripherals"
+          },
+          {
+            "kind": "Container",
+            "id": "os_k",
+            "name": "OS: Agent OS Kernel"
+          },
+          {
+            "kind": "ContainerDb",
+            "id": "kgdb",
+            "name": "Knowledge Graph DB"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "orch",
+            "name": "Orchestration Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "router",
+            "name": "KG Router"
+          },
+          {
+            "kind": "Component",
+            "id": "planner",
+            "name": "Agentic Planner"
+          },
+          {
+            "kind": "Component",
+            "id": "dispatcher",
+            "name": "Graph Dispatcher"
+          },
+          {
+            "kind": "Component",
+            "id": "wiring",
+            "name": "Capability Wiring Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "orchestrator",
+            "name": "Agent Orchestrator"
+          },
+          {
+            "kind": "Component",
+            "id": "coord",
+            "name": "\ud83d\udd2c Coordination Layer"
+          },
+          {
+            "kind": "Component",
+            "id": "kgfactory",
+            "name": "KG Graph Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "agentrunner",
+            "name": "Agent Runner"
+          },
+          {
+            "kind": "Component",
+            "id": "pll",
+            "name": "\ud83d\udd2c Prediction Linkage Layer"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "kg",
+            "name": "Knowledge Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "engine",
+            "name": "IntelligenceGraphEngine"
+          },
+          {
+            "kind": "Component",
+            "id": "backend",
+            "name": "Graph Backends"
+          },
+          {
+            "kind": "Component",
+            "id": "pipeline",
+            "name": "Graph-OS Ingestion"
+          },
+          {
+            "kind": "Component",
+            "id": "retrieval",
+            "name": "Hybrid Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "dci",
+            "name": "\ud83d\udd2c DCI Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "ontology",
+            "name": "OWL Bridge + SPARQL"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd_ont",
+            "name": "SDD Ontology"
+          },
+          {
+            "kind": "Component",
+            "id": "shacl",
+            "name": "SHACL Validator"
+          },
+          {
+            "kind": "Component",
+            "id": "publisher",
+            "name": "Ontology Publisher"
+          },
+          {
+            "kind": "Component",
+            "id": "loader",
+            "name": "Ontology Loader"
+          },
+          {
+            "kind": "Component",
+            "id": "memory",
+            "name": "Memory Tiers"
+          },
+          {
+            "kind": "Component",
+            "id": "ctxbudget",
+            "name": "\ud83d\udd2c Context Budget Optimizer"
+          },
+          {
+            "kind": "Component",
+            "id": "argraph",
+            "name": "\ud83d\udd2c AR-Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "tsgraph",
+            "name": "\ud83d\udd2c Time-Series Graph"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "ahe",
+            "name": "Agentic Harness"
+          },
+          {
+            "kind": "Component",
+            "id": "eval",
+            "name": "Continuous Evaluation Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "evolve",
+            "name": "Evolution Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "selfmodel",
+            "name": "Self-Model"
+          },
+          {
+            "kind": "Component",
+            "id": "team",
+            "name": "TeamConfig Composer"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd",
+            "name": "DSTDD Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "dasm",
+            "name": "\ud83d\udd2c Distributed Agent State Manager"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "eco",
+            "name": "Ecosystem Peripherals"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_factory",
+            "name": "MCP Server Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "kg_mcp",
+            "name": "KG MCP Server"
+          },
+          {
+            "kind": "Component",
+            "id": "a2a",
+            "name": "A2A Network"
+          },
+          {
+            "kind": "Component",
+            "id": "coord_a2a",
+            "name": "\ud83d\udd2c Coordinated A2A Skill"
+          },
+          {
+            "kind": "Component",
+            "id": "skill_mgr",
+            "name": "Skill Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "bridge",
+            "name": "Ecosystem Bridge"
+          },
+          {
+            "kind": "Component",
+            "id": "quantapi",
+            "name": "\ud83d\udd2c Quant Agent API (SAAPI)"
+          },
+          {
+            "kind": "Component",
+            "id": "dataflows",
+            "name": "\ud83d\udd2c Market Dataflows"
+          },
+          {
+            "kind": "Component",
+            "id": "quant_mcp",
+            "name": "Unified Quant MCP Tool"
+          },
+          {
+            "kind": "Component",
+            "id": "toolkit_ingest",
+            "name": "Agent Toolkit Ingestor"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_discover",
+            "name": "MCP Live Discovery"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "os_k",
+            "name": "Agent OS Kernel"
+          },
+          {
+            "kind": "Component",
+            "id": "auth",
+            "name": "Security Policy Middleware"
+          },
+          {
+            "kind": "Component",
+            "id": "threat",
+            "name": "Threat Defense Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "guardrails",
+            "name": "Guardrail Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "scheduler",
+            "name": "Cognitive Scheduler"
+          },
+          {
+            "kind": "Component",
+            "id": "budget",
+            "name": "\ud83d\udd2c Inference Budget Controller"
+          },
+          {
+            "kind": "Component",
+            "id": "telemetry",
+            "name": "Telemetry Pipeline"
+          },
+          {
+            "kind": "Component",
+            "id": "paths",
+            "name": "XDG Paths Module"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "User"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "c1",
+            "name": "Agent Ecosystem"
+          },
+          {
+            "kind": "Container",
+            "id": "webui",
+            "name": "Agent WebUI"
+          },
+          {
+            "kind": "Container",
+            "id": "tui",
+            "name": "Agent Terminal UI"
+          },
+          {
+            "kind": "Container",
+            "id": "gateway",
+            "name": "Agent Gateway (FastAPI)"
+          },
+          {
+            "kind": "Container",
+            "id": "orchestrator",
+            "name": "Graph Orchestrator"
+          },
+          {
+            "kind": "Container",
+            "id": "subagent",
+            "name": "Domain Sub-Agents"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "mcp",
+            "name": "MCP Servers"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "otel",
+            "name": "OpenTelemetry Collector"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "dev",
+            "to": "antigravity",
+            "label": "Develops in"
+          },
+          {
+            "from": "dev",
+            "to": "terminal",
+            "label": "CLI interaction"
+          },
+          {
+            "from": "antigravity",
+            "to": "au",
+            "label": "MCP: KG queries, tool execution"
+          },
+          {
+            "from": "claude",
+            "to": "au",
+            "label": "MCP: shared KG read/write"
+          },
+          {
+            "from": "opencode",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "devin",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "terminal",
+            "to": "au",
+            "label": "Direct Python API (zero-copy)"
+          },
+          {
+            "from": "webui",
+            "to": "au",
+            "label": "ACP/AG-UI protocol"
+          },
+          {
+            "from": "skills",
+            "to": "au",
+            "label": "DSTDD pipeline, skill ingestion"
+          },
+          {
+            "from": "agent",
+            "to": "au",
+            "label": "Orchestrated execution"
+          },
+          {
+            "from": "user",
+            "to": "os_k",
+            "label": "Authenticated request"
+          },
+          {
+            "from": "os_k",
+            "to": "orch",
+            "label": "Validated task dispatch"
+          },
+          {
+            "from": "orch",
+            "to": "kg",
+            "label": "Queries for routing & specialist selection"
+          },
+          {
+            "from": "kg",
+            "to": "kgdb",
+            "label": "Cypher queries / persistence"
+          },
+          {
+            "from": "kg",
+            "to": "ahe",
+            "label": "Feeds Self-Model & TeamConfig"
+          },
+          {
+            "from": "ahe",
+            "to": "eco",
+            "label": "Promotes proven coalitions to MCP/A2A"
+          },
+          {
+            "from": "eco",
+            "to": "os_k",
+            "label": "Tool execution through kernel guardrails"
+          },
+          {
+            "from": "os_k",
+            "to": "kg",
+            "label": "Persists execution traces & telemetry"
+          },
+          {
+            "from": "router",
+            "to": "planner",
+            "label": "Routes task to planning"
+          },
+          {
+            "from": "planner",
+            "to": "dispatcher",
+            "label": "Decomposes into parallel batches"
+          },
+          {
+            "from": "dispatcher",
+            "to": "wiring",
+            "label": "Discovers required capabilities"
+          },
+          {
+            "from": "orchestrator",
+            "to": "router",
+            "label": "Entry point for all orchestration"
+          },
+          {
+            "from": "orchestrator",
+            "to": "coord",
+            "label": "Selects protocol before execution"
+          },
+          {
+            "from": "orchestrator",
+            "to": "pll",
+            "label": "Aggregates quant predictions"
+          },
+          {
+            "from": "coord",
+            "to": "dispatcher",
+            "label": "Applies consensus/voting/delegation"
+          },
+          {
+            "from": "router",
+            "to": "kgfactory",
+            "label": "Materializes graph from KG templates"
+          },
+          {
+            "from": "kgfactory",
+            "to": "dispatcher",
+            "label": "Provides topology + specialist configs"
+          },
+          {
+            "from": "agentrunner",
+            "to": "kgfactory",
+            "label": "Materializes agent-specific graph"
+          },
+          {
+            "from": "agentrunner",
+            "to": "router",
+            "label": "Resolves agent from KG, dispatches task"
+          },
+          {
+            "from": "pll",
+            "to": "orchestrator",
+            "label": "Returns fused predictions"
+          },
+          {
+            "from": "engine",
+            "to": "backend",
+            "label": "Tier 1: Cypher persistence"
+          },
+          {
+            "from": "engine",
+            "to": "pipeline",
+            "label": "Orchestrates graph-os native ingestion"
+          },
+          {
+            "from": "retrieval",
+            "to": "engine",
+            "label": "Queries via hybrid scoring"
+          },
+          {
+            "from": "dci",
+            "to": "retrieval",
+            "label": "Seeds from hybrid, then graph traversal"
+          },
+          {
+            "from": "ontology",
+            "to": "engine",
+            "label": "Schema enforcement via OWL"
+          },
+          {
+            "from": "ontology",
+            "to": "sdd_ont",
+            "label": "owl:imports SDD classes"
+          },
+          {
+            "from": "shacl",
+            "to": "ontology",
+            "label": "Validates materialized RDF"
+          },
+          {
+            "from": "publisher",
+            "to": "ontology",
+            "label": "Exports/pushes ontology"
+          },
+          {
+            "from": "loader",
+            "to": "ontology",
+            "label": "Resolves owl:imports"
+          },
+          {
+            "from": "memory",
+            "to": "engine",
+            "label": "CRUD for tiered memories"
+          },
+          {
+            "from": "ctxbudget",
+            "to": "memory",
+            "label": "Compacts recall results within budget"
+          },
+          {
+            "from": "engine",
+            "to": "argraph",
+            "label": "Tracks inter-agent communication topologies"
+          },
+          {
+            "from": "engine",
+            "to": "tsgraph",
+            "label": "Applies temporal decay to HNSW edges"
+          },
+          {
+            "from": "eval",
+            "to": "selfmodel",
+            "label": "Updates self-assessment scores"
+          },
+          {
+            "from": "evolve",
+            "to": "eval",
+            "label": "Triggers evolution on failure patterns"
+          },
+          {
+            "from": "team",
+            "to": "selfmodel",
+            "label": "Uses capability scores for composition"
+          },
+          {
+            "from": "sdd",
+            "to": "eval",
+            "label": "Validates features against KG integrity"
+          },
+          {
+            "from": "team",
+            "to": "dasm",
+            "label": "Syncs concurrent agent state"
+          },
+          {
+            "from": "mcp_factory",
+            "to": "kg_mcp",
+            "label": "Creates KG MCP instance"
+          },
+          {
+            "from": "kg_mcp",
+            "to": "a2a",
+            "label": "Shares KG data across agent network"
+          },
+          {
+            "from": "coord_a2a",
+            "to": "a2a",
+            "label": "Extends with coordination protocol negotiation"
+          },
+          {
+            "from": "skill_mgr",
+            "to": "bridge",
+            "label": "Loads skills from universal-skills"
+          },
+          {
+            "from": "quantapi",
+            "to": "a2a",
+            "label": "Provides trading execution interfaces"
+          },
+          {
+            "from": "dataflows",
+            "to": "quantapi",
+            "label": "Streams continuous temporal events"
+          },
+          {
+            "from": "quant_mcp",
+            "to": "dataflows",
+            "label": "Telemetry and Orders via SAAPI"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "mcp_discover",
+            "label": "Delegates live tool discovery"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "skill_mgr",
+            "label": "Ingests skill directories"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "a2a",
+            "label": "Fetches A2A agent cards"
+          },
+          {
+            "from": "mcp_discover",
+            "to": "mcp_factory",
+            "label": "Connects to MCP servers via stdio"
+          },
+          {
+            "from": "auth",
+            "to": "threat",
+            "label": "Validates before routing"
+          },
+          {
+            "from": "threat",
+            "to": "guardrails",
+            "label": "Applies runtime constraints"
+          },
+          {
+            "from": "guardrails",
+            "to": "telemetry",
+            "label": "Records enforcement decisions"
+          },
+          {
+            "from": "scheduler",
+            "to": "budget",
+            "label": "Tracks cost + auto-downgrades model tier"
+          },
+          {
+            "from": "paths",
+            "to": "auth",
+            "label": "Provides config/data locations"
+          },
+          {
+            "from": "user",
+            "to": "webui",
+            "label": "Uses"
+          },
+          {
+            "from": "user",
+            "to": "tui",
+            "label": "Uses"
+          },
+          {
+            "from": "webui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "tui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "gateway",
+            "to": "orchestrator",
+            "label": "Dispatches"
+          },
+          {
+            "from": "orchestrator",
+            "to": "subagent",
+            "label": "Delegates"
+          },
+          {
+            "from": "subagent",
+            "to": "mcp",
+            "label": "Invokes Tools"
+          },
+          {
+            "from": "orchestrator",
+            "to": "otel",
+            "label": "Exports Spans"
+          }
+        ]
+      },
+      {
+        "file": "docs/pillars/1_graph_orchestration/ORCH-1.6-DSTDD_Pipeline.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "Developer / Agent"
+          },
+          {
+            "kind": "System",
+            "id": "orch",
+            "name": "ORCH-1.0\\nGraph Orchestration"
+          },
+          {
+            "kind": "System",
+            "id": "kg",
+            "name": "KG-2.0\\nKnowledge Graph"
+          },
+          {
+            "kind": "System",
+            "id": "ahe",
+            "name": "AHE-3.0\\nAgentic Harness"
+          },
+          {
+            "kind": "System",
+            "id": "eco",
+            "name": "ECO-4.0\\nEcosystem"
+          },
+          {
+            "kind": "System",
+            "id": "os",
+            "name": "OS-5.0\\nAgent OS Kernel"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "user",
+            "to": "orch",
+            "label": "Submits tasks"
+          },
+          {
+            "from": "orch",
+            "to": "kg",
+            "label": "Queries / Ingests (bidirectional)"
+          },
+          {
+            "from": "kg",
+            "to": "ahe",
+            "label": "Feeds Self-Model & TeamConfig"
+          },
+          {
+            "from": "ahe",
+            "to": "eco",
+            "label": "Promotes proven coalitions to MCP/A2A"
+          },
+          {
+            "from": "eco",
+            "to": "os",
+            "label": "Uses kernel for execution safety"
+          },
+          {
+            "from": "os",
+            "to": "kg",
+            "label": "Persists execution traces & telemetry"
+          },
+          {
+            "from": "kg",
+            "to": "orch",
+            "label": "Provides ontological routing"
+          }
+        ]
+      },
+      {
+        "file": ".specify/design/_template.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "System",
+            "id": "target",
+            "name": "[Feature Name]"
+          },
+          {
+            "kind": "System",
+            "id": "existing",
+            "name": "[Extended Concept]"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "target",
+            "to": "existing",
+            "label": "Extends/Augments"
+          }
+        ]
+      },
+      {
+        "file": ".specify/design/kg-2.1-memory-consolidation/design.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "System",
+            "id": "existing",
+            "name": "KG-2.1 Tiered Memory"
+          },
+          {
+            "kind": "System",
+            "id": "target",
+            "name": "Consolidation Loop"
+          },
+          {
+            "kind": "System",
+            "id": "engine",
+            "name": "ConsolidationEngine"
+          },
+          {
+            "kind": "System",
+            "id": "mcp",
+            "name": "kg_memory"
+          },
+          {
+            "kind": "System",
+            "id": "timer",
+            "name": "Periodic Consolidation"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "target",
+            "to": "existing",
+            "label": "Augments"
+          },
+          {
+            "from": "target",
+            "to": "engine",
+            "label": "Adds TraceToSkillRule"
+          },
+          {
+            "from": "mcp",
+            "to": "target",
+            "label": "Triggers on-demand"
+          },
+          {
+            "from": "timer",
+            "to": "target",
+            "label": "Triggers periodically"
+          }
+        ]
+      },
+      {
+        "file": ".specify/design/kg-2.3-latentrag-retrieval/design.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "System",
+            "id": "existing",
+            "name": "KG-2.3 Graph Integrity"
+          },
+          {
+            "kind": "System",
+            "id": "target",
+            "name": "AutoRefine + Scoring"
+          },
+          {
+            "kind": "System",
+            "id": "hnsw",
+            "name": "LadybugDB HNSW"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "target",
+            "to": "existing",
+            "label": "Augments"
+          },
+          {
+            "from": "target",
+            "to": "hnsw",
+            "label": "Consumes raw results, re-scores"
+          }
+        ]
+      },
+      {
+        "file": ".specify/design/kg-2.7-research-assimilation/design.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "System",
+            "id": "existing",
+            "name": "KG-2.7 Research Intelligence"
+          },
+          {
+            "kind": "System",
+            "id": "target",
+            "name": "Assimilation Tracker"
+          },
+          {
+            "kind": "System",
+            "id": "sdd",
+            "name": "SDDFeature Nodes"
+          },
+          {
+            "kind": "System",
+            "id": "write",
+            "name": "kg_write assimilate"
+          },
+          {
+            "kind": "System",
+            "id": "trace",
+            "name": "kg_trace submit_sdd"
+          },
+          {
+            "kind": "System",
+            "id": "search",
+            "name": "kg_search discover"
+          },
+          {
+            "kind": "System",
+            "id": "specify",
+            "name": ".specify/"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "target",
+            "to": "existing",
+            "label": "Augments"
+          },
+          {
+            "from": "write",
+            "to": "target",
+            "label": "Creates edges"
+          },
+          {
+            "from": "trace",
+            "to": "sdd",
+            "label": "Writes features"
+          },
+          {
+            "from": "search",
+            "to": "target",
+            "label": "Filters by status"
+          },
+          {
+            "from": "sdd",
+            "to": "specify",
+            "label": "Synced via dual-write"
+          }
+        ]
+      },
+      {
+        "file": ".specify/design/_template.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "System",
+            "id": "target",
+            "name": "[Feature Name]"
+          },
+          {
+            "kind": "System",
+            "id": "existing",
+            "name": "[Extended Concept]"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "target",
+            "to": "existing",
+            "label": "Extends/Augments"
+          }
+        ]
+      },
+      {
+        "file": ".specify/design/kg-2.1-memory-consolidation/design.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "System",
+            "id": "existing",
+            "name": "KG-2.1 Tiered Memory"
+          },
+          {
+            "kind": "System",
+            "id": "target",
+            "name": "Consolidation Loop"
+          },
+          {
+            "kind": "System",
+            "id": "engine",
+            "name": "ConsolidationEngine"
+          },
+          {
+            "kind": "System",
+            "id": "mcp",
+            "name": "kg_memory"
+          },
+          {
+            "kind": "System",
+            "id": "timer",
+            "name": "Periodic Consolidation"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "target",
+            "to": "existing",
+            "label": "Augments"
+          },
+          {
+            "from": "target",
+            "to": "engine",
+            "label": "Adds TraceToSkillRule"
+          },
+          {
+            "from": "mcp",
+            "to": "target",
+            "label": "Triggers on-demand"
+          },
+          {
+            "from": "timer",
+            "to": "target",
+            "label": "Triggers periodically"
+          }
+        ]
+      },
+      {
+        "file": ".specify/design/kg-2.3-latentrag-retrieval/design.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "System",
+            "id": "existing",
+            "name": "KG-2.3 Graph Integrity"
+          },
+          {
+            "kind": "System",
+            "id": "target",
+            "name": "AutoRefine + Scoring"
+          },
+          {
+            "kind": "System",
+            "id": "hnsw",
+            "name": "LadybugDB HNSW"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "target",
+            "to": "existing",
+            "label": "Augments"
+          },
+          {
+            "from": "target",
+            "to": "hnsw",
+            "label": "Consumes raw results, re-scores"
+          }
+        ]
+      },
+      {
+        "file": ".specify/design/kg-2.7-research-assimilation/design.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "System",
+            "id": "existing",
+            "name": "KG-2.7 Research Intelligence"
+          },
+          {
+            "kind": "System",
+            "id": "target",
+            "name": "Assimilation Tracker"
+          },
+          {
+            "kind": "System",
+            "id": "sdd",
+            "name": "SDDFeature Nodes"
+          },
+          {
+            "kind": "System",
+            "id": "write",
+            "name": "kg_write assimilate"
+          },
+          {
+            "kind": "System",
+            "id": "trace",
+            "name": "kg_trace submit_sdd"
+          },
+          {
+            "kind": "System",
+            "id": "search",
+            "name": "kg_search discover"
+          },
+          {
+            "kind": "System",
+            "id": "specify",
+            "name": ".specify/"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "target",
+            "to": "existing",
+            "label": "Augments"
+          },
+          {
+            "from": "write",
+            "to": "target",
+            "label": "Creates edges"
+          },
+          {
+            "from": "trace",
+            "to": "sdd",
+            "label": "Writes features"
+          },
+          {
+            "from": "search",
+            "to": "target",
+            "label": "Filters by status"
+          },
+          {
+            "from": "sdd",
+            "to": "specify",
+            "label": "Synced via dual-write"
+          }
+        ]
+      },
+      {
+        "file": "docs/pillars/architecture_c4.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "Person",
+            "id": "dev",
+            "name": "Developer"
+          },
+          {
+            "kind": "Person",
+            "id": "agent",
+            "name": "Autonomous Agent"
+          },
+          {
+            "kind": "System",
+            "id": "au",
+            "name": "agent-utilities"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "antigravity",
+            "name": "Antigravity IDE"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "claude",
+            "name": "Claude Code"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "opencode",
+            "name": "OpenCode"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "devin",
+            "name": "Devin"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "terminal",
+            "name": "agent-terminal-ui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "webui",
+            "name": "agent-webui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "skills",
+            "name": "universal-skills"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "Developer / Agent"
+          },
+          {
+            "kind": "Container",
+            "id": "orch",
+            "name": "ORCH: Orchestration Engine"
+          },
+          {
+            "kind": "Container",
+            "id": "kg",
+            "name": "KG: Knowledge Graph"
+          },
+          {
+            "kind": "Container",
+            "id": "ahe",
+            "name": "AHE: Agentic Harness"
+          },
+          {
+            "kind": "Container",
+            "id": "eco",
+            "name": "ECO: Ecosystem Peripherals"
+          },
+          {
+            "kind": "Container",
+            "id": "os_k",
+            "name": "OS: Agent OS Kernel"
+          },
+          {
+            "kind": "ContainerDb",
+            "id": "kgdb",
+            "name": "Knowledge Graph DB"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "orch",
+            "name": "Orchestration Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "router",
+            "name": "KG Router"
+          },
+          {
+            "kind": "Component",
+            "id": "planner",
+            "name": "Agentic Planner"
+          },
+          {
+            "kind": "Component",
+            "id": "dispatcher",
+            "name": "Graph Dispatcher"
+          },
+          {
+            "kind": "Component",
+            "id": "wiring",
+            "name": "Capability Wiring Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "orchestrator",
+            "name": "Agent Orchestrator"
+          },
+          {
+            "kind": "Component",
+            "id": "coord",
+            "name": "\ud83d\udd2c Coordination Layer"
+          },
+          {
+            "kind": "Component",
+            "id": "kgfactory",
+            "name": "KG Graph Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "agentrunner",
+            "name": "Agent Runner"
+          },
+          {
+            "kind": "Component",
+            "id": "pll",
+            "name": "\ud83d\udd2c Prediction Linkage Layer"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "kg",
+            "name": "Knowledge Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "engine",
+            "name": "IntelligenceGraphEngine"
+          },
+          {
+            "kind": "Component",
+            "id": "backend",
+            "name": "Graph Backends"
+          },
+          {
+            "kind": "Component",
+            "id": "pipeline",
+            "name": "Graph-OS Ingestion"
+          },
+          {
+            "kind": "Component",
+            "id": "retrieval",
+            "name": "Hybrid Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "dci",
+            "name": "\ud83d\udd2c DCI Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "ontology",
+            "name": "OWL Bridge + SPARQL"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd_ont",
+            "name": "SDD Ontology"
+          },
+          {
+            "kind": "Component",
+            "id": "shacl",
+            "name": "SHACL Validator"
+          },
+          {
+            "kind": "Component",
+            "id": "publisher",
+            "name": "Ontology Publisher"
+          },
+          {
+            "kind": "Component",
+            "id": "loader",
+            "name": "Ontology Loader"
+          },
+          {
+            "kind": "Component",
+            "id": "memory",
+            "name": "Memory Tiers"
+          },
+          {
+            "kind": "Component",
+            "id": "ctxbudget",
+            "name": "\ud83d\udd2c Context Budget Optimizer"
+          },
+          {
+            "kind": "Component",
+            "id": "argraph",
+            "name": "\ud83d\udd2c AR-Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "tsgraph",
+            "name": "\ud83d\udd2c Time-Series Graph"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "ahe",
+            "name": "Agentic Harness"
+          },
+          {
+            "kind": "Component",
+            "id": "eval",
+            "name": "Continuous Evaluation Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "evolve",
+            "name": "Evolution Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "selfmodel",
+            "name": "Self-Model"
+          },
+          {
+            "kind": "Component",
+            "id": "team",
+            "name": "TeamConfig Composer"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd",
+            "name": "DSTDD Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "dasm",
+            "name": "\ud83d\udd2c Distributed Agent State Manager"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "eco",
+            "name": "Ecosystem Peripherals"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_factory",
+            "name": "MCP Server Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "kg_mcp",
+            "name": "KG MCP Server"
+          },
+          {
+            "kind": "Component",
+            "id": "a2a",
+            "name": "A2A Network"
+          },
+          {
+            "kind": "Component",
+            "id": "coord_a2a",
+            "name": "\ud83d\udd2c Coordinated A2A Skill"
+          },
+          {
+            "kind": "Component",
+            "id": "skill_mgr",
+            "name": "Skill Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "bridge",
+            "name": "Ecosystem Bridge"
+          },
+          {
+            "kind": "Component",
+            "id": "quantapi",
+            "name": "\ud83d\udd2c Quant Agent API (SAAPI)"
+          },
+          {
+            "kind": "Component",
+            "id": "dataflows",
+            "name": "\ud83d\udd2c Market Dataflows"
+          },
+          {
+            "kind": "Component",
+            "id": "quant_mcp",
+            "name": "Unified Quant MCP Tool"
+          },
+          {
+            "kind": "Component",
+            "id": "toolkit_ingest",
+            "name": "Agent Toolkit Ingestor"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_discover",
+            "name": "MCP Live Discovery"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "os_k",
+            "name": "Agent OS Kernel"
+          },
+          {
+            "kind": "Component",
+            "id": "auth",
+            "name": "Security Policy Middleware"
+          },
+          {
+            "kind": "Component",
+            "id": "threat",
+            "name": "Threat Defense Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "guardrails",
+            "name": "Guardrail Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "scheduler",
+            "name": "Cognitive Scheduler"
+          },
+          {
+            "kind": "Component",
+            "id": "budget",
+            "name": "\ud83d\udd2c Inference Budget Controller"
+          },
+          {
+            "kind": "Component",
+            "id": "telemetry",
+            "name": "Telemetry Pipeline"
+          },
+          {
+            "kind": "Component",
+            "id": "paths",
+            "name": "XDG Paths Module"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "User"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "c1",
+            "name": "Agent Ecosystem"
+          },
+          {
+            "kind": "Container",
+            "id": "webui",
+            "name": "Agent WebUI"
+          },
+          {
+            "kind": "Container",
+            "id": "tui",
+            "name": "Agent Terminal UI"
+          },
+          {
+            "kind": "Container",
+            "id": "gateway",
+            "name": "Agent Gateway (FastAPI)"
+          },
+          {
+            "kind": "Container",
+            "id": "orchestrator",
+            "name": "Graph Orchestrator"
+          },
+          {
+            "kind": "Container",
+            "id": "subagent",
+            "name": "Domain Sub-Agents"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "mcp",
+            "name": "MCP Servers"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "otel",
+            "name": "OpenTelemetry Collector"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "dev",
+            "to": "antigravity",
+            "label": "Develops in"
+          },
+          {
+            "from": "dev",
+            "to": "terminal",
+            "label": "CLI interaction"
+          },
+          {
+            "from": "antigravity",
+            "to": "au",
+            "label": "MCP: KG queries, tool execution"
+          },
+          {
+            "from": "claude",
+            "to": "au",
+            "label": "MCP: shared KG read/write"
+          },
+          {
+            "from": "opencode",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "devin",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "terminal",
+            "to": "au",
+            "label": "Direct Python API (zero-copy)"
+          },
+          {
+            "from": "webui",
+            "to": "au",
+            "label": "ACP/AG-UI protocol"
+          },
+          {
+            "from": "skills",
+            "to": "au",
+            "label": "DSTDD pipeline, skill ingestion"
+          },
+          {
+            "from": "agent",
+            "to": "au",
+            "label": "Orchestrated execution"
+          },
+          {
+            "from": "user",
+            "to": "os_k",
+            "label": "Authenticated request"
+          },
+          {
+            "from": "os_k",
+            "to": "orch",
+            "label": "Validated task dispatch"
+          },
+          {
+            "from": "orch",
+            "to": "kg",
+            "label": "Queries for routing & specialist selection"
+          },
+          {
+            "from": "kg",
+            "to": "kgdb",
+            "label": "Cypher queries / persistence"
+          },
+          {
+            "from": "kg",
+            "to": "ahe",
+            "label": "Feeds Self-Model & TeamConfig"
+          },
+          {
+            "from": "ahe",
+            "to": "eco",
+            "label": "Promotes proven coalitions to MCP/A2A"
+          },
+          {
+            "from": "eco",
+            "to": "os_k",
+            "label": "Tool execution through kernel guardrails"
+          },
+          {
+            "from": "os_k",
+            "to": "kg",
+            "label": "Persists execution traces & telemetry"
+          },
+          {
+            "from": "router",
+            "to": "planner",
+            "label": "Routes task to planning"
+          },
+          {
+            "from": "planner",
+            "to": "dispatcher",
+            "label": "Decomposes into parallel batches"
+          },
+          {
+            "from": "dispatcher",
+            "to": "wiring",
+            "label": "Discovers required capabilities"
+          },
+          {
+            "from": "orchestrator",
+            "to": "router",
+            "label": "Entry point for all orchestration"
+          },
+          {
+            "from": "orchestrator",
+            "to": "coord",
+            "label": "Selects protocol before execution"
+          },
+          {
+            "from": "orchestrator",
+            "to": "pll",
+            "label": "Aggregates quant predictions"
+          },
+          {
+            "from": "coord",
+            "to": "dispatcher",
+            "label": "Applies consensus/voting/delegation"
+          },
+          {
+            "from": "router",
+            "to": "kgfactory",
+            "label": "Materializes graph from KG templates"
+          },
+          {
+            "from": "kgfactory",
+            "to": "dispatcher",
+            "label": "Provides topology + specialist configs"
+          },
+          {
+            "from": "agentrunner",
+            "to": "kgfactory",
+            "label": "Materializes agent-specific graph"
+          },
+          {
+            "from": "agentrunner",
+            "to": "router",
+            "label": "Resolves agent from KG, dispatches task"
+          },
+          {
+            "from": "pll",
+            "to": "orchestrator",
+            "label": "Returns fused predictions"
+          },
+          {
+            "from": "engine",
+            "to": "backend",
+            "label": "Tier 1: Cypher persistence"
+          },
+          {
+            "from": "engine",
+            "to": "pipeline",
+            "label": "Orchestrates graph-os native ingestion"
+          },
+          {
+            "from": "retrieval",
+            "to": "engine",
+            "label": "Queries via hybrid scoring"
+          },
+          {
+            "from": "dci",
+            "to": "retrieval",
+            "label": "Seeds from hybrid, then graph traversal"
+          },
+          {
+            "from": "ontology",
+            "to": "engine",
+            "label": "Schema enforcement via OWL"
+          },
+          {
+            "from": "ontology",
+            "to": "sdd_ont",
+            "label": "owl:imports SDD classes"
+          },
+          {
+            "from": "shacl",
+            "to": "ontology",
+            "label": "Validates materialized RDF"
+          },
+          {
+            "from": "publisher",
+            "to": "ontology",
+            "label": "Exports/pushes ontology"
+          },
+          {
+            "from": "loader",
+            "to": "ontology",
+            "label": "Resolves owl:imports"
+          },
+          {
+            "from": "memory",
+            "to": "engine",
+            "label": "CRUD for tiered memories"
+          },
+          {
+            "from": "ctxbudget",
+            "to": "memory",
+            "label": "Compacts recall results within budget"
+          },
+          {
+            "from": "engine",
+            "to": "argraph",
+            "label": "Tracks inter-agent communication topologies"
+          },
+          {
+            "from": "engine",
+            "to": "tsgraph",
+            "label": "Applies temporal decay to HNSW edges"
+          },
+          {
+            "from": "eval",
+            "to": "selfmodel",
+            "label": "Updates self-assessment scores"
+          },
+          {
+            "from": "evolve",
+            "to": "eval",
+            "label": "Triggers evolution on failure patterns"
+          },
+          {
+            "from": "team",
+            "to": "selfmodel",
+            "label": "Uses capability scores for composition"
+          },
+          {
+            "from": "sdd",
+            "to": "eval",
+            "label": "Validates features against KG integrity"
+          },
+          {
+            "from": "team",
+            "to": "dasm",
+            "label": "Syncs concurrent agent state"
+          },
+          {
+            "from": "mcp_factory",
+            "to": "kg_mcp",
+            "label": "Creates KG MCP instance"
+          },
+          {
+            "from": "kg_mcp",
+            "to": "a2a",
+            "label": "Shares KG data across agent network"
+          },
+          {
+            "from": "coord_a2a",
+            "to": "a2a",
+            "label": "Extends with coordination protocol negotiation"
+          },
+          {
+            "from": "skill_mgr",
+            "to": "bridge",
+            "label": "Loads skills from universal-skills"
+          },
+          {
+            "from": "quantapi",
+            "to": "a2a",
+            "label": "Provides trading execution interfaces"
+          },
+          {
+            "from": "dataflows",
+            "to": "quantapi",
+            "label": "Streams continuous temporal events"
+          },
+          {
+            "from": "quant_mcp",
+            "to": "dataflows",
+            "label": "Telemetry and Orders via SAAPI"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "mcp_discover",
+            "label": "Delegates live tool discovery"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "skill_mgr",
+            "label": "Ingests skill directories"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "a2a",
+            "label": "Fetches A2A agent cards"
+          },
+          {
+            "from": "mcp_discover",
+            "to": "mcp_factory",
+            "label": "Connects to MCP servers via stdio"
+          },
+          {
+            "from": "auth",
+            "to": "threat",
+            "label": "Validates before routing"
+          },
+          {
+            "from": "threat",
+            "to": "guardrails",
+            "label": "Applies runtime constraints"
+          },
+          {
+            "from": "guardrails",
+            "to": "telemetry",
+            "label": "Records enforcement decisions"
+          },
+          {
+            "from": "scheduler",
+            "to": "budget",
+            "label": "Tracks cost + auto-downgrades model tier"
+          },
+          {
+            "from": "paths",
+            "to": "auth",
+            "label": "Provides config/data locations"
+          },
+          {
+            "from": "user",
+            "to": "webui",
+            "label": "Uses"
+          },
+          {
+            "from": "user",
+            "to": "tui",
+            "label": "Uses"
+          },
+          {
+            "from": "webui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "tui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "gateway",
+            "to": "orchestrator",
+            "label": "Dispatches"
+          },
+          {
+            "from": "orchestrator",
+            "to": "subagent",
+            "label": "Delegates"
+          },
+          {
+            "from": "subagent",
+            "to": "mcp",
+            "label": "Invokes Tools"
+          },
+          {
+            "from": "orchestrator",
+            "to": "otel",
+            "label": "Exports Spans"
+          }
+        ]
+      },
+      {
+        "file": "docs/pillars/architecture_c4.md",
+        "level": "container",
+        "components": [
+          {
+            "kind": "Person",
+            "id": "dev",
+            "name": "Developer"
+          },
+          {
+            "kind": "Person",
+            "id": "agent",
+            "name": "Autonomous Agent"
+          },
+          {
+            "kind": "System",
+            "id": "au",
+            "name": "agent-utilities"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "antigravity",
+            "name": "Antigravity IDE"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "claude",
+            "name": "Claude Code"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "opencode",
+            "name": "OpenCode"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "devin",
+            "name": "Devin"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "terminal",
+            "name": "agent-terminal-ui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "webui",
+            "name": "agent-webui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "skills",
+            "name": "universal-skills"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "Developer / Agent"
+          },
+          {
+            "kind": "Container",
+            "id": "orch",
+            "name": "ORCH: Orchestration Engine"
+          },
+          {
+            "kind": "Container",
+            "id": "kg",
+            "name": "KG: Knowledge Graph"
+          },
+          {
+            "kind": "Container",
+            "id": "ahe",
+            "name": "AHE: Agentic Harness"
+          },
+          {
+            "kind": "Container",
+            "id": "eco",
+            "name": "ECO: Ecosystem Peripherals"
+          },
+          {
+            "kind": "Container",
+            "id": "os_k",
+            "name": "OS: Agent OS Kernel"
+          },
+          {
+            "kind": "ContainerDb",
+            "id": "kgdb",
+            "name": "Knowledge Graph DB"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "orch",
+            "name": "Orchestration Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "router",
+            "name": "KG Router"
+          },
+          {
+            "kind": "Component",
+            "id": "planner",
+            "name": "Agentic Planner"
+          },
+          {
+            "kind": "Component",
+            "id": "dispatcher",
+            "name": "Graph Dispatcher"
+          },
+          {
+            "kind": "Component",
+            "id": "wiring",
+            "name": "Capability Wiring Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "orchestrator",
+            "name": "Agent Orchestrator"
+          },
+          {
+            "kind": "Component",
+            "id": "coord",
+            "name": "\ud83d\udd2c Coordination Layer"
+          },
+          {
+            "kind": "Component",
+            "id": "kgfactory",
+            "name": "KG Graph Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "agentrunner",
+            "name": "Agent Runner"
+          },
+          {
+            "kind": "Component",
+            "id": "pll",
+            "name": "\ud83d\udd2c Prediction Linkage Layer"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "kg",
+            "name": "Knowledge Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "engine",
+            "name": "IntelligenceGraphEngine"
+          },
+          {
+            "kind": "Component",
+            "id": "backend",
+            "name": "Graph Backends"
+          },
+          {
+            "kind": "Component",
+            "id": "pipeline",
+            "name": "Graph-OS Ingestion"
+          },
+          {
+            "kind": "Component",
+            "id": "retrieval",
+            "name": "Hybrid Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "dci",
+            "name": "\ud83d\udd2c DCI Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "ontology",
+            "name": "OWL Bridge + SPARQL"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd_ont",
+            "name": "SDD Ontology"
+          },
+          {
+            "kind": "Component",
+            "id": "shacl",
+            "name": "SHACL Validator"
+          },
+          {
+            "kind": "Component",
+            "id": "publisher",
+            "name": "Ontology Publisher"
+          },
+          {
+            "kind": "Component",
+            "id": "loader",
+            "name": "Ontology Loader"
+          },
+          {
+            "kind": "Component",
+            "id": "memory",
+            "name": "Memory Tiers"
+          },
+          {
+            "kind": "Component",
+            "id": "ctxbudget",
+            "name": "\ud83d\udd2c Context Budget Optimizer"
+          },
+          {
+            "kind": "Component",
+            "id": "argraph",
+            "name": "\ud83d\udd2c AR-Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "tsgraph",
+            "name": "\ud83d\udd2c Time-Series Graph"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "ahe",
+            "name": "Agentic Harness"
+          },
+          {
+            "kind": "Component",
+            "id": "eval",
+            "name": "Continuous Evaluation Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "evolve",
+            "name": "Evolution Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "selfmodel",
+            "name": "Self-Model"
+          },
+          {
+            "kind": "Component",
+            "id": "team",
+            "name": "TeamConfig Composer"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd",
+            "name": "DSTDD Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "dasm",
+            "name": "\ud83d\udd2c Distributed Agent State Manager"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "eco",
+            "name": "Ecosystem Peripherals"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_factory",
+            "name": "MCP Server Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "kg_mcp",
+            "name": "KG MCP Server"
+          },
+          {
+            "kind": "Component",
+            "id": "a2a",
+            "name": "A2A Network"
+          },
+          {
+            "kind": "Component",
+            "id": "coord_a2a",
+            "name": "\ud83d\udd2c Coordinated A2A Skill"
+          },
+          {
+            "kind": "Component",
+            "id": "skill_mgr",
+            "name": "Skill Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "bridge",
+            "name": "Ecosystem Bridge"
+          },
+          {
+            "kind": "Component",
+            "id": "quantapi",
+            "name": "\ud83d\udd2c Quant Agent API (SAAPI)"
+          },
+          {
+            "kind": "Component",
+            "id": "dataflows",
+            "name": "\ud83d\udd2c Market Dataflows"
+          },
+          {
+            "kind": "Component",
+            "id": "quant_mcp",
+            "name": "Unified Quant MCP Tool"
+          },
+          {
+            "kind": "Component",
+            "id": "toolkit_ingest",
+            "name": "Agent Toolkit Ingestor"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_discover",
+            "name": "MCP Live Discovery"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "os_k",
+            "name": "Agent OS Kernel"
+          },
+          {
+            "kind": "Component",
+            "id": "auth",
+            "name": "Security Policy Middleware"
+          },
+          {
+            "kind": "Component",
+            "id": "threat",
+            "name": "Threat Defense Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "guardrails",
+            "name": "Guardrail Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "scheduler",
+            "name": "Cognitive Scheduler"
+          },
+          {
+            "kind": "Component",
+            "id": "budget",
+            "name": "\ud83d\udd2c Inference Budget Controller"
+          },
+          {
+            "kind": "Component",
+            "id": "telemetry",
+            "name": "Telemetry Pipeline"
+          },
+          {
+            "kind": "Component",
+            "id": "paths",
+            "name": "XDG Paths Module"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "User"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "c1",
+            "name": "Agent Ecosystem"
+          },
+          {
+            "kind": "Container",
+            "id": "webui",
+            "name": "Agent WebUI"
+          },
+          {
+            "kind": "Container",
+            "id": "tui",
+            "name": "Agent Terminal UI"
+          },
+          {
+            "kind": "Container",
+            "id": "gateway",
+            "name": "Agent Gateway (FastAPI)"
+          },
+          {
+            "kind": "Container",
+            "id": "orchestrator",
+            "name": "Graph Orchestrator"
+          },
+          {
+            "kind": "Container",
+            "id": "subagent",
+            "name": "Domain Sub-Agents"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "mcp",
+            "name": "MCP Servers"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "otel",
+            "name": "OpenTelemetry Collector"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "dev",
+            "to": "antigravity",
+            "label": "Develops in"
+          },
+          {
+            "from": "dev",
+            "to": "terminal",
+            "label": "CLI interaction"
+          },
+          {
+            "from": "antigravity",
+            "to": "au",
+            "label": "MCP: KG queries, tool execution"
+          },
+          {
+            "from": "claude",
+            "to": "au",
+            "label": "MCP: shared KG read/write"
+          },
+          {
+            "from": "opencode",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "devin",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "terminal",
+            "to": "au",
+            "label": "Direct Python API (zero-copy)"
+          },
+          {
+            "from": "webui",
+            "to": "au",
+            "label": "ACP/AG-UI protocol"
+          },
+          {
+            "from": "skills",
+            "to": "au",
+            "label": "DSTDD pipeline, skill ingestion"
+          },
+          {
+            "from": "agent",
+            "to": "au",
+            "label": "Orchestrated execution"
+          },
+          {
+            "from": "user",
+            "to": "os_k",
+            "label": "Authenticated request"
+          },
+          {
+            "from": "os_k",
+            "to": "orch",
+            "label": "Validated task dispatch"
+          },
+          {
+            "from": "orch",
+            "to": "kg",
+            "label": "Queries for routing & specialist selection"
+          },
+          {
+            "from": "kg",
+            "to": "kgdb",
+            "label": "Cypher queries / persistence"
+          },
+          {
+            "from": "kg",
+            "to": "ahe",
+            "label": "Feeds Self-Model & TeamConfig"
+          },
+          {
+            "from": "ahe",
+            "to": "eco",
+            "label": "Promotes proven coalitions to MCP/A2A"
+          },
+          {
+            "from": "eco",
+            "to": "os_k",
+            "label": "Tool execution through kernel guardrails"
+          },
+          {
+            "from": "os_k",
+            "to": "kg",
+            "label": "Persists execution traces & telemetry"
+          },
+          {
+            "from": "router",
+            "to": "planner",
+            "label": "Routes task to planning"
+          },
+          {
+            "from": "planner",
+            "to": "dispatcher",
+            "label": "Decomposes into parallel batches"
+          },
+          {
+            "from": "dispatcher",
+            "to": "wiring",
+            "label": "Discovers required capabilities"
+          },
+          {
+            "from": "orchestrator",
+            "to": "router",
+            "label": "Entry point for all orchestration"
+          },
+          {
+            "from": "orchestrator",
+            "to": "coord",
+            "label": "Selects protocol before execution"
+          },
+          {
+            "from": "orchestrator",
+            "to": "pll",
+            "label": "Aggregates quant predictions"
+          },
+          {
+            "from": "coord",
+            "to": "dispatcher",
+            "label": "Applies consensus/voting/delegation"
+          },
+          {
+            "from": "router",
+            "to": "kgfactory",
+            "label": "Materializes graph from KG templates"
+          },
+          {
+            "from": "kgfactory",
+            "to": "dispatcher",
+            "label": "Provides topology + specialist configs"
+          },
+          {
+            "from": "agentrunner",
+            "to": "kgfactory",
+            "label": "Materializes agent-specific graph"
+          },
+          {
+            "from": "agentrunner",
+            "to": "router",
+            "label": "Resolves agent from KG, dispatches task"
+          },
+          {
+            "from": "pll",
+            "to": "orchestrator",
+            "label": "Returns fused predictions"
+          },
+          {
+            "from": "engine",
+            "to": "backend",
+            "label": "Tier 1: Cypher persistence"
+          },
+          {
+            "from": "engine",
+            "to": "pipeline",
+            "label": "Orchestrates graph-os native ingestion"
+          },
+          {
+            "from": "retrieval",
+            "to": "engine",
+            "label": "Queries via hybrid scoring"
+          },
+          {
+            "from": "dci",
+            "to": "retrieval",
+            "label": "Seeds from hybrid, then graph traversal"
+          },
+          {
+            "from": "ontology",
+            "to": "engine",
+            "label": "Schema enforcement via OWL"
+          },
+          {
+            "from": "ontology",
+            "to": "sdd_ont",
+            "label": "owl:imports SDD classes"
+          },
+          {
+            "from": "shacl",
+            "to": "ontology",
+            "label": "Validates materialized RDF"
+          },
+          {
+            "from": "publisher",
+            "to": "ontology",
+            "label": "Exports/pushes ontology"
+          },
+          {
+            "from": "loader",
+            "to": "ontology",
+            "label": "Resolves owl:imports"
+          },
+          {
+            "from": "memory",
+            "to": "engine",
+            "label": "CRUD for tiered memories"
+          },
+          {
+            "from": "ctxbudget",
+            "to": "memory",
+            "label": "Compacts recall results within budget"
+          },
+          {
+            "from": "engine",
+            "to": "argraph",
+            "label": "Tracks inter-agent communication topologies"
+          },
+          {
+            "from": "engine",
+            "to": "tsgraph",
+            "label": "Applies temporal decay to HNSW edges"
+          },
+          {
+            "from": "eval",
+            "to": "selfmodel",
+            "label": "Updates self-assessment scores"
+          },
+          {
+            "from": "evolve",
+            "to": "eval",
+            "label": "Triggers evolution on failure patterns"
+          },
+          {
+            "from": "team",
+            "to": "selfmodel",
+            "label": "Uses capability scores for composition"
+          },
+          {
+            "from": "sdd",
+            "to": "eval",
+            "label": "Validates features against KG integrity"
+          },
+          {
+            "from": "team",
+            "to": "dasm",
+            "label": "Syncs concurrent agent state"
+          },
+          {
+            "from": "mcp_factory",
+            "to": "kg_mcp",
+            "label": "Creates KG MCP instance"
+          },
+          {
+            "from": "kg_mcp",
+            "to": "a2a",
+            "label": "Shares KG data across agent network"
+          },
+          {
+            "from": "coord_a2a",
+            "to": "a2a",
+            "label": "Extends with coordination protocol negotiation"
+          },
+          {
+            "from": "skill_mgr",
+            "to": "bridge",
+            "label": "Loads skills from universal-skills"
+          },
+          {
+            "from": "quantapi",
+            "to": "a2a",
+            "label": "Provides trading execution interfaces"
+          },
+          {
+            "from": "dataflows",
+            "to": "quantapi",
+            "label": "Streams continuous temporal events"
+          },
+          {
+            "from": "quant_mcp",
+            "to": "dataflows",
+            "label": "Telemetry and Orders via SAAPI"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "mcp_discover",
+            "label": "Delegates live tool discovery"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "skill_mgr",
+            "label": "Ingests skill directories"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "a2a",
+            "label": "Fetches A2A agent cards"
+          },
+          {
+            "from": "mcp_discover",
+            "to": "mcp_factory",
+            "label": "Connects to MCP servers via stdio"
+          },
+          {
+            "from": "auth",
+            "to": "threat",
+            "label": "Validates before routing"
+          },
+          {
+            "from": "threat",
+            "to": "guardrails",
+            "label": "Applies runtime constraints"
+          },
+          {
+            "from": "guardrails",
+            "to": "telemetry",
+            "label": "Records enforcement decisions"
+          },
+          {
+            "from": "scheduler",
+            "to": "budget",
+            "label": "Tracks cost + auto-downgrades model tier"
+          },
+          {
+            "from": "paths",
+            "to": "auth",
+            "label": "Provides config/data locations"
+          },
+          {
+            "from": "user",
+            "to": "webui",
+            "label": "Uses"
+          },
+          {
+            "from": "user",
+            "to": "tui",
+            "label": "Uses"
+          },
+          {
+            "from": "webui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "tui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "gateway",
+            "to": "orchestrator",
+            "label": "Dispatches"
+          },
+          {
+            "from": "orchestrator",
+            "to": "subagent",
+            "label": "Delegates"
+          },
+          {
+            "from": "subagent",
+            "to": "mcp",
+            "label": "Invokes Tools"
+          },
+          {
+            "from": "orchestrator",
+            "to": "otel",
+            "label": "Exports Spans"
+          }
+        ]
+      },
+      {
+        "file": "docs/pillars/architecture_c4.md",
+        "level": "component",
+        "components": [
+          {
+            "kind": "Person",
+            "id": "dev",
+            "name": "Developer"
+          },
+          {
+            "kind": "Person",
+            "id": "agent",
+            "name": "Autonomous Agent"
+          },
+          {
+            "kind": "System",
+            "id": "au",
+            "name": "agent-utilities"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "antigravity",
+            "name": "Antigravity IDE"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "claude",
+            "name": "Claude Code"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "opencode",
+            "name": "OpenCode"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "devin",
+            "name": "Devin"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "terminal",
+            "name": "agent-terminal-ui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "webui",
+            "name": "agent-webui"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "skills",
+            "name": "universal-skills"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "Developer / Agent"
+          },
+          {
+            "kind": "Container",
+            "id": "orch",
+            "name": "ORCH: Orchestration Engine"
+          },
+          {
+            "kind": "Container",
+            "id": "kg",
+            "name": "KG: Knowledge Graph"
+          },
+          {
+            "kind": "Container",
+            "id": "ahe",
+            "name": "AHE: Agentic Harness"
+          },
+          {
+            "kind": "Container",
+            "id": "eco",
+            "name": "ECO: Ecosystem Peripherals"
+          },
+          {
+            "kind": "Container",
+            "id": "os_k",
+            "name": "OS: Agent OS Kernel"
+          },
+          {
+            "kind": "ContainerDb",
+            "id": "kgdb",
+            "name": "Knowledge Graph DB"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "orch",
+            "name": "Orchestration Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "router",
+            "name": "KG Router"
+          },
+          {
+            "kind": "Component",
+            "id": "planner",
+            "name": "Agentic Planner"
+          },
+          {
+            "kind": "Component",
+            "id": "dispatcher",
+            "name": "Graph Dispatcher"
+          },
+          {
+            "kind": "Component",
+            "id": "wiring",
+            "name": "Capability Wiring Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "orchestrator",
+            "name": "Agent Orchestrator"
+          },
+          {
+            "kind": "Component",
+            "id": "coord",
+            "name": "\ud83d\udd2c Coordination Layer"
+          },
+          {
+            "kind": "Component",
+            "id": "kgfactory",
+            "name": "KG Graph Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "agentrunner",
+            "name": "Agent Runner"
+          },
+          {
+            "kind": "Component",
+            "id": "pll",
+            "name": "\ud83d\udd2c Prediction Linkage Layer"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "kg",
+            "name": "Knowledge Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "engine",
+            "name": "IntelligenceGraphEngine"
+          },
+          {
+            "kind": "Component",
+            "id": "backend",
+            "name": "Graph Backends"
+          },
+          {
+            "kind": "Component",
+            "id": "pipeline",
+            "name": "Graph-OS Ingestion"
+          },
+          {
+            "kind": "Component",
+            "id": "retrieval",
+            "name": "Hybrid Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "dci",
+            "name": "\ud83d\udd2c DCI Retriever"
+          },
+          {
+            "kind": "Component",
+            "id": "ontology",
+            "name": "OWL Bridge + SPARQL"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd_ont",
+            "name": "SDD Ontology"
+          },
+          {
+            "kind": "Component",
+            "id": "shacl",
+            "name": "SHACL Validator"
+          },
+          {
+            "kind": "Component",
+            "id": "publisher",
+            "name": "Ontology Publisher"
+          },
+          {
+            "kind": "Component",
+            "id": "loader",
+            "name": "Ontology Loader"
+          },
+          {
+            "kind": "Component",
+            "id": "memory",
+            "name": "Memory Tiers"
+          },
+          {
+            "kind": "Component",
+            "id": "ctxbudget",
+            "name": "\ud83d\udd2c Context Budget Optimizer"
+          },
+          {
+            "kind": "Component",
+            "id": "argraph",
+            "name": "\ud83d\udd2c AR-Graph"
+          },
+          {
+            "kind": "Component",
+            "id": "tsgraph",
+            "name": "\ud83d\udd2c Time-Series Graph"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "ahe",
+            "name": "Agentic Harness"
+          },
+          {
+            "kind": "Component",
+            "id": "eval",
+            "name": "Continuous Evaluation Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "evolve",
+            "name": "Evolution Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "selfmodel",
+            "name": "Self-Model"
+          },
+          {
+            "kind": "Component",
+            "id": "team",
+            "name": "TeamConfig Composer"
+          },
+          {
+            "kind": "Component",
+            "id": "sdd",
+            "name": "DSTDD Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "dasm",
+            "name": "\ud83d\udd2c Distributed Agent State Manager"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "eco",
+            "name": "Ecosystem Peripherals"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_factory",
+            "name": "MCP Server Factory"
+          },
+          {
+            "kind": "Component",
+            "id": "kg_mcp",
+            "name": "KG MCP Server"
+          },
+          {
+            "kind": "Component",
+            "id": "a2a",
+            "name": "A2A Network"
+          },
+          {
+            "kind": "Component",
+            "id": "coord_a2a",
+            "name": "\ud83d\udd2c Coordinated A2A Skill"
+          },
+          {
+            "kind": "Component",
+            "id": "skill_mgr",
+            "name": "Skill Manager"
+          },
+          {
+            "kind": "Component",
+            "id": "bridge",
+            "name": "Ecosystem Bridge"
+          },
+          {
+            "kind": "Component",
+            "id": "quantapi",
+            "name": "\ud83d\udd2c Quant Agent API (SAAPI)"
+          },
+          {
+            "kind": "Component",
+            "id": "dataflows",
+            "name": "\ud83d\udd2c Market Dataflows"
+          },
+          {
+            "kind": "Component",
+            "id": "quant_mcp",
+            "name": "Unified Quant MCP Tool"
+          },
+          {
+            "kind": "Component",
+            "id": "toolkit_ingest",
+            "name": "Agent Toolkit Ingestor"
+          },
+          {
+            "kind": "Component",
+            "id": "mcp_discover",
+            "name": "MCP Live Discovery"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "os_k",
+            "name": "Agent OS Kernel"
+          },
+          {
+            "kind": "Component",
+            "id": "auth",
+            "name": "Security Policy Middleware"
+          },
+          {
+            "kind": "Component",
+            "id": "threat",
+            "name": "Threat Defense Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "guardrails",
+            "name": "Guardrail Engine"
+          },
+          {
+            "kind": "Component",
+            "id": "scheduler",
+            "name": "Cognitive Scheduler"
+          },
+          {
+            "kind": "Component",
+            "id": "budget",
+            "name": "\ud83d\udd2c Inference Budget Controller"
+          },
+          {
+            "kind": "Component",
+            "id": "telemetry",
+            "name": "Telemetry Pipeline"
+          },
+          {
+            "kind": "Component",
+            "id": "paths",
+            "name": "XDG Paths Module"
+          },
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "User"
+          },
+          {
+            "kind": "Container_Boundary",
+            "id": "c1",
+            "name": "Agent Ecosystem"
+          },
+          {
+            "kind": "Container",
+            "id": "webui",
+            "name": "Agent WebUI"
+          },
+          {
+            "kind": "Container",
+            "id": "tui",
+            "name": "Agent Terminal UI"
+          },
+          {
+            "kind": "Container",
+            "id": "gateway",
+            "name": "Agent Gateway (FastAPI)"
+          },
+          {
+            "kind": "Container",
+            "id": "orchestrator",
+            "name": "Graph Orchestrator"
+          },
+          {
+            "kind": "Container",
+            "id": "subagent",
+            "name": "Domain Sub-Agents"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "mcp",
+            "name": "MCP Servers"
+          },
+          {
+            "kind": "System_Ext",
+            "id": "otel",
+            "name": "OpenTelemetry Collector"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "dev",
+            "to": "antigravity",
+            "label": "Develops in"
+          },
+          {
+            "from": "dev",
+            "to": "terminal",
+            "label": "CLI interaction"
+          },
+          {
+            "from": "antigravity",
+            "to": "au",
+            "label": "MCP: KG queries, tool execution"
+          },
+          {
+            "from": "claude",
+            "to": "au",
+            "label": "MCP: shared KG read/write"
+          },
+          {
+            "from": "opencode",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "devin",
+            "to": "au",
+            "label": "MCP: shared KG read"
+          },
+          {
+            "from": "terminal",
+            "to": "au",
+            "label": "Direct Python API (zero-copy)"
+          },
+          {
+            "from": "webui",
+            "to": "au",
+            "label": "ACP/AG-UI protocol"
+          },
+          {
+            "from": "skills",
+            "to": "au",
+            "label": "DSTDD pipeline, skill ingestion"
+          },
+          {
+            "from": "agent",
+            "to": "au",
+            "label": "Orchestrated execution"
+          },
+          {
+            "from": "user",
+            "to": "os_k",
+            "label": "Authenticated request"
+          },
+          {
+            "from": "os_k",
+            "to": "orch",
+            "label": "Validated task dispatch"
+          },
+          {
+            "from": "orch",
+            "to": "kg",
+            "label": "Queries for routing & specialist selection"
+          },
+          {
+            "from": "kg",
+            "to": "kgdb",
+            "label": "Cypher queries / persistence"
+          },
+          {
+            "from": "kg",
+            "to": "ahe",
+            "label": "Feeds Self-Model & TeamConfig"
+          },
+          {
+            "from": "ahe",
+            "to": "eco",
+            "label": "Promotes proven coalitions to MCP/A2A"
+          },
+          {
+            "from": "eco",
+            "to": "os_k",
+            "label": "Tool execution through kernel guardrails"
+          },
+          {
+            "from": "os_k",
+            "to": "kg",
+            "label": "Persists execution traces & telemetry"
+          },
+          {
+            "from": "router",
+            "to": "planner",
+            "label": "Routes task to planning"
+          },
+          {
+            "from": "planner",
+            "to": "dispatcher",
+            "label": "Decomposes into parallel batches"
+          },
+          {
+            "from": "dispatcher",
+            "to": "wiring",
+            "label": "Discovers required capabilities"
+          },
+          {
+            "from": "orchestrator",
+            "to": "router",
+            "label": "Entry point for all orchestration"
+          },
+          {
+            "from": "orchestrator",
+            "to": "coord",
+            "label": "Selects protocol before execution"
+          },
+          {
+            "from": "orchestrator",
+            "to": "pll",
+            "label": "Aggregates quant predictions"
+          },
+          {
+            "from": "coord",
+            "to": "dispatcher",
+            "label": "Applies consensus/voting/delegation"
+          },
+          {
+            "from": "router",
+            "to": "kgfactory",
+            "label": "Materializes graph from KG templates"
+          },
+          {
+            "from": "kgfactory",
+            "to": "dispatcher",
+            "label": "Provides topology + specialist configs"
+          },
+          {
+            "from": "agentrunner",
+            "to": "kgfactory",
+            "label": "Materializes agent-specific graph"
+          },
+          {
+            "from": "agentrunner",
+            "to": "router",
+            "label": "Resolves agent from KG, dispatches task"
+          },
+          {
+            "from": "pll",
+            "to": "orchestrator",
+            "label": "Returns fused predictions"
+          },
+          {
+            "from": "engine",
+            "to": "backend",
+            "label": "Tier 1: Cypher persistence"
+          },
+          {
+            "from": "engine",
+            "to": "pipeline",
+            "label": "Orchestrates graph-os native ingestion"
+          },
+          {
+            "from": "retrieval",
+            "to": "engine",
+            "label": "Queries via hybrid scoring"
+          },
+          {
+            "from": "dci",
+            "to": "retrieval",
+            "label": "Seeds from hybrid, then graph traversal"
+          },
+          {
+            "from": "ontology",
+            "to": "engine",
+            "label": "Schema enforcement via OWL"
+          },
+          {
+            "from": "ontology",
+            "to": "sdd_ont",
+            "label": "owl:imports SDD classes"
+          },
+          {
+            "from": "shacl",
+            "to": "ontology",
+            "label": "Validates materialized RDF"
+          },
+          {
+            "from": "publisher",
+            "to": "ontology",
+            "label": "Exports/pushes ontology"
+          },
+          {
+            "from": "loader",
+            "to": "ontology",
+            "label": "Resolves owl:imports"
+          },
+          {
+            "from": "memory",
+            "to": "engine",
+            "label": "CRUD for tiered memories"
+          },
+          {
+            "from": "ctxbudget",
+            "to": "memory",
+            "label": "Compacts recall results within budget"
+          },
+          {
+            "from": "engine",
+            "to": "argraph",
+            "label": "Tracks inter-agent communication topologies"
+          },
+          {
+            "from": "engine",
+            "to": "tsgraph",
+            "label": "Applies temporal decay to HNSW edges"
+          },
+          {
+            "from": "eval",
+            "to": "selfmodel",
+            "label": "Updates self-assessment scores"
+          },
+          {
+            "from": "evolve",
+            "to": "eval",
+            "label": "Triggers evolution on failure patterns"
+          },
+          {
+            "from": "team",
+            "to": "selfmodel",
+            "label": "Uses capability scores for composition"
+          },
+          {
+            "from": "sdd",
+            "to": "eval",
+            "label": "Validates features against KG integrity"
+          },
+          {
+            "from": "team",
+            "to": "dasm",
+            "label": "Syncs concurrent agent state"
+          },
+          {
+            "from": "mcp_factory",
+            "to": "kg_mcp",
+            "label": "Creates KG MCP instance"
+          },
+          {
+            "from": "kg_mcp",
+            "to": "a2a",
+            "label": "Shares KG data across agent network"
+          },
+          {
+            "from": "coord_a2a",
+            "to": "a2a",
+            "label": "Extends with coordination protocol negotiation"
+          },
+          {
+            "from": "skill_mgr",
+            "to": "bridge",
+            "label": "Loads skills from universal-skills"
+          },
+          {
+            "from": "quantapi",
+            "to": "a2a",
+            "label": "Provides trading execution interfaces"
+          },
+          {
+            "from": "dataflows",
+            "to": "quantapi",
+            "label": "Streams continuous temporal events"
+          },
+          {
+            "from": "quant_mcp",
+            "to": "dataflows",
+            "label": "Telemetry and Orders via SAAPI"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "mcp_discover",
+            "label": "Delegates live tool discovery"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "skill_mgr",
+            "label": "Ingests skill directories"
+          },
+          {
+            "from": "toolkit_ingest",
+            "to": "a2a",
+            "label": "Fetches A2A agent cards"
+          },
+          {
+            "from": "mcp_discover",
+            "to": "mcp_factory",
+            "label": "Connects to MCP servers via stdio"
+          },
+          {
+            "from": "auth",
+            "to": "threat",
+            "label": "Validates before routing"
+          },
+          {
+            "from": "threat",
+            "to": "guardrails",
+            "label": "Applies runtime constraints"
+          },
+          {
+            "from": "guardrails",
+            "to": "telemetry",
+            "label": "Records enforcement decisions"
+          },
+          {
+            "from": "scheduler",
+            "to": "budget",
+            "label": "Tracks cost + auto-downgrades model tier"
+          },
+          {
+            "from": "paths",
+            "to": "auth",
+            "label": "Provides config/data locations"
+          },
+          {
+            "from": "user",
+            "to": "webui",
+            "label": "Uses"
+          },
+          {
+            "from": "user",
+            "to": "tui",
+            "label": "Uses"
+          },
+          {
+            "from": "webui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "tui",
+            "to": "gateway",
+            "label": "Queries"
+          },
+          {
+            "from": "gateway",
+            "to": "orchestrator",
+            "label": "Dispatches"
+          },
+          {
+            "from": "orchestrator",
+            "to": "subagent",
+            "label": "Delegates"
+          },
+          {
+            "from": "subagent",
+            "to": "mcp",
+            "label": "Invokes Tools"
+          },
+          {
+            "from": "orchestrator",
+            "to": "otel",
+            "label": "Exports Spans"
+          }
+        ]
+      },
+      {
+        "file": "docs/pillars/1_graph_orchestration/ORCH-1.6-DSTDD_Pipeline.md",
+        "level": "system_context",
+        "components": [
+          {
+            "kind": "Person",
+            "id": "user",
+            "name": "Developer / Agent"
+          },
+          {
+            "kind": "System",
+            "id": "orch",
+            "name": "ORCH-1.0\\nGraph Orchestration"
+          },
+          {
+            "kind": "System",
+            "id": "kg",
+            "name": "KG-2.0\\nKnowledge Graph"
+          },
+          {
+            "kind": "System",
+            "id": "ahe",
+            "name": "AHE-3.0\\nAgentic Harness"
+          },
+          {
+            "kind": "System",
+            "id": "eco",
+            "name": "ECO-4.0\\nEcosystem"
+          },
+          {
+            "kind": "System",
+            "id": "os",
+            "name": "OS-5.0\\nAgent OS Kernel"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "user",
+            "to": "orch",
+            "label": "Submits tasks"
+          },
+          {
+            "from": "orch",
+            "to": "kg",
+            "label": "Queries / Ingests (bidirectional)"
+          },
+          {
+            "from": "kg",
+            "to": "ahe",
+            "label": "Feeds Self-Model & TeamConfig"
+          },
+          {
+            "from": "ahe",
+            "to": "eco",
+            "label": "Promotes proven coalitions to MCP/A2A"
+          },
+          {
+            "from": "eco",
+            "to": "os",
+            "label": "Uses kernel for execution safety"
+          },
+          {
+            "from": "os",
+            "to": "kg",
+            "label": "Persists execution traces & telemetry"
+          },
+          {
+            "from": "kg",
+            "to": "orch",
+            "label": "Provides ontological routing"
+          }
+        ]
+      }
+    ],
+    "has_c4": true,
+    "diagram_count": 16
+  },
+  "hot_paths": {
+    "entry_points": [
+      {
+        "type": "cli_main",
+        "module": "create_schema",
+        "file": "create_schema.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.get_stats",
+        "file": "scripts/get_stats.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.verify_acp_stack",
+        "file": "scripts/verify_acp_stack.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.install_git_hooks",
+        "file": "scripts/install_git_hooks.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.test_lm_studio_orchestration",
+        "file": "scripts/test_lm_studio_orchestration.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.consolidate_concepts",
+        "file": "scripts/consolidate_concepts.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.ingest_paper",
+        "file": "scripts/ingest_paper.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.verify_acp",
+        "file": "scripts/verify_acp.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.test_mcp_servers",
+        "file": "scripts/test_mcp_servers.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.submit_diff",
+        "file": "scripts/submit_diff.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.format_ttl",
+        "file": "scripts/format_ttl.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.ingest_all",
+        "file": "scripts/ingest_all.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "agent_utilities.__main__",
+        "file": "agent_utilities/__main__.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scratch.discover_tools",
+        "file": "scratch/discover_tools.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scratch.test_anyio",
+        "file": "scratch/test_anyio.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scratch.peek_tasks",
+        "file": "scratch/peek_tasks.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scratch.test_staging",
+        "file": "scratch/test_staging.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scratch.refactor",
+        "file": "scratch/refactor.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scratch.peek_tasks2",
+        "file": "scratch/peek_tasks2.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scratch.reset_db",
+        "file": "scratch/reset_db.py"
+      }
+    ],
+    "entry_point_count": 46,
+    "total_modules": 732,
+    "hot_path_modules": 704,
+    "cold_modules": [
+      "scratch",
+      "scratch.print_eg",
+      "scratch.test_discovery",
+      "scratch.test_env",
+      "scratch.test_env_diff",
+      "scratch.test_logger",
+      "scripts.check",
+      "scripts.check_concepts",
+      "scripts.check_stubs",
+      "scripts.patch_schema",
+      "test_kuzu",
+      "tests.conftest",
+      "tests.test_cognitive_scheduler",
+      "tests.test_comparative_analysis",
+      "tests.test_conductor_workflow"
+    ],
+    "cold_module_count": 28,
+    "hot_path_coverage_pct": 96.2
+  },
+  "design_patterns": {
+    "counts": {
+      "mixin": 6,
+      "dependency_injection": 114,
+      "lazy_init": 8,
+      "plugin_registry": 24,
+      "event_driven": 7,
+      "protocol_oriented": 22,
+      "factory": 73,
+      "strategy": 0
+    },
+    "examples": {
+      "mixin": [
+        "agent_utilities/base_utilities.py:PatchObject",
+        "agent_utilities/protocols/quant_agent.py:QuantAgentTemplate",
+        "agent_utilities/automation/maintenance_cron.py:MaintenanceFrequency"
+      ],
+      "dependency_injection": [],
+      "lazy_init": [],
+      "plugin_registry": [],
+      "event_driven": [],
+      "protocol_oriented": [
+        "agent_utilities/base_utilities.py:PatchObject",
+        "agent_utilities/protocols/quant_agent.py:QuantAgentTemplate",
+        "agent_utilities/protocols/data_connector.py:DataConnectorProtocol"
+      ],
+      "factory": [
+        "tests/test_bulk_ingestion.py:create_schema",
+        "agent_utilities/agent/factory.py:create_agent_parser",
+        "agent_utilities/agent/factory.py:create_agent"
+      ],
+      "strategy": []
+    }
+  },
+  "generated_c4_path": "",
+  "scoring": {
+    "score": 100,
+    "grade": "A",
+    "details": [
+      "Rich protocol support (7 protocols): +30",
+      "Good type coverage (56.9%): +15",
+      "Well-structured (51 packages): +15",
+      "Appropriate nesting depth (4): +10",
+      "12-Factor signals (5/6): +20",
+      "Architecture depth bonus: +10"
+    ]
+  }
+}

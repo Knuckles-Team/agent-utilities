@@ -201,7 +201,7 @@ def get_agent_workspace() -> Path:
         logger.debug(f"get_agent_workspace: Tier 1 SUCCESS (Override): {p}")
         return p
 
-    env_workspace = os.getenv("AGENT_WORKSPACE")
+    env_workspace = os.getenv("WORKSPACE_PATH")
     if env_workspace:
         p = Path(env_workspace).resolve()
         logger.debug(f"get_agent_workspace: Tier 2 Checking: {p}")

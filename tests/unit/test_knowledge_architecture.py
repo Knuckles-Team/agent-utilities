@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for Knowledge Architecture gaps: SPARQL, ArchiMate, ADR.
 
-CONCEPT:KG-2.7 — Context Graph Architecture
+CONCEPT:KG-2.6 — Context Graph Architecture
 
 Tests covering:
 - SPARQL read-only endpoint via rdflib materialization

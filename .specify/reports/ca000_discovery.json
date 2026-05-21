@@ -1,0 +1,152 @@
+{
+  "analysis_mode": "hybrid",
+  "project_count": 3,
+  "kg_query": null,
+  "projects": [
+    {
+      "path": "/home/apps/workspace/open-source-libraries/hermes-agent",
+      "name": "hermes-agent",
+      "exists": true,
+      "type": "codebase",
+      "language": "python",
+      "structure": {
+        "file_count": 3576,
+        "dir_count": 657,
+        "total_loc": 922366,
+        "extension_distribution": {
+          ".py": 1775,
+          ".md": 1027,
+          ".ts": 320,
+          ".tsx": 89,
+          ".yaml": 83,
+          ".json": 46,
+          ".xsd": 39,
+          ".yml": 23,
+          ".png": 23,
+          ".sh": 20
+        }
+      },
+      "license_file": "LICENSE",
+      "license_detected": "MIT",
+      "metadata": {
+        "name": "hermes-agent",
+        "version": "0.14.0",
+        "description": "The self-improving AI agent \u2014 creates skills from experience, improves them during use, and runs anywhere",
+        "license": "MIT",
+        "dependencies": [
+          "openai",
+          "python-dotenv",
+          "fire",
+          "httpx",
+          "rich",
+          "tenacity",
+          "pyyaml",
+          "ruamel.yaml",
+          "requests",
+          "jinja2",
+          "pydantic",
+          "prompt_toolkit",
+          "croniter",
+          "pyjwt",
+          "tzdata",
+          "psutil"
+        ],
+        "dep_count": 16,
+        "python_requires": ">=3.11"
+      },
+      "key_files": {
+        "readme": true,
+        "changelog": false,
+        "contributing": true,
+        "code_of_conduct": false,
+        "security_policy": true,
+        "ci_config": true,
+        "docker": true,
+        "tests": true,
+        "docs": true,
+        "agents_md": true
+      },
+      "source": "filesystem"
+    },
+    {
+      "path": "/home/apps/workspace/agent-packages/agent-utilities",
+      "name": "agent-utilities",
+      "exists": true,
+      "type": "codebase",
+      "language": "python",
+      "structure": {
+        "file_count": 5041,
+        "dir_count": 232,
+        "total_loc": 187975,
+        "extension_distribution": {
+          "": 2960,
+          ".json": 1012,
+          ".py": 747,
+          ".md": 141,
+          ".png": 37,
+          ".js": 36,
+          ".html": 32,
+          ".db": 21,
+          ".ttl": 11,
+          ".txt": 6
+        }
+      },
+      "license_file": "LICENSE",
+      "license_detected": "MIT",
+      "metadata": {
+        "name": "agent-utilities",
+        "version": "0.11.0",
+        "description": "Agent Utilities for Pydantic AI Agents",
+        "license": "MIT",
+        "dependencies": [
+          "tree-sitter",
+          "requests",
+          "urllib3",
+          "pydantic",
+          "pydantic-settings",
+          "pyyaml",
+          "python-dotenv",
+          "networkx",
+          "ladybug",
+          "numpy",
+          "scipy",
+          "cryptography",
+          "pathspec",
+          "platformdirs",
+          "packaging",
+          "psutil",
+          "tree-sitter-python",
+          "tree-sitter-javascript",
+          "tree-sitter-typescript",
+          "pydantic-ai-slim"
+        ],
+        "dep_count": 20,
+        "python_requires": ">=3.11,<3.14"
+      },
+      "key_files": {
+        "readme": true,
+        "changelog": true,
+        "contributing": false,
+        "code_of_conduct": false,
+        "security_policy": false,
+        "ci_config": true,
+        "docker": false,
+        "tests": true,
+        "docs": true,
+        "agents_md": true
+      },
+      "source": "filesystem"
+    },
+    {
+      "path": "/home/apps/workspace/prompts/conversations/new/hermes_levels_article.txt",
+      "name": "hermes_levels_article.txt",
+      "exists": true,
+      "type": "research",
+      "format": ".txt",
+      "char_count": 1209,
+      "word_count": 208,
+      "line_count": 45,
+      "source": "filesystem"
+    }
+  ]
+}

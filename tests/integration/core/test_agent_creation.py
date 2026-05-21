@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.5"""
+"""CONCEPT:ORCH-1.3"""
 
 """
 Concept: creating-an-agent
@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from agent_utilities import (
-    create_graph_agent_server,
+    create_agent_server,
     initialize_workspace,
     load_identity,
 )
@@ -66,7 +66,7 @@ def test_create_agent_bootstrap_pattern(mock_run, temp_workspace):
     )
 
     # 3. Create server (uvicorn.run is mocked so it won't block)
-    create_graph_agent_server(
+    create_agent_server(
         name=agent_name,
         system_prompt=system_prompt,
         mcp_config="mcp_config.json",
