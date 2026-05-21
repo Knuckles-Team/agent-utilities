@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.5 — Coordination Protocol Layer.
+"""CONCEPT:ORCH-1.3 — Coordination Protocol Layer.
 
 Explicit coordination layer for multi-agent orchestration.
 
@@ -20,7 +20,7 @@ Architecture:
     - **CoordinationTrace**: KG-persisted record of coordination events
       for observability and learning.
 
-See docs/pillars/1_graph_orchestration.md §CONCEPT:ORCH-1.5
+See docs/pillars/1_graph_orchestration.md §CONCEPT:ORCH-1.3
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 class ProtocolType(StrEnum):
     """Available coordination protocol types.
 
-    CONCEPT:ORCH-1.5 — Research: 2605.03310v1
+    CONCEPT:ORCH-1.3 — Research: 2605.03310v1
     """
 
     CONSENSUS = "consensus"  # All agents must agree
@@ -68,7 +68,7 @@ class ConvergenceCriterion(StrEnum):
 class CoordinationProtocol(BaseModel):
     """Declarative coordination protocol definition.
 
-    CONCEPT:ORCH-1.5 — Research: 2605.03310v1
+    CONCEPT:ORCH-1.3 — Research: 2605.03310v1
 
     Each protocol specifies how multiple agents should coordinate
     on a shared task: who speaks, when convergence is reached, and
@@ -100,7 +100,7 @@ class CoordinationProtocol(BaseModel):
 class CoordinationResult(BaseModel):
     """Outcome of a coordination round.
 
-    CONCEPT:ORCH-1.5
+    CONCEPT:ORCH-1.3
 
     Attributes:
         protocol_id: Protocol that was applied.
@@ -178,7 +178,7 @@ BUILTIN_PROTOCOLS: dict[str, CoordinationProtocol] = {
 class CoordinationLayer:
     """Explicit coordination layer for multi-agent tasks.
 
-    CONCEPT:ORCH-1.5 — Research: 2605.03310v1
+    CONCEPT:ORCH-1.3 — Research: 2605.03310v1
 
     Sits between ``DynamicSubgraphOrchestrator.synthesize_team()`` and
     graph execution. Selects the optimal coordination protocol based
@@ -212,7 +212,7 @@ class CoordinationLayer:
     ) -> CoordinationProtocol:
         """Select the optimal coordination protocol for a task.
 
-        CONCEPT:ORCH-1.5 — Research: 2605.03310v1
+        CONCEPT:ORCH-1.3 — Research: 2605.03310v1
 
         Selection logic:
         1. If single agent → delegation (no coordination needed).
@@ -304,7 +304,7 @@ class CoordinationLayer:
     ) -> CoordinationResult:
         """Apply a coordination protocol and return the result.
 
-        CONCEPT:ORCH-1.5 — Research: 2605.03310v1
+        CONCEPT:ORCH-1.3 — Research: 2605.03310v1
 
         This is the synchronous coordination step that occurs *before*
         graph execution begins. It determines how agents will coordinate
@@ -383,7 +383,7 @@ class CoordinationLayer:
     ) -> str | None:
         """Persist a coordination trace to the Knowledge Graph.
 
-        CONCEPT:ORCH-1.5 — Research: 2605.03310v1
+        CONCEPT:ORCH-1.3 — Research: 2605.03310v1
 
         Creates a ``CoordinationTrace`` node in the KG for observability,
         learning, and historical protocol selection.

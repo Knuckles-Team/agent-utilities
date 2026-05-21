@@ -6,6 +6,8 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
+from agent_utilities.harness.tracing import trace
+
 from ..models import AgentDeps
 from .versioning import tool_version
 
@@ -20,6 +22,7 @@ class SubAgentResponse(BaseModel):
     success: bool
 
 
+@trace(name="invoke_specialized_agent", trace_type="TOOL")
 @tool_version("1.0.0")
 async def invoke_specialized_agent(
     ctx: RunContext[AgentDeps],
@@ -106,6 +109,7 @@ async def invoke_specialized_agent(
     return f"Error: Unsupported agent source '{agent_info.source}' for '{agent_name}'"
 
 
+@trace(name="list_available_agents", trace_type="TOOL")
 @tool_version("1.0.0")
 async def list_available_agents(ctx: RunContext[Any]) -> list[str]:
     """List all specialized expert roles currently registered in the Knowledge Graph.
@@ -125,6 +129,7 @@ async def list_available_agents(ctx: RunContext[Any]) -> list[str]:
     ]
 
 
+@trace(name="share_reasoning", trace_type="TOOL")
 @tool_version("1.0.0")
 async def share_reasoning(ctx: RunContext[Any], reasoning: str) -> str:
     """Explicitly share the agent's internal reasoning or plan for a task.

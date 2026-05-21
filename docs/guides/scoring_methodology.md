@@ -178,7 +178,7 @@ kg_search(mode="discover", query="<your concept or feature topic>", top_k=50)
 
 ## Research Assimilation Tracking
 
-**CONCEPT:KG-2.7** — Research Intelligence
+**CONCEPT:KG-2.6** — Research Intelligence
 
 ### Assimilation Lifecycle
 

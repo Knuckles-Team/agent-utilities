@@ -155,8 +155,7 @@ List the MCP servers your agent should connect to. Environment variables are aut
       "command": "uv",
       "args": ["run", "agent-utilities-kg"],
       "env": {
-        "AGENT_ID": "local-developer",
-        "WORKSPACE_PATH": "${workspaceFolder}"
+        "LITE_LLM_PROVIDER": "openai"
       }
     }
   }
@@ -222,3 +221,48 @@ All agents inherit these flags from `create_agent_parser()`:
 - Add custom skills: place `.md` files in a directory and pass `--custom-skills-directory`
 - Deploy with Docker: see your agent's `Dockerfile` and `compose.yaml`
 - Learn about the graph orchestration pipeline: see [Architecture](../1_graph_orchestration/architecture.md)
+
+
+## Creating an Agent
+
+All agents in the ecosystem follow the same pattern powered by `agent-utilities`. Here's the reference template used by `genius-agent`:
+
+```python
+#!/usr/bin/python
+import logging, os, sys
+from agent_utilities import (
+    build_system_prompt_from_workspace,
+    create_agent_parser,
+    create_graph_agent_server,
+    initialize_workspace,
+    load_identity,
+)
+
+__version__ = "1.0.0"
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+initialize_workspace()
+# Note: load_identity() now transparently retrieves the agent's identity from the Knowledge Graph
+meta = load_identity()
+
+DEFAULT_AGENT_NAME = os.getenv("DEFAULT_AGENT_NAME", meta.get("name", "My Agent"))
+DEFAULT_AGENT_SYSTEM_PROMPT = os.getenv(
+    "AGENT_SYSTEM_PROMPT", meta.get("content") or build_system_prompt_from_workspace()
+)
+
+def agent_server():
+    print(f"{DEFAULT_AGENT_NAME} v{__version__}", file=sys.stderr)
+    parser = create_agent_parser()
+    args = parser.parse_args()
+    create_graph_agent_server(
+        mcp_url=args.mcp_url, mcp_config=args.mcp_config or "mcp_config.json",
+        host=args.host, port=args.port, provider=args.provider,
+        model_id=args.model_id, base_url=args.base_url, api_key=args.api_key,
+        enable_web_ui=args.web, debug=args.debug,
+    )
+
+if __name__ == "__main__":
+    agent_server()
+```
+
+> **Full guide**: See [docs/creating-an-agent.md](docs/pillars/4_ecosystem_and_tooling/creating-an-agent.md) for the complete walkthrough including project structure, `main_agent.json`, `mcp_config.json`, `pyproject.toml`, and all CLI flags.

@@ -1,4 +1,4 @@
-# Community Telemetry (CONCEPT:ECO-4.2)
+# Community Telemetry (CONCEPT:ECO-4.0)
 
 ## Overview
 Origin tracking, deterministic identifiers, and author tagging for distributed hive-mind capability merging.
@@ -9,7 +9,7 @@ Origin tracking, deterministic identifiers, and author tagging for distributed h
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Ecosystem Topology Map (CONCEPT:ECO-4.2)
+# Ecosystem Topology Map (CONCEPT:ECO-4.0)
 
 ## Overview
 Materializes the 40-repository ecosystem as first-class Knowledge Graph nodes. Scans `pyproject.toml` files, builds transitive dependency graphs, computes impact radius, and groups MCP servers into intelligent categories (Infrastructure, Media, Productivity, Data Science, DevOps, Communication). OWL classes: `EcosystemPackage`, `FrontendPackage`, `MCPServerPackage`, `SkillPackage` with `providesCapabilityTo` (transitive).

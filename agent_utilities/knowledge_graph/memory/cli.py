@@ -3,8 +3,8 @@ from __future__ import annotations
 
 """CLI for the Cross-Agent Observational Memory Bridge.
 
-CONCEPT:KG-2.10 -- Observational Memory Bridge
-CONCEPT:ECO-4.6 -- Cross-Agent Memory Hook Installer
+CONCEPT:KG-2.1 -- Observational Memory Bridge
+CONCEPT:ECO-4.0 -- Cross-Agent Memory Hook Installer
 
 Provides subcommands for memory materialization, startup context generation,
 transcript observation, reflection, hook installation, and diagnostics.

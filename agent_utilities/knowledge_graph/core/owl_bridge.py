@@ -102,7 +102,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "position",
     "portfolio",
     "strategy",
-    # Market Data Connector Protocol (CONCEPT:ECO-4.3)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.1)
     "data_connector",
     "data_fetch_record",
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
@@ -113,18 +113,18 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "risk_assessment",
     "risk_factor",
     "risk_mitigation",
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.6)
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.4)
     "backtest_run",
     "backtest_metric",
     # Prompt Injection Scanner (CONCEPT:OS-5.1)
     "security_finding",
-    # Tool Repetition Guard (CONCEPT:OS-5.3)
+    # Tool Repetition Guard (CONCEPT:OS-5.1)
     "experience",
-    # MATE Integration — Token Analytics (CONCEPT:OS-5.4)
+    # MATE Integration — Token Analytics (CONCEPT:OS-5.1)
     "token_usage_record",
-    # MATE Integration — Audit Logging (CONCEPT:OS-5.4)
+    # MATE Integration — Audit Logging (CONCEPT:OS-5.1)
     "audit_log",
-    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.3)
+    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.1)
     "guardrail_trigger",
     # MATE Integration — Config Versioning (CONCEPT:AHE-3.2)
     "agent_config_version",
@@ -134,7 +134,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "imodel",
     "interpretability_test",
     "model_display",
-    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
     "ecosystem_package",
     "frontend_package",
     "kernel_package",
@@ -152,7 +152,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "execution_plan",
     "market_making_quote",
     "pairs_trade_signal",
-    # Context Graph Architecture (CONCEPT:KG-2.7)
+    # Context Graph Architecture (CONCEPT:KG-2.6)
     "architecture_decision",
     "archimate_element",
 }
@@ -220,7 +220,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "belongs_to_portfolio",
     "executes_strategy",
     "backtested_with",
-    # Market Data Connector Protocol (CONCEPT:ECO-4.3)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.1)
     "fetched_from",
     "falls_back_to",
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
@@ -232,7 +232,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "has_risk_factor",
     "mitigated_by",
     "propagates_risk_to",
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.6)
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.4)
     "evaluated_strategy",
     "has_metric",
     "compared_to_benchmark",
@@ -240,9 +240,9 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "detected_threat",
     # Structured Retry Manager (CONCEPT:ORCH-1.3)
     "triggered_retry",
-    # MATE Integration — Audit Logging (CONCEPT:OS-5.4)
+    # MATE Integration — Audit Logging (CONCEPT:OS-5.1)
     "audited_by",
-    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.3)
+    # MATE Integration — Guardrail Engine (CONCEPT:OS-5.1)
     "triggered_guardrail",
     # MATE Integration — Config Versioning (CONCEPT:AHE-3.2)
     "config_version_of",
@@ -253,7 +253,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "tested_interpretability",
     "display_of",
     "pareto_dominates",
-    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
     "provides_capability_to",
     "consumes_from_kernel",
     "visualizes",
@@ -272,7 +272,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "executed_via",
     "pairs_with",
     "makes_market_in",
-    # Context Graph Architecture — ADR edges (CONCEPT:KG-2.7)
+    # Context Graph Architecture — ADR edges (CONCEPT:KG-2.6)
     "impacts_concept",
     "alternatives_to",
     "decided_by",
@@ -585,7 +585,7 @@ class OWLBridge:
     def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against the OWL backend or rdflib materialization.
 
-        CONCEPT:KG-2.7 — SPARQL Read-Only Endpoint
+        CONCEPT:KG-2.6 — SPARQL Read-Only Endpoint
 
         Supports three execution strategies in priority order:
         1. Native OWL backend SPARQL (if available)
@@ -618,7 +618,7 @@ class OWLBridge:
     def _build_rdf_graph(self) -> Any:
         """Materialize the LPG into an rdflib Graph for SPARQL queries.
 
-        CONCEPT:KG-2.7 — RDF Materialization
+        CONCEPT:KG-2.6 — RDF Materialization
 
         Promotes all nodes as typed OWL individuals and all edges as
         property assertions under the ``au:`` namespace. The result is

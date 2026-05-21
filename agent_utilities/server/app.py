@@ -212,7 +212,7 @@ def build_agent_app(
         skills_list = enabled_skills
 
         if not skills_list:
-            # CONCEPT:ECO-4.1 — Register PlannerGraphSkill when graph_bundle is available
+            # CONCEPT:ECO-4.0 — Register PlannerGraphSkill when graph_bundle is available
             if graph_bundle is not None:
                 try:
                     from ..protocols.a2a_graph_skill import PlannerGraphSkill
@@ -229,7 +229,7 @@ def build_agent_app(
                     )
                     skills_list.append(planner_skill)
                     logger.info(
-                        "[CONCEPT:ECO-4.1] Registered PlannerGraphSkill as A2A-native skill"
+                        "[CONCEPT:ECO-4.0] Registered PlannerGraphSkill as A2A-native skill"
                     )
                 except Exception as e:
                     logger.warning(f"PlannerGraphSkill registration failed: {e}")
@@ -311,7 +311,7 @@ def build_agent_app(
                     f"Automatic Knowledge Graph ingestion failed on startup: {e}"
                 )
 
-            # CONCEPT:ECO-4.1: A2A agent sync and periodic refresh
+            # CONCEPT:ECO-4.0: A2A agent sync and periodic refresh
             _a2a_cfg = a2a_config or os.getenv("A2A_CONFIG")
             if _a2a_cfg:
                 try:
@@ -518,7 +518,7 @@ def build_agent_app(
                     skills = []
                     with suppress(Exception):
                         prompts = backend.execute(
-                            "MATCH (p:Prompt) RETURN p.id AS id, p.name AS name, p.description AS description_text"
+                            "MATCH (p:Prompt) RETURN p.id AS id, p.name AS name, p.description AS descriptionription_text"
                         )
                         for p in prompts:
                             skills.append(
@@ -532,7 +532,7 @@ def build_agent_app(
                             )
                     with suppress(Exception):
                         tools = backend.execute(
-                            "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS description_text, t.mcp_server AS server"
+                            "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS descriptionription_text, t.mcp_server AS server"
                         )
                         for t in tools:
                             server_label = t.get("server", "mcp")

@@ -39,9 +39,6 @@ Default: `pytest -m "not live"` runs unit + integration.
 | Variable | Purpose | Default |
 |---|---|---|
 | `PROVIDER` | LLM provider name (e.g., `openai`, `anthropic`, `groq`) | `openai` |
-| `MODEL_ID` | LLM model identifier | `llama-3.2-3b-instruct` |
-| `LLM_BASE_URL` | LLM API base URL | `http://host.docker.internal:1234/v1` |
-| `LLM_API_KEY` | LLM API key | `llama` |
 | `GRAPH_DB_PATH` | Path to knowledge graph database | `knowledge_graph.db` |
 
 **Optional Variables:**
@@ -52,7 +49,6 @@ Default: `pytest -m "not live"` runs unit + integration.
 | `AGENT_SYSTEM_PROMPT` | Override system prompt | Built from workspace |
 | `TOOL_GUARD_MODE` | `on`, `off`, `custom` | `on` |
 | `DISABLE_TOOL_GUARD` | Boolean to disable tool guard | `False` |
-| `MODELS_CONFIG` | Path to multi-model registry config | None |
 | `ENABLE_DELEGATION` | Enable OIDC token delegation | `False` |
 | `GRAPH_BACKEND` | Backend type: `ladybug`, `falkordb`, `neo4j` | `ladybug` |
 | `GRAPH_DIRECT_EXECUTION` | Direct graph dispatch in AG-UI/ACP (bypasses LLM tool-call hop) | `True` |
@@ -215,3 +211,13 @@ Key entry points for understanding the codebase:
 - `mcp_utilities.py` → MCP tool registration
 - `graph/builder.py` → Graph initialization and workspace discovery
 - `knowledge_graph/engine.py` → Intelligence Graph API
+
+
+## API Documentation
+
+Every agent server automatically hosts an interactive Swagger UI for its APIs.
+
+- **URL**: `http://localhost:8000/docs`
+- **Spec**: `http://localhost:8000/openapi.json`
+
+This interface allows you to test the `/health`, `/acp`, and `/mcp` endpoints directly from your browser.

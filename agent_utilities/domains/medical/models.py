@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Medical Domain Pydantic Models (CONCEPT:KG-2.8).
+"""Medical Domain Pydantic Models (CONCEPT:KG-2.6).
 
 Aligned to SNOMED-CT, ICD-10/11, LOINC, RxNorm, HL7 FHIR, CDISC.
 """

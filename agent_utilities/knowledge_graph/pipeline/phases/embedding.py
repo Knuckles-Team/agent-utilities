@@ -21,10 +21,13 @@ def _generate_embedding_batch(texts: list[str]) -> list[list[float]] | None:
         maintenance.py's generate_embedding(), connecting to the local LM Studio
         server at LLM_BASE_URL/embeddings.
     """
-    from agent_utilities.core.config import config
+    from agent_utilities.core.config import (
+        DEFAULT_EMBEDDING_BASE_URL,
+        DEFAULT_EMBEDDING_MODEL_ID,
+    )
 
-    url = config.llm_base_url or "http://localhost:1234/v1"
-    model = getattr(config, "embedding_model", "text-embedding-nomic-embed-text-v2-moe")
+    url = DEFAULT_EMBEDDING_BASE_URL or "http://localhost:1234/v1"
+    model = DEFAULT_EMBEDDING_MODEL_ID
 
     try:
         import requests

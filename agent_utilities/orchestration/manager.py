@@ -49,7 +49,7 @@ class Orchestrator:
         # Try backend first
         if self.engine.backend:
             results = self.engine.query_cypher(
-                "MATCH (t:Task {id: $job_id}) RETURN t.status as status, t.description as desc",
+                "MATCH (t:Task {id: $job_id}) RETURN t.status as status, t.description AS description",
                 {"job_id": job_id},
             )
             if results:

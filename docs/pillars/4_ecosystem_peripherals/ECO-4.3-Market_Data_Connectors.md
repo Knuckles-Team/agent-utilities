@@ -1,4 +1,4 @@
-# Market Data Connector Protocol (CONCEPT:ECO-4.3)
+# Market Data Connector Protocol (CONCEPT:ECO-4.1)
 
 ## Overview
 Generic `DataConnectorProtocol` with auto-fallback chain, rate-limit awareness, and immutable `DataFetchRecordNode` provenance tracking.

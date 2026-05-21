@@ -2,7 +2,7 @@
 
 > **Concepts:** CONCEPT:KG-2.0, CONCEPT:KG-2.0, CONCEPT:ORCH-1.0, CONCEPT:KG-2.1, CONCEPT:ORCH-1.2
 >
-> See also: [First Principles Architecture](../1_graph_orchestration/first-principles.md) for CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.1 (Registry Cache, TeamConfig, AgentCapability, PlannerGraphSkill).
+> See also: [First Principles Architecture](../1_graph_orchestration/first-principles.md) for CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0 (Registry Cache, TeamConfig, AgentCapability, PlannerGraphSkill).
 
 This document describes the Emergent Architecture layer of `agent-utilities` — a suite of five interconnected modules that enable dynamic agent coalition formation, evolutionary variant selection, metacognitive self-modeling, and attention-based output quality filtering.
 

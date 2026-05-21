@@ -22,6 +22,7 @@ from agent_utilities.core.scheduler import (
 from agent_utilities.core.scheduler import (
     schedule_task as schedule_task_util,
 )
+from agent_utilities.harness.tracing import trace
 
 from ..models import CronRegistryModel
 from .versioning import tool_version
@@ -29,6 +30,7 @@ from .versioning import tool_version
 logger = logging.getLogger(__name__)
 
 
+@trace(name="schedule_task", trace_type="TOOL")
 @tool_version("1.0.0")
 async def schedule_task(
     ctx: RunContext[Any],
@@ -53,6 +55,7 @@ async def schedule_task(
     return schedule_task_util(task_id, name, interval_minutes, prompt)
 
 
+@trace(name="list_tasks", trace_type="TOOL")
 @tool_version("1.0.0")
 async def list_tasks(ctx: RunContext[Any]) -> CronRegistryModel:
     """List all periodically scheduled tasks registered in the workspace.
@@ -67,6 +70,7 @@ async def list_tasks(ctx: RunContext[Any]) -> CronRegistryModel:
     return list_scheduled_tasks_util()
 
 
+@trace(name="delete_task", trace_type="TOOL")
 @tool_version("1.0.0")
 async def delete_task(ctx: RunContext[Any], task_id: str) -> str:
     """Permanently remove a scheduled task from the background processor.
@@ -83,6 +87,7 @@ async def delete_task(ctx: RunContext[Any], task_id: str) -> str:
 
 
 # New: View Cron Log (Code Puppy Port)
+@trace(name="view_cron_log", trace_type="TOOL")
 @tool_version("1.0.0")
 async def view_cron_log(ctx: RunContext[Any], lines: int = 50) -> str:
     """Retrieve the recent execution history and diagnostics for scheduled tasks.

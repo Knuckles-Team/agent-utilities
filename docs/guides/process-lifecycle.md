@@ -109,4 +109,4 @@ DEBUG - Cleaned up child process 12346
 
 - [Configuration](../5_agent_os_infrastructure/configuration.md) — Server startup flags and environment variables
 - [Architecture](../1_graph_orchestration/architecture.md) — Server endpoint architecture
-- [First Principles Architecture](../1_graph_orchestration/first-principles.md) — Full CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.1 overview
+- [First Principles Architecture](../1_graph_orchestration/first-principles.md) — Full CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0 overview

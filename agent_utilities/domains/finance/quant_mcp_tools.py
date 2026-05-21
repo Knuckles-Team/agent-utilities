@@ -1,5 +1,5 @@
 """
-Quant MCP Tools — CONCEPT:ECO-4.3
+Quant MCP Tools — CONCEPT:ECO-4.1
 Exposes quant primitives to external agents via the graph-os MCP Server.
 """
 

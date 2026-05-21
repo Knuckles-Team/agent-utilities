@@ -1,4 +1,4 @@
-"""CONCEPT:KG-2.7"""
+"""CONCEPT:KG-2.6"""
 
 from unittest.mock import MagicMock, patch
 

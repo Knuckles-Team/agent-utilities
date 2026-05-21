@@ -66,7 +66,7 @@ class DynamicSubgraphOrchestrator:
 
     def __init__(self, engine: IntelligenceGraphEngine | None = None):
         self.engine = engine
-        # CONCEPT:ORCH-1.5 — Coordination Protocol Layer (Research: 2605.03310v1)
+        # CONCEPT:ORCH-1.3 — Coordination Protocol Layer (Research: 2605.03310v1)
         self.coordination_layer = CoordinationLayer(engine=engine)
 
     def synthesize_team(
@@ -194,7 +194,7 @@ class DynamicSubgraphOrchestrator:
             reasoning=f"Dynamically synthesized topology via ORCH-1.19. Makespan: {critical_info.get('makespan', 1.0)}",
         )
 
-        # CONCEPT:ORCH-1.5 — Select and apply coordination protocol (Research: 2605.03310v1)
+        # CONCEPT:ORCH-1.3 — Select and apply coordination protocol (Research: 2605.03310v1)
         agent_ids: list[str] = [str(a["agent_id"]) for a in agents]
         protocol = self.coordination_layer.select_protocol(
             agent_count=len(agents),
@@ -570,23 +570,56 @@ async def run_graph(
                 connected_toolsets.append(ts)
                 continue
 
-            srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
+            srv_id = getattr(ts, "id", None) or getattr(ts, "name", None) or repr(ts)
             try:
                 logger.debug(f"run_graph: Connecting to MCP server '{srv_id}'...")
-                connected = await asyncio.wait_for(
-                    stack.enter_async_context(ts), timeout=60.0
-                )
+                connected = await stack.enter_async_context(ts)
                 _already_connected.add(id(ts))
                 connected_toolsets.append(connected)
                 logger.info(f"run_graph: ✅ MCP server '{srv_id}' connected")
             except Exception as e:
-                err_msg = str(e)
+                import traceback
+
+                err_msg = "".join(
+                    traceback.format_exception(type(e), e, e.__traceback__)
+                )
                 logger.error(
                     f"run_graph: ❌ MCP server '{srv_id}' FAILED to connect: {err_msg}"
                 )
                 failed_servers.append((srv_id, err_msg))
 
-        deps.mcp_toolsets = [ts for ts in connected_toolsets if ts is not None]
+        from pydantic_ai.toolsets.abstract import AbstractToolset
+
+        class PreconnectedToolsetWrapper(AbstractToolset):
+            """Wraps a connected toolset to hide its context manager methods from Pydantic-AI."""
+
+            def __init__(self, ts):
+                self._ts = ts
+
+            @property
+            def id(self):
+                return getattr(self._ts, "id", getattr(self._ts, "name", "unknown"))
+
+            async def get_tools(self, ctx):
+                if hasattr(self._ts, "get_tools"):
+                    return await self._ts.get_tools(ctx)
+                return {}
+
+            async def call_tool(self, name, tool_args, ctx, tool):
+                if hasattr(self._ts, "call_tool"):
+                    return await self._ts.call_tool(name, tool_args, ctx, tool)
+                raise NotImplementedError(f"Toolset {self.id} cannot call tools")
+
+            async def get_instructions(self, ctx):
+                if hasattr(self._ts, "get_instructions"):
+                    return await self._ts.get_instructions(ctx)
+                return None
+
+        deps.mcp_toolsets = [
+            PreconnectedToolsetWrapper(ts)
+            for ts in connected_toolsets
+            if ts is not None
+        ]
 
         if failed_servers:
             logger.warning(
@@ -1149,7 +1182,11 @@ async def run_graph_iter(
                 connected_toolsets.append(connected)
                 logger.info(f"run_graph_iter: ✅ MCP server '{srv_id}' connected")
             except Exception as e:
-                err_msg = str(e)
+                import traceback
+
+                err_msg = "".join(
+                    traceback.format_exception(type(e), e, e.__traceback__)
+                )
                 logger.error(
                     f"run_graph_iter: ❌ MCP server '{srv_id}' FAILED: {err_msg}"
                 )

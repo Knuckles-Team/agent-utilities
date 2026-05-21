@@ -5,6 +5,8 @@ import logging
 
 from pydantic_ai import RunContext
 
+from agent_utilities.harness.tracing import trace
+
 from ..models import AgentDeps
 from .versioning import tool_version
 
@@ -20,6 +22,7 @@ except ImportError:
     IntelligenceGraphEngine = None  # type: ignore
 
 
+@trace(name="extract_and_ingest_triples", trace_type="TOOL")
 @tool_version("1.0.0")
 async def extract_and_ingest_triples(
     ctx: RunContext[AgentDeps], episode_description: str, source: str

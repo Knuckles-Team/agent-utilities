@@ -11,29 +11,29 @@ The Agent OS is a multi-subsystem architecture where the Knowledge Graph drives 
 ```mermaid
 graph TB
     subgraph KERNEL["🧠 KERNEL — agent-utilities"]
-        KG[Knowledge Graph]
-        SEC[Secret Engine]
-        REG[Agent Registry]
-        SCHED[Cognitive Scheduler]
-        ID[Identity/Policy]
+        KG[KG-2.0: Knowledge Graph]
+        SEC[OS-5.1: Secret Engine]
+        REG[ECO-4.10: Agent Registry]
+        SCHED[OS-5.2: Cognitive Scheduler]
+        ID[OS-5.1: Identity/Policy]
     end
 
     subgraph OS_LAYER["⚙️ OS SUBSYSTEMS"]
-        SM["systems-manager\n23 tools\nHost OS operations"]
-        CM["container-manager-mcp\n60+ tools\nDocker/Compose/Swarm\n(multi-endpoint)"]
-        TM["tunnel-manager\n43 tools\nSSH/Remote/Network"]
-        RM["repository-manager\n24 tools\nWorkspace/Git lifecycle"]
+        SM["ECO-4.0: systems-manager\n23 tools\nHost OS operations"]
+        CM["ECO-4.0: container-manager-mcp\n60+ tools\nDocker/Compose/Swarm\n(multi-endpoint)"]
+        TM["ECO-4.0: tunnel-manager\n43 tools\nSSH/Remote/Network"]
+        RM["ECO-4.0: repository-manager\n24 tools\nWorkspace/Git lifecycle"]
     end
 
     subgraph OS_SERVICES["🔌 OS SERVICES (deployable)"]
-        SX["searxng-mcp\nInternet Gateway\n(public instance default)"]
-        LF["langfuse-agent\nObservability Bus\n(deploy via template)"]
+        SX["ECO-4.0: searxng-mcp\nInternet Gateway\n(public instance default)"]
+        LF["OS-5.4: langfuse-agent\nObservability Bus\n(deploy via template)"]
     end
 
     subgraph HOSTS["🖥️ REMOTE HOSTS (KG HostNodes)"]
-        H1["host:server1\ntcp://192.168.1.10:2375"]
-        H2["host:server2\ntcp://192.168.1.11:2375"]
-        H3["host:server3\nssh://admin@192.168.1.12"]
+        H1["ECO-4.0: host:server1\ntcp://192.168.1.10:2375"]
+        H2["ECO-4.0: host:server2\ntcp://192.168.1.11:2375"]
+        H3["ECO-4.0: host:server3\nssh://admin@192.168.1.12"]
     end
 
     KG --> SM & CM & TM & RM
@@ -56,8 +56,8 @@ All MCP servers are loaded into the Knowledge Graph at startup via `sync_mcp_age
 
 ```mermaid
 flowchart LR
-    Q[User Query] --> GR[Graph Router]
-    GR --> KG[Knowledge Graph]
+    Q[ORCH-1.0: User Query] --> GR[ORCH-1.2: Graph Router]
+    GR --> KG[KG-2.0: Knowledge Graph]
     KG --> |"MCP tool lookup"| SM[systems-manager tools]
     KG --> |"MCP tool lookup"| CM[container-manager tools]
     KG --> |"MCP tool lookup"| TM[tunnel-manager tools]

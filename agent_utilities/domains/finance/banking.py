@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Enterprise Banking Service Layer (CONCEPT:KG-2.8).
+"""Enterprise Banking Service Layer (CONCEPT:KG-2.6).
 
 Provides banking-specific services:
 - ISO 20022 message generation/parsing

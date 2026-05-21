@@ -1,4 +1,4 @@
-"""Tests for HR/Workforce Management Domain (CONCEPT:KG-2.8)."""
+"""Tests for HR/Workforce Management Domain (CONCEPT:KG-2.6)."""
 
 from agent_utilities.domains.hr.models import (
     CompensationBandNode,

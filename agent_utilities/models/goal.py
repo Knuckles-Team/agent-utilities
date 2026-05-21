@@ -440,7 +440,7 @@ class GoalKGIntegration:
                 """
                 MATCH (r)
                 WHERE r:ConstitutionRule OR r:Policy
-                RETURN r.id AS id, r.description AS description
+                RETURN r.id AS id, r.description AS descriptionription
                 LIMIT 20
                 """,
                 {},

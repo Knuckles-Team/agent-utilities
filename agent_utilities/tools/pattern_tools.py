@@ -7,10 +7,13 @@ like agentic manual testing and specialized subagent dispatch.
 
 from pydantic_ai import RunContext
 
+from agent_utilities.harness.tracing import trace
+
 from ..models import AgentDeps
 from .versioning import tool_version
 
 
+@trace(name="run_manual_test", trace_type="TOOL")
 @tool_version("1.0.0")
 async def run_manual_test(
     ctx: RunContext[AgentDeps], verification_goal: str, context: str = ""

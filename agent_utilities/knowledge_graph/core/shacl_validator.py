@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """SHACL Validation Engine.
 
-CONCEPT:KG-2.7 — SHACL Governance Validation
+CONCEPT:KG-2.6 — SHACL Governance Validation
 
 Validates the materialized RDF graph against SHACL shapes for enterprise
 governance compliance. Supports layered shapes (global + domain overrides)
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class SHACLValidator:
     """Validates RDF graphs against SHACL shape constraints.
 
-    CONCEPT:KG-2.7 — Enterprise Governance Validation
+    CONCEPT:KG-2.6 — Enterprise Governance Validation
 
     Supports:
     - Single or multiple shapes files (layered validation)

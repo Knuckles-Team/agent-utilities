@@ -13,14 +13,14 @@ Every specialist agent receives a **signed identity** (HMAC-SHA256) when spawned
 ```mermaid
 flowchart LR
     subgraph Identity Lifecycle
-        SPAWN[Agent Spawned] --> ISSUE[issue_identity]
-        ISSUE --> SIGN[HMAC Sign]
-        SIGN --> ID[AgentIdentity]
+        SPAWN[ORCH-1.20: Agent Spawned] --> ISSUE[OS-5.1: issue_identity]
+        ISSUE --> SIGN[OS-5.1: HMAC Sign]
+        SIGN --> ID[OS-5.1: AgentIdentity]
     end
 
     subgraph Authorization Flow
-        CALL[Tool Call] --> VERIFY[verify_identity]
-        VERIFY --> POLICY[Check Policy]
+        CALL[ECO-4.0: Tool Call] --> VERIFY[ORCH-1.3: verify_identity]
+        VERIFY --> POLICY[OS-5.1: Check Policy]
         POLICY --> |DENY| BLOCK[Block]
         POLICY --> |REQUIRE_APPROVAL| APPROVE[Approval Manager]
         POLICY --> |ALLOW| EXEC[Execute Tool]

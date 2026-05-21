@@ -1,8 +1,8 @@
 #!/usr/bin/python
 """Tests for KG-2.10 Observational Memory Bridge.
 
-CONCEPT:KG-2.10 — Observational Memory Bridge
-CONCEPT:ECO-4.6 — Agent Hook Installer
+CONCEPT:KG-2.1 — Observational Memory Bridge
+CONCEPT:ECO-4.0 — Agent Hook Installer
 
 Covers:
 - MemoryMaterializer: KG -> Markdown rendering + bidirectional sync

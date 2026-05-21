@@ -162,7 +162,7 @@ class A2AClient:
     async def execute_bft_consensus(
         self, urls: list[str], query: str, threshold: float = 0.66
     ) -> Any:
-        """CONCEPT:ECO-4.1 — Multi-agent BFT consensus for A2A.
+        """CONCEPT:ECO-4.0 — Multi-agent BFT consensus for A2A.
         Queries multiple peers simultaneously and requires a consensus threshold to return a validated result.
 
         Args:
@@ -280,7 +280,7 @@ def list_a2a_peers() -> Any:
     if not engine:
         return A2ARegistryModel(peers=[])
 
-    query = "MATCH (a:Agent {agent_type: 'a2a'}) RETURN a.name as name, a.description as description, a.endpoint_url as url, a.metadata as meta"
+    query = "MATCH (a:Agent {agent_type: 'a2a'}) RETURN a.name as name, a.description AS descriptionription, a.endpoint_url as url, a.metadata as meta"
     results = engine.query_cypher(query)
 
     peers = {}

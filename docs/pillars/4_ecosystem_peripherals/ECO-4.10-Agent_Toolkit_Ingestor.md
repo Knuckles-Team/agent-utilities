@@ -27,18 +27,18 @@ eliminating the need for callers to know what they're ingesting.
 
 ```mermaid
 flowchart LR
-    SRC["Mixed Sources List"] --> DETECT["Auto-Detect"]
-    DETECT -->|"JSON + mcpServers"| MCP["MCP Config Parser"]
-    DETECT -->|"directory + SKILL.md"| SKILL["Skill Parser"]
-    DETECT -->|"http:// URL"| A2A["A2A Card Fetcher"]
-    DETECT -->|".json URL"| REMOTE["Remote JSON Fetcher"]
+    SRC["ORCH-1.21: Mixed Sources List"] --> DETECT["ECO-4.10: Auto-Detect"]
+    DETECT -->|"JSON + mcpServers"| MCP["ECO-4.10: MCP Config Parser"]
+    DETECT -->|"directory + SKILL.md"| SKILL["ECO-4.10: Skill Parser"]
+    DETECT -->|"http:// URL"| A2A["ECO-4.1: A2A Card Fetcher"]
+    DETECT -->|".json URL"| REMOTE["ECO-4.10: Remote JSON Fetcher"]
     MCP --> LIVE["ECO-4.11: Live Discovery"]
-    LIVE --> KG["KG: Server + CallableResource"]
-    MCP -->|"fallback"| FLAGS["Tool Flag Parser"]
+    LIVE --> KG["ECO-4.10: KG: Server + CallableResource"]
+    MCP -->|"fallback"| FLAGS["ECO-4.10: Tool Flag Parser"]
     FLAGS --> KG
     SKILL --> KG
     A2A --> KG
-    KG --> FRESH["Freshness Check"]
+    KG --> FRESH["ECO-4.10: Freshness Check"]
 ```
 
 ## Auto-Detection Heuristics

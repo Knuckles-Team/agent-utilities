@@ -60,7 +60,9 @@ def _build_client(**kwargs):
 
 def test_models_endpoint_empty_registry(mock_agent, monkeypatch):
     """No model_registry + no bootstrap kwargs -> empty payload."""
-    monkeypatch.delenv("MODELS_CONFIG", raising=False)
+    monkeypatch.setattr(
+        "agent_utilities.server.dependencies.config.model_registry_path", None
+    )
     client = _build_client(
         _agent=mock_agent,
         # Force-empty: clear kwargs and env so resolver returns empty.
@@ -76,7 +78,9 @@ def test_models_endpoint_empty_registry(mock_agent, monkeypatch):
 
 def test_models_endpoint_single_model_bootstrap(mock_agent, monkeypatch):
     """Single-model kwargs auto-bootstrap a one-entry registry."""
-    monkeypatch.delenv("MODELS_CONFIG", raising=False)
+    monkeypatch.setattr(
+        "agent_utilities.server.dependencies.config.model_registry_path", None
+    )
     client = _build_client(
         _agent=mock_agent,
         provider="openai",
@@ -99,7 +103,9 @@ def test_models_endpoint_single_model_bootstrap(mock_agent, monkeypatch):
 
 def test_models_endpoint_multi_model_registry(mock_agent, monkeypatch):
     """Explicit multi-model registry round-trips verbatim."""
-    monkeypatch.delenv("MODELS_CONFIG", raising=False)
+    monkeypatch.setattr(
+        "agent_utilities.server.dependencies.config.model_registry_path", None
+    )
     registry = ModelRegistry(
         models=[
             ModelDefinition(
@@ -153,7 +159,7 @@ def test_models_endpoint_multi_model_registry(mock_agent, monkeypatch):
 
 
 def test_models_endpoint_picks_up_models_config_env(tmp_path, mock_agent, monkeypatch):
-    """MODELS_CONFIG env var is honoured when no explicit kwargs."""
+    """MODEL_REGISTRY_PATH env var is honoured when no explicit kwargs."""
     payload = {
         "models": [
             {
@@ -169,7 +175,9 @@ def test_models_endpoint_picks_up_models_config_env(tmp_path, mock_agent, monkey
     }
     cfg = tmp_path / "models.json"
     cfg.write_text(json.dumps(payload))
-    monkeypatch.setenv("MODELS_CONFIG", str(cfg))
+    monkeypatch.setattr(
+        "agent_utilities.server.dependencies.config.model_registry_path", str(cfg)
+    )
 
     client = _build_client(_agent=mock_agent)
     resp = client.get("/models")
@@ -194,7 +202,10 @@ def test_resolve_model_registry_prefers_explicit_registry(monkeypatch):
             )
         ]
     )
-    monkeypatch.setenv("MODELS_CONFIG", "/tmp/does-not-exist.json")
+    monkeypatch.setattr(
+        "agent_utilities.server.dependencies.config.model_registry_path",
+        "/tmp/does-not-exist.json",
+    )
     result = resolve_model_registry(
         registry=explicit,
         provider="ignored",
@@ -208,7 +219,9 @@ def test_resolve_model_registry_prefers_explicit_registry(monkeypatch):
 
 def test_resolve_model_registry_falls_back_to_empty(monkeypatch):
     """No registry, no env, no kwargs -> empty registry (not None)."""
-    monkeypatch.delenv("MODELS_CONFIG", raising=False)
+    monkeypatch.setattr(
+        "agent_utilities.server.dependencies.config.model_registry_path", None
+    )
     result = resolve_model_registry()
     assert isinstance(result, ModelRegistry)
     assert result.models == []
@@ -218,8 +231,11 @@ def test_resolve_model_registry_falls_back_to_empty(monkeypatch):
 def test_resolve_model_registry_missing_config_file_logs_and_falls_back(
     mock_agent, monkeypatch, tmp_path
 ):
-    """Bad MODELS_CONFIG path must not crash server startup."""
-    monkeypatch.setenv("MODELS_CONFIG", str(tmp_path / "nope.json"))
+    """Bad MODEL_REGISTRY_PATH path must not crash server startup."""
+    monkeypatch.setattr(
+        "agent_utilities.server.dependencies.config.model_registry_path",
+        str(tmp_path / "nope.json"),
+    )
     # File does not exist -> resolver falls through to kwargs/empty.
     result = resolve_model_registry(provider="openai", model_id="gpt-4o-mini")
     _missing_default = result.get_default()
@@ -233,7 +249,9 @@ def test_resolve_model_registry_invalid_yaml_falls_back_to_bootstrap(
     """Unreadable JSON -> do not crash; fall back to single-model kwargs."""
     cfg = tmp_path / "broken.json"
     cfg.write_text("{not: valid: json")
-    monkeypatch.setenv("MODELS_CONFIG", str(cfg))
+    monkeypatch.setattr(
+        "agent_utilities.server.dependencies.config.model_registry_path", str(cfg)
+    )
     result = resolve_model_registry(provider="openai", model_id="gpt-4o-mini")
     _broken_default = result.get_default()
     assert _broken_default is not None
@@ -242,7 +260,9 @@ def test_resolve_model_registry_invalid_yaml_falls_back_to_bootstrap(
 
 def test_models_endpoint_app_state_attached(mock_agent, monkeypatch):
     """The registry must be reachable via ``app.state.model_registry``."""
-    monkeypatch.delenv("MODELS_CONFIG", raising=False)
+    monkeypatch.setattr(
+        "agent_utilities.server.dependencies.config.model_registry_path", None
+    )
     with patch(
         "agent_utilities.server.app.create_agent", return_value=(mock_agent, [])
     ):
@@ -262,5 +282,3 @@ def test_models_endpoint_app_state_attached(mock_agent, monkeypatch):
     assert reg is not None
     assert reg.get_default() is not None
     assert reg.get_default().model_id == "gpt-4o-mini"
-    # Ensure the environment was not mutated by the test.
-    assert "MODELS_CONFIG" not in os.environ

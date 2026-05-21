@@ -1,0 +1,219 @@
+{
+  "domain": "CA-003",
+  "domain_name": "Architecture",
+  "project": "/home/apps/workspace/open-source-libraries/hermes-agent",
+  "protocols": {
+    "MCP": true,
+    "ACP": true,
+    "REST": true,
+    "gRPC": true,
+    "WebSocket": true
+  },
+  "type_coverage": {
+    "total_functions": 41586,
+    "typed_functions": 11788,
+    "coverage_pct": 28.3
+  },
+  "module_structure": {
+    "package_count": 112,
+    "max_nesting_depth": 6,
+    "packages": [
+      "acp_adapter",
+      "agent",
+      "agent/lsp",
+      "agent/transports",
+      "cron",
+      "gateway",
+      "gateway/builtin_hooks",
+      "gateway/platforms",
+      "gateway/platforms/qqbot",
+      "hermes_cli",
+      "hermes_cli/proxy",
+      "hermes_cli/proxy/adapters",
+      "plugins",
+      "plugins/browser/browser_use",
+      "plugins/browser/browserbase",
+      "plugins/browser/firecrawl",
+      "plugins/context_engine",
+      "plugins/disk-cleanup",
+      "plugins/google_meet",
+      "plugins/google_meet/node"
+    ]
+  },
+  "config_patterns": {
+    "env_vars": true,
+    "config_files": true,
+    "dotenv": true,
+    "docker": true,
+    "port_binding": true,
+    "graceful_shutdown": true
+  },
+  "c4_architecture": {
+    "diagrams": [],
+    "has_c4": false,
+    "diagram_count": 0,
+    "auto_generated": true,
+    "generated_path": "/home/apps/workspace/open-source-libraries/hermes-agent/.specify/reports/generated_c4.md"
+  },
+  "hot_paths": {
+    "entry_points": [
+      {
+        "type": "cli_main",
+        "module": "trajectory_compressor",
+        "file": "trajectory_compressor.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "run_agent",
+        "file": "run_agent.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "toolsets",
+        "file": "toolsets.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "cli",
+        "file": "cli.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "batch_runner",
+        "file": "batch_runner.py"
+      },
+      {
+        "type": "mcp_tool",
+        "module": "mcp_serve",
+        "file": "mcp_serve.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "mini_swe_runner",
+        "file": "mini_swe_runner.py"
+      },
+      {
+        "type": "fastapi_route",
+        "module": "tui_gateway.ws",
+        "file": "tui_gateway/ws.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "tui_gateway.slash_worker",
+        "file": "tui_gateway/slash_worker.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "tui_gateway.entry",
+        "file": "tui_gateway/entry.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "gateway.run",
+        "file": "gateway/run.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "acp_adapter.entry",
+        "file": "acp_adapter/entry.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.sample_and_compress",
+        "file": "scripts/sample_and_compress.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.install_psutil_android",
+        "file": "scripts/install_psutil_android.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.discord-voice-doctor",
+        "file": "scripts/discord-voice-doctor.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.profile-tui",
+        "file": "scripts/profile-tui.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.lint_diff",
+        "file": "scripts/lint_diff.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.check-windows-footguns",
+        "file": "scripts/check-windows-footguns.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.contributor_audit",
+        "file": "scripts/contributor_audit.py"
+      },
+      {
+        "type": "cli_main",
+        "module": "scripts.benchmark_browser_eval",
+        "file": "scripts/benchmark_browser_eval.py"
+      }
+    ],
+    "entry_point_count": 174,
+    "total_modules": 1764,
+    "hot_path_modules": 1760,
+    "cold_modules": [
+      "setup",
+      "skills.productivity.powerpoint.scripts",
+      "skills.productivity.powerpoint.scripts.office.helpers",
+      "skills.productivity.powerpoint.scripts.office.helpers.merge_runs"
+    ],
+    "cold_module_count": 4,
+    "hot_path_coverage_pct": 99.8
+  },
+  "design_patterns": {
+    "counts": {
+      "mixin": 3,
+      "dependency_injection": 112,
+      "lazy_init": 9,
+      "plugin_registry": 116,
+      "event_driven": 29,
+      "protocol_oriented": 17,
+      "factory": 214,
+      "strategy": 0
+    },
+    "examples": {
+      "mixin": [
+        "tools/skills_tool.py:SkillReadinessStatus",
+        "tools/delegate_tool.py:DelegateEvent",
+        "tests/tools/test_daytona_environment.py:_SandboxState"
+      ],
+      "dependency_injection": [],
+      "lazy_init": [],
+      "plugin_registry": [],
+      "event_driven": [],
+      "protocol_oriented": [
+        "tui_gateway/transport.py:Transport",
+        "agent/web_search_provider.py:WebSearchProvider",
+        "agent/video_gen_provider.py:VideoGenProvider"
+      ],
+      "factory": [
+        "hermes_state.py:create_session",
+        "toolsets.py:create_custom_toolset",
+        "mcp_serve.py:create_mcp_server"
+      ],
+      "strategy": []
+    }
+  },
+  "generated_c4_path": "/home/apps/workspace/open-source-libraries/hermes-agent/.specify/reports/generated_c4.md",
+  "scoring": {
+    "score": 85,
+    "grade": "B",
+    "details": [
+      "Rich protocol support (5 protocols): +30",
+      "Partial type coverage (28.3%): +10",
+      "Well-structured (112 packages): +15",
+      "12-Factor signals (6/6): +20",
+      "Architecture depth bonus: +5"
+    ]
+  }
+}

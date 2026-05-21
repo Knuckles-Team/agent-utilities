@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""CONCEPT:ECO-4.1"""
+"""CONCEPT:ECO-4.0"""
 
 """Second-pass coverage uplift for agent-utilities.
 

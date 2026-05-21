@@ -17,6 +17,7 @@ else:
     _Base = object
 
 
+import json
 import logging
 import time
 import uuid
@@ -83,9 +84,10 @@ class IngestionMixin(_Base):
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         if self.backend:
+            env_str = json.dumps(resources.get("env", {})) if resources else "{}"
             self.backend.execute(
-                "MERGE (s:Server {id: $id}) SET s.name = $name, s.url = $url, s.timestamp = $ts",
-                {"id": server_id, "name": name, "url": url, "ts": ts},
+                "MERGE (s:Server {id: $id}) SET s.name = $name, s.url = $url, s.timestamp = $ts, s.env = $env",
+                {"id": server_id, "name": name, "url": url, "ts": ts, "env": env_str},
             )
 
             for tool in tools:
@@ -633,7 +635,7 @@ class IngestionMixin(_Base):
         return engine.distill(iterations=iterations, base_threshold=threshold)
 
     # ------------------------------------------------------------------
-    # CONCEPT:ECO-4.10 — Unified Agent Toolkit Ingestion
+    # CONCEPT:ECO-4.0 — Unified Agent Toolkit Ingestion
     # ------------------------------------------------------------------
 
     async def ingest_agent_toolkit(
@@ -643,7 +645,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Ingest MCP server configs, agent skill directories, and A2A agent cards.
 
-        CONCEPT:ECO-4.10 — Unified MCP/Skill/A2A ingestion pipeline with live
+        CONCEPT:ECO-4.0 — Unified MCP/Skill/A2A ingestion pipeline with live
         tool discovery.
 
         Accepts a list of mixed sources and auto-detects the type of each:
@@ -823,7 +825,7 @@ class IngestionMixin(_Base):
                     name=server_name,
                     url=f"stdio://{entry['command']} {' '.join(entry['args'])}",
                     tools=live_tools,
-                    resources={"source_config": source_path},
+                    resources={"source_config": source_path, "env": entry["env"]},
                 )
                 summary["tools_discovered"] += len(live_tools)
             else:
@@ -842,7 +844,7 @@ class IngestionMixin(_Base):
                         name=server_name,
                         url=f"stdio://{entry['command']} {' '.join(entry['args'])}",
                         tools=flag_tools,
-                        resources={"source_config": source_path},
+                        resources={"source_config": source_path, "env": entry["env"]},
                     )
                     summary["tools_discovered"] += len(flag_tools)
                 else:
@@ -851,7 +853,7 @@ class IngestionMixin(_Base):
                         name=server_name,
                         url=f"stdio://{entry['command']} {' '.join(entry['args'])}",
                         tools=[],
-                        resources={"source_config": source_path},
+                        resources={"source_config": source_path, "env": entry["env"]},
                     )
 
             # Update server node with config hash and disabled tools

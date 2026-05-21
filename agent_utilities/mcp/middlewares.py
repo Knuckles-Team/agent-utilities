@@ -76,7 +76,7 @@ class JWTClaimsLoggingMiddleware(Middleware):
 class EntityLinkingMiddleware(Middleware):
     """Middleware for intercepting tool calls for cross-entity relationship resolution.
 
-    CONCEPT:ECO-4.4 - Assimilated from FastMCP 'cross-cutting concern interception layer'.
+    CONCEPT:ECO-4.2 - Assimilated from FastMCP 'cross-cutting concern interception layer'.
     """
 
     async def on_request(self, context: MiddlewareContext, call_next):

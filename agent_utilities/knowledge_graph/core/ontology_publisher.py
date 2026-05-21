@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Ontology Publisher — Export & Push to External Triplestores.
 
-CONCEPT:KG-2.7 — Ontology Distribution
+CONCEPT:KG-2.6 — Ontology Distribution
 
 Exports the materialized RDF ontology and pushes it to external
 triplestores (Stardog, Apache Jena Fuseki) for enterprise-wide
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class OntologyPublisher:
     """Export and distribute ontologies to enterprise triplestores.
 
-    CONCEPT:KG-2.7 — Enterprise Ontology Distribution
+    CONCEPT:KG-2.6 — Enterprise Ontology Distribution
 
     This class enables agent-utilities to serve as both the authoritative
     ontology source and a consumer — pushing evolved ontologies back to

@@ -36,7 +36,7 @@ from .executor import (
     _execute_domain_logic,
     _execute_dynamic_mcp_agent,
 )
-from .hierarchical_planner import fetch_unified_context
+from .hierarchical_planner import fetch_epistemic_context
 from .hsm import StateInvariantError, assert_state_valid
 from .lifecycle import _emit_node_lifecycle
 from .state import GraphDeps, GraphState
@@ -275,7 +275,7 @@ async def router_step(
                     f"TeamConfig lookup failed, continuing with LLM planning: {e}"
                 )
 
-        # CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+        # CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
         # Check for AgentTemplate nodes before falling back to LLM planning
         if deps.knowledge_engine:
             try:
@@ -289,7 +289,7 @@ async def router_step(
                 )
                 if kg_result.specialist_configs:
                     logger.info(
-                        "[CONCEPT:ORCH-1.20] KG graph materialized with %d steps. "
+                        "[CONCEPT:ORCH-1.4] KG graph materialized with %d steps. "
                         "Using KG-driven topology.",
                         len(kg_result.specialist_configs),
                     )
@@ -383,7 +383,7 @@ async def router_step(
         failure_context = f"### PREVIOUS FAILURE CONTEXT\nThe last attempt failed with the following error:\n{ctx.state.error}\nUse this information to update your plan. You may need more research or a different approach."
 
     try:
-        unified_context = await fetch_unified_context()
+        unified_context = await fetch_epistemic_context()
 
         logger.info("[LAYER:GRAPH:ROUTER] Fetching specialist tags...")
         specialist_tags = deps.tag_prompts
@@ -424,6 +424,33 @@ async def router_step(
                 relevant = optimized_relevant
         except Exception as e:
             logger.debug(f"Reward-driven routing optimization failed: {e}")
+
+        # CONCEPT:AHE-3.x — Telemetry-Driven Routing Optimization (Tool Pruning)
+        try:
+            if deps.knowledge_engine:
+                anomaly_results = deps.knowledge_engine.query_cypher(
+                    "MATCH (a:Agent)-[:CAUSED]->(p:PerformanceAnomaly) "
+                    "RETURN a.id AS agent_name, count(p) AS anomaly_count"
+                )
+                if anomaly_results:
+                    anomaly_map = {
+                        r.get("agent_name"): r.get("anomaly_count", 0)
+                        for r in anomaly_results
+                        if r.get("agent_name")
+                    }
+                    optimized_relevant = []
+                    for a in relevant:
+                        count = anomaly_map.get(a.name, 0)
+                        if count > 5:  # Configurable threshold conceptually
+                            logger.warning(
+                                f"Router: Telemetry-Driven Optimization — Dropping '{a.name}' due to high recent anomalies ({count})"
+                            )
+                            continue
+                        optimized_relevant.append(a)
+                    relevant = optimized_relevant
+        except Exception as e:
+            logger.debug(f"Telemetry-driven routing optimization failed: {e}")
+
         if relevant:
             step_info = "\n".join([f"- {a.name}: {a.description}" for a in relevant])
             # Append compact fallback list of OTHER adaptive_agent_router (name-only)
@@ -519,8 +546,8 @@ async def router_step(
                 plan_output = res.output
         else:
             # CONCEPT:KG-2.1 — Adaptive Model Routing (Planner Path)
-            # CONCEPT:AHE-3.5 — KG-Native Agentic Task Detection
-            # CONCEPT:AHE-3.5 — Topological Reasoning Detection
+            # CONCEPT:AHE-3.4 — KG-Native Agentic Task Detection
+            # CONCEPT:AHE-3.4 — Topological Reasoning Detection
             import os
 
             query_length = len(ctx.state.query.split())
@@ -544,7 +571,7 @@ async def router_step(
             # KG-Native Topological overrides
             if deps.knowledge_engine:
                 try:
-                    # CONCEPT:AHE-3.5 Agentic detection
+                    # CONCEPT:AHE-3.4 Agentic detection
                     task_topologies = deps.knowledge_engine.search_hybrid(
                         ctx.state.query + " TradingPipeline RiskScoringOntology",
                         top_k=2,
@@ -555,10 +582,10 @@ async def router_step(
                     ):
                         is_complex = True
                         logger.info(
-                            "Router: CONCEPT:AHE-3.5 — Detected complex topological subgraphs. Escalate to complex model."
+                            "Router: CONCEPT:AHE-3.4 — Detected complex topological subgraphs. Escalate to complex model."
                         )
 
-                    # CONCEPT:AHE-3.5 Reasoning detection
+                    # CONCEPT:AHE-3.4 Reasoning detection
                     math_topologies = deps.knowledge_engine.search_hybrid(
                         ctx.state.query
                         + " MathematicalFoundationNode vectorized topologies OWL Almgren-Chriss",
@@ -572,7 +599,7 @@ async def router_step(
                     ):
                         requires_reasoning = True
                         logger.info(
-                            "Router: CONCEPT:AHE-3.5 — Detected mathematical/quantitative topology. Escalate to reasoning model."
+                            "Router: CONCEPT:AHE-3.4 — Detected mathematical/quantitative topology. Escalate to reasoning model."
                         )
                 except Exception as e:
                     logger.warning(f"Topological routing detection failed: {e}")
@@ -671,7 +698,49 @@ async def router_step(
 
         return "dispatcher"
     except Exception as e:
-        logger.error(f"Router planning failed: {e}")
+        logger.error(f"Router planning failed: {e}. Attempting unstructured fallback.")
+        try:
+            fallback_prompt = (
+                system_prompt_str + "\n\nCRITICAL: You failed JSON validation. "
+                "Please reply ONLY with a simple text list of the exact agent names you want to use from the AVAILABLE SPECIALIST NODES list "
+                "(separated by commas). DO NOT output conversational text, just the comma-separated agent names."
+            )
+            fallback_agent = Agent(model=adaptive_model, system_prompt=fallback_prompt)
+            fallback_res = await fallback_agent.run(ctx.state.query)
+
+            raw_text = str(
+                getattr(fallback_res, "data", getattr(fallback_res, "output", ""))
+            )
+            available = (
+                list(specialist_tags.keys()) if "specialist_tags" in locals() else []
+            )
+            if not available and hasattr(deps, "tag_prompts"):
+                available = list(deps.tag_prompts.keys())
+
+            steps = []
+            for spec in available:
+                if spec.lower() in raw_text.lower():
+                    steps.append(
+                        ExecutionStep(node_id=spec, input_data=ctx.state.query)
+                    )
+
+            if steps:
+                logger.info(
+                    f"Router Fallback: Extracted {len(steps)} steps from text: {[s.node_id for s in steps]}"
+                )
+                ctx.state.plan = GraphPlan(
+                    steps=steps,
+                    metadata={"reasoning": "Fallback natural language extraction"},
+                )
+                ctx.state.step_cursor = 0
+                return "dispatcher"
+            else:
+                logger.warning(
+                    f"Router Fallback: No known specialists found in text. Available: {available}. Raw text: {raw_text}"
+                )
+        except Exception as fallback_e:
+            logger.error(f"Router fallback also failed: {fallback_e}")
+
         # Detailed logging for debugging
         if "res" in locals():
             logger.debug(f"Router raw response: {res}")
@@ -1034,6 +1103,50 @@ async def expert_executor_step(
                 f"Expert Execution: Attempt {ctx.state.current_node_retries + 1}/{max_retries + 1} for node '{node_id}'"
             )
 
+            # Declarative Pre-condition Contract Check (CONCEPT: OS-5.3 / AHE-3.7)
+            try:
+                from ..harness.contract_validator import ContractValidator
+
+                validator = ContractValidator.instance()
+                state_context = {
+                    "query": ctx.state.query,
+                    "results_registry": ctx.state.results_registry,
+                    "step": step.model_dump()
+                    if hasattr(step, "model_dump")
+                    else str(step),
+                }
+                if not validator.validate_pre(node_id, state_context):
+                    logger.error(
+                        f"Contract: Pre-condition check failed for node '{node_id}'"
+                    )
+                    raise ValueError(
+                        f"Pre-condition contract validation failed for node '{node_id}'"
+                    )
+                logger.info(
+                    f"Contract: Pre-condition check passed for node '{node_id}'"
+                )
+            except Exception as ce:
+                if "validation failed" in str(ce):
+                    raise
+                logger.debug(f"Contract pre-validation skipped: {ce}")
+
+            # Transactional State Forking (CONCEPT: AHE-3.7)
+            from ..harness.distributed_state_manager import BranchMergeStateLocker
+
+            locker = BranchMergeStateLocker()
+            base_key = f"execution_state:{ctx.state.query[:30]}"
+            branch_name = f"branch_{node_id}"
+            locker.fork_state(base_key, branch_name)
+            locker.update_branch_state(
+                base_key,
+                branch_name,
+                {
+                    "node_id": node_id,
+                    "input_data": step.input_data,
+                    "results_registry": dict(ctx.state.results_registry),
+                },
+            )
+
             # CORE ARCHITECTURE STEPS (Preserved for pipeline stability)
             # Lazy imports to avoid circular dependencies between submodules
             from .hierarchical_planner import (
@@ -1121,6 +1234,50 @@ async def expert_executor_step(
                     )
 
                 ctx.state.results_registry[node_id] = str(res)
+
+            # Update branched state with execution output
+            node_result = ctx.state.results_registry.get(node_id, {})
+            if not isinstance(node_result, dict):
+                node_result = {"output": node_result}
+
+            locker.update_branch_state(
+                base_key,
+                branch_name,
+                {
+                    "node_id": node_id,
+                    "input_data": step.input_data,
+                    "output": node_result,
+                    "results_registry": dict(ctx.state.results_registry),
+                },
+            )
+
+            # Declarative Post-condition Contract Check (CONCEPT: OS-5.3 / AHE-3.7)
+            try:
+                if not validator.validate_post(node_id, node_result):
+                    logger.error(
+                        f"Contract: Post-condition check failed for node '{node_id}'"
+                    )
+                    raise ValueError(
+                        f"Post-condition contract validation failed for node '{node_id}'"
+                    )
+                logger.info(
+                    f"Contract: Post-condition check passed for node '{node_id}'"
+                )
+            except Exception as ce:
+                if "validation failed" in str(ce):
+                    raise
+                logger.debug(f"Contract post-validation skipped: {ce}")
+
+            # Transactional State Merging (CONCEPT: AHE-3.7)
+            merge_success = locker.merge_state(base_key, branch_name)
+            if merge_success:
+                logger.info(
+                    f"Transactional State: Successfully merged branch '{branch_name}' back to '{base_key}'"
+                )
+            else:
+                logger.warning(
+                    f"Transactional State: Failed to merge branch '{branch_name}' back to '{base_key}' (FF mismatch or lock conflict)"
+                )
 
             # Execution successful, clear error and break retry loop
             ctx.state.error = None

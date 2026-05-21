@@ -1,4 +1,4 @@
-"""Tests for CONCEPT:ORCH-1.5 — Subagent Lifecycle Patterns."""
+"""Tests for CONCEPT:ORCH-1.3 — Subagent Lifecycle Patterns."""
 
 import pytest
 

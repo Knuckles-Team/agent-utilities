@@ -10,7 +10,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from agent_utilities.core.config import DEFAULT_KG_INGESTION_WORKERS
+from agent_utilities.core.config import (
+    DEFAULT_KG_INGESTION_WORKERS,
+    DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -291,16 +294,18 @@ class TaskManagerMixin(GraphEngineProtocol):
                         logger.error(f"Relevance sweep scheduling error: {e}")
 
                 # ── Deep Analysis (existing) ──
+                from datetime import datetime, timedelta
+
+                cutoff = (datetime.now(UTC) - timedelta(days=7)).isoformat()
                 query = (
-                    "MATCH (n) "
-                    "WHERE n.type IN ['Concept', 'ResearchPaper', 'Component', 'Class', 'System'] "
-                    "  AND (n.last_analyzed IS NULL OR n.last_analyzed < datetime() - duration({days: 7})) "
+                    "MATCH (n:Concept) "
+                    "WHERE (n.last_analyzed IS NULL OR n.last_analyzed < $cutoff) "
                     "WITH n, size((n)--()) as degree "
                     "ORDER BY degree DESC "
                     "LIMIT 1 "
                     "RETURN n.id as id, n.name as name"
                 )
-                results = self.query_cypher(query)
+                results = self.query_cypher(query, {"cutoff": cutoff})
 
                 if not results:
                     time.sleep(300.0)
@@ -314,7 +319,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
 
                 self.backend.execute(
-                    "MATCH (n {id: $id}) SET n.last_analyzed = datetime()",
+                    "MATCH (n:Concept {id: $id}) SET n.last_analyzed = current_timestamp()",
                     {"id": node_id},
                 )
 
@@ -340,8 +345,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Detect the primary codebase by finding the repository with the most Code nodes."""
         try:
             results = self.query_cypher(
-                "MATCH (c:Code) WHERE c.source_path IS NOT NULL "
-                "RETURN c.source_path AS path LIMIT 500"
+                "MATCH (c:Code) WHERE c.file_path IS NOT NULL "
+                "RETURN c.file_path AS path LIMIT 500"
             )
             if not results:
                 return None
@@ -467,10 +472,8 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                 # 1. Detect unresolved research topics
                 topics = self.query_cypher(
-                    "MATCH (c) WHERE (c:ConceptNode OR c:Concept OR c:ResearchTopic) "
-                    "AND NOT exists { MATCH (c)-[:ADDRESSED_BY]->(:SDDPlan) } "
-                    "RETURN c.id AS id, c.name AS name "
-                    "ORDER BY c.name LIMIT 15",
+                    "MATCH (c:Concept) OPTIONAL MATCH (c)-[:ADDRESSED_BY]->(p) "
+                    "WHERE p IS NULL RETURN c.id AS id, c.name AS name ORDER BY c.name LIMIT 15"
                 )
                 topic_count = len(topics) if topics else 0
                 logger.info("EvolutionDaemon: found %d unresolved topics", topic_count)
@@ -525,6 +528,34 @@ class TaskManagerMixin(GraphEngineProtocol):
                         )
                 except Exception as e:
                     logger.warning(f"EvolutionDaemon: failed to log cycle node: {e}")
+
+                # 5. Telemetry Ingestion Sweep
+                try:
+                    logger.info(
+                        "EvolutionDaemon: triggering telemetry_ingestion workflow sweep"
+                    )
+
+                    def _run_telemetry():
+                        try:
+                            from agent_utilities.workflows.runner import WorkflowRunner
+
+                            runner = WorkflowRunner()
+                            asyncio.run(
+                                runner.execute_by_name(
+                                    "telemetry_ingestion",
+                                    engine=self,  # type: ignore[arg-type]
+                                )
+                            )
+                        except Exception as e:
+                            logger.error(f"EvolutionDaemon telemetry sweep failed: {e}")
+
+                    threading.Thread(
+                        target=_run_telemetry, daemon=True, name="KG-Telemetry-Worker"
+                    ).start()
+                except Exception as e:
+                    logger.warning(
+                        f"EvolutionDaemon: failed to trigger telemetry sweep: {e}"
+                    )
 
                 time.sleep(EVOLUTION_INTERVAL)
             except Exception as e:
@@ -760,11 +791,9 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def start_task_workers(self, worker_count: int | None = None):
         """Start background workers to poll and execute tasks from the graph."""
-        import os
-
-        if os.getenv("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "false").lower() == "false":
+        if not DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND:
             logger.debug(
-                "KNOWLEDGE_GRAPH_SYNC_BACKGROUND is false, skipping task workers."
+                "knowledge_graph_sync_background is false, skipping task workers."
             )
             return
 
@@ -1037,7 +1066,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 import sys
 
                 # To prevent uv from intercepting the subprocess and using the target directory's .venv,
-                # we construct the absolute path to the active python binary and strip uv environment variables.
+                # we construct the absolute path to the python binary and strip uv environment variables.
                 python_bin = os.path.join(sys.prefix, "bin", "python")
                 env = os.environ.copy()
                 env.pop("UV_PROJECT_ENVIRONMENT", None)
@@ -1091,7 +1120,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 analyzer = GraphAnalyzer(self)
                 query = str(target)
 
-                # Fetch metadata to get top_k if provided
+                # Fetch metadata to track top_k if provided
                 res = self.query_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
                 )
@@ -1224,7 +1253,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         # ── Step 1: Compute target codebase centroid embedding ──
         target_articles = self.query_cypher(
-            "MATCH (c:Code) WHERE c.source_path CONTAINS $name "
+            "MATCH (c:Code) WHERE c.file_path CONTAINS $name "
             "RETURN c.embedding AS emb LIMIT 200",
             {"name": target_codebase},
         )
@@ -1269,10 +1298,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         unique_papers = [r["paper_path"] for r in paper_rows if r.get("paper_path")]
 
-        # ── Step 3: Gather all unique repositories (grouped by source_path prefix) ──
+        # ── Step 3: Gather all unique repositories (grouped by file_path prefix) ──
         code_rows = self.query_cypher(
-            "MATCH (c:Code) WHERE c.source_path IS NOT NULL "
-            "RETURN c.source_path AS path LIMIT 2000"
+            "MATCH (c:Code) WHERE c.file_path IS NOT NULL "
+            "RETURN c.file_path AS path LIMIT 2000"
         )
         repo_set: set[str] = set()
         for row in code_rows:
@@ -1438,7 +1467,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         for repo_name in repo_set:
             try:
                 repo_chunks = self.query_cypher(
-                    "MATCH (c:Code) WHERE c.source_path CONTAINS $name "
+                    "MATCH (c:Code) WHERE c.file_path CONTAINS $name "
                     "RETURN c.embedding AS emb, c.content AS content LIMIT 100",
                     {"name": repo_name},
                 )
@@ -1728,7 +1757,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     return
 
             # Fallback to direct PRAGMA if it's a raw DB handle
-            self.backend.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            self.backend.execute("CHECKPOINT;")
             logger.debug("WAL checkpoint completed (PRAGMA).")
         except Exception as e:
             logger.debug(f"WAL checkpoint not supported or skipped: {e}")

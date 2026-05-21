@@ -1,6 +1,48 @@
+"""Native Langfuse Tracing Decorators.
+
+CONCEPT:OS-5.1 — Instrumentation Decorators
+
+Provides ``@trace`` and ``@generation`` decorators that emit structured
+traces and spans to Langfuse via the batch ingestion API. These decorators
+complement the OTel/Logfire auto-instrumentation by adding explicit
+application-level tracing with:
+
+- **Parent-child nesting**: Traces contain spans, spans contain generations
+- **Session grouping**: Related traces are grouped into Langfuse sessions
+- **Structured metadata**: Model names, token counts, tags, environment
+- **Error tracking**: Exception details with stack traces
+
+Architecture::
+
+    @trace("my_workflow")           → Creates a top-level Langfuse Trace
+    └── @trace("step_1")           → Creates a Span under the parent Trace
+        └── @generation("llm")     → Creates a Generation under the Span
+
+Context Propagation::
+
+    The module uses ``contextvars`` to propagate trace/span IDs through
+    async call chains, ensuring proper nesting without explicit passing.
+
+Usage::
+
+    from agent_utilities.harness.tracing import trace, generation, get_session_id
+
+    @trace(name="research_pipeline", tags=["research"])
+    async def run_research(query: str):
+        results = await search(query)
+        return await synthesize(results)
+
+    @generation(name="llm_call", model="qwen3.5-9b")
+    async def call_llm(prompt: str):
+        return await model.generate(prompt)
+"""
+
+import contextvars
 import functools
+import inspect
 import logging
 import time
+import traceback
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -9,109 +51,208 @@ from agent_utilities.core.config import config
 
 logger = logging.getLogger(__name__)
 
+# Context variables for trace propagation
+_current_trace_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_current_trace_id", default=None
+)
+_current_span_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_current_span_id", default=None
+)
+_current_session_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_current_session_id", default=None
+)
 
-def trace(name: str | None = None, trace_type: str = "SPAN"):
+
+def set_session_id(session_id: str) -> None:
+    """Set the current Langfuse session ID for trace grouping.
+
+    CONCEPT:OS-5.1 — Session Management
+
+    All traces emitted within this context will be grouped under
+    the given session ID in Langfuse.
+
+    Args:
+        session_id: Unique session identifier for grouping related traces.
     """
-    Decorator for native Langfuse tracing.
+    _current_session_id.set(session_id)
 
-    If Langfuse credentials are set, this will batch and emit a trace
-    using the LangfuseTraceBackend via the LangfuseApi.
+
+def get_session_id() -> str | None:
+    """Get the current Langfuse session ID.
+
+    Returns:
+        Current session ID or None if not set.
+    """
+    return _current_session_id.get()
+
+
+def get_trace_id() -> str | None:
+    """Get the current Langfuse trace ID from context.
+
+    Returns:
+        Current trace ID or None if not in a traced context.
+    """
+    return _current_trace_id.get()
+
+
+def trace(
+    name: str | None = None,
+    trace_type: str = "SPAN",
+    tags: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
+    session_id: str | None = None,
+):
+    """Decorator for native Langfuse tracing with proper nesting.
+
+    CONCEPT:OS-5.1 — Trace Instrumentation
+
+    If a parent trace exists in context, this creates a child span.
+    Otherwise, it creates a new top-level trace. This enables automatic
+    nesting of traces across async call chains.
 
     Args:
         name: Name of the trace/span. Defaults to the function name.
-        trace_type: The type of trace ('SPAN', 'GENERATION', 'EVENT', etc.).
+        trace_type: Langfuse event type (``SPAN``, ``GENERATION``, ``EVENT``).
+        tags: Optional tags for filtering in Langfuse UI.
+        metadata: Optional key-value metadata attached to the trace.
+        session_id: Optional session ID override for this trace.
+
+    Example::
+
+        @trace(name="agent_execution", tags=["live", "orchestration"])
+        async def run_agent(task: str):
+            ...
     """
 
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             if not config.langfuse_secret_key:
-                # No-op if Langfuse is not configured
                 return func(*args, **kwargs)
 
-            trace_id = str(uuid.uuid4())
-            start_time = time.time()
-            start_time_iso = time.strftime(
-                "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(start_time)
-            )
+            parent_trace_id = _current_trace_id.get()
+            parent_span_id = _current_span_id.get()
+            current_session = session_id or _current_session_id.get()
+
+            trace_id = parent_trace_id or str(uuid.uuid4())
+            span_id = str(uuid.uuid4())
             span_name = name or func.__name__
+
+            # Set context for child traces
+            token_trace = _current_trace_id.set(trace_id)
+            token_span = _current_span_id.set(span_id)
+
+            start_time = time.time()
+            start_iso = _iso_timestamp(start_time)
 
             try:
                 result = func(*args, **kwargs)
+                end_iso = _iso_timestamp(time.time())
+
                 _emit_trace(
                     trace_id=trace_id,
+                    span_id=span_id,
+                    parent_span_id=parent_span_id,
                     name=span_name,
-                    trace_type=trace_type,
-                    start_time=start_time_iso,
-                    end_time=time.strftime(
-                        "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time())
-                    ),
-                    input_data={"args": args, "kwargs": kwargs},
-                    output_data=result,
+                    trace_type=trace_type if parent_trace_id else "trace-create",
+                    start_time=start_iso,
+                    end_time=end_iso,
+                    input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
+                    output_data=_safe_serialize(result),
                     level="DEFAULT",
+                    tags=tags,
+                    metadata=metadata,
+                    session_id=current_session,
+                    is_root=not parent_trace_id,
                 )
                 return result
             except Exception as e:
+                end_iso = _iso_timestamp(time.time())
                 _emit_trace(
                     trace_id=trace_id,
+                    span_id=span_id,
+                    parent_span_id=parent_span_id,
                     name=span_name,
-                    trace_type=trace_type,
-                    start_time=start_time_iso,
-                    end_time=time.strftime(
-                        "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time())
-                    ),
-                    input_data={"args": args, "kwargs": kwargs},
-                    output_data={"error": str(e)},
+                    trace_type=trace_type if parent_trace_id else "trace-create",
+                    start_time=start_iso,
+                    end_time=end_iso,
+                    input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
+                    output_data={"error": str(e), "traceback": traceback.format_exc()},
                     level="ERROR",
                     status_message=str(e),
+                    tags=tags,
+                    metadata=metadata,
+                    session_id=current_session,
+                    is_root=not parent_trace_id,
                 )
                 raise
+            finally:
+                _current_trace_id.reset(token_trace)
+                _current_span_id.reset(token_span)
 
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             if not config.langfuse_secret_key:
-                # No-op if Langfuse is not configured
                 return await func(*args, **kwargs)
 
-            trace_id = str(uuid.uuid4())
-            start_time = time.time()
-            start_time_iso = time.strftime(
-                "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(start_time)
-            )
+            parent_trace_id = _current_trace_id.get()
+            parent_span_id = _current_span_id.get()
+            current_session = session_id or _current_session_id.get()
+
+            trace_id = parent_trace_id or str(uuid.uuid4())
+            span_id = str(uuid.uuid4())
             span_name = name or func.__name__
+
+            token_trace = _current_trace_id.set(trace_id)
+            token_span = _current_span_id.set(span_id)
+
+            start_time = time.time()
+            start_iso = _iso_timestamp(start_time)
 
             try:
                 result = await func(*args, **kwargs)
+                end_iso = _iso_timestamp(time.time())
+
                 _emit_trace(
                     trace_id=trace_id,
+                    span_id=span_id,
+                    parent_span_id=parent_span_id,
                     name=span_name,
-                    trace_type=trace_type,
-                    start_time=start_time_iso,
-                    end_time=time.strftime(
-                        "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time())
-                    ),
-                    input_data={"args": args, "kwargs": kwargs},
-                    output_data=result,
+                    trace_type=trace_type if parent_trace_id else "trace-create",
+                    start_time=start_iso,
+                    end_time=end_iso,
+                    input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
+                    output_data=_safe_serialize(result),
                     level="DEFAULT",
+                    tags=tags,
+                    metadata=metadata,
+                    session_id=current_session,
+                    is_root=not parent_trace_id,
                 )
                 return result
             except Exception as e:
+                end_iso = _iso_timestamp(time.time())
                 _emit_trace(
                     trace_id=trace_id,
+                    span_id=span_id,
+                    parent_span_id=parent_span_id,
                     name=span_name,
-                    trace_type=trace_type,
-                    start_time=start_time_iso,
-                    end_time=time.strftime(
-                        "%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time())
-                    ),
-                    input_data={"args": args, "kwargs": kwargs},
-                    output_data={"error": str(e)},
+                    trace_type=trace_type if parent_trace_id else "trace-create",
+                    start_time=start_iso,
+                    end_time=end_iso,
+                    input_data=_safe_serialize({"args": args, "kwargs": kwargs}),
+                    output_data={"error": str(e), "traceback": traceback.format_exc()},
                     level="ERROR",
                     status_message=str(e),
+                    tags=tags,
+                    metadata=metadata,
+                    session_id=current_session,
+                    is_root=not parent_trace_id,
                 )
                 raise
-
-        import inspect
+            finally:
+                _current_trace_id.reset(token_trace)
+                _current_span_id.reset(token_span)
 
         if inspect.iscoroutinefunction(func):
             return async_wrapper
@@ -120,8 +261,66 @@ def trace(name: str | None = None, trace_type: str = "SPAN"):
     return decorator
 
 
+def generation(
+    name: str | None = None,
+    model: str | None = None,
+    tags: list[str] | None = None,
+):
+    """Decorator for LLM generation tracing.
+
+    CONCEPT:OS-5.1 — Generation Tracing
+
+    Creates a ``generation-create`` event in Langfuse that tracks
+    model name, token usage, and latency for LLM calls.
+
+    Args:
+        name: Name of the generation. Defaults to function name.
+        model: LLM model identifier (e.g. ``qwen3.5-9b``).
+        tags: Optional tags for Langfuse filtering.
+    """
+    return trace(
+        name=name,
+        trace_type="generation-create",
+        tags=tags,
+        metadata={"model": model} if model else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _iso_timestamp(ts: float) -> str:
+    """Convert a Unix timestamp to ISO 8601 format for Langfuse."""
+    return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(ts))
+
+
+def _safe_serialize(data: Any, max_length: int = 10000) -> Any:
+    """Safely serialize data for Langfuse, truncating large payloads.
+
+    CONCEPT:OS-5.1 — Safe Serialization
+
+    Prevents trace ingestion failures from non-serializable or
+    excessively large payloads.
+    """
+    if data is None:
+        return None
+    try:
+        import json
+
+        serialized = json.dumps(data, default=str)
+        if len(serialized) > max_length:
+            return {"_truncated": True, "preview": serialized[:max_length]}
+        return data
+    except (TypeError, ValueError):
+        return {"_type": type(data).__name__, "repr": repr(data)[:1000]}
+
+
 def _emit_trace(
     trace_id: str,
+    span_id: str,
+    parent_span_id: str | None,
     name: str,
     trace_type: str,
     start_time: str,
@@ -130,8 +329,36 @@ def _emit_trace(
     output_data: Any,
     level: str = "DEFAULT",
     status_message: str | None = None,
+    tags: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
+    session_id: str | None = None,
+    is_root: bool = False,
 ) -> None:
-    """Emits a trace using the LangfuseApi batch endpoint."""
+    """Emit a trace event to Langfuse via the batch ingestion API.
+
+    CONCEPT:OS-5.1 — Trace Emission
+
+    Creates properly nested trace→span hierarchy in Langfuse:
+    - Root calls create ``trace-create`` events
+    - Child calls create ``span-create`` events linked to the parent
+
+    Args:
+        trace_id: The top-level trace identifier.
+        span_id: This span's unique identifier.
+        parent_span_id: Parent span ID for nesting (None for root).
+        name: Display name in Langfuse UI.
+        trace_type: Event type (``trace-create``, ``span-create``, ``generation-create``).
+        start_time: ISO 8601 start timestamp.
+        end_time: ISO 8601 end timestamp.
+        input_data: Input payload (serializable).
+        output_data: Output payload (serializable).
+        level: Log level (``DEFAULT``, ``WARNING``, ``ERROR``).
+        status_message: Optional status/error message.
+        tags: Optional tags for Langfuse filtering.
+        metadata: Optional structured metadata.
+        session_id: Optional session ID for grouping.
+        is_root: Whether this is a root trace (vs child span).
+    """
     try:
         from agent_utilities.harness.trace_backend import (
             LangfuseTraceBackend,
@@ -139,26 +366,61 @@ def _emit_trace(
         )
 
         backend = create_trace_backend(backend_type="langfuse")
-        if isinstance(backend, LangfuseTraceBackend):
-            api = backend._get_api()
-            event: dict[str, Any] = {
+        if not isinstance(backend, LangfuseTraceBackend):
+            return
+
+        api = backend._get_api()
+        batch: list[dict[str, Any]] = []
+
+        if is_root:
+            # Create the parent trace first
+            trace_event: dict[str, Any] = {
                 "id": str(uuid.uuid4()),
-                "type": trace_type,
+                "type": "trace-create",
                 "timestamp": start_time,
                 "body": {
                     "id": trace_id,
+                    "name": name,
+                    "input": input_data,
+                    "output": output_data,
+                    "metadata": metadata or {},
+                    "tags": tags or [],
+                },
+            }
+            if session_id:
+                trace_event["body"]["sessionId"] = session_id
+            batch.append(trace_event)
+
+        # Create the span/generation under the trace
+        actual_type = trace_type if not is_root else "span-create"
+        if is_root and trace_type == "trace-create":
+            # Root traces don't need an additional span
+            pass
+        else:
+            span_event: dict[str, Any] = {
+                "id": str(uuid.uuid4()),
+                "type": actual_type,
+                "timestamp": start_time,
+                "body": {
+                    "id": span_id,
+                    "traceId": trace_id,
                     "name": name,
                     "startTime": start_time,
                     "endTime": end_time,
                     "input": input_data,
                     "output": output_data,
                     "level": level,
+                    "metadata": metadata or {},
                 },
             }
+            if parent_span_id:
+                span_event["body"]["parentObservationId"] = parent_span_id
             if status_message:
-                event["body"]["statusMessage"] = status_message
+                span_event["body"]["statusMessage"] = status_message
+            batch.append(span_event)
 
-            # Fire and forget batch ingestion
-            api.ingestion_batch(batch=[event])
+        if batch:
+            api.ingestion_batch(batch=batch)
+
     except Exception as e:
-        logger.debug(f"Failed to emit native Langfuse trace: {e}")
+        logger.debug("Failed to emit Langfuse trace: %s", e)

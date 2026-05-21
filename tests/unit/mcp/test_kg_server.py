@@ -1,6 +1,6 @@
 """Test suite for the Knowledge Graph MCP Server tools (graph-os).
 
-CONCEPT:ECO-4.4 — KG MCP Server & Execution
+CONCEPT:ECO-4.2 — KG MCP Server & Execution
 
 Tests use the consolidated graph-os tool names: graph_query, graph_search,
 graph_write, graph_ingest, graph_analyze, graph_orchestrate, graph_configure.

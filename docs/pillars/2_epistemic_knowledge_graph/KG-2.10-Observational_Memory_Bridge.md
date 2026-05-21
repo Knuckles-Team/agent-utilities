@@ -1,6 +1,6 @@
 # KG-2.10: Observational Memory Bridge
 
-> **Concept**: `CONCEPT:KG-2.10`
+> **Concept**: `CONCEPT:KG-2.1`
 > **Pillar**: 2 — Epistemic Knowledge Graph
 > **Status**: Implemented
 > **Research**: Inspired by observational-memory v0.6.3
@@ -30,36 +30,36 @@ profile.md / active.md ──file-watch──> KG (upsert edits)
 ```mermaid
 graph TD
     subgraph "External Agent Surfaces"
-        CC["Claude Code"]
-        CX["Codex"]
-        GB["Grok Build"]
-        DV["Devin"]
-        AG["Antigravity IDE"]
-        WS["Windsurf"]
-        OC["OpenCode"]
-        TUI["agent-terminal-ui"]
+        CC["ECO-4.0: Claude Code"]
+        CX["ECO-4.0: Codex"]
+        GB["KG-2.0: Grok Build"]
+        DV["ECO-4.0: Devin"]
+        AG["ECO-4.0: Antigravity IDE"]
+        WS["ECO-4.0: Windsurf"]
+        OC["ECO-4.0: OpenCode"]
+        TUI["ECO-4.0: agent-terminal-ui"]
     end
 
     subgraph "Memory Bridge (KG-2.10)"
         INSTALLER["Hook Installer (ECO-4.6)"]
-        OBS["Observer"]
-        REF["Reflector"]
-        MAT["Materializer"]
-        CTX["Startup Context Builder"]
+        OBS["ORCH-1.2: Observer"]
+        REF["ORCH-1.2: Reflector"]
+        MAT["KG-2.2: Materializer"]
+        CTX["ORCH-1.21: Startup Context Builder"]
     end
 
-    subgraph "Knowledge Graph"
-        KG["LadybugDB"]
+    subgraph "KG-2.0: Knowledge Graph"
+        KG["KG-2.0: LadybugDB"]
         MEM["Tiered Memory (KG-2.1)"]
         CON["ConsolidationEngine (KG-2.4)"]
         RET["HybridRetriever (KG-2.3)"]
     end
 
     subgraph "Materialized Views"
-        OBS_MD["observations.md"]
-        REF_MD["reflections.md"]
-        PRO_MD["profile.md"]
-        ACT_MD["active.md"]
+        OBS_MD["ORCH-1.6: observations.md"]
+        REF_MD["ORCH-1.6: reflections.md"]
+        PRO_MD["ORCH-1.6: profile.md"]
+        ACT_MD["ORCH-1.6: active.md"]
     end
 
     CC & CX & GB & DV & AG & WS & OC & TUI -->|"Session hooks"| OBS
@@ -94,13 +94,14 @@ Renders 4 Markdown files from KG state:
 - Cursor-based change detection (MD5 hash comparison)
 - XDG-compliant storage at `~/.local/share/agent-utilities/memory/`
 
-### 2. Observer
+### 2. Observer & Memento Context Compressor
 
-**Module**: `knowledge_graph/memory/observer.py`
+**Module**: `knowledge_graph/memory/observer.py` and `knowledge_graph/memory/memento_compressor.py`
 
-LLM-powered transcript compression:
-- Extracts decisions, preferences, lessons, context from raw conversations
-- Uses 🔴/🟡/🟢 priority system for observation severity
+LLM-powered transcript compression and Context Management:
+- **Observations**: Extracts decisions, preferences, lessons, context from raw conversations using a 🔴/🟡/🟢 priority system.
+- **Mementos**: Segments long-running agent action-observation cycles and compresses them into dense `MementoBlock` nodes (preserving precise formulas and state).
+- **KV Cache Compaction**: Intercepts the history stream and constructs a sawtooth context pattern (`[Past Mementos] + [Current Active Block]`) to prevent context window explosion and OOM errors during infinite-horizon tasks.
 - Cursor-based incremental processing (avoid re-processing seen messages)
 - Per-source parsers for Claude, Codex, Grok JSONL formats
 

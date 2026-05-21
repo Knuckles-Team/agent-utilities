@@ -25,8 +25,8 @@ Where:
 
 Integrates with:
     - CONCEPT:AHE-3.4 (Experience Distillation): Per-step success feeds ExperienceNode
-    - CONCEPT:AHE-3.5 (Heavy Thinking): Step rewards for each thinker trajectory
-    - CONCEPT:AHE-3.6 (Horizon Curriculum): Subgoal checkpoint rewards
+    - CONCEPT:AHE-3.4 (Heavy Thinking): Step rewards for each thinker trajectory
+    - CONCEPT:AHE-3.4 (Horizon Curriculum): Subgoal checkpoint rewards
     - CONCEPT:KG-2.0 (OGM): Persists reward records as KG nodes
 
 See docs/overview.md §CONCEPT:AHE-3.1

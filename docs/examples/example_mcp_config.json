@@ -1,0 +1,52 @@
+{
+  "mcpServers": {
+    "graph-os": {
+      "command": "graph-os",
+      "args": [],
+      "env": {
+        "WORKSPACE_PATH": "/home/apps/workspace",
+        "AGENT_UTILITIES_CONFIG_DIR": "/home/genius/.config/agent-utilities",
+        "GRAPH_PERSISTENCE_PATH": "/home/genius/.local/share/agent-utilities/graph_state",
+        "LLM_API_KEY": "llama"
+      },
+      "disabled": false
+    },
+    "repository-manager": {
+      "command": "repository-manager-mcp",
+      "args": [],
+      "env": {
+        "REPOSITORY_MANAGER_WORKSPACE": "/home/apps/workspace"
+      }
+    },
+    "scholarx": {
+      "command": "scholarx-mcp",
+      "args": []
+    },
+    "container-manager-mcp": {
+      "command": "container-manager-mcp",
+      "args": [],
+      "env": {
+        "DOCKER_HOST": "unix:///var/run/docker.sock"
+      }
+    },
+    "audio-transcriber": {
+      "command": "audio-transcriber-mcp",
+      "args": []
+    },
+    "tunnel-manager": {
+      "command": "tunnel-manager-mcp",
+      "args": [],
+      "env": {
+        "TUNNEL_INVENTORY_PATH": "/home/apps/workspace/agent-packages/agent-utilities/scratch/test_inventory.yaml"
+      }
+    },
+    "systems-manager": {
+      "command": "systems-manager-mcp",
+      "args": []
+    },
+    "data-science-mcp": {
+      "command": "data-science-mcp",
+      "args": []
+    }
+  }
+}

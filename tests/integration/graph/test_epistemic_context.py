@@ -11,13 +11,13 @@ from agent_utilities.graph.config_helpers import (
     load_node_agents_registry,
 )
 from agent_utilities.graph.lifecycle import _emit_node_lifecycle
-from agent_utilities.graph.hierarchical_planner import fetch_unified_context
+from agent_utilities.graph.hierarchical_planner import fetch_epistemic_context
 from agent_utilities.models import MCPAgentRegistryModel, MCPConfigModel
 
 
 @pytest.mark.asyncio
-async def test_fetch_unified_context_mocked():
-    """Test fetch_unified_context with mocked graph registry."""
+async def test_fetch_epistemic_context_mocked():
+    """Test fetch_epistemic_context with mocked graph registry."""
     mock_agent = MagicMock()
     mock_agent.name = "TestSpecialist"
     mock_agent.description = "Some description"
@@ -29,7 +29,7 @@ async def test_fetch_unified_context_mocked():
         return_value=mock_registry,
     ):
         with patch("subprocess.check_output", return_value=b"M somefile.py"):
-            context = await fetch_unified_context()
+            context = await fetch_epistemic_context()
             assert "PROJECT CONTEXT" in context
             assert "TestSpecialist" in context
             assert "M somefile.py" in context

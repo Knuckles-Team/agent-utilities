@@ -98,27 +98,28 @@ def _decode_jwt(
         HTTPException: If the token is invalid, expired, or claims fail validation.
     """
     try:
-        from authlib.jose import JsonWebKey
-        from authlib.jose import jwt as authlib_jwt
-        from authlib.jose.errors import (
+        from joserfc import jwt
+        from joserfc.errors import (
             BadSignatureError,
             DecodeError,
             ExpiredTokenError,
             InvalidClaimError,
         )
+        from joserfc.jwk import KeySet
     except ImportError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="authlib is required for JWT authentication. "
+            detail="joserfc is required for JWT authentication. "
             "Install it with: pip install agent-utilities[auth]",
         ) from exc
 
     try:
         # Import the keyset
-        key_set = JsonWebKey.import_key_set(jwks)
+        key_set = KeySet.import_key_set(jwks)
 
         # Decode with signature verification
-        claims = authlib_jwt.decode(token, key_set)
+        token_obj = jwt.decode(token, key_set)  # type: ignore
+        claims = token_obj.claims
 
         # Build validation options
         options: dict[str, Any] = {}
@@ -127,9 +128,10 @@ def _decode_jwt(
         if audience:
             options["aud"] = {"essential": True, "value": audience}
 
-        claims.validate(leeway=30)
+        registry = jwt.JWTClaimsRegistry(leeway=30, **options)
+        registry.validate(claims)
 
-        # Manual issuer/audience check (authlib validate doesn't always enforce)
+        # Manual issuer/audience check (joserfc validation handles this, but keep manual as fallback/strict check)
         if issuer and claims.get("iss") != issuer:
             raise InvalidClaimError("iss")
         if audience:

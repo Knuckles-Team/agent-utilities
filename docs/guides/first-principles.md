@@ -1,6 +1,6 @@
 # First Principles Architecture
 
-> **Concepts:** CONCEPT:ORCH-1.2, CONCEPT:AHE-3.3, CONCEPT:ORCH-1.2, CONCEPT:ECO-4.1
+> **Concepts:** CONCEPT:ORCH-1.2, CONCEPT:AHE-3.3, CONCEPT:ORCH-1.2, CONCEPT:ECO-4.0
 
 This document describes the **First Principles Architecture** layer — a set of four foundational concepts that rewire the routing, dispatch, and feedback loops of `agent-utilities` from basic primitives. These concepts were designed to solve specific scalability, performance, and intelligence bottlenecks that emerge when the system manages dozens of specialists and hundreds of tools.
 
@@ -11,7 +11,7 @@ This document describes the **First Principles Architecture** layer — a set of
 | **Prompt bloat** | Every routing call serialized the full specialist registry into the LLM prompt | CONCEPT:ORCH-1.2: Hot cache filters to top-7 relevant specialists per query |
 | **Redundant team discovery** | LLM re-discovers the same specialist combinations for recurring query patterns | CONCEPT:AHE-3.3: TeamConfig promotes proven coalitions as reusable templates |
 | **Static tool binding** | Specialists had fixed tool sets; capabilities like RLM or critic were never auto-attached | CONCEPT:ORCH-1.2: AgentCapability nodes auto-activate based on input constraints |
-| **LLM orchestration overhead** | A2A requests required a full LLM planning round-trip even when the graph planner could handle them | CONCEPT:ECO-4.1: PlannerGraphSkill provides a direct graph-backed A2A entry point |
+| **LLM orchestration overhead** | A2A requests required a full LLM planning round-trip even when the graph planner could handle them | CONCEPT:ECO-4.0: PlannerGraphSkill provides a direct graph-backed A2A entry point |
 | **No feedback loop** | Execution outcomes were never fed back to improve future routing | CONCEPT:AHE-3.3 + CONCEPT:KG-2.1: Verification outcomes update Self-Model and TeamConfig rewards |
 
 ## Architecture Overview
@@ -19,9 +19,9 @@ This document describes the **First Principles Architecture** layer — a set of
 ```mermaid
 graph LR
     subgraph Ingress ["Protocol Ingress"]
-        A2A[A2A] --> PGS["PlannerGraphSkill\n(CONCEPT:ECO-4.1)"]
-        ACP[ACP] --> Router
-        AGUI[AG-UI] --> Router
+        ECO-4.1: A2A[A2A] --> PGS["PlannerGraphSkill\n(CONCEPT:ECO-4.0)"]
+        ECO-4.1: ACP[ACP] --> Router
+        AGUI[ECO-4.0: AG-UI] --> Router
     end
 
     subgraph Routing ["3-Stage Hybrid Routing"]
@@ -29,22 +29,22 @@ graph LR
         Router --> TC{"TeamConfig\nMatch?\n(CONCEPT:AHE-3.3)"}
         TC -- "Hit" --> Dispatch
         TC -- "Miss" --> SM{"Self-Model\nBias?\n(CONCEPT:KG-2.1)"}
-        SM --> LLM["LLM Planner\n(Filtered Prompt)"]
+        SM --> LLM["ORCH-1.1: LLM Planner\n(Filtered Prompt)"]
         LLM --> Dispatch
     end
 
     subgraph Execution ["Dispatch & Execute"]
         Dispatch --> Cache["Registry Cache\n(CONCEPT:ORCH-1.2)"]
-        Cache --> Specs["Top-7 Specialists"]
+        Cache --> Specs["ORCH-1.2: Top-7 Specialists"]
         Specs --> Cap{"Capability\nAuto-Activate?\n(CONCEPT:ORCH-1.2)"}
-        Cap --> Exec["Parallel Execution"]
+        Cap --> Exec["ORCH-1.21: Parallel Execution"]
     end
 
     subgraph Feedback ["Post-Execution Feedback"]
-        Exec --> Verify["Verifier"]
-        Verify --> SMUpdate["Self-Model\nUpdate"]
-        Verify --> TCReward["TeamConfig\nReward"]
-        SMUpdate --> CacheInv["Cache\nInvalidation"]
+        Exec --> Verify["AHE-3.1: Verifier"]
+        Verify --> SMUpdate["AHE-3.3: Self-Model\nUpdate"]
+        Verify --> TCReward["ORCH-1.2: TeamConfig\nReward"]
+        SMUpdate --> CacheInv["ECO-4.10: Cache\nInvalidation"]
         TCReward --> CacheInv
     end
 ```
@@ -130,25 +130,25 @@ The LLM planner would rediscover the same specialist combinations for recurring 
 ```mermaid
 graph TD
     subgraph Discovery ["1. First Encounter"]
-        Q1["Query: 'deploy to staging'"] --> LLM["LLM Planner"]
-        LLM --> Coalition["Coalition: DevOps + Cloud + Container"]
+        Q1["ORCH-1.0: Query: 'deploy to staging'"] --> LLM["ORCH-1.1: LLM Planner"]
+        LLM --> Coalition["AHE-3.3: Coalition: DevOps + Cloud + Container"]
     end
 
     subgraph Promotion ["2. Promotion (on success)"]
-        Coalition --> Verify["Verifier Score ≥ 0.7"]
-        Verify --> Promote["promote_coalition_to_template()"]
-        Promote --> TC["TeamConfigNode\n(domain_pattern='deploy*staging*')"]
+        Coalition --> Verify["AHE-3.1: Verifier Score ≥ 0.7"]
+        Verify --> Promote["AHE-3.3: promote_coalition_to_template()"]
+        Promote --> TC["ORCH-1.2: TeamConfigNode\n(domain_pattern='deploy*staging*')"]
     end
 
     subgraph Reuse ["3. Future Queries"]
-        Q2["Query: 'deploy app to staging env'"] --> Match["find_matching_team_config()"]
+        Q2["ORCH-1.0: Query: 'deploy app to staging env'"] --> Match["ORCH-1.2: find_matching_team_config()"]
         Match --> TC
-        TC --> Bypass["Skip LLM planning\nDirect dispatch"]
+        TC --> Bypass["ORCH-1.2: Skip LLM planning\nDirect dispatch"]
     end
 
     subgraph Learning ["4. Continuous Learning"]
-        Bypass --> Outcome["Execution Outcome"]
-        Outcome --> Reward["record_team_outcome()\nsuccess_rate += EMA"]
+        Bypass --> Outcome["AHE-3.1: Execution Outcome"]
+        Outcome --> Reward["AHE-3.1: record_team_outcome()\nsuccess_rate += EMA"]
     end
 ```
 
@@ -242,7 +242,7 @@ for specialist in specialists:
 
 ---
 
-## CONCEPT:ECO-4.1 — PlannerGraphSkill (A2A-Native Routing)
+## CONCEPT:ECO-4.0 — PlannerGraphSkill (A2A-Native Routing)
 
 **Module:** `agent_utilities/protocols/a2a_graph_skill.py`, `agent_utilities/server/app.py`
 
@@ -256,7 +256,7 @@ A2A requests always went through the full LLM-mediated pipeline: parse request �
 
 ```python
 class PlannerGraphSkill:
-    """CONCEPT:ECO-4.1 — A2A-Native PlannerAgent"""
+    """CONCEPT:ECO-4.0 — A2A-Native PlannerAgent"""
 
     def __init__(self, graph_bundle):
         self.graph_bundle = graph_bundle

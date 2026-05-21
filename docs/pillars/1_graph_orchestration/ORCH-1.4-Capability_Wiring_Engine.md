@@ -42,7 +42,7 @@ Uses the KG to find fallback models dynamically rather than relying on static li
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# Subagent Lifecycle Patterns (CONCEPT:ORCH-1.5)
+# Subagent Lifecycle Patterns (CONCEPT:ORCH-1.3)
 
 ## Overview
 Formalizes 4-tier subagent interaction taxonomy (inline_tool, fan_out, agent_pool, teams) with complexity-based pattern routing, KG-persisted decisions, and outcome-based learning. Based on Schmid (2026).
@@ -97,14 +97,14 @@ The Wiring Engine is tightly coupled with the `CapabilityOrchestrator` (`agent_u
 ```mermaid
 graph TD
     subgraph ORCH1.21 [Capability Wiring Engine]
-        A[WiringEngine] -->|Discovers| B(Registered Capabilities)
-        B -->|Implements| C(CapabilityHandlerProtocol)
-        B -->|Implements| D(AbstractCapability)
+        A[ORCH-1.4: WiringEngine] -->|Discovers| B(ORCH-1.4: Registered Capabilities)
+        B -->|Implements| C(ORCH-1.4: CapabilityHandlerProtocol)
+        B -->|Implements| D(ORCH-1.4: AbstractCapability)
 
-        C -->|Event Stream| E(CapabilityOrchestrator)
-        D -->|Pydantic Hooks| F(Agent Factory)
+        C -->|Event Stream| E(ORCH-1.4: CapabilityOrchestrator)
+        D -->|Pydantic Hooks| F(ORCH-1.20: Agent Factory)
 
-        E -->|Injects| G[IntelligenceGraphEngine]
+        E -->|Injects| G[ORCH-1.0: IntelligenceGraphEngine]
         F -->|Injects| G
     end
 

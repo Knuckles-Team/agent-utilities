@@ -10,7 +10,7 @@
 
 ```mermaid
 graph TD
-    subgraph "Layer 1: Vector Discovery (All items, 0 LLM calls)"
+    subgraph "ORCH-1.2: Layer 1: Vector Discovery (All items, 0 LLM calls)"
         A["Re-ingest with v2 schema<br/>Types + Content + Embeddings"] --> B["Run concept cross-reference<br/>34 concepts × all nodes"]
         B --> C["Score & rank matches<br/>by cosine similarity"]
     end
@@ -102,9 +102,9 @@ All L2+L3 tasks overlap, bounded by 4 concurrent LLM slots.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `KG_LLM_CONCURRENCY` | `4` | Max concurrent LLM calls. Set to match your inference endpoint capacity (e.g., LM Studio model slots). |
-| `LLM_BASE_URL` | `http://localhost:1234/v1` | LLM inference endpoint |
-| `MODEL_ID` | from `.env` | Model used for L2/L3 synthesis |
+| `KG_LLM_CONCURRENCY` | `4` | Max concurrent LLM calls. Set to match your inference endpoint capacity. |
+
+**Note**: All LLM routing (endpoints, API keys, model IDs) is dynamically managed via the `config.json` registry. Environment variables for these settings are deprecated.
 
 ## Temporal Metadata
 

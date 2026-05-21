@@ -5,6 +5,8 @@ import logging
 
 from pydantic_ai import RunContext
 
+from agent_utilities.harness.tracing import trace
+
 from ..models import AgentDeps
 from .versioning import tool_version
 
@@ -20,6 +22,7 @@ except ImportError:
     IntelligenceGraphEngine = None  # type: ignore
 
 
+@trace(name="export_subgraph", trace_type="TOOL")
 @tool_version("1.0.0")
 async def export_subgraph(
     ctx: RunContext[AgentDeps], topic: str, depth: int = 2
@@ -66,6 +69,7 @@ async def export_subgraph(
         return f"Failed to export subgraph: {e}"
 
 
+@trace(name="import_agent_card", trace_type="TOOL")
 @tool_version("1.0.0")
 async def import_agent_card(
     ctx: RunContext[AgentDeps], agent_url: str, agent_card_json: str

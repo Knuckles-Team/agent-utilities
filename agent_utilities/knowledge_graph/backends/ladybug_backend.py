@@ -53,26 +53,33 @@ class LadybugBackend(GraphBackend):
 
         return file_lock()
 
-    def __init__(self, db_path: str = "knowledge_graph.db"):
+    def __init__(self, db_path: str = "knowledge_graph.db", max_retries: int = 15):
         if not LADYBUG_AVAILABLE:
             raise ImportError(
                 "ladybug package is not installed. Install with 'pip install ladybug'"
             )
         self.db_path = db_path
-        self.read_only = False
+        self.read_only = os.environ.get("LADYBUG_DB_READ_ONLY", "0").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         # Use Database and Connection objects as required by newer ladybug versions
         # Add retry logic with jitter for multi-agent startup resilience
         import random
         import time
 
-        max_retries = 10
         last_error: Exception = RuntimeError("Max retries exceeded")
         for attempt in range(max_retries):
             try:
                 buffer_size = os.getenv("LADYBUG_MAX_DB_SIZE") or os.getenv(
                     "LADYBUG_BUFFER_SIZE"
                 )
-                db_params = {}
+                from typing import Any
+
+                db_params: dict[str, Any] = {}
+                if self.read_only:
+                    db_params["read_only"] = True
                 if buffer_size:
                     try:
                         db_params["max_db_size"] = int(buffer_size)
@@ -109,6 +116,25 @@ class LadybugBackend(GraphBackend):
                 last_error = e
                 msg = str(e).lower()
                 if (
+                    "corrupted" in msg
+                    or "invalid wal record" in msg
+                    or "read out invalid" in msg
+                    or "unreachable_code" in msg
+                    or "shadow" in msg
+                    or "database id" in msg
+                    or "cannot open file" in msg
+                    or "no such file or directory" in msg
+                ):
+                    logger.warning(
+                        f"Detected database corruption, stale shadow, or WAL error in {db_path} "
+                        f"(usually caused by a hard restart or process crash). "
+                        f"Self-healing: cleaning up stale WAL/shadow/lock files and retrying."
+                    )
+                    self._backup_db()  # Safeguard before cleanup
+                    self._cleanup_corrupted()
+                    # retry immediately after cleanup
+                    continue
+                elif (
                     "lock" in msg
                     or "busy" in msg
                     or "catalog exception" in msg
@@ -118,31 +144,6 @@ class LadybugBackend(GraphBackend):
                     or "no such file" in msg
                 ):
                     if attempt == max_retries - 1:
-                        # Final attempt: fallback to read-only mode if it's a lock/busy issue
-                        if "lock" in msg or "busy" in msg or "io exception" in msg:
-                            logger.warning(
-                                f"Failed to acquire exclusive lock after {max_retries} attempts, "
-                                f"falling back to read-only mode for {db_path}"
-                            )
-                            self.read_only = True
-                            db_params["read_only"] = True
-                            self.db = ladybug.Database(
-                                db_path if db_path != ":memory:" else None,
-                                **db_params,  # type: ignore[arg-type]
-                            )
-                            self.conn = ladybug.Connection(self.db)
-
-                            # Load VECTOR extension for HNSW vector search
-                            try:
-                                self.conn.execute("INSTALL VECTOR;")
-                                self.conn.execute("LOAD EXTENSION VECTOR;")
-                                logger.debug(
-                                    "LadybugDB VECTOR extension loaded successfully"
-                                )
-                            except Exception as ve:
-                                logger.debug(f"Could not load VECTOR extension: {ve}")
-
-                            return
                         raise e
 
                     wait_time = (2**attempt) + random.random()  # nosec B311
@@ -150,23 +151,6 @@ class LadybugBackend(GraphBackend):
                         f"Graph DB locked or catalog race detected, retrying in {wait_time:.2f}s (attempt {attempt + 1}/{max_retries})..."
                     )
                     time.sleep(wait_time)
-                elif (
-                    "corrupted" in msg
-                    or "invalid wal record" in msg
-                    or "read out invalid" in msg
-                    or "unreachable_code" in msg
-                    or "shadow file" in msg
-                    or "database id" in msg
-                ):
-                    logger.warning(
-                        f"Detected database corruption or stale WAL in {db_path} "
-                        f"(usually caused by a hard restart or process crash). "
-                        f"Self-healing: cleaning up stale WAL/lock files and retrying."
-                    )
-                    self._backup_db()  # Safeguard before cleanup
-                    self._cleanup_corrupted()
-                    # retry immediately after cleanup
-                    continue
                 else:
                     raise e
         raise last_error
@@ -315,7 +299,10 @@ class LadybugBackend(GraphBackend):
                 elif "table" in msg and "does not exist" in msg:
                     logger.warning(f"LadybugDB table not found (check schema): {e}")
                 elif "binder exception" in msg:
-                    logger.error(f"LadybugDB binder issue (invalid property?): {e}")
+                    if "doesn't have an index with name" in msg:
+                        logger.debug(f"LadybugDB vector index missing (expected): {e}")
+                    else:
+                        logger.error(f"LadybugDB binder issue (invalid property?): {e}")
                 else:
                     logger.error(
                         f"LadybugDB Cypher execution failed: {e}\nQuery: {query}"
@@ -380,7 +367,7 @@ class LadybugBackend(GraphBackend):
         try:
             if not hasattr(self, "conn"):
                 return False
-            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            self.conn.execute("CHECKPOINT;")
             return True
         except Exception as e:
             logger.debug(f"WAL checkpoint not supported or failed: {e}")
@@ -584,7 +571,7 @@ class LadybugBackend(GraphBackend):
         try:
             if not hasattr(self, "conn"):
                 return
-            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            self.conn.execute("CHECKPOINT;")
             logger.debug("WAL checkpoint completed for %s", self.db_path)
         except Exception as e:
             logger.warning("WAL checkpoint failed for %s: %s", self.db_path, e)

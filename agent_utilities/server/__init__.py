@@ -57,7 +57,7 @@ from .routers.human import _approval_manager
 logger = logging.getLogger(__name__)
 
 
-def create_agent_server(
+def _run_agent_server(
     provider: str | None = DEFAULT_LLM_PROVIDER,
     model_id: str | None = DEFAULT_LLM_MODEL_ID,
     base_url: str | None = DEFAULT_LLM_BASE_URL,
@@ -218,8 +218,8 @@ def create_agent_server(
         log_file_path = setup_server_file_logging(workspace)
 
     if enable_terminal_ui:
-        # TUI is now launched in create_graph_agent_server to avoid blocking.
-        # This block is preserved if create_agent_server is called directly.
+        # TUI is now launched in create_agent_server to avoid blocking.
+        # This block is preserved if _run_agent_server is called directly.
         import subprocess
         import threading
 
@@ -263,7 +263,7 @@ def create_agent_server(
     )
 
 
-def create_graph_agent_server(
+def create_agent_server(
     tag_prompts: dict[str, str] | None = None,
     tag_env_vars: dict[str, str] | None = None,
     mcp_url: str | None = DEFAULT_MCP_URL,
@@ -311,11 +311,11 @@ def create_graph_agent_server(
     model_registry: ModelRegistry | None = None,
     enable_web_logs: bool = DEFAULT_ENABLE_WEB_LOGS,
 ):
-    """Create and start a graph-based agent server.
+    """Create and start an agent server with graph-based orchestration.
 
-    This is the graph equivalent of create_agent_server(). It builds a
+    This is the standard entry point for all agent servers. It builds a
     pydantic-graph from the tag→prompt mapping, enhances the system prompt
-    with graph routing information, and delegates to create_agent_server().
+    with graph routing information, and starts the server.
     """
     from agent_utilities.core.workspace import WORKSPACE_DIR as _ws_sentinel
 
@@ -497,7 +497,7 @@ def create_graph_agent_server(
         f"with only that domain's tools loaded for efficiency."
     )
 
-    create_agent_server(
+    _run_agent_server(
         provider=provider,
         model_id=model_id,
         base_url=base_url,

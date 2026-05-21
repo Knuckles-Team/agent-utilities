@@ -15,20 +15,20 @@ After:   Query → KG resolves topology → Dynamic Graph Materialization → Ex
 
 ```mermaid
 flowchart TD
-    Q[User Query] --> TC[KGTeamComposer]
-    TC -->|"1. Search proven teams"| KG[(Knowledge Graph)]
+    Q[ORCH-1.0: User Query] --> TC[ORCH-1.0: KGTeamComposer]
+    TC -->|"1. Search proven teams"| KG[(KG-2.0: Knowledge Graph)]
     TC -->|"2. Select topology"| KG
     TC -->|"3. Populate specialists"| KG
-    TC --> THEAM[TeamComposition]
-    THEAM --> THE[TopologyEngine]
-    THE -->|"Materialize"| PLAN[Execution Plan]
-    PLAN --> SEQ[Sequential Steps]
-    PLAN --> PAR[Parallel Groups]
-    PLAN --> MIX[Mixed DAG]
-    SEQ & PAR & MIX --> EXEC[Execute Specialists]
-    EXEC --> CP[StateCheckpointer]
+    TC --> THEAM[AHE-3.3: TeamComposition]
+    THEAM --> THE[ORCH-1.4: TopologyEngine]
+    THE -->|"Materialize"| PLAN[ORCH-1.21: Execution Plan]
+    PLAN --> SEQ[ORCH-1.21: Sequential Steps]
+    PLAN --> PAR[ORCH-1.21: Parallel Groups]
+    PLAN --> MIX[ORCH-1.21: Mixed DAG]
+    SEQ & PAR & MIX --> EXEC[ORCH-1.2: Execute Specialists]
+    EXEC --> CP[ORCH-1.3: StateCheckpointer]
     CP -->|"Checkpoint"| KG
-    EXEC -->|"Success?"| TC2[Promote to TeamConfig]
+    EXEC -->|"Success?"| TC2[ORCH-1.2: Promote to TeamConfig]
     TC2 --> KG
 ```
 

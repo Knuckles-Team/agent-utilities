@@ -7,7 +7,7 @@ Modules:
     - ``tool_guard``: Tool-level sensitivity detection and approval gating
     - ``guardrails``: Policy engine with content filtering and cost budgets
     - ``threat_defense_engine``: Pattern-based prompt injection detection (CONCEPT:OS-5.1)
-    - ``execution_stability_engine``: Tool call loop detection (CONCEPT:OS-5.3)
+    - ``execution_stability_engine``: Tool call loop detection (CONCEPT:OS-5.1)
     - ``permissions_kernel``: Role-based tool authorization (CONCEPT:OS-5.1)
 """
 
@@ -56,7 +56,7 @@ __all__ = [
     "RiskLevel",
     "ScanResult",
     "SecurityFindingNode",
-    # execution_stability_engine (CONCEPT:OS-5.3)
+    # execution_stability_engine (CONCEPT:OS-5.1)
     "RepetitionGuard",
     "RepetitionPolicy",
     "RepetitionResult",

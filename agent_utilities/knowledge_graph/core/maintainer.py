@@ -213,7 +213,7 @@ class GraphMaintainer:
         )
 
         # Find episodes that haven't been consolidated
-        query = "MATCH (e:Episode) WHERE e.timestamp < $cutoff AND NOT (e)-[:CONSOLIDATES_INTO]->() RETURN e.id as id, e.description as description"
+        query = "MATCH (e:Episode) WHERE e.timestamp < $cutoff AND NOT (e)-[:CONSOLIDATES_INTO]->() RETURN e.id as id, e.description AS descriptionription"
         episodes = self.engine.backend.execute(query, {"cutoff": cutoff_date})
 
         if not episodes:

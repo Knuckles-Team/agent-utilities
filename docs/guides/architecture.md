@@ -4,38 +4,38 @@
 
 ```mermaid
 graph TD
-    User([User Request + Images]) --> WebUI[agent-webui]
-    User --> TUI[agent-terminal-ui]
-    WebUI -- ACP Protocol /acp --> Backend[agent-utilities Server]
+    User([ORCH-1.0: User Request + Images]) --> WebUI[ECO-4.0: agent-webui]
+    User --> TUI[ECO-4.0: agent-terminal-ui]
+    WebUI -- ACP Protocol /acp --> Backend[ECO-4.0: agent-utilities Server]
     TUI -- AG-UI /ag-ui --> Backend
     TUI -- ACP Protocol /acp --> Backend
-    External[External AG-UI Client] -- Legacy Protocol /ag-ui --> Backend
+    External[ECO-4.0: External AG-UI Client] -- Legacy Protocol /ag-ui --> Backend
 
     subgraph AgentUtilities [agent-utilities]
         Backend --> UnifiedExec["Unified Execution Layer<br/>(graph/unified.py)"]
         UnifiedExec --> Graph[Pydantic Graph Agent]
-        Graph --> KG[Intelligence Graph Engine]
+        Graph --> KG[ORCH-1.0: Intelligence Graph Engine]
 
         subgraph MemoryArchitecture [Autonomous Memory Architecture]
-            KG --> MAGMA[MAGMA: Orthogonal Views]
-            KG --> Lightning[Autonomous Self-Improvement]
+            KG --> MAGMA[ORCH-1.0: MAGMA: Orthogonal Views]
+            KG --> Lightning[AHE-3.3: Autonomous Self-Improvement]
             KG --> UnifiedDB[(Unified Graph DB: Ladybug/Neo4j)]
 
-            MAGMA --> Semantic[Semantic View]
-            MAGMA --> Temporal[Temporal View]
-            MAGMA --> Causal[Causal View]
-            MAGMA --> Entity[Entity View]
+            MAGMA --> Semantic[KG-2.3: Semantic View]
+            MAGMA --> Temporal[KG-2.12: Temporal View]
+            MAGMA --> Causal[KG-2.5: Causal View]
+            MAGMA --> Entity[KG-2.0: Entity View]
 
-            Lightning --> Rewards[Outcome Rewards]
+            Lightning --> Rewards[AHE-3.1: Outcome Rewards]
             Lightning --> Critiques[Textual Gradients]
-            Lightning --> Evolution[Prompt/Skill Evolution]
+            Lightning --> Evolution[AHE-3.2: Prompt/Skill Evolution]
         end
 
         subgraph ProtocolAdapters [Protocol Adapters]
-            AGUI_Adapter[AG-UI Adapter]
+            AGUI_Adapter[ECO-4.0: AG-UI Adapter]
             ACP_Adapter["ACP Adapter<br/>(graph-backed)"]
-            SSE_Adapter[SSE Stream]
-            A2A_Adapter[A2A Adapter]
+            SSE_Adapter[ECO-4.0: SSE Stream]
+            A2A_Adapter[ECO-4.1: A2A Adapter]
         end
 
         Backend --> AGUI_Adapter
@@ -48,23 +48,23 @@ graph TD
         SSE_Adapter --> UnifiedExec
 
         subgraph UnifiedDiscovery ["Unified Discovery Layer (config_helpers.py)"]
-            DAL["get_discovery_registry()"]
+            DAL["ORCH-1.2: get_discovery_registry()"]
             KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"]
             KG_Registry --> DAL
-            DAL --> DSRoster["MCPAgentRegistryModel"]
+            DAL --> DSRoster["ECO-4.10: MCPAgentRegistryModel"]
         end
 
         DSRoster --> Graph
-        Graph --> Specialists[Specialist Superstates]
-        Specialists --> MCP[MCP Servers]
-        Specialists --> Skills[Universal Skills, Skill Graphs]
+        Graph --> Specialists[ORCH-1.2: Specialist Superstates]
+        Specialists --> MCP[ECO-4.0: MCP Servers]
+        Specialists --> Skills[ECO-4.10: Universal Skills, Skill Graphs]
 
         subgraph ElicitationFlow [Human-in-the-Loop Flow]
-            MCP -- 1. Tool needs approval --> TG[tool_guard: requires_approval]
-            TG -- 2. DeferredToolRequests --> AM[ApprovalManager]
-            AM -- 3. asyncio.Future await --> EQ[Event Queue]
+            MCP -- 1. Tool needs approval --> TG[OS-5.2: tool_guard: requires_approval]
+            TG -- 2. DeferredToolRequests --> AM[OS-5.1: ApprovalManager]
+            AM -- 3. asyncio.Future await --> EQ[ORCH-1.21: Event Queue]
             EQ -- 4. SSE sideband event --> Backend
-            MCP -- 1b. ctx.elicit --> GEC[global_elicitation_callback]
+            MCP -- 1b. ctx.elicit --> GEC[ORCH-1.3: global_elicitation_callback]
             GEC -- 2b. Queue + Future --> AM
         end
     end
@@ -111,7 +111,7 @@ The fast path is gated on:
 The **ACP adapter** uses pydantic-acp's `agent_factory` callback for per-session agent creation, binding graph context directly to each session's closure.
 
 The **A2A path** now supports two modes:
-1. **Graph-native (CONCEPT:ECO-4.1)**: When a `graph_bundle` is present, `PlannerGraphSkill` is registered as an A2A skill, enabling direct graph-backed planning without LLM orchestration overhead.
+1. **Graph-native (CONCEPT:ECO-4.0)**: When a `graph_bundle` is present, `PlannerGraphSkill` is registered as an A2A skill, enabling direct graph-backed planning without LLM orchestration overhead.
 2. **LLM-mediated (fallback)**: For multi-agent negotiation scenarios, the legacy `run_graph_flow` tool call path is retained.
 
 ### 3-Stage Hybrid Routing (CONCEPT:ORCH-1.2, CONCEPT:AHE-3.3, CONCEPT:KG-2.1)
@@ -142,14 +142,14 @@ This strategy means the system progressively learns: the more queries it handles
 
 ```mermaid
 graph TB
-    Start([User Query + Images]) --> ACPLayer["<b>ACP / AG-UI / SSE</b><br/><i>(Unified Protocol Layer)</i>"]
-    ACPLayer --> UsageGuard[Usage Guard: Rate Limiting]
-    UsageGuard -- "Allow" --> router_step[Router: Topology Selection]
-    UsageGuard -- "Block" --> End([End Result])
+    Start([ORCH-1.0: User Query + Images]) --> ACPLayer["<b>ACP / AG-UI / SSE</b><br/><i>(Unified Protocol Layer)</i>"]
+    ACPLayer --> UsageGuard[ORCH-1.3: Usage Guard: Rate Limiting]
+    UsageGuard -- "Allow" --> router_step[ORCH-1.2: Router: Topology Selection]
+    UsageGuard -- "Block" --> End([ORCH-1.21: End Result])
 
     router_step -- "Trivial Query" --> End
-    router_step -- "Full Pipeline" --> dispatcher[Dispatcher: Dynamic Routing]
-    dispatcher -- "First Entry" --> mem_step[Memory: Context Retrieval]
+    router_step -- "Full Pipeline" --> dispatcher[ORCH-1.0: Dispatcher: Dynamic Routing]
+    dispatcher -- "First Entry" --> mem_step[KG-2.3: Memory: Context Retrieval]
     mem_step --> dispatcher
 
     subgraph DiscoveryPhase ["Discovery Phase"]
@@ -157,7 +157,7 @@ graph TB
         Researcher["<b>Researcher</b><br/>---<br/><i>u-skill:</i> web-search, web-crawler, web-fetch<br/><i>t-tool:</i> project_search, read_workspace_file"]
         Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, spec-generator, product-strategy, user-research, brainstorming<br/><i>t-tool:</i> developer_tools"]
         MCPDiscovery["<b>Unified Registry</b><br/>---<br/><i>source:</i> Knowledge Graph"]
-        res_joiner[Research Joiner: Barrier Sync]
+        res_joiner[ORCH-1.0: Research Joiner: Barrier Sync]
     end
 
     dispatcher -- "Research First" --> Researcher
@@ -202,19 +202,19 @@ graph TB
     dispatcher -- "Parallel Dispatch" --> InfraGroup
     dispatcher -- "Parallel Dispatch" --> Specialized
 
-    Programmers --> exe_joiner[Execution Joiner: Barrier Sync]
+    Programmers --> exe_joiner[ORCH-1.0: Execution Joiner: Barrier Sync]
     InfraGroup --> exe_joiner
     Specialized --> exe_joiner
 
     exe_joiner -- "Implementation Results" --> dispatcher
 
-    dispatcher -- "Plan Complete" --> verifier[Verifier: Quality Gate]
-    dispatcher -- "Council" --> council[Council: Multi-Perspective Deliberation]
+    dispatcher -- "Plan Complete" --> verifier[AHE-3.1: Verifier: Quality Gate]
+    dispatcher -- "Council" --> council[ORCH-1.2: Council: Multi-Perspective Deliberation]
     council --> exe_joiner
-    verifier -- "Pass: Score >= 0.7" --> synthesizer[Synthesizer: Response Composition]
+    verifier -- "Pass: Score >= 0.7" --> synthesizer[ORCH-1.0: Synthesizer: Response Composition]
     verifier -- "Fail: Score < 0.7" --> dispatcher
     dispatcher -- "Terminal Failure" --> End
-    planner_step[Planner: Re-plan] --> dispatcher
+    planner_step[ORCH-1.1: Planner: Re-plan] --> dispatcher
     synthesizer -- "Final Response" --> End
 
     subgraph SDD_Lifecycle ["Spec-Driven Development"]
@@ -245,6 +245,30 @@ graph TB
 ```
 
 > **Note:** MCP ecosystem agents (AdGuard, Jellyfin, Ansible Tower, etc.) are dynamically spawned as `CallableResource` nodes in the Knowledge Graph. They are discovered at runtime from `mcp_config.json` and do not appear in this static diagram.
+>
+> ### Unified Toolkit Ingestion (CONCEPT:ECO-4.0)
+>
+> ```mermaid
+> graph LR
+>     subgraph Ingestion Pipeline
+>         Sources[Sources: mcp_config.json, SKILL.md dirs, A2A URLs] --> AutoDetect{Auto-Detect}
+>         AutoDetect -- "mcp_config" --> ParseMCP[Extract Servers & Flags]
+>         AutoDetect -- "skill_directory" --> ParseYAML[Parse Frontmatter]
+>         AutoDetect -- "a2a_url" --> FetchCard[Fetch /.well-known/agent.json]
+>     end
+>
+>     ParseMCP --> LiveDiscovery[Live Tool Discovery<br><i>(list_tools)</i>]
+>     LiveDiscovery --> KGInsert[Insert CallableResource]
+>     ParseYAML --> KGInsert
+>     FetchCard --> KGInsert
+>
+>     KGInsert --> KG[(Knowledge Graph)]
+>
+>     style Sources fill:#f5f5f5,stroke:#666
+>     style AutoDetect fill:#dae8fe,stroke:#6c8ebf
+>     style KG fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
+> ```
+> This pipeline allows single-shot ingestion of all agent capabilities, bridging the gap between isolated codebases and the unified Knowledge Graph.
 
 ### Council Deliberation Node
 
@@ -252,23 +276,23 @@ The **Council** is a specialized graph node that implements Karpathy's LLM Counc
 
 ```mermaid
 graph LR
-    Q[Query] --> A1[Contrarian]
-    Q --> A2[First Principles]
-    Q --> A3[Expansionist]
-    Q --> A4[Outsider]
-    Q --> A5[Executor]
-    A1 --> Anon[Anonymize]
+    Q[ORCH-1.0: Query] --> A1[ORCH-1.2: Contrarian]
+    Q --> A2[KG-2.2: First Principles]
+    Q --> A3[ORCH-1.2: Expansionist]
+    Q --> A4[ORCH-1.2: Outsider]
+    Q --> A5[ORCH-1.21: Executor]
+    A1 --> Anon[OS-5.1: Anonymize]
     A2 --> Anon
     A3 --> Anon
     A4 --> Anon
     A5 --> Anon
-    Anon --> R1[Reviewer 1]
-    Anon --> R2[Reviewer 2]
-    Anon --> R3[Reviewer 3]
-    R1 --> Chair[Chairman]
+    Anon --> R1[ORCH-1.2: Reviewer 1]
+    Anon --> R2[ORCH-1.2: Reviewer 2]
+    Anon --> R3[ORCH-1.2: Reviewer 3]
+    R1 --> Chair[ORCH-1.2: Chairman]
     R2 --> Chair
     R3 --> Chair
-    Chair --> V[CouncilVerdict]
+    Chair --> V[ORCH-1.2: CouncilVerdict]
 
     style Anon fill:#fff2cc,stroke:#d6b656
     style Chair fill:#d5e8d4,stroke:#82b366

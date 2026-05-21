@@ -625,6 +625,29 @@ class ServiceRegistry:
             )
             self._services[desc.capability] = desc
 
+        # Load external legacy plugins
+        try:
+            import os
+
+            from agent_utilities.graph.adapters.external_plugin_adapter import (
+                ExternalPluginAdapter,
+            )
+
+            plugin_dir = os.environ.get(
+                "EXTERNAL_PLUGIN_DIR", os.path.join(os.getcwd(), "plugins")
+            )
+            external_plugins = ExternalPluginAdapter.load_plugins_from_directory(
+                plugin_dir
+            )
+            for plugin_desc in external_plugins:
+                self._services[plugin_desc.capability] = plugin_desc
+                logger.info(
+                    "[CONCEPT:ORCH-1.4] Registered external plugin: %s",
+                    plugin_desc.capability,
+                )
+        except Exception as e:
+            logger.warning("[CONCEPT:ORCH-1.4] Failed to load external plugins: %s", e)
+
         self._initialized = True
         logger.info(
             "[CONCEPT:ORCH-1.4] Service registry initialized with %d services",

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Graph-Native Team Evolution (CONCEPT:AHE-3.5).
+"""Graph-Native Team Evolution (CONCEPT:AHE-3.4).
 
 Enables autonomous agents to evaluate execution traces from the Knowledge Graph
 and propose architectural improvements to agent topologies and capabilities.
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class TeamEvolutionEngine:
     """Evaluates agent team performance and evolves topology natively via the KG.
 
-    CONCEPT:AHE-3.5 — Graph-Native Team Evolution
+    CONCEPT:AHE-3.4 — Graph-Native Team Evolution
     """
 
     def __init__(self, engine: IntelligenceGraphEngine):

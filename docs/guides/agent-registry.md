@@ -13,20 +13,20 @@ Each specialist is packaged as a JSON definition containing an MCP server config
 ```mermaid
 flowchart LR
     subgraph Registry
-        AVAIL[available/] --> |install| INSTALLED[installed/]
+        AVAIL[ECO-4.10: available/] --> |install| INSTALLED[installed/]
         INSTALLED --> |uninstall| AVAIL
     end
 
     subgraph Install Flow
-        PKG[Package JSON] --> MCP[Merge MCP Config]
-        MCP --> KG[Hydrate KG Nodes]
+        PKG[ECO-4.10: Package JSON] --> MCP[ECO-4.10: Merge MCP Config]
+        MCP --> KG[KG-2.0: Hydrate KG Nodes]
         KG --> CACHE[Invalidate Cache CONCEPT:ORCH-1.2]
-        CACHE --> RELOAD[Hot Reload /mcp/reload]
+        CACHE --> RELOAD[ECO-4.11: Hot Reload /mcp/reload]
     end
 
     subgraph Uninstall Flow
-        RM_KG[Remove KG Nodes] --> RM_MCP[Remove MCP Config]
-        RM_MCP --> RM_CACHE[Invalidate Cache]
+        RM_KG[KG-2.0: Remove KG Nodes] --> RM_MCP[ECO-4.10: Remove MCP Config]
+        RM_MCP --> RM_CACHE[ECO-4.10: Invalidate Cache]
     end
 ```
 

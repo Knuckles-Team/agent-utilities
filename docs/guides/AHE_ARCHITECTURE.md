@@ -21,16 +21,16 @@ structured observability.
 
 ```mermaid
 graph LR
-    A[Langfuse Traces] --> B[Automated Distillation]
-    B --> C[Summaries & Clusters]
-    C --> D[Failure Taxonomies]
-    D --> E[Layered Evidence Corpus]
-    E --> F[Evolve Agent Decisions]
+    A[OS-5.4: Langfuse Traces] --> B[AHE-3.1: Automated Distillation]
+    B --> C[KG-2.10: Summaries & Clusters]
+    C --> D[ORCH-1.21: Failure Taxonomies]
+    D --> E[KG-2.7: Layered Evidence Corpus]
+    E --> F[ORCH-1.1: Evolve Agent Decisions]
 
-    B -.-> G[langfuse-agent API]
-    C -.-> H[RLM Summarizer]
-    D -.-> I[KG Semantic Clustering]
-    E -.-> J[Versioned Files + KG Nodes]
+    B -.-> G[OS-5.4: langfuse-agent API]
+    C -.-> H[KG-2.10: RLM Summarizer]
+    D -.-> I[KG-2.0: KG Semantic Clustering]
+    E -.-> J[KG-2.0: Versioned Files + KG Nodes]
 ```
 
 ## Component Types
@@ -43,16 +43,16 @@ graph TD
         SP[System Prompt<br>prompt_builder.py<br>structured_prompts.py]
         TD[Tool Description<br>tool_filtering.py<br>SKILL.md frontmatter]
         TI[Tool Implementation<br>tools/*.py<br>mcp_server.py]
-        MW[Middleware<br>middlewares.py<br>guardrails.py<br>tool_guard.py]
+        MW[OS-5.3: Middleware<br>middlewares.py<br>guardrails.py<br>tool_guard.py]
         SK[Skills<br>universal-skills/]
         SA[Sub-Agents<br>graph/steps/<br>HSM specialist nodes]
         LM[Long-Term Memory<br>knowledge_graph/<br>MemoryNode]
     end
 
-    subgraph "Observability Pillars"
-        CO[Component Observability<br>File-level diffs + git]
-        EO[Experience Observability<br>TraceDistiller → EvidenceCorpus]
-        DO[Decision Observability<br>ChangeManifest + VerificationResult]
+    subgraph "OS-5.4: Observability Pillars"
+        CO[OS-5.4: Component Observability<br>File-level diffs + git]
+        EO[OS-5.4: Experience Observability<br>TraceDistiller → EvidenceCorpus]
+        DO[OS-5.4: Decision Observability<br>ChangeManifest + VerificationResult]
     end
 
     SP --> CO

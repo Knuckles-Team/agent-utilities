@@ -464,7 +464,7 @@ class TraceDistiller:
 
 """Backtest / Evaluation Harness — strategy validation and capture.
 
-CONCEPT:AHE-3.6 — Backtest Evaluation Harness
+CONCEPT:AHE-3.4 — Backtest Evaluation Harness
 
 Domain-agnostic backtesting and evaluation harness that extends
 KGEvalCapture.  Records multi-dimensional evaluation results with
@@ -496,7 +496,7 @@ _DEFAULT_DB_PATH = ".agent_workspace/backtest_log.db"
 
 
 class BacktestMetric(BaseModel):
-    """A single metric from a backtest run. CONCEPT:AHE-3.6"""
+    """A single metric from a backtest run. CONCEPT:AHE-3.4"""
 
     metric_name: str
     value: float
@@ -506,7 +506,7 @@ class BacktestMetric(BaseModel):
 
 
 class BacktestRunRecord(BaseModel):
-    """Complete record of a backtest run. CONCEPT:AHE-3.6"""
+    """Complete record of a backtest run. CONCEPT:AHE-3.4"""
 
     run_id: str
     strategy_id: str = ""
@@ -525,7 +525,7 @@ class BacktestRunRecord(BaseModel):
 
 
 class BacktestComparison(BaseModel):
-    """Comparison result between a run and a benchmark. CONCEPT:AHE-3.6"""
+    """Comparison result between a run and a benchmark. CONCEPT:AHE-3.4"""
 
     run_id: str
     benchmark_id: str
@@ -539,7 +539,7 @@ class BacktestComparison(BaseModel):
 class BacktestHarness:
     """Domain-agnostic backtesting and evaluation harness.
 
-    CONCEPT:AHE-3.6 — Backtest Evaluation Harness
+    CONCEPT:AHE-3.4 — Backtest Evaluation Harness
 
     Records evaluation runs to a separate SQLite database to prevent
     KG contamination (same pattern as KGEvalCapture).
@@ -605,7 +605,7 @@ class BacktestHarness:
     ) -> str:
         """Create a new backtest run.
 
-        CONCEPT:AHE-3.6
+        CONCEPT:AHE-3.4
 
         Args:
             strategy_id: Reference to the strategy being evaluated.
@@ -677,7 +677,7 @@ class BacktestHarness:
     ) -> None:
         """Record a metric for a backtest run.
 
-        CONCEPT:AHE-3.6
+        CONCEPT:AHE-3.4
 
         Args:
             run_id: The run to record the metric for.
@@ -727,7 +727,7 @@ class BacktestHarness:
     ) -> BacktestRunRecord | None:
         """Complete a backtest run and finalize results.
 
-        CONCEPT:AHE-3.6
+        CONCEPT:AHE-3.4
 
         Args:
             run_id: The run to complete.
@@ -787,7 +787,7 @@ class BacktestHarness:
     ) -> list[BacktestComparison]:
         """Compare a run's metrics against benchmark values.
 
-        CONCEPT:AHE-3.6
+        CONCEPT:AHE-3.4
 
         Args:
             run_id: The run to compare.

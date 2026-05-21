@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from agent_utilities.harness.tracing import trace
+
 from ..models import (
     AgentDeps,
 )
@@ -105,6 +107,7 @@ def scan_for_entry_points(root: Path) -> list[str]:
     return found
 
 
+@trace(name="bootstrap_project", trace_type="TOOL")
 @tool_version("1.0.0")
 async def bootstrap_project(ctx: RunContext[AgentDeps]) -> str:
     """Identify the project's technical stack and entry points.

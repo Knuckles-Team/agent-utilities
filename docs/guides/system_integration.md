@@ -103,17 +103,17 @@ Fixed 21 stale file paths in `docs/overview.md` where files had been relocated t
 
 ```mermaid
 flowchart TD
-    Q[User Query] --> SR[ServiceRegistry.initialize]
-    SR --> PS[PromptInjectionScanner]
-    PS -->|blocked| BLOCK[Return Security Error]
-    PS -->|clean| ROUTER[router_step]
-    ROUTER -->|KG discovery| KG[(Knowledge Graph)]
-    ROUTER -->|plan| DISP[dispatcher_step]
-    DISP --> DLD[DoomLoopDetector]
-    DLD -->|loop| ERROR[error_recovery]
-    DLD -->|ok| CKPT[StateCheckpointer]
+    Q[ORCH-1.0: User Query] --> SR[ECO-4.10: ServiceRegistry.initialize]
+    SR --> PS[OS-5.1: PromptInjectionScanner]
+    PS -->|blocked| BLOCK[OS-5.1: Return Security Error]
+    PS -->|clean| ROUTER[ORCH-1.2: router_step]
+    ROUTER -->|KG discovery| KG[(KG-2.0: Knowledge Graph)]
+    ROUTER -->|plan| DISP[ORCH-1.0: dispatcher_step]
+    DISP --> DLD[OS-5.2: DoomLoopDetector]
+    DLD -->|loop| ERROR[ORCH-1.3: error_recovery]
+    DLD -->|ok| CKPT[ORCH-1.3: StateCheckpointer]
     CKPT --> KG
-    CKPT --> EXEC[Execute Specialists]
-    EXEC --> VERIFY[verifier]
+    CKPT --> EXEC[ORCH-1.2: Execute Specialists]
+    EXEC --> VERIFY[AHE-3.1: verifier]
     VERIFY --> SYNTH[Synthesis]
 ```

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Policy & Guardrails Engine.
 
-CONCEPT:OS-5.3
+CONCEPT:OS-5.1
 
 Provides automated policy enforcement for agent inputs and outputs.
 Rules implement the :class:`PolicyRule` protocol and are aggregated by

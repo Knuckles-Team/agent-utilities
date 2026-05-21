@@ -379,7 +379,7 @@ class WorkspaceAttention:
     def deliberation_score(self, proposals: list[Proposal]) -> dict[str, float]:
         """Cross-trajectory critical analysis for heavy thinking integration.
 
-        CONCEPT:AHE-3.5 — Analyzes a group of proposals (representing
+        CONCEPT:AHE-3.4 — Analyzes a group of proposals (representing
         parallel reasoning trajectories) to determine whether they
         warrant sequential deliberation.
 

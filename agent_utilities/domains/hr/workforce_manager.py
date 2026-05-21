@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""HR/Workforce Management Service Layer (CONCEPT:KG-2.8).
+"""HR/Workforce Management Service Layer (CONCEPT:KG-2.6).
 
 Provides workforce management capabilities:
 - Org chart traversal and hierarchy queries

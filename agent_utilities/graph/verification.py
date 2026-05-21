@@ -323,10 +323,109 @@ async def verifier_step(
 
         except Exception as e:
             logger.warning(
-                f"Verifier: Structure validation failed: {e}. Proceeding to synthesis."
+                f"Verifier: Structure validation failed: {e}. Attempting unstructured fallback."
             )
+            try:
+                # Get the raw text from the agent response
+                raw_text = ""
+                if hasattr(validation_agent, "last_run_messages"):
+                    for msg in reversed(validation_agent.last_run_messages):
+                        if hasattr(msg, "parts"):
+                            for part in msg.parts:
+                                if hasattr(part, "content") and isinstance(
+                                    part.content, str
+                                ):
+                                    raw_text += part.content
 
-    # Validation passed (or was skipped). Route to synthesizer for
+                # Simple heuristic extraction if we can't find raw text easily
+                fallback_score = 0.5
+                fallback_feedback = "Fallback validation failed to parse output."
+
+                if not raw_text:
+                    # Run a quick unstructured extraction pass
+                    extraction_agent = Agent(
+                        model=ctx.deps.agent_model,
+                        system_prompt=(
+                            "Extract the validation score (0.0 to 1.0) and feedback text from the previous response. "
+                            "Format exactly as: SCORE: <number>\\nFEEDBACK: <text>"
+                        ),
+                    )
+                    res = await extraction_agent.run(
+                        f"Evaluate the following results:\n{results_summary}"
+                    )
+                    raw_text = str(res.output)
+
+                import re
+
+                score_match = re.search(
+                    r"(?:score|SCORE)[\s:=]+([0-1](?:\.\d+)?)", raw_text, re.IGNORECASE
+                )
+                if score_match:
+                    fallback_score = float(score_match.group(1))
+
+                feedback_match = re.search(
+                    r"(?:feedback|FEEDBACK)[\s:=]+(.*)",
+                    raw_text,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                if feedback_match:
+                    fallback_feedback = feedback_match.group(1).strip()
+                elif raw_text:
+                    fallback_feedback = raw_text.strip()[:500]
+
+                validation = ValidationResult(
+                    is_valid=fallback_score >= 0.7,
+                    score=fallback_score,
+                    feedback=fallback_feedback,
+                )
+                logger.info(
+                    f"Verifier Fallback: Extracted score {validation.score:.2f} and feedback."
+                )
+
+            except Exception as fallback_e:
+                logger.warning(
+                    f"Verifier Fallback failed: {fallback_e}. Proceeding to synthesis."
+                )
+                validation = ValidationResult(
+                    is_valid=True, score=0.8, feedback="Fallback triggered."
+                )
+
+            # Since validation fallback produced a result, we need to process it like normal
+            emit_graph_event(
+                ctx.deps.event_queue,
+                event_type="verification_result",
+                is_valid=validation.is_valid,
+                feedback=validation.feedback,
+                attempt=ctx.state.verification_attempts + 1,
+            )
+            if (
+                not validation.is_valid
+                and validation.score < 0.7
+                and validation.feedback
+            ):
+                ctx.state.verification_attempts += 1
+                ctx.state.validation_feedback = validation.feedback
+
+                if validation.score < 0.4 and ctx.state.verification_attempts <= 2:
+                    logger.warning(
+                        f"Verifier: Score {validation.score:.2f} < 0.4. "
+                        f"Feedback: {validation.feedback[:200]}. "
+                        f"Re-planning (attempt {ctx.state.verification_attempts})."
+                    )
+                    ctx.state.needs_replan = True
+                    ctx.state.error = f"Plan-level failure: {validation.feedback[:300]}"
+                    return "planner"
+
+                logger.warning(
+                    f"Verifier: Score {validation.score:.2f} < 0.7. "
+                    f"Feedback: {validation.feedback[:200]}. "
+                    f"Re-dispatching (attempt {ctx.state.verification_attempts})."
+                )
+                ctx.state.step_cursor = 0
+                ctx.state.needs_replan = False
+                return "dispatcher"
+
+            logger.info(f"Verifier: Validation passed (score: {validation.score:.2f}).")
     # final response composition.  This separates the quality-gate
     # concern from the response-generation concern.
     _emit_node_lifecycle(

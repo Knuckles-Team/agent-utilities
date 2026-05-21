@@ -1,7 +1,7 @@
-# Heavy Thinking Orchestration (CONCEPT:AHE-3.5)
+# Heavy Thinking Orchestration (CONCEPT:AHE-3.4)
 
 ## Overview
-Two-stage parallel-then-deliberate reasoning pipeline with tiered complexity gating, trajectory pruning/shuffling, iterative refinement, and KG-native trajectory persistence (CONCEPT:AHE-3.5).
+Two-stage parallel-then-deliberate reasoning pipeline with tiered complexity gating, trajectory pruning/shuffling, iterative refinement, and KG-native trajectory persistence (CONCEPT:AHE-3.4).
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/graph/heavy_thinking.py``
@@ -20,7 +20,7 @@ Experience distillation via cross-rollout critique (CONCEPT:AHE-3.4), decomposed
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# [KG-Native Agentic Task Detection](pillars/3_agentic_harness_engineering/AHE-3.24-KG-Native_Agentic_Task_Detection.md) (CONCEPT:AHE-3.5)
+# [KG-Native Agentic Task Detection](pillars/3_agentic_harness_engineering/AHE-3.24-KG-Native_Agentic_Task_Detection.md) (CONCEPT:AHE-3.4)
 
 ## Overview
 Evaluates topological complexity to route dense API toolchains to complex models.
@@ -31,7 +31,7 @@ Evaluates topological complexity to route dense API toolchains to complex models
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# [Topological Reasoning Detection](pillars/3_agentic_harness_engineering/AHE-3.25-Topological_Reasoning_Detection.md) (CONCEPT:AHE-3.5)
+# [Topological Reasoning Detection](pillars/3_agentic_harness_engineering/AHE-3.25-Topological_Reasoning_Detection.md) (CONCEPT:AHE-3.4)
 
 ## Overview
 Maps user queries to `MathematicalFoundationNode` or quantitative financial concepts to trigger reasoning models.

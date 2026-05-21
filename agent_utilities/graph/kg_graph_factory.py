@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""KG-Driven Pydantic Graph Factory (CONCEPT:ORCH-1.20).
+"""KG-Driven Pydantic Graph Factory (CONCEPT:ORCH-1.4).
 
 Bridges the Knowledge Graph and ``pydantic-graph`` by dynamically
 materializing executable graph topologies from KG-stored agent
@@ -93,7 +93,7 @@ class KGGraphResult:
 class KGMaterializedStep(BaseModel, BaseNode[GraphState, GraphDeps, GraphResponse]):
     """A pydantic-graph step dynamically materialized from the KG.
 
-    CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+    CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
 
     Each instance wraps a single AgentTemplate node's configuration and
     executes as a native pydantic-graph ``BaseNode``. The step:
@@ -178,7 +178,7 @@ class KGMaterializedStep(BaseModel, BaseNode[GraphState, GraphDeps, GraphRespons
 
         # ── Log execution ──
         logger.info(
-            "[CONCEPT:ORCH-1.20] KG step '%s' (role=%s) executed. "
+            "[CONCEPT:ORCH-1.4] KG step '%s' (role=%s) executed. "
             "Tools: %s, Terminal: %s",
             self.step_id,
             self.role,
@@ -383,7 +383,7 @@ def _resolve_templates_from_kg(
                 "at.step_order AS step_order, "
                 "at.is_parallel AS is_parallel, "
                 "at.max_retries AS max_retries, "
-                "at.description AS description "
+                "at.description AS descriptionription "
                 "ORDER BY at.step_order ASC "
                 f"LIMIT {top_k}",
                 {},
@@ -439,7 +439,7 @@ def build_pydantic_graph_from_kg(
 ) -> KGGraphResult:
     """Build a pydantic-graph from Knowledge Graph topology.
 
-    CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+    CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
 
     This is the primary factory function that bridges the KG and
     pydantic-graph. It:
@@ -482,7 +482,7 @@ def build_pydantic_graph_from_kg(
     team_composition: TeamComposition | None = None
     if not templates:
         logger.info(
-            "[CONCEPT:ORCH-1.20] No AgentTemplate nodes found. "
+            "[CONCEPT:ORCH-1.4] No AgentTemplate nodes found. "
             "Falling back to KGTeamComposer."
         )
         composer = KGTeamComposer(engine=engine)
@@ -608,8 +608,7 @@ def build_pydantic_graph_from_kg(
     )
 
     logger.info(
-        "[CONCEPT:ORCH-1.20] Materialized KG graph: %d steps, "
-        "entry='%s', topology='%s'",
+        "[CONCEPT:ORCH-1.4] Materialized KG graph: %d steps, entry='%s', topology='%s'",
         len(steps),
         entry_node_id,
         topology_id,

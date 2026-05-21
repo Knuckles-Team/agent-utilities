@@ -1,4 +1,4 @@
-# Design Document: Research Assimilation Tracking (CONCEPT:KG-2.7)
+# Design Document: Research Assimilation Tracking (CONCEPT:KG-2.6)
 
 > Every feature begins with a design document. This gates creation through
 > the Knowledge Graph to enforce the **Extend-Before-Invent** principle.
@@ -19,7 +19,7 @@ This feature is meta — it tracks the provenance of all other research-derived 
 
 ### Extension Analysis
 
-- **Primary Extension Point**: `CONCEPT:KG-2.7` — Research Intelligence
+- **Primary Extension Point**: `CONCEPT:KG-2.6` — Research Intelligence
 - **Extension Strategy**: `augment` — adds assimilation lifecycle tracking to existing research intelligence
 - **New Concept Required?**: No
 

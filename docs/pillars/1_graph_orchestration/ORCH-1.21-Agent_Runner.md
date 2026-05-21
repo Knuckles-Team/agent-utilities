@@ -22,20 +22,20 @@ dynamically binding MCP toolsets, and recording execution provenance.
 
 ```mermaid
 flowchart LR
-    CMD["graph_orchestrate: execute_agent"] -->|"agent_name"| RESOLVE["KG Resolution"]
+    CMD["ORCH-1.21: graph_orchestrate: execute_agent"] -->|"agent_name"| RESOLVE["KG-2.0: KG Resolution"]
 
     subgraph KG ["Knowledge Graph Queries"]
-        RESOLVE --> SRV["Match Server nodes"]
-        RESOLVE --> RES["Match CallableResource nodes"]
-        RESOLVE --> SEM["Hybrid semantic search"]
+        RESOLVE --> SRV["KG-2.0: Match Server nodes"]
+        RESOLVE --> RES["KG-2.0: Match CallableResource nodes"]
+        RESOLVE --> SEM["KG-2.3: Hybrid semantic search"]
     end
 
-    SRV -->|"tools, URL, command"| CONFIG["Config Builder"]
+    SRV -->|"tools, URL, command"| CONFIG["ORCH-1.21: Config Builder"]
     RES -->|"type, capabilities"| CONFIG
     SEM -->|"best match"| CONFIG
-    CONFIG -->|"tag_prompts + mcp_toolsets"| GRAPH["create_graph_agent()"]
-    GRAPH -->|"materialized graph"| RUN["run_graph() → LM Studio"]
-    RUN -->|"GraphResponse"| TRACE["KG: RunTrace provenance"]
+    CONFIG -->|"tag_prompts + mcp_toolsets"| GRAPH["ORCH-1.20: create_graph_agent()"]
+    GRAPH -->|"materialized graph"| RUN["ORCH-1.21: run_graph() → LM Studio"]
+    RUN -->|"GraphResponse"| TRACE["OS-5.4: KG: RunTrace provenance"]
 ```
 
 ## Execution Lifecycle
@@ -53,7 +53,7 @@ Queries the KG across three node types:
 Constructs a `create_graph_agent()` config from resolved metadata:
 - **tag_prompts**: Agent name + tool descriptions + capabilities
 - **mcp_toolsets**: Dynamically created `MCPServerStdio/SSE/StreamableHTTP` from URLs
-- **LLM settings**: `DEFAULT_ROUTER_MODEL`, `DEFAULT_LLM_BASE_URL` (LM Studio)
+- **LLM settings**: Unified model routing via XDG `config.json`
 
 ### 3. Graph Execution
 Calls `create_graph_agent()` → `run_graph()` with the materialized graph.

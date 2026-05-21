@@ -348,7 +348,7 @@ class GraphState:
     the reliability of upstream context."""
 
     subagent_pattern: str | None = None
-    """CONCEPT:ORCH-1.5 — Active Subagent Lifecycle Pattern.
+    """CONCEPT:ORCH-1.3 — Active Subagent Lifecycle Pattern.
     Records which interaction pattern (inline_tool, fan_out, agent_pool,
     teams) was selected for this execution. Used for telemetry and
     pattern-outcome learning."""

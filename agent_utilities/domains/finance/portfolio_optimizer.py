@@ -93,7 +93,7 @@ class MeanVarianceOptimizer:
             weights=weight_dict,
             expected_return=port_return,
             expected_volatility=port_vol,
-            sharpe_ratio=float(sharpe),
+            sharpe_ratio=sharpe,
             method="mean_variance",
         )
 
@@ -249,3 +249,114 @@ class BlackLittermanOptimizer:
             ).sharpe_ratio,
             method="black_litterman",
         )
+
+
+class EmpiricalKellyOptimizer:
+    """
+    Empirical Kelly Position Sizing — CONCEPT:KG-2.6
+    Adjusts standard Kelly criterion sizing based on the Coefficient of Variation (CV)
+    of the expected edge, computed via Monte Carlo simulation of historical returns.
+    """
+
+    def compute_fraction(
+        self,
+        win_probability: float,
+        win_loss_ratio: float,
+        historical_returns: np.ndarray,
+        n_simulations: int = 10000,
+    ) -> float:
+        """
+        Compute uncertainty-adjusted Kelly fraction.
+
+        Args:
+            win_probability (p): Estimated probability of a winning trade.
+            win_loss_ratio (b): Ratio of average win magnitude to average loss magnitude.
+            historical_returns: Array of past strategy returns to measure edge stability.
+            n_simulations: Number of Monte Carlo paths for edge CV estimation.
+
+        Returns:
+            f_empirical: The adjusted Kelly fraction to risk (0.0 to 1.0).
+        """
+        if len(historical_returns) == 0:
+            return 0.0
+
+        p = win_probability
+        q = 1.0 - p
+        b = win_loss_ratio
+
+        if b <= 0:
+            return 0.0
+
+        # Standard Kelly fraction
+        f_kelly = (p * b - q) / b
+
+        if f_kelly <= 0:
+            return 0.0
+
+        # Monte Carlo to measure edge variation
+        # Generate indices for resampling
+        n_obs = len(historical_returns)
+        sim_indices = np.random.randint(0, n_obs, size=(n_simulations, n_obs))
+        edge_estimates = historical_returns[sim_indices].mean(axis=1)
+
+        mean_edge = np.abs(np.mean(edge_estimates))
+        if mean_edge == 0:
+            return 0.0
+
+        cv_edge = np.std(edge_estimates) / mean_edge
+
+        # Empirical Kelly limits leverage based on variance of the edge
+        f_empirical = f_kelly * (1.0 - cv_edge)
+
+        return max(f_empirical, 0.0)
+
+
+class FractionalKellyOptimizer:
+    """
+    Fractional Kelly Position Sizing — CONCEPT:KG-2.6
+    Scales the Kelly criterion by a fixed fraction (e.g., 0.15x) to survive variance.
+    """
+
+    @staticmethod
+    def compute_fraction(
+        win_probability: float, win_loss_ratio: float, fraction: float = 0.15
+    ) -> float:
+        """
+        Compute Fractionally scaled Kelly criterion.
+        """
+        p = win_probability
+        q = 1.0 - p
+        b = win_loss_ratio
+
+        if b <= 0:
+            return 0.0
+
+        f_kelly = (p * b - q) / b
+
+        if f_kelly <= 0:
+            return 0.0
+
+        return max(f_kelly * fraction, 0.0)
+
+
+class CircuitBreaker:
+    """
+    Risk Management Circuit Breaker — CONCEPT:KG-2.6
+    Halts trading if a daily drawdown threshold is breached.
+    """
+
+    @staticmethod
+    def is_tripped(
+        current_daily_loss: float, max_daily_loss_limit: float = 300.0
+    ) -> bool:
+        """
+        Check if the daily loss circuit breaker is tripped.
+
+        Args:
+            current_daily_loss: The total loss accumulated today (as a positive float).
+            max_daily_loss_limit: The maximum allowed loss before halting.
+
+        Returns:
+            True if trading should be halted.
+        """
+        return current_daily_loss >= max_daily_loss_limit

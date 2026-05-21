@@ -18,7 +18,7 @@ Extracted from the monolithic steps.py for maintainability.
 - ``planner_step``: Re-planning after verification failures.
 - ``architect_step``: High-level system design generation.
 - ``memory_selection_step``: Workspace memory filtering and gap detection.
-- ``fetch_unified_context``: Aggregate workspace metadata helper.
+- ``fetch_epistemic_context``: Aggregate workspace metadata helper.
 """
 # CONCEPT:ECO-4.0 — Planner Step
 
@@ -50,7 +50,7 @@ __all__ = [
     "planner_step",
     "architect_step",
     "memory_selection_step",
-    "fetch_unified_context",
+    "fetch_epistemic_context",
 ]
 
 
@@ -71,7 +71,7 @@ async def researcher_step(
 
     """
     logger.info("Researcher: Triangulating context...")
-    unified_context = await fetch_unified_context()
+    unified_context = await fetch_epistemic_context()
 
     # If the dispatcher sent a specific question, use it as the prompt
     step_input = ctx.inputs
@@ -92,7 +92,6 @@ async def researcher_step(
         model=ctx.deps.agent_model,
         system_prompt=(f"{researcher_prompt}\n\nWorkspace Context: {unified_context}"),
         tools=[project_search, read_workspace_file] + knowledge_tools,
-        toolsets=list(ctx.deps.mcp_toolsets),
     )
 
     try:
@@ -147,7 +146,7 @@ async def planner_step(
     )
 
     planner_prompt = load_specialized_prompts("planner")
-    unified_context = await fetch_unified_context()
+    unified_context = await fetch_epistemic_context()
 
     # Build a rich re-planning context from previous execution
     previous_results = "\n".join(
@@ -235,7 +234,7 @@ async def planner_step(
     rlm_config = RLMConfig()
 
     try:
-        # CONCEPT:AHE-3.5 — Heavy Thinking activation gate
+        # CONCEPT:AHE-3.4 — Heavy Thinking activation gate
         # When the complexity estimator determines the query warrants
         # deep multi-trajectory reasoning, use the Heavy Thinking pipeline
         # instead of standard LATS or single-shot planning.
@@ -258,7 +257,7 @@ async def planner_step(
                 logger.debug("Complexity estimation failed: %s", e)
 
         if use_heavy_thinking:
-            logger.info("Planner: Running in Heavy Thinking (CONCEPT:AHE-3.5) mode.")
+            logger.info("Planner: Running in Heavy Thinking (CONCEPT:AHE-3.4) mode.")
             from .heavy_thinking import HeavyThinkingPlanner as HTP
 
             ht_planner = HTP(
@@ -328,11 +327,56 @@ async def planner_step(
 
         return "dispatcher"
     except Exception as e:
-        logger.error(f"Re-planning failed: {e}")
+        logger.warning(f"Planning failed: {e}. Attempting unstructured fallback.")
+        try:
+            fallback_prompt = (
+                f"{planner_prompt}\n\nCRITICAL: You failed JSON validation. "
+                "Please reply ONLY with a simple text list of the exact agent names you want to use from the available specialists "
+                "(separated by commas). DO NOT output conversational text, just the comma-separated agent names."
+            )
+            fallback_agent = Agent(
+                model=ctx.deps.agent_model, system_prompt=fallback_prompt
+            )
+            fallback_res = await fallback_agent.run(ctx.state.query)
+
+            raw_text = str(
+                getattr(fallback_res, "data", getattr(fallback_res, "output", ""))
+            )
+            available = (
+                list(ctx.deps.tag_prompts.keys())
+                if ctx.deps and hasattr(ctx.deps, "tag_prompts")
+                else []
+            )
+
+            steps = []
+            for spec in available:
+                if spec.lower() in raw_text.lower():
+                    steps.append(
+                        ExecutionStep(node_id=spec, input_data=ctx.state.query)
+                    )
+
+            if steps:
+                logger.info(
+                    f"Planner Fallback: Extracted {len(steps)} steps from text: {[s.node_id for s in steps]}"
+                )
+                ctx.state.plan = GraphPlan(
+                    steps=steps,
+                    metadata={"reasoning": "Fallback natural language extraction"},
+                )
+                ctx.state.step_cursor = 0
+                return "dispatcher"
+            else:
+                logger.warning(
+                    f"Planner Fallback: No known specialists found in text. Available: {available}. Raw text: {raw_text}"
+                )
+        except Exception as fallback_e:
+            logger.error(f"Planner fallback also failed: {fallback_e}")
+
+        logger.error(f"Re-planning failed fully: {e}")
         return "error_recovery"
 
 
-async def fetch_unified_context() -> str:
+async def fetch_epistemic_context() -> str:
     """Aggregate essential workspace metadata for agent situational awareness.
 
     Collects agent registries from Knowledge Graph, historical memory, VCS state
@@ -564,6 +608,36 @@ async def memory_selection_step(
         logger.info(
             f"Memory Selection: Selected {len(selected)} relevant files: {selected}"
         )
+    except Exception as e:
+        logger.warning(
+            f"Memory Selection structured output failed: {e}. Attempting unstructured fallback."
+        )
+        try:
+            fallback = Agent(model=ctx.deps.agent_model, system_prompt=prompt_content)
+            res = await fallback.run(
+                f"Query: {ctx.state.query}\n\nAvailable memories:\n"
+                + "\n".join(memories[:20])
+                + "\n\nCRITICAL: Just output the exact file names you need, separated by commas. DO NOT output conversational text."
+            )
+
+            selected = []
+            raw_text = str(getattr(res, "data", getattr(res, "output", "")))
+            for mem_line in memories[:20]:
+                filename = (
+                    mem_line.split(":")[0]
+                    .replace("- [Doc] ", "")
+                    .replace("- [KnowledgeGraph Memory] ", "")
+                    .strip()
+                )
+                if filename.lower() in raw_text.lower():
+                    selected.append(filename)
+
+            logger.info(
+                f"Memory Selection Fallback: Extracted {len(selected)} memories from text: {selected}"
+            )
+        except Exception as fallback_e:
+            logger.error(f"Memory selection fallback also failed: {fallback_e}")
+            selected = []
 
         loaded_context = []
         for filename in selected:
@@ -609,15 +683,8 @@ async def memory_selection_step(
             next_node="dispatcher",
         )
         return "dispatcher"
-    except Exception as e:
-        logger.error(f"Memory Selection failed: {e}")
-        _emit_node_lifecycle(
-            ctx.deps.event_queue,
-            "memory_selection",
-            "node_complete",
-            next_node="dispatcher",
-        )
-        return "dispatcher"
+
+    return "dispatcher"
 
 
 # === From lats.py ===

@@ -76,6 +76,75 @@ async def run_agent(
     # Step 1: Resolve engine
     engine = engine or _get_or_create_engine()
 
+    # Step 1b: Check if agent_name maps to a native ServiceRegistry capability (e.g. trading_swarm)
+    try:
+        import inspect
+        import json
+
+        from agent_utilities.graph.service_registry import ServiceRegistry
+
+        registry = ServiceRegistry.instance()
+        svc = registry.get(agent_name)
+        if svc:
+            logger.info(
+                "[ORCH-1.21] Routing to ServiceRegistry capability: %s", agent_name
+            )
+            cls = svc.get_class()
+            if cls:
+                # Instantiate capability
+                sig = inspect.signature(cls)
+                if "engine" in sig.parameters:
+                    instance = cls(engine=engine)
+                elif "config" in sig.parameters:
+                    instance = cls(config=None)
+                else:
+                    instance = cls()
+
+                # Execute capability
+                if hasattr(instance, "analyze"):
+                    # Specifically for TradingSwarm
+                    try:
+                        task_data = json.loads(task)
+                    except Exception:
+                        task_data = {"raw_task": task}
+
+                    result = (
+                        await instance.analyze(task_data)
+                        if getattr(instance.analyze, "__iscoroutinefunction__", False)
+                        else instance.analyze(task_data)
+                    )
+                    return str(result)
+                elif hasattr(instance, "select_pattern"):
+                    # Specifically for SubagentPatternRouter
+                    result = (
+                        await instance.select_pattern(needs_collaboration=True)
+                        if getattr(
+                            instance.select_pattern, "__iscoroutinefunction__", False
+                        )
+                        else instance.select_pattern(needs_collaboration=True)
+                    )
+                    return str(result)
+                elif hasattr(instance, "run"):
+                    result = (
+                        await instance.run(task)
+                        if getattr(instance.run, "__iscoroutinefunction__", False)
+                        else instance.run(task)
+                    )
+                    return str(result)
+                elif hasattr(instance, "execute"):
+                    result = (
+                        await instance.execute(task)
+                        if getattr(instance.execute, "__iscoroutinefunction__", False)
+                        else instance.execute(task)
+                    )
+                    return str(result)
+    except Exception as e:
+        logger.warning(
+            "[ORCH-1.21] ServiceRegistry execution failed for %s, falling back: %s",
+            agent_name,
+            e,
+        )
+
     # Step 2: Query KG for agent metadata
     agent_meta = _resolve_agent_from_kg(engine, agent_name)
 
@@ -195,7 +264,7 @@ def _resolve_agent_from_kg(
         server_rows = engine.backend.execute(
             "MATCH (s:Server) WHERE s.name = $name OR s.id = $sid "
             "RETURN s.id AS sid, s.name AS name, s.url AS url, "
-            "s.command AS cmd, s.args AS args, s.tool_count AS tc",
+            "s.command AS cmd, s.args AS args, s.tool_count AS tc, s.env AS env",
             {"name": agent_name, "sid": f"srv:{agent_name}"},
         )
         if server_rows:
@@ -204,15 +273,16 @@ def _resolve_agent_from_kg(
             meta["server_id"] = row.get("sid", "")
             meta["mcp_command"] = row.get("cmd", "")
             meta["url"] = row.get("url", "")
+            meta["env"] = row.get("env", "")
 
             # Fetch tools provided by this server
             tool_rows = engine.backend.execute(
                 "MATCH (s:Server {id: $sid})-[:PROVIDES]->(r:CallableResource) "
-                "RETURN r.name AS name, r.description AS desc",
+                "RETURN r.name AS name, r.description AS description",
                 {"sid": meta["server_id"]},
             )
             meta["tools"] = [
-                {"name": r.get("name", ""), "description": r.get("desc", "")}
+                {"name": r.get("name", ""), "description": r.get("description", "")}
                 for r in tool_rows
             ]
             logger.info(
@@ -228,7 +298,7 @@ def _resolve_agent_from_kg(
     try:
         resource_rows = engine.backend.execute(
             "MATCH (r:CallableResource) WHERE r.name = $name "
-            "RETURN r.id AS rid, r.resource_type AS rtype, r.description AS desc, "
+            "RETURN r.id AS rid, r.resource_type AS rtype, r.description AS description, "
             "r.skill_code_path AS skill_path",
             {"name": agent_name},
         )
@@ -237,7 +307,9 @@ def _resolve_agent_from_kg(
             rtype = row.get("rtype", "")
             if rtype == "A2A_AGENT":
                 meta["type"] = "a2a"
-                meta["url"] = row.get("desc", "")  # URL stored in description for A2A
+                meta["url"] = row.get(
+                    "description", ""
+                )  # URL stored in description for A2A
             elif rtype == "AGENT_SKILL":
                 meta["type"] = "skill"
             else:
@@ -303,6 +375,21 @@ def _build_execution_config(
         if cap and cap != agent_name:
             tag_prompts[cap] = f"Capability: {cap}"
 
+    # Fetch recent Mementos to build the sawtooth context
+    try:
+        from agent_utilities.knowledge_graph.memory.memento_compressor import (
+            get_recent_mementos,
+        )
+
+        recent_mementos = get_recent_mementos(engine, source=agent_name, limit=3)
+        if recent_mementos:
+            memento_text = "\n\n---\n\n".join(recent_mementos)
+            tag_prompts["mementos"] = (
+                f"Past Context Mementos (Compressed State):\n{memento_text}"
+            )
+    except Exception as e:
+        logger.debug("Failed to fetch Mementos for context: %s", e)
+
     # Tool descriptions from KG
     for tool in agent_meta.get("tools", []):
         tool_name = tool.get("name", "")
@@ -343,9 +430,67 @@ def _build_execution_config(
                 parts = url.replace("stdio://", "").split(" ", 1)
                 command = parts[0]
                 args = parts[1].split() if len(parts) > 1 else []
-                config["mcp_toolsets"].append(
-                    MCPServerStdio(command=command, args=args)
-                )
+
+                env_dict = None
+                env_str = agent_meta.get("env", "")
+                if env_str and env_str != "{}":
+                    import json
+
+                    try:
+                        env_dict = json.loads(env_str)
+                    except Exception:  # nosec B110
+                        pass
+
+                if env_dict is not None:
+                    import os
+
+                    # Start with OS environment and ensure VIRTUAL_ENV is present if applicable
+                    env_vars = os.environ.copy()
+
+                    # Force VIRTUAL_ENV injection
+                    venv_path = os.environ.get("VIRTUAL_ENV")
+                    if venv_path:
+                        env_vars["VIRTUAL_ENV"] = venv_path
+
+                    # Update with specific tool environment variables
+                    if env_dict:
+                        env_vars.update(env_dict)
+
+                    # Silence FastMCP startup output to prevent stdout pollution
+                    env_vars["FASTMCP_SHOW_SERVER_BANNER"] = "false"
+                    env_vars["FASTMCP_LOG_LEVEL"] = "WARNING"
+
+                    # Prevent spawned MCP servers from acquiring a write lock on the knowledge graph
+                    env_vars["LADYBUG_DB_READ_ONLY"] = "1"
+
+                    # Ensure PATH is correct (uv uses PATH)
+                    if "PATH" in os.environ:
+                        env_vars["PATH"] = os.environ["PATH"]
+
+                    server = MCPServerStdio(
+                        command=command, args=args, env=env_vars, timeout=30.0
+                    )
+                    print(
+                        f"DEBUG [agent_runner]: Created MCPServerStdio with command='{command}', args={args}, env_keys={list(env_vars.keys())}"
+                    )
+                    config["mcp_toolsets"].append(server)
+                else:
+                    import os
+
+                    merged_env = os.environ.copy()
+                    venv_path = os.environ.get("VIRTUAL_ENV")
+                    if venv_path:
+                        merged_env["VIRTUAL_ENV"] = venv_path
+                    merged_env["FASTMCP_SHOW_SERVER_BANNER"] = "false"
+                    merged_env["FASTMCP_LOG_LEVEL"] = "WARNING"
+                    merged_env["LADYBUG_DB_READ_ONLY"] = "1"
+                    for k in ["TERM", "COLORTERM", "FORCE_COLOR"]:
+                        merged_env.pop(k, None)
+                    config["mcp_toolsets"].append(
+                        MCPServerStdio(
+                            command=command, args=args, env=merged_env, timeout=30.0
+                        )
+                    )
             elif url.lower().endswith("/sse"):
                 import httpx
                 from pydantic_ai.mcp import MCPServerSSE

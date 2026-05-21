@@ -140,7 +140,7 @@ class RegistryNodeType(StrEnum):
     QUIET_STAR_RATIONALE = "quiet_star_rationale"
     # Topological Mincut Partitioning (CONCEPT:KG-2.5)
     COMMUNITY = "community"
-    # Heavy Thinking Orchestration (CONCEPT:AHE-3.5)
+    # Heavy Thinking Orchestration (CONCEPT:AHE-3.4)
     TRAJECTORY = "trajectory"
     DELIBERATION = "deliberation"
     # Financial Trading Pipeline (CONCEPT:KG-2.6)
@@ -153,7 +153,7 @@ class RegistryNodeType(StrEnum):
     VERSIONED_TRADE_COMMIT = "versioned_trade_commit"
     EXECUTION_GUARD = "execution_guard"
     UNIFIED_TRADING_ACCOUNT = "unified_trading_account"
-    # Market Data Connector Protocol (CONCEPT:ECO-4.3)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.1)
     DATA_CONNECTOR = "data_connector"
     DATA_FETCH_RECORD = "data_fetch_record"
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
@@ -164,7 +164,7 @@ class RegistryNodeType(StrEnum):
     RISK_ASSESSMENT = "risk_assessment"
     RISK_FACTOR = "risk_factor"
     RISK_MITIGATION = "risk_mitigation"
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.6)
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.4)
     BACKTEST_RUN = "backtest_run"
     BACKTEST_METRIC = "backtest_metric"
     # Topological Analogy Engine (CONCEPT:KG-2.5)
@@ -177,7 +177,7 @@ class RegistryNodeType(StrEnum):
     IMODEL = "imodel"
     INTERPRETABILITY_TEST = "interpretability_test"
     MODEL_DISPLAY = "model_display"
-    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
     ECOSYSTEM_PACKAGE = "ecosystem_package"
     FRONTEND_PACKAGE = "frontend_package"
     KERNEL_PACKAGE = "kernel_package"
@@ -275,12 +275,12 @@ class RegistryNodeType(StrEnum):
     TRANSITION_MATRIX = "transition_matrix"
     VAR_ESTIMATE = "var_estimate"
     VALUE_STREAM = "value_stream"
-    # Context Graph Architecture (CONCEPT:KG-2.7)
+    # Context Graph Architecture (CONCEPT:KG-2.6)
     ARCHITECTURE_DECISION = "architecture_decision"
     ARCHIMATE_ELEMENT = "archimate_element"
-    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.20)
+    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.4)
     AGENT_TEMPLATE = "agent_template"
-    # Observational Memory Bridge (CONCEPT:KG-2.10)
+    # Observational Memory Bridge (CONCEPT:KG-2.1)
     OBSERVATION_RECORD = "observation_record"
     USER_PROFILE = "user_profile"
     ACTIVE_CONTEXT = "active_context"
@@ -448,7 +448,7 @@ class RegistryEdgeType(StrEnum):
     PART_OF_COMMUNITY = "part_of_community"
     # Temporal Drift (CONCEPT:AHE-3.4)
     DRIFTED_TO = "drifted_to"
-    # Heavy Thinking Orchestration (CONCEPT:AHE-3.5)
+    # Heavy Thinking Orchestration (CONCEPT:AHE-3.4)
     TRAJECTORY_OF = "trajectory_of"
     DELIBERATED_BY = "deliberated_by"
     AGREES_WITH = "agrees_with"
@@ -463,7 +463,7 @@ class RegistryEdgeType(StrEnum):
     FORECASTED = "forecasted"
     VERSIONED_IN = "versioned_in"
     GUARDED_BY = "guarded_by"
-    # Market Data Connector Protocol (CONCEPT:ECO-4.3)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.1)
     FETCHED_FROM = "fetched_from"
     FALLS_BACK_TO = "falls_back_to"
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
@@ -475,7 +475,7 @@ class RegistryEdgeType(StrEnum):
     HAS_RISK_FACTOR = "has_risk_factor"
     MITIGATED_BY = "mitigated_by"
     PROPAGATES_RISK_TO = "propagates_risk_to"
-    # Backtest Evaluation Harness (CONCEPT:AHE-3.6)
+    # Backtest Evaluation Harness (CONCEPT:AHE-3.4)
     EVALUATED_STRATEGY = "evaluated_strategy"
     HAS_METRIC = "has_metric"
     COMPARED_TO_BENCHMARK = "compared_to_benchmark"
@@ -490,7 +490,7 @@ class RegistryEdgeType(StrEnum):
     TESTED_INTERPRETABILITY = "tested_interpretability"
     DISPLAY_OF = "display_of"
     PARETO_DOMINATES = "pareto_dominates"
-    # Ecosystem Topology Map (CONCEPT:ECO-4.2)
+    # Ecosystem Topology Map (CONCEPT:ECO-4.0)
     PROVIDES_CAPABILITY_TO = "provides_capability_to"
     CONSUMES_FROM_KERNEL = "consumes_from_kernel"
     VISUALIZES = "visualizes"
@@ -619,14 +619,14 @@ class RegistryEdgeType(StrEnum):
     TOKEN_BUDGET_MAX = "token_budget_max"  # nosec
     TRUSTED_ANSWER = "trusted_answer"
     VIOLATION_COUNT = "violation_count"
-    # Context Graph Architecture — ADR edges (CONCEPT:KG-2.7)
+    # Context Graph Architecture — ADR edges (CONCEPT:KG-2.6)
     IMPACTS_CONCEPT = "impacts_concept"
     ALTERNATIVES_TO = "alternatives_to"
-    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.20)
+    # KG-Driven Graph Materialization (CONCEPT:ORCH-1.4)
     REQUIRES_TOOLSET = "requires_toolset"
     COMPATIBLE_WITH_MODEL = "compatible_with_model"
     HAS_RESULT_TYPE = "has_result_type"
-    # Observational Memory Bridge (CONCEPT:KG-2.10)
+    # Observational Memory Bridge (CONCEPT:KG-2.1)
     MATERIALIZED_AS = "materialized_as"
     OBSERVED_THROUGH = "observed_through"
     REFLECTED_FROM = "reflected_from"
@@ -664,7 +664,7 @@ class CommunityNode(RegistryNode):
 class TrajectoryNode(RegistryNode):
     """A persisted reasoning trajectory from a parallel thinker agent.
 
-    CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
+    CONCEPT:AHE-3.4 — Heavy Thinking Orchestration
 
     Represents the output of a single parallel reasoning attempt during
     the Heavy Thinking pipeline.  Multiple ``TrajectoryNode`` instances
@@ -694,7 +694,7 @@ class TrajectoryNode(RegistryNode):
 class DeliberationNode(RegistryNode):
     """A deliberation synthesis result from the sequential deliberation phase.
 
-    CONCEPT:AHE-3.5 — Heavy Thinking Orchestration
+    CONCEPT:AHE-3.4 — Heavy Thinking Orchestration
 
     Represents the output of the deliberation agent that critically
     analyzes multiple parallel trajectories and synthesizes a final
@@ -869,7 +869,7 @@ class PipelineConfig(BaseModel):
 class ExternalGraphReferenceNode(RegistryNode):
     """Reference to an external Knowledge Graph (SPARQL or LPG).
 
-    CONCEPT:KG-2.9 — External Graph Federation
+    CONCEPT:KG-2.6 — External Graph Federation
     """
 
     type: RegistryNodeType = RegistryNodeType.EXTERNAL_GRAPH_REFERENCE
@@ -1086,13 +1086,13 @@ class CapabilityNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.CAPABILITY
 
 
-# --- Ecosystem Topology Nodes (CONCEPT:ECO-4.2) ---
+# --- Ecosystem Topology Nodes (CONCEPT:ECO-4.0) ---
 
 
 class EcosystemPackageNode(RegistryNode):
     """Represents a package within the agent-utilities ecosystem.
 
-    CONCEPT:ECO-4.2 — Ecosystem Topology Map
+    CONCEPT:ECO-4.0 — Ecosystem Topology Map
 
     Models kernel, frontend, MCP server, and skill packages as
     first-class Knowledge Graph nodes for dependency analysis,
@@ -1159,6 +1159,26 @@ class ToolMetadataNode(RegistryNode):
     capabilities: list[str] = Field(default_factory=list)
     resources: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def parse_string_lists(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            import json
+
+            for field in ["tags", "capabilities"]:
+                if field in data and isinstance(data[field], str):
+                    val = data[field].strip()
+                    if val.startswith("[") and val.endswith("]"):
+                        try:
+                            data[field] = json.loads(val)
+                        except json.JSONDecodeError:
+                            data[field] = [
+                                x.strip().strip("'").strip('"')
+                                for x in val[1:-1].split(",")
+                                if x.strip()
+                            ]
+        return data
+
 
 class AnalogyMatchNode(RegistryNode):
     """Represents a topological analogy found across domains.
@@ -1202,7 +1222,7 @@ class TopologicalVulnerabilityNode(RegistryNode):
 class ArchitectureDecisionRecord(RegistryNode):
     """First-class KG node for queryable decision traces.
 
-    CONCEPT:KG-2.7 — Architecture Decision Records
+    CONCEPT:KG-2.6 — Architecture Decision Records
 
     Captures the full decision context: what was decided, why, what
     alternatives were considered, who approved, and what concepts/pillars
@@ -1292,7 +1312,7 @@ class SystemPromptNode(RegistryNode):
 class AgentTemplateNode(RegistryNode):
     """KG node that declaratively defines a pydantic-graph step.
 
-    CONCEPT:ORCH-1.20 — KG-Driven Graph Materialization
+    CONCEPT:ORCH-1.4 — KG-Driven Graph Materialization
 
     Each AgentTemplateNode maps 1:1 to a dynamically instantiated
     BaseNode subclass in the materialized pydantic-graph. The KG
@@ -2720,7 +2740,7 @@ class TeamComposition(BaseModel):
     )
     coordination_protocol: dict[str, Any] = Field(
         default_factory=dict,
-        description="CONCEPT:ORCH-1.5 — Selected coordination protocol metadata "
+        description="CONCEPT:ORCH-1.3 — Selected coordination protocol metadata "
         "(protocol_id, protocol_type, name, quality_score, converged). "
         "Research: 2605.03310v1",
     )
@@ -3193,13 +3213,13 @@ class StrategyNode(RegistryNode):
     universes: list[str] = Field(default_factory=list)
 
 
-# --- Market Data Connector Nodes (CONCEPT:ECO-4.3) ---
+# --- Market Data Connector Nodes (CONCEPT:ECO-4.1) ---
 
 
 class DataConnectorNode(RegistryNode):
     """A registered external data source with health and rate-limit metadata.
 
-    CONCEPT:ECO-4.3 — Market Data Connector Protocol
+    CONCEPT:ECO-4.1 — Market Data Connector Protocol
 
     Represents an external data provider that can be queried by agents.
     The ``FALLS_BACK_TO`` edge creates a prioritized fallback chain.
@@ -3231,7 +3251,7 @@ class DataConnectorNode(RegistryNode):
 class DataFetchRecordNode(RegistryNode):
     """Immutable provenance record of a data fetch operation.
 
-    CONCEPT:ECO-4.3 — Market Data Connector Protocol
+    CONCEPT:ECO-4.1 — Market Data Connector Protocol
 
     Records every data retrieval for audit, debugging, and cost tracking.
     Links to the source ``DataConnectorNode`` via ``FETCHED_FROM``.
@@ -3429,13 +3449,13 @@ class RiskMitigationNode(RegistryNode):
     applied_at: str | None = None
 
 
-# --- Backtest / Evaluation Harness Nodes (CONCEPT:AHE-3.6) ---
+# --- Backtest / Evaluation Harness Nodes (CONCEPT:AHE-3.4) ---
 
 
 class BacktestRunNode(RegistryNode):
     """A complete backtesting or evaluation run record.
 
-    CONCEPT:AHE-3.6 — Backtest Evaluation Harness
+    CONCEPT:AHE-3.4 — Backtest Evaluation Harness
 
     Records a full evaluation run including parameters, date range, and
     aggregate results. Links to ``StrategyNode`` via ``EVALUATED_STRATEGY``
@@ -3470,7 +3490,7 @@ class BacktestRunNode(RegistryNode):
 class BacktestMetricNode(RegistryNode):
     """An individual metric from a backtest or evaluation run.
 
-    CONCEPT:AHE-3.6 — Backtest Evaluation Harness
+    CONCEPT:AHE-3.4 — Backtest Evaluation Harness
 
     Represents a single named metric (Sharpe ratio, max drawdown, accuracy,
     F1, etc.) for a specific evaluation window. Links to the parent

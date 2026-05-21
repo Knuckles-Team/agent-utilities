@@ -1,25 +1,18 @@
-@prefix : <http://knuckles.team/kg#> .
-@prefix owl: <http://www.w3.org/2002/07/owl#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-
-# ── Standard Namespace Prefixes ──────────────────────────────────────
-@prefix bfo:    <http://purl.obolibrary.org/obo/BFO_> .
-@prefix schema: <http://schema.org/> .
-@prefix dc:     <http://purl.org/dc/terms/> .
-@prefix foaf:   <http://xmlns.com/foaf/0.1/> .
-@prefix prov:   <http://www.w3.org/ns/prov#> .
-@prefix skos:   <http://www.w3.org/2004/02/skos/core#> .
-@prefix time:   <http://www.w3.org/2006/time#> .
-@prefix bibo:   <http://purl.org/ontology/bibo/> .
-@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
 @prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schema: <http://schema.org/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix time: <http://www.w3.org/2006/time#> .
 
 <http://knuckles.team/kg> a owl:Ontology ;
-    owl:imports <http://knuckles.team/kg/enterprise> ,
-               <http://knuckles.team/kg/quant> ,
-               <http://knuckles.team/kg/sdd> ;
     rdfs:label "Agent Intelligence Graph Ontology" ;
     rdfs:comment """Formal OWL ontology for the Unified Intelligence Graph.
 Provides BFO-aligned upper ontology classification, industry-standard vocabulary
@@ -30,322 +23,316 @@ over stable LPG data.
 Modular imports:
   - enterprise: ArchiMate EA governance, ADR decision traces
   - sdd: Spec-driven development (Requirements, Features, TestCases)
-  - banking, government, hr, legal, medical: Domain-specific extensions""" .
+  - banking, government, hr, legal, medical: Domain-specific extensions""" ;
+    owl:imports <http://knuckles.team/kg/energy_geopolitics>,
+        <http://knuckles.team/kg/enterprise>,
+        <http://knuckles.team/kg/quant>,
+        <http://knuckles.team/kg/sdd> .
 
-# =====================================================================
-# BFO Upper Ontology Stubs (ISO 21838-2)
-# We declare minimal BFO classes so the reasoner can classify entities
-# without requiring a full BFO import.
-# =====================================================================
-bfo:0000001 a owl:Class ; rdfs:label "Entity" ;
-    rdfs:comment "BFO:Entity — root of all entities." .
-
-bfo:0000002 a owl:Class ; rdfs:subClassOf bfo:0000001 ;
-    rdfs:label "Continuant" ;
-    rdfs:comment "BFO:Continuant — entities that persist through time." .
-
-bfo:0000003 a owl:Class ; rdfs:subClassOf bfo:0000001 ;
-    rdfs:label "Occurrent" ;
-    rdfs:comment "BFO:Occurrent — entities that unfold or happen over time." .
-
-bfo:0000004 a owl:Class ; rdfs:subClassOf bfo:0000002 ;
-    rdfs:label "Independent Continuant" ;
-    rdfs:comment "BFO:IndependentContinuant — can exist autonomously." .
-
-bfo:0000020 a owl:Class ; rdfs:subClassOf bfo:0000002 ;
-    rdfs:label "Specifically Dependent Continuant" ;
-    rdfs:comment "BFO:SpecificallyDependentContinuant — depends on a specific bearer." .
-
-bfo:0000031 a owl:Class ; rdfs:subClassOf bfo:0000002 ;
-    rdfs:label "Generically Dependent Continuant" ;
-    rdfs:comment "BFO:GenericallyDependentContinuant — information entities." .
-
-bfo:0000015 a owl:Class ; rdfs:subClassOf bfo:0000003 ;
-    rdfs:label "Process" ;
-    rdfs:comment "BFO:Process — an occurrent that has temporal parts." .
-
-bfo:0000008 a owl:Class ; rdfs:subClassOf bfo:0000003 ;
-    rdfs:label "Temporal Region" ;
-    rdfs:comment "BFO:TemporalRegion — a region of time." .
-
-# =====================================================================
-# Core Classes (BFO-aligned)
-# =====================================================================
-
-# ── Independent Continuants (persist, autonomous) ──
-:Agent         a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    owl:equivalentClass prov:SoftwareAgent ;
-    rdfs:label "Agent Specialist" ;
-    rdfs:comment "An autonomous software agent. BFO:IndependentContinuant, aligned to prov:SoftwareAgent." .
-
-:Tool          a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Tool" ;
-    rdfs:comment "A software tool or instrument. BFO:IndependentContinuant, aligned to schema:SoftwareApplication." ;
-    rdfs:seeAlso schema:SoftwareApplication .
-
-:Skill         a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Skill" ;
-    rdfs:comment "A reusable agent skill or capability." .
-
-:File          a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Source File" ;
-    rdfs:comment "A source code file." ;
-    rdfs:seeAlso schema:DigitalDocument .
-
-:Symbol        a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Code Symbol" .
-
-:Module        a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Module" .
-
-:Server        a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Server" .
-
-:Code          a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Code" ;
-    rdfs:seeAlso schema:SoftwareSourceCode .
-
-# ── Organizational Continuants (independent, social entities) ──
-:Organization  a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    owl:equivalentClass foaf:Organization ;
-    rdfs:label "Organization" ;
-    rdfs:comment "An organizational entity. BFO:IndependentContinuant. Aligned to foaf:Organization, schema:Organization, and fibo-org:Organization." ;
-    rdfs:seeAlso schema:Organization , fibo-org:Organization .
-
-:Person        a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    owl:equivalentClass foaf:Person ;
-    rdfs:label "Person" ;
-    rdfs:comment "A human individual. BFO:IndependentContinuant, aligned to foaf:Person and schema:Person." ;
-    rdfs:seeAlso schema:Person .
-
-:Role          a owl:Class ;
-    rdfs:subClassOf bfo:0000020 ;
-    rdfs:label "Role" ;
-    rdfs:comment "A time-bounded role a Person plays. BFO:SpecificallyDependentContinuant (a realizable entity — a disposition of a person)." .
-
-:Place         a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Place" ;
-    rdfs:comment "A physical, virtual, or contextual location. BFO:IndependentContinuant." ;
-    rdfs:seeAlso schema:Place .
-
-:System        a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "System" ;
-    rdfs:comment "A software system or service." .
-
-:Team          a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Team" ;
-    rdfs:comment "A team of agents or people. BFO:IndependentContinuant." .
-
-# ── Generically Dependent Continuants (information entities) ──
-:Memory        a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Memory" ;
-    rdfs:comment "A stored memory or knowledge fragment. BFO:GenericallyDependentContinuant, aligned to prov:Entity." ;
-    rdfs:seeAlso prov:Entity .
-
-:Fact          a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Fact" ;
-    rdfs:comment "An atomic factual assertion. BFO:GenericallyDependentContinuant." ;
-    rdfs:seeAlso skos:Concept .
-
-:Concept       a owl:Class ;
-    rdfs:subClassOf bfo:0000031 , skos:Concept ;
-    rdfs:label "Concept" ;
-    rdfs:comment "An atomic knowledge unit. BFO:GenericallyDependentContinuant, aligned to skos:Concept for full SKOS taxonomy support." .
-
-:Evidence      a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Evidence" ;
-    rdfs:comment "A claim or finding grounded in source material." .
-
-:Policy        a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Policy" ;
-    rdfs:comment "A governance rule or constraint." .
-
-:Principle     a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Principle" ;
-    rdfs:comment "A distilled, reusable operational rule." .
-
-# ── Specifically Dependent Continuants (epistemic states) ──
-:Belief        a owl:Class ;
-    rdfs:subClassOf bfo:0000020 ;
-    rdfs:label "Belief" ;
-    rdfs:comment "A claim-with-confidence held by an agent. BFO:SpecificallyDependentContinuant." .
-
-:Hypothesis    a owl:Class ;
-    rdfs:subClassOf :Belief ;
-    rdfs:label "Hypothesis" ;
-    rdfs:comment "A falsifiable predictive belief." .
-
-:Reflection    a owl:Class ;
-    rdfs:subClassOf bfo:0000020 ;
-    rdfs:label "Reflection" ;
-    rdfs:comment "A high-level reflective summary." .
-
-# =====================================================================
-# Temporal / Event Classes (Occurrents — BFO:Process)
-# =====================================================================
-:Event         a owl:Class ;
-    rdfs:subClassOf bfo:0000015 ;
-    rdfs:label "Event" ;
-    rdfs:comment "A temporally-bounded happening. BFO:Process, aligned to schema:Event and prov:Activity." ;
-    owl:equivalentClass schema:Event ;
-    rdfs:seeAlso prov:Activity .
-
-:Episode       a owl:Class ;
-    rdfs:subClassOf bfo:0000015 ;
-    rdfs:label "Episode" ;
-    rdfs:comment "A discrete interaction unit. BFO:Process, aligned to prov:Activity." ;
-    rdfs:seeAlso prov:Activity .
-
-:Incident      a owl:Class ;
-    rdfs:subClassOf :Event ;
-    rdfs:label "Incident" ;
-    rdfs:comment "A production incident. Subtype of Event." .
-
-:Decision      a owl:Class ;
-    rdfs:subClassOf :Event ;
-    rdfs:label "Decision" ;
-    rdfs:comment "A decision linking Goal → Action → Outcome. Subtype of Event." .
-
-:Observation   a owl:Class ;
-    rdfs:subClassOf :Event ;
-    rdfs:label "Observation" ;
-    rdfs:comment "Something perceived by the agent. Subtype of Event, aligned to prov:Activity." ;
-    rdfs:seeAlso prov:Activity .
-
-:Action        a owl:Class ;
-    rdfs:subClassOf bfo:0000015 ;
+:Action a owl:Class ;
     rdfs:label "Action" ;
     rdfs:comment "An agent action. BFO:Process, aligned to prov:Activity." ;
-    rdfs:seeAlso prov:Activity .
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf bfo:0000015 .
 
-:ReasoningTrace a owl:Class ;
-    rdfs:subClassOf bfo:0000015 ;
-    rdfs:label "Reasoning Trace" ;
-    rdfs:comment "A chain-of-thought step. BFO:Process, aligned to prov:Activity." ;
-    rdfs:seeAlso prov:Activity .
+:Agent a owl:Class ;
+    rdfs:label "Agent Specialist" ;
+    rdfs:comment "An autonomous software agent. BFO:IndependentContinuant, aligned to prov:SoftwareAgent." ;
+    rdfs:subClassOf bfo:0000004 ;
+    owl:equivalentClass prov:SoftwareAgent .
 
-# ── Temporal Region ──
-:Phase         a owl:Class ;
-    rdfs:subClassOf bfo:0000008 ;
-    rdfs:label "Temporal Phase" ;
-    rdfs:comment "A named temporal interval. BFO:TemporalRegion, aligned to time:ProperInterval." ;
-    rdfs:seeAlso time:ProperInterval .
+:Code a owl:Class ;
+    rdfs:label "Code" ;
+    rdfs:seeAlso schema:SoftwareSourceCode ;
+    rdfs:subClassOf bfo:0000004 .
 
-# =====================================================================
-# Self-Improvement Classes (BFO-aligned)
-# =====================================================================
-:OutcomeEvaluation a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Outcome Evaluation" ;
-    rdfs:comment "A reward/evaluation record. BFO:GenericallyDependentContinuant." .
+:Concept a owl:Class ;
+    rdfs:label "Concept" ;
+    rdfs:comment "An atomic knowledge unit. BFO:GenericallyDependentContinuant, aligned to skos:Concept for full SKOS taxonomy support." ;
+    rdfs:subClassOf bfo:0000031,
+        skos:Concept .
 
-:Critique      a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Critique" ;
-    rdfs:comment "A textual gradient / critique. BFO:GenericallyDependentContinuant." .
-
-:Goal          a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Goal" ;
-    rdfs:comment "An objective the agent is pursuing. BFO:GenericallyDependentContinuant." .
-
-# =====================================================================
-# NEW: Cross-Domain Standard-Aligned Classes
-# =====================================================================
-
-# ── Document / Publishing Domain (Dublin Core + BIBO) ──
-:Document      a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Document" ;
-    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
-    rdfs:seeAlso schema:DigitalDocument , bibo:Document .
-
-:CreativeWork  a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
+:CreativeWork a owl:Class ;
     rdfs:label "Creative Work" ;
     rdfs:comment "A book, manual, SOP, or other creative output. Aligned to schema:CreativeWork." ;
+    rdfs:subClassOf bfo:0000031 ;
     owl:equivalentClass schema:CreativeWork .
 
-:Dataset       a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Dataset" ;
-    rdfs:comment "A data collection for ingestion or analysis. Aligned to schema:Dataset." ;
-    owl:equivalentClass schema:Dataset .
-
-:SoftwareProject a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Software Project" ;
-    rdfs:comment "A software project or repository. BFO:IndependentContinuant." ;
-    rdfs:seeAlso schema:SoftwareSourceCode .
-
-# ── Medical Domain Stub (Schema.org) ──
-:MedicalEntity a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Medical Entity" ;
-    rdfs:comment "A medical concept, condition, or entity. BFO:IndependentContinuant stub for medical domain extension." ;
-    rdfs:seeAlso schema:MedicalEntity .
-
-# ── Blue-Collar / Operations Domain ──
-:Procedure     a owl:Class ;
-    rdfs:subClassOf bfo:0000015 ;
-    rdfs:label "Procedure" ;
-    rdfs:comment "An operational procedure or SOP. BFO:Process, aligned to schema:HowTo." ;
-    rdfs:seeAlso schema:HowTo .
-
-# ── Compliance / Regulatory Domain ──
-:Regulation    a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Regulation" ;
-    rdfs:comment "A compliance or regulatory rule. BFO:GenericallyDependentContinuant." .
-
-# ── Multi-Domain Base Entities ──
-:DomainEntity  a owl:Class ;
-    rdfs:subClassOf bfo:0000004 ;
-    rdfs:label "Domain Entity" ;
-    rdfs:comment "Base class for cross-domain associative reasoning." .
-
-# ── Security and RBAC/ABAC Domain ──
-:SecurityClearance a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
-    rdfs:label "Security Clearance" ;
-    rdfs:comment "An attribute defining the security clearance level of an Agent or Role." .
+:Critique a owl:Class ;
+    rdfs:label "Critique" ;
+    rdfs:comment "A textual gradient / critique. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 .
 
 :DataClassification a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
     rdfs:label "Data Classification" ;
-    rdfs:comment "A classification marking (e.g. Public, Confidential, Restricted) for data entities." .
+    rdfs:comment "A classification marking (e.g. Public, Confidential, Restricted) for data entities." ;
+    rdfs:subClassOf bfo:0000031 .
 
-:ScientificEntity a owl:Class ;
-    rdfs:subClassOf :DomainEntity ;
-    rdfs:label "Scientific Entity" ;
-    rdfs:comment "A scientific concept, phenomenon, or measurement." .
+:Dataset a owl:Class ;
+    rdfs:label "Dataset" ;
+    rdfs:comment "A data collection for ingestion or analysis. Aligned to schema:Dataset." ;
+    rdfs:subClassOf bfo:0000031 ;
+    owl:equivalentClass schema:Dataset .
 
-:LegalEntity   a owl:Class ;
-    rdfs:subClassOf :DomainEntity ;
-    rdfs:label "Legal Entity" ;
-    rdfs:comment "A legal concept, contract, or precedent." .
+:Decision a owl:Class ;
+    rdfs:label "Decision" ;
+    rdfs:comment "A decision linking Goal → Action → Outcome. Subtype of Event." ;
+    rdfs:subClassOf :Event .
 
-# ── External Graph Federation (KG-2.9) ──
+:Document a owl:Class ;
+    rdfs:label "Document" ;
+    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
+    rdfs:seeAlso bibo:Document,
+        schema:DigitalDocument ;
+    rdfs:subClassOf bfo:0000031 .
+
+:EmbeddingModel a owl:Class ;
+    rdfs:label "Embedding Model" ;
+    rdfs:comment "An AI model used specifically to generate high-dimensional vector embeddings." ;
+    rdfs:subClassOf :System .
+
+:Episode a owl:Class ;
+    rdfs:label "Episode" ;
+    rdfs:comment "A discrete interaction unit. BFO:Process, aligned to prov:Activity." ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Evidence a owl:Class ;
+    rdfs:label "Evidence" ;
+    rdfs:comment "A claim or finding grounded in source material." ;
+    rdfs:subClassOf bfo:0000031 .
 
 :ExternalGraphReference a owl:Class ;
-    rdfs:subClassOf bfo:0000031 ;
     rdfs:label "External Graph Reference" ;
-    rdfs:comment "A reference to an external SPARQL or LPG knowledge graph endpoint. CONCEPT:KG-2.9" .
+    rdfs:comment "A reference to an external SPARQL or LPG knowledge graph endpoint. CONCEPT:KG-2.9" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Fact a owl:Class ;
+    rdfs:label "Fact" ;
+    rdfs:comment "An atomic factual assertion. BFO:GenericallyDependentContinuant." ;
+    rdfs:seeAlso skos:Concept ;
+    rdfs:subClassOf bfo:0000031 .
+
+:File a owl:Class ;
+    rdfs:label "Source File" ;
+    rdfs:comment "A source code file." ;
+    rdfs:seeAlso schema:DigitalDocument ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Goal a owl:Class ;
+    rdfs:label "Goal" ;
+    rdfs:comment "An objective the agent is pursuing. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Hypothesis a owl:Class ;
+    rdfs:label "Hypothesis" ;
+    rdfs:comment "A falsifiable predictive belief." ;
+    rdfs:subClassOf :Belief .
+
+:Incident a owl:Class ;
+    rdfs:label "Incident" ;
+    rdfs:comment "A production incident. Subtype of Event." ;
+    rdfs:subClassOf :Event .
+
+:LanguageModel a owl:Class ;
+    rdfs:label "Language Model" ;
+    rdfs:comment "An AI language model (e.g. Qwen, GPT-4) used by the agent ecosystem." ;
+    rdfs:subClassOf :System .
+
+:LegalEntity a owl:Class ;
+    rdfs:label "Legal Entity" ;
+    rdfs:comment "A legal concept, contract, or precedent." ;
+    rdfs:subClassOf :DomainEntity .
+
+:MedicalEntity a owl:Class ;
+    rdfs:label "Medical Entity" ;
+    rdfs:comment "A medical concept, condition, or entity. BFO:IndependentContinuant stub for medical domain extension." ;
+    rdfs:seeAlso schema:MedicalEntity ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Memory a owl:Class ;
+    rdfs:label "Memory" ;
+    rdfs:comment "A stored memory or knowledge fragment. BFO:GenericallyDependentContinuant, aligned to prov:Entity." ;
+    rdfs:seeAlso prov:Entity ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Module a owl:Class ;
+    rdfs:label "Module" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Observation a owl:Class ;
+    rdfs:label "Observation" ;
+    rdfs:comment "Something perceived by the agent. Subtype of Event, aligned to prov:Activity." ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf :Event .
+
+:Organization a owl:Class ;
+    rdfs:label "Organization" ;
+    rdfs:comment "An organizational entity. BFO:IndependentContinuant. Aligned to foaf:Organization, schema:Organization, and fibo-org:Organization." ;
+    rdfs:seeAlso schema:Organization,
+        fibo-org:Organization ;
+    rdfs:subClassOf bfo:0000004 ;
+    owl:equivalentClass foaf:Organization .
+
+:OutcomeEvaluation a owl:Class ;
+    rdfs:label "Outcome Evaluation" ;
+    rdfs:comment "A reward/evaluation record. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Person a owl:Class ;
+    rdfs:label "Person" ;
+    rdfs:comment "A human individual. BFO:IndependentContinuant, aligned to foaf:Person and schema:Person." ;
+    rdfs:seeAlso schema:Person ;
+    rdfs:subClassOf bfo:0000004 ;
+    owl:equivalentClass foaf:Person .
+
+:Phase a owl:Class ;
+    rdfs:label "Temporal Phase" ;
+    rdfs:comment "A named temporal interval. BFO:TemporalRegion, aligned to time:ProperInterval." ;
+    rdfs:seeAlso time:ProperInterval ;
+    rdfs:subClassOf bfo:0000008 .
+
+:Place a owl:Class ;
+    rdfs:label "Place" ;
+    rdfs:comment "A physical, virtual, or contextual location. BFO:IndependentContinuant." ;
+    rdfs:seeAlso schema:Place ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Policy a owl:Class ;
+    rdfs:label "Policy" ;
+    rdfs:comment "A governance rule or constraint." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Principle a owl:Class ;
+    rdfs:label "Principle" ;
+    rdfs:comment "A distilled, reusable operational rule." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Procedure a owl:Class ;
+    rdfs:label "Procedure" ;
+    rdfs:comment "An operational procedure or SOP. BFO:Process, aligned to schema:HowTo." ;
+    rdfs:seeAlso schema:HowTo ;
+    rdfs:subClassOf bfo:0000015 .
+
+:ReasoningTrace a owl:Class ;
+    rdfs:label "Reasoning Trace" ;
+    rdfs:comment "A chain-of-thought step. BFO:Process, aligned to prov:Activity." ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Reflection a owl:Class ;
+    rdfs:label "Reflection" ;
+    rdfs:comment "A high-level reflective summary." ;
+    rdfs:subClassOf bfo:0000020 .
+
+:Regulation a owl:Class ;
+    rdfs:label "Regulation" ;
+    rdfs:comment "A compliance or regulatory rule. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Role a owl:Class ;
+    rdfs:label "Role" ;
+    rdfs:comment "A time-bounded role a Person plays. BFO:SpecificallyDependentContinuant (a realizable entity — a disposition of a person)." ;
+    rdfs:subClassOf bfo:0000020 .
+
+:ScientificEntity a owl:Class ;
+    rdfs:label "Scientific Entity" ;
+    rdfs:comment "A scientific concept, phenomenon, or measurement." ;
+    rdfs:subClassOf :DomainEntity .
+
+:SecurityClearance a owl:Class ;
+    rdfs:label "Security Clearance" ;
+    rdfs:comment "An attribute defining the security clearance level of an Agent or Role." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Server a owl:Class ;
+    rdfs:label "Server" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Skill a owl:Class ;
+    rdfs:label "Skill" ;
+    rdfs:comment "A reusable agent skill or capability." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:SoftwareProject a owl:Class ;
+    rdfs:label "Software Project" ;
+    rdfs:comment "A software project or repository. BFO:IndependentContinuant." ;
+    rdfs:seeAlso schema:SoftwareSourceCode ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Symbol a owl:Class ;
+    rdfs:label "Code Symbol" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Team a owl:Class ;
+    rdfs:label "Team" ;
+    rdfs:comment "A team of agents or people. BFO:IndependentContinuant." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Tool a owl:Class ;
+    rdfs:label "Tool" ;
+    rdfs:comment "A software tool or instrument. BFO:IndependentContinuant, aligned to schema:SoftwareApplication." ;
+    rdfs:seeAlso schema:SoftwareApplication ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Belief a owl:Class ;
+    rdfs:label "Belief" ;
+    rdfs:comment "A claim-with-confidence held by an agent. BFO:SpecificallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000020 .
+
+bfo:0000008 a owl:Class ;
+    rdfs:label "Temporal Region" ;
+    rdfs:comment "BFO:TemporalRegion — a region of time." ;
+    rdfs:subClassOf bfo:0000003 .
+
+:DomainEntity a owl:Class ;
+    rdfs:label "Domain Entity" ;
+    rdfs:comment "Base class for cross-domain associative reasoning." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:System a owl:Class ;
+    rdfs:label "System" ;
+    rdfs:comment "A software system or service." ;
+    rdfs:subClassOf bfo:0000004 .
+
+bfo:0000001 a owl:Class ;
+    rdfs:label "Entity" ;
+    rdfs:comment "BFO:Entity — root of all entities." .
+
+bfo:0000003 a owl:Class ;
+    rdfs:label "Occurrent" ;
+    rdfs:comment "BFO:Occurrent — entities that unfold or happen over time." ;
+    rdfs:subClassOf bfo:0000001 .
+
+:Event a owl:Class ;
+    rdfs:label "Event" ;
+    rdfs:comment "A temporally-bounded happening. BFO:Process, aligned to schema:Event and prov:Activity." ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf bfo:0000015 ;
+    owl:equivalentClass schema:Event .
+
+bfo:0000002 a owl:Class ;
+    rdfs:label "Continuant" ;
+    rdfs:comment "BFO:Continuant — entities that persist through time." ;
+    rdfs:subClassOf bfo:0000001 .
+
+bfo:0000020 a owl:Class ;
+    rdfs:label "Specifically Dependent Continuant" ;
+    rdfs:comment "BFO:SpecificallyDependentContinuant — depends on a specific bearer." ;
+    rdfs:subClassOf bfo:0000002 .
+
+bfo:0000015 a owl:Class ;
+    rdfs:label "Process" ;
+    rdfs:comment "BFO:Process — an occurrent that has temporal parts." ;
+    rdfs:subClassOf bfo:0000003 .
+
+bfo:0000004 a owl:Class ;
+    rdfs:label "Independent Continuant" ;
+    rdfs:comment "BFO:IndependentContinuant — can exist autonomously." ;
+    rdfs:subClassOf bfo:0000002 .
+
+bfo:0000031 a owl:Class ;
+    rdfs:label "Generically Dependent Continuant" ;
+    rdfs:comment "BFO:GenericallyDependentContinuant — information entities." ;
+    rdfs:subClassOf bfo:0000002 .
+

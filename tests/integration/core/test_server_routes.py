@@ -210,7 +210,7 @@ def test_deep_imports() -> None:
 
     Mirrors the Phase 6 Scenario 5 import-integrity smoke test.
     """
-    from agent_utilities import create_agent_server, create_graph_agent_server
+    from agent_utilities import create_agent_server, create_agent_server
     from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.kb.ingestion import KBIngestionEngine
@@ -228,7 +228,7 @@ def test_deep_imports() -> None:
     # call them — the mere successful import is the integrity check.
     imported = [
         create_agent_server,
-        create_graph_agent_server,
+        create_agent_server,
         A2AClient,
         register_a2a_peer,
         create_acp_app,

@@ -19,7 +19,7 @@ from agent_utilities.models.knowledge_graph import DoomLoopIncidentNode
 # --- Merged from execution_stability_engine.py ---
 
 #!/usr/bin/python
-"""Tool Repetition Guard (CONCEPT:OS-5.3).
+"""Tool Repetition Guard (CONCEPT:OS-5.1).
 
 Detects and prevents infinite tool call loops by tracking consecutive
 identical calls and per-tool invocation counts.  Adapted from Goose's
@@ -83,7 +83,7 @@ class RepetitionResult(BaseModel):
 class RepetitionGuard:
     """Tracks tool call patterns and detects repetitive loops.
 
-    CONCEPT:OS-5.3 — Tool Repetition Guard
+    CONCEPT:OS-5.1 — Tool Repetition Guard
 
     Adapted from Goose's ``RepetitionInspector`` (Rust) with the
     following design choices:
@@ -291,7 +291,7 @@ class RepetitionGuard:
 class RepetitionPolicy:
     """PolicyEngine-compatible adapter for the RepetitionGuard.
 
-    CONCEPT:OS-5.3 — Tool Repetition Guard
+    CONCEPT:OS-5.1 — Tool Repetition Guard
 
     Plugs into the existing :class:`PolicyEngine` from ``guardrails.py``.
     Uses the ``context`` dict to extract ``tool_name`` and ``tool_arguments``
@@ -368,7 +368,7 @@ class RepetitionPolicy:
 
 CONCEPT:OS-5.0 — Enhanced Doom-Loop Detector
 
-Extends the existing Tool Repetition Guard (CONCEPT:OS-5.3) with
+Extends the existing Tool Repetition Guard (CONCEPT:OS-5.1) with
 pattern-aware doom-loop detection adapted from ml-intern's doom_loop.py.
 
 Key enhancements over OS-5.5:

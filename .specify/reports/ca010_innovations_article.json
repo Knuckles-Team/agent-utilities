@@ -1,0 +1,42 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/prompts/conversations/new/hermes_levels_article.txt",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [
+          {
+            "keyword": "owl",
+            "count": 1,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          }
+        ],
+        "innovation_claims": [
+          "4 levels of Hermes Agent setup:\n\nLEVEL 1: main agent\n\nYou \u2192 Hermes Agent\n\nthis is your main agent and your prototype area, where you test new workflows and refine them"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 1
+    }
+  ]
+}

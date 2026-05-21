@@ -836,7 +836,7 @@ class TopologicalScanner:
 # --- Merged from threat_defense_engine.py ---
 
 #!/usr/bin/python
-"""Guardrail Callback Engine — Input/Output Interception (CONCEPT:OS-5.3).
+"""Guardrail Callback Engine — Input/Output Interception (CONCEPT:OS-5.1).
 
 Push-based guardrail interception with block, redact, and warn actions
 on both input and output. Ported from MATE's guardrail_callback.py.
@@ -852,7 +852,7 @@ logger = logging.getLogger(__name__)
 
 
 class GuardrailAction(StrEnum):
-    """Action to take when a guardrail is triggered. CONCEPT:OS-5.3"""
+    """Action to take when a guardrail is triggered. CONCEPT:OS-5.1"""
 
     BLOCK = "block"
     REDACT = "redact"
@@ -861,14 +861,14 @@ class GuardrailAction(StrEnum):
 
 
 class GuardrailPhase(StrEnum):
-    """Phase at which the guardrail runs. CONCEPT:OS-5.3"""
+    """Phase at which the guardrail runs. CONCEPT:OS-5.1"""
 
     INPUT = "input"
     OUTPUT = "output"
 
 
 class GuardrailRule(BaseModel):
-    """A single guardrail rule definition. CONCEPT:OS-5.3
+    """A single guardrail rule definition. CONCEPT:OS-5.1
 
     Ported from MATE's guardrail config JSON schema. Each rule
     defines a pattern (regex or keyword), an action, and the phase
@@ -891,7 +891,7 @@ class GuardrailRule(BaseModel):
 
 
 class GuardrailResult(BaseModel):
-    """Result of a single guardrail check. CONCEPT:OS-5.3"""
+    """Result of a single guardrail check. CONCEPT:OS-5.1"""
 
     rule_id: str = ""
     guardrail_type: str = ""
@@ -905,7 +905,7 @@ class GuardrailResult(BaseModel):
 
 
 class GuardrailCheckSummary(BaseModel):
-    """Aggregated results from checking all guardrail rules. CONCEPT:OS-5.3"""
+    """Aggregated results from checking all guardrail rules. CONCEPT:OS-5.1"""
 
     phase: GuardrailPhase = GuardrailPhase.INPUT
     total_rules_checked: int = 0
@@ -916,7 +916,7 @@ class GuardrailCheckSummary(BaseModel):
 
 
 class GuardrailEngine:
-    """Push-based guardrail interception engine. CONCEPT:OS-5.3
+    """Push-based guardrail interception engine. CONCEPT:OS-5.1
 
     Ported from MATE's guardrail_callback.py. Provides automatic
     input/output interception with block, redact, and warn actions.

@@ -4,7 +4,7 @@ Provides enterprise workforce management primitives for
 organizational hierarchy, competency tracking, performance
 management, and hiring pipeline lifecycle.
 
-CONCEPT:KG-2.8 — HR/Workforce Management
+CONCEPT:KG-2.6 — HR/Workforce Management
 """
 
 from agent_utilities.domains.hr.models import (

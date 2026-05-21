@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Knowledge Graph MCP Server — Thin wrapper over IntelligenceGraphEngine.
 
-CONCEPT:ECO-4.3 — Knowledge Graph MCP Exposure
+CONCEPT:ECO-4.1 — Knowledge Graph MCP Exposure
 
 Exposes the internal Knowledge Graph as MCP tools for external agents
 (Claude Code, Antigravity IDE, OpenCode, Devin) to query, search, and
@@ -92,11 +92,130 @@ def _provenance_props(agent_id: str | None = None) -> dict[str, Any]:
     }
 
 
+def _ingest_capabilities(engine):
+    """Natively ingest MCP configurations, Native Tools, and Skills into the KG on startup."""
+    import importlib
+    import inspect
+    import json
+    import os
+    import pkgutil
+    from pathlib import Path
+
+    import platformdirs
+    import yaml
+
+    # 1. mcp_config.json
+    try:
+        APP_NAME = "agent-utilities"
+        APP_AUTHOR = "knuckles-team"
+        cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
+        mcp_config_path = cfg_dir / "mcp_config.json"
+
+        if mcp_config_path.exists():
+            with open(mcp_config_path) as f:
+                data = json.load(f)
+                mcp_servers = data.get("mcpServers", {})
+                for server_name, server_details in mcp_servers.items():
+                    engine.add_node(
+                        f"mcp_server_{server_name}",
+                        "MCPServer",
+                        {
+                            "name": server_name,
+                            "command": server_details.get("command"),
+                            "args": json.dumps(server_details.get("args", [])),
+                        },
+                    )
+            logger.info("Ingested mcp_config.json")
+    except Exception as e:
+        logger.error(f"Failed to ingest mcp_config.json: {e}")
+
+    # 2. Native Tools
+    try:
+        import agent_utilities.tools
+
+        prefix = agent_utilities.tools.__name__ + "."
+        for importer, modname, ispkg in pkgutil.iter_modules(
+            agent_utilities.tools.__path__, prefix
+        ):
+            if not ispkg:
+                try:
+                    module = importlib.import_module(modname)
+                    for name, obj in inspect.getmembers(module, inspect.isfunction):
+                        if hasattr(obj, "__agentic_version__"):
+                            engine.add_node(
+                                f"native_tool_{name}",
+                                "NativeTool",
+                                {
+                                    "name": name,
+                                    "description": obj.__doc__ or "",
+                                    "version": obj.__agentic_version__,
+                                    "module": modname,
+                                },
+                            )
+                except Exception as e:
+                    logger.debug(f"Failed to ingest native tools from {modname}: {e}")
+        logger.info("Ingested Native Tools")
+    except Exception as e:
+        logger.error(f"Failed to scan native tools: {e}")
+
+    # 3. Skills
+    try:
+        from agent_utilities.core.config import config
+
+        skills_dir = config.custom_skills_directory or os.path.expanduser(
+            "~/.gemini/antigravity/skills"
+        )
+        skills_path = Path(skills_dir)
+        if skills_path.exists() and skills_path.is_dir():
+            for skill_dir in skills_path.iterdir():
+                if skill_dir.is_dir():
+                    skill_md = skill_dir / "SKILL.md"
+                    if skill_md.exists():
+                        try:
+                            content = skill_md.read_text()
+                            if content.startswith("---"):
+                                end_idx = content.find("---", 3)
+                                if end_idx != -1:
+                                    frontmatter_str = content[3:end_idx].strip()
+                                    frontmatter = yaml.safe_load(frontmatter_str) or {}
+                                    name = frontmatter.get("name", skill_dir.name)
+                                    desc = frontmatter.get("description", "")
+                                    engine.add_node(
+                                        f"skill_{name}",
+                                        "Skill",
+                                        {
+                                            "name": name,
+                                            "description": desc,
+                                            "path": str(skill_md),
+                                            **{
+                                                k: v
+                                                for k, v in frontmatter.items()
+                                                if k not in ["name", "description"]
+                                            },
+                                        },
+                                    )
+                        except Exception as e:
+                            logger.error(f"Failed to ingest skill from {skill_md}: {e}")
+            logger.info("Ingested Skills")
+    except Exception as e:
+        logger.error(f"Failed to ingest skills: {e}")
+
+
 def _build_server():
     """Build the KG MCP server with all tools registered."""
     from agent_utilities.mcp.server_factory import create_mcp_server
 
     engine = _get_engine()
+
+    import threading
+
+    # Run the expensive metadata ingestion in the background so it doesn't block the MCP server connection to the IDE
+    threading.Thread(
+        target=_ingest_capabilities,
+        args=(engine,),
+        daemon=True,
+        name="KGCapabilityIngestThread",
+    ).start()
 
     # Check if backend is in read-only mode (contention workaround)
     is_readonly = getattr(engine.backend, "read_only", False)
@@ -706,7 +825,7 @@ def _build_server():
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto).",
+            description="Action to perform (dispatch, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, list_workflows, execute_workflow, export_workflow).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -785,6 +904,137 @@ def _build_server():
                     f"veto_{job_id}", f"debate_{job_id}", "CONTRADICTS_BELIEF_PROP"
                 )
                 return f"Submitted Risk Veto for debate {job_id}."
+            elif action == "list_cron_jobs":
+                try:
+                    from agent_utilities.automation.maintenance_cron import (
+                        MaintenanceCron,
+                    )
+
+                    cron = MaintenanceCron()
+                    due_tasks = cron.get_due_tasks()
+                    lines = []
+                    for t in cron.tasks:
+                        status = (
+                            "DUE"
+                            if any(dt.id == t.id for dt in due_tasks)
+                            else "WAITING"
+                        )
+                        lines.append(
+                            f"[{status}] {t.id} (Frequency: {t.frequency.value})"
+                        )
+                    return "\n".join(lines)
+                except ImportError:
+                    return "Error: maintenance_cron module not available"
+            elif action == "trigger_cron_job":
+                try:
+                    from agent_utilities.automation.maintenance_cron import (
+                        MaintenanceCron,
+                    )
+
+                    cron = MaintenanceCron()
+                    target_id = task.strip()
+                    if not target_id:
+                        return "Error: Must specify the cron job ID in the 'task' parameter."
+                    cron.record_execution(
+                        target_id, status="triggered_manually", tokens_used=0
+                    )
+                    return f"Manually triggered cron job: {target_id}"
+                except ImportError:
+                    return "Error: maintenance_cron module not available"
+            # ── CONCEPT:ORCH-1.24: Workflow Lifecycle Actions ──
+            elif action == "compile_workflow":
+                try:
+                    from agent_utilities.knowledge_graph.workflow_compiler import (
+                        WorkflowCompiler,
+                    )
+
+                    compiler = WorkflowCompiler(engine)
+                    name = agent_name or f"compiled_{uuid.uuid4().hex[:6]}"
+                    workflow_id = await compiler.compile_and_store(
+                        name=name,
+                        description=task,
+                    )
+                    return json.dumps(
+                        {
+                            "status": "compiled",
+                            "workflow_id": workflow_id,
+                            "name": name,
+                        }
+                    )
+                except Exception as exc:
+                    return f"Error compiling workflow: {exc}"
+
+            elif action == "list_workflows":
+                try:
+                    from agent_utilities.knowledge_graph.workflow_store import (
+                        WorkflowStore,
+                    )
+
+                    store = WorkflowStore(engine)
+                    workflows = store.list_workflows(limit=50)
+                    if not workflows:
+                        # Try loading from built-in catalog
+                        try:
+                            from agent_utilities.workflows.catalog import (
+                                WorkflowCatalog,
+                            )
+
+                            catalog = WorkflowCatalog.load()
+                            return json.dumps(
+                                {
+                                    "source": "catalog",
+                                    "workflows": [
+                                        {
+                                            "name": s.name,
+                                            "description": s.description,
+                                            "domain": s.domain,
+                                            "steps": len(s.steps),
+                                            "tags": s.tags,
+                                        }
+                                        for s in catalog.scenarios
+                                    ],
+                                },
+                                default=str,
+                            )
+                        except Exception:
+                            return "No workflows found in KG or catalog."
+                    return json.dumps(
+                        {"source": "kg", "workflows": workflows}, default=str
+                    )
+                except Exception as exc:
+                    return f"Error listing workflows: {exc}"
+
+            elif action == "execute_workflow":
+                try:
+                    from agent_utilities.workflows.runner import WorkflowRunner
+
+                    runner = WorkflowRunner(max_steps_per_agent=max_steps)
+                    name = agent_name or task
+                    wf_result = await runner.execute_by_name(
+                        workflow_name=name,
+                        engine=engine,
+                    )
+                    return json.dumps(wf_result.to_dict(), default=str)
+                except ValueError as exc:
+                    return f"Workflow not found: {exc}"
+                except Exception as exc:
+                    return f"Error executing workflow: {exc}"
+
+            elif action == "export_workflow":
+                try:
+                    from agent_utilities.workflows.catalog import WorkflowCatalog
+
+                    catalog = WorkflowCatalog.load()
+                    # Rich export: includes resolved agent configs
+                    # (tools, system prompts, MCP commands, skills)
+                    export_data = catalog.export_with_agents(
+                        engine=engine,
+                        scenario_name=agent_name or None,
+                    )
+                    return json.dumps(export_data, indent=2, default=str)
+                except Exception as exc:
+                    return f"Error exporting workflow: {exc}"
+
             else:
                 return f"Error: Unknown orchestration action '{action}'"
         except Exception as e:

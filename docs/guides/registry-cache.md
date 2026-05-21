@@ -66,15 +66,15 @@ The cache uses an **event-driven invalidation** model — it is never TTL-based.
 ```mermaid
 graph TD
     subgraph Triggers ["Invalidation Event Sources"]
-        MCP["POST /mcp/reload\n(New tools discovered)"]
-        Pipeline["Pipeline Completion\n(Code graph changed)"]
-        SelfModel["SelfModel.update_after_session()\n(New proficiency data)"]
-        TeamConfig["promote_coalition_to_template()\n(New team template)"]
+        MCP["ECO-4.11: POST /mcp/reload\n(New tools discovered)"]
+        Pipeline["ECO-4.10: Pipeline Completion\n(Code graph changed)"]
+        SelfModel["AHE-3.3: SelfModel.update_after_session()\n(New proficiency data)"]
+        TeamConfig["AHE-3.3: promote_coalition_to_template()\n(New team template)"]
     end
 
     subgraph Cache ["_RegistryCache"]
-        Inv["invalidate_registry_cache()"]
-        Clear["_registry = None\n_specialist_cache = {}"]
+        Inv["AHE-3.1: invalidate_registry_cache()"]
+        Clear["ORCH-1.2: _registry = None\n_specialist_cache = {}"]
     end
 
     MCP --> Inv
@@ -125,6 +125,6 @@ The cache integrates at these specific locations in the codebase:
 
 ## Related Documentation
 
-- [First Principles Architecture](../1_graph_orchestration/first-principles.md) — Complete CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.1 overview
+- [First Principles Architecture](../1_graph_orchestration/first-principles.md) — Complete CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0 overview
 - [Architecture](../1_graph_orchestration/architecture.md) — Full system architecture
 - [Emergent Architecture](../2_epistemic_knowledge_graph/emergent-architecture.md) — Self-Model and Workspace Attention

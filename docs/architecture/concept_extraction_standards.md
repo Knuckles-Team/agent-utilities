@@ -163,18 +163,25 @@ These models are defined in:
 
 ## Environment Configuration
 
-The KG MCP server requires these environment variables for LLM connectivity:
+The KG MCP server relies on the unified `agent-utilities` configuration for LLM connectivity. Ensure your `~/.config/agent-utilities/config.json` is configured:
 
-```env
-LLM_BASE_URL=http://10.0.0.18:1234/v1
-LLM_API_KEY=llama
-LLM_PROVIDER=openai
-LLM_MODEL_ID=qwen/qwen3.5-9b
-KG_MODEL_ID=qwen/qwen3.5-9b
-EMBEDDING_PROVIDER=openai
-EMBEDDING_MODEL_ID=text-embedding-nomic-embed-text-v2-moe
-EMBEDDING_BASE_URL=http://10.0.0.18:1234/v1
-EMBEDDING_API_KEY=llama
+```json
+{
+  "chat_models": [
+    {
+      "id": "qwen/qwen3.5-9b",
+      "provider": "openai",
+      "intelligence_level": "normal"
+    }
+  ],
+  "embedding_models": [
+    {
+      "id": "text-embedding-nomic-embed-text-v2-moe",
+      "provider": "openai",
+      "base_url": "http://10.0.0.18:1234/v1"
+    }
+  ]
+}
 ```
 
-These are set in the `mcp_config.json` env block for the `agent-utilities-kg` server.
+Authentication is handled via the `.env` file (e.g., `LLM_API_KEY`).

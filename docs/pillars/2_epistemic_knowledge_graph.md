@@ -238,3 +238,84 @@ The `OntologyPublisher` (`core/ontology_publisher.py`) enables agent-utilities t
 - **MCP exposure**: Available via `kg_inspect(view="export_ontology")`
 
 This completes the "Hub-and-Spoke" ontology distribution pattern where agent-utilities maintains the authoritative source and pushes evolved ontologies to enterprise infrastructure.
+
+
+### Graph-OS Native Ingestion Pipeline
+
+Bulk codebase ingestion is now handled natively via the `graph-os` MCP server. This abstracts away the previous 17-phase in-memory pipeline, providing robust, database-first (PostgreSQL/pgGraph) ingestion, parallel execution, and direct Cypher materialization.
+
+### Architecture
+
+```mermaid
+graph TD
+    subgraph Ingestion_Pipeline ["graph-os Ingestion [KG-2.0]"]
+        direction LR
+        S1["Stage 1: Context [KG-2.0]"] --> S2["Stage 2: Structure [KG-2.0]"] --> S3["Stage 3: Topology [KG-2.5]"] --> S4["Stage 4: Epistemic [KG-2.2]"] --> S5["Stage 5: Governance [ORCH-1.6]"]
+
+        subgraph S1 ["Stage 1: Context [KG-2.0]"]
+            direction LR
+            Mem["Memory [KG-2.1]"] --> Scan["Scan [KG-2.0]"] --> WS["WS Sync [KG-2.0]"] --> Reg["Reg [KG-2.0]"]
+        end
+
+        subgraph S2 ["Stage 2: Structure [KG-2.0]"]
+            direction LR
+            Parse["Parse [KG-2.0]"] --> Resolve["Resolve [KG-2.0]"] --> MRO["MRO [KG-2.0]"] --> Ref["Ref [KG-2.0]"]
+        end
+
+        subgraph S3 ["Stage 3: Topology [KG-2.5]"]
+            direction LR
+            Comm["Comm [KG-2.5]"] --> Cent["Cent [KG-2.5]"] --> Emb["Embed [KG-2.1]"]
+        end
+
+        subgraph S4 ["Stage 4: Epistemic [KG-2.2]"]
+            direction LR
+            Sync["Sync [KG-2.0]"] --> OWL["OWL [KG-2.2]"] --> Ext["Ext [KG-2.13]"] --> KB["KB [KG-2.7]"]
+        end
+
+        subgraph S5 ["Stage 5: Governance [ORCH-1.6]"]
+            direction LR
+            Val["Validate [ORCH-1.6]"] --> Exp["Distill [AHE-3.1]"] -.->|Async| Evo["Evolution [AHE-3.2]"]
+        end
+    end
+
+    subgraph Memory_Layer ["In-Memory Graph [KG-2.0]"]
+        NX[("NetworkX [KG-2.0]")]
+        NX -- "Topological [KG-2.5]" --> NX
+    end
+
+    subgraph Persistence_Layer ["Persistent Graph [KG-2.0]"]
+        LDB["LadybugDB [KG-2.0]"]
+        LDB -- "Cypher [KG-2.0]" --> LDB
+    end
+
+    subgraph Query_Layer ["Query / Interface [KG-2.3]"]
+        Q_Impact["Impact [KG-2.5]"]
+        Q_Query["Query [KG-2.3]"]
+    end
+
+    Ingestion_Pipeline -- "Mutates" --> Memory_Layer
+    Memory_Layer -- "Syncs To" --> Persistence_Layer
+    Query_Layer -- "Query" --> Persistence_Layer
+
+    subgraph Autonomous_Loop ["Self-Improvement Loop [AHE-3.2]"]
+        direction TB
+        Outcome["Outcome [AHE-3.1]"] --> Critique["Critique [AHE-3.2]"]
+        Critique --> Evolution["Evolve [AHE-3.2]"]
+        Evolution --> Persistence_Layer
+    end
+```
+
+### MAGMA-Inspired Orthogonal Reasoning Views
+The graph engine supports policy-guided retrieval across four orthogonal views:
+- **Semantic View**: Traditional RAG/vector search for conceptual similarity.
+- **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
+- **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
+- **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
+- **Epistemic View** (CONCEPT:KG-2.2): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions. Powered by `retrieve_epistemic_view()`.
+- **Research Knowledge Base**: Grounded evidence and sources for domain-specific topics (e.g., Medical Journals).
+
+### Persistent Task Tracking (CONCEPT:KG-2.0)
+Background ingestion jobs across the entire ecosystem are no longer transient in-memory tasks. The `IntelligenceGraphEngine` provides a native, decoupled `TaskManagerMixin` where jobs are durably persisted natively as `Task` nodes directly within the Knowledge Graph.
+- **Job Recovery**: If the MCP server or your IDE restarts, pending ingestion jobs are automatically recovered from the cypher backend on startup and placed back into the execution queue.
+- **Provenance**: Jobs store `agent_id`, timestamp, and metadata (like `.git` directory mapping) as topological properties.
+- **Monitoring**: Check statuses reliably using `kg_list_jobs`, `kg_job_status`, and `kg_clear_jobs` tools, which interact natively with the Cypher engine instead of memory.

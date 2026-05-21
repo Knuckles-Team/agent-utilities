@@ -114,7 +114,8 @@ async def test_full_graph_lifecycle():
             return_value=MagicMock(),
         ),
         patch(
-            "agent_utilities.graph.steps.fetch_unified_context", return_value="context"
+            "agent_utilities.graph.steps.fetch_epistemic_context",
+            return_value="context",
         ),
     ):
         result = await asyncio.wait_for(
@@ -231,7 +232,8 @@ async def test_graph_parallel_and_fallback():
             return_value=MagicMock(),
         ),
         patch(
-            "agent_utilities.graph.steps.fetch_unified_context", return_value="context"
+            "agent_utilities.graph.steps.fetch_epistemic_context",
+            return_value="context",
         ),
     ):
         test_graph_parallel_and_fallback.verified_count = 0

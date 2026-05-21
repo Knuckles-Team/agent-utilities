@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """KG -> Markdown Memory Materializer.
 
-CONCEPT:KG-2.10 -- Observational Memory Bridge
+CONCEPT:KG-2.1 -- Observational Memory Bridge
 
 Renders KG memory state into human-inspectable Markdown files (materialized views).
 The KG is the single source of truth; Markdown files are projections that can be
@@ -65,7 +65,7 @@ def _ensure_memory_dir() -> Path:
 class MemoryMaterializer:
     """Renders KG memory state into beautiful, inspectable Markdown files.
 
-    CONCEPT:KG-2.10 -- Observational Memory Bridge
+    CONCEPT:KG-2.1 -- Observational Memory Bridge
     """
 
     def __init__(self, engine: IntelligenceGraphEngine) -> None:

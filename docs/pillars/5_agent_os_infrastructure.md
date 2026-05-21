@@ -39,3 +39,21 @@ The OS implements a strict append-only **Audit Logger** capturing 30+ action con
 - **OS-5.11**: Threat Defense Engine (Topological)
 - **OS-5.12**: Threat Defense Engine (Jailbreak)
 - **OS-5.18**: Execution Stability Engine (Doom-Loop)
+
+
+### Human-in-the-Loop (Tool Approval & Elicitation)
+
+`agent-utilities` provides true **pause-and-resume** human-in-the-loop for sensitive tool execution and MCP elicitation. When a specialist sub-agent calls a tool flagged with `requires_approval=True`, the graph suspends at that exact node, streams an approval request to the connected UI, and resumes only after the user responds.
+
+**Key Components:**
+- **`ApprovalManager`** (`approval_manager.py`) — asyncio.Future-based registry that pauses coroutines and resumes them when the UI responds
+- **`run_with_approvals()`** — wraps pydantic-ai's two-call `DeferredToolRequests` → `DeferredToolResults` pattern into a single blocking call
+- **`/api/approve`** endpoint — REST endpoint that both UIs POST to when the user approves/denies
+- **`global_elicitation_callback()`** — MCP `ctx.elicit()` callback using the same pause/resume mechanism
+
+**Protocol Support:**
+| Protocol | Approval Mechanism |
+|---|---|
+| AG-UI (web + terminal) | Sideband SSE events + `POST /api/approve` |
+| ACP | pydantic-acp's native `NativeApprovalBridge` (automatic) |
+| SSE (`/stream`) | Same as AG-UI |
