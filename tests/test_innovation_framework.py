@@ -12,10 +12,7 @@ Tests cover:
 """
 
 
-import json
 import os
-import time
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -236,21 +233,47 @@ class TestFileWatcher:
         )
         assert len(watcher.triggers) == initial_count + 1
 
-    def test_list_installed_packages_returns_list(self):
-        """Package listing should return a list (may be empty in test env)."""
+    @patch("subprocess.run")
+    def test_list_installed_packages_returns_list(self, mock_run):
+        """Package listing should return a list."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = '[{"name": "test-pkg", "version": "1.0.0"}]'
+        mock_run.return_value = mock_proc
+
         from agent_utilities.automation.file_watcher import FileWatcher
 
         packages = FileWatcher.list_installed_packages()
         assert isinstance(packages, list)
+        assert len(packages) == 1
+        assert packages[0]["name"] == "test-pkg"
 
-    def test_audit_installed_packages_returns_dict(self):
+    @patch("subprocess.run")
+    def test_audit_installed_packages_returns_dict(self, mock_run):
         """Package audit should return a dict with expected keys."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = '{"vulnerabilities": []}'
+
+        # We need side_effect to return different outputs for the two subprocess.run calls (pip list and pip-audit)
+        def run_side_effect(*args, **kwargs):
+            mock = MagicMock()
+            mock.returncode = 0
+            if "list" in args[0]:
+                mock.stdout = '[{"name": "test-pkg", "version": "1.0.0", "latest_version": "1.1.0"}]'
+            else:
+                mock.stdout = '{"vulnerabilities": []}'
+            return mock
+
+        mock_run.side_effect = run_side_effect
+
         from agent_utilities.automation.file_watcher import FileWatcher
 
         result = FileWatcher.audit_installed_packages()
         assert isinstance(result, dict)
         assert "outdated" in result
         assert "vulnerabilities" in result
+        assert len(result["outdated"]) == 1
 
 
 # ── CONCEPT:OS-5.2: Maintenance Cron ─────────────────────────────────────────

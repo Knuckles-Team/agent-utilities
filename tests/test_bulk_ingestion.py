@@ -2,11 +2,12 @@
 
 """Tests for the Enterprise Hub-and-Spoke ingestion and batch writing capabilities."""
 
-import pytest
-import networkx as nx
-from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.backends.base import GraphBackend
 from typing import Any
+
+import networkx as nx
+
+from agent_utilities.knowledge_graph.backends.base import GraphBackend
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 
 class MockBackend(GraphBackend):

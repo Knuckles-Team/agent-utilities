@@ -11,6 +11,8 @@ is validated by Pydantic before entering the knowledge graph.
 import logging
 import os
 
+from agent_utilities.core.config import config
+
 from ...models.knowledge_base import (
     DocumentChunk,
     ExtractedArticle,
@@ -69,10 +71,13 @@ class KBExtractor:
         base_url: str | None = None,
         api_key: str | None = None,
     ):
+        _default_chat = config.default_chat_model
         self._model_str = model or os.environ.get("MODEL_ID", "gpt-4o-mini")
         self._provider = provider or os.environ.get("PROVIDER", "openai")
-        self._base_url = base_url or os.environ.get("LLM_BASE_URL")
-        self._api_key = api_key or os.environ.get("LLM_API_KEY", "")
+        self._base_url = base_url or (_default_chat.base_url if _default_chat else None)
+        self._api_key = (
+            api_key or (_default_chat.api_key if _default_chat else "") or ""
+        )
         self._article_agent = None
         self._health_agent = None
         self._index_agent = None

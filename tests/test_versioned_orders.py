@@ -3,7 +3,6 @@
 import pytest
 
 from agent_utilities.domains.finance.versioned_orders import (
-    OrderCommit,
     OrderHistory,
     OrderStage,
     OrderStatus,

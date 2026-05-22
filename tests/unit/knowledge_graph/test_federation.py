@@ -5,8 +5,9 @@ CONCEPT:KG-2.1 — External Graph Federation
 """
 
 from unittest.mock import MagicMock, patch
-import pytest
+
 import networkx as nx
+import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 

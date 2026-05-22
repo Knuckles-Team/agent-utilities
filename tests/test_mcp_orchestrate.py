@@ -5,9 +5,10 @@ CONCEPT:ORCH-1.21 — KG-to-LLM Execution Bridge tests.
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
 import networkx as nx
+import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -26,14 +27,17 @@ async def test_agent_runner_resolution():
 
     engine = _create_engine()
 
-    # Manually add a mock agent skill node
-    engine.graph.add_node(
-        "skill:test-agent",
-        name="test-agent",
-        resource_type="AGENT_SKILL",
-        description="A test skill agent",
-        type="CallableResource",
-    )
+    from unittest.mock import MagicMock
+    mock_backend = MagicMock()
+    engine.backend = mock_backend
+
+    # Mock the backend execution specifically for the CallableResource query
+    def mock_execute(query, params=None):
+        if "CallableResource" in query and params and params.get("name") == "test-agent":
+            return [{"rid": "skill:test-agent", "rtype": "AGENT_SKILL", "description": "A test skill agent", "skill_path": ""}]
+        return []
+
+    engine.backend.execute.side_effect = mock_execute
 
     meta = _resolve_agent_from_kg(engine, "test-agent")
 

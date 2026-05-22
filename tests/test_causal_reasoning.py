@@ -5,7 +5,6 @@ import pytest
 from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     CausalEdge,
     CausalFactor,
-    CausalRelationType,
     CausalVerifier,
     CounterfactualGenerator,
     SpuriousnessDetector,

@@ -9,9 +9,9 @@ from agent_utilities.models.knowledge_graph import (
     AgentNode,
     ProposalNode,
     RegistryNodeType,
+    SelfModelNode,  # type: ignore[attr-defined]
     SwarmCoalitionNode,
 )
-from agent_utilities.models.knowledge_graph import SelfModelNode  # type: ignore[attr-defined]
 
 
 class FakeBackend:

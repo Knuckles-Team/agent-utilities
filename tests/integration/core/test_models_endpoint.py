@@ -19,7 +19,6 @@ the environment, and that `ModelRegistry` survives an HTTP round-trip via
 
 
 import json
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest

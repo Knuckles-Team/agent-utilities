@@ -7,11 +7,9 @@ This module provides the LadybugDB implementation of the GraphBackend interface,
 supporting strict schema-bound Cypher queries.
 """
 
-import fcntl
 import logging
 import os
 import typing
-from contextlib import contextmanager
 from typing import Any
 
 from .base import GraphBackend
@@ -34,24 +32,13 @@ class LadybugBackend(GraphBackend):
     def _get_lock(self):
         """Get a cross-process pessimistic lock for the database."""
         if self.db_path == ":memory:":
+            from contextlib import nullcontext
 
-            @contextmanager
-            def no_op_lock():
-                yield
+            return nullcontext()
 
-            return no_op_lock()
+        from filelock import FileLock
 
-        @contextmanager
-        def file_lock():
-            lock_path = f"{self.db_path}.lock"
-            with open(lock_path, "w") as f:
-                try:
-                    fcntl.flock(f, fcntl.LOCK_EX)
-                    yield
-                finally:
-                    fcntl.flock(f, fcntl.LOCK_UN)
-
-        return file_lock()
+        return FileLock(f"{self.db_path}.lock")
 
     def __init__(self, db_path: str = "knowledge_graph.db", max_retries: int = 15):
         if not LADYBUG_AVAILABLE:
@@ -383,7 +370,7 @@ class LadybugBackend(GraphBackend):
         # 1. Create Node Tables
         for node in SCHEMA.nodes:
             cols = ", ".join(
-                [f"{name} {dtype}" for name, dtype in node.columns.items()]
+                [f"`{name}` {dtype}" for name, dtype in node.columns.items()]
             )
             stmt = f"CREATE NODE TABLE IF NOT EXISTS {node.name} ({cols});"
             try:

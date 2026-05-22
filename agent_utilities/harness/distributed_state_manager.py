@@ -112,7 +112,7 @@ class BranchMergeStateLocker(OptimisticStateLocker):
             base_data = {}
 
         version_val = base_state.get("version", 0)
-        version_int = int(version_val) if isinstance(version_val, (int, float)) else 0
+        version_int = int(version_val) if isinstance(version_val, int | float) else 0
 
         # Create fork
         branched_state = {
@@ -184,12 +184,12 @@ class BranchMergeStateLocker(OptimisticStateLocker):
 
         b_version_val = base_state.get("version", 0)
         base_version = (
-            int(b_version_val) if isinstance(b_version_val, (int, float)) else 0
+            int(b_version_val) if isinstance(b_version_val, int | float) else 0
         )
 
         fb_version_val = branch_state.get("base_version", 0)
         forked_base_version = (
-            int(fb_version_val) if isinstance(fb_version_val, (int, float)) else 0
+            int(fb_version_val) if isinstance(fb_version_val, int | float) else 0
         )
 
         # Case 1: Fast-forward (no concurrent changes on base_key)

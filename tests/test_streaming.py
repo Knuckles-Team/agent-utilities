@@ -1,7 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Universal Real-Time Streaming."""
 
-import asyncio
-import json
 
 import pytest
 

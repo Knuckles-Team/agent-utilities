@@ -15,26 +15,27 @@ classifiers = [
     "Programming Language :: Python :: 3"]
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "tree-sitter>=0.23.2",
-    "requests>=2.32.5",
+    "tree-sitter>=0.23.0",
+    "requests>=2.34.0",
     "urllib3>=2.3.0",
-    "pydantic[email]>=2.8.2",
-    "pydantic-settings>=2.0.0",
+    "pydantic[email]>=2.10.0",
+    "pydantic-settings>=2.14.0",
     "PyYAML>=6.0.0",
     "python-dotenv>=1.2.1",
-    "networkx>=3.0",
-    "ladybug>=0.15.3",
+    "networkx>=3.6.0",
+    "ladybug>=0.16.0",
     "numpy",
     "scipy",
-    "cryptography>=47.0.0",
+    "cryptography>=48.0.0",
     "pathspec",
     "platformdirs>=4.0.0",
-    "packaging",
-    "psutil>=6.0.0",
+    "packaging>=24.2",
+    "psutil>=7.2.0",
     "tree-sitter-python>=0.23.0",
     "tree-sitter-javascript>=0.23.0",
     "tree-sitter-typescript>=0.23.0",
-    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.73.0,<2.0.0"]
+    "filelock>=3.0.0",
+    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.90.0,<2.0.0"]
 
 [[project.authors]]
 name = "Audel Rouhi"
@@ -45,33 +46,33 @@ text = "MIT"
 
 [project.optional-dependencies]
 mcp = [
-    "fastmcp>=3.2.0",
+    "fastmcp>=3.3.0",
     "eunomia-mcp>=0.3.10",
-    "fastapi>=0.131.0",
+    "fastapi>=0.136.0",
     "httpx>=0.28.1"
 ]
 agent = [
     "agent-utilities[mcp,ag-ui,terminal]>=0.11.0",
     "universal-skills>=0.12.1",
     "skill-graphs>=0.12.1",
-    "pydantic-ai-skills>=0.4.1",
-    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.73.0,<2.0.0",
+    "pydantic-ai-skills>=0.10.0",
+    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.90.0,<2.0.0",
     "pydantic-graph>=1.0.0"
 ]
 agent-google = [
-    "pydantic-ai-slim[google]>=1.73.0,<2.0.0"
+    "pydantic-ai-slim[google]>=1.90.0,<2.0.0"
 ]
 agent-groq = [
-    "pydantic-ai-slim[groq]>=1.73.0,<2.0.0"
+    "pydantic-ai-slim[groq]>=1.90.0,<2.0.0"
 ]
 agent-mistral = [
-    "pydantic-ai-slim[mistral]>=1.73.0,<2.0.0"
+    "pydantic-ai-slim[mistral]>=1.90.0,<2.0.0"
 ]
 agent-anthropic = [
-    "pydantic-ai-slim[anthropic]>=1.73.0,<2.0.0"
+    "pydantic-ai-slim[anthropic]>=1.90.0,<2.0.0"
 ]
 agent-huggingface = [
-    "pydantic-ai-slim[huggingface]>=1.73.0,<2.0.0"
+    "pydantic-ai-slim[huggingface]>=1.90.0,<2.0.0"
 ]
 ag-ui = [
     "agent-webui>=0.12.1"]
@@ -100,7 +101,7 @@ embeddings-ollama = [
     "llama-index-embeddings-ollama>=0.8.6"]
 logfire = [
     "agent-utilities[agent]>=0.11.0",
-    "pydantic-ai-slim[logfire]>=1.73.0,<2.0.0"
+    "pydantic-ai-slim[logfire]>=1.90.0,<2.0.0"
 ]
 graph = [
     "networkx>=3.0",
@@ -154,6 +155,7 @@ postgresql = [
     "pgvector>=0.3.0"
 ]
 test = [
+    "pytest-xdist>=3.6.0",
     "hypothesis>=6.152.1",
     "pytest-cov",
     "mypy",
@@ -208,7 +210,8 @@ timeout = 30
 testpaths = ["tests/unit", "tests/integration"]
 markers = [
     "integration: Integration tests using subprocess/TestClient (no external services)",
-    "live: Tests requiring live external services (LLM endpoints, real networks)"
+    "live: Tests requiring live external services (LLM endpoints, real networks)",
+    "concept(id): Mark test as validating a specific documentation concept (e.g., CONCEPT:ORCH-1.2)"
 ]
 env = [
     "AGENT_UTILITIES_TESTING=true",

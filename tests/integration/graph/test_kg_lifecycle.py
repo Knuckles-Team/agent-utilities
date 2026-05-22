@@ -8,14 +8,12 @@ Integration tests for KG lifecycle management:
 - DocumentDeletionPipeline + QueryMixin parity
 """
 
-import asyncio
 
 import networkx as nx
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.models.schema_definition import SCHEMA
-
 
 # ── Fixtures ──
 

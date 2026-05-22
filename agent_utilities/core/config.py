@@ -12,7 +12,11 @@ from typing import Any
 
 import platformdirs
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 DEFAULT_DB_PATH = str(
     platformdirs.user_data_path("agent-utilities", "knuckles-team") / "graph_state"
@@ -101,7 +105,7 @@ def _load_xdg_json_config():
                 for k, v in data.items():
                     env_key = k.upper()
                     if env_key not in os.environ:
-                        if isinstance(v, (list, dict)):
+                        if isinstance(v, list | dict):
                             os.environ[env_key] = json.dumps(v)
                         elif v is None:
                             os.environ[env_key] = ""
@@ -143,6 +147,34 @@ class EmbeddingModelConfig(BaseModel):
 _load_xdg_json_config()
 
 
+class NestedSecretsSettingsSource(PydanticBaseSettingsSource):
+    """Custom settings source to load nested secrets from a centralized vault/file."""
+
+    def __init__(self, settings_cls: type[BaseSettings], secrets_file: str = ""):
+        super().__init__(settings_cls)
+        self.secrets_file = secrets_file
+
+    def get_field_value(self, field, field_name: str) -> tuple[Any, str, bool]:
+        # Simple implementation that would integrate with actual Vault or nested JSON secrets
+        return None, field_name, False
+
+    def prepare_field_value(
+        self, field_name: str, field, value: Any, _value_is_complex: bool
+    ) -> Any:
+        return value
+
+    def __call__(self) -> dict[str, Any]:
+        if not self.secrets_file:
+            return {}
+        try:
+            import json
+
+            with open(self.secrets_file) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+
 class AgentConfig(BaseSettings):
     """Configuration schema for the AI Agent server.
 
@@ -155,7 +187,27 @@ class AgentConfig(BaseSettings):
         env_file=get_env_file(),
         env_ignore_empty=True,
         extra="ignore",
+        secrets_dir="/run/secrets",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            NestedSecretsSettingsSource(
+                settings_cls, os.getenv("AGENT_SECRETS_FILE", "")
+            ),
+            file_secret_settings,
+        )
 
     chat_models: list[ChatModelConfig] = Field(
         default_factory=list, alias="CHAT_MODELS"
@@ -163,6 +215,54 @@ class AgentConfig(BaseSettings):
     embedding_models: list[EmbeddingModelConfig] = Field(
         default_factory=list, alias="EMBEDDING_MODELS"
     )
+
+    # --- Provider API Keys (global fallbacks for ad-hoc model creation) ---
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_base_url: str | None = Field(default=None, alias="OPENAI_BASE_URL")
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
+    mistral_api_key: str | None = Field(default=None, alias="MISTRAL_API_KEY")
+    hugging_face_api_key: str | None = Field(default=None, alias="HUGGING_FACE_API_KEY")
+    deepseek_api_key: str | None = Field(default=None, alias="DEEPSEEK_API_KEY")
+    deepseek_base_url: str | None = Field(default=None, alias="DEEPSEEK_BASE_URL")
+
+    # --- Graph / KG tuning knobs ---
+    graph_timeout: str | None = Field(default="1200000", alias="GRAPH_TIMEOUT")
+    max_recursion_depth: str | None = Field(default="2", alias="MAX_RECURSION_DEPTH")
+    routing_percentile: str | None = Field(default="50.0", alias="ROUTING_PERCENTILE")
+    kg_embedding_dim: str | None = Field(default="768", alias="KG_EMBEDDING_DIM")
+
+    # --- Model registry helpers (derive from chat_models / embedding_models) ---
+
+    def _chat_model_by_level(self, level: str) -> ChatModelConfig | None:
+        """Return the first chat model matching the given intelligence_level."""
+        for m in self.chat_models:
+            if m.intelligence_level == level:
+                return m
+        return None
+
+    @property
+    def default_chat_model(self) -> ChatModelConfig | None:
+        """Primary chat model (intelligence_level='normal', fallback to first)."""
+        return self._chat_model_by_level("normal") or (
+            self.chat_models[0] if self.chat_models else None
+        )
+
+    @property
+    def lite_chat_model(self) -> ChatModelConfig | None:
+        """Lightweight chat model (intelligence_level='light')."""
+        return self._chat_model_by_level("light") or self.default_chat_model
+
+    @property
+    def super_chat_model(self) -> ChatModelConfig | None:
+        """Super/heavy chat model (intelligence_level='super')."""
+        return self._chat_model_by_level("super") or self.default_chat_model
+
+    @property
+    def default_embedding_model(self) -> EmbeddingModelConfig | None:
+        """Primary embedding model (first in list)."""
+        return self.embedding_models[0] if self.embedding_models else None
 
     def reload(self):
         """Reload configuration from XDG config.json dynamically."""
@@ -183,7 +283,7 @@ class AgentConfig(BaseSettings):
         default=None, alias="AGENT_UTILITIES_CONFIG_DIR"
     )
 
-    host: str = Field(default="0.0.0.0", alias="HOST")  # nosec B104
+    host: str = Field(default="0.0.0.0", alias="HOST")
     port: int = Field(default=9000, alias="PORT")
     debug: bool = Field(default=False, alias="DEBUG")
     enable_web_ui: bool = Field(default=False, alias="ENABLE_WEB_UI")
@@ -325,7 +425,7 @@ class AgentConfig(BaseSettings):
     langfuse_public_key: str | None = Field(default=None, alias="LANGFUSE_PUBLIC_KEY")
     langfuse_secret_key: str | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
     langfuse_host: str = Field(
-        default="https://cloud.langfuse.com", alias="LANGFUSE_HOST"
+        default="https://cloud.langfuse.com", alias="LANGFUSE_BASE_URL"
     )
     langfuse_dataset_capture_threshold: float = Field(
         default=0.0, alias="LANGFUSE_DATASET_CAPTURE_THRESHOLD"
@@ -509,31 +609,63 @@ DEFAULT_AGENT_SYSTEM_PROMPT = config.agent_system_prompt
 DEFAULT_HOST = config.host
 DEFAULT_PORT = config.port
 DEFAULT_DEBUG = config.debug
-DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER") or os.getenv("PROVIDER") or "openai"
+# --- Derive DEFAULT_LLM_* from chat_models / embedding_models registry ---
+_default_chat = config.default_chat_model
+_lite_chat = config.lite_chat_model
+_super_chat = config.super_chat_model
+_default_embed = config.default_embedding_model
+
+DEFAULT_LLM_PROVIDER = (
+    (_default_chat.provider if _default_chat else None)
+    or os.getenv("PROVIDER")
+    or "openai"
+)
 DEFAULT_LLM_MODEL_ID = (
-    os.getenv("LLM_MODEL_ID") or os.getenv("MODEL_ID") or "qwen/qwen3.5-9b"
+    (_default_chat.id if _default_chat else None)
+    or os.getenv("MODEL_ID")
+    or "qwen/qwen3.5-9b"
 )
-DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL")
-DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY")
+DEFAULT_LLM_BASE_URL = _default_chat.base_url if _default_chat else None
+DEFAULT_LLM_API_KEY = _default_chat.api_key if _default_chat else None
 
-DEFAULT_LITE_LLM_PROVIDER = os.getenv("LITE_LLM_PROVIDER") or DEFAULT_LLM_PROVIDER
-DEFAULT_LITE_LLM_MODEL_ID = os.getenv("LITE_LLM_MODEL_ID") or DEFAULT_LLM_MODEL_ID
-DEFAULT_LITE_LLM_BASE_URL = os.getenv("LITE_LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
-DEFAULT_LITE_LLM_API_KEY = os.getenv("LITE_LLM_API_KEY") or DEFAULT_LLM_API_KEY
+DEFAULT_LITE_LLM_PROVIDER = (
+    _lite_chat.provider if _lite_chat else None
+) or DEFAULT_LLM_PROVIDER
+DEFAULT_LITE_LLM_MODEL_ID = (
+    _lite_chat.id if _lite_chat else None
+) or DEFAULT_LLM_MODEL_ID
+DEFAULT_LITE_LLM_BASE_URL = (
+    _lite_chat.base_url if _lite_chat else None
+) or DEFAULT_LLM_BASE_URL
+DEFAULT_LITE_LLM_API_KEY = (
+    _lite_chat.api_key if _lite_chat else None
+) or DEFAULT_LLM_API_KEY
 
-DEFAULT_SUPER_LLM_PROVIDER = os.getenv("SUPER_LLM_PROVIDER") or DEFAULT_LLM_PROVIDER
-DEFAULT_SUPER_LLM_MODEL_ID = os.getenv("SUPER_LLM_MODEL_ID") or DEFAULT_LLM_MODEL_ID
-DEFAULT_SUPER_LLM_BASE_URL = os.getenv("SUPER_LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
-DEFAULT_SUPER_LLM_API_KEY = os.getenv("SUPER_LLM_API_KEY") or DEFAULT_LLM_API_KEY
+DEFAULT_SUPER_LLM_PROVIDER = (
+    _super_chat.provider if _super_chat else None
+) or DEFAULT_LLM_PROVIDER
+DEFAULT_SUPER_LLM_MODEL_ID = (
+    _super_chat.id if _super_chat else None
+) or DEFAULT_LLM_MODEL_ID
+DEFAULT_SUPER_LLM_BASE_URL = (
+    _super_chat.base_url if _super_chat else None
+) or DEFAULT_LLM_BASE_URL
+DEFAULT_SUPER_LLM_API_KEY = (
+    _super_chat.api_key if _super_chat else None
+) or DEFAULT_LLM_API_KEY
 
-DEFAULT_EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER") or DEFAULT_LLM_PROVIDER
+DEFAULT_EMBEDDING_PROVIDER = (
+    _default_embed.provider if _default_embed else None
+) or DEFAULT_LLM_PROVIDER
 DEFAULT_EMBEDDING_MODEL_ID = (
-    os.getenv("EMBEDDING_MODEL_ID")
-    or os.getenv("EMBEDDING_MODEL")
-    or "text-embedding-nomic-embed-text-v2-moe"
-)
-DEFAULT_EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL") or DEFAULT_LLM_BASE_URL
-DEFAULT_EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY") or DEFAULT_LLM_API_KEY
+    _default_embed.id if _default_embed else None
+) or "text-embedding-nomic-embed-text-v2-moe"
+DEFAULT_EMBEDDING_BASE_URL = (
+    _default_embed.base_url if _default_embed else None
+) or DEFAULT_LLM_BASE_URL
+DEFAULT_EMBEDDING_API_KEY = (
+    _default_embed.api_key if _default_embed else None
+) or DEFAULT_LLM_API_KEY
 DEFAULT_MCP_URL = config.mcp_url
 
 
@@ -618,11 +750,12 @@ DEFAULT_MAX_CRON_LOG_ENTRIES = 50
 TOOL_GUARD_MODE = config.tool_guard_mode
 SENSITIVE_TOOL_PATTERNS = config.sensitive_tool_patterns
 
+# Router/KG models: find models with can_route/can_kg flags, else fallback to lite
+_router_model = next((m for m in config.chat_models if m.can_route), _lite_chat)
+_kg_model = next((m for m in config.chat_models if m.can_kg), _lite_chat)
 DEFAULT_ROUTER_MODEL = (
-    os.getenv("ROUTER_MODEL")
-    or os.getenv("GRAPH_ROUTER_MODEL")
-    or DEFAULT_LITE_LLM_MODEL_ID
-)
+    _router_model.id if _router_model else None
+) or DEFAULT_LITE_LLM_MODEL_ID
 
 DEFAULT_GRAPH_PERSISTENCE_TYPE = config.graph_persistence_type
 DEFAULT_GRAPH_PERSISTENCE_PATH = config.graph_persistence_path
@@ -634,11 +767,7 @@ DEFAULT_ENABLE_KG_EMBEDDINGS = config.enable_kg_embeddings
 DEFAULT_KG_BACKUPS = config.kg_backups
 DEFAULT_KG_INGESTION_WORKERS = config.kg_ingestion_workers
 DEFAULT_KG_LLM_CONCURRENCY = config.kg_llm_concurrency
-DEFAULT_KG_MODEL_ID = (
-    os.getenv("KG_MODEL_ID")
-    or os.getenv("KG_INFERENCE_MODEL")
-    or DEFAULT_LITE_LLM_MODEL_ID
-)
+DEFAULT_KG_MODEL_ID = (_kg_model.id if _kg_model else None) or DEFAULT_LITE_LLM_MODEL_ID
 DEFAULT_KG_ANALYSIS_MAX_DEPTH = config.kg_analysis_max_depth
 DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND = config.knowledge_graph_sync_background
 DEFAULT_GRAPH_DIRECT_EXECUTION = config.graph_direct_execution

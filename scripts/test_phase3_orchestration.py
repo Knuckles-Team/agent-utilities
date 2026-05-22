@@ -45,6 +45,7 @@ async def main():
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
         import networkx as nx
+
         from agent_utilities.core.paths import ensure_dirs
         from agent_utilities.knowledge_graph.backends import create_backend
 
@@ -80,9 +81,9 @@ async def main():
     ]
 
     for tc in test_cases:
-        logger.info(f"\n========================================================")
+        logger.info("\n========================================================")
         logger.info(f"Starting {tc['name']}")
-        logger.info(f"========================================================")
+        logger.info("========================================================")
         try:
             result = await run_agent(
                 agent_name=tc["agent"], task=tc["task"], max_steps=20, engine=engine

@@ -1,7 +1,5 @@
 """CONCEPT:KG-2.4"""
 
-import numpy as np
-import pytest
 
 from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     MarkovTransitionModel,

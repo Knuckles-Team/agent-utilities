@@ -18,6 +18,8 @@ from pydantic_ai import Agent
 from pydantic_graph import End
 from pydantic_graph.beta import StepContext
 
+from agent_utilities.core.config import config
+
 from ..models import (
     ExecutionStep,
     GraphPlan,
@@ -111,12 +113,12 @@ async def router_step(
             f"Router: Fast-path — trivial query detected ('{ctx.state.query[:40]}'). Generating direct response."
         )
         # CONCEPT:KG-2.1 — Adaptive Model Routing (Fast Path)
-        import os
 
         from ..core.model_factory import create_model
 
+        _lite = config.lite_chat_model
         lightweight_model = create_model(
-            model_id=os.environ.get("LIGHTWEIGHT_MODEL", "gpt-4o-mini")
+            model_id=(_lite.id if _lite else None) or "gpt-4o-mini"
         )
 
         fast_agent = Agent(
@@ -316,9 +318,9 @@ async def router_step(
                         ctx.state.output_data, dict
                     ):
                         ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
-                        ctx.state.output_data["kg_specialist_configs"] = (
-                            kg_result.specialist_configs
-                        )
+                        ctx.state.output_data[
+                            "kg_specialist_configs"
+                        ] = kg_result.specialist_configs
 
                     emit_graph_event(
                         deps.event_queue,
@@ -548,7 +550,6 @@ async def router_step(
             # CONCEPT:KG-2.1 — Adaptive Model Routing (Planner Path)
             # CONCEPT:AHE-3.4 — KG-Native Agentic Task Detection
             # CONCEPT:AHE-3.4 — Topological Reasoning Detection
-            import os
 
             query_length = len(ctx.state.query.split())
             is_complex = False
@@ -598,10 +599,12 @@ async def router_step(
                         for t in math_topologies
                     ):
                         requires_reasoning = True
+                        print("DEBUG: requires_reasoning set to True!")
                         logger.info(
                             "Router: CONCEPT:AHE-3.4 — Detected mathematical/quantitative topology. Escalate to reasoning model."
                         )
                 except Exception as e:
+                    print("DEBUG: Exception in topological detection:", e)
                     logger.warning(f"Topological routing detection failed: {e}")
 
             # CONCEPT:OS-5.0 — Topological Session Persistence
@@ -615,7 +618,9 @@ async def router_step(
             elif requires_reasoning:
                 from ..core.model_factory import create_model
 
-                reasoning_model_id = os.environ.get("REASONING_MODEL", "o3-mini")
+                _super = config.super_chat_model
+                reasoning_model_id = (_super.id if _super else None) or "o3-mini"
+                print("DEBUG: setting pinned_model_id to", reasoning_model_id)
                 adaptive_model = create_model(model_id=reasoning_model_id)
                 ctx.state.pinned_model_id = reasoning_model_id
                 logger.info(
@@ -624,8 +629,9 @@ async def router_step(
             elif query_length < 20 and not is_complex:
                 from ..core.model_factory import create_model
 
+                _lite2 = config.lite_chat_model
                 adaptive_model = create_model(
-                    model_id=os.environ.get("LIGHTWEIGHT_MODEL", "gpt-4o-mini")
+                    model_id=(_lite2.id if _lite2 else None) or "gpt-4o-mini"
                 )
                 logger.info(
                     "[LAYER:GRAPH:ROUTER] Adaptive Routing: Selected lightweight model for simple task."

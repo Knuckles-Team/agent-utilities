@@ -13,13 +13,9 @@ missing edge suggestions, and synergy report generation.
 import pytest
 
 from agent_utilities.knowledge_graph.core.synergy_engine import (
-    ConceptBridge,
     PILLAR_NAMES,
-    PillarCoupling,
     SynergyEngine,
-    SynergyInsight,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

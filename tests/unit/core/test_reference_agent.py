@@ -17,7 +17,7 @@ class TestBasicAgent:
         """Test that a basic agent can be created."""
         from agent_utilities import create_agent
 
-        agent, _ = create_agent(name="TestBasicAgent")
+        agent, _ = create_agent(tag_prompts={"test": "test"}, name="TestBasicAgent")
         assert agent is not None
         assert agent.name == "TestBasicAgent"
 
@@ -30,7 +30,9 @@ class TestGraphAgent:
         from agent_utilities import create_agent
 
         agent, _ = create_agent(
-            name="TestGraphAgent", skill_types=["universal", "graphs"]
+            tag_prompts={"test": "test"},
+            name="TestGraphAgent",
+            skill_types=["universal", "graphs"],
         )
         assert agent is not None
         assert agent.name == "TestGraphAgent"
@@ -44,7 +46,9 @@ class TestMCPAgent:
         from agent_utilities import create_agent
 
         # Should create agent even if config doesn't exist
-        agent, _ = create_agent(name="TestMCPAgent", skill_types=["universal"])
+        agent, _ = create_agent(
+            tag_prompts={"test": "test"}, name="TestMCPAgent", skill_types=["universal"]
+        )
         assert agent is not None
         assert agent.name == "TestMCPAgent"
 
@@ -57,7 +61,9 @@ class TestKnowledgeGraphAgent:
         from agent_utilities import create_agent
 
         agent, _ = create_agent(
-            name="TestKnowledgeGraphAgent", skill_types=["universal", "graphs"]
+            tag_prompts={"test": "test"},
+            name="TestKnowledgeGraphAgent",
+            skill_types=["universal", "graphs"],
         )
         assert agent is not None
         assert agent.name == "TestKnowledgeGraphAgent"
@@ -70,7 +76,11 @@ class TestProtocolAgent:
         """Test that a protocol agent can be created with ACP enabled."""
         from agent_utilities import create_agent
 
-        agent, _ = create_agent(name="TestProtocolAgent", skill_types=["universal"])
+        agent, _ = create_agent(
+            tag_prompts={"test": "test"},
+            name="TestProtocolAgent",
+            skill_types=["universal"],
+        )
         assert agent is not None
         assert agent.name == "TestProtocolAgent"
 
@@ -82,7 +92,11 @@ class TestMemoryAgent:
         """Test that a memory agent can be created with knowledge base."""
         from agent_utilities import create_agent
 
-        agent, _ = create_agent(name="TestMemoryAgent", skill_types=["universal"])
+        agent, _ = create_agent(
+            tag_prompts={"test": "test"},
+            name="TestMemoryAgent",
+            skill_types=["universal"],
+        )
         assert agent is not None
         assert agent.name == "TestMemoryAgent"
 

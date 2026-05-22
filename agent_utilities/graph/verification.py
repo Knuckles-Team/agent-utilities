@@ -142,7 +142,7 @@ async def wide_search_joiner_step(
         res = await repair_agent.run(
             "Analyze the WideSearchWorkboard state and repair the data."
         )
-        output = str(res.output).lower()
+        output = res.output.lower()
 
         if "re-plan" in output or "research" in output:
             logger.warning(
@@ -353,7 +353,7 @@ async def verifier_step(
                     res = await extraction_agent.run(
                         f"Evaluate the following results:\n{results_summary}"
                     )
-                    raw_text = str(res.output)
+                    raw_text = res.output
 
                 import re
 
@@ -478,7 +478,11 @@ async def synthesizer_step(
         f"### FINAL INSTRUCTION\n"
         f"Synthesize the execution results into a cohesive final answer for the "
         f"user query: '{ctx.state.query}'.\n"
-        f"Format data cleanly. Do NOT repeat yourself."
+        f"Format data cleanly. Do NOT repeat yourself.\n"
+        f"CRITICAL JSON ADHERENCE: If the query or execution involves extracting 'TweetNode' entries "
+        f"or X/Twitter ingestion, you MUST output your final answer as a raw JSON array of structured objects "
+        f"adhering to the TweetNode schema: post_id, text_content, author_handle, timestamp, engagement_metrics. "
+        f"Do NOT wrap the JSON in markdown code blocks."
     )
 
     synthesizer = Agent(
@@ -501,7 +505,7 @@ async def synthesizer_step(
             res = await asyncio.wait_for(
                 stream.get_output(), timeout=ctx.deps.verifier_timeout
             )
-        result_text = str(res) if res else "None"
+        result_text = res if res else "None"
         if result_text.lower() == "none":
             raise ValueError("Synthesis returned 'None'")
 
@@ -589,6 +593,34 @@ async def synthesizer_step(
                     )
         except Exception as e:
             logger.debug(f"TeamConfig feedback failed: {e}")
+
+        # CONCEPT:ORCH-1.25 — Workflow Distillation Hook (async background)
+        # If the execution was successful, fire the distillation hook to
+        # potentially promote this workflow pattern to a reusable template.
+        if execution_success:
+            try:
+                from ..workflows.distillation_hook import WorkflowDistillationHook
+
+                plan_meta = ctx.state.plan.metadata if ctx.state.plan else {}
+                hook = WorkflowDistillationHook(engine=ctx.deps.knowledge_engine)
+
+                async def _fire_distillation() -> None:
+                    try:
+                        await hook.on_execution_complete(
+                            run_id=ctx.state.session_id or "unknown",
+                            plan=ctx.state.plan,
+                            result=result_text or "",
+                            team_config_id=plan_meta.get("team_config_id"),
+                            quality_score=1.0,
+                        )
+                    except Exception as ex:
+                        logger.debug(f"Distillation hook async task failed: {ex}")
+
+                # Fire and forget — do not block the response
+                asyncio.ensure_future(_fire_distillation())
+                logger.debug("[ORCH-1.25] Distillation hook dispatched (background)")
+            except Exception as e:
+                logger.debug(f"Distillation hook dispatch failed: {e}")
 
     return End(
         GraphResponse(
@@ -716,7 +748,8 @@ async def _distill_experience_from_retry(
 
         res = await distillation_agent.run(prompt)
 
-        if res.data:
+        res_data = getattr(res, "data", None)
+        if res_data:
             import uuid
 
             from ..models.knowledge_graph import ExperienceNode, RegistryNodeType
@@ -724,11 +757,11 @@ async def _distill_experience_from_retry(
             exp_id = f"exp_{uuid.uuid4().hex[:8]}"
             node = ExperienceNode(
                 id=exp_id,
-                name=f"Fix: {res.data.action[:40]}",
-                description=f"When {res.data.condition}",
+                name=f"Fix: {res_data.action[:40]}",
+                description=f"When {res_data.condition}",
                 type=RegistryNodeType.EXPERIENCE,
-                condition=res.data.condition,
-                action=res.data.action,
+                condition=res_data.condition,
+                action=res_data.action,
                 source_run_id=ctx.state.session_id,
             )
             from ..knowledge_graph.core.ogm import KGMapper
@@ -796,7 +829,8 @@ async def parallel_trajectory_distiller(
             f"Original Query: {query}\n\nParallel Trajectories:\n{combined_trajectories}"
         )
 
-        if res.data and res.data.confidence >= 0.5:
+        res_data = getattr(res, "data", None)
+        if res_data and getattr(res_data, "confidence", 0) >= 0.5:
             import uuid
 
             from ..knowledge_graph.core.hypergraph import PositionalInteractionEncoder
@@ -805,12 +839,12 @@ async def parallel_trajectory_distiller(
             exp_id = f"exp_par_{uuid.uuid4().hex[:8]}"
             node = ExperienceNode(
                 id=exp_id,
-                name=f"Parallel Tactic: {res.data.tactical_action[:30]}",
-                description=f"Derived from parallel test-time scaling. When: {res.data.tactical_condition}",
+                name=f"Parallel Tactic: {res_data.tactical_action[:30]}",
+                description=f"Derived from parallel test-time scaling. When: {res_data.tactical_condition}",
                 type=RegistryNodeType.EXPERIENCE,
-                condition=res.data.tactical_condition,
-                action=res.data.tactical_action,
-                success_rate=res.data.confidence,
+                condition=res_data.tactical_condition,
+                action=res_data.tactical_action,
+                success_rate=res_data.confidence,
             )
 
             # CONCEPT:KG-2.4: Compute positional interaction encoding for structural generalization

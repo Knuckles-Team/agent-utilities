@@ -11,12 +11,10 @@ Tests covering:
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import networkx as nx
 import pytest
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fixtures
@@ -211,7 +209,6 @@ class TestArchiMate:
         """All 5 ArchiMate layers should have mappings."""
         from agent_utilities.knowledge_graph.core.archimate_layer import (
             ArchiMateLayer,
-            ArchiMateLayerType,
         )
 
         layer = ArchiMateLayer()

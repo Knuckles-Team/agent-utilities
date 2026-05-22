@@ -1,8 +1,8 @@
+import json
 import os
 import tempfile
-import json
+
 from agent_utilities.graph.adapters.external_plugin_adapter import ExternalPluginAdapter
-from agent_utilities.graph.service_registry import ServiceDescriptor
 
 
 def test_load_python_plugin():

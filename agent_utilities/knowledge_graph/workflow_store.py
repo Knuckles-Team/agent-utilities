@@ -155,7 +155,7 @@ class WorkflowStore:
             step_id = f"{workflow_id}:step:{i}"
             step_props: dict[str, Any] = {
                 "node_id": step.node_id,
-                "order": i,
+                "step_order": i,
                 "is_parallel": step.is_parallel,
                 "timeout": step.timeout,
                 "status": "pending",
@@ -176,7 +176,7 @@ class WorkflowStore:
                 workflow_id,
                 step_id,
                 "HAS_STEP",
-                properties={"order": i},
+                properties={"step_order": i},
             )
 
             # Link step → previous step (sequential dependency)
@@ -256,8 +256,8 @@ class WorkflowStore:
         for _, target, edge_data in graph.edges(wid, data=True):
             if edge_data.get("type") == "HAS_STEP":
                 target_data = graph.nodes[target]
-                order = edge_data.get("order", 0)
-                step_nodes.append((order, target, target_data))
+                step_order = edge_data.get("step_order", 0)
+                step_nodes.append((step_order, target, target_data))
 
         step_nodes.sort(key=lambda x: x[0])
 
@@ -335,8 +335,8 @@ class WorkflowStore:
             "RETURN s.node_id AS node_id, s.refined_subtask AS refined_subtask, "
             "s.input_data_json AS input_data, s.is_parallel AS is_parallel, "
             "s.timeout AS timeout, s.depends_on_json AS depends_on, "
-            "s.access_list_json AS access_list, r.order AS step_order "
-            "ORDER BY r.order",
+            "s.access_list_json AS access_list, r.step_order AS step_order "
+            "ORDER BY r.step_order",
             {"wid": wid},
         )
 

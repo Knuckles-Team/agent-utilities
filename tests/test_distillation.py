@@ -12,7 +12,6 @@ Covers:
 """
 
 import numpy as np
-import pytest
 
 from agent_utilities.knowledge_graph.distillation.deduplicator import (
     KnowledgeDeduplicator,
@@ -29,7 +28,6 @@ from agent_utilities.models.knowledge_graph import (
     RegistryEdgeType,
     RegistryNodeType,
 )
-
 
 # ── Fixtures ──
 

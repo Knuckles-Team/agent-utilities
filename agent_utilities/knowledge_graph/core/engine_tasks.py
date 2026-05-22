@@ -179,7 +179,9 @@ class GraphEngineProtocol(Protocol):
         node_type: str,
         properties: dict[str, Any] | None = None,
         ephemeral: bool = False,
-    ) -> Any: ...
+    ) -> Any:
+        ...
+
     def link_nodes(
         self,
         source_id: str,
@@ -187,10 +189,13 @@ class GraphEngineProtocol(Protocol):
         rel_type: str,
         properties: dict | None = None,
         ephemeral: bool = False,
-    ) -> None: ...
+    ) -> None:
+        ...
+
     def query_cypher(
         self, cypher: str, params: dict | None = None
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[dict[str, Any]]:
+        ...
 
 
 class TaskManagerMixin(GraphEngineProtocol):
@@ -211,7 +216,13 @@ class TaskManagerMixin(GraphEngineProtocol):
         queue_db_path = data_dir() / "kg_task_queue.db"
         self._submission_queue = SQLiteTaskQueue(str(queue_db_path))
 
+        import os
         import sys
+
+        if os.environ.get("AGENT_UTILITIES_TESTING") or "--stage-to-queue" in sys.argv:
+            # In test mode, skip all background daemon threads to prevent
+            # pytest-xdist worker hangs from orphaned threads on closed backends.
+            return
 
         if "--stage-to-queue" not in sys.argv:
             # Start the dedicated queue writer daemon thread

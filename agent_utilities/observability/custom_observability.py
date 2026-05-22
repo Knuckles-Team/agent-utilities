@@ -322,9 +322,16 @@ def setup_otel(
 
     logfire.configure(**configure_kwargs)
 
-    # Step 6: Instrument pydantic-ai agents for automatic tracing
+    # Step 6: Instrument pydantic-ai agents and FastMCP for automatic tracing
     logfire.instrument_pydantic_ai()
     Agent.instrument_all()
+
+    # FastMCP 3.3 native OpenTelemetry instrumentation via fastapi/starlette
+    try:
+        logfire.instrument_fastapi()
+        logfire.instrument_starlette()
+    except Exception as e:
+        logger.debug(f"Could not instrument fastapi/starlette for FastMCP: {e}")
 
     _otel_initialized = True
     logger.info(

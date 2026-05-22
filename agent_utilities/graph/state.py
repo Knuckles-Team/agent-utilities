@@ -35,6 +35,7 @@ from agent_utilities.core.config import (
     DEFAULT_ROUTER_MODEL,
     DEFAULT_SSL_VERIFY,
     TOOL_GUARD_MODE,
+    config,
 )
 
 from ..models import (
@@ -174,7 +175,7 @@ class GraphDeps:
     :func:`pick_specialist_model` consults it for homeostatic downgrade.
     CONCEPT:OS-5.2 — Homeostatic Model Downgrade"""
 
-    routing_percentile: float = float(os.getenv("ROUTING_PERCENTILE", "50.0"))
+    routing_percentile: float = float(config.routing_percentile or "50.0")
     """Confidence threshold percentile for adaptive model tier routing.
     Values above ``routing_percentile / 100`` trigger a tier downgrade;
     values below ``1 - threshold`` trigger escalation.  Default 50 gives

@@ -8,10 +8,12 @@ Validates the @trace decorator behavior including:
 - Error tracing
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from agent_utilities.harness.tracing import trace, set_session_id, get_trace_id
+
 from agent_utilities.core.config import config
+from agent_utilities.harness.tracing import set_session_id, trace
 
 
 @pytest.fixture

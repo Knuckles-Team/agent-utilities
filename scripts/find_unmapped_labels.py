@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import re
 from pathlib import Path
 
@@ -128,7 +127,7 @@ def parse_mermaid_nodes(content):
 def main():
     unmapped = set()
     for md_file in DOCS_DIR.rglob("*.md"):
-        with open(md_file, "r") as f:
+        with open(md_file) as f:
             content = f.read()
         for label in parse_mermaid_nodes(content):
             unmapped.add(label)

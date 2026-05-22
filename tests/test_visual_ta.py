@@ -4,11 +4,9 @@ import numpy as np
 import pytest
 
 from agent_utilities.domains.finance.visual_ta import (
-    DetectedPattern,
     PatternDetector,
     PatternType,
     SupportResistanceDetector,
-    TrendAnalysis,
     TrendDirection,
     VisualTAEngine,
 )

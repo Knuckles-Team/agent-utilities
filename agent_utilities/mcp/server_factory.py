@@ -48,14 +48,6 @@ mcp_auth_config = {
 
 DEFAULT_TRANSPORT = os.environ.get("TRANSPORT", "stdio")
 DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
-DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER") or os.getenv("PROVIDER") or "openai"
-DEFAULT_LLM_MODEL_ID = (
-    os.getenv("LLM_MODEL_ID")
-    or os.getenv("MODEL_ID")
-    or "text-embedding-nomic-embed-text-v2-moe"
-)
-DEFAULT_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://host.docker.internal:1234/v1")
-DEFAULT_LLM_API_KEY = os.getenv("LLM_API_KEY", "llama")
 
 __version__ = "0.3.0"
 

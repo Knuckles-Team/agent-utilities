@@ -1,7 +1,8 @@
 """Tests for CONCEPT:ECO-4.0 — Self-Describing Function Registry."""
 
 import pytest
-from agent_utilities.models.knowledge_graph import TriggerBinding, CallableResourceNode
+
+from agent_utilities.models.knowledge_graph import CallableResourceNode, TriggerBinding
 
 
 @pytest.fixture
@@ -81,7 +82,6 @@ class TestFunctionRegistryMixin:
     """Tests for register/deregister/discover on engine_registry."""
 
     def test_register_function(self, mock_engine):
-        from agent_utilities.knowledge_graph.core.engine_registry import RegistryMixin
 
         # Simulate mixin by calling on mock_engine directly
         mock_engine.graph.add_node(

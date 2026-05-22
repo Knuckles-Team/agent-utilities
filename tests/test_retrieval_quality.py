@@ -1,7 +1,8 @@
 """Tests for CONCEPT:KG-2.6 — Retrieval Quality Gate & CONCEPT:KG-2.6 — Context Provenance."""
 
-import pytest
 import time
+
+import pytest
 
 from agent_utilities.knowledge_graph.retrieval.retrieval_quality import (
     ContextProvenanceRecord,

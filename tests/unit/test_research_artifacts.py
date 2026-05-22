@@ -8,7 +8,6 @@ Validates:
 - Digest generation and rendering
 """
 
-import time
 from unittest.mock import MagicMock
 
 import networkx as nx

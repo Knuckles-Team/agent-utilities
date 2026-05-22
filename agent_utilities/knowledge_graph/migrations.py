@@ -48,7 +48,7 @@ class GraphMigrator:
                 try:
                     # Kùzu (Ladybug) ALTER TABLE ADD property_name property_type
                     clean_type = col_type.split(" PRIMARY KEY")[0]
-                    stmt = f"ALTER TABLE {node_def.name} ADD {col_name} {clean_type}"
+                    stmt = f"ALTER TABLE {node_def.name} ADD `{col_name}` {clean_type}"
                     self.backend.execute(stmt)
                     results["columns_added"] += 1
                     logger.info(f"Added column {col_name} to table {node_def.name}")

@@ -66,8 +66,12 @@ class KGEvalCapture:
         if not self.enabled or not self.ke:
             return
 
+        import uuid
+
         try:
             record = EvaluationRecordNode(  # type: ignore[call-arg]
+                id=f"eval:{uuid.uuid4().hex[:8]}",
+                name=f"Eval: {query[:20]}",
                 query=query,
                 method=method,
                 result_node_ids=result_node_ids,

@@ -14,8 +14,6 @@ import time
 import uuid
 
 import numpy as np
-import pytest
-
 
 # ── KG-2.34: Spectral Cluster Navigator ──────────────────────────────
 

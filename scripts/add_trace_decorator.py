@@ -1,4 +1,3 @@
-import os
 import glob
 import re
 
@@ -6,7 +5,7 @@ tools_dir = "agent_utilities/tools"
 python_files = glob.glob(f"{tools_dir}/*.py")
 
 for filepath in python_files:
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         content = f.read()
 
     # We want to find @tool_version("1.0.0") (or similar) followed by async def <func_name>

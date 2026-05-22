@@ -7,7 +7,9 @@ from unittest.mock import MagicMock
 
 import networkx as nx
 
-from agent_utilities.models.knowledge_graph import SelfModelNode  # type: ignore[attr-defined]
+from agent_utilities.models.knowledge_graph import (
+    SelfModelNode,  # type: ignore[attr-defined]
+)
 
 
 class TestSelfModelNodeSynergies:

@@ -1,10 +1,10 @@
-import os
 import ast
+import os
 
 
 def check_file_for_stubs(filepath):
     try:
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             content = f.read()
         tree = ast.parse(content)
 
@@ -41,7 +41,7 @@ def check_file_for_stubs(filepath):
                 if is_stub:
                     stubs.append(node.name)
         return stubs
-    except Exception as e:
+    except Exception:
         return []
 
 

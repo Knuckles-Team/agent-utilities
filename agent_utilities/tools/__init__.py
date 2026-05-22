@@ -54,6 +54,9 @@ _ATTR_MAP = {
     "get_skill_content": ".workspace_tools",
     "list_files": ".workspace_tools",
     "read_workspace_file": ".workspace_tools",
+    # x_search_tool
+    "x_search": ".x_search_tool",
+    "browse_x_post": ".x_search_tool",
     # browser
     "browser_go_back": ".browser",
     "browser_go_forward": ".browser",
@@ -81,6 +84,9 @@ __all__ = [
     "edit_skill",
     "get_skill_content",
     "list_files",
+    # X (formerly Twitter) tools
+    "x_search",
+    "browse_x_post",
     # Scheduler tools
     "schedule_task",
     "list_tasks",

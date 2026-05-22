@@ -26,8 +26,9 @@ def mcp_config_path(tmp_path):
 
 
 @pytest.fixture
-def registry(registry_path, mcp_config_path) -> AgentRegistry:
+def registry(registry_path, mcp_config_path, monkeypatch) -> AgentRegistry:
     """Create an AgentRegistry with temp paths."""
+    monkeypatch.setattr(AgentRegistry, "_seed_defaults_if_empty", lambda self: None)
     return AgentRegistry(
         registry_path=registry_path,
         mcp_config_path=mcp_config_path,

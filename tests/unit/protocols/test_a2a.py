@@ -341,7 +341,7 @@ def test_get_agent_workspace_with_env(monkeypatch, tmp_path):
     from agent_utilities.core import workspace as ws
 
     ws.WORKSPACE_DIR = None
-    monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
     result = ws.get_agent_workspace()
     assert result == tmp_path.resolve()
 
@@ -358,7 +358,7 @@ def test_get_agent_workspace_override():
 def test_validate_workspace_path_outside_blocks(tmp_path, monkeypatch):
     from agent_utilities.core import workspace as ws
 
-    monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
     ws.WORKSPACE_DIR = None
     with pytest.raises(ValueError):
         ws.validate_workspace_path(Path("/etc/passwd"))
@@ -367,7 +367,7 @@ def test_validate_workspace_path_outside_blocks(tmp_path, monkeypatch):
 def test_validate_workspace_path_ok(tmp_path, monkeypatch):
     from agent_utilities.core import workspace as ws
 
-    monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
     ws.WORKSPACE_DIR = None
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -377,7 +377,7 @@ def test_validate_workspace_path_ok(tmp_path, monkeypatch):
 def test_get_workspace_path_traversal(tmp_path, monkeypatch):
     from agent_utilities.core import workspace as ws
 
-    monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
     ws.WORKSPACE_DIR = None
     with pytest.raises(ValueError):
         ws.get_workspace_path("../../etc/passwd")
@@ -386,7 +386,7 @@ def test_get_workspace_path_traversal(tmp_path, monkeypatch):
 def test_get_workspace_path_relative(tmp_path, monkeypatch):
     from agent_utilities.core import workspace as ws
 
-    monkeypatch.setenv("AGENT_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("WORKSPACE_PATH", str(tmp_path))
     ws.WORKSPACE_DIR = None
     p = ws.get_workspace_path("relative.txt")
     assert p.name == "relative.txt"

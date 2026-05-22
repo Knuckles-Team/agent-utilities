@@ -648,7 +648,7 @@ class OWLBridge:
                     continue  # Skip large float arrays
                 if isinstance(value, str) and value:
                     g.add((node_uri, AU[key], rdflib.Literal(value)))
-                elif isinstance(value, (int, float)):
+                elif isinstance(value, int | float):
                     g.add((node_uri, AU[key], rdflib.Literal(value)))
 
         # Promote edges as property assertions

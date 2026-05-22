@@ -62,7 +62,7 @@ async def extract_and_ingest_triples(
         for line in triples_raw:
             parts = line.split("|")
             if len(parts) == 3:
-                e1, rel, e2 = [p.strip() for p in parts]
+                e1, rel, e2 = (p.strip() for p in parts)
                 e1_id = f"entity:{e1.lower().replace(' ', '_')}"
                 e2_id = f"entity:{e2.lower().replace(' ', '_')}"
 

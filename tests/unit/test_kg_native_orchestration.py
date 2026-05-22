@@ -11,8 +11,6 @@ Tests cover all 7 gaps:
   7. Shareable Team Compositions
 """
 
-import json
-import time
 
 import networkx as nx
 import pytest
@@ -268,8 +266,8 @@ class TestTopologicalRoutingPolicy:
 
     def test_cold_start_fallback(self):
         from agent_utilities.graph.adaptive_agent_router import (
-            TopologicalRoutingPolicy,
             RoutingCandidate,
+            TopologicalRoutingPolicy,
         )
 
         policy = TopologicalRoutingPolicy(engine=None)
@@ -289,8 +287,8 @@ class TestTopologicalRoutingPolicy:
 
     def test_with_engine_scores_candidates(self):
         from agent_utilities.graph.adaptive_agent_router import (
-            TopologicalRoutingPolicy,
             RoutingCandidate,
+            TopologicalRoutingPolicy,
         )
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -567,8 +565,8 @@ class TestEndToEndOrchestration:
 
     def test_compose_checkpoint_restore(self):
         """State persistence: compose → checkpoint → restore round-trip."""
-        from agent_utilities.graph.team_composer import KGTeamComposer
         from agent_utilities.graph.state_checkpoint import StateCheckpointer
+        from agent_utilities.graph.team_composer import KGTeamComposer
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         g = nx.MultiDiGraph()

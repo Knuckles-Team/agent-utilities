@@ -283,7 +283,7 @@ class IntelligenceGraphEngine(
                 continue
             if valid_keys is not None and k not in valid_keys:
                 continue
-            sets.append(f"{alias}.{k} = ${k}")
+            sets.append(f"{alias}.`{k}` = ${k}")
         return " SET " + ", ".join(sets) if sets else ""
 
     def _upsert_node(self, label: str, node_id: str, data: dict[str, Any]):
@@ -317,7 +317,7 @@ class IntelligenceGraphEngine(
                 else:
                     create_data[k] = v
 
-            cols = ", ".join([f"{k}: ${k}" for k in create_data.keys()])
+            cols = ", ".join([f"`{k}`: ${k}" for k in create_data.keys()])
             create_query = f"CREATE (n:{label} {{{cols}}})"
             self.backend.execute(create_query, create_data)
 

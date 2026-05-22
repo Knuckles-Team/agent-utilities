@@ -18,7 +18,6 @@ from agent_utilities.models.imodel import (
 )
 from agent_utilities.models.knowledge_graph import RegistryNodeType
 
-
 # ─── ModelDisplayOptimizer Tests ─────────────────────────────────────
 
 

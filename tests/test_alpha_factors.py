@@ -5,18 +5,18 @@ import pandas as pd
 import pytest
 
 from agent_utilities.domains.finance.alpha_factors import (
-    AlphaFactorLibrary,
     FACTOR_REGISTRY,
+    AlphaFactorLibrary,
+    bollinger_position,
     compute_factor_ic,
     compute_factor_ir,
+    macd_signal,
     momentum_1d,
     momentum_5d,
+    rank_factors,
+    rsi,
     volatility_ratio,
     volume_zscore,
-    rsi,
-    macd_signal,
-    bollinger_position,
-    rank_factors,
 )
 
 

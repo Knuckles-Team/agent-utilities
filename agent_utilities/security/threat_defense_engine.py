@@ -350,8 +350,7 @@ _JAILBREAK_OPTIMIZATION_PATTERNS: list[ThreatPattern] = [
     ThreatPattern(
         name="gcg_suffix",
         regex=re.compile(
-            r"[!@#$%^&*]{5,}|[\x80-\xff]{10,}|"
-            r"(?:[A-Z]{2,3}\s+){5,}",
+            r"[!@#$%^&*]{5,}|[\x80-\xff]{10,}|" r"(?:[A-Z]{2,3}\s+){5,}",
         ),
         risk_level=RiskLevel.MEDIUM,
         description="Optimization-based jailbreak: potential GCG adversarial suffix",
@@ -359,8 +358,7 @@ _JAILBREAK_OPTIMIZATION_PATTERNS: list[ThreatPattern] = [
     ThreatPattern(
         name="token_smuggling",
         regex=re.compile(
-            r"(?:&#\d{2,4};){3,}|(?:\\u[0-9a-fA-F]{4}){3,}|"
-            r"(?:%[0-9a-fA-F]{2}){5,}",
+            r"(?:&#\d{2,4};){3,}|(?:\\u[0-9a-fA-F]{4}){3,}|" r"(?:%[0-9a-fA-F]{2}){5,}",
         ),
         risk_level=RiskLevel.HIGH,
         description="Optimization-based jailbreak: token smuggling via encoding",

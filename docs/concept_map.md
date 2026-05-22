@@ -31,6 +31,7 @@ Every concept has 1:1:1 traceability across:
 | `ORCH-1.6` | DSTDD Pipeline | 3 | 3 | [ORCH-1.6](pillars/1_graph_orchestration/ORCH-1.6-DSTDD_Pipeline.md) |
 | `ORCH-1.7` | Prediction Linkage Layer 🔬 | 1 | 0 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.8` | RecursiveMAS Latent Orchestrator 🔬 | 0 | 0 | [Pillar Summary](pillars/1_graph_orchestration.md) |
+| `ORCH-1.25` | Workflow Distillation & Skill-as-Workflow | 3 | 1 | [ORCH-1.25](pillars/1_graph_orchestration/ORCH-1.25-Workflow_Distillation.md) |
 
 Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/routing.py`, `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `graph/dynamic_graph_orchestrator.py`, `graph/agent_orchestrator.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`, 🔬 `rlm/mas.py`, 🔬 `rlm/mas_local.py`
 
@@ -95,10 +96,10 @@ Key modules: `mcp/server_factory.py`, `mcp/kg_server.py` (incl. `kg_launch_termi
 | ID | Canonical Name | Code Modules | Tests | Doc Page |
 |----|---------------|:---:|:---:|---|
 | `OS-5.0` | Agent OS Kernel & XDG Paths | 17 | 6 | [Pillar Summary](pillars/5_agent_os_infrastructure.md) |
-| `OS-5.1` | Security & Auth | 19 | 8 | [OS-5.1](pillars/5_agent_os_infrastructure/OS-5.1-Security_And_Auth.md) |
+| `OS-5.1` | Security & Auth | 19 | 8 | [OS-5.1](pillars/5_agent_os_infrastructure.md#secrets--authentication-conceptos-51) |
 | `OS-5.2` | Resource Scheduling 🔬 | 18 | 4 | [Pillar Summary](pillars/5_agent_os_infrastructure.md) |
-| `OS-5.3` | Guardrails & Safety | 7 | 3 | [OS-5.3](pillars/5_agent_os_infrastructure/OS-5.3-Guardrails_And_Safety.md) |
-| `OS-5.4` | Telemetry & Observability | 7 | 3 | [OS-5.4](pillars/5_agent_os_infrastructure/OS-5.4-Telemetry_And_Observability.md) |
+| `OS-5.3` | Guardrails & Safety | 7 | 3 | [OS-5.3](pillars/5_agent_os_infrastructure.md#-declarative-sensory-guardrails--safety-contracts-conceptos-53) |
+| `OS-5.4` | Telemetry & Observability | 7 | 3 | [OS-5.4](pillars/5_agent_os_infrastructure.md#-telemetry-observability--token-usage-conceptos-54) |
 
 Key modules: `core/paths.py`, `security/guardrails.py`, `security/tool_guard.py`, `core/cognitive_scheduler.py`, `observability/token_tracker.py`, `observability/audit_logger.py`
 

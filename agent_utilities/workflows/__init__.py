@@ -24,13 +24,13 @@ External consumers (other agents, UIs, CI) can:
     - Create new ones via ``graph_orchestrate(action='compile_workflow')``
 """
 
-from .catalog import WorkflowCatalog, WorkflowScenario, WorkflowStep
+from .distillation_hook import WorkflowDistillationHook
 from .runner import WorkflowResult, WorkflowRunner
+from .skill_compiler import SkillCompiler
 
 __all__ = [
-    "WorkflowCatalog",
-    "WorkflowScenario",
-    "WorkflowStep",
+    "SkillCompiler",
+    "WorkflowDistillationHook",
     "WorkflowRunner",
     "WorkflowResult",
 ]

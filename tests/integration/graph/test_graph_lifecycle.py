@@ -7,8 +7,8 @@ import pytest
 from pydantic_ai import Agent
 
 from agent_utilities.graph.builder import initialize_graph_from_workspace
-from agent_utilities.graph.graph_models import ValidationResult
 from agent_utilities.graph.dynamic_graph_orchestrator import run_graph
+from agent_utilities.graph.graph_models import ValidationResult
 from agent_utilities.models import ExecutionStep, GraphPlan
 
 # Cap every test in this module at 30 s so a graph-orchestration infinite loop

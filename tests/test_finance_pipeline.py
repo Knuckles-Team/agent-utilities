@@ -1,21 +1,22 @@
 """CONCEPT:KG-2.6"""
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 
 try:
     import torch
-    from agent_utilities.domains.finance.features import (
-        StationaryFeatureEngineer,
-        check_stationarity,
-    )
-    from agent_utilities.domains.finance.models import TradingLSTM, prepare_sequences
+
     from agent_utilities.domains.finance.evaluation import evaluate_trading_signal
     from agent_utilities.domains.finance.execution import (
         calculate_kelly_fraction,
         check_regime_shift,
     )
+    from agent_utilities.domains.finance.features import (
+        StationaryFeatureEngineer,
+        check_stationarity,
+    )
+    from agent_utilities.domains.finance.models import TradingLSTM, prepare_sequences
 
     HAS_FINANCE = True
 except ImportError:

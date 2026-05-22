@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 
 from agent_utilities.base_utilities import to_boolean
+from agent_utilities.core.config import config
 
 try:
     from llama_index.embeddings.ollama import OllamaEmbedding
@@ -57,28 +58,31 @@ def create_embedding_model(
     """
     from llama_index.embeddings.openai import OpenAIEmbedding
 
-    # Resolve defaults
+    # Resolve defaults from the model registry
+    _embed_cfg = config.default_embedding_model
+    _chat_cfg = config.default_chat_model
     provider_str = (
         provider
-        or os.environ.get("EMBEDDING_PROVIDER")
-        or os.environ.get("LLM_PROVIDER")
+        or (_embed_cfg.provider if _embed_cfg else None)
+        or (_chat_cfg.provider if _chat_cfg else None)
         or "openai"
     )
     provider_str = provider_str.lower()
     model_str = (
         model
-        or os.environ.get("EMBEDDING_MODEL_ID")
-        or os.environ.get("EMBEDDING_MODEL")
+        or (_embed_cfg.id if _embed_cfg else None)
         or "text-embedding-nomic-embed-text-v2-moe"
     )
     base_url_str = (
         base_url
-        or os.environ.get("EMBEDDING_BASE_URL")
-        or os.environ.get("LLM_BASE_URL")
+        or (_embed_cfg.base_url if _embed_cfg else None)
+        or (_chat_cfg.base_url if _chat_cfg else None)
         or "http://localhost:1234/v1"
     )
     api_key_str = (
-        api_key or os.environ.get("EMBEDDING_API_KEY") or os.environ.get("LLM_API_KEY")
+        api_key
+        or (_embed_cfg.api_key if _embed_cfg else None)
+        or (_chat_cfg.api_key if _chat_cfg else None)
     )
 
     http_client: httpx.Client | None = None
@@ -89,14 +93,14 @@ def create_embedding_model(
         from unittest.mock import MagicMock
 
         mock = MagicMock()
-        dim = int(os.environ.get("KG_EMBEDDING_DIM", "768"))
+        dim = int(config.kg_embedding_dim or "768")
         mock.get_text_embedding.return_value = [1.0] + [0.0] * (dim - 1)
         return mock
 
     if provider_str == "openai":
         # Fallback for LM Studio / Local Testing
         if not api_key_str:
-            api_key_str = os.environ.get("OPENAI_API_KEY", "Test-1234")
+            api_key_str = config.openai_api_key or "Test-1234"
 
         import sys
 
@@ -140,7 +144,7 @@ def create_embedding_model(
         from unittest.mock import MagicMock
 
         mock = MagicMock()
-        dim = int(os.environ.get("KG_EMBEDDING_DIM", "768"))
+        dim = int(config.kg_embedding_dim or "768")
         mock.get_text_embedding.return_value = [1.0] + [0.0] * (dim - 1)
         return mock
 

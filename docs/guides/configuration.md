@@ -40,8 +40,8 @@ Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated
 |---|---|---|
 | `SECRETS_BACKEND` | `inmemory` | Storage for secrets (`inmemory`, `sqlite`, `vault`). See [secrets-auth.md](../5_agent_os_infrastructure/secrets-auth.md) |
 | `SECRETS_SQLITE_PATH` | `~/.agent-utilities/secrets.db` | Path for SQLite secrets DB |
-| `SECRETS_VAULT_URL` | *None* | URL for HashiCorp Vault |
-| `SECRETS_VAULT_MOUNT` | `secret` | Vault KV v2 mount point |
+| `SECRETS_VAULT_URL` | *None* | URL for HashiCorp Vault & OpenBao |
+| `SECRETS_VAULT_MOUNT` | `secret` | Vault/OpenBao KV v2 mount point |
 | `ENABLE_API_AUTH` | `False` | Enable JWT validation on server endpoints |
 | `AUTH_JWT_JWKS_URI` | *None* | URI to fetch JSON Web Key Sets |
 | `AUTH_JWT_ISSUER` | *None* | Expected JWT issuer |
@@ -123,32 +123,207 @@ When running `agent-utilities` commands (or `python -m agent_utilities.server`),
 
 ## Configuration & Environment Variables
 
-### Standardized LLM Environment Variables
-
-The ecosystem relies on a standardized set of API keys in `.env` for security, while routing and capabilities are managed via the unified JSON configuration:
-
-- **API Keys**: While models are defined in `config.json`, sensitive API keys like `LLM_API_KEY` can optionally remain in the `.env` file to prevent committing secrets to version control.
-
-> **Full Documentation:** See [docs/configuration.md](docs/pillars/5_agent_os_infrastructure/configuration.md) for a complete list of environment variables.
+All LLM and embedding configuration now routes **exclusively** through the `chat_models` and `embedding_models` registries in `config.json`.
 
 ### Unified Agent Configuration (`config.json`)
 
-Define a registry of models mapped to routing tiers (`light`, `normal`, `super`) and capabilities directly in the XDG-compliant `~/.config/agent-utilities/config.json`. The graph orchestrator autonomously selects the right model for each task based on required complexity.
+The centralized `config.json` at `~/.config/agent-utilities/config.json` (XDG-compliant) is the **single source of truth** for all configuration.
 
-**Configuration Example:**
+#### Configuration Precedence Chain
+
+```
+config.json registry → AgentConfig defaults
+```
+
+Environment variables are no longer part of the LLM configuration chain. API keys can be specified per-model in the registry.
+
+#### Full `config.json` Schema
+
 ```json
 {
+  // ── Agent Identity ──────────────────────────────────────────────
+  "default_agent_name": "Agent",
+  "agent_description": "AI Agent",
+  "agent_system_prompt": null,
+
+  // ── Server ──────────────────────────────────────────────────────
+  "host": "0.0.0.0",
+  "port": 9000,
+  "debug": false,
+  "enable_web_ui": false,
+  "enable_terminal_ui": false,
+  "enable_web_logs": true,
+  "enable_acp": false,
+  "acp_port": 8001,
+  "acp_session_root": ".acp-sessions",
+  "mcp_config": null,
+  "max_upload_size": 10485760,
+
+  // ── Authentication & Security ───────────────────────────────────
+  "agent_api_key": null,
+  "enable_api_auth": false,
+  "auth_jwt_jwks_uri": null,
+  "auth_jwt_issuer": null,
+  "auth_jwt_audience": null,
+  "allowed_origins": null,
+  "allowed_hosts": null,
+  "tool_guard_mode": "strict",
+  "sensitive_tool_patterns": [".*delete.*", ".*remove.*", "..."],
+
+  // ── Secrets Backend ─────────────────────────────────────────────
+  "secrets_backend": "inmemory",
+  "secrets_sqlite_path": null,
+  "secrets_vault_url": null,
+  "secrets_vault_mount": "secret",
+
+  // ── Graph Execution ─────────────────────────────────────────────
+  "routing_strategy": "hybrid",
+  "graph_persistence_type": "file",
+  "graph_persistence_path": "~/.local/share/agent-utilities/graph_state",
+  "enable_llm_validation": false,
+  "graph_router_timeout": 300.0,
+  "graph_verifier_timeout": 300.0,
+  "graph_direct_execution": true,
+  "min_confidence": 0.4,
+  "validation_mode": false,
+  "approval_timeout": 0.0,
+
+  // ── Knowledge Graph ─────────────────────────────────────────────
+  "enable_kg_embeddings": true,
+  "kg_backups": 3,
+  "knowledge_graph_sync_background": true,
+
+  // ── Observability (OTEL / Langfuse) ─────────────────────────────
+  "enable_otel": true,
+  "otel_exporter_otlp_endpoint": "http://langfuse.example.com/api/public/otel",
+  "otel_exporter_otlp_headers": null,
+  "otel_exporter_otlp_public_key": "lf_pk_...",
+  "otel_exporter_otlp_secret_key": "lf_sk_...",
+  "otel_exporter_otlp_protocol": "http/protobuf",
+  "langfuse_host": "http://langfuse.example.com",
+  "langfuse_public_key": "lf_pk_...",
+  "langfuse_secret_key": "lf_sk_...",
+  "langfuse_dataset_capture_threshold": 0.0,
+
+  // ── A2A Agent Discovery ─────────────────────────────────────────
+  "a2a_broker": "in-memory",
+  "a2a_broker_url": null,
+  "a2a_storage": "in-memory",
+  "a2a_storage_url": null,
+  "a2a_config": null,
+  "a2a_refresh_interval": 300,
+
+  // ── LLM Inference Parameters ────────────────────────────────────
+  "max_tokens": 16384,
+  "temperature": 0.7,
+  "top_p": 1.0,
+  "timeout": 32400.0,
+  "tool_timeout": 32400.0,
+  "parallel_tool_calls": true,
+  "seed": null,
+  "presence_penalty": 0.0,
+  "frequency_penalty": 0.0,
+  "logit_bias": null,
+  "stop_sequences": null,
+  "extra_headers": null,
+  "extra_body": null,
+
+  // ── Cognitive Scheduler & Agent Policies ─────────────────────────
+  "cognitive_scheduler_enabled": true,
+  "max_concurrent_agents": 5,
+  "agent_token_quota": 100000,
+  "preemption_threshold_pct": 0.85,
+  "agent_policies_path": null,
+  "permissions_signing_key": null,
+  "specialist_registry_path": null,
+  "homeostatic_downgrade_enabled": true,
+  "adversarial_verification": false,
+  "maintenance_token_budget": 0,
+  "maintenance_priority": "LOW",
+  "watchdog_patterns": ["pyproject.toml", "mcp_config.json", "requirements*.txt"],
+
+  // ── Skills ──────────────────────────────────────────────────────
+  "custom_skills_directory": null,
+  "skill_types": null,
+
+  // ── Model Registries (PRIMARY CONFIG) ───────────────────────────
   "chat_models": [
     {
-      "id": "gpt-4o-mini",
+      "id": "qwen/qwen3.5-9b",
       "provider": "openai",
+      "base_url": "http://10.0.0.18:1234/v1",
+      "supports_json": false,
+      "vision": true,
+      "reasoning": true,
+      "tools_enabled": true,
+      "parallel_instances": 3,
+      "context_window": 256000,
       "intelligence_level": "normal",
-      "supports_json": true,
-      "vision": true
+      "can_route": true,
+      "can_kg": true
     }
-  ]
+  ],
+  "embedding_models": [
+    {
+      "id": "text-embedding-nomic-embed-text-v2-moe",
+      "provider": "openai",
+      "base_url": "http://10.0.0.18:1234/v1",
+      "parallel_instances": 4,
+      "chunk_size": 768
+    }
+  ],
+
+  // ── Workspace & Paths ───────────────────────────────────────────
+  "workspace_path": "/home/apps/workspace",
+  "agent_utilities_config_dir": "~/.config/agent-utilities"
 }
 ```
 
-*The graph orchestrator automatically accesses this file globally via `AgentConfig`.*
+> **Note:** JSON does not support comments. The `//` annotations above are for documentation purposes only. Your actual `config.json` must not include comments.
+
+#### Chat Model Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | ✅ | Model identifier (e.g., `gpt-4o-mini`, `qwen/qwen3.5-9b`) |
+| `provider` | string | ✅ | Provider name (`openai`, `anthropic`, `google`, etc.) |
+| `base_url` | string | ❌ | Override API endpoint (e.g., for LM Studio, Ollama) |
+| `api_key` | string | ❌ | Per-model API key override |
+| `intelligence_level` | string | ❌ | Routing hint: `light`, `normal`, `high` |
+| `supports_json` | bool | ❌ | Whether the model supports structured JSON output |
+| `vision` | bool | ❌ | Whether the model supports image inputs |
+| `reasoning` | bool | ❌ | Whether the model supports extended reasoning/thinking |
+| `tools_enabled` | bool | ❌ | Whether the model supports tool/function calling |
+| `parallel_instances` | int | ❌ | Max concurrent requests to this model |
+| `context_window` | int | ❌ | Maximum context window in tokens |
+| `can_route` | bool | ❌ | Whether the model can serve as a router in graph orchestration |
+| `can_kg` | bool | ❌ | Whether the model can serve KG analysis tasks |
+
+#### Embedding Model Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | ✅ | Model identifier |
+| `provider` | string | ✅ | Provider name |
+| `base_url` | string | ❌ | Override API endpoint |
+| `api_key` | string | ❌ | Per-model API key override |
+| `parallel_instances` | int | ❌ | Max concurrent embedding requests |
+| `chunk_size` | int | ❌ | Embedding dimension size (default: 768) |
+
+#### Per-Model Provider Routing
+
+The registry supports per-model `base_url` and `api_key` overrides, enabling configurations like:
+- **LM Studio local**: `base_url: "http://10.0.0.18:1234/v1"` (your GPU server)
+- **Official OpenAI**: `api_key: "sk-..."` (no `base_url` needed, hits api.openai.com)
+- **Ollama**: `base_url: "http://localhost:11434/v1"`, `api_key: "ollama"`
+- **Azure OpenAI**: `base_url: "https://my-resource.openai.azure.com"`, `api_key: "..."`
+
+This allows configuring multiple models from the same provider hitting different endpoints.
+
+#### Migration from `.env` to `config.json`
+
+1. Move all `LLM_*`, `LITE_LLM_*`, `SUPER_LLM_*`, and `EMBEDDING_*` variables from `.env` into `chat_models`/`embedding_models` registry entries
+2. API keys go directly in per-model entries via the `api_key` field
+3. Non-LLM environment variables (e.g., `GRAPH_BACKEND`, `OTEL_ENABLE_OTEL`) are now also configurable via `config.json`
+
 > **Full Documentation:** See [docs/models.md](docs/pillars/2_epistemic_knowledge_graph/models.md) for advanced schema options, local model fallbacks, and routing logic.

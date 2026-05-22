@@ -45,6 +45,7 @@ class FakeGraphState:  # type: ignore
     error: str | None = None
     node_history: list[str] = field(default_factory=list)
     task_list: FakeTaskList = field(default_factory=FakeTaskList)
+    routing_confidence_log: dict = field(default_factory=dict)
 
 
 class TestMemoryRetrieverCreation:

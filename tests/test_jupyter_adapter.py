@@ -2,7 +2,6 @@
 Tests for JupyterKernelAdapter and SandboxExecutor (CONCEPT:ECO-4.1).
 """
 
-import pytest
 from agent_utilities.tools.jupyter_adapter import JupyterKernelAdapter
 from agent_utilities.tools.sandbox_executor import SandboxExecutor
 

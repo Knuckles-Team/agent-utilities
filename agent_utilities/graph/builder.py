@@ -225,7 +225,9 @@ def initialize_graph_from_workspace(
             logger.warning(f"Failed to load MCP discovery metadata: {e}")
 
     # --- CONCEPT:ECO-4.0: A2A Agent Sync ---
-    _a2a_config = a2a_config or os.getenv("A2A_CONFIG")
+    from agent_utilities.core.config import config as app_config
+
+    _a2a_config = a2a_config or app_config.a2a_config
     if _a2a_config and not DEFAULT_VALIDATION_MODE:
         try:
             from agent_utilities.protocols.a2a_config import sync_a2a_agents
@@ -467,6 +469,7 @@ def create_agent(
     # Initialize GraphBuilder
 
     g = GraphBuilder(
+        name=name,
         state_type=GraphState,
         deps_type=GraphDeps,
         output_type=GraphResponse,

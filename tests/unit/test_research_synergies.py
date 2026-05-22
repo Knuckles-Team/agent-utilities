@@ -1,24 +1,25 @@
 """CONCEPT:KG-2.4"""
 
-import pytest
-import networkx as nx
 from unittest.mock import MagicMock
 
+import networkx as nx
+import pytest
+
+from agent_utilities.knowledge_graph.adaptation.experience_alignment import (
+    ExperienceAlignmentEngine,
+)
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.models.knowledge_graph import ExperienceNode
+from agent_utilities.knowledge_graph.orchestration.voi_budget_controller import (
+    VOIBudgetController,
+)
 from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (
     LatentTopologicalRAG,
 )
 from agent_utilities.knowledge_graph.retrieval.single_shot_sira import SingleShotSIRA
-from agent_utilities.knowledge_graph.orchestration.voi_budget_controller import (
-    VOIBudgetController,
-)
 from agent_utilities.knowledge_graph.security.cognitive_trap_defense import (
     CognitiveTrapDefense,
 )
-from agent_utilities.knowledge_graph.adaptation.experience_alignment import (
-    ExperienceAlignmentEngine,
-)
+from agent_utilities.models.knowledge_graph import ExperienceNode
 
 
 @pytest.fixture

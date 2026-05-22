@@ -15,11 +15,9 @@ import time
 import uuid
 
 import numpy as np
-import pytest
 
 from agent_utilities.models.knowledge_graph import (
     DistillationIndexNode,
-    MemoryDecayConfig,
     OrchestrationCycleNode,
     RegistryEdgeType,
     RegistryNode,
@@ -27,7 +25,6 @@ from agent_utilities.models.knowledge_graph import (
     SimilarityEdgeNode,
     UnifiedRAGConfigNode,
 )
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -72,7 +69,6 @@ class TestKGNativeRetrievalRetriever:
     def test_import(self):
         """Module imports cleanly."""
         from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
-            KGNativeRetrievalConfig,
             KGNativeRetrievalRetriever,
         )
 
@@ -247,8 +243,6 @@ class TestResearchOrchestrator:
     def test_import(self):
         """Module imports cleanly."""
         from agent_utilities.knowledge_graph.orchestration.research_orchestrator import (
-            OrchestrationConfig,
-            OrchestrationReport,
             ResearchOrchestrator,
         )
 
@@ -348,8 +342,6 @@ class TestGraphDistillationMigrator:
     def test_import(self):
         """Module imports cleanly."""
         from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
-            CoverageReport,
-            DistillationStats,
             GraphDistillationMigrator,
         )
 
@@ -514,8 +506,6 @@ class TestGraphDistillationMigrator:
         """Underlying retriever is accessible."""
         from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             GraphDistillationMigrator,
-        )
-        from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (
             KGNativeRetrievalRetriever,
         )
 

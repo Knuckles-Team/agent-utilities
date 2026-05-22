@@ -379,19 +379,19 @@ The server ensures all child processes (MCP servers, TUI, background threads) ar
 - `CONCEPT:ECO-4.0` — A2A PlannerGraphSkill (Graph-Native Routing)
 
 
-## Local Secret Storage (Vault & SQLite)
+## Local Secret Storage (Vault, OpenBao, & SQLite)
 
-The `agent-utilities` ecosystem provides a unified `SecretsClient` (CONCEPT:OS-5.1) designed to replace static `.env` files. It supports three backends: `inmemory`, `sqlite` (persistent), and `vault` (hvac).
+The `agent-utilities` ecosystem provides a unified `SecretsClient` (CONCEPT:OS-5.1) designed to replace static `.env` files. It supports three backends: `inmemory`, `sqlite` (persistent), and `vault` (supporting HashiCorp Vault & OpenBao via `hvac`).
 
 ### Setting Up the Backend
 
-To configure your agent to use your Vault (hvac) or SQLite secret store, export these environment variables:
+To configure your agent to use your Vault (or OpenBao) or SQLite secret store, export these environment variables:
 
-**For HashiCorp Vault:**
+**For HashiCorp Vault & OpenBao:**
 ```bash
 # Requires: pip install agent-utilities[vault]
 export SECRETS_BACKEND=vault
-export SECRETS_VAULT_URL=https://vault.example.com
+export SECRETS_VAULT_URL=https://openbao.example.com  # URL of your OpenBao or HashiCorp Vault server
 export SECRETS_VAULT_MOUNT=secret
 export VAULT_TOKEN=hvs.xxx
 ```
@@ -411,7 +411,7 @@ from agent_utilities.security.secrets_client import create_secrets_client
 
 # Inside a graph node or specialist logic
 if ctx.deps.secrets_client:
-    # Gets from Vault/SQLite, falls back to env var if missing
+    # Gets from Vault/OpenBao/SQLite, falls back to env var if missing
     token = ctx.deps.secrets_client.get_or_env("gitlab/token", "GITLAB_TOKEN")
 ```
 
@@ -422,7 +422,7 @@ If you're mapping secrets into an MCP configuration (`mcp_config.json`) or readi
 ```python
 client = create_secrets_client()
 
-# Resolves from HashiCorp Vault KV mount
+# Resolves from Vault or OpenBao KV mount
 token = client.resolve_ref("vault://agents/mcp/gitlab/token")
 
 # Resolves from SQLite db

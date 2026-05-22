@@ -1,7 +1,12 @@
 """Tests for Enterprise Banking Domain (CONCEPT:KG-2.6)."""
 
+from agent_utilities.domains.finance.banking import (
+    ISO20022MessageFactory,
+    KYCAMLEngine,
+    RegulatoryCapitalCalculator,
+    SettlementEngine,
+)
 from agent_utilities.domains.finance.banking_models import (
-    AMLAlertNode,
     AMLAlertSeverity,
     BankAccountNode,
     CreditRiskNode,
@@ -11,13 +16,6 @@ from agent_utilities.domains.finance.banking_models import (
     PaymentMessageNode,
     RegulatoryCapitalNode,
     SettlementCycle,
-    SettlementLegNode,
-)
-from agent_utilities.domains.finance.banking import (
-    ISO20022MessageFactory,
-    KYCAMLEngine,
-    RegulatoryCapitalCalculator,
-    SettlementEngine,
 )
 
 

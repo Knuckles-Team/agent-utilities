@@ -3,10 +3,10 @@
 CONCEPT: AHE-3.7 Distributed Agent State Manager - Concurrency Branching & Merging
 """
 
-import pytest
 from pydantic import BaseModel, Field
+
+from agent_utilities.harness.contract_validator import ContractValidator, ToolContract
 from agent_utilities.harness.distributed_state_manager import BranchMergeStateLocker
-from agent_utilities.harness.contract_validator import ToolContract, ContractValidator
 
 
 class MockPostSchema(BaseModel):

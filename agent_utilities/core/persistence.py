@@ -88,7 +88,8 @@ class PostgresStatePersistence(BaseStatePersistence[StateT]):
         if self._pool is None:
             raise RuntimeError("Failed to create postgres pool")
         async with self._pool.acquire() as conn:
-            await conn.execute(f"""
+            await conn.execute(
+                f"""
                     CREATE TABLE IF NOT EXISTS {self.table_name} (
                         run_id TEXT,
                         timestamp TIMESTAMPTZ,
@@ -99,7 +100,8 @@ class PostgresStatePersistence(BaseStatePersistence[StateT]):
                         is_end BOOLEAN DEFAULT FALSE
                     );
                     CREATE INDEX IF NOT EXISTS idx_{self.table_name}_run_id ON {self.table_name}(run_id);
-                """)
+                """
+            )
         return self._pool
 
     async def snapshot_node_if_new(self, snapshot: NodeSnapshot[StateT]) -> None:

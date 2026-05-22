@@ -10,7 +10,6 @@ Run: python3 scripts/consolidate_concepts.py --dry-run
 
 import argparse
 import re
-import sys
 from pathlib import Path
 
 # ── Rename map: old tag → new canonical tag ──────────────────────────

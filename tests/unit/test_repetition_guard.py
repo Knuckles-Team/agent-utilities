@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -246,9 +245,6 @@ class TestArgumentHashing:
 
     def test_same_args_same_hash(self, guard):
         """Identical arguments produce the same hash."""
-        from agent_utilities.security.execution_stability_engine import (
-            RepetitionVerdict,
-        )
 
         guard.check_tool_call("shell", {"command": "ls", "cwd": "/home"})
         result = guard.check_tool_call("shell", {"cwd": "/home", "command": "ls"})
@@ -273,8 +269,8 @@ class TestPolicyEngineIntegration:
     """Tests for RepetitionPolicy integration."""
 
     def test_policy_blocks_on_deny(self):
-        from agent_utilities.security.guardrails import PolicyEngine
         from agent_utilities.security.execution_stability_engine import RepetitionPolicy
+        from agent_utilities.security.guardrails import PolicyEngine
 
         policy = RepetitionPolicy()
         engine = PolicyEngine()
@@ -291,8 +287,8 @@ class TestPolicyEngineIntegration:
         assert not blocked[0].allowed
 
     def test_policy_allows_normal(self):
-        from agent_utilities.security.guardrails import PolicyEngine
         from agent_utilities.security.execution_stability_engine import RepetitionPolicy
+        from agent_utilities.security.guardrails import PolicyEngine
 
         engine = PolicyEngine()
         engine.register(RepetitionPolicy())
@@ -306,8 +302,8 @@ class TestPolicyEngineIntegration:
         assert rep_result[0].allowed
 
     def test_policy_no_context(self):
-        from agent_utilities.security.guardrails import PolicyEngine
         from agent_utilities.security.execution_stability_engine import RepetitionPolicy
+        from agent_utilities.security.guardrails import PolicyEngine
 
         engine = PolicyEngine()
         engine.register(RepetitionPolicy())

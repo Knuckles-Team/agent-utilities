@@ -67,6 +67,7 @@ def register_agent_tools(agent: Agent, graph_bundle: tuple | None = None) -> Non
     DEFAULT_DEVELOPER_TOOLS = to_boolean(
         string=os.environ.get("DEVELOPER_TOOLS", "True")
     )
+    DEFAULT_X_TOOLS = to_boolean(string=os.environ.get("X_TOOLS", "True"))
 
     def _is_tool_registered(name: str) -> bool:
         """Check if a tool with the given name is already registered on the agent."""
@@ -235,6 +236,13 @@ def register_agent_tools(agent: Agent, graph_bundle: tuple | None = None) -> Non
         _safe_tool(tool)
     for tool in pattern_tools:
         _safe_tool(tool)
+
+    # 17. X Search & Browsing Tools
+    if DEFAULT_X_TOOLS:
+        from .x_search_tool import x_tools
+
+        for tool in x_tools:
+            _safe_tool(tool)
 
     # 16. Apply Security Guards
     apply_tool_guard_approvals(agent)

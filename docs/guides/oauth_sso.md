@@ -350,13 +350,9 @@ ensure the IdP configuration is correct.
 
 ---
 
-## Vault Integration
+## Vault & OpenBao Integration
 
-The secrets engine (`agent_utilities.security.secrets_client`) integrates
-with HashiCorp Vault using the same OIDC identity infrastructure documented
-above.  This means the SSO user token that protects the MCP server can also
-be used to **authenticate to Vault** — eliminating static `VAULT_TOKEN`
-secrets.
+The secrets engine (`agent_utilities.security.secrets_client`) integrates with HashiCorp Vault and OpenBao using the same OIDC identity infrastructure documented above. This means the SSO user token that protects the MCP server can also be used to **authenticate to Vault / OpenBao** — eliminating static `VAULT_TOKEN` secrets.
 
 ### How It Works
 
@@ -550,6 +546,99 @@ All Vault settings can be persisted in the XDG config file:
     "vault_path_prefix": "agents/mcp/"
 }
 ```
+
+---
+
+## 🔗 Generalized Authentication & Credentials Topology
+
+The following diagram provides a comprehensive system-wide visualization of the unified authentication flows across the entire `agent-packages` and `agent-utilities` ecosystem, illustrating the OIDC Proxy verification layer, RFC 8693 Token Delegation, Hybrid MSAL auth, Vault/OpenBao dynamic credential extraction, and the remote loopback port-forwarding flow:
+
+```mermaid
+graph TD
+    classDef default fill:#1e1e24,stroke:#3a3a4a,stroke-width:1px,color:#d8d8d8;
+    classDef client fill:#0f3b5f,stroke:#20639b,stroke-width:1.5px,color:#ffffff;
+    classDef gateway fill:#4d2c5e,stroke:#7b4f91,stroke-width:1.5px,color:#ffffff;
+    classDef auth fill:#1d5c3f,stroke:#32a873,stroke-width:1.5px,color:#ffffff;
+    classDef backend fill:#5f2f20,stroke:#ba4a00,stroke-width:1.5px,color:#ffffff;
+
+    subgraph UserInterface ["User Space"]
+        User([User / AI Developer])
+        Browser["Local Web Browser<br/>(Local Machine)"]
+    end
+
+    subgraph IDE_Forwarding ["Local-to-Remote Port Forwarding"]
+        FWD["Local Port Forward (127.0.0.1:56121)"]
+    end
+
+    subgraph AgentWorkspace ["Secure Remote Workspace (Container / VM)"]
+        subgraph MCP_Layer ["1. MCP Transport & Verification"]
+            Proxy["OIDCProxy / OAuthProxy / JWTVerifier<br/>(FastMCP Server)"]
+            MW["UserTokenMiddleware<br/>(Extracts JWT to thread-local context)"]
+        end
+
+        subgraph AuthCore ["2. agent-utilities Shared Auth Engine"]
+            DA["delegated_auth.py<br/>(Token Exchange / OIDC)"]
+            SC["SecretsClient / VaultBackend<br/>(Vault / OpenBao)"]
+            Loopback["Callback Server<br/>(Loopback / OIDC Auth Flow)<br/>Port: 56121"]
+        end
+
+        subgraph DownstreamClients ["3. Specialized Agent Clients"]
+            DelegatedAgent["Full Delegation Agents<br/>(GitLab, GitHub, Jira, ServiceNow)"]
+            PassthroughAgent["Passthrough Agents<br/>(Langfuse, etc.)"]
+            HybridAgent["Hybrid Microsoft Agent<br/>(MSAL / OIDC)"]
+            XAgent["x-search-agent / x-ingestion-team<br/>(xAI Authentication)"]
+        end
+    end
+
+    subgraph IdentityProvider ["Identity Providers (IdP)"]
+        IdP["SSO Identity Provider<br/>(Okta, Entra ID, Keycloak)"]
+        XAI["xAI OAuth Provider<br/>(Live X Index via xAI Auth)"]
+    end
+
+    subgraph ExternalBackends ["Secure Secrets & Services"]
+        Vault["Vault / OpenBao Cluster<br/>(KV v2 Secrets Engine)"]
+        APIs["Target APIs & Cloud Services<br/>(GitLab, Microsoft Graph, Langfuse)"]
+    end
+
+    %% Flows
+    User -->|1. Request / Call Tool| Proxy
+    User -->|2. Authorize Flow| Browser
+    Browser -->|3. Redirect to 127.0.0.1:56121| FWD
+    FWD -->|4. Forward Traffic| Loopback
+    Loopback -->|5. Handshake & Exchange Code| XAI
+    XAI -->|6. Auth Token| Loopback
+    Loopback -->|7. Seed Credentials| XAgent
+
+    Proxy -->|Pass validated JWT| MW
+    MW -->|Thread-Local Token| DA
+    MW -->|Thread-Local Token| SC
+
+    %% Vault / OpenBao Auth
+    SC -->|JWT Authentication| Vault
+    Vault -->|Verify JWT via JWKS| IdP
+    Vault -->|Issue scoped token & secrets| SC
+
+    %% Delegation Auth
+    DA -->|RFC 8693 Token Exchange| IdP
+    IdP -->|Delegated Access Token| DA
+
+    %% Specialized Agents routing
+    DA -->|Downstream Token| DelegatedAgent
+    SC -->|Fetched secrets| PassthroughAgent
+    DA & SC -->|MSAL / OIDC| HybridAgent
+
+    %% Target Calls
+    DelegatedAgent -->|Authenticated Requests| APIs
+    PassthroughAgent -->|Secured payload| APIs
+    HybridAgent -->|Graph API requests| APIs
+    XAgent -->|Ingest Post Workflow| XAI
+
+    class User,Browser client;
+    class Proxy,MW,Loopback gateway;
+    class DA,SC,FWD auth;
+    class DelegatedAgent,PassthroughAgent,HybridAgent,XAgent backend;
+```
+
 
 This file lives at `~/.config/agent-utilities/knuckles-team/config.json`
 (following XDG Base Directory Specification).

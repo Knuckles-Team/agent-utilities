@@ -191,7 +191,7 @@ class TestInfrastructureMapping:
 
     def test_fan_out_maps_to_swarm(self):
         mapping = get_infrastructure_mapping()
-        assert "swarm" in mapping[SubagentPattern.FAN_OUT]["module"].lower()
+        assert "orchestrator" in mapping[SubagentPattern.FAN_OUT]["module"].lower()
 
 
 # ── Decision Model Validation ──────────────────────────────────────────

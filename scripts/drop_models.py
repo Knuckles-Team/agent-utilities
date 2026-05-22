@@ -1,4 +1,3 @@
-import asyncio
 from agent_utilities.mcp.kg_server import _get_engine
 
 engine = _get_engine()

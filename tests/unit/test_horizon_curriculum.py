@@ -15,7 +15,6 @@ from agent_utilities.graph.horizon_curriculum import (
     SubgoalCheckpoint,
 )
 
-
 # ── MacroAction Tests ────────────────────────────────────────────────
 
 

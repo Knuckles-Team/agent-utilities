@@ -83,14 +83,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"]["PYTHONWARNINGS"] = (
-                            "ignore:urllib3 (2.3.0) or chardet"
-                        )
+                        cfg["env"][
+                            "PYTHONWARNINGS"
+                        ] = "ignore:urllib3 (2.3.0) or chardet"
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"]["PYTHONWARNINGS"] += (
-                                ",ignore:urllib3 (2.3.0) or chardet"
-                            )
+                            cfg["env"][
+                                "PYTHONWARNINGS"
+                            ] += ",ignore:urllib3 (2.3.0) or chardet"
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.

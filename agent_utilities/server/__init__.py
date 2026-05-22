@@ -57,6 +57,9 @@ from .routers.human import _approval_manager
 logger = logging.getLogger(__name__)
 
 
+_CLEANUP_REGISTERED = False
+
+
 def _run_agent_server(
     provider: str | None = DEFAULT_LLM_PROVIDER,
     model_id: str | None = DEFAULT_LLM_MODEL_ID,
@@ -106,55 +109,56 @@ def _run_agent_server(
     """Create and run an agent server with FastAPI and FastMCP."""
     import uvicorn
 
-    # Process group cleanup: ensure all sidecars (MCP servers, TUI, background
-    # threads) are killed when the main agent server exits.
-    _main_pid = os.getpid()
-    _cleanup_done = False
+    global _CLEANUP_REGISTERED
+    if not _CLEANUP_REGISTERED:
+        _CLEANUP_REGISTERED = True
+        _main_pid = os.getpid()
+        _cleanup_done = False
 
-    def _cleanup_child_processes(signum=None, frame=None):
-        """Kill all child processes spawned by this server on exit."""
-        nonlocal _cleanup_done
-        if _cleanup_done:
-            return
-        _cleanup_done = True
-        try:
-            import subprocess
+        def _cleanup_child_processes(signum=None, frame=None):
+            """Kill all child processes spawned by this server on exit."""
+            nonlocal _cleanup_done
+            if _cleanup_done:
+                return
+            _cleanup_done = True
+            try:
+                import subprocess
 
-            # Find all child PIDs of this process
-            result = subprocess.run(  # nosec B603 B607
-                ["pgrep", "-P", str(_main_pid)],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.stdout.strip():
-                for pid_str in result.stdout.strip().split("\n"):
-                    try:
-                        child_pid = int(pid_str.strip())
-                        os.kill(child_pid, signal.SIGTERM)
-                        logger.debug(f"Cleaned up child process {child_pid}")
-                    except (ProcessLookupError, PermissionError, ValueError):
-                        pass  # nosec B110
-        except Exception:
-            pass  # nosec B110 — best-effort cleanup
+                # Find all child PIDs of this process
+                result = subprocess.run(  # nosec B603 B607
+                    ["pgrep", "-P", str(_main_pid)],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.stdout.strip():
+                    for pid_str in result.stdout.strip().split("\n"):
+                        try:
+                            child_pid = int(pid_str.strip())
+                            os.kill(child_pid, signal.SIGTERM)
+                            logger.debug(f"Cleaned up child process {child_pid}")
+                        except (ProcessLookupError, PermissionError, ValueError):
+                            pass  # nosec B110
+            except Exception:
+                pass  # nosec B110 — best-effort cleanup
 
-    # Register cleanup for both graceful and forced exits
-    atexit.register(_cleanup_child_processes)
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            prev = signal.getsignal(sig)
-            if prev in (signal.SIG_DFL, signal.SIG_IGN, None):
-                signal.signal(sig, _cleanup_child_processes)
-            else:
-                # Chain: call previous handler after cleanup
-                def _chained(signum, frame, _prev=prev):
-                    _cleanup_child_processes(signum, frame)
-                    if callable(_prev):
-                        _prev(signum, frame)
+        # Register cleanup for both graceful and forced exits
+        atexit.register(_cleanup_child_processes)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                prev = signal.getsignal(sig)
+                if prev in (signal.SIG_DFL, signal.SIG_IGN, None):
+                    signal.signal(sig, _cleanup_child_processes)
+                else:
+                    # Chain: call previous handler after cleanup
+                    def _chained(signum, frame, _prev=prev):
+                        _cleanup_child_processes(signum, frame)
+                        if callable(_prev):
+                            _prev(signum, frame)
 
-                signal.signal(sig, _chained)
-        except (OSError, ValueError):
-            pass  # nosec B110 — signal registration may fail in threads
+                    signal.signal(sig, _chained)
+            except (OSError, ValueError):
+                pass  # nosec B110 — signal registration may fail in threads
 
     print(
         f"Starting {DEFAULT_AGENT_NAME}:"
@@ -335,10 +339,10 @@ def create_agent_server(
         import threading
 
         logger.info(
-            f"Launching Agent Terminal UI connecting to http://{host or '0.0.0.0'}:{port or 9000}..."  # nosec B104
+            f"Launching Agent Terminal UI connecting to http://{host or '0.0.0.0'}:{port or 9000}..."
         )
         env = os.environ.copy()
-        env["AGENT_URL"] = f"http://{host or '0.0.0.0'}:{port or 9000}"  # nosec B104
+        env["AGENT_URL"] = f"http://{host or '0.0.0.0'}:{port or 9000}"
 
         if enable_web_logs:
             from agent_utilities.server.dependencies import setup_server_file_logging

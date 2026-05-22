@@ -1,11 +1,12 @@
 """CONCEPT:KG-2.1"""
 
-import pytest
 import networkx as nx
+import pytest
+
 from agent_utilities.knowledge_graph.core.context_builder import (
-    get_owl_context,
-    get_hierarchical_context,
     build_contextual_description,
+    get_hierarchical_context,
+    get_owl_context,
 )
 
 

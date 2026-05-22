@@ -312,7 +312,7 @@ def build_agent_app(
                 )
 
             # CONCEPT:ECO-4.0: A2A agent sync and periodic refresh
-            _a2a_cfg = a2a_config or os.getenv("A2A_CONFIG")
+            _a2a_cfg = a2a_config or config.a2a_config
             if _a2a_cfg:
                 try:
                     from agent_utilities.protocols.a2a_config import (

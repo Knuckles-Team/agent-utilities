@@ -6,10 +6,8 @@ CONCEPT:KG-2.6 — Quant Orchestration (Debate/Fusion)
 import pytest
 
 from agent_utilities.domains.finance.trading_swarm import (
-    AgentSignal,
     SwarmAgent,
     SwarmConfig,
-    SwarmConsensus,
     SwarmDecision,
     SwarmRole,
     TradingSwarm,

@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from agent_utilities.core.config import config
+
 if TYPE_CHECKING:
     pass
 
@@ -178,16 +180,8 @@ def create_model(
         )
 
     if _provider == "openai":
-        target_base_url = (
-            base_url
-            or os.environ.get("LLM_BASE_URL")
-            or os.environ.get("OPENAI_BASE_URL")
-        )
-        target_api_key = (
-            api_key
-            if api_key is not None
-            else (os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY"))
-        )
+        target_base_url = base_url or config.openai_base_url
+        target_api_key = api_key if api_key is not None else config.openai_api_key
 
         # Propagate to environment for downstream pydantic-ai inference
         if target_base_url:
@@ -210,9 +204,9 @@ def create_model(
 
     elif _provider == "ollama":
         target_base_url = (
-            base_url or os.environ.get("LLM_BASE_URL") or "http://localhost:11434/v1"
+            base_url or config.openai_base_url or "http://localhost:11434/v1"
         )
-        target_api_key = api_key or os.environ.get("LLM_API_KEY") or "ollama"
+        target_api_key = api_key or "ollama"
 
         if http_client and AsyncOpenAI and OpenAIProvider:
             client = AsyncOpenAI(
@@ -228,12 +222,37 @@ def create_model(
         os.environ["OPENAI_API_KEY"] = target_api_key
         return OpenAIChatModel(model_name=_model_id, provider="openai")
 
-    elif _provider == "anthropic":
-        target_api_key = (
-            api_key
-            or os.environ.get("LLM_API_KEY")
-            or os.environ.get("ANTHROPIC_API_KEY")
+    elif _provider == "deepseek":
+        target_base_url = (
+            base_url or config.deepseek_base_url or "https://api.deepseek.com"
         )
+        target_api_key = api_key or config.deepseek_api_key
+
+        try:
+            from pydantic_ai.providers.deepseek import DeepSeekProvider
+
+            if http_client and AsyncOpenAI:
+                client = AsyncOpenAI(
+                    api_key=target_api_key or "EMPTY",
+                    base_url=target_base_url,
+                    http_client=http_client,
+                    default_headers=custom_headers,
+                    timeout=timeout,
+                )
+                provider_instance = DeepSeekProvider(openai_client=client)
+                return OpenAIChatModel(model_name=_model_id, provider=provider_instance)
+        except ImportError:
+            pass
+
+        # fallback to standard OpenAI driver
+        if target_api_key:
+            os.environ["OPENAI_API_KEY"] = target_api_key
+        if target_base_url:
+            os.environ["OPENAI_BASE_URL"] = target_base_url
+        return OpenAIChatModel(model_name=_model_id, provider="openai")
+
+    elif _provider == "anthropic":
+        target_api_key = api_key or config.anthropic_api_key
         if target_api_key:
             os.environ["ANTHROPIC_API_KEY"] = target_api_key
 
@@ -251,17 +270,13 @@ def create_model(
         return AnthropicModel(model_name=_model_id)
 
     elif _provider == "google":
-        target_api_key = (
-            api_key or os.environ.get("LLM_API_KEY") or os.environ.get("GEMINI_API_KEY")
-        )
+        target_api_key = api_key or config.gemini_api_key
         if target_api_key:
             os.environ["GEMINI_API_KEY"] = target_api_key
         return GoogleModel(model_name=_model_id)
 
     elif _provider == "groq":
-        target_api_key = (
-            api_key or os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY")
-        )
+        target_api_key = api_key or config.groq_api_key
         if target_api_key:
             os.environ["GROQ_API_KEY"] = target_api_key
 
@@ -276,22 +291,14 @@ def create_model(
         return GroqModel(model_name=_model_id)
 
     elif _provider == "mistral":
-        target_api_key = (
-            api_key
-            or os.environ.get("LLM_API_KEY")
-            or os.environ.get("MISTRAL_API_KEY")
-        )
+        target_api_key = api_key or config.mistral_api_key
         if target_api_key:
             os.environ["MISTRAL_API_KEY"] = target_api_key
 
         return MistralModel(model_name=_model_id)
 
     elif _provider == "huggingface":
-        target_api_key = (
-            api_key
-            or os.environ.get("LLM_API_KEY")
-            or os.environ.get("HUGGING_FACE_API_KEY")
-        )
+        target_api_key = api_key or config.hugging_face_api_key
         if target_api_key:
             os.environ["HUGGING_FACE_API_KEY"] = target_api_key
         return HuggingFaceModel(model_name=_model_id)

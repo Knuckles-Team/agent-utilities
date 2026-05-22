@@ -141,6 +141,15 @@ The `ArchiMateLayer` module (`core/archimate_layer.py`) maps KG node types to **
 
 This enables enterprise-architecture-level views and governance over the agent ecosystem.
 
+### Domain Configuration: Schema Packs vs Knowledge Packs (KG-2.2 & KG-2.7)
+
+To modularize intelligence by domain (e.g., finance, biomedical), the system separates structural definitions from actual instances:
+
+- **SchemaPacks (Structure)**: Defines the *allowed vocabulary* for a domain. A SchemaPack specifies which ontology node types (e.g., `TRADING_STRATEGY`, `FINANCIAL_INSTRUMENT`) and edge types are active, as well as retrieval boosts and inference rules. It does not contain data.
+- **KnowledgePacks (Data)**: Defines the *actual instances* of data. A KnowledgePack is an exportable, human-readable bundle (YAML/JSON) of specific nodes and edges (e.g., specific whitepapers, github repositories, entities) that can be deterministically seeded into the graph.
+
+This strict separation guarantees that exported domain knowledge is consistently formatted as human-readable Knowledge Graph primitives, allowing agents to hot-swap intelligence packs.
+
 ### SPARQL Read-Only Endpoint
 
 The OWL bridge (`core/owl_bridge.py`) provides a SPARQL read-only interface via `rdflib` materialization:

@@ -10,10 +10,8 @@ Set AGENT_UTILITIES_TESTING=true to avoid engine startup.
 from __future__ import annotations
 
 import os
-import time
 
 import networkx as nx
-import pytest
 
 os.environ["AGENT_UTILITIES_TESTING"] = "true"
 
@@ -27,10 +25,8 @@ from agent_utilities.graph.kg_graph_factory import (
 )
 from agent_utilities.models.knowledge_graph import (
     AgentTemplateNode,
-    RegistryEdgeType,
     RegistryNodeType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -19,11 +19,11 @@ explicit signals from ``sync_mcp_agents()``, pipeline completion,
 import asyncio
 import json
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import config
 from agent_utilities.core.workspace import (
     CORE_FILES,
     get_workspace_path,
@@ -34,7 +34,7 @@ from ..models import MCPAgent, MCPAgentRegistryModel, MCPConfigModel, MCPToolInf
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GRAPH_TIMEOUT = to_integer(os.environ.get("GRAPH_TIMEOUT", "1200000"))
+DEFAULT_GRAPH_TIMEOUT = to_integer(config.graph_timeout or "1200000")
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +97,7 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
     """Fetch the full registry from the Knowledge Graph (uncached).
 
     This is the expensive operation that ``_RegistryCache`` wraps.
+    Delegates to focused sub-functions for each data source.
     """
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -114,7 +115,18 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
         return MCPAgentRegistryModel()
 
     agents: list[MCPAgent] = []
-    # 1. Fetch Prompt Agents
+    agents.extend(_fetch_prompt_agents(engine))
+    agents.extend(_fetch_specialist_agents(engine))
+
+    tools = _fetch_tools(engine)
+    agents.extend(_synthesize_partition_agents(tools, {a.name for a in agents}))
+
+    return MCPAgentRegistryModel(agents=agents, tools=tools)
+
+
+def _fetch_prompt_agents(engine: Any) -> list[MCPAgent]:
+    """Fetch Prompt-based agents from the KG."""
+    agents: list[MCPAgent] = []
     try:
         prompt_rows = engine.backend.execute(
             "MATCH (p:Prompt) RETURN p.name AS name, p.description AS descriptionription, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
@@ -154,8 +166,12 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
             )
     except Exception as e:
         logger.debug(f"Failed to fetch Prompt nodes: {e}")
+    return agents
 
-    # 1b. Fetch Specialist Agents
+
+def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
+    """Fetch Agent-type specialist nodes from the KG."""
+    agents: list[MCPAgent] = []
     try:
         agent_rows = engine.backend.execute(
             "MATCH (a:Agent) RETURN a.name AS name, a.description AS descriptionription, a.agent_type AS agent_type, a.system_prompt AS system_prompt, a.tool_count AS tool_count, a.mcp_server AS mcp_server"
@@ -176,8 +192,11 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
             )
     except Exception as e:
         logger.debug(f"Failed to fetch specialist agents from KG: {e}")
+    return agents
 
-    # 2. Fetch Tools
+
+def _fetch_tools(engine: Any) -> list[MCPToolInfo]:
+    """Fetch Tool nodes from the KG."""
     tools: list[MCPToolInfo] = []
     try:
         tool_rows = engine.backend.execute(
@@ -196,8 +215,17 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
             )
     except Exception as e:
         logger.debug(f"Failed to fetch Tool nodes: {e}")
+    return tools
 
-    # CONCEPT:ORCH-1.2 — Re-derive Server Agents from Tools (Dynamic Partitioning at read-time)
+
+def _synthesize_partition_agents(
+    tools: list[MCPToolInfo],
+    existing_agent_names: set[str],
+) -> list[MCPAgent]:
+    """Synthesize partition-based agents from tool tags.
+
+    CONCEPT:ORCH-1.2 — Re-derive Server Agents from Tools (Dynamic Partitioning at read-time)
+    """
     partitions: dict[str, list[MCPToolInfo]] = {}
     for t in tools:
         tags = t.all_tags if t.all_tags else ([t.tag] if t.tag else [])
@@ -220,7 +248,7 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
                 partitions[tag] = []
             partitions[tag].append(t)
 
-    existing_agent_names = {a.name for a in agents}
+    agents: list[MCPAgent] = []
     for tag, partition_tools in partitions.items():
         if tag in existing_agent_names:
             continue
@@ -249,7 +277,7 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
             )
         )
 
-    return MCPAgentRegistryModel(agents=agents, tools=tools)
+    return agents
 
 
 def get_discovery_registry() -> MCPAgentRegistryModel:

@@ -747,3 +747,36 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
 
     logger.info("SecretsClient initialised with '%s' backend.", config.backend)
     return SecretsClient(backend=backend)
+
+
+# ---------------------------------------------------------------------------
+# Post-Quantum Cryptography (ML-KEM / ML-DSA)
+# ---------------------------------------------------------------------------
+
+
+def generate_pq_kem_keypair() -> Any:
+    """Generate a Post-Quantum ML-KEM (Kyber) keypair.
+
+    Requires cryptography>=48.0.0.
+
+    CONCEPT:OS-5.1 — Post-Quantum Secrecy
+    """
+    from cryptography.hazmat.primitives.asymmetric import ml_kem
+
+    private_key = ml_kem.MLKEM768PrivateKey.generate()
+    public_key = private_key.public_key()
+    return private_key, public_key
+
+
+def generate_pq_dsa_keypair() -> Any:
+    """Generate a Post-Quantum ML-DSA (Dilithium) keypair.
+
+    Requires cryptography>=48.0.0.
+
+    CONCEPT:OS-5.1 — Post-Quantum Signatures
+    """
+    from cryptography.hazmat.primitives.asymmetric import ml_dsa
+
+    private_key = ml_dsa.MLDSA65PrivateKey.generate()
+    public_key = private_key.public_key()
+    return private_key, public_key

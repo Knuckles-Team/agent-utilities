@@ -2,8 +2,6 @@
 
 # CONCEPT:ORCH-1.1
 
-import pytest
-import networkx as nx
 from unittest.mock import Mock
 
 from agent_utilities.graph.dynamic_graph_orchestrator import DynamicSubgraphOrchestrator
@@ -20,9 +18,24 @@ def test_dynamic_subgraph_synthesize_team():
     mock_backend.execute.side_effect = [
         # Query 1: Retrieve candidate agents
         [
-            {"agent_id": "agent_a", "role": "planner", "name": "Planner"},
-            {"agent_id": "agent_b", "role": "researcher", "name": "Researcher"},
-            {"agent_id": "agent_c", "role": "writer", "name": "Writer"},
+            {
+                "agent_id": "agent_a",
+                "role": "planner",
+                "name": "Planner",
+                "model_id": "m1",
+            },
+            {
+                "agent_id": "agent_b",
+                "role": "researcher",
+                "name": "Researcher",
+                "model_id": "m2",
+            },
+            {
+                "agent_id": "agent_c",
+                "role": "writer",
+                "name": "Writer",
+                "model_id": "m3",
+            },
         ],
         # Query 2: Tools for planner
         [{"tool_name": "plan_task"}],

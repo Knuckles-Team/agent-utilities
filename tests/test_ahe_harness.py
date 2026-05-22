@@ -23,6 +23,10 @@ from agent_utilities.harness.constraint_engine import (
     ConstraintLevel,
     HierarchicalConstraint,
 )
+from agent_utilities.harness.continuous_evaluation_engine import (
+    DistillationConfig,
+    TraceDistiller,
+)
 from agent_utilities.harness.evidence_corpus import (
     EvidenceCorpus,
     EvidenceEntry,
@@ -37,10 +41,6 @@ from agent_utilities.harness.manifest import (
 from agent_utilities.harness.trace_backend import (
     FileTraceBackend,
     create_trace_backend,
-)
-from agent_utilities.harness.continuous_evaluation_engine import (
-    DistillationConfig,
-    TraceDistiller,
 )
 from agent_utilities.harness.verifier import ManifestVerifier
 

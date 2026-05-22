@@ -1,11 +1,13 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
+from agent_utilities.core.config import config
 from agent_utilities.harness.evaluators import (
     capture_feedback,
-    evaluate_regex,
     evaluate_length,
+    evaluate_regex,
 )
-from agent_utilities.core.config import config
 from agent_utilities.harness.trace_backend import LangfuseTraceBackend
 
 
@@ -61,8 +63,9 @@ async def test_capture_feedback_below_threshold(
     )
 
 
+@pytest.mark.asyncio
 @patch("agent_utilities.harness.evaluators.capture_feedback")
-def test_evaluate_regex(mock_capture_feedback):
+async def test_evaluate_regex(mock_capture_feedback):
     # This just tests the regex logic, capture_feedback runs async via create_task
     # so we don't await it here, but we can verify the sync return value.
     match = evaluate_regex("trace_123", "The quick brown fox", r"quick.*fox")
@@ -72,8 +75,9 @@ def test_evaluate_regex(mock_capture_feedback):
     assert no_match is False
 
 
+@pytest.mark.asyncio
 @patch("agent_utilities.harness.evaluators.capture_feedback")
-def test_evaluate_length(mock_capture_feedback):
+async def test_evaluate_length(mock_capture_feedback):
     valid = evaluate_length("trace_123", "short", 10)
     assert valid is True
 

@@ -8,7 +8,6 @@ from agent_utilities.knowledge_graph.security.graph_validator import (
     EDGE_TYPE_ALIASES,
     NODE_TYPE_ALIASES,
     GraphValidator,
-    ValidationReport,
 )
 
 

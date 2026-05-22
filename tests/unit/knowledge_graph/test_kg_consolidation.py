@@ -24,12 +24,12 @@ import networkx as nx
 import pytest
 from pydantic import ValidationError
 
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.memory.consolidation import (
     ConsolidationEngine,
     ConsolidationProposal,
     EpisodeToPreferenceRule,
 )
-from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 
 def _make_episode(
