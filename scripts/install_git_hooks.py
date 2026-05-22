@@ -7,8 +7,11 @@ HOOK_CONTENT = """#!/bin/sh
 # Post-commit hook to trigger KG ingestion of diffs
 # CONCEPT:KG-3.0 - Continuous Ingestion
 
+# Generate a unique temp file path in /tmp
+PATCH_FILE="/tmp/kg_diff_$(date +%s)_$$.patch"
+
 # Get the diff of the latest commit
-git diff HEAD~1 HEAD > .kg_ingest_diff.patch
+git diff HEAD~1 HEAD > "$PATCH_FILE"
 
 # Feed it to the submit_diff script
 SCRIPT_PATH="$(git rev-parse --show-toplevel)/agent-packages/agent-utilities/scripts/submit_diff.py"
@@ -17,8 +20,12 @@ if [ ! -f "$SCRIPT_PATH" ]; then
     SCRIPT_PATH="$(git rev-parse --show-toplevel)/scripts/submit_diff.py"
 fi
 
-uv run python "$SCRIPT_PATH" .kg_ingest_diff.patch || true
+uv run python "$SCRIPT_PATH" "$PATCH_FILE" || true
+
+# Clean up the temporary patch file
+rm -f "$PATCH_FILE"
 """
+
 
 
 def install_hooks(workspace_path: Path):
