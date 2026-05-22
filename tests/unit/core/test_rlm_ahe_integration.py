@@ -20,9 +20,9 @@ class TestTraceDistillerRLMIntegration:
     @pytest.mark.asyncio
     async def test_cluster_failures_uses_rlm_above_threshold(self):
         """When failure count exceeds ahe_trace_threshold, RLM is used."""
+        from agent_utilities.harness.continuous_evaluation_engine import TraceDistiller
         from agent_utilities.harness.evidence_corpus import EvidenceEntry, EvidenceLayer
         from agent_utilities.harness.trace_backend import TraceBackend
-        from agent_utilities.harness.continuous_evaluation_engine import TraceDistiller
 
         mock_backend = MagicMock(spec=TraceBackend)
         distiller = TraceDistiller(backend=mock_backend)
@@ -68,9 +68,9 @@ class TestTraceDistillerRLMIntegration:
     @pytest.mark.asyncio
     async def test_cluster_failures_keyword_below_threshold(self):
         """When failure count is below threshold, keyword clustering is used."""
+        from agent_utilities.harness.continuous_evaluation_engine import TraceDistiller
         from agent_utilities.harness.evidence_corpus import EvidenceEntry, EvidenceLayer
         from agent_utilities.harness.trace_backend import TraceBackend
-        from agent_utilities.harness.continuous_evaluation_engine import TraceDistiller
 
         mock_backend = MagicMock(spec=TraceBackend)
         distiller = TraceDistiller(backend=mock_backend)

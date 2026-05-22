@@ -4,7 +4,6 @@ from __future__ import annotations
 """Tests for CONCEPT:ORCH-1.2 — Confidence-Gated Model Router."""
 
 
-import pytest
 
 from agent_utilities.models.model_registry import (
     ModelCostRate,

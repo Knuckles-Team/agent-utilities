@@ -18,12 +18,14 @@ import time
 from contextlib import contextmanager
 from typing import Any
 
+from agent_utilities.core.config import config
+
 from .base import GraphBackend
 
 logger = logging.getLogger(__name__)
 
 # Embedding dimension from env (must match model output)
-_EMBEDDING_DIM = int(os.environ.get("KG_EMBEDDING_DIM", "768"))
+_EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
 
 
 class PostgreSQLBackend(GraphBackend):
@@ -168,7 +170,8 @@ class PostgreSQLBackend(GraphBackend):
                     self._known_tables.add(table_def.name)
 
                 # Create unified edge table
-                cur.execute("""
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS kg_edges (
                         source_id TEXT NOT NULL,
                         target_id TEXT NOT NULL,
@@ -177,7 +180,8 @@ class PostgreSQLBackend(GraphBackend):
                         created_at TIMESTAMPTZ DEFAULT NOW(),
                         PRIMARY KEY (source_id, target_id, rel_type)
                     )
-                """)
+                """
+                )
 
                 # Create indexes on edge table
                 for idx_sql in (
@@ -239,20 +243,23 @@ class PostgreSQLBackend(GraphBackend):
                             else "NULL"
                         )
                         try:
-                            cur.execute(f"""
+                            cur.execute(
+                                f"""
                                 SELECT graph.add_table(
                                     table_name := '{self._pggraph_schema}.{tbl}'::regclass,
                                     id_column := 'id',
                                     columns := {cols_array}
                                 )
-                            """)
+                            """
+                            )
                         except Exception as e:
                             logger.debug("pgGraph add_table %s failed: %s", tbl, e)
                             conn.rollback()
 
                     # Register edge table as edges
                     try:
-                        cur.execute("""
+                        cur.execute(
+                            """
                             SELECT graph.add_edge(
                                 from_table := 'kg_edges'::regclass,
                                 from_column := 'source_id',
@@ -262,7 +269,8 @@ class PostgreSQLBackend(GraphBackend):
                                 label_column := 'rel_type',
                                 bidirectional := true
                             )
-                        """)
+                        """
+                        )
                     except Exception as e:
                         logger.debug("pgGraph edge registration failed: %s", e)
                         conn.rollback()
@@ -409,7 +417,7 @@ class PostgreSQLBackend(GraphBackend):
             with self._conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        f'UPDATE "{table}" SET embedding = %s::vector WHERE id = %s',  # nosec B608
+                        f'UPDATE "{table}" SET embedding = %s::vector WHERE id = %s',
                         (str(embedding), node_id),
                     )
                     conn.commit()
@@ -708,10 +716,10 @@ class PostgreSQLBackend(GraphBackend):
                                 f"DELETE FROM kg_edges WHERE source_id IN "
                                 f'(SELECT id FROM "{tbl}" WHERE {where}) '
                                 f"OR target_id IN "
-                                f'(SELECT id FROM "{tbl}" WHERE {where})',  # nosec B608
+                                f'(SELECT id FROM "{tbl}" WHERE {where})',
                                 values + values,
                             )
-                            cur.execute(f'DELETE FROM "{tbl}" WHERE {where}', values)  # nosec B608
+                            cur.execute(f'DELETE FROM "{tbl}" WHERE {where}', values)
                     conn.commit()
                     logger.info("Pruning complete with criteria: %s", criteria)
         except Exception as e:
@@ -755,7 +763,7 @@ class PostgreSQLBackend(GraphBackend):
                     total_nodes = 0
                     for tbl in self._known_tables:
                         try:
-                            cur.execute(f'SELECT COUNT(*) FROM "{tbl}"')  # nosec B608
+                            cur.execute(f'SELECT COUNT(*) FROM "{tbl}"')
                             total_nodes += cur.fetchone()[0]
                         except Exception:
                             continue  # nosec B112
@@ -780,7 +788,7 @@ class PostgreSQLBackend(GraphBackend):
                 with conn.cursor() as cur:
                     for tbl in self._known_tables:
                         cur.execute(
-                            f'SELECT 1 FROM "{tbl}" WHERE id = %s LIMIT 1',  # nosec B608
+                            f'SELECT 1 FROM "{tbl}" WHERE id = %s LIMIT 1',
                             (node_id,),
                         )
                         if cur.fetchone():

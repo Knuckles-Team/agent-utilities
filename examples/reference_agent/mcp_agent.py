@@ -21,7 +21,8 @@ async def main():
         print("Warning: mcp_config.json not found.")
         print("Create an mcp_config.json file with your MCP server configurations.")
         print("Example:")
-        print("""
+        print(
+            """
 {
   "mcpServers": {
     "filesystem": {
@@ -30,7 +31,8 @@ async def main():
     }
   }
 }
-        """)
+        """
+        )
         return
 
     # Create an agent that uses MCP tools

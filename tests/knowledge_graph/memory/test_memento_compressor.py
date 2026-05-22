@@ -1,9 +1,8 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
 from agent_utilities.knowledge_graph.memory.memento_compressor import (
     compress_to_memento,
     get_recent_mementos,
-    _persist_memento,
 )
 
 

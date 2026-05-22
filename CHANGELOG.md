@@ -6,7 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed
+- **BREAKING: Registry-Based Configuration Migration** — Fully deprecated all legacy per-tier LLM environment variable fields (`LLM_PROVIDER`, `LLM_MODEL_ID`, `LLM_BASE_URL`, `LLM_API_KEY`, `LITE_LLM_*`, `SUPER_LLM_*`, `EMBEDDING_*`) from `AgentConfig`. All LLM and embedding configuration now routes exclusively through the `chat_models` and `embedding_models` registries in `config.json`. Per-model `base_url` and `api_key` overrides are supported natively within each registry entry.
+  - New `AgentConfig` properties: `default_chat_model`, `lite_chat_model`, `super_chat_model`, `default_embedding_model` (registry-derived)
+  - `DEFAULT_LLM_*` constants in `core/config.py` now source from the registry instead of environment variables
+  - Updated consumers: `model_factory.py`, `server_factory.py`, `mcp_utilities.py`, `embedding_utilities.py`, `analyzer.py`, `routing.py`, `extractor.py`
+
 ### Added
+- **Native xAI OAuth 2.0 (PKCE) Authentication Loop (CONCEPT:OS-5.1)** — RFC 7636-compliant authentication flow with code verifier and code challenge (S256). Includes an automatic temporary callback server on `http://127.0.0.1:56121/callback` and manual CLI fallback. Fully supports remote loopback and headless server environments using IDE or SSH port forwarding.
+- **X Post Search & Browse Tools** — New high-performance agents and tools (`x_search`, `browse_x_post`) for searching recent posts and parsing specific tweet status payloads using Grok models.
+- **Background Workflow Orchestration Polling** — Extended the `graph-os` `graph_orchestrate` tool with `dispatch_workflow` and `workflow_status` actions, allowing non-blocking background executions of complex multi-agent workflows and real-time state polling.
+- **Dynamic Ingestion Workflows & Templates** — Workflow catalog integration under `presets/social.yaml` with dynamic parameter substitution (`{{task}}`) to automate social browsing and hydrations directly into the Knowledge Graph.
+
+### Changed
+- **`graph_configure` Token Write-back** — Implemented the `set_secret` action in the `graph_configure` tool of the `graph-os` MCP server to securely commit credentials and xAI OAuth tokens back into the persistent `SecretsClient` store.
+- **Test Infrastructure: Daemon Thread Guard** — Added `AGENT_UTILITIES_TESTING` guard in `engine_tasks.py` to skip spawning background daemon threads (compaction, evolution, telemetry, analysis, graph writer) during test runs. Prevents pytest-xdist worker hangs from orphaned threads hitting closed backends.
+- **Build Artifact Cleanup Fixture** — Session-scoped `cleanup_build_artifacts` fixture in `conftest.py` that removes stale `build/`, `dist/`, `*.egg-info`, rogue `.db` files, and temporary test DB directories after test sessions.
+- **Ruff Unsafe Fixes** — Enabled `--unsafe-fixes` in ruff pre-commit hook to auto-fix UP038 (`isinstance` tuple → union) lint errors.
+
+### Fixed
+- Fixed broken xAI credential verification by correcting context parameter typing from `RunContext[AgentDeps] | None` to `RunContext[AgentDeps]` for Pydantic AI compatibility.
+- Fixed 10 UP038 ruff violations across `research_pipeline.py`, `config.py`, `distributed_state_manager.py`, `owl_bridge.py`, and `graph_validator.py`.
+- Fixed broken imports in `mcp_utilities.py` and `server_factory.py` caused by moving `DEFAULT_LLM_*` constants to `core.config`.
+- Resolved mypy type errors across the graph module (0 errors achieved).
+- Removed leftover `fix_env_vars.py` migration script.
+
+
 - **Super-Assimilation Evolution Pipeline (CONCEPT:KG-2.0 + AHE-3.2)** — Constitution-governed, KG-driven feature assimilation framework for ingesting 60+ external repositories and research papers:
   - **Assimilation Governance** section added to `constitution.md`: Wire-First (≤3 hops), Extend Don't Duplicate (≥0.7 similarity), No Dead Code, Constitution Preservation, Unified Downstream.
   - **Constitution Preservation**: External codebases' `constitution.md`/`CONSTITUTION.md` ingested as tagged `PolicyNode` entries for cross-project rule synthesis.

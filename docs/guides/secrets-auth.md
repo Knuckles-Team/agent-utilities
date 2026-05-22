@@ -86,15 +86,18 @@ export SECRETS_BACKEND=sqlite
 export SECRETS_SQLITE_PATH=~/.agent-utilities/secrets.db
 ```
 
-### HashiCorp Vault (Enterprise)
+### HashiCorp Vault & OpenBao (Enterprise / Open Source)
 
 - Requires `pip install agent-utilities[vault]` (installs `hvac`)
 - Uses KV v2 secrets engine
 - Best for: production, multi-tenant, corporate deployments
+- **OpenBao Support**: OpenBao (an open-source fork of HashiCorp Vault initiated at Vault 1.14.7) is **fully compatible out-of-the-box**. Because OpenBao maintains complete API compatibility with HashiCorp Vault, the `hvac` Python client and all authentication methods (Static Token, AppRole, Kubernetes, OIDC/JWT) work seamlessly. No code or configuration changes are needed.
+
+To configure your agent to use Vault or OpenBao, export:
 
 ```bash
 export SECRETS_BACKEND=vault
-export SECRETS_VAULT_URL=https://vault.example.com
+export SECRETS_VAULT_URL=https://openbao.example.com  # Points directly to your OpenBao or Vault server
 export SECRETS_VAULT_MOUNT=secret
 export VAULT_TOKEN=hvs.xxx
 ```
@@ -270,9 +273,9 @@ if token:
 8. **Restrict CORS**: Set `ALLOWED_ORIGINS` to specific trusted origins
 
 
-## Local Secret Storage (Vault & SQLite)
+## Local Secret Storage (Vault, OpenBao, & SQLite)
 
-The ecosystem provides a unified `SecretsClient` designed to replace static `.env` files, supporting `inmemory`, `sqlite`, and HashiCorp `vault` backends.
+The ecosystem provides a unified `SecretsClient` designed to replace static `.env` files, supporting `inmemory`, `sqlite`, and `vault` (HashiCorp Vault & OpenBao) backends.
 
 **Light Configuration Example (SQLite):**
 ```bash
@@ -297,4 +300,87 @@ secret-manager set gitlab/token glpat-xxx
 secret-manager list
 ```
 
-> **Full Documentation:** See [docs/secrets-auth.md](docs/pillars/5_agent_os_infrastructure/secrets-auth.md) for HashiCorp Vault setup, encryption details, and API references.
+---
+
+## Native xAI OAuth Integration
+
+`agent-utilities` supports native xAI OAuth 2.0 PKCE authentication to access the X / xAI API and search X posts or browse individual posts without hitting static API key limitations.
+
+### Architecture
+
+The authentication flow utilizes the OAuth 2.0 Authorization Code Flow with Proof Key for Code Exchange (PKCE) (RFC 7636).
+
+```
+┌──────────────┐          1. Click link          ┌──────────────┐
+│ Agent / CLI  ├────────────────────────────────►│ x.com Auth   │
+│              │◄────────────────────────────────┤ Login Page   │
+│ (Spin Server)│     2. Callback with Code       └──────┬───────┘
+└──────┬───────┘    (or manual CLI input)               │
+       │                                                │
+       │ 3. Exchange Auth Code + Verifier               │
+       ▼                                                │
+┌──────────────┐                                        │
+│  xAI OAuth   │◄───────────────────────────────────────┘
+│  Token Endpt │
+└──────┬───────┘
+       │ 4. Store encrypted tokens in SecretsClient
+       ▼
+┌──────────────┐
+│SecretsClient │
+└──────────────┘
+```
+
+### Flow Options
+
+1. **Auto-Callback Server**: Launches a temporary local web server (defaults to `http://localhost:8000`) to catch the callback and automatically parse the authorization code.
+2. **Manual CLI Fallback**: If a port is occupied or a server cannot be started, prints the authorization URL to the terminal and prompts the user to paste the callback URL or code directly.
+
+### Usage in Python
+
+```python
+from agent_utilities.security.xai_auth import XaiAuthManager
+from agent_utilities.secrets_client import create_secrets_client
+
+secrets = create_secrets_client()
+manager = XaiAuthManager(secrets_client=secrets)
+
+# Perform authentication (launches local server or CLI fallback)
+tokens = manager.authenticate()
+print("Access Token:", tokens.get("access_token"))
+```
+
+### Auto Token Refresh
+
+The `XaiAuthManager` automatically handles token expiration and token refresh using OAuth 2.0 refresh token rotation:
+
+```python
+# Get a valid, fresh token (auto-refreshes if expired)
+valid_token = manager.get_valid_token()
+```
+
+### Loopback & Headless Authentication Support
+
+1. **How Loopback Works Remotely**
+   The OIDC callback server runs inside the workspace environment at `http://127.0.0.1:56121/callback`.
+   Because `graph-os` runs as an MCP server, standard standard-input prompts (`input()`) cannot be used (since the IDE uses standard input/output for JSON-RPC communication, reading from stdin would hang the MCP server).
+   Therefore, the callback server is the exclusive way to exchange tokens without crashing the MCP channel.
+
+2. **How to Authenticate in a Headless/Remote Environment**
+   To authenticate using your local browser while the MCP server runs on the remote container/VM:
+   * **Forward the Callback Port**: Set up a local port forward for port `56121` in your IDE (or via SSH using `ssh -L 56121:127.0.0.1:56121`).
+   * **Authorize**: Click the xAI auth link in your browser and log in.
+   * **Seamless Redirect**: When the browser redirects to `http://127.0.0.1:56121/callback`, the traffic will be forwarded back to your remote workspace. The OIDC loopback server will instantly capture the authorization code, exchange it, and save the token securely—completing the setup automatically with zero manual copy-pasting!
+
+### Environment Configuration
+
+The following environment variables can be set:
+
+| Environment Variable | Default | Description |
+|----------------------|---------|-------------|
+| `XAI_CLIENT_ID` | `None` | Your xAI OAuth Client ID |
+| `XAI_CLIENT_SECRET` | `None` | Your xAI OAuth Client Secret (if applicable) |
+| `XAI_REDIRECT_URI` | `http://127.0.0.1:56121/callback` | The redirect URI registered in xAI portal |
+
+For more details on X search tools, see the [Tools Guide](tools.md).
+
+> **Full Documentation:** See [docs/secrets-auth.md](docs/pillars/5_agent_os_infrastructure/secrets-auth.md) for HashiCorp Vault & OpenBao setup, encryption details, and API references.

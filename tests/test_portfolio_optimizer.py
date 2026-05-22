@@ -6,7 +6,6 @@ import pytest
 from agent_utilities.domains.finance.portfolio_optimizer import (
     BlackLittermanOptimizer,
     MeanVarianceOptimizer,
-    OptimizationResult,
     RiskParityOptimizer,
 )
 

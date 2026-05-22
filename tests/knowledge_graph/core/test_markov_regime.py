@@ -30,7 +30,6 @@ from agent_utilities.knowledge_graph.core.markov_regime import (
     RegimeThresholds,
 )
 
-
 # --- Fixtures ---
 
 

@@ -18,9 +18,7 @@ import pytest
 from agent_utilities.knowledge_graph.core.ecosystem_topology import (
     EcosystemTopologyBuilder,
     PackageCategory,
-    PackageInfo,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

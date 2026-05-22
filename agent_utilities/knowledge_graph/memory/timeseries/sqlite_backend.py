@@ -25,7 +25,8 @@ class SQLiteTimeSeriesBackend(TimeSeriesBackend):
         self.conn.row_factory = sqlite3.Row
 
         cursor = self.conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS timeseries_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
@@ -34,7 +35,8 @@ class SQLiteTimeSeriesBackend(TimeSeriesBackend):
                 tags JSON,
                 UNIQUE(symbol, timestamp)
             )
-        """)
+        """
+        )
         # Create indexes for fast querying
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_symbol_time ON timeseries_data (symbol, timestamp)"

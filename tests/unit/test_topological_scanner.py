@@ -1,11 +1,11 @@
 """CONCEPT:KG-2.5"""
 
-import pytest
 import networkx as nx
+import pytest
 
 from agent_utilities.knowledge_graph.core.analogy_engine import TopologicalAnalogyEngine
-from agent_utilities.security.threat_defense_engine import TopologicalScanner
 from agent_utilities.models.knowledge_graph import RegistryNode, RegistryNodeType
+from agent_utilities.security.threat_defense_engine import TopologicalScanner
 
 
 @pytest.fixture

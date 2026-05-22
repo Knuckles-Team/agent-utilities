@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from agent_utilities.domains.finance.kronos_forecaster import (
-    CandleType,
     ForecastResult,
     KLineToken,
     KLineTokenizer,

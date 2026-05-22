@@ -34,6 +34,12 @@ The `tools/` module provides 18 tool modules that are exposed to agents during g
 | `kg_share_tools` | `export_subgraph`, `import_subgraph` | KG data sharing |
 | `pattern_tools` | `detect_pattern`, `apply_pattern` | Pattern recognition |
 
+### Social & Search Tools
+
+| Module | Key Functions | Description |
+|---|---|---|
+| `x_search_tool` | `x_search`, `browse_x_post` | Native X search and post browsing using xAI authentication |
+
 ### Infrastructure Tools
 
 | Module | Key Functions | Description |
@@ -86,4 +92,21 @@ registry.register("my_tool", my_function, description="Does something")
 # List all tools
 for tool in registry.list_tools():
     print(f"{tool.name}: {tool.description}")
+```
+
+## X & xAI Integration
+
+The `x_search_tool` provides native capabilities to search X posts and browse individual posts directly from an agent. It leverages the secure `XaiAuthManager` to obtain OAuth 2.0 access tokens.
+
+### Functions
+
+- **`x_search(query: str, max_results: int = 10)`**: Searches X posts for a query and returns matching posts, authors, and text.
+- **`browse_x_post(url_or_id: str)`**: Fetches the text, author, and engagement metrics for a specific X post by its URL or numeric ID.
+
+### Example Code
+
+```python
+# The agent will automatically call these tools when given an X URL or asked to search X:
+result = browse_x_post("https://x.com/gkisokay/status/2056726149074657704")
+print(result)
 ```

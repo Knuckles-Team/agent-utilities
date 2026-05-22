@@ -1,12 +1,13 @@
 """CONCEPT:ORCH-1.1"""
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
-from agent_utilities.graph.state import GraphState, GraphDeps
-from agent_utilities.models.graph import WideSearchWorkboard
-from agent_utilities.graph.verification import join_step, wide_search_joiner_step
+import pytest
 from pydantic_graph.beta import StepContext
+
+from agent_utilities.graph.state import GraphDeps, GraphState
+from agent_utilities.graph.verification import join_step, wide_search_joiner_step
+from agent_utilities.models.graph import WideSearchWorkboard
 
 
 @pytest.fixture

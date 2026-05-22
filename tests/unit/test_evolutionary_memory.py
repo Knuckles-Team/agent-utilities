@@ -5,22 +5,21 @@ CONCEPT:AHE-3.4 (Temporal Drift)
 CONCEPT:AHE-3.4 (EWC++)
 """
 
-import pytest
-import networkx as nx
 from typing import Any
+
+import networkx as nx
+import pytest
 
 from agent_utilities.knowledge_graph.core.topological_partition import (
     detect_communities,
     persist_stable_communities,
 )
 from agent_utilities.knowledge_graph.memory.drift_tracker import (
-    calculate_cosine_distance,
     check_knowledge_drift,
-    DriftReport,
 )
 from agent_utilities.knowledge_graph.memory.ewc import (
-    compute_fisher_diagonal_proxy,
     apply_ewc_consolidation,
+    compute_fisher_diagonal_proxy,
 )
 
 

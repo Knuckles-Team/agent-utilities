@@ -1,12 +1,11 @@
 #!/usr/bin/python
 """Tests for CONCEPT:KG-2.2 — Entity-Claim Extraction and MAGMA Epistemic View."""
 
-import pytest
 import networkx as nx
+import pytest
 
 from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
     EntityClaimExtractor,
-    ExtractionResult,
     extract_deterministic,
 )
 from agent_utilities.models.knowledge_graph import (

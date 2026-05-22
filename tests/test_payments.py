@@ -1,13 +1,11 @@
 """Tests for CONCEPT:KG-2.6 — x402 AI Payment Protocol."""
 
-import pytest
 
 from agent_utilities.domains.finance.payments import (
     BudgetLimits,
     PaymentChallenge,
     PaymentGuard,
     PaymentProof,
-    PaymentRecord,
     PaymentStatus,
     X402PaymentClient,
 )

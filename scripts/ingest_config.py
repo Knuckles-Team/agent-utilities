@@ -1,5 +1,6 @@
 import asyncio
 import logging
+
 from agent_utilities.core.config import config
 from agent_utilities.mcp.kg_server import _get_engine
 

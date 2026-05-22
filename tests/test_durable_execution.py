@@ -2,7 +2,6 @@
 Tests for Graph-Native Durable Execution (CONCEPT:ECO-4.1).
 """
 
-import pytest
 from agent_utilities.orchestration.durable_execution import DurableExecutionManager
 
 

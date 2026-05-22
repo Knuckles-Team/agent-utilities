@@ -142,6 +142,7 @@ def create_agent_parser() -> argparse.ArgumentParser:
             "groq",
             "mistral",
             "ollama",
+            "deepseek",
         ],
         help="LLM Provider",
     )

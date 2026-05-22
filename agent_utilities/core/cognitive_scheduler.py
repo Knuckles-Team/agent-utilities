@@ -234,9 +234,9 @@ class CognitiveScheduler:
 
         self._processes: dict[str, AgentProcess] = {}
         self._lock = asyncio.Lock()
-        self._queue: asyncio.PriorityQueue[tuple[int, float, str]] = (
-            asyncio.PriorityQueue()
-        )
+        self._queue: asyncio.PriorityQueue[
+            tuple[int, float, str]
+        ] = asyncio.PriorityQueue()
 
         # CONCEPT:AHE-3.2 — Optional convergence monitor for multi-loop tasks
         self.convergence_monitor: ConvergenceMonitor | None = None

@@ -1,8 +1,6 @@
 """Tests for CONCEPT:KG-2.6 — Market Data Abstraction Layer."""
 
-import numpy as np
 import pandas as pd
-import pytest
 
 from agent_utilities.domains.finance.market_data import (
     DataFetchResult,

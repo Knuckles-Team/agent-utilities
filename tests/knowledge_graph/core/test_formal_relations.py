@@ -1,7 +1,6 @@
 """CONCEPT:KG-2.4"""
 
 import networkx as nx
-import pytest
 
 from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     equivalence_classes,
@@ -11,7 +10,6 @@ from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     is_symmetric,
     is_transitive,
     resolve_entities,
-    transitive_closure,
 )
 
 

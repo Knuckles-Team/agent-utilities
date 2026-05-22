@@ -5,7 +5,7 @@
 - Core Libraries: `agent-utilities`, `fastmcp`, `pydantic-ai`
 - Key principles: Functional patterns, Pydantic for data validation, asynchronous tool execution.
 - Architecture:
-    - `mcp_server.py`: Main MCP server entry point and tool registration.
+    - `kg_server.py`: Main MCP server entry point and tool registration.
     - `agent.py`: Pydantic AI agent definition and logic.
     - `skills/`: Directory containing modular agent skills (if applicable).
     - `agent/`: Internal agent logic and prompt templates.
@@ -60,7 +60,7 @@ pre-commit run --all-files
 agent_utilities.mcp.kg_server:main
 
 ## Project Structure Quick Reference
-- MCP Entry Point → `mcp_server.py`
+- MCP Entry Point → `kg_server.py`
 - Agent Entry Point → `agent.py`
 - Source Code → `agent_utilities/`
 - Skills → `skills/` (if exists)
@@ -3800,7 +3800,7 @@ async def my_tool(param: str) -> str:
 - Use `agent-utilities` base classes.
 
 **Ask first:**
-- Major refactors of `mcp_server.py` or `agent.py`.
+- Major refactors of `kg_server.py` or `agent.py`.
 - Deleting or renaming public tool functions.
 
 **Never do:**

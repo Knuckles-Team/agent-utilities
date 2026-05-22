@@ -11,6 +11,12 @@ Modules:
     - ``permissions_kernel``: Role-based tool authorization (CONCEPT:OS-5.1)
 """
 
+from agent_utilities.security.browser_auth import (
+    BaseBrowserAuthManager,
+    BaseLoopbackCallbackHandler,
+    BaseLoopbackCallbackServer,
+    generate_pkce,
+)
 from agent_utilities.security.execution_stability_engine import (
     RepetitionGuard,
     RepetitionPolicy,
@@ -42,6 +48,11 @@ from agent_utilities.security.tool_guard import (
 )
 
 __all__ = [
+    # browser_auth
+    "BaseBrowserAuthManager",
+    "BaseLoopbackCallbackHandler",
+    "BaseLoopbackCallbackServer",
+    "generate_pkce",
     # guardrails
     "ContentFilterPolicy",
     "CostBudgetPolicy",

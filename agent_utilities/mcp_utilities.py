@@ -14,6 +14,12 @@ __version__ = "0.11.1"
 # Re-export server factory (parser, server, config loading, defaults)
 # Re-export config loader (still defined here — too coupled to move without
 # broader refactoring of pydantic-ai integration)
+from agent_utilities.core.config import (  # noqa: F401
+    DEFAULT_LLM_API_KEY,
+    DEFAULT_LLM_BASE_URL,
+    DEFAULT_LLM_MODEL_ID,
+    DEFAULT_LLM_PROVIDER,
+)
 from agent_utilities.mcp.config_loader import (  # noqa: F401
     load_mcp_servers_from_config,
 )
@@ -40,10 +46,6 @@ from agent_utilities.mcp.delegated_auth import (  # noqa: F401
     refresh_access_token,
 )
 from agent_utilities.mcp.server_factory import (  # noqa: F401
-    DEFAULT_LLM_API_KEY,
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_MODEL_ID,
-    DEFAULT_LLM_PROVIDER,
     DEFAULT_SSL_VERIFY,
     DEFAULT_TRANSPORT,
     create_mcp_parser,

@@ -23,11 +23,13 @@ over stable LPG data.
 Modular imports:
   - enterprise: ArchiMate EA governance, ADR decision traces
   - sdd: Spec-driven development (Requirements, Features, TestCases)
+  - infrastructure: Runtime-agnostic infra topology (CONCEPT:OS-5.3)
   - banking, government, hr, legal, medical: Domain-specific extensions""" ;
     owl:imports <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
         <http://knuckles.team/kg/quant>,
-        <http://knuckles.team/kg/sdd> .
+        <http://knuckles.team/kg/sdd>,
+        <https://agent-utilities.dev/ontology/infrastructure> .
 
 :Action a owl:Class ;
     rdfs:label "Action" ;

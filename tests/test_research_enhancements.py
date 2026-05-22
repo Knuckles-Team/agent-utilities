@@ -10,9 +10,9 @@ Tests cover:
 6. Jailbreak Robustness (CONCEPT:OS-5.1)
 """
 
-import pytest
 from typing import Any
 
+import pytest
 
 # ── Enhancement 1: Learned Agent Routing (CONCEPT:ORCH-1.2) ─────────────────
 
@@ -29,9 +29,9 @@ class TestRoutingPolicy:
 
     def test_rule_based_routing_decompose(self):
         from agent_utilities.graph.adaptive_agent_router import (
-            RuleBasedPolicy,
             RoutingCandidate,
             RoutingPrimitive,
+            RuleBasedPolicy,
         )
 
         policy = RuleBasedPolicy()
@@ -46,9 +46,9 @@ class TestRoutingPolicy:
 
     def test_rule_based_routing_simple(self):
         from agent_utilities.graph.adaptive_agent_router import (
-            RuleBasedPolicy,
             RoutingCandidate,
             RoutingPrimitive,
+            RuleBasedPolicy,
         )
 
         policy = RuleBasedPolicy()
@@ -61,8 +61,8 @@ class TestRoutingPolicy:
 
     def test_trace_learned_cold_start(self):
         from agent_utilities.graph.adaptive_agent_router import (
-            TraceLearnedPolicy,
             RoutingCandidate,
+            TraceLearnedPolicy,
         )
 
         policy = TraceLearnedPolicy()
@@ -75,10 +75,10 @@ class TestRoutingPolicy:
 
     def test_trace_learned_with_traces(self):
         from agent_utilities.graph.adaptive_agent_router import (
-            TraceLearnedPolicy,
+            ExecutionTrace,
             RoutingCandidate,
             RoutingPrimitive,
-            ExecutionTrace,
+            TraceLearnedPolicy,
         )
 
         policy = TraceLearnedPolicy()
@@ -106,8 +106,8 @@ class TestRoutingPolicy:
     def test_cost_aware_router(self):
         from agent_utilities.graph.adaptive_agent_router import (
             CostAwareRouter,
-            RuleBasedPolicy,
             RoutingCandidate,
+            RuleBasedPolicy,
         )
 
         router = CostAwareRouter(RuleBasedPolicy(), max_cost=100)
@@ -136,8 +136,8 @@ class TestElasticContext:
 
     def test_skip_operator(self):
         from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
-            ElasticContextManager,
             ContextOperator,
+            ElasticContextManager,
         )
 
         ecm = ElasticContextManager()
@@ -147,8 +147,8 @@ class TestElasticContext:
 
     def test_compress_operator(self):
         from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
-            ElasticContextManager,
             ContextOperator,
+            ElasticContextManager,
         )
 
         ecm = ElasticContextManager()
@@ -159,8 +159,8 @@ class TestElasticContext:
 
     def test_delete_operator(self):
         from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
-            ElasticContextManager,
             ContextOperator,
+            ElasticContextManager,
         )
 
         ecm = ElasticContextManager()
@@ -170,8 +170,8 @@ class TestElasticContext:
 
     def test_rollback(self):
         from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
-            ElasticContextManager,
             ContextOperator,
+            ElasticContextManager,
         )
 
         ecm = ElasticContextManager()
@@ -184,8 +184,8 @@ class TestElasticContext:
 
     def test_snippet_operator(self):
         from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
-            ElasticContextManager,
             ContextOperator,
+            ElasticContextManager,
         )
 
         ecm = ElasticContextManager()
@@ -251,7 +251,6 @@ class TestSkillEvolver:
 
     def test_skill_factory_from_gap(self):
         from agent_utilities.knowledge_graph.adaptation.skill_evolver import (
-            SkillNeologismDetector,
             SkillFactory,
             SkillGap,
         )
@@ -268,8 +267,8 @@ class TestSkillEvolver:
 
     def test_skill_merger(self):
         from agent_utilities.knowledge_graph.adaptation.skill_evolver import (
-            SkillNode,
             SkillMerger,
+            SkillNode,
         )
 
         a = SkillNode(
@@ -285,8 +284,8 @@ class TestSkillEvolver:
 
     def test_skill_merge(self):
         from agent_utilities.knowledge_graph.adaptation.skill_evolver import (
-            SkillNode,
             SkillMerger,
+            SkillNode,
         )
 
         a = SkillNode(skill_id="a", name="code-review", keywords=["code", "review"])
@@ -327,8 +326,8 @@ class TestTimescaleMemory:
 
     def test_consolidation(self):
         from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
-            TimescaleMemoryStore,
             MemoryTimescale,
+            TimescaleMemoryStore,
         )
 
         store = TimescaleMemoryStore()

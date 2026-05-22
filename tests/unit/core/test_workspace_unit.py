@@ -33,7 +33,7 @@ def test_get_agent_workspace_env(monkeypatch, tmp_path):
     workspace.WORKSPACE_DIR = None
     env_dir = tmp_path / "env_workspace"
     env_dir.mkdir()
-    monkeypatch.setenv("AGENT_WORKSPACE", str(env_dir))
+    monkeypatch.setenv("WORKSPACE_PATH", str(env_dir))
     assert workspace.get_agent_workspace() == env_dir
 
 

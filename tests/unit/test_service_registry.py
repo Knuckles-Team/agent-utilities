@@ -1,7 +1,6 @@
 #!/usr/bin/python
 """Tests for the Unified Service Registry (CONCEPT:ORCH-1.4)."""
 
-import pytest
 
 
 class TestServiceRegistry:
@@ -79,8 +78,9 @@ class TestServiceRegistry:
 
     def test_register_with_kg(self):
         import networkx as nx
-        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
         from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         g = nx.MultiDiGraph()
         engine = IntelligenceGraphEngine(g, backend=None)

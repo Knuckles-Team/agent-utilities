@@ -98,7 +98,7 @@ def ctx_log(
                     except RuntimeError:
                         pass
             except Exception:
-                pass  # nosec: B110 - Never let client-side logging break tool execution
+                pass  # nosec
 
 
 async def ctx_set_state(
@@ -151,7 +151,7 @@ async def ctx_get_state(
             val = await ctx.session.get_state(namespaced)
             return val if val is not None else default
         except Exception:
-            pass  # nosec: B110
+            pass  # nosec
     return default
 
 

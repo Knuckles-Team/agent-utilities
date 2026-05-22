@@ -4,7 +4,6 @@ import pytest
 
 from agent_utilities.domains.finance.strategy_export import (
     ExportPlatform,
-    ExportResult,
     MQL5Exporter,
     PineScriptExporter,
     StrategyCondition,

@@ -63,7 +63,7 @@ pip install agent-utilities[stardog]
 # ---------------------------------------------------------
 pip install agent-utilities[mcp]        # MCP Server hosting capabilities
 pip install agent-utilities[logfire]    # Observability & Tracing
-pip install agent-utilities[vault]      # HashiCorp Vault secrets
+pip install agent-utilities[vault]      # HashiCorp Vault & OpenBao secrets
 pip install agent-utilities[auth]       # Authlib integration
 
 # ---------------------------------------------------------

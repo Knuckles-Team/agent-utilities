@@ -1,8 +1,5 @@
-import os
-import shutil
 import tempfile
 from pathlib import Path
-import pytest
 
 from agent_utilities.file_safety import backup_file_pre_edit
 from agent_utilities.nested_context import get_nested_context
@@ -25,7 +22,7 @@ def test_backup_file_pre_edit():
         assert backup_path_obj.is_file()
 
         # Verify content is identical
-        with open(backup_path_obj, "r", encoding="utf-8") as f:
+        with open(backup_path_obj, encoding="utf-8") as f:
             content = f.read()
         assert content == "Hello world safety test"
 

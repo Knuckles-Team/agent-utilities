@@ -315,7 +315,7 @@ class GraphValidator:
             # 1b. Clamp importance_score to [0.0, 1.0]
             score = data.get("importance_score")
             if score is not None:
-                if isinstance(score, (int, float)):
+                if isinstance(score, int | float):
                     clamped = max(0.0, min(1.0, float(score)))
                     if clamped != float(score):
                         graph.nodes[node_id]["importance_score"] = clamped
@@ -349,7 +349,7 @@ class GraphValidator:
             # 1d. Clamp weight/reward/confidence fields
             for field_name in ("reward", "confidence", "certainty", "confidence_score"):
                 val = data.get(field_name)
-                if val is not None and isinstance(val, (int, float)):
+                if val is not None and isinstance(val, int | float):
                     clamped = max(0.0, min(1.0, float(val)))
                     if clamped != float(val):
                         graph.nodes[node_id][field_name] = clamped
@@ -387,7 +387,7 @@ class GraphValidator:
 
             # 1f. Clamp edge weight
             weight = data.get("weight")
-            if weight is not None and isinstance(weight, (int, float)):
+            if weight is not None and isinstance(weight, int | float):
                 clamped = max(0.0, min(10.0, float(weight)))
                 if clamped != float(weight):
                     graph.edges[u, v, key]["weight"] = clamped
@@ -542,7 +542,7 @@ class GraphValidator:
         for node_id, data in graph.nodes(data=True):
             score = data.get("importance_score", 0.0)
             degree = graph.degree(node_id)
-            if degree > 10 and isinstance(score, (int, float)) and score < 0.1:
+            if degree > 10 and isinstance(score, int | float) and score < 0.1:
                 report.tier3_warnings.append(
                     ValidationIssue(
                         tier=3,

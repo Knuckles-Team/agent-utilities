@@ -2,8 +2,6 @@
 
 from typing import Any
 
-import pytest
-
 from agent_utilities.knowledge_graph.backends.cypher_transpiler import (
     QueryType,
     transpile,

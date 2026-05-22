@@ -1,10 +1,9 @@
-import sys
 import asyncio
-import json
-import uuid
 import hashlib
-from datetime import datetime, timezone
+import json
+from datetime import UTC, datetime
 from pathlib import Path
+
 from agent_utilities.mcp.kg_server import _get_engine
 
 
@@ -25,6 +24,7 @@ async def ingest_codebase(target: Path, engine):
 
 def ingest_document(target: Path, engine, provenance):
     from llama_index.core import SimpleDirectoryReader
+
     from agent_utilities.core.embedding_utilities import create_embedding_model
 
     print(f"Ingesting document: {target}")
@@ -35,7 +35,7 @@ def ingest_document(target: Path, engine, provenance):
         docs = SimpleDirectoryReader(input_files=[str(target)]).load_data()
 
     created = []
-    ingestion_timestamp = datetime.now(timezone.utc).isoformat()
+    ingestion_timestamp = datetime.now(UTC).isoformat()
     for idx, doc in enumerate(docs):
         chunk_text = doc.text
         if not chunk_text.strip():
@@ -82,14 +82,14 @@ async def main():
         )
         print("Initial Stats:", stats)
 
-        with open("/home/apps/workspace/scratch/paths.txt", "r") as f:
+        with open("/home/apps/workspace/scratch/paths.txt") as f:
             paths = [line.strip() for line in f if line.strip()]
 
         provenance = {
             "agent_id": "test-ingest-script",
             "session_id": "test-session",
             "workspace_path": "/home/apps/workspace",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "source": "mcp",
         }
 

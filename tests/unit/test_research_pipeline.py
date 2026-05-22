@@ -9,19 +9,17 @@ Validates:
 - Pipeline report structure
 """
 
-import asyncio
-import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import networkx as nx
 import pytest
 
 from agent_utilities.automation.research_pipeline import (
     DEFAULT_CATEGORIES,
+    RELEVANCE_TAXONOMY,
     IngestedPaperRecord,
     PipelineConfig,
     PipelineReport,
-    RELEVANCE_TAXONOMY,
     ResearchPipelineRunner,
 )
 

@@ -1,7 +1,6 @@
 """Tests for CONCEPT:KG-2.6 — Formal Graph Theory Primitives."""
 
 import networkx as nx
-import numpy as np
 import pytest
 
 from agent_utilities.knowledge_graph.core.formal_reasoning_core import (

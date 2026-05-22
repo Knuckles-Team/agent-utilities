@@ -3,7 +3,6 @@
 
 import os
 import textwrap
-import tempfile
 
 import pytest
 

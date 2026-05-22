@@ -52,7 +52,7 @@ class TestAccessListModel:
         schema = ExecutionStep.model_json_schema()
         assert "access_list" in schema["properties"]
         desc = schema["properties"]["access_list"]["description"]
-        assert "CONCEPT:ORCH-1.1" in desc
+        assert "CONCEPT:ORCH-1.3" in desc
 
     def test_access_list_in_graphplan(self):
         """GraphPlan with mixed access_list configurations."""

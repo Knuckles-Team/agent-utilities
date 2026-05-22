@@ -210,11 +210,11 @@ def test_deep_imports() -> None:
 
     Mirrors the Phase 6 Scenario 5 import-integrity smoke test.
     """
-    from agent_utilities import create_agent_server, create_agent_server
+    from agent_utilities import create_agent_server
     from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-    from agent_utilities.knowledge_graph.kb.ingestion import KBIngestionEngine
     from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
+    from agent_utilities.knowledge_graph.kb.ingestion import KBIngestionEngine
     from agent_utilities.knowledge_graph.pipeline.runner import PipelineRunner
     from agent_utilities.protocols.a2a import A2AClient, register_a2a_peer
     from agent_utilities.protocols.acp_adapter import (

@@ -1,0 +1,252 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <https://agent-utilities.dev/ontology/infrastructure#> .
+@prefix au: <https://agent-utilities.dev/ontology#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://agent-utilities.dev/ontology/infrastructure> a owl:Ontology ;
+    rdfs:label "Agent-Utilities Infrastructure Ontology" ;
+    rdfs:comment """
+        Vendor-neutral infrastructure topology ontology covering compute,
+        networking, routing, DNS, observability, and enterprise-scale
+        data-centre constructs (racks, chassis, GPUs, fabric switches,
+        power distribution, cooling).
+    """ ;
+    owl:imports <https://agent-utilities.dev/ontology> .
+
+:BladeServer a owl:Class ;
+    rdfs:label "Blade Server" ;
+    rdfs:comment "A blade compute node housed in a chassis." ;
+    rdfs:subClassOf au:HardwareNode .
+
+:Chassis a owl:Class ;
+    rdfs:label "Chassis" ;
+    rdfs:comment "A blade chassis housing multiple blade servers." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:DDClient a owl:Class ;
+    rdfs:label "Dynamic DNS Client" ;
+    rdfs:comment "A dynamic DNS updater process." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:attachedStorage a owl:ObjectProperty ;
+    rdfs:label "attached storage" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :StorageArray .
+
+:belongsToStack a owl:ObjectProperty ;
+    rdfs:label "belongs to stack" ;
+    rdfs:domain :Container ;
+    rdfs:range :ContainerStack .
+
+:buildsImageFor a owl:ObjectProperty ;
+    rdfs:label "builds image for" ;
+    rdfs:domain :ContainerRegistry ;
+    rdfs:range au:PlatformService .
+
+:capacityTb a owl:DatatypeProperty ;
+    rdfs:label "storage capacity (TB)" ;
+    rdfs:domain :StorageArray ;
+    rdfs:range xsd:float .
+
+:cidr a owl:DatatypeProperty ;
+    rdfs:label "CIDR block" ;
+    rdfs:domain :NetworkSubnet ;
+    rdfs:range xsd:string .
+
+:connectedToFabric a owl:ObjectProperty ;
+    rdfs:label "connected to fabric" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :FabricSwitch .
+
+:connectsVia a owl:ObjectProperty ;
+    rdfs:label "connects via" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :VPNTunnel .
+
+:cooledBy a owl:ObjectProperty ;
+    rdfs:label "cooled by" ;
+    rdfs:domain :Rack ;
+    rdfs:range :CoolingUnit .
+
+:deployedOn a owl:ObjectProperty ;
+    rdfs:label "deployed on" ;
+    rdfs:comment "Links a platform service to its container stack." ;
+    rdfs:domain au:PlatformService ;
+    rdfs:range :ContainerStack .
+
+:dnsType a owl:DatatypeProperty ;
+    rdfs:label "DNS type" ;
+    rdfs:domain :DNSService ;
+    rdfs:range xsd:string .
+
+:exportsMetricsTo a owl:ObjectProperty ;
+    rdfs:label "exports metrics to" ;
+    rdfs:domain :MetricsExporter ;
+    rdfs:range :ObservabilityStack .
+
+:hasAccelerator a owl:ObjectProperty ;
+    rdfs:label "has accelerator" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :GPUAccelerator .
+
+:hasInterface a owl:ObjectProperty ;
+    rdfs:label "has interface" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :NetworkInterface .
+
+:managesDNSFor a owl:ObjectProperty ;
+    rdfs:label "manages DNS for" ;
+    rdfs:domain :DNSService ;
+    rdfs:range :NetworkSubnet .
+
+:monitors a owl:ObjectProperty ;
+    rdfs:label "monitors" ;
+    rdfs:domain :ObservabilityStack ;
+    rdfs:range au:PlatformService .
+
+:mountedIn a owl:ObjectProperty ;
+    rdfs:label "mounted in" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :Rack .
+
+:poweredBy a owl:ObjectProperty ;
+    rdfs:label "powered by" ;
+    rdfs:domain :Rack ;
+    rdfs:range :PowerDistribution .
+
+:proxyType a owl:DatatypeProperty ;
+    rdfs:label "proxy type" ;
+    rdfs:domain :ReverseProxy ;
+    rdfs:range xsd:string .
+
+:resolvesDNSFor a owl:ObjectProperty ;
+    rdfs:label "resolves DNS for" ;
+    rdfs:domain :DNSRewrite ;
+    rdfs:range au:PlatformService .
+
+:routesTo a owl:ObjectProperty ;
+    rdfs:label "routes to" ;
+    rdfs:domain :ProxyRoute ;
+    rdfs:range au:PlatformService .
+
+:runsOn a owl:ObjectProperty ;
+    rdfs:label "runs on" ;
+    rdfs:comment "Links a container or service to its host hardware." ;
+    rdfs:domain :Container ;
+    rdfs:range au:HardwareNode .
+
+:runtime a owl:DatatypeProperty ;
+    rdfs:label "container runtime" ;
+    rdfs:comment "Container engine: docker, podman, containerd, cri-o." ;
+    rdfs:domain :Container ;
+    rdfs:range xsd:string .
+
+:uCapacity a owl:DatatypeProperty ;
+    rdfs:label "rack U capacity" ;
+    rdfs:domain :Rack ;
+    rdfs:range xsd:integer .
+
+:vramGb a owl:DatatypeProperty ;
+    rdfs:label "VRAM (GB)" ;
+    rdfs:domain :GPUAccelerator ;
+    rdfs:range xsd:float .
+
+:ContainerRegistry a owl:Class ;
+    rdfs:label "Container Registry" ;
+    rdfs:comment "An OCI image registry (GitLab Registry, Harbor, Nexus, ECR)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:CoolingUnit a owl:Class ;
+    rdfs:label "Cooling Unit" ;
+    rdfs:comment "A cooling system (CRAC, CRAH, liquid cooling, immersion)." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:DNSRewrite a owl:Class ;
+    rdfs:label "DNS Rewrite" ;
+    rdfs:comment "A single DNS rewrite rule mapping a domain to an answer." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:FabricSwitch a owl:Class ;
+    rdfs:label "Fabric Switch" ;
+    rdfs:comment "A network fabric switch (InfiniBand, RoCE, high-speed Ethernet)." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:MetricsExporter a owl:Class ;
+    rdfs:label "Metrics Exporter" ;
+    rdfs:comment "An agent exporting metrics (node_exporter, cAdvisor, DCGM)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:NetworkInterface a owl:Class ;
+    rdfs:label "Network Interface" ;
+    rdfs:comment "A host NIC with MAC/IP bindings." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:PowerDistribution a owl:Class ;
+    rdfs:label "Power Distribution Unit" ;
+    rdfs:comment "A PDU providing metered power to rack equipment." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:ProxyRoute a owl:Class ;
+    rdfs:label "Proxy Route" ;
+    rdfs:comment "An individual route rule mapping a domain to a backend service." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:ReverseProxy a owl:Class ;
+    rdfs:label "Reverse Proxy" ;
+    rdfs:comment "A traffic routing system (Traefik, Nginx, Caddy, HAProxy)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:VPNTunnel a owl:Class ;
+    rdfs:label "VPN Tunnel" ;
+    rdfs:comment "A secure tunnel (WireGuard, Tailscale, IPsec, Cloudflare Tunnel)." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:ContainerStack a owl:Class ;
+    rdfs:label "Container Stack" ;
+    rdfs:comment "A logical grouping of containers (Compose stack, Swarm service, K8s Deployment)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:DNSService a owl:Class ;
+    rdfs:label "DNS Service" ;
+    rdfs:comment "A DNS resolver/server (AdGuard Home, Pi-hole, BIND, CoreDNS)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:GPUAccelerator a owl:Class ;
+    rdfs:label "GPU Accelerator" ;
+    rdfs:comment "A GPU or other hardware accelerator (FPGA, TPU, DPU)." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:NetworkSubnet a owl:Class ;
+    rdfs:label "Network Subnet" ;
+    rdfs:comment "A CIDR-addressed network segment (physical or overlay)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:ObservabilityStack a owl:Class ;
+    rdfs:label "Observability Stack" ;
+    rdfs:comment "An observability platform (Langfuse, Grafana, Prometheus, ELK)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:StorageArray a owl:Class ;
+    rdfs:label "Storage Array" ;
+    rdfs:comment "A storage system (SAN, NAS, NVMe-oF, Ceph)." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:Container a owl:Class ;
+    rdfs:label "Container" ;
+    rdfs:comment "A running container instance (Docker, Podman, containerd, CRI-O)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Rack a owl:Class ;
+    rdfs:label "Rack" ;
+    rdfs:comment "A physical server rack (42U standard or custom)." ;
+    rdfs:subClassOf bfo:0000030 .
+

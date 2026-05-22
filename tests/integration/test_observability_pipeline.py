@@ -11,18 +11,14 @@ Tests the full tracing pipeline:
     6. Workflow persistence in KG
 """
 
-import asyncio
-import json
 import logging
 import os
-import time
 from pathlib import Path
 
 import networkx as nx
 import pytest
 
 from agent_utilities.core.config import config
-from agent_utilities.knowledge_graph.backends import create_backend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.observability.custom_observability import (
     get_otel_status_summary,

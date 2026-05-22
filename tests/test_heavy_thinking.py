@@ -13,9 +13,7 @@ Covers:
 - KG persistence of trajectories and deliberation nodes
 """
 
-import asyncio
 import hashlib
-import re
 
 import pytest
 
@@ -38,7 +36,6 @@ from agent_utilities.models.knowledge_graph import (
     RegistryNodeType,
     TrajectoryNode,
 )
-
 
 # ── HeavyThinkingConfig Tests ────────────────────────────────────────
 
@@ -595,6 +592,7 @@ class TestMemoryCacheKGPersistence:
     def test_to_kg_nodes_creates_trajectory_nodes(self):
         """to_kg_nodes should create TrajectoryNode instances in the graph."""
         import networkx as nx
+
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
@@ -612,6 +610,7 @@ class TestMemoryCacheKGPersistence:
     def test_to_kg_nodes_creates_query_anchor(self):
         """Should create a query anchor node."""
         import networkx as nx
+
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
@@ -627,6 +626,7 @@ class TestMemoryCacheKGPersistence:
     def test_to_kg_nodes_includes_enc_pi(self):
         """Trajectory nodes should include EncPI metadata."""
         import networkx as nx
+
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())

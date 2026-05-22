@@ -43,7 +43,8 @@ async def main():
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
         import networkx as nx
-        from agent_utilities.core.paths import ensure_dirs, kg_db_path
+
+        from agent_utilities.core.paths import ensure_dirs
         from agent_utilities.knowledge_graph.backends import create_backend
 
         ensure_dirs()

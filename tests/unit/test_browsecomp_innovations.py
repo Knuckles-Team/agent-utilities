@@ -8,10 +8,8 @@ Covers all 5 components:
 - Component 5: Citation Tracker (extract_citations, evaluate_citations)
 """
 
-import math
 
 import pytest
-
 
 # ── Component 1: Fixed Corpus Evaluation ──────────────────────────────────
 
@@ -289,10 +287,11 @@ class TestHardNegativeMiner:
         assert same[0]["_score"] == 1.0
 
     def test_env_var_gating(self):
+        from unittest.mock import MagicMock
+
         from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (
             HardNegativeMiner,
         )
-        from unittest.mock import MagicMock
 
         retriever = MagicMock()
         miner = HardNegativeMiner(retriever)

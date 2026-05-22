@@ -7,10 +7,8 @@ import pytest
 
 from agent_utilities.security.threat_defense_engine import (
     GuardrailAction,
-    GuardrailCheckSummary,
     GuardrailEngine,
     GuardrailPhase,
-    GuardrailResult,
     GuardrailRule,
 )
 

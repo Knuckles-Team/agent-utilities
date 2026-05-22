@@ -31,6 +31,15 @@ The **Agent-Interpretable Model Evolver** autonomously evolves scikit-learn comp
 - **Explainable Autonomy**: Through the iModels integration, the agents can natively interpret and defend the machine learning models they use.
 - **Measurable Evolution**: The Continuous Evaluation Engine (EvalRunner) provides exact Jaccard metrics, cosine semantic tracking, and LLM-as-Judge scores to quantitatively prove the agent is getting smarter.
 
+### Workflow Distillation & Bundle Distribution (ORCH-1.25 × AHE-3.2)
+The **Workflow Distillation Hook** closes the evolution feedback loop by automatically promoting successful workflow execution patterns into reusable Workflow+TeamConfig pairs in the Knowledge Graph. When `synthesizer_step` completes a successful execution, an asynchronous background task fires the distillation hook. The hook tracks success counts per canonical workflow pattern (based on agent topology, not task content) and only promotes patterns that exceed the configurable `promotion_threshold` (default: 3 successes). Both the threshold and the `quality_score_minimum` are configurable from `config.json`.
+
+Promoted patterns are persisted as paired `WorkflowDefinition` + `TeamConfigNode` KG entries and can be exported as **Unified Bundles** — YAML/JSON artifacts that package workflows with their proven team compositions. Domain-specific preset bundles (finance, infrastructure, research) ship with `agent-utilities` and can be seeded into a fresh KG via `seed_all_presets()`.
+
+- **Source Code**: `agent_utilities/workflows/distillation_hook.py`, `agent_utilities/workflows/bundle.py`
+- **Presets**: `agent_utilities/workflows/presets/`
+- **Hot Path**: `synthesizer_step → WorkflowDistillationHook.on_execution_complete()`
+
 ## Key Concepts Leveraged
 - **AHE-3.1**: Continuous Evaluation Engine
 - **AHE-3.5**: Continual Learning & Experience Nodes

@@ -39,6 +39,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import config
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_REFRESH_INTERVAL = 300  # 5 minutes
@@ -63,7 +65,7 @@ def resolve_a2a_config_path(
     candidates: list[str] = []
     if config_ref:
         candidates.append(config_ref)
-    env_val = os.getenv("A2A_CONFIG")
+    env_val = config.a2a_config
     if env_val:
         candidates.append(env_val)
     candidates.append("a2a_config.json")

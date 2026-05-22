@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import re
 from pathlib import Path
 
@@ -14,7 +13,7 @@ def load_canonical_concepts():
         print(f"Error: {CONCEPT_MAP} not found!")
         return valid_concepts
 
-    with open(CONCEPT_MAP, "r") as f:
+    with open(CONCEPT_MAP) as f:
         content = f.read()
 
     # Matches `ORCH-1.0`, `KG-2.12`, etc. inside the markdown table
@@ -167,7 +166,7 @@ def validate_diagrams():
     valid_nodes = 0
 
     for md_file in DOCS_DIR.rglob("*.md"):
-        with open(md_file, "r") as f:
+        with open(md_file) as f:
             content = f.read()
 
         nodes = parse_mermaid_nodes(content)

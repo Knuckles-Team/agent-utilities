@@ -418,12 +418,12 @@ def _build_server():
             if action == "add_node":
                 if not node_id or not node_type:
                     return "Error: node_id and node_type required"
-                engine.add_node(node_id, node_type, **props)
+                engine.add_node(node_id, node_type, props)
                 return f"Node {node_id} added."
             elif action == "add_edge":
                 if not source_id or not target_id or not rel_type:
                     return "Error: source_id, target_id, and rel_type required"
-                engine.add_edge(source_id, target_id, rel_type, **props)
+                engine.link_nodes(source_id, target_id, rel_type, props)
                 return f"Edge {source_id} -> {target_id} added."
             elif action == "delete_node":
                 engine.delete_node(node_id)
@@ -434,13 +434,15 @@ def _build_server():
             elif action == "register_external_graph":
                 if not endpoint_url:
                     return "Error: endpoint_url required"
-                engine.add_node(endpoint_url, "ExternalGraphReference", type=graph_type)
+                engine.add_node(
+                    endpoint_url, "ExternalGraphReference", {"type": graph_type}
+                )
                 return f"Registered external graph at {endpoint_url}"
             elif action == "bulk_ingest":
                 nodes_list = json.loads(nodes) if nodes else []
                 for n in nodes_list:
                     engine.add_node(
-                        n.get("id"), n.get("type", "Node"), **n.get("properties", {})
+                        n.get("id"), n.get("type", "Node"), n.get("properties", {})
                     )
                 return f"Bulk ingested {len(nodes_list)} nodes."
             elif action in ("store_memory", "recall_memory"):
@@ -473,20 +475,20 @@ def _build_server():
                     engine.add_node(
                         f"chat_{agent_id}_{hash(properties)}",
                         "ChatLog",
-                        content=properties,
-                        agent_id=agent_id,
+                        {"content": properties, "agent_id": agent_id},
                     )
                     return "Chat logged."
                 elif action == "submit_sdd":
                     engine.add_node(
                         f"sdd_{agent_id}_{hash(properties)}",
                         "SDD",
-                        content=properties,
-                        agent_id=agent_id,
+                        {"content": properties, "agent_id": agent_id},
                     )
                     return "SDD submitted."
                 elif action == "register_execution":
-                    engine.add_node(f"exec_{agent_id}", "Execution", status="running")
+                    engine.add_node(
+                        f"exec_{agent_id}", "Execution", {"status": "running"}
+                    )
                     return "Execution registered."
                 elif action == "check_loop":
                     return "Loop status: OK"
@@ -513,7 +515,7 @@ def _build_server():
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, agent_toolkit, corpus, jobs, job_status, status, rebuild_indexes, observe, materialize, sync, reflect).",
+            description="Action to perform (ingest, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, rebuild_indexes, observe, materialize, sync, reflect).",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -712,6 +714,36 @@ def _build_server():
                 )
                 return json.dumps(result, default=str)
 
+            elif action == "ingest_knowledge_pack":
+                import json
+                from pathlib import Path
+
+                import yaml
+
+                from agent_utilities.models.knowledge_pack import (
+                    KnowledgePackBundle,
+                    KnowledgePackHydrator,
+                    KnowledgePackImporter,
+                )
+
+                if not target_path:
+                    return "Error: target_path required for ingest_knowledge_pack"
+
+                path = Path(target_path)
+                if not path.exists() or not path.is_file():
+                    return f"Error: knowledge pack file not found at {target_path}"
+
+                with open(path, encoding="utf-8") as f:
+                    if path.suffix in [".yaml", ".yml"]:
+                        data = yaml.safe_load(f)
+                    else:
+                        data = json.load(f)
+
+                bundle = KnowledgePackBundle.from_dict(data)
+                await KnowledgePackHydrator.hydrate(bundle)
+                KnowledgePackImporter.seed_into_kg(bundle, engine)
+                return f"Knowledge pack from {target_path} hydrated and ingested."
+
             else:
                 return f"Error: Unknown ingest action '{action}'"
         except Exception as e:
@@ -858,8 +890,6 @@ def _build_server():
                     orch = Orchestrator(engine)
 
                     if action == "dispatch":
-                        import json
-
                         deps = json.loads(dependencies) if dependencies else []
                         job_id = await orch.dispatch_task(task, deps)
                         return f"Task dispatched. Job ID: {job_id}"
@@ -973,31 +1003,7 @@ def _build_server():
                     store = WorkflowStore(engine)
                     workflows = store.list_workflows(limit=50)
                     if not workflows:
-                        # Try loading from built-in catalog
-                        try:
-                            from agent_utilities.workflows.catalog import (
-                                WorkflowCatalog,
-                            )
-
-                            catalog = WorkflowCatalog.load()
-                            return json.dumps(
-                                {
-                                    "source": "catalog",
-                                    "workflows": [
-                                        {
-                                            "name": s.name,
-                                            "description": s.description,
-                                            "domain": s.domain,
-                                            "steps": len(s.steps),
-                                            "tags": s.tags,
-                                        }
-                                        for s in catalog.scenarios
-                                    ],
-                                },
-                                default=str,
-                            )
-                        except Exception:
-                            return "No workflows found in KG or catalog."
+                        return json.dumps({"error": "No workflows found in database."})
                     return json.dumps(
                         {"source": "kg", "workflows": workflows}, default=str
                     )
@@ -1010,9 +1016,11 @@ def _build_server():
 
                     runner = WorkflowRunner(max_steps_per_agent=max_steps)
                     name = agent_name or task
+                    input_task = task if (agent_name and task != agent_name) else None
                     wf_result = await runner.execute_by_name(
                         workflow_name=name,
                         engine=engine,
+                        task=input_task,  # type: ignore[call-arg]
                     )
                     return json.dumps(wf_result.to_dict(), default=str)
                 except ValueError as exc:
@@ -1020,18 +1028,59 @@ def _build_server():
                 except Exception as exc:
                     return f"Error executing workflow: {exc}"
 
+            elif action == "dispatch_workflow":
+                try:
+                    import asyncio
+
+                    from agent_utilities.workflows.runner import WorkflowRunner
+
+                    runner = WorkflowRunner(max_steps_per_agent=max_steps)
+                    name = agent_name or task
+                    input_task = task if (agent_name and task != agent_name) else None
+                    session_id = f"wf-{uuid.uuid4().hex[:8]}"
+
+                    # Start execution as background task
+                    asyncio.create_task(
+                        runner.execute_by_name(
+                            workflow_name=name,
+                            engine=engine,
+                            trace_session=session_id,
+                            task=input_task,  # type: ignore[call-arg]
+                        )
+                    )
+                    return (
+                        f"Workflow dispatched in background. Session ID: {session_id}"
+                    )
+                except ValueError as exc:
+                    return f"Workflow not found: {exc}"
+                except Exception as exc:
+                    return f"Error dispatching workflow: {exc}"
+
+            elif action == "workflow_status":
+                try:
+                    from agent_utilities.workflows.runner import _active_workflows
+
+                    sid = job_id or task
+                    if not sid:
+                        return "Error: Must specify session ID in 'job_id' or 'task' parameter."
+
+                    wf_status = _active_workflows.get(sid)
+                    if not wf_status:
+                        return f"Workflow session '{sid}' not found or has not been run in this process."
+
+                    return json.dumps(wf_status.to_dict(), default=str)
+                except Exception as exc:
+                    return f"Error retrieving workflow status: {exc}"
+
             elif action == "export_workflow":
                 try:
-                    from agent_utilities.workflows.catalog import WorkflowCatalog
-
-                    catalog = WorkflowCatalog.load()
-                    # Rich export: includes resolved agent configs
-                    # (tools, system prompts, MCP commands, skills)
-                    export_data = catalog.export_with_agents(
-                        engine=engine,
-                        scenario_name=agent_name or None,
+                    return json.dumps(
+                        {
+                            "error": "Workflow export requires resolving workflows from the database. Legacy catalog export is deprecated."
+                        },
+                        indent=2,
+                        default=str,
                     )
-                    return json.dumps(export_data, indent=2, default=str)
                 except Exception as exc:
                     return f"Error exporting workflow: {exc}"
 
@@ -1061,8 +1110,16 @@ def _build_server():
         """Manage backend configurations and abstract credentials. Allows dynamic registry updates and credential injection during agent provisioning."""
         try:
             if action == "set_secret":
-                # Integrates with the ecosystem's backend abstraction layer
-                # For now, simulate saving via standard config utils.
+                from agent_utilities.security.secrets_client import (
+                    create_secrets_client,
+                )
+                from agent_utilities.security.xai_auth import get_secrets_client_for_xai
+
+                if config_key.startswith("xai/"):
+                    client = get_secrets_client_for_xai()
+                else:
+                    client = create_secrets_client()
+                client.set(config_key, config_value)
                 return json.dumps(
                     {"status": "success", "action": "set_secret", "key": config_key}
                 )

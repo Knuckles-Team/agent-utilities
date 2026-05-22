@@ -3,6 +3,7 @@ from __future__ import annotations
 """AHE Evolve Agent.
 
 CONCEPT:AHE-3.0 — Agentic Harness Engineering (Evolution Loop)
+CONCEPT:ORCH-1.25 — Workflow Distillation Integration
 
 The Evolve Agent reads distilled evidence, identifies component-level
 failure attribution, proposes targeted edits, and records falsifiable

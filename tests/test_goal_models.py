@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from agent_utilities.models.goal import (
     GoalCheckpoint,
     GoalIteration,

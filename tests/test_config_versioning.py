@@ -8,7 +8,6 @@ import pytest
 from agent_utilities.observability.config_versioning import (
     AgentConfigSnapshot,
     AgentConfigVersionManager,
-    ConfigDiff,
 )
 
 

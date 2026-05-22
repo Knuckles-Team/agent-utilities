@@ -11,7 +11,6 @@ from agent_utilities.observability.audit_logger import (
     ACTION_AGENT_CREATE,
     ACTION_AGENT_UPDATE,
     ACTION_CONFIG_CHANGE,
-    ACTION_GUARDRAIL_BLOCK,
     ACTION_RBAC_DENIAL,
     RESOURCE_AGENT,
     RESOURCE_CONFIG,

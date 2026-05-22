@@ -1,6 +1,7 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-import asyncio
-from unittest.mock import MagicMock, AsyncMock
+
 from agent_utilities.graph.state import GraphDeps
 from agent_utilities.graph.verification import parallel_trajectory_distiller
 

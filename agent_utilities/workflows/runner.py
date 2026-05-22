@@ -63,6 +63,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Registry for tracking workflow runs (both active and completed) within this process
+_active_workflows: dict[str, WorkflowResult] = {}
+
 
 @dataclass
 class StepResult:
@@ -187,6 +190,7 @@ class WorkflowRunner:
         engine: IntelligenceGraphEngine,
         workflow_name: str = "unnamed",
         trace_session: str | None = None,
+        task: str | None = None,
     ) -> WorkflowResult:
         """Execute a GraphPlan step by step, respecting dependencies.
 
@@ -206,6 +210,7 @@ class WorkflowRunner:
             workflow_name=workflow_name,
             session_id=session_id,
         )
+        _active_workflows[session_id] = result
 
         # Set up Langfuse session context
         try:
@@ -254,6 +259,7 @@ class WorkflowRunner:
                         step=step,
                         engine=engine,
                         prior_outputs=step_outputs,
+                        task_input=task,
                     )
                 )
 
@@ -313,6 +319,7 @@ class WorkflowRunner:
         workflow_name: str,
         engine: IntelligenceGraphEngine,
         trace_session: str | None = None,
+        task: str | None = None,
     ) -> WorkflowResult:
         """Load a stored workflow by name from the KG and execute it.
 
@@ -322,6 +329,7 @@ class WorkflowRunner:
             workflow_name: Name of the workflow in the KG.
             engine: IntelligenceGraphEngine for loading and execution.
             trace_session: Optional Langfuse session ID.
+            task: Optional dynamic task/input to interpolate in steps.
 
         Returns:
             WorkflowResult with execution details.
@@ -335,13 +343,14 @@ class WorkflowRunner:
         plan = store.load_workflow(workflow_name)
 
         if plan is None:
-            raise ValueError(f"Workflow '{workflow_name}' not found in KG")
+            raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
 
         return await self.execute(
             plan=plan,
             engine=engine,
             workflow_name=workflow_name,
             trace_session=trace_session,
+            task=task,
         )
 
     # -----------------------------------------------------------------------
@@ -412,6 +421,7 @@ class WorkflowRunner:
         step: ExecutionStep,
         engine: IntelligenceGraphEngine,
         prior_outputs: dict[int, str],
+        task_input: str | None = None,
     ) -> StepResult:
         """Execute a single workflow step via run_agent().
 
@@ -420,6 +430,7 @@ class WorkflowRunner:
             step: The ExecutionStep to execute.
             engine: IntelligenceGraphEngine for agent resolution.
             prior_outputs: Outputs from previously completed steps.
+            task_input: Optional dynamic task/input context/target to interpolate.
 
         Returns:
             StepResult with execution details.
@@ -427,6 +438,16 @@ class WorkflowRunner:
         from agent_utilities.orchestration.agent_runner import run_agent
 
         task = step.refined_subtask or f"Execute step: {step.node_id}"
+
+        # Inject runtime task/input parameter if provided
+        if task_input:
+            if "{{task}}" in task:
+                task = task.replace("{{task}}", task_input)
+            elif "{{input}}" in task:
+                task = task.replace("{{input}}", task_input)
+            else:
+                # If no explicit placeholder is used, append as helpful input context
+                task = f"{task}\n\nTask Input: {task_input}"
 
         # Inject prior step context if access_list is set
         if step.access_list:

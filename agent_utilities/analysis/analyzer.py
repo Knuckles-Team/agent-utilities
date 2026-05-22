@@ -1,6 +1,7 @@
 import logging
-import os
 from typing import Any
+
+from agent_utilities.core.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -8,11 +9,13 @@ logger = logging.getLogger(__name__)
 def _get_analysis_model_id() -> str | None:
     """Return the model ID for analysis tasks.
 
-    Checks ANALYSIS_MODEL_ID → LITE_LLM_MODEL_ID → None (use default).
-    This allows operators to point analysis at a non-thinking model
-    (e.g. gemma-4) while keeping the main LLM as a thinking model.
+    Uses the lite chat model from the registry (intelligence_level='light'),
+    falling back to the default chat model. This allows operators to point
+    analysis at a non-thinking model (e.g. gemma-4) while keeping the main
+    LLM as a thinking model.
     """
-    return os.environ.get("ANALYSIS_MODEL_ID") or os.environ.get("LITE_LLM_MODEL_ID")
+    _lite = config.lite_chat_model
+    return _lite.id if _lite else None
 
 
 def _extract_result_text(result: Any) -> str:

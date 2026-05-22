@@ -260,7 +260,11 @@ class DynamicSubgraphOrchestrator:
                 role = r.get("role") or r.get("name") or r.get("agent_id")
                 aid = r.get("agent_id")
                 if available_agents is None or aid in available_agents:
-                    agents.append({"role": role, "agent_id": aid})
+                    agent_data = {"role": role, "agent_id": aid}
+                    model_id = r.get("model_id")
+                    if model_id:
+                        agent_data["model_id"] = model_id
+                    agents.append(agent_data)
         except Exception:
             pass  # nosec
 

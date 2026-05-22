@@ -167,6 +167,7 @@ C4Component
         Component(team, "TeamConfig Composer", "Python", "Coalition formation & promotion")
         Component(sdd, "DSTDD Manager", "Python", "Design-Spec-Test pipeline")
         Component(dasm, "🔬 Distributed Agent State Manager", "Python", "AHE-3.7: Optimistic locking with optional Redis support")
+        Component(distill, "Workflow Distillation Hook", "Python", "ORCH-1.25: Auto-promotes successful patterns to Workflow Skills")
     }
 
     Rel(eval, selfmodel, "Updates self-assessment scores")
@@ -174,6 +175,8 @@ C4Component
     Rel(team, selfmodel, "Uses capability scores for composition")
     Rel(sdd, eval, "Validates features against KG integrity")
     Rel(team, dasm, "Syncs concurrent agent state")
+    Rel(distill, team, "Promotes proven team compositions")
+    Rel(distill, evolve, "Feeds back distilled patterns")
 ```
 
 ### Pillar 4: Ecosystem Peripherals (ECO)
@@ -353,6 +356,18 @@ flowchart LR
             WF_PLANS -->|"execute()"| WF_RUNNER["ORCH-1.24: WorkflowRunner"]
             WF_RUNNER -->|"wave-based dispatch"| AE_RESOLVE2["ORCH-1.21: run_agent()"]
             WF_RUNNER -->|"session traces"| WF_LANGFUSE["OS-5.1: Langfuse"]
+        end
+
+        subgraph DISTILL ["Workflow Distillation Flow (ORCH-1.25)"]
+            direction LR
+            WD_SYNTH["ORCH-1.0: Synthesizer"] -->|"success"| WD_HOOK["ORCH-1.25: Distillation Hook"]
+            WD_HOOK -->|"threshold met"| WD_STORE["ORCH-1.22: WorkflowStore"]
+            WD_HOOK -->|"promote"| WD_TEAM["AHE-3.3: TeamConfig Composer"]
+            WD_STORE -->|"versioned"| WD_KG["KG-2.0: KG Persistence"]
+            WD_TEAM -->|"proven team"| WD_KG
+            WD_KG -->|"bundle export"| WD_BUNDLE["ORCH-1.25: Bundle Exporter"]
+            WD_BUNDLE -->|"YAML / JSON"| WD_PRESET["ORCH-1.25: Domain Presets"]
+            WD_PRESET -->|"seed_into_kg()"| WD_KG
         end
     end
 ```

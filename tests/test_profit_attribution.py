@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from agent_utilities.domains.finance.profit_attribution import (
-    BenchmarkComparison,
     PerformanceReport,
     ProfitAttributor,
     compare_to_benchmark,

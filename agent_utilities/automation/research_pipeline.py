@@ -341,7 +341,7 @@ class ResearchPipelineRunner:
             keywords = info["keywords"] if isinstance(info["keywords"], list) else []
             weight = (
                 info.get("weight", 1.0)
-                if isinstance(info.get("weight"), (int, float))
+                if isinstance(info.get("weight"), int | float)
                 else 1.0
             )
             domain_hits = sum(1 for kw in keywords if kw.lower() in text)

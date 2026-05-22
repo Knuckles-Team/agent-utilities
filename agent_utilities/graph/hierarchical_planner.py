@@ -407,7 +407,7 @@ async def fetch_epistemic_context() -> str:
 
     # 2. Run git status
     try:
-        git_status = subprocess.check_output(  # nosec B607
+        git_status = subprocess.check_output(
             ["git", "status", "--short"], text=True
         ).strip()
     except Exception:
@@ -838,7 +838,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_RECURSION_DEPTH = int(os.environ.get("MAX_RECURSION_DEPTH", "2"))
+from agent_utilities.core.config import config
+
+MAX_RECURSION_DEPTH = int(config.max_recursion_depth or "2")
 """Hard ceiling on recursive graph nesting.  Default 2, configurable."""
 
 

@@ -10,8 +10,8 @@ from agent_utilities.graph.config_helpers import (
     load_mcp_config,
     load_node_agents_registry,
 )
-from agent_utilities.graph.lifecycle import _emit_node_lifecycle
 from agent_utilities.graph.hierarchical_planner import fetch_epistemic_context
+from agent_utilities.graph.lifecycle import _emit_node_lifecycle
 from agent_utilities.models import MCPAgentRegistryModel, MCPConfigModel
 
 
