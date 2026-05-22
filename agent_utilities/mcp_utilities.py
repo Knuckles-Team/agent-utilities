@@ -9,7 +9,7 @@ New code should import from the submodules directly:
 CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 """
 
-__version__ = "0.13.3"
+__version__ = "0.14.0"
 
 # Re-export server factory (parser, server, config loading, defaults)
 # Re-export config loader (still defined here — too coupled to move without
