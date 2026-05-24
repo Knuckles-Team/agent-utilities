@@ -577,4 +577,150 @@ def create_mcp_server(
     os.environ["FASTMCP_LOG_LEVEL"] = "CRITICAL"
     mcp = FastMCP(name, auth=auth, instructions=instructions)
 
+    # Inject dynamic visibility transform for dynamic tag/tool filtering
+    try:
+        from fastmcp.server.transforms import Transform
+
+        class DynamicVisibilityTransform(Transform):
+            """Enforces environment-variable and header-based tag and tool filters dynamically across all components."""
+
+            def _filter_components(self, components):
+                # 1. Start with environment variable defaults
+                enabled_tags_env = os.environ.get("MCP_ENABLED_TAGS")
+                disabled_tags_env = os.environ.get("MCP_DISABLED_TAGS")
+                enabled_components_env = os.environ.get(
+                    "MCP_ENABLED_TOOLS"
+                ) or os.environ.get("MCP_ENABLED_COMPONENTS")
+                disabled_components_env = os.environ.get(
+                    "MCP_DISABLED_TOOLS"
+                ) or os.environ.get("MCP_DISABLED_COMPONENTS")
+
+                # 2. Extract request headers if HTTP/SSE transport is active
+                try:
+                    from fastmcp.server.dependencies import get_http_request
+
+                    req = get_http_request()
+                    if req:
+                        headers = req.headers
+                        enabled_tags_env = headers.get(
+                            "x-mcp-enabled-tags", enabled_tags_env
+                        )
+                        disabled_tags_env = headers.get(
+                            "x-mcp-disabled-tags", disabled_tags_env
+                        )
+                        enabled_components_env = headers.get(
+                            "x-mcp-enabled-tools",
+                            headers.get(
+                                "x-mcp-enabled-components", enabled_components_env
+                            ),
+                        )
+                        disabled_components_env = headers.get(
+                            "x-mcp-disabled-tools",
+                            headers.get(
+                                "x-mcp-disabled-components", disabled_components_env
+                            ),
+                        )
+                except Exception:
+                    pass
+
+                # 3. Parse comma-separated strings to sets
+                enabled_tags = (
+                    set(t.strip() for t in enabled_tags_env.split(",") if t.strip())
+                    if enabled_tags_env
+                    else None
+                )
+                disabled_tags = (
+                    set(t.strip() for t in disabled_tags_env.split(",") if t.strip())
+                    if disabled_tags_env
+                    else None
+                )
+                enabled_names = (
+                    set(
+                        n.strip()
+                        for n in enabled_components_env.split(",")
+                        if n.strip()
+                    )
+                    if enabled_components_env
+                    else None
+                )
+                disabled_names = (
+                    set(
+                        n.strip()
+                        for n in disabled_components_env.split(",")
+                        if n.strip()
+                    )
+                    if disabled_components_env
+                    else None
+                )
+
+                filtered = []
+                for c in components:
+                    name = getattr(c, "name", None) or getattr(c, "uri", None)
+                    if not name:
+                        filtered.append(c)
+                        continue
+
+                    if enabled_names is not None and name not in enabled_names:
+                        continue
+                    if disabled_names is not None and name in disabled_names:
+                        continue
+
+                    if hasattr(c, "tags") and c.tags:
+                        if enabled_tags is not None:
+                            if not (c.tags & enabled_tags):
+                                continue
+                        if disabled_tags is not None:
+                            if c.tags & disabled_tags:
+                                continue
+                    else:
+                        if enabled_tags is not None:
+                            continue
+
+                    filtered.append(c)
+                return filtered
+
+            async def list_tools(self, tools):
+                return self._filter_components(tools)
+
+            async def get_tool(self, name, call_next, *, version=None):
+                tool = await call_next(name, version=version)
+                if tool is None:
+                    return None
+                filtered = self._filter_components([tool])
+                return filtered[0] if filtered else None
+
+            async def list_resources(self, resources):
+                return self._filter_components(resources)
+
+            async def get_resource(self, uri, call_next, *, version=None):
+                res = await call_next(uri, version=version)
+                if res is None:
+                    return None
+                filtered = self._filter_components([res])
+                return filtered[0] if filtered else None
+
+            async def list_resource_templates(self, templates):
+                return self._filter_components(templates)
+
+            async def get_resource_template(self, uri, call_next, *, version=None):
+                tmpl = await call_next(uri, version=version)
+                if tmpl is None:
+                    return None
+                filtered = self._filter_components([tmpl])
+                return filtered[0] if filtered else None
+
+            async def list_prompts(self, prompts):
+                return self._filter_components(prompts)
+
+            async def get_prompt(self, name, call_next, *, version=None):
+                prompt = await call_next(name, version=version)
+                if prompt is None:
+                    return None
+                filtered = self._filter_components([prompt])
+                return filtered[0] if filtered else None
+
+        mcp.add_transform(DynamicVisibilityTransform())
+    except Exception as e:
+        logger.warning(f"Could not register dynamic visibility transform: {e}")
+
     return args, mcp, middlewares

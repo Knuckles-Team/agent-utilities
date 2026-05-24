@@ -70,6 +70,16 @@ from .kg_graph_factory import (
     KGMaterializedStep,
     build_pydantic_graph_from_kg,
 )
+from .manifest_generators import (
+    # CONCEPT:ORCH-1.25 — Manifest Generators
+    manifest_for_enterprise,
+    manifest_from_department,
+    manifest_from_heavy_thinking,
+    manifest_from_planner,
+    manifest_from_preset,
+    manifest_from_teamconfig,
+    manifest_from_workflow,
+)
 from .memory_cache import (
     MemoryCache,
     TrajectoryEntry,
@@ -79,6 +89,10 @@ from .memory_cache import (
 from .mermaid import (
     # Mermaid
     get_graph_mermaid,
+)
+from .parallel_engine import (
+    # CONCEPT:ORCH-1.25 — Parallel Engine
+    ParallelEngine,
 )
 from .protocol_agnostic_execution import (
     ACPEventHandler,
@@ -180,4 +194,13 @@ __all__ = [
     "build_pydantic_graph_from_kg",
     "KGGraphResult",
     "KGMaterializedStep",
+    # CONCEPT:ORCH-1.25 — Parallel Engine
+    "ParallelEngine",
+    "manifest_from_planner",
+    "manifest_from_teamconfig",
+    "manifest_from_workflow",
+    "manifest_from_heavy_thinking",
+    "manifest_from_preset",
+    "manifest_from_department",
+    "manifest_for_enterprise",
 ]

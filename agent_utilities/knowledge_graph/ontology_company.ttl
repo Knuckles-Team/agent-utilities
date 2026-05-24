@@ -1,0 +1,320 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:actualValue a owl:DatatypeProperty ;
+    rdfs:label "actual value" ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:float .
+
+:automationLevel a owl:DatatypeProperty ;
+    rdfs:label "automation level" ;
+    rdfs:comment "Percentage of tasks handled by AI (0.0–1.0)." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range xsd:float .
+
+:coverageLevel a owl:DatatypeProperty ;
+    rdfs:label "coverage level" ;
+    rdfs:comment "individual, family, employee_plus_one." ;
+    rdfs:domain :BenefitsPlan ;
+    rdfs:range xsd:string .
+
+:currentValue a owl:DatatypeProperty ;
+    rdfs:label "current value" ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:float .
+
+:dbaName a owl:DatatypeProperty ;
+    rdfs:label "DBA name" ;
+    rdfs:comment "Doing Business As — trade name." ;
+    rdfs:domain :Company ;
+    rdfs:range xsd:string .
+
+:deductions a owl:DatatypeProperty ;
+    rdfs:label "deductions" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:float .
+
+:departmentType a owl:DatatypeProperty ;
+    rdfs:label "department type" ;
+    rdfs:comment "finance, legal, hr, ops, strategy, marketing, sales, r_and_d." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range xsd:string .
+
+:ein a owl:DatatypeProperty ;
+    rdfs:label "EIN" ;
+    rdfs:comment "Employer Identification Number (IRS-assigned)." ;
+    rdfs:domain :Company ;
+    rdfs:range xsd:string .
+
+:enrolledIn a owl:ObjectProperty ;
+    rdfs:label "enrolled in" ;
+    rdfs:comment "Links an employee to their benefits plan." ;
+    rdfs:domain :Employee ;
+    rdfs:range :BenefitsPlan .
+
+:entityType a owl:DatatypeProperty ;
+    rdfs:label "entity type" ;
+    rdfs:comment "LLC, Corp, S-Corp, Sole Proprietorship." ;
+    rdfs:domain :Company ;
+    rdfs:range xsd:string .
+
+:forEmployee a owl:ObjectProperty ;
+    rdfs:label "for employee" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range :Employee .
+
+:goalCascadesTo a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "goal cascades to" ;
+    rdfs:comment "Transitive goal hierarchy: org → dept → individual." ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range :StrategicGoal .
+
+:goalDeadline a owl:DatatypeProperty ;
+    rdfs:label "goal deadline" ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:date .
+
+:goalType a owl:DatatypeProperty ;
+    rdfs:label "goal type" ;
+    rdfs:comment "profit, growth, efficiency, sustainability, employee_satisfaction, compliance, innovation." ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:string .
+
+:grossPay a owl:DatatypeProperty ;
+    rdfs:label "gross pay" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:float .
+
+:hasBankAccount a owl:ObjectProperty ;
+    rdfs:label "has bank account" ;
+    rdfs:domain :Company ;
+    rdfs:range :BankAccount .
+
+:hasDepartment a owl:ObjectProperty ;
+    rdfs:label "has department" ;
+    rdfs:domain :Company ;
+    rdfs:range :Department .
+
+:hasGoal a owl:ObjectProperty ;
+    rdfs:label "has goal" ;
+    rdfs:domain :Company ;
+    rdfs:range :StrategicGoal .
+
+:hasKPI a owl:ObjectProperty ;
+    rdfs:label "has KPI" ;
+    rdfs:domain :Company ;
+    rdfs:range :KeyPerformanceIndicator .
+
+:hasLegalEntity a owl:ObjectProperty ;
+    rdfs:label "has legal entity" ;
+    rdfs:domain :Company ;
+    rdfs:range :LegalEntity .
+
+:holdsLicense a owl:ObjectProperty ;
+    rdfs:label "holds license" ;
+    rdfs:domain :Company ;
+    rdfs:range :CompanyLicense .
+
+:kpiTarget a owl:DatatypeProperty ;
+    rdfs:label "KPI target" ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:float .
+
+:kpiType a owl:DatatypeProperty ;
+    rdfs:label "KPI type" ;
+    rdfs:comment "profit, revenue, employee_satisfaction, environmental_impact, throughput, efficiency, quality, compliance." ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:string .
+
+:licenseExpiration a owl:DatatypeProperty ;
+    rdfs:label "license expiration" ;
+    rdfs:domain :CompanyLicense ;
+    rdfs:range xsd:date .
+
+:licenseJurisdiction a owl:ObjectProperty ;
+    rdfs:label "license jurisdiction" ;
+    rdfs:domain :CompanyLicense ;
+    rdfs:range :Jurisdiction .
+
+:licenseType a owl:DatatypeProperty ;
+    rdfs:label "license type" ;
+    rdfs:comment "business, professional, regulatory." ;
+    rdfs:domain :CompanyLicense ;
+    rdfs:range xsd:string .
+
+:measurementFrequency a owl:DatatypeProperty ;
+    rdfs:label "measurement frequency" ;
+    rdfs:comment "daily, weekly, monthly, quarterly." ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:string .
+
+:measurementUnit a owl:DatatypeProperty ;
+    rdfs:label "measurement unit" ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:string .
+
+:measuresGoal a owl:ObjectProperty ;
+    rdfs:label "measures goal" ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range :StrategicGoal .
+
+:monthlyCost a owl:DatatypeProperty ;
+    rdfs:label "monthly cost" ;
+    rdfs:domain :BenefitsPlan ;
+    rdfs:range xsd:float .
+
+:netPay a owl:DatatypeProperty ;
+    rdfs:label "net pay" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:float .
+
+:payPeriodEnd a owl:DatatypeProperty ;
+    rdfs:label "pay period end" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:date .
+
+:payPeriodStart a owl:DatatypeProperty ;
+    rdfs:label "pay period start" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:date .
+
+:planProvider a owl:ObjectProperty ;
+    rdfs:label "plan provider" ;
+    rdfs:domain :BenefitsPlan ;
+    rdfs:range :Organization .
+
+:planType a owl:DatatypeProperty ;
+    rdfs:label "plan type" ;
+    rdfs:comment "medical, dental, vision, 401k, pto, disability, life_insurance." ;
+    rdfs:domain :BenefitsPlan ;
+    rdfs:range xsd:string .
+
+:renewalRequired a owl:DatatypeProperty ;
+    rdfs:label "renewal required" ;
+    rdfs:domain :CompanyLicense ;
+    rdfs:range xsd:boolean .
+
+:requiredHumanOversight a owl:DatatypeProperty ;
+    rdfs:label "required human oversight" ;
+    rdfs:comment "Whether a human must approve critical decisions." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range xsd:boolean .
+
+:runsWorkflow a owl:ObjectProperty ;
+    rdfs:label "runs workflow" ;
+    rdfs:comment "Links department to workflows it executes." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range :WorkflowDefinition .
+
+:stateOfIncorporation a owl:DatatypeProperty ;
+    rdfs:label "state of incorporation" ;
+    rdfs:domain :Company ;
+    rdfs:range xsd:string .
+
+:targetValue a owl:DatatypeProperty ;
+    rdfs:label "target value" ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:float .
+
+:taxWithholding a owl:DatatypeProperty ;
+    rdfs:label "tax withholding" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:float .
+
+:teamConfig a owl:ObjectProperty ;
+    rdfs:label "team config" ;
+    rdfs:comment "Links department to its TeamConfigNode in the KG." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range :TeamConfig .
+
+:trend a owl:DatatypeProperty ;
+    rdfs:label "trend" ;
+    rdfs:comment "improving, stable, declining." ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:string .
+
+:usesSoftware a owl:ObjectProperty ;
+    rdfs:label "uses software" ;
+    rdfs:comment "Links department to its software stack." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range :CompanySoftware .
+
+<http://knuckles.team/kg/company> a owl:Ontology ;
+    rdfs:label "Company Operations Ontology" ;
+    rdfs:comment """Company lifecycle and operations ontology for AI-first
+autonomous companies. Covers company formation, strategic goals, KPIs,
+benefits administration, payroll, and agent-staffed departments.
+
+CONCEPT:KG-2.12 — Company Operations Domain
+
+Imports HR, Legal, Banking, and Enterprise ontologies for full
+cross-domain reasoning about company operations.""" ;
+    owl:imports <http://knuckles.team/kg>,
+        <http://knuckles.team/kg/banking>,
+        <http://knuckles.team/kg/enterprise>,
+        <http://knuckles.team/kg/hr>,
+        <http://knuckles.team/kg/legal> .
+
+:LegalEntity a owl:Class ;
+    rdfs:label "Legal Entity" ;
+    rdfs:comment """A legal entity registered with government authorities.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:BenefitsPlan a owl:Class ;
+    rdfs:label "Benefits Plan" ;
+    rdfs:comment """An employee benefits plan (medical, dental, 401k, etc.).
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:CompanyLicense a owl:Class ;
+    rdfs:label "Company License" ;
+    rdfs:comment """A business, professional, or regulatory license.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:AgentDepartment a owl:Class ;
+    rdfs:label "Agent Department" ;
+    rdfs:comment """An AI-staffed department with team config, automation level,
+and optional human oversight requirement. Extends Department with
+agent-specific metadata for autonomous company operations.
+CONCEPT:ORCH-1.27 — Autonomous Department Orchestration.""" ;
+    rdfs:subClassOf :Department .
+
+:KeyPerformanceIndicator a owl:Class ;
+    rdfs:label "Key Performance Indicator" ;
+    rdfs:comment """A quantitative metric for measuring company performance.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:PayrollRecord a owl:Class ;
+    rdfs:label "Payroll Record" ;
+    rdfs:comment """A payroll entry for a pay period.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:StrategicGoal a owl:Class ;
+    rdfs:label "Strategic Goal" ;
+    rdfs:comment """A measurable company goal with KPI tracking.
+Cascades from org-level to department-level to individual-level.
+BFO:SpecificallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000020 .
+
+:Company a owl:Class ;
+    rdfs:label "Company" ;
+    rdfs:comment """A legal business entity capable of autonomous AI-driven
+operations. Extends Organization with incorporation metadata, EIN,
+and entity type. BFO:IndependentContinuant.""" ;
+    rdfs:subClassOf :Organization .
+

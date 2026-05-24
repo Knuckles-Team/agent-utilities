@@ -52,9 +52,9 @@ mcp = [
     "httpx>=0.28.1"
 ]
 agent = [
-    "agent-utilities[mcp,ag-ui,terminal]>=0.15.0",
-    "universal-skills>=0.16.0",
-    "skill-graphs>=0.16.0",
+    "agent-utilities[mcp,ag-ui,terminal]>=0.16.0",
+    "universal-skills>=0.17.0",
+    "skill-graphs>=0.17.0",
     "pydantic-ai-skills>=0.10.0",
     "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.90.0,<2.0.0",
     "pydantic-graph>=1.0.0"
@@ -75,7 +75,7 @@ agent-huggingface = [
     "pydantic-ai-slim[huggingface]>=1.90.0,<2.0.0"
 ]
 ag-ui = [
-    "agent-webui>=0.16.0"]
+    "agent-webui>=0.17.0"]
 terminal = [
     "agent-terminal-ui>=0.12.0"]
 browser = [
@@ -91,16 +91,16 @@ documents = [
 embeddings = [
     "llama-index-core>=0.14.15"]
 embeddings-openai = [
-    "agent-utilities[embeddings]>=0.15.0",
+    "agent-utilities[embeddings]>=0.16.0",
     "llama-index-embeddings-openai>=0.5.1"]
 embeddings-huggingface = [
-    "agent-utilities[embeddings]>=0.15.0",
+    "agent-utilities[embeddings]>=0.16.0",
     "llama-index-embeddings-huggingface>=0.7.0"]
 embeddings-ollama = [
-    "agent-utilities[embeddings]>=0.15.0",
+    "agent-utilities[embeddings]>=0.16.0",
     "llama-index-embeddings-ollama>=0.8.6"]
 logfire = [
-    "agent-utilities[agent]>=0.15.0",
+    "agent-utilities[agent]>=0.16.0",
     "pydantic-ai-slim[logfire]>=1.90.0,<2.0.0"
 ]
 graph = [
@@ -154,6 +154,27 @@ postgresql = [
     "psycopg-pool>=3.2.0",
     "pgvector>=0.3.0"
 ]
+# Native Messaging Backend Abstraction (CONCEPT:ECO-4.5)
+messaging-discord = ["discord.py>=2.0"]
+messaging-slack = ["slack-bolt>=1.18"]
+messaging-telegram = ["python-telegram-bot>=21.0"]
+messaging-whatsapp = ["neonize>=0.3", "httpx>=0.28"]
+messaging-teams = ["botbuilder-core>=4.14"]
+messaging-googlechat = ["google-api-python-client>=2.0", "google-auth>=2.0"]
+messaging-googlemeet = ["google-api-python-client>=2.0", "google-auth>=2.0"]
+messaging-mattermost = ["mattermostdriver>=7.0"]
+messaging-matrix = ["matrix-nio>=0.24"]
+messaging-irc = ["irc>=20.0"]
+messaging-signal = []
+messaging-imessage = []  # macOS-only, AppleScript bridge
+messaging-line = ["line-bot-sdk>=3.0"]
+messaging-twitch = ["twitchio>=2.0"]
+messaging-synology = ["httpx>=0.28"]
+messaging-voicecall = ["twilio>=9.0"]
+messaging-nextcloud = ["httpx>=0.28"]
+messaging = [
+    "agent-utilities[messaging-discord,messaging-slack,messaging-telegram,messaging-whatsapp,messaging-teams,messaging-googlechat,messaging-googlemeet,messaging-mattermost,messaging-matrix,messaging-irc,messaging-signal,messaging-line,messaging-twitch,messaging-synology,messaging-voicecall,messaging-nextcloud]"
+]
 test = [
     "pytest-xdist>=3.6.0",
     "hypothesis>=6.152.1",
@@ -167,15 +188,33 @@ test = [
     "opentelemetry-instrumentation-starlette",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-instrumentation-asgi",
-    "repository-manager",
     "agent-utilities[agent,graph,acp,owl,finance]"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,browser,test,owl,stardog,vault,auth,finance]>=0.15.0"]
+    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,browser,test,owl,stardog,vault,auth,finance,messaging]>=0.16.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
+
+[project.entry-points."agent_utilities.messaging"]
+discord = "agent_utilities.messaging.backends.discord:DiscordBackend"
+slack = "agent_utilities.messaging.backends.slack:SlackBackend"
+telegram = "agent_utilities.messaging.backends.telegram:TelegramBackend"
+whatsapp = "agent_utilities.messaging.backends.whatsapp:WhatsAppBackend"
+teams = "agent_utilities.messaging.backends.teams:TeamsBackend"
+googlechat = "agent_utilities.messaging.backends.googlechat:GoogleChatBackend"
+googlemeet = "agent_utilities.messaging.backends.googlemeet:GoogleMeetBackend"
+mattermost = "agent_utilities.messaging.backends.mattermost:MattermostBackend"
+matrix = "agent_utilities.messaging.backends.matrix:MatrixBackend"
+irc = "agent_utilities.messaging.backends.irc:IRCBackend"
+signal = "agent_utilities.messaging.backends.signal:SignalBackend"
+imessage = "agent_utilities.messaging.backends.imessage:IMessageBackend"
+line = "agent_utilities.messaging.backends.line:LINEBackend"
+twitch = "agent_utilities.messaging.backends.twitch:TwitchBackend"
+synology = "agent_utilities.messaging.backends.synology:SynologyChatBackend"
+voicecall = "agent_utilities.messaging.backends.voicecall:VoiceCallBackend"
+nextcloud = "agent_utilities.messaging.backends.nextcloud:NextcloudTalkBackend"
 
 [tool.setuptools]
 include-package-data = true

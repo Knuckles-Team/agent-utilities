@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 DEFAULT_XAI_BASE_URL = "https://api.x.ai/v1"
-DEFAULT_X_SEARCH_MODEL = "grok-4.20-reasoning"
+DEFAULT_X_SEARCH_MODEL = "grok-4.3"
 DEFAULT_X_SEARCH_TIMEOUT_SECONDS = 180
 DEFAULT_X_SEARCH_RETRIES = 2
 MAX_HANDLES = 10
@@ -313,7 +313,11 @@ async def x_search(
 
 @trace(name="browse_x_post", trace_type="TOOL")
 @tool_version("1.0.0")
-async def browse_x_post(ctx: RunContext[AgentDeps], url: str) -> str:
+async def browse_x_post(
+    ctx: RunContext[AgentDeps],
+    url: str,
+    auto_ingest: bool = False,
+) -> str:
     """Retrieve and display the contents of a specific X (formerly Twitter) post.
 
     Accepts any X.com or Twitter.com status or post URLs and resolves the exact contents
@@ -322,6 +326,10 @@ async def browse_x_post(ctx: RunContext[AgentDeps], url: str) -> str:
     Args:
         ctx: Run context containing agent dependencies and configuration.
         url: The full web URL of the X post to retrieve.
+        auto_ingest: If True, automatically classify and ingest the post into the
+            Knowledge Graph via the Universal Knowledge Classifier pipeline.
+            Creates SocialPostNode + concept edges + EvolutionCandidateNode
+            if evolution potential is high. Requires KG graph in ctx.deps.
 
     Returns:
         A JSON string containing the detailed content, author, timestamps, engagement metrics,
@@ -388,6 +396,30 @@ async def browse_x_post(ctx: RunContext[AgentDeps], url: str) -> str:
         if username:
             res["username"] = username
         res["url"] = cleaned_url
+
+        # 5. Auto-ingest into KG if requested
+        if auto_ingest:
+            try:
+                from agent_utilities.knowledge_graph.kb.x_ingestion import (
+                    XIngestionBridge,
+                )
+
+                # Try to get graph from deps or create a minimal one
+                graph = getattr(getattr(ctx, "deps", None), "graph", None)
+                if graph is not None:
+                    bridge = XIngestionBridge(graph=graph)
+                    ingest_result = await bridge.ingest_browse_result(res)
+                    res["ingestion"] = ingest_result
+                    logger.info(
+                        "Auto-ingested post %s: action=%s",
+                        post_id,
+                        ingest_result.get("action"),
+                    )
+                else:
+                    logger.debug("auto_ingest=True but no graph in ctx.deps; skipping")
+            except Exception as e:
+                logger.warning("Auto-ingest failed for post %s: %s", post_id, e)
+
         return json.dumps(res, ensure_ascii=False)
 
     except Exception as exc:

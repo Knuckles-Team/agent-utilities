@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Optimal Execution Engine."""
 
-
 import numpy as np
 import pytest
 

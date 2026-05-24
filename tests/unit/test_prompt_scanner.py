@@ -4,7 +4,6 @@ from __future__ import annotations
 """Tests for Prompt Injection Scanner (CONCEPT:OS-5.1)."""
 
 
-
 import pytest
 
 # ---------------------------------------------------------------------------

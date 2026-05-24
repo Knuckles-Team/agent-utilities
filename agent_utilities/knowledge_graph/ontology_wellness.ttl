@@ -1,0 +1,322 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schema: <http://schema.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:aggregatesTo a owl:ObjectProperty ;
+    rdfs:label "aggregates to" ;
+    rdfs:comment """Links per-meal NutrientProfiles to their DailyNutrientSummary.
+Enables drill-down from daily totals to individual meal contributions.""" ;
+    rdfs:domain :NutrientProfile ;
+    rdfs:range :DailyNutrientSummary .
+
+:bodyFatPercent a owl:DatatypeProperty ;
+    rdfs:label "body fat (%)" ;
+    rdfs:domain :BodyMeasurement ;
+    rdfs:range xsd:float .
+
+:bodyWeightKg a owl:DatatypeProperty ;
+    rdfs:label "body weight (kg)" ;
+    rdfs:domain :BodyMeasurement ;
+    rdfs:range xsd:float .
+
+:calorieBalance a owl:ObjectProperty ;
+    rdfs:label "calorie balance" ;
+    rdfs:comment """Links a DailyNutrientSummary (intake) to a CalorieExpenditure
+(burn) for the same day. Enables surplus/deficit inference.""" ;
+    rdfs:domain :DailyNutrientSummary ;
+    rdfs:range :CalorieExpenditure .
+
+:calories a owl:DatatypeProperty ;
+    rdfs:label "calories (kcal)" ;
+    rdfs:domain :NutrientProfile ;
+    rdfs:range xsd:float .
+
+:caloriesBurned a owl:DatatypeProperty ;
+    rdfs:label "calories burned (kcal)" ;
+    rdfs:domain :CalorieExpenditure ;
+    rdfs:range xsd:float .
+
+:carbGrams a owl:DatatypeProperty ;
+    rdfs:label "carbohydrates (g)" ;
+    rdfs:domain :NutrientProfile ;
+    rdfs:range xsd:float .
+
+:compiledFrom a owl:ObjectProperty ;
+    rdfs:label "compiled from" ;
+    rdfs:comment "Links a ShoppingList to the MealPlan it was generated from." ;
+    rdfs:domain :ShoppingList ;
+    rdfs:range :MealPlan .
+
+:completedSession a owl:ObjectProperty ;
+    rdfs:label "completed session" ;
+    rdfs:comment "Links a Person to a completed WorkoutSession." ;
+    rdfs:domain :Person ;
+    rdfs:range :WorkoutSession .
+
+:containsMeal a owl:ObjectProperty ;
+    rdfs:label "contains meal" ;
+    rdfs:comment "Links a MealPlan to its constituent MealEntries." ;
+    rdfs:domain :MealPlan ;
+    rdfs:range :MealEntry .
+
+:durationMinutes a owl:DatatypeProperty ;
+    rdfs:label "duration (minutes)" ;
+    rdfs:domain :WorkoutSession ;
+    rdfs:range xsd:integer .
+
+:estimatedExpenditure a owl:ObjectProperty ;
+    rdfs:label "estimated expenditure" ;
+    rdfs:comment "Links a WorkoutSession to its CalorieExpenditure." ;
+    rdfs:domain :WorkoutSession ;
+    rdfs:range :CalorieExpenditure .
+
+:fatGrams a owl:DatatypeProperty ;
+    rdfs:label "fat (g)" ;
+    rdfs:domain :NutrientProfile ;
+    rdfs:range xsd:float .
+
+:fiberGrams a owl:DatatypeProperty ;
+    rdfs:label "fiber (g)" ;
+    rdfs:domain :NutrientProfile ;
+    rdfs:range xsd:float .
+
+:followsRoutine a owl:ObjectProperty ;
+    rdfs:label "follows routine" ;
+    rdfs:comment "Links a Person to their active WorkoutRoutine." ;
+    rdfs:domain :Person ;
+    rdfs:range :WorkoutRoutine .
+
+:hasIngredient a owl:ObjectProperty ;
+    rdfs:label "has ingredient" ;
+    rdfs:domain :Recipe ;
+    rdfs:range :Ingredient .
+
+:hasNutrientProfile a owl:ObjectProperty ;
+    rdfs:label "has nutrient profile" ;
+    rdfs:comment "Links a MealEntry or Recipe to its per-meal nutrient breakdown." ;
+    rdfs:domain :MealEntry ;
+    rdfs:range :NutrientProfile .
+
+:hasSet a owl:ObjectProperty ;
+    rdfs:label "has set" ;
+    rdfs:domain :Exercise ;
+    rdfs:range :ExerciseSet .
+
+:mealType a owl:DatatypeProperty ;
+    rdfs:label "meal type" ;
+    rdfs:comment "Values: breakfast, lunch, dinner, snack, pre-workout, post-workout." ;
+    rdfs:domain :MealEntry ;
+    rdfs:range xsd:string .
+
+:measurementDate a owl:DatatypeProperty ;
+    rdfs:label "measurement date" ;
+    rdfs:domain :BodyMeasurement ;
+    rdfs:range xsd:date .
+
+:motivatedBy a owl:ObjectProperty ;
+    rdfs:label "motivated by" ;
+    rdfs:comment "Links a MealPlan adjustment to the BodyMeasurement that triggered it." ;
+    rdfs:domain :MealPlan ;
+    rdfs:range :BodyMeasurement .
+
+:muscleMassKg a owl:DatatypeProperty ;
+    rdfs:label "muscle mass (kg)" ;
+    rdfs:domain :BodyMeasurement ;
+    rdfs:range xsd:float .
+
+:performedExercise a owl:ObjectProperty ;
+    rdfs:label "performed exercise" ;
+    rdfs:domain :WorkoutSession ;
+    rdfs:range :Exercise .
+
+:prescribedDiet a owl:ObjectProperty ;
+    rdfs:label "prescribed diet" ;
+    rdfs:comment "Links a Person to their active MealPlan." ;
+    rdfs:domain :Person ;
+    rdfs:range :MealPlan .
+
+:proteinGrams a owl:DatatypeProperty ;
+    rdfs:label "protein (g)" ;
+    rdfs:domain :NutrientProfile ;
+    rdfs:range xsd:float .
+
+:reps a owl:DatatypeProperty ;
+    rdfs:label "repetitions" ;
+    rdfs:domain :ExerciseSet ;
+    rdfs:range xsd:integer .
+
+:sodiumMg a owl:DatatypeProperty ;
+    rdfs:label "sodium (mg)" ;
+    rdfs:domain :NutrientProfile ;
+    rdfs:range xsd:float .
+
+:sugarGrams a owl:DatatypeProperty ;
+    rdfs:label "sugar (g)" ;
+    rdfs:domain :NutrientProfile ;
+    rdfs:range xsd:float .
+
+:targetsGoal a owl:ObjectProperty ;
+    rdfs:label "targets goal" ;
+    rdfs:comment "Links a WorkoutRoutine to the FitnessGoal it aims to achieve." ;
+    rdfs:domain :WorkoutRoutine ;
+    rdfs:range :FitnessGoal .
+
+:targetsNutrition a owl:ObjectProperty ;
+    rdfs:label "targets nutrition" ;
+    rdfs:comment "Links a Person to their daily NutritionTarget." ;
+    rdfs:domain :Person ;
+    rdfs:range :NutritionTarget .
+
+:trackedMeasurement a owl:ObjectProperty ;
+    rdfs:label "tracked measurement" ;
+    rdfs:comment "Links a Person to a point-in-time BodyMeasurement." ;
+    rdfs:domain :Person ;
+    rdfs:range :BodyMeasurement .
+
+:usesRecipe a owl:ObjectProperty ;
+    rdfs:label "uses recipe" ;
+    rdfs:comment "Links a MealEntry to the Recipe consumed." ;
+    rdfs:domain :MealEntry ;
+    rdfs:range :Recipe .
+
+:weightKg a owl:DatatypeProperty ;
+    rdfs:label "weight lifted (kg)" ;
+    rdfs:domain :ExerciseSet ;
+    rdfs:range xsd:float .
+
+:wellnessEvaluation a owl:ObjectProperty ;
+    rdfs:label "wellness evaluation" ;
+    rdfs:comment "Links a Person to their computed WellnessScore." ;
+    rdfs:domain :Person ;
+    rdfs:range :WellnessScore .
+
+<http://knuckles.team/kg/wellness> a owl:Ontology ;
+    rdfs:label "Wellness & Lifestyle Ontology" ;
+    rdfs:comment """Health, nutrition, and fitness domain ontology bridging
+Mealie (meal planning, recipes, shopping) and wger (workout routines,
+exercises, body measurements) into a unified personal wellness graph.
+
+Tracks granular per-meal macro nutrients AND daily aggregate totals with
+explicit relationships between them. Enables OWL reasoning over calorie
+balance, training load vs. recovery, and longitudinal body composition
+trends.
+
+Standards alignment: schema:Recipe, schema:NutritionInformation,
+schema:ExerciseAction, W3C PROV-O for temporal provenance.""" ;
+    owl:imports <http://knuckles.team/kg> .
+
+:FitnessGoal a owl:Class ;
+    rdfs:label "Fitness Goal" ;
+    rdfs:comment """A target fitness objective (weight loss, muscle gain, strength PR).
+Subclass of Goal — enables goal tracking and progress reasoning.""" ;
+    rdfs:subClassOf :Goal .
+
+:Ingredient a owl:Class ;
+    rdfs:label "Ingredient" ;
+    rdfs:comment "A food ingredient used in recipes. BFO:IndependentContinuant." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:NutritionTarget a owl:Class ;
+    rdfs:label "Nutrition Target" ;
+    rdfs:comment """A user-defined daily/weekly macro target (e.g., 180g protein,
+2500 kcal). Subclass of Goal — enables target vs. actual reasoning.""" ;
+    rdfs:subClassOf :Goal .
+
+:ShoppingList a owl:Class ;
+    rdfs:label "Shopping List" ;
+    rdfs:comment """An aggregated grocery list compiled from MealPlan recipes,
+scaled for household size. BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf :Dataset .
+
+:WellnessScore a owl:Class ;
+    rdfs:label "Wellness Score" ;
+    rdfs:comment """A composite health metric computed from nutrition adherence,
+training consistency, and body measurement trends.
+BFO:GenericallyDependentContinuant via OutcomeEvaluation.""" ;
+    rdfs:subClassOf :OutcomeEvaluation .
+
+:DailyNutrientSummary a owl:Class ;
+    rdfs:label "Daily Nutrient Summary" ;
+    rdfs:comment """Aggregated daily totals computed from per-meal NutrientProfiles.
+Subclass of NutrientProfile — inherits all macro/micro properties.
+Enables daily vs. target comparison queries.""" ;
+    rdfs:subClassOf :NutrientProfile .
+
+:Exercise a owl:Class ;
+    rdfs:label "Exercise" ;
+    rdfs:comment """A specific physical movement (squat, deadlift, bench press).
+BFO:Process via Action. Aligned to schema:ExerciseAction.""" ;
+    rdfs:seeAlso schema:ExerciseAction ;
+    rdfs:subClassOf :Action .
+
+:Recipe a owl:Class ;
+    rdfs:label "Recipe" ;
+    rdfs:comment """A specific dish with ingredients, preparation steps, and nutritional
+data. BFO:GenericallyDependentContinuant. Aligned to schema:Recipe.""" ;
+    rdfs:seeAlso schema:Recipe ;
+    rdfs:subClassOf :CreativeWork .
+
+:WorkoutRoutine a owl:Class ;
+    rdfs:label "Workout Routine" ;
+    rdfs:comment """A structured training program with scheduled workout days.
+BFO:Process. Aligned to schema:ExercisePlan.""" ;
+    rdfs:seeAlso schema:ExercisePlan ;
+    rdfs:subClassOf :Procedure .
+
+:CalorieExpenditure a owl:Class ;
+    rdfs:label "Calorie Expenditure" ;
+    rdfs:comment """Estimated calories burned during a workout session. Paired with
+NutrientProfile calorie intake for balance reasoning.""" ;
+    rdfs:subClassOf :Observation .
+
+:ExerciseSet a owl:Class ;
+    rdfs:label "Exercise Set" ;
+    rdfs:comment "A single set within an exercise (reps × weight). BFO:Process." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:MealEntry a owl:Class ;
+    rdfs:label "Meal Entry" ;
+    rdfs:comment """A single meal event (breakfast, lunch, dinner, snack) within a MealPlan.
+Tracks the specific recipes consumed and their per-meal nutrient profile.
+BFO:Process — a temporally bounded eating event.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:MealPlan a owl:Class ;
+    rdfs:label "Meal Plan" ;
+    rdfs:comment """A scheduled collection of meals over a time period (daily/weekly).
+BFO:Process — unfolds over time. Aligned to schema:Diet.""" ;
+    rdfs:seeAlso schema:Diet ;
+    rdfs:subClassOf :Procedure .
+
+:WorkoutSession a owl:Class ;
+    rdfs:label "Workout Session" ;
+    rdfs:comment """A single completed workout event. Records exercises performed,
+sets, reps, and weight. BFO:Process — a temporally bounded training event.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:BodyMeasurement a owl:Class ;
+    rdfs:label "Body Measurement" ;
+    rdfs:comment """A point-in-time body composition reading (weight, body fat %,
+muscle mass, circumferences). BFO:SpecificallyDependentContinuant via
+Observation. Temporal chains enable trend detection.""" ;
+    rdfs:subClassOf :Observation .
+
+:NutrientProfile a owl:Class ;
+    rdfs:label "Nutrient Profile" ;
+    rdfs:comment """Granular macro and micro nutrient breakdown for a single meal or
+a daily aggregate. Tracks calories, protein, carbohydrates, fat, fiber,
+sodium, sugar, and micronutrients. BFO:GenericallyDependentContinuant.
+Aligned to schema:NutritionInformation.""" ;
+    rdfs:seeAlso schema:NutritionInformation ;
+    rdfs:subClassOf :Observation .
+

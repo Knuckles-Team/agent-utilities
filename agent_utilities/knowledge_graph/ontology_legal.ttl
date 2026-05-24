@@ -11,10 +11,21 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-:Jurisdiction a owl:Class ;
-    rdfs:label "Jurisdiction" ;
-    rdfs:comment "A legal jurisdiction with authority scope." ;
-    rdfs:subClassOf :Place .
+:MunicipalCode a owl:Class ;
+    rdfs:label "Municipal Code" ;
+    rdfs:comment "A city or county ordinance." ;
+    rdfs:subClassOf :Statute .
+
+:StateStatute a owl:Class ;
+    rdfs:label "State Statute" ;
+    rdfs:comment "A US state law enacted by a state legislature." ;
+    rdfs:subClassOf :Statute .
+
+:cfrPart a owl:DatatypeProperty ;
+    rdfs:label "CFR Part" ;
+    rdfs:comment "Code of Federal Regulations part reference." ;
+    rdfs:domain :FederalStatute ;
+    rdfs:range xsd:string .
 
 :citation a owl:DatatypeProperty ;
     rdfs:label "legal citation" ;
@@ -28,6 +39,58 @@
     rdfs:domain :Person ;
     rdfs:range :Person .
 
+:effectiveDate a owl:DatatypeProperty ;
+    rdfs:domain :CorporateGovernanceDoc ;
+    rdfs:range xsd:date .
+
+:employmentLawType a owl:DatatypeProperty ;
+    rdfs:comment "discrimination, wrongful_termination, wage_dispute, harassment, retaliation, nlra_violation." ;
+    rdfs:domain :EmploymentLawMatter ;
+    rdfs:range xsd:string .
+
+:filedBy a owl:ObjectProperty ;
+    rdfs:domain :RegulatoryFiling ;
+    rdfs:range :Company .
+
+:filingAgency a owl:DatatypeProperty ;
+    rdfs:label "filing agency" ;
+    rdfs:comment "SEC, IRS, State_AG, FTC, DOL, EEOC." ;
+    rdfs:domain :RegulatoryFiling ;
+    rdfs:range xsd:string .
+
+:filingDeadline a owl:DatatypeProperty ;
+    rdfs:domain :RegulatoryFiling ;
+    rdfs:range xsd:date .
+
+:filingStatus a owl:DatatypeProperty ;
+    rdfs:label "filing status" ;
+    rdfs:comment "pending, filed, overdue, accepted, rejected." ;
+    rdfs:domain :RegulatoryFiling ;
+    rdfs:range xsd:string .
+
+:filingType a owl:DatatypeProperty ;
+    rdfs:label "filing type" ;
+    rdfs:comment "annual_report, tax_return, eeo1, osha_log, sec_10k, state_registration." ;
+    rdfs:domain :RegulatoryFiling ;
+    rdfs:range xsd:string .
+
+:governanceDocType a owl:DatatypeProperty ;
+    rdfs:label "governance document type" ;
+    rdfs:comment "articles_of_incorporation, bylaws, operating_agreement, shareholder_agreement, board_resolution." ;
+    rdfs:domain :CorporateGovernanceDoc ;
+    rdfs:range xsd:string .
+
+:governedByDoc a owl:ObjectProperty ;
+    rdfs:label "governed by document" ;
+    rdfs:domain :Company ;
+    rdfs:range :CorporateGovernanceDoc .
+
+:governedByEmploymentStatute a owl:ObjectProperty ;
+    rdfs:label "governed by employment statute" ;
+    rdfs:comment "Links to specific federal/state employment laws (FLSA, ADA, Title VII)." ;
+    rdfs:domain :EmploymentLawMatter ;
+    rdfs:range :FederalStatute .
+
 :governedByStatute a owl:ObjectProperty ;
     rdfs:label "governed by statute" ;
     rdfs:domain :LegalMatter ;
@@ -38,10 +101,47 @@
     rdfs:domain :Contract ;
     rdfs:range :ContractClause .
 
+:involvesEmployee a owl:ObjectProperty ;
+    rdfs:label "involves employee" ;
+    rdfs:domain :EmploymentLawMatter ;
+    rdfs:range :Employee .
+
+:ipExpirationDate a owl:DatatypeProperty ;
+    rdfs:domain :IntellectualProperty ;
+    rdfs:range xsd:date .
+
+:ipFilingDate a owl:DatatypeProperty ;
+    rdfs:domain :IntellectualProperty ;
+    rdfs:range xsd:date .
+
+:ipRegistrationNumber a owl:DatatypeProperty ;
+    rdfs:domain :IntellectualProperty ;
+    rdfs:range xsd:string .
+
+:ipStatus a owl:DatatypeProperty ;
+    rdfs:comment "pending, granted, active, expired, abandoned, infringed." ;
+    rdfs:domain :IntellectualProperty ;
+    rdfs:range xsd:string .
+
+:ipType a owl:DatatypeProperty ;
+    rdfs:label "IP type" ;
+    rdfs:comment "patent, trademark, copyright, trade_secret." ;
+    rdfs:domain :IntellectualProperty ;
+    rdfs:range xsd:string .
+
+:lastAmended a owl:DatatypeProperty ;
+    rdfs:domain :CorporateGovernanceDoc ;
+    rdfs:range xsd:date .
+
 :matterStatus a owl:DatatypeProperty ;
     rdfs:label "matter status" ;
     rdfs:domain :LegalMatter ;
     rdfs:range xsd:string .
+
+:ownsIP a owl:ObjectProperty ;
+    rdfs:label "owns IP" ;
+    rdfs:domain :Company ;
+    rdfs:range :IntellectualProperty .
 
 :precedentFor a owl:ObjectProperty,
         owl:TransitiveProperty ;
@@ -55,6 +155,17 @@
     rdfs:domain :LegalPrecedent ;
     rdfs:range xsd:string .
 
+:statuteJurisdiction a owl:ObjectProperty ;
+    rdfs:label "statute jurisdiction" ;
+    rdfs:domain :Statute ;
+    rdfs:range :Jurisdiction .
+
+:uscSection a owl:DatatypeProperty ;
+    rdfs:label "USC Section" ;
+    rdfs:comment "United States Code section reference (e.g., 26 USC § 501)." ;
+    rdfs:domain :FederalStatute ;
+    rdfs:range xsd:string .
+
 <http://knuckles.team/kg/legal> a owl:Ontology ;
     rdfs:label "Legal Domain Ontology" ;
     rdfs:comment "Legal domain ontology aligned to LKIF-Core and Akoma Ntoso." ;
@@ -65,15 +176,26 @@
     rdfs:comment "A specific clause within a legal contract." ;
     rdfs:subClassOf bfo:0000031 .
 
+:Jurisdiction a owl:Class ;
+    rdfs:label "Jurisdiction" ;
+    rdfs:comment "A legal jurisdiction with authority scope." ;
+    rdfs:subClassOf :Place .
+
 :LegalPrecedent a owl:Class ;
     rdfs:label "Legal Precedent" ;
     rdfs:comment "A binding or persuasive precedent." ;
     rdfs:subClassOf :CaseLaw .
 
-:Statute a owl:Class ;
-    rdfs:label "Statute" ;
-    rdfs:comment "A legislative enactment. BFO:GDC. Aligned to Akoma Ntoso." ;
-    rdfs:subClassOf bfo:0000031 .
+:EmploymentLawMatter a owl:Class ;
+    rdfs:label "Employment Law Matter" ;
+    rdfs:comment """Employment-related legal matter linking HR and Legal domains.
+Discrimination claims, wrongful termination, wage disputes, etc.""" ;
+    rdfs:subClassOf :LegalMatter .
+
+:FederalStatute a owl:Class ;
+    rdfs:label "Federal Statute" ;
+    rdfs:comment "A US federal law enacted by Congress (e.g., IRC, ADA, FLSA)." ;
+    rdfs:subClassOf :Statute .
 
 :LegalMatter a owl:Class ;
     rdfs:label "Legal Matter" ;
@@ -83,5 +205,27 @@
 :CaseLaw a owl:Class ;
     rdfs:label "Case Law" ;
     rdfs:comment "A judicial precedent. BFO:GDC. Aligned to LKIF-Core." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:CorporateGovernanceDoc a owl:Class ;
+    rdfs:label "Corporate Governance Document" ;
+    rdfs:comment """Foundational legal documents governing company operations.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:RegulatoryFiling a owl:Class ;
+    rdfs:label "Regulatory Filing" ;
+    rdfs:comment """A required filing with a government regulatory body.
+BFO:Process.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Statute a owl:Class ;
+    rdfs:label "Statute" ;
+    rdfs:comment "A legislative enactment. BFO:GDC. Aligned to Akoma Ntoso." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:IntellectualProperty a owl:Class ;
+    rdfs:label "Intellectual Property" ;
+    rdfs:comment "An IP asset owned by the company." ;
     rdfs:subClassOf bfo:0000031 .
 

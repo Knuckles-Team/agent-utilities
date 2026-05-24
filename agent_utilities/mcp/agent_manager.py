@@ -125,7 +125,7 @@ async def _extract_single_server_metadata_inner(
                     else result
                 )
 
-                for tool in tools_list:
+                for tool in tools_list or []:
                     tags = []
                     if hasattr(tool, "annotations") and tool.annotations:
                         ann = tool.annotations
@@ -544,13 +544,8 @@ async def sync_mcp_agents(
     if not config_path:
         config_path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
 
-    from filelock import FileLock, Timeout
-
-    lock_path = config_path.with_suffix(".sync.lock")
-    lock = FileLock(str(lock_path), timeout=0)
-
-    try:
-        with lock.acquire(timeout=0):
+    if True:
+        if True:
             # 1. Extract Tool Metadata
             tools_inventory = await extract_tool_metadata(config_path)
             if not tools_inventory:
@@ -673,8 +668,6 @@ async def sync_mcp_agents(
             finally:
                 if is_local_engine and "backend" in locals() and backend:
                     backend.close()
-    except Timeout:
-        logger.info("Another process is currently syncing MCP agents. Skipping...")
 
 
 if __name__ == "__main__":

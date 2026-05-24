@@ -110,6 +110,7 @@ class LadybugBackend(GraphBackend):
                     or "shadow" in msg
                     or "database id" in msg
                     or "cannot open file" in msg
+                    or "cannot read from file" in msg
                     or "no such file or directory" in msg
                 ):
                     logger.warning(

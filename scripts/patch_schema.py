@@ -1,4 +1,3 @@
-
 with open("agent_utilities/models/schema_definition.py") as f:
     content = f.read()
 

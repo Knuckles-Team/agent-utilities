@@ -15,6 +15,14 @@ from .codemap import (
     CodemapArtifact,
     CodemapNode,
 )
+from .execution_manifest import (
+    AgentExecutionResult,
+    AgentSpec,
+    ExecutionManifest,
+    ExecutionResult,
+    SynthesisSpec,
+    WaveResult,
+)
 from .goal import (
     GoalCheckpoint,
     GoalIteration,
@@ -136,4 +144,10 @@ __all__ = [
     "GoalResult",
     "GoalCheckpoint",
     "GoalKGIntegration",
+    "ExecutionManifest",
+    "AgentSpec",
+    "SynthesisSpec",
+    "AgentExecutionResult",
+    "WaveResult",
+    "ExecutionResult",
 ]

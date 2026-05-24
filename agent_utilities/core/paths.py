@@ -212,6 +212,36 @@ def memory_view_dir() -> Path:
     return data_dir() / "memory"
 
 
+def messaging_sessions_dir() -> Path:
+    """Return the path for messaging backend session data.
+
+    CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+
+    Default: ``~/.local/share/agent-utilities/messaging/``
+
+    Contains:
+        - ``sessions/`` — Backend-specific session/auth state
+        - ``history/`` — Local message history cache
+    """
+    return data_dir() / "messaging"
+
+
+def messaging_config_path() -> Path:
+    """Return the path to the messaging section in the global config.
+
+    CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+
+    Default: ``~/.config/agent-utilities/config.json``
+    (messaging keys are inside the same config.json, not a separate file)
+
+    See Also:
+        The ``messaging_*`` keys in config.json are loaded by
+        ``_load_xdg_json_config()`` in ``core/config.py`` and become
+        environment variables that the ``MessagingRegistry`` reads.
+    """
+    return config_dir() / "config.json"
+
+
 def ensure_dirs() -> None:
     """Create all XDG directories on first run.
 
@@ -226,6 +256,9 @@ def ensure_dirs() -> None:
         runtime_dir(),
         research_dir(),
         memory_view_dir(),
+        messaging_sessions_dir(),
+        messaging_sessions_dir() / "sessions",
+        messaging_sessions_dir() / "history",
     ]
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)

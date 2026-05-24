@@ -187,7 +187,7 @@ class AgentConfig(BaseSettings):
         env_file=get_env_file(),
         env_ignore_empty=True,
         extra="ignore",
-        secrets_dir="/run/secrets",
+        secrets_dir="/run/secrets" if os.path.exists("/run/secrets") else None,
     )
 
     @classmethod
@@ -497,6 +497,206 @@ class AgentConfig(BaseSettings):
     )
     """Path to local specialist registry directory (CONCEPT:OS-5.2)."""
 
+    # --- Native Messaging Backend (CONCEPT:ECO-4.5) ---
+
+    messaging_enabled_backends: list[str] = Field(
+        default_factory=list, alias="MESSAGING_ENABLED_BACKENDS"
+    )
+    """List of messaging backend IDs to auto-connect on startup (CONCEPT:ECO-4.5).
+    Example: ["discord", "slack", "telegram"]."""
+
+    messaging_kg_ingest: bool = Field(default=True, alias="MESSAGING_KG_INGEST")
+    """Enable automatic Knowledge Graph ingestion for all inbound/outbound messages (CONCEPT:ECO-4.5)."""
+
+    messaging_kg_memory_type: str = Field(
+        default="episodic", alias="MESSAGING_KG_MEMORY_TYPE"
+    )
+    """Default KG memory tier for inbound messages: 'episodic', 'semantic', or 'procedural' (CONCEPT:ECO-4.5)."""
+
+    messaging_route_to_planner: bool = Field(
+        default=True, alias="MESSAGING_ROUTE_TO_PLANNER"
+    )
+    """Route inbound messaging events to the Planner Graph Agent for orchestration (CONCEPT:ECO-4.5)."""
+
+    # Per-platform tokens (read from config.json or env vars)
+    messaging_discord_token: str | None = Field(
+        default=None, alias="MESSAGING_DISCORD_TOKEN"
+    )
+    """Discord bot token. Also reads from DISCORD_BOT_TOKEN (CONCEPT:ECO-4.5)."""
+
+    messaging_slack_token: str | None = Field(
+        default=None, alias="MESSAGING_SLACK_TOKEN"
+    )
+    """Slack bot token (xoxb-...). Also reads from SLACK_BOT_TOKEN (CONCEPT:ECO-4.5)."""
+
+    messaging_slack_app_token: str | None = Field(
+        default=None, alias="MESSAGING_SLACK_APP_TOKEN"
+    )
+    """Slack app-level token (xapp-...) for Socket Mode (CONCEPT:ECO-4.5)."""
+
+    messaging_telegram_token: str | None = Field(
+        default=None, alias="MESSAGING_TELEGRAM_TOKEN"
+    )
+    """Telegram bot token. Also reads from TELEGRAM_BOT_TOKEN (CONCEPT:ECO-4.5)."""
+
+    messaging_whatsapp_token: str | None = Field(
+        default=None, alias="MESSAGING_WHATSAPP_TOKEN"
+    )
+    """WhatsApp API token. Also reads from WHATSAPP_TOKEN (CONCEPT:ECO-4.5)."""
+
+    messaging_whatsapp_phone_number_id: str | None = Field(
+        default=None, alias="MESSAGING_WHATSAPP_PHONE_NUMBER_ID"
+    )
+    """WhatsApp Business API phone number ID (CONCEPT:ECO-4.5)."""
+
+    messaging_whatsapp_use_business_api: bool = Field(
+        default=False, alias="MESSAGING_WHATSAPP_USE_BUSINESS_API"
+    )
+    """Use official WhatsApp Business API (True) or neonize bridge (False) (CONCEPT:ECO-4.5)."""
+
+    messaging_teams_app_id: str | None = Field(
+        default=None, alias="MESSAGING_TEAMS_APP_ID"
+    )
+    """Microsoft Teams Bot Framework app ID (CONCEPT:ECO-4.5)."""
+
+    messaging_teams_app_secret: str | None = Field(
+        default=None, alias="MESSAGING_TEAMS_APP_SECRET"
+    )
+    """Microsoft Teams Bot Framework app password (CONCEPT:ECO-4.5)."""
+
+    messaging_googlechat_service_account: str | None = Field(
+        default=None, alias="MESSAGING_GOOGLECHAT_TOKEN"
+    )
+    """Path to Google Chat service account JSON file (CONCEPT:ECO-4.5)."""
+
+    messaging_googlemeet_service_account: str | None = Field(
+        default=None, alias="MESSAGING_GOOGLEMEET_TOKEN"
+    )
+    """Path to Google Meet service account JSON file (CONCEPT:ECO-4.5)."""
+
+    messaging_mattermost_token: str | None = Field(
+        default=None, alias="MESSAGING_MATTERMOST_TOKEN"
+    )
+    """Mattermost personal access token (CONCEPT:ECO-4.5)."""
+
+    messaging_mattermost_url: str | None = Field(
+        default=None, alias="MESSAGING_MATTERMOST_URL"
+    )
+    """Mattermost server URL (CONCEPT:ECO-4.5)."""
+
+    messaging_matrix_token: str | None = Field(
+        default=None, alias="MESSAGING_MATRIX_TOKEN"
+    )
+    """Matrix access token (CONCEPT:ECO-4.5)."""
+
+    messaging_matrix_homeserver: str | None = Field(
+        default=None, alias="MESSAGING_MATRIX_HOMESERVER"
+    )
+    """Matrix homeserver URL (CONCEPT:ECO-4.5)."""
+
+    messaging_matrix_user_id: str | None = Field(
+        default=None, alias="MESSAGING_MATRIX_USER_ID"
+    )
+    """Matrix user ID (e.g. @bot:matrix.org) (CONCEPT:ECO-4.5)."""
+
+    messaging_irc_server: str | None = Field(default=None, alias="MESSAGING_IRC_SERVER")
+    """IRC server hostname (CONCEPT:ECO-4.5)."""
+
+    messaging_irc_port: int = Field(default=6667, alias="MESSAGING_IRC_PORT")
+    """IRC server port (CONCEPT:ECO-4.5)."""
+
+    messaging_irc_nickname: str = Field(
+        default="agent_bot", alias="MESSAGING_IRC_NICKNAME"
+    )
+    """IRC nickname (CONCEPT:ECO-4.5)."""
+
+    messaging_irc_channels: list[str] = Field(
+        default_factory=list, alias="MESSAGING_IRC_CHANNELS"
+    )
+    """IRC channels to auto-join (CONCEPT:ECO-4.5)."""
+
+    messaging_signal_phone: str | None = Field(
+        default=None, alias="MESSAGING_SIGNAL_TOKEN"
+    )
+    """Signal phone number for semaphore-bot (CONCEPT:ECO-4.5)."""
+
+    messaging_line_token: str | None = Field(default=None, alias="MESSAGING_LINE_TOKEN")
+    """LINE channel access token (CONCEPT:ECO-4.5)."""
+
+    messaging_twitch_token: str | None = Field(
+        default=None, alias="MESSAGING_TWITCH_TOKEN"
+    )
+    """Twitch OAuth token (CONCEPT:ECO-4.5)."""
+
+    messaging_twitch_channels: list[str] = Field(
+        default_factory=list, alias="MESSAGING_TWITCH_CHANNELS"
+    )
+    """Twitch channels to join (CONCEPT:ECO-4.5)."""
+
+    messaging_synology_webhook_url: str | None = Field(
+        default=None, alias="MESSAGING_SYNOLOGY_WEBHOOK_URL"
+    )
+    """Synology Chat incoming webhook URL (CONCEPT:ECO-4.5)."""
+
+    messaging_twilio_account_sid: str | None = Field(
+        default=None, alias="MESSAGING_VOICECALL_APP_ID"
+    )
+    """Twilio account SID for voice/SMS (CONCEPT:ECO-4.5)."""
+
+    messaging_twilio_auth_token: str | None = Field(
+        default=None, alias="MESSAGING_VOICECALL_TOKEN"
+    )
+    """Twilio auth token for voice/SMS (CONCEPT:ECO-4.5)."""
+
+    messaging_twilio_from_number: str | None = Field(
+        default=None, alias="MESSAGING_VOICECALL_FROM_NUMBER"
+    )
+    """Twilio 'from' phone number (CONCEPT:ECO-4.5)."""
+
+    messaging_nextcloud_url: str | None = Field(
+        default=None, alias="MESSAGING_NEXTCLOUD_URL"
+    )
+    """Nextcloud server URL (CONCEPT:ECO-4.5)."""
+
+    messaging_nextcloud_token: str | None = Field(
+        default=None, alias="MESSAGING_NEXTCLOUD_TOKEN"
+    )
+    """Nextcloud app token (CONCEPT:ECO-4.5)."""
+
+    messaging_nextcloud_user: str | None = Field(
+        default=None, alias="MESSAGING_NEXTCLOUD_APP_ID"
+    )
+    """Nextcloud username (CONCEPT:ECO-4.5)."""
+
+    # --- Parallel Engine (CONCEPT:ORCH-1.25) ---
+
+    max_parallel_agents: int = Field(default=60, alias="MAX_PARALLEL_AGENTS")
+    """Maximum concurrent agent executions across the engine (CONCEPT:ORCH-1.25).
+    Acts as a global semaphore. Set higher for cloud deployments with high API limits."""
+
+    parallel_batch_size: int = Field(default=25, alias="PARALLEL_BATCH_SIZE")
+    """Number of agents per execution wave when batching is needed (CONCEPT:ORCH-1.25)."""
+
+    synthesis_strategy: str = Field(default="auto", alias="SYNTHESIS_STRATEGY")
+    """Default output synthesis strategy: 'auto', 'flat', 'hierarchical', 'progressive', 'rlm'.
+    'auto' selects based on agent count and output size (CONCEPT:ORCH-1.26)."""
+
+    synthesis_ratio: int = Field(default=10, alias="SYNTHESIS_RATIO")
+    """In hierarchical synthesis, how many outputs per synthesis sub-node (CONCEPT:ORCH-1.26)."""
+
+    agent_execution_timeout: float = Field(
+        default=120.0, alias="AGENT_EXECUTION_TIMEOUT"
+    )
+    """Per-agent execution timeout in seconds (CONCEPT:ORCH-1.25)."""
+
+    circuit_breaker_threshold: int = Field(default=3, alias="CIRCUIT_BREAKER_THRESHOLD")
+    """Number of consecutive failures before disabling an agent type (CONCEPT:ORCH-1.25)."""
+
+    enable_progressive_synthesis: bool = Field(
+        default=True, alias="ENABLE_PROGRESSIVE_SYNTHESIS"
+    )
+    """Enable streaming synthesis as agents complete (CONCEPT:ORCH-1.26)."""
+
     # --- Innovation Framework (CONCEPT:OS-5.2 through CONCEPT:OS-5.2) ---
 
     homeostatic_downgrade_enabled: bool = Field(
@@ -771,6 +971,15 @@ DEFAULT_KG_MODEL_ID = (_kg_model.id if _kg_model else None) or DEFAULT_LITE_LLM_
 DEFAULT_KG_ANALYSIS_MAX_DEPTH = config.kg_analysis_max_depth
 DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND = config.knowledge_graph_sync_background
 DEFAULT_GRAPH_DIRECT_EXECUTION = config.graph_direct_execution
+
+# --- Parallel Engine Defaults (CONCEPT:ORCH-1.25) ---
+DEFAULT_MAX_PARALLEL_AGENTS = config.max_parallel_agents
+DEFAULT_PARALLEL_BATCH_SIZE = config.parallel_batch_size
+DEFAULT_SYNTHESIS_STRATEGY = config.synthesis_strategy
+DEFAULT_SYNTHESIS_RATIO = config.synthesis_ratio
+DEFAULT_AGENT_EXECUTION_TIMEOUT = config.agent_execution_timeout
+DEFAULT_CIRCUIT_BREAKER_THRESHOLD = config.circuit_breaker_threshold
+DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS = config.enable_progressive_synthesis
 
 AGENT_API_KEY = config.agent_api_key
 ENABLE_API_AUTH = config.enable_api_auth

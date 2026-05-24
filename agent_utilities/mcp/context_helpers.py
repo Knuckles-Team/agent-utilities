@@ -204,3 +204,98 @@ async def ctx_sample(
     except Exception as exc:
         logger.debug("ctx_sample failed: %s", exc)
         return None
+
+
+async def ctx_graphql_list_types(
+    execute_gql_fn: Any,
+) -> dict[str, Any]:
+    """Discover all types in a GraphQL schema using standard introspection.
+
+    Args:
+        execute_gql_fn: A callable (sync or async) that executes a GraphQL query
+            string and returns a dict response.
+
+    Returns:
+        A dictionary containing type names and descriptions.
+    """
+    query = """
+    query IntrospectionQuery {
+      __schema {
+        types {
+          name
+          kind
+          description
+        }
+      }
+    }
+    """
+    import inspect
+
+    try:
+        if inspect.iscoroutinefunction(execute_gql_fn):
+            res = await execute_gql_fn(query)
+        else:
+            res = execute_gql_fn(query)
+        return res
+    except Exception as exc:
+        return {"error": f"Failed to list GraphQL types: {str(exc)}"}
+
+
+async def ctx_graphql_get_type_details(
+    execute_gql_fn: Any,
+    type_name: str,
+) -> dict[str, Any]:
+    """Retrieve detailed field information for a specific type in a GraphQL schema.
+
+    Args:
+        execute_gql_fn: A callable (sync or async) that executes a GraphQL query
+            string and returns a dict response.
+        type_name: Name of the type to inspect.
+
+    Returns:
+        A dictionary containing the detailed fields, arguments, and types of the type.
+    """
+    query = """
+    query GetTypeDetails($name: String!) {
+      __type(name: $name) {
+        name
+        kind
+        description
+        fields {
+          name
+          description
+          args {
+            name
+            description
+            type {
+              name
+              kind
+              ofType {
+                name
+                kind
+              }
+            }
+          }
+          type {
+            name
+            kind
+            ofType {
+              name
+              kind
+            }
+          }
+        }
+      }
+    }
+    """
+    import inspect
+
+    try:
+        variables = {"name": type_name}
+        if inspect.iscoroutinefunction(execute_gql_fn):
+            res = await execute_gql_fn(query, variables=variables)
+        else:
+            res = execute_gql_fn(query, variables=variables)
+        return res
+    except Exception as exc:
+        return {"error": f"Failed to get details for type {type_name}: {str(exc)}"}

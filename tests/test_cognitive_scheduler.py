@@ -4,7 +4,6 @@ from __future__ import annotations
 """Tests for CONCEPT:OS-5.2 — Cognitive Scheduler."""
 
 
-
 import pytest
 
 from agent_utilities.core.cognitive_scheduler import (

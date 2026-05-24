@@ -28,13 +28,25 @@ async def test_agent_runner_resolution():
     engine = _create_engine()
 
     from unittest.mock import MagicMock
+
     mock_backend = MagicMock()
     engine.backend = mock_backend
 
     # Mock the backend execution specifically for the CallableResource query
     def mock_execute(query, params=None):
-        if "CallableResource" in query and params and params.get("name") == "test-agent":
-            return [{"rid": "skill:test-agent", "rtype": "AGENT_SKILL", "description": "A test skill agent", "skill_path": ""}]
+        if (
+            "CallableResource" in query
+            and params
+            and params.get("name") == "test-agent"
+        ):
+            return [
+                {
+                    "rid": "skill:test-agent",
+                    "rtype": "AGENT_SKILL",
+                    "description": "A test skill agent",
+                    "skill_path": "",
+                }
+            ]
         return []
 
     engine.backend.execute.side_effect = mock_execute

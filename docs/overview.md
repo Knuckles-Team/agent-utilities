@@ -19,6 +19,7 @@
 | **TopologicalAnalysisEngine** | KG-2.5 | `knowledge_graph/core/topological_analysis_engine.py` | Analogy, spectral, blast radius |
 | **ResearchIntelligenceEngine** | KG-2.7 | `knowledge_graph/research/research_intelligence_engine.py` | Paper discovery & citation traversal |
 | **EvaluationEngine** | AHE-3.1 | `harness/evaluation_engine.py` | Decomposed reward signals + trace distillation |
+| **ParallelEngine** | ORCH-1.25 | `graph/parallel_engine.py` | Unified 1→300+ agent parallel execution engine |
 
 ## The 5 Core Pillars Architecture
 
@@ -35,6 +36,7 @@ graph TD
         ORCH16["<b>ORCH-1.6: DSTDD Pipeline</b>"]
         ORCH17["<b>ORCH-1.7: Prediction Linkage Layer</b>"]
         ORCH18["<b>ORCH-1.8: RecursiveMAS Latent Orchestrator</b>"]
+        ORCH125["<b>ORCH-1.25: Parallel Engine</b>"]
     end
 
     %% Pillar 2: Epistemic Knowledge Graph
@@ -75,6 +77,8 @@ graph TD
         ECO44["<b>ECO-4.4: KG MCP Server</b>"]
         ECO410["<b>ECO-4.10: Agent Ingestor</b>"]
         ECO411["<b>ECO-4.11: MCP Discovery</b>"]
+        ECO412["<b>ECO-4.12: Self-Documenting Skill-Graph</b>"]
+        ECO414["<b>ECO-4.14: Infrastructure Blueprint Library</b>"]
     end
 
     %% Pillar 5: Agent OS Infrastructure
@@ -151,6 +155,7 @@ graph TD
 | KG-2.9 | Multi-Domain Architecture | Decoupled graph frameworks and multi-domain graph orchestration |
 | KG-2.10 | Domain: Enterprise | Observational memory bridge and enterprise models |
 | KG-2.11 | Vectorized Retrieval | Semantic retrieval and vectorized indexing |
+| KG-2.12 | Time-Series Graph | Time-Series databases and time-series query caching |
 
 ### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.7)
 
@@ -164,8 +169,10 @@ graph TD
 | AHE-3.5 | Heavy Thinking & Background Intelligence | Heavy thinking, background intelligence |
 | AHE-3.6 | Backtest & Curriculum | Backtest harness, horizon-aware curriculum |
 | AHE-3.7 | KG-Native Task Detection | KG-native task detection and goal tracking |
+| AHE-3.15 | Agent-Interpretable Model Evolver | Agent-Interpretable Model Evolver (CONCEPT:AHE-3.15) for Agentic-iModels workflows |
+| AHE-3.16 | LLM-Graded Interpretability Tests | LLM-Graded Interpretability Tests (CONCEPT:AHE-3.16) |
 
-### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.11)
+### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.14)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -174,8 +181,12 @@ graph TD
 | ECO-4.2 | Community Telemetry & Ecosystem Map | Ecosystem topology, 40-repo graph, telemetry |
 | ECO-4.3 | Market Data Connectors | External data source protocols for finance domain |
 | ECO-4.4 | KG MCP Server & Execution | KG MCP exposure, durable execution, sandbox |
+| ECO-4.6 | Self-Describing Function Registry | Self-describing functions, memory hook installer, and platform wiring |
 | ECO-4.10 | Agent Toolkit Ingestor | Ingest and persist external agent toolkits |
 | ECO-4.11 | MCP Live Discovery | Real-time MCP capability discovery and mapping |
+| ECO-4.12 | Self-Documenting Skill-Graph | Automated crawling and structured skill-graph documentation |
+| ECO-4.13 | Company Infrastructure Orchestration | Deploying, configuring, and verifying services and databases |
+| ECO-4.14 | Infrastructure Blueprint Library | Library of modular, declarative system infrastructure configurations |
 
 ### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.4)
 

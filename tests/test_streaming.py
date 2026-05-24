@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — Universal Real-Time Streaming."""
 
-
 import pytest
 
 from agent_utilities.domains.finance.streaming import (

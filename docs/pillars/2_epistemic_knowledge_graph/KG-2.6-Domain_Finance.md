@@ -4,8 +4,18 @@
 FIBO-aligned KG primitives for the full trading lifecycle: Signal → Order → Position → Portfolio → Strategy. OWL-promoted with transitive provenance chains.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/models/knowledge_graph.py``
+- **Source Code**: ``agent_utilities/models/knowledge_graph.py``, ``agent_utilities/knowledge_graph/ontology_company_infra.ttl``
 - **Pillar**: KG
+
+### Core OWL Classes (Added in EE-001 updates)
+- `:ExchangeBackend`: Abstracted financial exchange connections (`ccxt`, `alpaca`, `paper`).
+- `:TradingStrategy`: Quantitative strategy lifecycle nodes.
+- `:TradingSignal`: Alpha signals and factor predictions.
+- `:PortfolioPosition`: Active instrument holdings.
+- `:VersionedOrder`: Immutable order execution audit trail.
+- `:RiskSnapshot`: Point-in-time risk measurements (Drawdown, P&L, Regime State).
+- `:TradingDebate`: Multi-agent hypothesis consensus objects.
+- `:BacktestResult`: Validation metrics for quantitative strategies.
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*

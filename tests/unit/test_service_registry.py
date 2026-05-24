@@ -2,7 +2,6 @@
 """Tests for the Unified Service Registry (CONCEPT:ORCH-1.4)."""
 
 
-
 class TestServiceRegistry:
     """Validate the central service registry wires all modules."""
 

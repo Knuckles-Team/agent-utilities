@@ -27,15 +27,13 @@ Modular imports:
   - banking, government, hr, legal, medical: Domain-specific extensions""" ;
     owl:imports <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
+        <http://knuckles.team/kg/media>,
+        <http://knuckles.team/kg/personal>,
         <http://knuckles.team/kg/quant>,
         <http://knuckles.team/kg/sdd>,
+        <http://knuckles.team/kg/social>,
+        <http://knuckles.team/kg/wellness>,
         <https://agent-utilities.dev/ontology/infrastructure> .
-
-:Action a owl:Class ;
-    rdfs:label "Action" ;
-    rdfs:comment "An agent action. BFO:Process, aligned to prov:Activity." ;
-    rdfs:seeAlso prov:Activity ;
-    rdfs:subClassOf bfo:0000015 .
 
 :Agent a owl:Class ;
     rdfs:label "Agent Specialist" ;
@@ -47,12 +45,6 @@ Modular imports:
     rdfs:label "Code" ;
     rdfs:seeAlso schema:SoftwareSourceCode ;
     rdfs:subClassOf bfo:0000004 .
-
-:Concept a owl:Class ;
-    rdfs:label "Concept" ;
-    rdfs:comment "An atomic knowledge unit. BFO:GenericallyDependentContinuant, aligned to skos:Concept for full SKOS taxonomy support." ;
-    rdfs:subClassOf bfo:0000031,
-        skos:Concept .
 
 :CreativeWork a owl:Class ;
     rdfs:label "Creative Work" ;
@@ -80,13 +72,6 @@ Modular imports:
     rdfs:label "Decision" ;
     rdfs:comment "A decision linking Goal → Action → Outcome. Subtype of Event." ;
     rdfs:subClassOf :Event .
-
-:Document a owl:Class ;
-    rdfs:label "Document" ;
-    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
-    rdfs:seeAlso bibo:Document,
-        schema:DigitalDocument ;
-    rdfs:subClassOf bfo:0000031 .
 
 :EmbeddingModel a owl:Class ;
     rdfs:label "Embedding Model" ;
@@ -130,11 +115,6 @@ Modular imports:
     rdfs:label "Hypothesis" ;
     rdfs:comment "A falsifiable predictive belief." ;
     rdfs:subClassOf :Belief .
-
-:Incident a owl:Class ;
-    rdfs:label "Incident" ;
-    rdfs:comment "A production incident. Subtype of Event." ;
-    rdfs:subClassOf :Event .
 
 :LanguageModel a owl:Class ;
     rdfs:label "Language Model" ;
@@ -277,24 +257,69 @@ Modular imports:
     rdfs:seeAlso schema:SoftwareApplication ;
     rdfs:subClassOf bfo:0000004 .
 
+:blocksTask a owl:ObjectProperty ;
+    rdfs:label "blocks task" ;
+    rdfs:comment "Links an Incident to the Task(s) it blocks." ;
+    rdfs:domain :Incident ;
+    rdfs:range :Task .
+
+:inspiredChange a owl:ObjectProperty ;
+    rdfs:label "inspired change" ;
+    rdfs:comment "Links a research Document to a code change it inspired." ;
+    rdfs:domain :Document ;
+    rdfs:range :Concept .
+
+:selfHealedVia a owl:ObjectProperty ;
+    rdfs:label "self healed via" ;
+    rdfs:comment "Links an Incident to the remediation Action that resolved it." ;
+    rdfs:domain :Incident ;
+    rdfs:range :Action ;
+    owl:inverseOf :resolvedIncident .
+
+:triggeredIncident a owl:ObjectProperty ;
+    rdfs:label "triggered incident" ;
+    rdfs:comment "Links an infrastructure event (ContainerStack crash) to the Incident it raised." ;
+    rdfs:domain :System ;
+    rdfs:range :Incident .
+
 :Belief a owl:Class ;
     rdfs:label "Belief" ;
     rdfs:comment "A claim-with-confidence held by an agent. BFO:SpecificallyDependentContinuant." ;
     rdfs:subClassOf bfo:0000020 .
+
+:Concept a owl:Class ;
+    rdfs:label "Concept" ;
+    rdfs:comment "An atomic knowledge unit. BFO:GenericallyDependentContinuant, aligned to skos:Concept for full SKOS taxonomy support." ;
+    rdfs:subClassOf bfo:0000031,
+        skos:Concept .
+
+:Document a owl:Class ;
+    rdfs:label "Document" ;
+    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
+    rdfs:seeAlso bibo:Document,
+        schema:DigitalDocument ;
+    rdfs:subClassOf bfo:0000031 .
+
+:resolvedIncident a owl:ObjectProperty ;
+    rdfs:label "resolved incident" ;
+    rdfs:comment "Links a remediation Action to the Incident it resolved." ;
+    rdfs:domain :Action ;
+    rdfs:range :Incident .
 
 bfo:0000008 a owl:Class ;
     rdfs:label "Temporal Region" ;
     rdfs:comment "BFO:TemporalRegion — a region of time." ;
     rdfs:subClassOf bfo:0000003 .
 
+:Action a owl:Class ;
+    rdfs:label "Action" ;
+    rdfs:comment "An agent action. BFO:Process, aligned to prov:Activity." ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf bfo:0000015 .
+
 :DomainEntity a owl:Class ;
     rdfs:label "Domain Entity" ;
     rdfs:comment "Base class for cross-domain associative reasoning." ;
-    rdfs:subClassOf bfo:0000004 .
-
-:System a owl:Class ;
-    rdfs:label "System" ;
-    rdfs:comment "A software system or service." ;
     rdfs:subClassOf bfo:0000004 .
 
 bfo:0000001 a owl:Class ;
@@ -313,6 +338,11 @@ bfo:0000003 a owl:Class ;
     rdfs:subClassOf bfo:0000015 ;
     owl:equivalentClass schema:Event .
 
+:System a owl:Class ;
+    rdfs:label "System" ;
+    rdfs:comment "A software system or service." ;
+    rdfs:subClassOf bfo:0000004 .
+
 bfo:0000002 a owl:Class ;
     rdfs:label "Continuant" ;
     rdfs:comment "BFO:Continuant — entities that persist through time." ;
@@ -322,6 +352,11 @@ bfo:0000020 a owl:Class ;
     rdfs:label "Specifically Dependent Continuant" ;
     rdfs:comment "BFO:SpecificallyDependentContinuant — depends on a specific bearer." ;
     rdfs:subClassOf bfo:0000002 .
+
+:Incident a owl:Class ;
+    rdfs:label "Incident" ;
+    rdfs:comment "A production incident. Subtype of Event." ;
+    rdfs:subClassOf :Event .
 
 bfo:0000015 a owl:Class ;
     rdfs:label "Process" ;

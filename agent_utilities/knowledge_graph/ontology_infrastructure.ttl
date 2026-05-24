@@ -47,6 +47,12 @@
     rdfs:domain :Container ;
     rdfs:range :ContainerStack .
 
+:bootstrappedBy a owl:ObjectProperty ;
+    rdfs:label "bootstrapped by" ;
+    rdfs:comment "Links deployed services to the DeploymentManifest that created them." ;
+    rdfs:domain :Container ;
+    rdfs:range :DeploymentManifest .
+
 :buildsImageFor a owl:ObjectProperty ;
     rdfs:label "builds image for" ;
     rdfs:domain :ContainerRegistry ;
@@ -77,11 +83,34 @@
     rdfs:domain :Rack ;
     rdfs:range :CoolingUnit .
 
+:deployedInPhase a owl:ObjectProperty ;
+    rdfs:label "deployed in phase" ;
+    rdfs:comment "Links a Container or PlatformService to the phase it was deployed in." ;
+    rdfs:domain :Container ;
+    rdfs:range :DeploymentPhase .
+
 :deployedOn a owl:ObjectProperty ;
     rdfs:label "deployed on" ;
     rdfs:comment "Links a platform service to its container stack." ;
     rdfs:domain au:PlatformService ;
     rdfs:range :ContainerStack .
+
+:deploymentProfile a owl:DatatypeProperty ;
+    rdfs:label "deployment profile" ;
+    rdfs:comment "Values: homelab, enterprise, minimal." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:string .
+
+:deploymentTimestamp a owl:DatatypeProperty ;
+    rdfs:label "deployment timestamp" ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:dateTime .
+
+:dnsDomain a owl:DatatypeProperty ;
+    rdfs:label "DNS domain" ;
+    rdfs:comment "Base domain for service DNS routing (e.g., home.lab)." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:string .
 
 :dnsType a owl:DatatypeProperty ;
     rdfs:label "DNS type" ;
@@ -93,6 +122,11 @@
     rdfs:domain :MetricsExporter ;
     rdfs:range :ObservabilityStack .
 
+:gpuAvailable a owl:DatatypeProperty ;
+    rdfs:label "GPU available" ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:boolean .
+
 :hasAccelerator a owl:ObjectProperty ;
     rdfs:label "has accelerator" ;
     rdfs:domain au:HardwareNode ;
@@ -103,10 +137,22 @@
     rdfs:domain au:HardwareNode ;
     rdfs:range :NetworkInterface .
 
+:hasPhase a owl:ObjectProperty ;
+    rdfs:label "has phase" ;
+    rdfs:comment "Links a DeploymentManifest to its constituent phases." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range :DeploymentPhase .
+
 :managesDNSFor a owl:ObjectProperty ;
     rdfs:label "manages DNS for" ;
     rdfs:domain :DNSService ;
     rdfs:range :NetworkSubnet .
+
+:mcpEndpointUrl a owl:DatatypeProperty ;
+    rdfs:label "MCP endpoint URL" ;
+    rdfs:comment "The streamable-http URL for an MCP server container." ;
+    rdfs:domain :MCPServerDeployment ;
+    rdfs:range xsd:anyURI .
 
 :monitors a owl:ObjectProperty ;
     rdfs:label "monitors" ;
@@ -118,15 +164,33 @@
     rdfs:domain au:HardwareNode ;
     rdfs:range :Rack .
 
+:phaseTier a owl:DatatypeProperty ;
+    rdfs:label "phase tier" ;
+    rdfs:comment "Tier number: 0 (core infra), 1 (platform services), 2 (MCP servers)." ;
+    rdfs:domain :DeploymentPhase ;
+    rdfs:range xsd:integer .
+
 :poweredBy a owl:ObjectProperty ;
     rdfs:label "powered by" ;
     rdfs:domain :Rack ;
     rdfs:range :PowerDistribution .
 
+:prerequisiteVersion a owl:DatatypeProperty ;
+    rdfs:label "prerequisite version" ;
+    rdfs:comment "Installed version of the prerequisite (Docker 24.0.7, Python 3.11.4)." ;
+    rdfs:domain :DeploymentPrerequisite ;
+    rdfs:range xsd:string .
+
 :proxyType a owl:DatatypeProperty ;
     rdfs:label "proxy type" ;
     rdfs:domain :ReverseProxy ;
     rdfs:range xsd:string .
+
+:requiresPrerequisite a owl:ObjectProperty ;
+    rdfs:label "requires prerequisite" ;
+    rdfs:comment "Links a DeploymentPhase to the prerequisites it needs." ;
+    rdfs:domain :DeploymentPhase ;
+    rdfs:range :DeploymentPrerequisite .
 
 :resolvesDNSFor a owl:ObjectProperty ;
     rdfs:label "resolves DNS for" ;
@@ -150,10 +214,41 @@
     rdfs:domain :Container ;
     rdfs:range xsd:string .
 
+:servesEndpoint a owl:ObjectProperty ;
+    rdfs:label "serves endpoint" ;
+    rdfs:comment "Links an MCPServerDeployment to the PlatformService it exposes." ;
+    rdfs:domain :MCPServerDeployment ;
+    rdfs:range au:PlatformService .
+
+:serviceCount a owl:DatatypeProperty ;
+    rdfs:label "service count" ;
+    rdfs:comment "Total number of services deployed in this manifest." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:integer .
+
+:targetHost a owl:DatatypeProperty ;
+    rdfs:label "target host" ;
+    rdfs:comment "Hostname or IP of the deployment target." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:string .
+
+:transitionedTo a owl:ObjectProperty ;
+    rdfs:label "transitioned to" ;
+    rdfs:comment """Records the transition from direct container-manager-mcp
+management to Portainer-managed orchestration during bootstrap.""" ;
+    rdfs:domain :DeploymentPhase ;
+    rdfs:range :DeploymentPhase .
+
 :uCapacity a owl:DatatypeProperty ;
     rdfs:label "rack U capacity" ;
     rdfs:domain :Rack ;
     rdfs:range xsd:integer .
+
+:usesProfile a owl:ObjectProperty ;
+    rdfs:label "uses profile" ;
+    rdfs:comment "Links a DeploymentManifest to the profile template it follows." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range :DeploymentProfile .
 
 :vramGb a owl:DatatypeProperty ;
     rdfs:label "VRAM (GB)" ;
@@ -174,6 +269,13 @@
     rdfs:label "DNS Rewrite" ;
     rdfs:comment "A single DNS rewrite rule mapping a domain to an answer." ;
     rdfs:subClassOf bfo:0000004 .
+
+:DeploymentProfile a owl:Class ;
+    rdfs:label "Deployment Profile" ;
+    rdfs:comment """A named deployment configuration template: homelab (all services),
+enterprise (ITIL + productivity), or minimal (core infrastructure only).
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
 
 :FabricSwitch a owl:Class ;
     rdfs:label "Fabric Switch" ;
@@ -220,10 +322,23 @@
     rdfs:comment "A DNS resolver/server (AdGuard Home, Pi-hole, BIND, CoreDNS)." ;
     rdfs:subClassOf bfo:0000004 .
 
+:DeploymentPrerequisite a owl:Class ;
+    rdfs:label "Deployment Prerequisite" ;
+    rdfs:comment """A system-level dependency required before deployment can proceed
+(Docker Engine, Python, Git, etc.). BFO:IndependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000004 .
+
 :GPUAccelerator a owl:Class ;
     rdfs:label "GPU Accelerator" ;
     rdfs:comment "A GPU or other hardware accelerator (FPGA, TPU, DPU)." ;
     rdfs:subClassOf bfo:0000030 .
+
+:MCPServerDeployment a owl:Class ;
+    rdfs:label "MCP Server Deployment" ;
+    rdfs:comment """A deployed MCP server container serving streamable-http endpoints.
+Links the abstract MCPServerPackage to a physical Container and its
+network endpoint URL.""" ;
+    rdfs:subClassOf :Container .
 
 :NetworkSubnet a owl:Class ;
     rdfs:label "Network Subnet" ;
@@ -240,13 +355,27 @@
     rdfs:comment "A storage system (SAN, NAS, NVMe-oF, Ceph)." ;
     rdfs:subClassOf bfo:0000030 .
 
+:Rack a owl:Class ;
+    rdfs:label "Rack" ;
+    rdfs:comment "A physical server rack (42U standard or custom)." ;
+    rdfs:subClassOf bfo:0000030 .
+
 :Container a owl:Class ;
     rdfs:label "Container" ;
     rdfs:comment "A running container instance (Docker, Podman, containerd, CRI-O)." ;
     rdfs:subClassOf bfo:0000004 .
 
-:Rack a owl:Class ;
-    rdfs:label "Rack" ;
-    rdfs:comment "A physical server rack (42U standard or custom)." ;
-    rdfs:subClassOf bfo:0000030 .
+:DeploymentPhase a owl:Class ;
+    rdfs:label "Deployment Phase" ;
+    rdfs:comment """A stage within a bootstrap deployment (Tier 0: Core Infra,
+Tier 1: Platform Services, Tier 2: MCP Servers).
+BFO:Process — unfolds over time.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:DeploymentManifest a owl:Class ;
+    rdfs:label "Deployment Manifest" ;
+    rdfs:comment """A complete deployment blueprint recording what was deployed,
+where, when, and under which profile (homelab/enterprise/minimal).
+BFO:GenericallyDependentContinuant — an information entity.""" ;
+    rdfs:subClassOf bfo:0000031 .
 
