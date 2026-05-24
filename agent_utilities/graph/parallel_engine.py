@@ -160,6 +160,20 @@ class ParallelEngine:
         # 2. Build DAG and schedule waves
         waves = self._schedule_waves(resolved)
 
+        # Generate Mermaid diagram representing the execution topography
+        mermaid_code = None
+        try:
+            from agent_utilities.workflows.visualizer import WorkflowVisualizer
+            mermaid_code = WorkflowVisualizer.generate(resolved, waves)
+            logger.info(
+                "\n" + "=" * 80 + "\n"
+                "[VISUALIZER] Deterministically Generated Mermaid Topography:\n\n"
+                f"```mermaid\n{mermaid_code}\n```\n"
+                + "=" * 80 + "\n"
+            )
+        except Exception as vis_err:
+            logger.warning("Failed to generate workflow Mermaid diagram: %s", vis_err)
+
         # 3. Select coordination protocol
         protocol = self.coordination.select_protocol(
             agent_count=resolved.agent_count,
@@ -258,6 +272,7 @@ class ParallelEngine:
             manifest_id=resolved.manifest_id,
             execution_id=execution_id,
             synthesis_output=synthesis_output,
+            mermaid=mermaid_code,
             wave_results=wave_results,
             agent_count=resolved.agent_count,
             protocol=protocol.name,
