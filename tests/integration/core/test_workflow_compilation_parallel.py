@@ -152,7 +152,7 @@ def test_parallel_engine_wave_scheduling_for_workflows():
         AgentSpec(
             agent_id=step.node_id,
             role=step.node_id,
-            task_template=step.refined_subtask,
+            task_template=step.refined_subtask or "",
             depends_on=step.depends_on,
         )
         for step in observability_plan.steps
@@ -180,7 +180,7 @@ def test_parallel_engine_wave_scheduling_for_workflows():
         AgentSpec(
             agent_id=step.node_id,
             role=step.node_id,
-            task_template=step.refined_subtask,
+            task_template=step.refined_subtask or "",
             depends_on=step.depends_on,
         )
         for step in sdd_plan.steps
@@ -205,3 +205,67 @@ def test_parallel_engine_wave_scheduling_for_workflows():
     }
     # Wave 2
     assert [a.agent_id for a in sdd_waves[2]] == ["verification-gate"]
+
+
+def test_newly_scaffolded_finance_workflows_compilation():
+    """Verify that all 20 newly scaffolded finance workflows compile and schedule correctly."""
+    skills_root = get_skills_root()
+    engine = ParallelEngine()
+
+    new_workflows = [
+        "polymarket_paired_arbitrage",
+        "strategy_hypothesis_to_live",
+        "overnight_research_loop",
+        "freqtrade_strategy_deploy",
+        "multi_exchange_arbitrage",
+        "strategy_tournament",
+        "parameter_sweep_optimizer",
+        "walk_forward_validation",
+        "regime_detection_pipeline",
+        "sentiment_alpha_pipeline",
+        "options_volatility_surface",
+        "cross_asset_correlation",
+        "market_microstructure_analysis",
+        "strategy_code_review",
+        "portfolio_rebalance_cycle",
+        "risk_dashboard_refresh",
+        "portfolio_stress_test",
+        "tax_lot_optimization",
+        "benchmark_tracking_error",
+        "dividend_reinvestment",
+    ]
+
+    for wf_name in new_workflows:
+        skill_dir = skills_root / "finance" / wf_name
+
+        # 1. Compile workflow
+        plan = SkillCompiler.compile(skill_dir)
+        assert plan is not None, f"Failed to compile {wf_name}"
+        assert len(plan.steps) in (4, 5), f"{wf_name} has unexpected step count"
+
+        # 2. Verify team configuration
+        team = SkillCompiler.load_team_config(skill_dir)
+        assert team is not None, f"Failed to load team config for {wf_name}"
+        assert "specialist_ids" in team
+
+        # 3. Schedule waves via ParallelEngine
+        agents = [
+            AgentSpec(
+                agent_id=step.node_id,
+                role=step.node_id,
+                task_template=step.refined_subtask or "",
+                depends_on=step.depends_on,
+            )
+            for step in plan.steps
+        ]
+        manifest = ExecutionManifest(
+            name=f"Test Run for {wf_name}",
+            agents=agents,
+            execution_mode="parallel",
+            query=f"Run parallel execution for {wf_name}",
+            synthesis=SynthesisSpec(strategy="flat"),
+        )
+
+        waves = engine._schedule_waves(manifest)
+        assert len(waves) >= 1, f"Failed to schedule waves for {wf_name}"
+

@@ -143,6 +143,71 @@ Do step 2 task.
             assert outcome["workflow_id"] is not None
             assert outcome["team_config_id"] == "test_team"
 
+    def test_lossless_roundtrip_update(self) -> None:
+        """Verify that SkillCompiler.update_markdown retains formatting and updates steps correctly."""
+        original_markdown = """---
+name: test-lossless-skill
+custom_field: preserve-this
+---
+# Main Header
+This is some introductory prose that must be preserved.
+> [!NOTE]
+> An alert callout.
+
+### Step 1: agent-a
+Gather baseline details.
+
+### Step 2: agent-b [depends_on: agent-a]
+Process the data.
+
+## Concluding Section
+Some post-execution steps.
+"""
+        # Parse it into a GraphPlan
+        plan = SkillCompiler.compile_from_text("test-lossless-skill", original_markdown)
+        assert len(plan.steps) == 2
+        assert plan.steps[0].node_id == "agent-a"
+        assert plan.steps[1].node_id == "agent-b"
+
+        # Programmatically mutate the steps
+        plan.steps[0].refined_subtask = "Gather updated details."
+        # Update depends_on for step 2
+        plan.steps[1].depends_on = ["agent-a", "agent-extra"]
+
+        # Call update_markdown
+        updated_markdown = SkillCompiler.update_markdown(original_markdown, plan)
+
+        # Verify YAML frontmatter is completely preserved
+        assert "custom_field: preserve-this" in updated_markdown
+        # Verify intro prose and alert are preserved
+        assert "This is some introductory prose that must be preserved." in updated_markdown
+        assert "> [!NOTE]" in updated_markdown
+        # Verify concluding section is preserved
+        assert "## Concluding Section" in updated_markdown
+        assert "Some post-execution steps." in updated_markdown
+
+        # Verify step updates
+        assert "Gather updated details." in updated_markdown
+        assert "### Step 2: agent-b [depends_on: agent-a, agent-extra]" in updated_markdown
+
+    def test_lossless_roundtrip_save_new(self) -> None:
+        """Verify that SkillCompiler.save creates a new file if it doesn't exist."""
+        with tempfile.TemporaryDirectory() as td:
+            skill_dir = Path(td)
+            plan = GraphPlan(
+                steps=[
+                    ExecutionStep(node_id="new-agent", refined_subtask="New step task", depends_on=[])
+                ]
+            )
+            SkillCompiler.save(skill_dir, plan)
+
+            skill_path = skill_dir / "SKILL.md"
+            assert skill_path.exists()
+            content = skill_path.read_text(encoding="utf-8")
+            assert "New step task" in content
+            assert "### Step 1: new-agent" in content
+
+
 
 # ---------------------------------------------------------------------------
 # Test Distillation Hook

@@ -1,6 +1,8 @@
 {
   "task": "chief_trading_officer",
   "type": "prompt",
+  "version": "1.0.0",
+
   "metadata": {
     "description": "Chief Trading Officer orchestrator prompt",
     "topic": "finance",
