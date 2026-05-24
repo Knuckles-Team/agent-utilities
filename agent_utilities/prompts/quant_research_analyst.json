@@ -1,6 +1,8 @@
 {
   "task": "quant_research_analyst",
   "type": "prompt",
+  "version": "1.0.0",
+
   "metadata": {
     "description": "Quant Research Analyst prompt",
     "topic": "finance",

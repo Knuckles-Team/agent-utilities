@@ -112,6 +112,118 @@ class SkillCompiler:
         )
 
     @staticmethod
+    def update_markdown(original_markdown: str, plan: GraphPlan) -> str:
+        """Update original markdown losslessly with changes from GraphPlan.
+
+        Preserves frontmatter (updates metadata if needed), introductory prose,
+        concluding prose, spacing, and comments, while updating step headers,
+        bodies, and depends_on tags.
+        """
+        # 1. Extract frontmatter
+        fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", original_markdown, re.DOTALL)
+        if fm_match:
+            frontmatter = fm_match.group(0)
+            body = original_markdown[fm_match.end():]
+        else:
+            frontmatter = ""
+            body = original_markdown
+
+        # 2. Find step boundaries
+        # Pattern for matching "### Step N:" or similar step headers
+        step_header_pattern = re.compile(r"^(###\s+Step\s+\d+:|^\d+\.\s+\*\*)", re.MULTILINE | re.IGNORECASE)
+        matches = list(step_header_pattern.finditer(body))
+
+        if not matches:
+            # If no original steps, we just append steps at the end
+            intro_prose = body.rstrip() + "\n\n"
+            step_blocks_raw = []
+            concluding_prose = ""
+            start_index = 1
+        else:
+            intro_prose = body[:matches[0].start()]
+            step_blocks_raw = []
+            for idx in range(len(matches)):
+                start = matches[idx].start()
+                end = matches[idx + 1].start() if idx + 1 < len(matches) else len(body)
+                step_blocks_raw.append(body[start:end])
+
+            # Extract concluding prose if any exists after the steps in the last block
+            last_block = step_blocks_raw[-1]
+            # Look for double-newline followed by a non-step header or general text at the end
+            concluding_match = re.search(r"\n\n(##?\s+.*)$", last_block, re.MULTILINE | re.DOTALL)
+            if concluding_match:
+                concluding_prose = last_block[concluding_match.start():]
+                step_blocks_raw[-1] = last_block[:concluding_match.start()]
+            else:
+                concluding_prose = ""
+
+            # Detect step indexing style (0-indexed or 1-indexed)
+            start_index = 1
+            first_header = matches[0].group(0)
+            num_match = re.search(r"\d+", first_header)
+            if num_match:
+                start_index = int(num_match.group(0))
+
+        # 3. Format new steps
+        formatted_steps = []
+        for i, step in enumerate(plan.steps):
+            step_num = start_index + i
+            depends_suffix = ""
+            if step.depends_on:
+                depends_suffix = f" [depends_on: {', '.join(step.depends_on)}]"
+
+            header = f"### Step {step_num}: {step.node_id}{depends_suffix}\n"
+
+            # Parse subtask text
+            body_text = ""
+            if step.refined_subtask:
+                subtask_lines = step.refined_subtask.strip().split("\n")
+                clean_lines = []
+                for line in subtask_lines:
+                    line_strip = line.strip()
+                    # Skip lines that are just copies of the header/step/agent title
+                    if (line_strip.lower().startswith("step ") and ":" in line_strip) or line_strip.lower().startswith("### step "):
+                        continue
+                    clean_lines.append(line)
+                body_text = "\n".join(clean_lines).strip()
+            else:
+                body_text = "Execute step task."
+
+            formatted_steps.append(f"{header}{body_text}\n\n")
+
+        # 4. Reconstruct the document
+        new_body = intro_prose + "".join(formatted_steps) + concluding_prose
+        return f"{frontmatter}{new_body}"
+
+    @staticmethod
+    def save(skill_dir: Path, plan: GraphPlan) -> None:
+        """Update SKILL.md inside the given skill directory losslessly in-place."""
+        import time
+        skill_path = skill_dir / "SKILL.md"
+        if not skill_path.exists():
+            # If it doesn't exist, generate a fresh basic one
+            metadata_name = skill_dir.name
+            markdown = f"""---
+name: {metadata_name}
+description: Evolved skill workflow.
+tags: [evolved]
+---
+# {metadata_name} Workflow
+
+"""
+            skill_path.parent.mkdir(parents=True, exist_ok=True)
+            original_content = markdown
+        else:
+            with open(skill_path, "r", encoding="utf-8") as f:
+                original_content = f.read()
+
+        updated_content = SkillCompiler.update_markdown(original_content, plan)
+        with open(skill_path, "w", encoding="utf-8") as f:
+            f.write(updated_content)
+        logger.info("Losslessly saved updated skill workflow to %s", skill_path)
+
+
+    @staticmethod
     def load_team_config(skill_dir: Path) -> dict[str, Any] | None:
         """Load references/team.yaml if it exists, else return None.
 

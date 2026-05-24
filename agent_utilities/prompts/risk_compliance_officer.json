@@ -1,6 +1,8 @@
 {
   "task": "risk_compliance_officer",
   "type": "prompt",
+  "version": "1.0.0",
+
   "metadata": {
     "description": "Risk Compliance Officer prompt",
     "topic": "finance",

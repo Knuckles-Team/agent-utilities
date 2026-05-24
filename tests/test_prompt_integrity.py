@@ -199,3 +199,38 @@ class TestPromptIntegrity:
         # This is informational — print hash for baseline tracking
         # In a CI environment, you'd compare against a known-good manifest
         assert content_hash  # Always passes — hash is never empty
+
+
+class TestStructuredPromptRoundtrip:
+    """Tests the bi-directional StructuredPrompt.load() and save() methods."""
+
+    def test_load_and_save_roundtrip(self, tmp_path: Path):
+        from agent_utilities.prompting.structured import StructuredPrompt
+
+        # 1. Discover existing prompt files and select one
+        prompt_files = _discover_prompt_files()
+        assert prompt_files, "No prompt JSON files found"
+        source_file = prompt_files[0]
+
+        # 2. Load it via StructuredPrompt
+        prompt = StructuredPrompt.load(source_file)
+        assert isinstance(prompt, StructuredPrompt)
+        assert prompt.task
+
+        # 3. Save to a temporary file
+        temp_dest = tmp_path / f"temp_{source_file.name}"
+        prompt.save(temp_dest)
+
+        # 4. Load it back and assert equal
+        reloaded = StructuredPrompt.load(temp_dest)
+        assert reloaded.task == prompt.task
+        assert reloaded.type == prompt.type
+
+        # 5. Mutate a field and assert persistence
+        prompt.tone = "playful"
+        mutated_dest = tmp_path / f"mutated_{source_file.name}"
+        prompt.save(mutated_dest)
+
+        reloaded_mutated = StructuredPrompt.load(mutated_dest)
+        assert reloaded_mutated.tone == "playful"
+

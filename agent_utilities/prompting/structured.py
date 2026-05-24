@@ -11,7 +11,9 @@ CONCEPT:ORCH-1.0 — Structured Prompting
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
+
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -412,3 +414,29 @@ class StructuredPrompt(BaseModel):
                 mapped_data[k] = v
 
         return cls.model_validate(mapped_data)
+
+    @classmethod
+    def load(cls, file_path: Path | str) -> StructuredPrompt:
+        """Load a StructuredPrompt from a local JSON blueprint file."""
+        from pathlib import Path
+        path = Path(file_path)
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return cls.model_validate(data)
+
+    def save(self, file_path: Path | str) -> None:
+        """Save this StructuredPrompt cleanly to a local JSON blueprint file.
+        
+        Preserves custom properties via extra="allow" and formats with double spacing indentation.
+        """
+        from pathlib import Path
+        path = Path(file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = self.model_dump(exclude_none=True, exclude_unset=True)
+        
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        logger.info("Saved structured prompt blueprint to %s", path)
+
+
