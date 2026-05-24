@@ -8,7 +8,6 @@ Covers all 5 components:
 - Component 5: Citation Tracker (extract_citations, evaluate_citations)
 """
 
-
 import pytest
 
 # ── Component 1: Fixed Corpus Evaluation ──────────────────────────────────

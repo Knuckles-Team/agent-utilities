@@ -1,5 +1,3 @@
-
-
 def test_server_startup():
     """Validates that the server module can start successfully."""
     # If this is not an agent, just pass

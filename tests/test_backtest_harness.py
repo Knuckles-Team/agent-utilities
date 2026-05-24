@@ -3,7 +3,6 @@ from __future__ import annotations
 """Tests for CONCEPT:AHE-3.4 — Backtest Evaluation Harness."""
 
 
-
 import pytest
 
 from agent_utilities.harness.continuous_evaluation_engine import (

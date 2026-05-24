@@ -1,6 +1,5 @@
 """Tests for CONCEPT:KG-2.6 — x402 AI Payment Protocol."""
 
-
 from agent_utilities.domains.finance.payments import (
     BudgetLimits,
     PaymentChallenge,

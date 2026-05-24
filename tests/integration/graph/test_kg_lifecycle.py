@@ -8,7 +8,6 @@ Integration tests for KG lifecycle management:
 - DocumentDeletionPipeline + QueryMixin parity
 """
 
-
 import networkx as nx
 import pytest
 

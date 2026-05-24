@@ -11,7 +11,6 @@ Tests cover all 7 gaps:
   7. Shareable Team Compositions
 """
 
-
 import networkx as nx
 import pytest
 

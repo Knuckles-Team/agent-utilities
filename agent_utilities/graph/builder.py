@@ -411,10 +411,16 @@ def create_agent(
         if DEFAULT_VALIDATION_MODE:
             logger.info("Registry Graph: Skipping initialization in VALIDATION_MODE.")
         else:
+            import os
+
             from agent_utilities.core.paths import data_dir
 
             ws = get_agent_workspace()
-            registry_db = data_dir() / "kg" / "registry_graph.db"
+            if os.environ.get("AGENT_UTILITIES_TESTING"):
+                registry_db = ws / ".agent_utilities_test" / "kg" / "registry_graph.db"
+            else:
+                registry_db = data_dir() / "kg" / "registry_graph.db"
+
             registry_db.parent.mkdir(parents=True, exist_ok=True)
             reg_config = PipelineConfig(
                 workspace_path=str(ws),
@@ -436,28 +442,8 @@ def create_agent(
             except RuntimeError:
                 # No running loop, safe to run blocking
                 try:
-                    from filelock import FileLock, Timeout
-
-                    lock_path = ws / ".registry.sync.lock"
-                    lock = FileLock(str(lock_path), timeout=0)
-
-                    # Only run the pipeline if we can acquire the lock (non-blocking)
-                    # or if we are forced to run it.
-                    sync_background = DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND
-
-                    try:
-                        with lock.acquire(timeout=0 if sync_background else 60):
-                            logger.info("Running RegistryPipeline sync...")
-                            asyncio.run(reg_pipeline.run())
-                    except Timeout:
-                        if sync_background:
-                            logger.info(
-                                "Another process is syncing the Registry Graph. Skipping to avoid memory exhaustion."
-                            )
-                        else:
-                            logger.warning(
-                                "Timed out waiting for Registry Graph sync lock."
-                            )
+                    logger.info("Running RegistryPipeline sync...")
+                    asyncio.run(reg_pipeline.run())
                     knowledge_engine = RegistryGraphEngine(
                         reg_pipeline.graph, db_path=reg_config.ladybug_path
                     )

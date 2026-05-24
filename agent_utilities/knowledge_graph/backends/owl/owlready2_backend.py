@@ -81,6 +81,50 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "knowledge_base": "KnowledgeBase",
     "knowledge_base_topic": "KnowledgeBaseTopic",
     "experiment": "Experiment",
+    # Wellness domain (ontology_wellness.ttl)
+    "meal_plan": "MealPlan",
+    "meal_entry": "MealEntry",
+    "recipe": "Recipe",
+    "nutrient_profile": "NutrientProfile",
+    "daily_nutrient_summary": "DailyNutrientSummary",
+    "shopping_list": "ShoppingList",
+    "ingredient": "Ingredient",
+    "nutrition_target": "NutritionTarget",
+    "workout_routine": "WorkoutRoutine",
+    "workout_session": "WorkoutSession",
+    "exercise": "Exercise",
+    "exercise_set": "ExerciseSet",
+    "fitness_goal": "FitnessGoal",
+    "body_measurement": "BodyMeasurement",
+    "wellness_score": "WellnessScore",
+    "calorie_expenditure": "CalorieExpenditure",
+    # Social domain (ontology_social.ttl)
+    "social_post": "SocialPost",
+    "content_draft": "ContentDraft",
+    "content_calendar": "ContentCalendar",
+    "broadcast_session": "BroadcastSession",
+    "stream_highlight": "StreamHighlight",
+    "engagement_metric": "EngagementMetric",
+    "daily_engagement": "DailyEngagement",
+    "aggregated_engagement": "AggregatedEngagement",
+    "audience_metric": "AudienceMetric",
+    # Personal productivity domain (ontology_personal.ttl)
+    "calendar_event": "CalendarEvent",
+    "recurring_event": "RecurringEvent",
+    "personal_task": "PersonalTask",
+    "voice_message": "VoiceMessage",
+    "transcript": "Transcript",
+    # Media domain (ontology_media.ttl)
+    "download_job": "DownloadJob",
+    "media_asset": "MediaAsset",
+    "media_library": "MediaLibrary",
+    "media_collection": "MediaCollection",
+    # Deployment/Bootstrap domain (ontology_infrastructure.ttl extensions)
+    "deployment_manifest": "DeploymentManifest",
+    "deployment_phase": "DeploymentPhase",
+    "deployment_prerequisite": "DeploymentPrerequisite",
+    "mcp_server_deployment": "MCPServerDeployment",
+    "deployment_profile": "DeploymentProfile",
 }
 
 # Mapping from LPG edge type values to OWL object property local names
@@ -127,6 +171,55 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "escalated_to": "escalatedTo",
     "applied_edit": "appliedEdit",
     "has_edit_for": "hasEditFor",
+    # Cross-domain properties (ontology.ttl extensions)
+    "triggered_incident": "triggeredIncident",
+    "self_healed_via": "selfHealedVia",
+    "resolved_incident": "resolvedIncident",
+    "blocks_task": "blocksTask",
+    "inspired_change": "inspiredChange",
+    # Wellness domain edges
+    "prescribed_diet": "prescribedDiet",
+    "follows_routine": "followsRoutine",
+    "has_nutrient_profile": "hasNutrientProfile",
+    "aggregates_to": "aggregatesTo",
+    "targets_goal": "targetsGoal",
+    "tracked_measurement": "trackedMeasurement",
+    "calorie_balance": "calorieBalance",
+    "contains_meal": "containsMeal",
+    "uses_recipe": "usesRecipe",
+    "completed_session": "completedSession",
+    "performed_exercise": "performedExercise",
+    "estimated_expenditure": "estimatedExpenditure",
+    "motivated_by_measurement": "motivatedBy",
+    # Social domain edges
+    "published_on": "publishedOn",
+    "scheduled_in": "scheduledIn",
+    "engagement_of": "engagementOf",
+    "broadcast_engagement": "broadcastEngagement",
+    "broadcasted_via": "broadcastedVia",
+    "aggregates_daily": "aggregatesDaily",
+    "promotes_research": "promotesResearch",
+    "derived_from_content": "derivedFromContent",
+    # Personal productivity edges
+    "scheduled_for": "scheduledFor",
+    "originated_from": "originatedFrom",
+    "transcribed_from": "transcribedFrom",
+    "spawns_task": "spawnsTask",
+    "blocked_by_incident": "blockedByIncident",
+    # Media domain edges
+    "downloaded_via": "downloadedVia",
+    "requested_by": "requestedBy",
+    "produced_asset": "producedAsset",
+    "managed_by": "managedBy",
+    "belongs_to_collection": "belongsToCollection",
+    # Deployment/Bootstrap edges
+    "bootstrapped_by": "bootstrappedBy",
+    "has_phase": "hasPhase",
+    "deployed_in_phase": "deployedInPhase",
+    "requires_prerequisite": "requiresPrerequisite",
+    "serves_endpoint": "servesEndpoint",
+    "uses_profile": "usesProfile",
+    "transitioned_to": "transitionedTo",
 }
 
 
@@ -288,14 +381,24 @@ class Owlready2Backend(OWLBackend):
         if not class_name or not self._world:
             return None
         # We search the world because the class might be in a sibling/imported ontology
-        return self._world.search_one(iri=f"*{class_name}")
+        import owlready2
+
+        for res in self._world.search(iri=f"*{class_name}"):
+            if isinstance(res, owlready2.ThingClass):
+                return res
+        return None
 
     def _get_owl_property(self, edge_type: str):
         """Resolve a LPG edge type string to an owlready2 object property."""
         prop_name = _EDGE_TYPE_TO_OWL_PROP.get(edge_type)
         if not prop_name or not self._world:
             return None
-        return self._world.search_one(iri=f"*{prop_name}")
+        import owlready2
+
+        for res in self._world.search(iri=f"*{prop_name}"):
+            if isinstance(res, owlready2.PropertyClass):
+                return res
+        return None
 
     def _safe_id(self, node_id: str) -> str:
         """Sanitize a node ID for use as an OWL individual name."""

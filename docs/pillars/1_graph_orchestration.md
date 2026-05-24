@@ -44,6 +44,9 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.20**: KG-Driven Graph Factory — materializes pydantic-graph topologies from AgentTemplate nodes
 - **ORCH-1.21**: Agent Runner — KG-to-LLM execution bridge with dynamic tool binding and provenance tracking
 - **ORCH-1.22**: RecursiveMAS Latent Orchestrator 🔬 — continuous latent loop or simulated semantic collaboration
+- **ORCH-1.25**: [**Parallel Engine**](1_graph_orchestration/ORCH-1.25-Parallel_Engine.md) — unified 1→300+ agent execution engine with semaphore-governed concurrency, DAG scheduling, and tiered synthesis
+- **ORCH-1.26**: RLM-Native Hierarchical Synthesis — flat/hierarchical/progressive/rlm output merging strategies
+- **ORCH-1.27**: Autonomous Department Orchestration — OWL-materialized company departments with `reportsTo` hierarchy
 
 
 ## 🧬 First Principles Architecture

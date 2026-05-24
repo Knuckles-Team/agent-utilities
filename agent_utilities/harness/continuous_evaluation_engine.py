@@ -492,7 +492,17 @@ Usage::
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DB_PATH = ".agent_workspace/backtest_log.db"
+
+def _get_default_db_path() -> str:
+    try:
+        from agent_utilities.core import paths
+
+        return str(paths.data_dir() / "backtest_log.db")
+    except ImportError:
+        return ".agent_workspace/backtest_log.db"
+
+
+_DEFAULT_DB_PATH = _get_default_db_path()
 
 
 class BacktestMetric(BaseModel):

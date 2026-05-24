@@ -120,77 +120,69 @@ async def ingest_prompts_to_graph():
     ``agent_utilities/prompts/`` are ingested.
     """
     import networkx as nx
-    from filelock import FileLock, Timeout
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.models.knowledge_graph import PromptNode
 
     workspace = get_agent_workspace()
-    lock_path = workspace / ".prompts.sync.lock"
-    lock = FileLock(str(lock_path), timeout=0)
 
     try:
-        with lock.acquire(timeout=0):
-            engine = IntelligenceGraphEngine.get_active()
-            if not engine:
-                db_path = str(workspace / "knowledge_graph.db")
-                engine = IntelligenceGraphEngine(
-                    graph=nx.MultiDiGraph(), db_path=db_path
+        engine = IntelligenceGraphEngine.get_active()
+        if not engine:
+            db_path = str(workspace / "knowledge_graph.db")
+            engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), db_path=db_path)
+
+        if engine.backend:
+            engine.backend.create_schema()
+
+        backend = engine.backend
+        if backend is None:
+            logger.warning("Graph backend not available, skipping prompt ingestion.")
+            return None
+
+        prompts_dir = Path(__file__).parent.parent / "prompts"
+        if not prompts_dir.exists():
+            logger.info("No prompts directory found at %s", prompts_dir)
+            return None
+
+        prompt_files: list[Path] = list(prompts_dir.glob("*.json"))
+        logger.debug(f"Found {len(prompt_files)} prompt files in {prompts_dir}")
+
+        for pfile in prompt_files:
+            stem = pfile.stem
+            if pfile.name.startswith("_") or stem in RESERVED_CORE_NODES:
+                logger.debug(f"Skipping reserved/internal node: {stem}")
+                continue
+
+            data = _load_prompt_metadata(pfile)
+            if data is None:
+                continue
+
+            try:
+                name, description, capabilities, system_prompt = _resolve_fields(
+                    data, stem
                 )
-
-            if engine.backend:
-                engine.backend.create_schema()
-
-            backend = engine.backend
-            if backend is None:
-                logger.warning(
-                    "Graph backend not available, skipping prompt ingestion."
+                ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                node = PromptNode(
+                    id=f"prompt:{name}",
+                    name=name,
+                    description=description,
+                    system_prompt=system_prompt,
+                    json_blueprint=data,
+                    capabilities=capabilities,
+                    type=RegistryNodeType.PROMPT,
+                    timestamp=ts,
+                    is_permanent=True,
                 )
-                return None
+                logger.debug(f"Ingesting prompt {name} via engine.upsert")
+                serialized_data = engine._serialize_node(node, label="Prompt")
+                engine._upsert_node("Prompt", node.id, serialized_data)
+            except Exception as e:
+                logger.warning(f"Failed to ingest prompt {pfile.name}: {e}")
 
-            prompts_dir = Path(__file__).parent.parent / "prompts"
-            if not prompts_dir.exists():
-                logger.info("No prompts directory found at %s", prompts_dir)
-                return None
-
-            prompt_files: list[Path] = list(prompts_dir.glob("*.json"))
-            logger.debug(f"Found {len(prompt_files)} prompt files in {prompts_dir}")
-
-            for pfile in prompt_files:
-                stem = pfile.stem
-                if pfile.name.startswith("_") or stem in RESERVED_CORE_NODES:
-                    logger.debug(f"Skipping reserved/internal node: {stem}")
-                    continue
-
-                data = _load_prompt_metadata(pfile)
-                if data is None:
-                    continue
-
-                try:
-                    name, description, capabilities, system_prompt = _resolve_fields(
-                        data, stem
-                    )
-                    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                    node = PromptNode(
-                        id=f"prompt:{name}",
-                        name=name,
-                        description=description,
-                        system_prompt=system_prompt,
-                        json_blueprint=data,
-                        capabilities=capabilities,
-                        type=RegistryNodeType.PROMPT,
-                        timestamp=ts,
-                        is_permanent=True,
-                    )
-                    logger.debug(f"Ingesting prompt {name} via engine.upsert")
-                    serialized_data = engine._serialize_node(node, label="Prompt")
-                    engine._upsert_node("Prompt", node.id, serialized_data)
-                except Exception as e:
-                    logger.warning(f"Failed to ingest prompt {pfile.name}: {e}")
-
-            logger.info("Local prompt files ingested into the Knowledge Graph.")
-    except Timeout:
-        logger.info("Another process is currently ingesting prompts. Skipping...")
+        logger.info("Local prompt files ingested into the Knowledge Graph.")
+    except Exception as e:
+        logger.info(f"Failed to ingest prompts: {e}")
     return None
 
 

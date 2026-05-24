@@ -285,6 +285,29 @@ class RegistryNodeType(StrEnum):
     USER_PROFILE = "user_profile"
     ACTIVE_CONTEXT = "active_context"
     MEMORY_MATERIALIZATION_EVENT = "memory_materialization_event"
+    # Native Messaging Backend Abstraction (CONCEPT:ECO-4.5)
+    MESSAGING_BACKEND = "messaging_backend"
+    MESSAGING_CHANNEL = "messaging_channel"
+    MESSAGING_CONVERSATION = "messaging_conversation"
+    # Social Content Ingestion (CONCEPT:ECO-4.6)
+    SOCIAL_POST = "social_post"
+    # Universal Knowledge Assimilation (CONCEPT:KG-2.7)
+    EVOLUTION_CANDIDATE = "evolution_candidate"
+    # Company Operations (CONCEPT:KG-2.12, CONCEPT:KG-2.13)
+    COMPANY = "company"
+    STRATEGIC_GOAL = "strategic_goal"
+    KPI = "kpi"
+    AGENT_DEPARTMENT = "agent_department"
+    BENEFITS_PLAN = "benefits_plan"
+    PAYROLL_RECORD = "payroll_record"
+    COMPANY_LICENSE = "company_license"
+    CORPORATE_GOVERNANCE_DOC = "corporate_governance_doc"
+    REGULATORY_FILING = "regulatory_filing"
+    INTELLECTUAL_PROPERTY = "intellectual_property"
+    EMPLOYMENT_LAW_MATTER = "employment_law_matter"
+    # Company Infrastructure (CONCEPT:ECO-4.13, CONCEPT:ECO-4.14)
+    COMPANY_SOFTWARE = "company_software"
+    DEPLOYMENT_BLUEPRINT = "deployment_blueprint"
 
 
 class RegistryEdgeType(StrEnum):
@@ -631,6 +654,30 @@ class RegistryEdgeType(StrEnum):
     OBSERVED_THROUGH = "observed_through"
     REFLECTED_FROM = "reflected_from"
     PROFILE_ATTRIBUTE = "profile_attribute"
+    # Social Content Ingestion (CONCEPT:ECO-4.6)
+    PROMOTES_RESEARCH = "promotes_research"
+    CREATED_BY_PERSON = "created_by_person"
+    PUBLISHED_ON_PLATFORM = "published_on_platform"
+    # Universal Knowledge Assimilation (CONCEPT:KG-2.7)
+    EVOLUTION_CANDIDATE_OF = "evolution_candidate_of"
+    TRIGGERED_EVOLUTION = "triggered_evolution"
+    # Company Operations (CONCEPT:KG-2.12, CONCEPT:KG-2.13)
+    HAS_DEPARTMENT = "has_department"
+    HAS_GOAL = "has_goal"
+    HAS_KPI = "has_kpi"
+    MEASURES_GOAL = "measures_goal"
+    GOAL_CASCADES_TO = "goal_cascades_to"
+    RUNS_WORKFLOW = "runs_workflow"
+    USES_SOFTWARE = "uses_software"
+    ENROLLED_IN = "enrolled_in"
+    HOLDS_LICENSE = "holds_license"
+    GOVERNED_BY_DOC = "governed_by_doc"
+    OWNS_IP = "owns_ip"
+    FILED_BY = "filed_by"
+    SERVES_FUNCTION = "serves_function"
+    DEPLOYED_ON = "deployed_on"
+    MANAGED_BY_AGENT = "managed_by_agent"
+    DEPLOYS_SOFTWARE = "deploys_software"
 
 
 class RegistryNode(BaseModel):
@@ -1451,6 +1498,68 @@ class KBIndexNode(RegistryNode):
     content: str  # Markdown index with article summaries and suggested queries
     kb_id: str
     article_count: int = 0
+
+
+class SocialPostNode(RegistryNode):
+    """Social media post persisted in the Knowledge Graph.
+
+    CONCEPT:ECO-4.6 — Social Content Ingestion
+
+    Aligned with ontology_social.ttl ``SocialPost`` OWL class
+    (rdfs:subClassOf CreativeWork, schema:SocialMediaPosting).
+
+    Attributes:
+        post_id: Platform-specific unique identifier (e.g., X status ID).
+        author_handle: The original author's handle/username.
+        platform: Social platform name (x, linkedin, bluesky, etc.).
+        content_text: The full text content of the post.
+        post_url: Canonical URL of the post.
+        post_type: Content classification — tweet, article (long-form), or thread.
+        engagement_metrics: Platform engagement data (likes, shares, views, etc.).
+        citations: URL citations extracted from the post content.
+        evolution_potential: Score (0.0–1.0) indicating if this content could
+            contribute to agent-utilities self-evolution.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SOCIAL_POST
+    post_id: str
+    author_handle: str
+    platform: str = "x"
+    content_text: str = ""
+    post_url: str = ""
+    post_type: Literal["tweet", "article", "thread"] = "tweet"
+    engagement_metrics: dict[str, Any] = Field(default_factory=dict)
+    citations: list[dict[str, str]] = Field(default_factory=list)
+    evolution_potential: float = 0.0
+
+
+class EvolutionCandidateNode(RegistryNode):
+    """A knowledge item flagged for agent-utilities self-evolution review.
+
+    CONCEPT:KG-2.7 — Universal Knowledge Assimilation
+
+    Created by the UniversalKnowledgeClassifier when incoming content has
+    high evolution potential. Links to the source node (SocialPost, Article,
+    etc.) via EVOLUTION_CANDIDATE_OF and to existing KG concepts via ABOUT.
+
+    Attributes:
+        source_node_id: The KG node that triggered the evolution signal.
+        source_type: Origin type (x_post, x_article, research_paper, github_repo, etc.).
+        evolution_score: How strongly this content could improve agent-utilities.
+        evolution_reasoning: LLM-generated explanation of the evolution opportunity.
+        matching_concepts: Existing KG concepts this content relates to.
+        status: Processing state — pending, analyzed, implemented, dismissed.
+        sdd_plan_id: If an SDD plan was generated, its node ID.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.EVOLUTION_CANDIDATE
+    source_node_id: str = ""
+    source_type: str = ""
+    evolution_score: float = 0.0
+    evolution_reasoning: str = ""
+    matching_concepts: list[str] = Field(default_factory=list)
+    status: str = "pending"  # pending | analyzed | implemented | dismissed
+    sdd_plan_id: str | None = None
 
 
 class CheckpointNode(RegistryNode):

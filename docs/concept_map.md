@@ -31,9 +31,9 @@ Every concept has 1:1:1 traceability across:
 | `ORCH-1.6` | DSTDD Pipeline | 3 | 3 | [ORCH-1.6](pillars/1_graph_orchestration/ORCH-1.6-DSTDD_Pipeline.md) |
 | `ORCH-1.7` | Prediction Linkage Layer 🔬 | 1 | 0 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.8` | RecursiveMAS Latent Orchestrator 🔬 | 0 | 0 | [Pillar Summary](pillars/1_graph_orchestration.md) |
-| `ORCH-1.25` | Workflow Distillation & Skill-as-Workflow | 3 | 1 | [ORCH-1.25](pillars/1_graph_orchestration/ORCH-1.25-Workflow_Distillation.md) |
+| `ORCH-1.25` | Parallel Engine | 5 | 0 | [ORCH-1.25](pillars/1_graph_orchestration/ORCH-1.25-Parallel_Engine.md) |
 
-Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/routing.py`, `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `graph/dynamic_graph_orchestrator.py`, `graph/agent_orchestrator.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`, 🔬 `rlm/mas.py`, 🔬 `rlm/mas_local.py`
+Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/routing.py`, `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `graph/dynamic_graph_orchestrator.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, `graph/parallel_engine.py`, `graph/manifest_generators.py`, `models/execution_manifest.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
 
 ---
 
@@ -70,6 +70,8 @@ Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memo
 | `AHE-3.5` | Heavy Thinking & Background Intelligence | 11 | 1 | [AHE-3.5](pillars/3_agentic_harness_engineering/AHE-3.5-Heavy_Thinking_And_Background_Intelligence.md) |
 | `AHE-3.6` | Backtest & Curriculum | 10 | 2 | [AHE-3.6](pillars/3_agentic_harness_engineering/AHE-3.6-Backtest_And_Curriculum.md) |
 | `AHE-3.7` | KG-Native Task Detection 🔬 | 1 | 0 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
+| `AHE-3.15` | Agent-Interpretable Model Evolver | 2 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
+| `AHE-3.16` | LLM-Graded Interpretability Tests | 2 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
 
 Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.py`, `graph/team_composer.py`, `agentic_evolution/forge.py`, `knowledge_graph/orchestration/engine_ahe.py`, 🔬 `harness/distributed_state_manager.py`
 
@@ -84,6 +86,7 @@ Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.p
 | `ECO-4.2` | Community Telemetry & Ecosystem Map | 5 | 1 | [ECO-4.2](pillars/4_ecosystem_peripherals/ECO-4.2-Community_Telemetry_And_Ecosystem_Map.md) |
 | `ECO-4.3` | Market Data Connectors | 9 | 3 | [ECO-4.3](pillars/4_ecosystem_peripherals/ECO-4.3-Market_Data_Connectors.md) |
 | `ECO-4.4` | KG MCP Server & Execution | 2 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
+| `ECO-4.5` | Native Messaging Backend Abstraction | 21 | 17 | [ECO-4.5](pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md) |
 | `ECO-4.10` | Agent Toolkit Ingestor | 1 | 1 | [ECO-4.10](pillars/4_ecosystem_peripherals/ECO-4.10-Agent_Toolkit_Ingestor.md) |
 | `ECO-4.11` | MCP Live Discovery | 1 | 1 | [ECO-4.11](pillars/4_ecosystem_peripherals/ECO-4.11-MCP_Live_Discovery.md) |
 
@@ -137,3 +140,16 @@ New Feature Request
            ▼
   .specify/specs/<feature>/spec.md
 ```
+
+## Company Operations Concepts (Phase 9 — AI-First Autonomous Company)
+
+| Concept ID | Name | Pillar | Key Module |
+|------------|------|--------|------------|
+| `KG-2.12` | Company Operations Domain | KG | `ontology_company.ttl`, `models/company.py` |
+| `KG-2.13` | Company Intelligence Graph | KG | `models/company.py` |
+| `KG-2.14` | Skill-Graph ↔ KG Bidirectional Sync | KG | `skill-graph-builder` |
+| `ORCH-1.26` | RLM-Native Hierarchical Synthesis | ORCH | `graph/parallel_engine.py` |
+| `ORCH-1.27` | Autonomous Department Orchestration | ORCH | `graph/manifest_generators.py` |
+| `ECO-4.12` | Self-Documenting Skill-Graph | ECO | `skill_graphs/agent-utilities/` |
+| `ECO-4.13` | Company Infrastructure Orchestration | ECO | `ontology_company_infra.ttl` |
+| `ECO-4.14` | Infrastructure Blueprint Library | ECO | `skill_graphs/infrastructure-blueprints/` |

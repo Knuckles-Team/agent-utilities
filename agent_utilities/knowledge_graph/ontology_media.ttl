@@ -1,0 +1,116 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schema: <http://schema.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:addedDate a owl:DatatypeProperty ;
+    rdfs:label "added date" ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:dateTime .
+
+:belongsToCollection a owl:ObjectProperty ;
+    rdfs:label "belongs to collection" ;
+    rdfs:domain :MediaAsset ;
+    rdfs:range :MediaCollection .
+
+:completedDate a owl:DatatypeProperty ;
+    rdfs:label "completed date" ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:dateTime .
+
+:downloadProgress a owl:DatatypeProperty ;
+    rdfs:label "download progress (%)" ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:float .
+
+:downloadStatus a owl:DatatypeProperty ;
+    rdfs:label "download status" ;
+    rdfs:comment "Values: queued, downloading, seeding, completed, error." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:string .
+
+:downloadUrl a owl:DatatypeProperty ;
+    rdfs:label "download URL" ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:anyURI .
+
+:downloadedVia a owl:ObjectProperty ;
+    rdfs:label "downloaded via" ;
+    rdfs:comment "Links a MediaAsset to the download System used." ;
+    rdfs:domain :MediaAsset ;
+    rdfs:range :System .
+
+:fileSizeBytes a owl:DatatypeProperty ;
+    rdfs:label "file size (bytes)" ;
+    rdfs:domain :MediaAsset ;
+    rdfs:range xsd:long .
+
+:managedBy a owl:ObjectProperty ;
+    rdfs:label "managed by" ;
+    rdfs:comment "Links a MediaAsset to its MediaLibrary." ;
+    rdfs:domain :MediaAsset ;
+    rdfs:range :MediaLibrary .
+
+:mediaType a owl:DatatypeProperty ;
+    rdfs:label "media type" ;
+    rdfs:comment "MIME type or category: video/mp4, audio/flac, application/pdf." ;
+    rdfs:domain :MediaAsset ;
+    rdfs:range xsd:string .
+
+:producedAsset a owl:ObjectProperty ;
+    rdfs:label "produced asset" ;
+    rdfs:comment "Links a DownloadJob to the MediaAsset it created." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range :MediaAsset .
+
+:requestedBy a owl:ObjectProperty ;
+    rdfs:label "requested by" ;
+    rdfs:comment "Links a DownloadJob to the Person who requested it." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range :Person .
+
+<http://knuckles.team/kg/media> a owl:Ontology ;
+    rdfs:label "Media & Downloads Ontology" ;
+    rdfs:comment """Media asset management and download tracking ontology bridging
+qBittorrent (torrent downloads), Jellyfin (media library), and media
+downloader into the unified KG.
+
+Tracks download jobs, media assets, and their consumption patterns.
+
+Standards alignment: schema:MediaObject, schema:DownloadAction.""" ;
+    owl:imports <http://knuckles.team/kg> .
+
+:MediaCollection a owl:Class ;
+    rdfs:label "Media Collection" ;
+    rdfs:comment "A curated collection within a MediaLibrary (TV shows, movies, music)." ;
+    rdfs:subClassOf :Dataset .
+
+:MediaLibrary a owl:Class ;
+    rdfs:label "Media Library" ;
+    rdfs:comment """A media management system (Jellyfin, Plex). Organizes
+MediaAssets into collections. BFO:IndependentContinuant via System.""" ;
+    rdfs:subClassOf :System .
+
+:MediaAsset a owl:Class ;
+    rdfs:label "Media Asset" ;
+    rdfs:comment """A downloaded or managed media file (video, audio, document).
+BFO:GenericallyDependentContinuant via Dataset.
+Aligned to schema:MediaObject.""" ;
+    rdfs:seeAlso schema:MediaObject ;
+    rdfs:subClassOf :Dataset .
+
+:DownloadJob a owl:Class ;
+    rdfs:label "Download Job" ;
+    rdfs:comment """A download task tracked in qBittorrent or media-downloader.
+BFO:Process via Action. Aligned to schema:DownloadAction.""" ;
+    rdfs:seeAlso schema:DownloadAction ;
+    rdfs:subClassOf :Action .
+

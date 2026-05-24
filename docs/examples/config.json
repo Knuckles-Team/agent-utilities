@@ -221,5 +221,69 @@
             "parallel_instances": 4,
             "chunk_size": 768
         }
-    ]
+    ],
+    "trading": {
+        "enabled": true,
+        "default_exchange": "paper",
+        "default_mode": "paper",
+        "risk_limits": {
+            "max_position_pct": 0.02,
+            "max_portfolio_drawdown_pct": 0.10,
+            "max_daily_loss_pct": 0.03,
+            "regime_shift_halt": true,
+            "require_human_approval_live": true
+        },
+        "exchanges": {
+            "paper": {
+                "enabled": true,
+                "initial_cash": 100000.0
+            },
+            "alpaca": {
+                "enabled": false,
+                "api_key_env": "ALPACA_API_KEY",
+                "secret_key_env": "ALPACA_SECRET_KEY",
+                "base_url": "https://paper-api.alpaca.markets"
+            },
+            "ccxt:binance": {
+                "enabled": false,
+                "exchange_id": "binance",
+                "api_key_env": "BINANCE_API_KEY",
+                "secret_env": "BINANCE_SECRET"
+            },
+            "ccxt:coinbase": {
+                "enabled": false,
+                "exchange_id": "coinbase",
+                "api_key_env": "COINBASE_API_KEY",
+                "secret_env": "COINBASE_SECRET"
+            },
+            "ccxt:kraken": {
+                "enabled": false,
+                "exchange_id": "kraken",
+                "api_key_env": "KRAKEN_API_KEY",
+                "secret_env": "KRAKEN_SECRET"
+            },
+            "freqtrade": {
+                "enabled": false,
+                "api_url": "http://localhost:8080",
+                "api_key_env": "FREQTRADE_API_KEY"
+            }
+        },
+        "signal_fusion": {
+            "default_method": "bayesian",
+            "min_confidence": 0.6,
+            "signal_sources": ["momentum", "mean_reversion", "volatility", "ml_prediction"]
+        },
+        "strategy_lifecycle": {
+            "auto_promote": false,
+            "min_backtest_sharpe": 1.5,
+            "min_paper_days": 30,
+            "export_formats": ["pinescript", "mql5", "tdx"]
+        },
+        "monitoring": {
+            "risk_check_interval_minutes": 5,
+            "portfolio_snapshot_interval_minutes": 15,
+            "enable_alerts": true,
+            "alert_channels": ["kg_event", "log"]
+        }
+    }
 }
