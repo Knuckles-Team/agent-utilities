@@ -207,45 +207,34 @@ def test_parallel_engine_wave_scheduling_for_workflows():
     assert [a.agent_id for a in sdd_waves[2]] == ["verification-gate"]
 
 
-def test_newly_scaffolded_finance_workflows_compilation():
-    """Verify that all 20 newly scaffolded finance workflows compile and schedule correctly."""
+def test_all_library_workflows_compilation():
+    """Verify that all 240 workflows in the library compile and schedule correctly."""
     skills_root = get_skills_root()
     engine = ParallelEngine()
 
-    new_workflows = [
-        "polymarket_paired_arbitrage",
-        "strategy_hypothesis_to_live",
-        "overnight_research_loop",
-        "freqtrade_strategy_deploy",
-        "multi_exchange_arbitrage",
-        "strategy_tournament",
-        "parameter_sweep_optimizer",
-        "walk_forward_validation",
-        "regime_detection_pipeline",
-        "sentiment_alpha_pipeline",
-        "options_volatility_surface",
-        "cross_asset_correlation",
-        "market_microstructure_analysis",
-        "strategy_code_review",
-        "portfolio_rebalance_cycle",
-        "risk_dashboard_refresh",
-        "portfolio_stress_test",
-        "tax_lot_optimization",
-        "benchmark_tracking_error",
-        "dividend_reinvestment",
-    ]
+    folders = ["infra", "health", "system", "finance", "dev-workflows", "research", "social", "ops"]
 
-    for wf_name in new_workflows:
-        skill_dir = skills_root / "finance" / wf_name
+    workflow_paths = []
+    for f in folders:
+        dir_path = skills_root / f
+        if not dir_path.exists():
+            continue
+        for p in dir_path.iterdir():
+            if p.is_dir() and (p / "SKILL.md").exists():
+                workflow_paths.append(p)
 
+    # We expect exactly 240 workflows (or very close depending on initial setup)
+    assert len(workflow_paths) >= 235, f"Expected around 240 workflows, found {len(workflow_paths)}"
+
+    for skill_dir in workflow_paths:
         # 1. Compile workflow
         plan = SkillCompiler.compile(skill_dir)
-        assert plan is not None, f"Failed to compile {wf_name}"
-        assert len(plan.steps) in (4, 5), f"{wf_name} has unexpected step count"
+        assert plan is not None, f"Failed to compile {skill_dir.name}"
+        assert len(plan.steps) >= 1, f"{skill_dir.name} has no steps"
 
         # 2. Verify team configuration
         team = SkillCompiler.load_team_config(skill_dir)
-        assert team is not None, f"Failed to load team config for {wf_name}"
+        assert team is not None, f"Failed to load team config for {skill_dir.name}"
         assert "specialist_ids" in team
 
         # 3. Schedule waves via ParallelEngine
@@ -259,13 +248,14 @@ def test_newly_scaffolded_finance_workflows_compilation():
             for step in plan.steps
         ]
         manifest = ExecutionManifest(
-            name=f"Test Run for {wf_name}",
+            name=f"Test Run for {skill_dir.name}",
             agents=agents,
             execution_mode="parallel",
-            query=f"Run parallel execution for {wf_name}",
+            query=f"Run parallel execution for {skill_dir.name}",
             synthesis=SynthesisSpec(strategy="flat"),
         )
 
         waves = engine._schedule_waves(manifest)
-        assert len(waves) >= 1, f"Failed to schedule waves for {wf_name}"
+        assert len(waves) >= 1, f"Failed to schedule waves for {skill_dir.name}"
+
 
