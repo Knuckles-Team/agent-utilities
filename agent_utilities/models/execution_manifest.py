@@ -232,6 +232,7 @@ class ExecutionResult(BaseModel):
     manifest_id: str = ""
     execution_id: str = ""
     synthesis_output: str = ""
+    mermaid: str | None = None
     wave_results: list[WaveResult] = Field(default_factory=list)
     agent_count: int = 0
     protocol: str = ""
