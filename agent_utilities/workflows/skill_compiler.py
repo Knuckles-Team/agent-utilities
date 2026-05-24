@@ -77,19 +77,32 @@ class SkillCompiler:
                 step_title = match[0].strip()
                 step_body = match[1].strip()
 
+                # Parse explicit depends_on annotation if present: e.g. [depends_on: agent-a, agent-b]
+                depends_on = []
+                dep_match = re.search(r"\[depends_on:\s*(.*?)\]", step_title, re.IGNORECASE)
+                if dep_match:
+                    dep_str = dep_match.group(1).strip()
+                    if dep_str.lower() not in ("none", "[]", ""):
+                        depends_on = [d.strip().lower() for d in dep_str.split(",")]
+                    step_title_clean = re.sub(r"\[depends_on:\s*(.*?)\]", "", step_title, flags=re.IGNORECASE).strip()
+                else:
+                    step_title_clean = step_title
+                    # Fallback to sequential execution
+                    depends_on = [steps[-1].node_id] if steps else []
+
                 # Try to extract agent name if step title specifies it, e.g. "### Step 1: Agent Name"
                 agent_name = "executor"
-                title_parts = step_title.split(":", 1)
+                title_parts = step_title_clean.split(":", 1)
                 if len(title_parts) > 1:
                     agent_name = title_parts[1].strip().lower().replace(" ", "-")
                 else:
-                    agent_name = step_title.lower().replace(" ", "-")
+                    agent_name = step_title_clean.lower().replace(" ", "-")
 
                 steps.append(
                     ExecutionStep(
                         node_id=agent_name,
-                        refined_subtask=f"{step_title}\n{step_body}",
-                        depends_on=[steps[-1].node_id] if steps else [],
+                        refined_subtask=f"{step_title_clean}\n{step_body}",
+                        depends_on=depends_on,
                     )
                 )
 

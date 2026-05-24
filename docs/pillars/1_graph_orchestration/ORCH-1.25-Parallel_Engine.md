@@ -157,6 +157,48 @@ See **CONCEPT:ORCH-1.26** for detailed synthesis strategies.
 
 ---
 
+## 🧬 Advanced Safety & Capabilities (Capability Wiring Engine)
+
+When launching massively concurrent executions (e.g. 50+ agents or partition fan-outs), executing raw agents without safety rails is dangerous. The `ParallelEngine` leverages the **Capability Wiring Engine** (`create_agent` factory) to dynamically wire the following 8 critical safety capabilities onto every execution wave:
+
+1. **Stuck-Loop Detection (`StuckLoopDetection`)**: Aborts agents caught in repetitive tool-use patterns or infinite loops before they drain rate limits or token budgets.
+2. **Checkpointing (`CheckpointMiddleware`)**: Persists the execution state of each wave boundary to a file or graph store. If a downstream wave fails, execution can resume from the last successful wave boundary without re-running the entire swarm.
+3. **Tool Output Eviction (`ToolOutputEviction`)**: Prunes excessively verbose tool return payloads (e.g., thousands of lines of output logs) before they overload context windows.
+4. **Context Compaction (`ContextCompaction`)**: Dynamically summarizes or compresses the dialogue history during prolonged task execution.
+5. **Human-in-the-Loop (`HITLApproval`)**: Pauses the sub-agent and solicits user validation before performing high-risk actions (e.g., deletes, pushes, payment broadcasts).
+6. **Token-Rate Limiter (`TokenRateLimiter`)**: Governs concurrency rates to respect provider tokens-per-minute (TPM) and requests-per-minute (RPM) limits.
+7. **Secrets Vault Integration (`SecretsVault`)**: Safely resolves environment variables and third-party credentials on demand at runtime.
+8. **Logging & Tracing (`LangfuseLogger`)**: Emits structured spans and traces to Langfuse for auditing, performance analysis, and tracing.
+
+### Topological Data-Flow (Context Injection)
+
+To ensure that downstream agents can build on the insights and deliverables of upstream dependencies, the engine performs automatic **Topological Data-Flow Context Injection**:
+- As waves complete, the result outputs from completed upstream parent agents are gathered.
+- Before executing a downstream agent, the engine synthesizes these outputs into a structured `## DEPENDENCY OUTPUTS` block.
+- This block is prepended directly to the downstream agent's task description, ensuring a clean, continuous flow of operational context.
+
+### Auto-Healing & Self-Repair
+
+When a sub-agent execution fails (e.g., due to temporary network issues, rate limits, or validation errors), the engine automatically triggers **Auto-Healing**:
+- It attempts up to `max_retries` (default: 3) with exponential backoff.
+- If a downstream agent fails due to syntax or schema mismatches in upstream inputs, the engine invokes a validation model to self-repair the payload and retries the step.
+
+### Adversarial Verification
+
+To ensure that final synthesized outputs meet extreme standards of quality and correctness, the engine can execute an **Adversarial Verification** pass:
+- An independent assessor agent (`adversary`) is initialized to scrutinize the aggregated results.
+- It analyzes the synthesized response against the original user query and execution constraints.
+- If inconsistencies, hallucinated details, or gaps are discovered, the adversary generates a correction plan and triggers a self-correction repair cycle.
+
+### Persisted KG Topology
+
+Following execution, the entire topological hierarchy and execution results are persisted in the Graph-OS Knowledge Graph:
+- A `ParallelExecution` node is created representing the orchestrator run.
+- Individually executed `AgentExecutionResult` nodes are generated for each agent step.
+- Directed `DEPENDS_ON` and `PARENT_RUN` edges are written to preserve the exact dependency DAG in the graph topology for long-term trace audit.
+
+---
+
 ## Configuration (XDG)
 
 All configuration lives in `~/.config/agent-utilities/config.json`:
