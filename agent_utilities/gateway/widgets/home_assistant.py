@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -22,7 +27,9 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="entities", label="Entities", format="number"),
-            WidgetField(key="lights_on", label="Lights On", format="number", highlight=True),
+            WidgetField(
+                key="lights_on", label="Lights On", format="number", highlight=True
+            ),
             WidgetField(key="automations", label="Automations", format="number"),
             WidgetField(key="switches_on", label="Switches", format="number"),
         ]
@@ -37,9 +44,21 @@ class Widget(BaseWidget):
         try:
             states = client.get_states() or []
             entities = len(states)
-            lights_on = sum(1 for s in states if s.get("entity_id", "").startswith("light.") and s.get("state") == "on")
-            switches_on = sum(1 for s in states if s.get("entity_id", "").startswith("switch.") and s.get("state") == "on")
-            automations = sum(1 for s in states if s.get("entity_id", "").startswith("automation."))
+            lights_on = sum(
+                1
+                for s in states
+                if s.get("entity_id", "").startswith("light.")
+                and s.get("state") == "on"
+            )
+            switches_on = sum(
+                1
+                for s in states
+                if s.get("entity_id", "").startswith("switch.")
+                and s.get("state") == "on"
+            )
+            automations = sum(
+                1 for s in states if s.get("entity_id", "").startswith("automation.")
+            )
         except Exception as e:
             logger.debug("Home Assistant fetch: %s", e)
             return WidgetData(status="error", error=str(e))

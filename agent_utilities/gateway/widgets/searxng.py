@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -27,6 +32,7 @@ class Widget(BaseWidget):
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         import httpx
+
         url = self._resolve_url(config)
         try:
             resp = httpx.get(f"{url}/config", timeout=5.0, verify=False)

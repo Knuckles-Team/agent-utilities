@@ -1,7 +1,7 @@
 # Ontological Guardrail Engine (CONCEPT:OS-5.10)
 
 ## Overview
-High-risk tools (such as local command execution, database updates, or financial transactions) must be verified before execution to prevent prompt injection and compliance drift. 
+High-risk tools (such as local command execution, database updates, or financial transactions) must be verified before execution to prevent prompt injection and compliance drift.
 
 The **Ontological Guardrail Engine** intercepts incoming tool definitions and argument schemas, translating the transient request into a semantic concept. It resolves the arguments against active OWL policy constraints in the Knowledge Graph to verify compliance mathematically using subsumption reasoning.
 

@@ -6,7 +6,7 @@ This module details the design, interfaces, and formal concepts behind the high-
 
 ## 1. Deterministic Replay & Trace Ontology (OS-5.7)
 
-To satisfy strict regulatory compliance and debugging requirements in an ecosystem of up to 1 million active nodes, the **Distributed Replay Engine** records and plays back step-by-step agent executions. 
+To satisfy strict regulatory compliance and debugging requirements in an ecosystem of up to 1 million active nodes, the **Distributed Replay Engine** records and plays back step-by-step agent executions.
 
 Every logical transition (prompt, tool call, memory retrieval, response) is registered as a first-class OWL sub-graph under the **PROV-O (Provenance Ontology)**.
 

@@ -156,8 +156,12 @@ class GovernanceReport:
             lines.append("## Recent Decisions\n")
             for d in self.decisions[-20:]:
                 status = d.get("status", "?")
-                emoji = {"auto_approved": "✅", "human_approved": "✅",
-                         "human_rejected": "❌", "policy_denied": "🚫"}.get(status, "⏳")
+                emoji = {
+                    "auto_approved": "✅",
+                    "human_approved": "✅",
+                    "human_rejected": "❌",
+                    "policy_denied": "🚫",
+                }.get(status, "⏳")
                 lines.append(
                     f"- {emoji} **{d.get('proposal_id', '?')}** — "
                     f"{d.get('reason', 'No reason')} ({status})"
@@ -265,8 +269,11 @@ class GovernanceWorkflow:
             )
             self._decisions[proposal.id] = decision
             self._persist_decision(proposal, decision)
-            logger.info("[ECO-4.9] AUTO-APPROVED %s (risk=%.2f)",
-                        proposal.id, proposal.risk_score)
+            logger.info(
+                "[ECO-4.9] AUTO-APPROVED %s (risk=%.2f)",
+                proposal.id,
+                proposal.risk_score,
+            )
             return decision
 
         # Queue for human review
@@ -278,7 +285,9 @@ class GovernanceWorkflow:
         )
         self._decisions[proposal.id] = decision
         self._persist_decision(proposal, decision)
-        logger.info("[ECO-4.9] PENDING %s (risk=%.2f)", proposal.id, proposal.risk_score)
+        logger.info(
+            "[ECO-4.9] PENDING %s (risk=%.2f)", proposal.id, proposal.risk_score
+        )
         return decision
 
     # ── Human Review ───────────────────────────────────────────────
@@ -412,9 +421,9 @@ class GovernanceWorkflow:
         Returns:
             Combined audit results.
         """
-        results: dict[str, Any] = {"timestamp": time.strftime(
-            "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-        )}
+        results: dict[str, Any] = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        }
 
         # 1. Staleness audit
         try:
@@ -469,8 +478,10 @@ class GovernanceWorkflow:
         report = self.generate_report()
         results["report"] = report.to_markdown()
 
-        logger.info("[ECO-4.9] Audit cycle complete: %d proposals processed",
-                    report.total_proposals)
+        logger.info(
+            "[ECO-4.9] Audit cycle complete: %d proposals processed",
+            report.total_proposals,
+        )
         return results
 
     # ── Private ────────────────────────────────────────────────────

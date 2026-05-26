@@ -120,6 +120,7 @@ def test_rust_repository_ast_parsing(tmp_path):
 
         # Verify classes and functions found
         if backend == "rust":
+            assert engine._rust_graph is not None
             nodes = [nid for nid, _ in engine._rust_graph.get_nodes()]
         else:
             nodes = engine._get_all_nodes()

@@ -13,7 +13,7 @@ import importlib
 import logging
 from typing import TYPE_CHECKING
 
-from agent_utilities.gateway.models import ServiceCategory, WidgetRegistration
+from agent_utilities.gateway.models import WidgetRegistration
 
 if TYPE_CHECKING:
     from agent_utilities.gateway.widgets.base import BaseWidget
@@ -160,9 +160,7 @@ class Registry:
             logger.debug("Loaded widget: %s (%s)", widget_type, instance.display_name)
 
         except ImportError as e:
-            logger.debug(
-                "Widget %s skipped — missing dependency: %s", widget_type, e
-            )
+            logger.debug("Widget %s skipped — missing dependency: %s", widget_type, e)
         except Exception as e:
             logger.warning(
                 "Widget %s failed to load: %s", widget_type, e, exc_info=True

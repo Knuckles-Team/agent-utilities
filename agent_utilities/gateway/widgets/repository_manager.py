@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -27,6 +32,7 @@ class Widget(BaseWidget):
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from repository_manager.api_client import RepositoryManagerApi
+
         client = RepositoryManagerApi()
         try:
             repos = client.list_repositories() or []
@@ -35,6 +41,10 @@ class Widget(BaseWidget):
             return WidgetData(status="error", error=str(e))
 
         return WidgetData(
-            fields={"projects": len(repos) if isinstance(repos, list) else 0, "valid": 0, "errors": 0},
+            fields={
+                "projects": len(repos) if isinstance(repos, list) else 0,
+                "valid": 0,
+                "errors": 0,
+            },
             status="ok",
         )

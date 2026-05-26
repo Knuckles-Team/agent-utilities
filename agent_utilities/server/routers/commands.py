@@ -1,4 +1,5 @@
 import logging
+
 from fastapi import APIRouter, Request
 
 logger = logging.getLogger(__name__)
@@ -6,27 +7,29 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/enhanced/commands", tags=["Command Center"])
 
 
-@router.post("/execute", summary="Execute a slash command centrally inside the backend gateway")
+@router.post(
+    "/execute", summary="Execute a slash command centrally inside the backend gateway"
+)
 async def execute_slash_command(payload: dict, request: Request):
     """Execute a slash command centrally inside the backend."""
     command_str = payload.get("command", "").strip()
-    
+
     if not command_str.startswith("/"):
         return {
             "response_markdown": "Error: Command must start with a slash `/`.",
-            "client_actions": []
+            "client_actions": [],
         }
-        
+
     parts = command_str[1:].split(maxsplit=1)
     cmd_name = parts[0].lower() if parts else ""
     args = parts[1] if len(parts) > 1 else ""
-    
+
     # Standardize cmd_name aliases
     if cmd_name == "quit":
         cmd_name = "exit"
-    
+
     client_actions = []
-    
+
     if cmd_name == "help":
         response_md = (
             "### Available Commands:\n\n"
@@ -51,13 +54,13 @@ async def execute_slash_command(payload: dict, request: Request):
             "- `/resources spawn <name>` - Deploy a new subagent\n"
         )
         return {"response_markdown": response_md, "client_actions": []}
-        
+
     elif cmd_name == "clear":
         return {
             "response_markdown": "Chat session cleared.",
-            "client_actions": [{"action": "clear_chat"}]
+            "client_actions": [{"action": "clear_chat"}],
         }
-        
+
     elif cmd_name == "model":
         registry = getattr(request.app.state, "model_registry", None)
         if not args:
@@ -68,7 +71,7 @@ async def execute_slash_command(payload: dict, request: Request):
             client_actions.append({"action": "set_model", "value": args})
             response_md = f"Switched model to `{args}`."
         return {"response_markdown": response_md, "client_actions": client_actions}
-        
+
     elif cmd_name == "tools":
         agent = getattr(request.app.state, "agent_instance", None)
         tools = []
@@ -85,7 +88,7 @@ async def execute_slash_command(payload: dict, request: Request):
         else:
             response_md = "### Registered Tools:\n\n" + "\n".join(tools)
         return {"response_markdown": response_md, "client_actions": []}
-        
+
     elif cmd_name == "skills":
         skills = []
         # Get from registered A2A skills or dynamic workspace skills
@@ -98,12 +101,12 @@ async def execute_slash_command(payload: dict, request: Request):
         else:
             response_md = "### Active Custom Skills:\n\n" + "\n".join(skills)
         return {"response_markdown": response_md, "client_actions": []}
-        
+
     elif cmd_name == "graph":
         sub_parts = args.split(maxsplit=1)
         sub = sub_parts[0].lower() if sub_parts else "stats"
         rest = sub_parts[1] if len(sub_parts) > 1 else ""
-        
+
         # Access Graph DB stats centrally
         response_md = (
             "### Knowledge Graph Statistics\n\n"
@@ -127,12 +130,12 @@ async def execute_slash_command(payload: dict, request: Request):
                     f"3. **Zero-Trust Security Alignment**: 100% Secure\n"
                 )
         return {"response_markdown": response_md, "client_actions": []}
-        
+
     elif cmd_name == "kb":
         sub_parts = args.split(maxsplit=1)
         sub = sub_parts[0].lower() if sub_parts else "list"
         rest = sub_parts[1] if len(sub_parts) > 1 else ""
-        
+
         if sub == "list":
             response_md = (
                 "### Connected Knowledge Bases:\n\n"
@@ -155,9 +158,9 @@ async def execute_slash_command(payload: dict, request: Request):
                 response_md = f"Successfully initiated background KB ingestion task for `{rest}` into `workspace-docs`."
         else:
             response_md = f"Unknown `/kb` subcommand: `{sub}`"
-            
+
         return {"response_markdown": response_md, "client_actions": []}
-        
+
     elif cmd_name == "sdd":
         sub = args.strip().lower() or "specs"
         if sub == "specs":
@@ -178,9 +181,9 @@ async def execute_slash_command(payload: dict, request: Request):
             response_md = "Synchronizing local workspace specification documents with the central Knowledge Graph... Done! All indexes updated."
         else:
             response_md = f"Unknown `/sdd` subcommand: `{sub}`"
-            
+
         return {"response_markdown": response_md, "client_actions": []}
-        
+
     elif cmd_name == "cron":
         sub = args.strip().lower() or "calendar"
         if sub == "calendar":
@@ -199,14 +202,14 @@ async def execute_slash_command(payload: dict, request: Request):
             )
         else:
             response_md = f"Unknown `/cron` subcommand: `{sub}`"
-            
+
         return {"response_markdown": response_md, "client_actions": []}
-        
+
     elif cmd_name == "resources":
         sub_parts = args.split(maxsplit=1)
         sub = sub_parts[0].lower() if sub_parts else "list"
         rest = sub_parts[1] if len(sub_parts) > 1 else ""
-        
+
         if sub in ("", "list"):
             response_md = (
                 "### Spawned Subagents and Background Tasks:\n\n"
@@ -217,32 +220,50 @@ async def execute_slash_command(payload: dict, request: Request):
             if not rest:
                 response_md = "Usage: `/resources spawn <name>`"
             else:
-                response_md = f"Successfully spawned background agent subtask **{rest}**."
+                response_md = (
+                    f"Successfully spawned background agent subtask **{rest}**."
+                )
         else:
             response_md = f"Unknown `/resources` subcommand: `{sub}`"
-            
+
         return {"response_markdown": response_md, "client_actions": []}
-        
+
     else:
         return {
             "response_markdown": f"Unknown slash command: `/{cmd_name}`. Type `/help` for a list of available commands.",
-            "client_actions": []
+            "client_actions": [],
         }
 
 
-@router.get("/autocomplete", summary="Provide autocomplete dynamic options for client interfaces")
+@router.get(
+    "/autocomplete",
+    summary="Provide autocomplete dynamic options for client interfaces",
+)
 async def autocomplete_slash_command(query: str = ""):
     """Provide autocomplete dynamic options for client interfaces."""
     commands_list = [
-        "/help", "/clear", "/model", "/tools", "/skills",
-        "/graph stats", "/graph nodes", "/graph search", "/graph impact",
-        "/kb list", "/kb search", "/kb ingest",
-        "/sdd specs", "/sdd constitution", "/sdd sync",
-        "/cron calendar", "/cron logs",
-        "/resources list", "/resources spawn"
+        "/help",
+        "/clear",
+        "/model",
+        "/tools",
+        "/skills",
+        "/graph stats",
+        "/graph nodes",
+        "/graph search",
+        "/graph impact",
+        "/kb list",
+        "/kb search",
+        "/kb ingest",
+        "/sdd specs",
+        "/sdd constitution",
+        "/sdd sync",
+        "/cron calendar",
+        "/cron logs",
+        "/resources list",
+        "/resources spawn",
     ]
     if not query:
         return {"suggestions": commands_list}
-    
+
     suggestions = [cmd for cmd in commands_list if cmd.startswith(query.lower())]
     return {"suggestions": suggestions}

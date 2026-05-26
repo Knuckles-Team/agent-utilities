@@ -1,7 +1,7 @@
 # Semantic Compactor & Refactorer (CONCEPT:KG-2.20)
 
 ## Overview
-The **Semantic Compactor** resolves the exponential database bloat caused by active agents generating millions of step-by-step reasoning traces. 
+The **Semantic Compactor** resolves the exponential database bloat caused by active agents generating millions of step-by-step reasoning traces.
 
 It periodically executes an offline compilation and refactoring sweep. The compactor aggregates raw execution traces, interaction logs, and tool parameters, replacing thousands of individual `AgentProcess` nodes with consolidated high-level declarative state triples (e.g., summarizing total execution steps, token usage, and outcomes).
 

@@ -274,7 +274,10 @@ class MCPMultiplexer:
                     # 1. Whitelist Check (if enabledTools is defined)
                     if enabled_tools is not None:
                         import fnmatch
-                        matched = any(fnmatch.fnmatch(tool.name, pat) for pat in enabled_tools)
+
+                        matched = any(
+                            fnmatch.fnmatch(tool.name, pat) for pat in enabled_tools
+                        )
                         if not matched:
                             logger.info(
                                 f"Skipping non-whitelisted tool '{tool.name}' from child server '{server_name}'"
@@ -284,7 +287,10 @@ class MCPMultiplexer:
                     # 2. Blacklist Check
                     if disabled_tools:
                         import fnmatch
-                        matched_disabled = any(fnmatch.fnmatch(tool.name, pat) for pat in disabled_tools)
+
+                        matched_disabled = any(
+                            fnmatch.fnmatch(tool.name, pat) for pat in disabled_tools
+                        )
                         if matched_disabled:
                             logger.info(
                                 f"Skipping disabled tool '{tool.name}' from child server '{server_name}'"

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -28,6 +33,7 @@ class Widget(BaseWidget):
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from listmonk_api.api_client import ListmonkApi
+
         url = self._resolve_url(config)
         username = self._resolve_env(config, "username", "admin")
         password = self._resolve_env(config, "password")
@@ -36,7 +42,9 @@ class Widget(BaseWidget):
             subscribers = client.get_subscribers(page=1, per_page=1) or {}
             lists = client.get_lists() or []
             campaigns = client.get_campaigns() or []
-            total_subs = subscribers.get("total", 0) if isinstance(subscribers, dict) else 0
+            total_subs = (
+                subscribers.get("total", 0) if isinstance(subscribers, dict) else 0
+            )
         except Exception as e:
             logger.debug("Listmonk fetch: %s", e)
             return WidgetData(status="error", error=str(e))

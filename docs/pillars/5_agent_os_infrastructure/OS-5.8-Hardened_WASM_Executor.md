@@ -1,7 +1,7 @@
 # Hardened WASM Sandbox Executor (CONCEPT:OS-5.8)
 
 ## Overview
-Rather than executing raw local subprocesses or shell commands which pose severe prompt and command injection risks, the kernel executes micro-agents and untrusted utility tools inside an isolated **WebAssembly (WASM) Sandbox**. 
+Rather than executing raw local subprocesses or shell commands which pose severe prompt and command injection risks, the kernel executes micro-agents and untrusted utility tools inside an isolated **WebAssembly (WASM) Sandbox**.
 
 By utilizing the standard `wasmtime` engine, the sandbox guarantees memory safety, execution budget enforcement, and microsecond-level isolation.
 

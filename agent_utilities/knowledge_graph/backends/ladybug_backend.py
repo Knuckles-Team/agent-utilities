@@ -39,7 +39,7 @@ _ACTIVE_DATABASES_LOCK = threading.Lock()
 _ACTIVE_LOCKS: dict[str, threading.Lock] = {}
 _ACTIVE_LOCKS_LOCK = threading.Lock()
 
-_ACTIVE_BACKENDS = weakref.WeakSet()
+_ACTIVE_BACKENDS: weakref.WeakSet[Any] = weakref.WeakSet()
 
 
 def _cleanup_all_backends() -> None:

@@ -220,7 +220,7 @@ The creation of complex legal entities requires a multi-step planner (`ORCH-1.1:
 graph TD
     Start["User Request:<br/>Create LLC/Trust"] --> HTN["HTN Planner [ORCH-1.1]<br/>Decomposes Goal into Tasks"]
     HTN --> Route["Ontological Specialist Router [ORCH-1.2]<br/>Selects Specialist Coalition"]
-    
+
     subgraph Coalition ["Specialist Coalition [ORCH-1.27]"]
         Research["jurisdiction_researcher_agent<br/>Checks statutory fees & name availability"]
         Draftsman["corporate_draftsman_agent<br/>Drafts legal structures"]
@@ -294,17 +294,17 @@ Since legal formation involves processing highly sensitive corporate and persona
 ```mermaid
 graph TD
     Input["Filing Request with PII<br/>(SSN, Tax IDs, Personal Addresses)"] --> Sanitizer["PiiSanitizer (Regex / NER / Redaction)"]
-    
+
     subgraph EphemeralStack ["Transient Local Memory (RAM Only)"]
         Transient["Transient State Context<br/>(Used ONLY for immediate API call)"]
         Scrub["In-Place Memory Zeroing<br/>(Overwritten with \x00 & GC run)"]
     end
-    
+
     Sanitizer -->|Extract and Isolate PII| Transient
     Sanitizer -->|Redacted Payload| LogFilter["Audit Log Redactor<br/>(Redacts logs & traces)"]
     LogFilter --> KG["Knowledge Graph (Safe Writes Only)"]
     LogFilter --> Telemetry["Langfuse & External Telemetry"]
-    
+
     Transient -->|Invoke Portal API| FilingSubmit["Filing Submission"]
     FilingSubmit --> Scrub
 ```
@@ -384,7 +384,7 @@ sequenceDiagram
     participant Research as jurisdiction_researcher_agent
     participant Draft as corporate_draftsman_agent
     participant Val as compliance_verifier_agent
-    
+
     User->>Coord: Invoke trust_creation workflow
     Coord->>Research: Check trust requirements (governing law)
     Research-->>Coord: Wyoming Statutory Trust Act standards loaded

@@ -8,7 +8,7 @@ from agent_utilities.mcp.kg_server import (
     # Tools/Toggle
     get_tools_endpoint,
     toggle_tool_endpoint,
-    
+
     # Bilateral base endpoints
     graph_query_endpoint,
     graph_search_endpoint,
@@ -100,11 +100,11 @@ from agent_utilities.mcp.kg_server import (
 @pytest.fixture
 def test_app():
     app = Starlette()
-    
+
     # Mount base and Tools endpoints
     app.add_route("/tools", get_tools_endpoint, methods=["GET"])
     app.add_route("/tools/toggle", toggle_tool_endpoint, methods=["POST"])
-    
+
     app.add_route("/graph/query", graph_query_endpoint, methods=["POST"])
     app.add_route("/graph/search", graph_search_endpoint, methods=["POST"])
     app.add_route("/graph/write", graph_write_endpoint, methods=["POST"])

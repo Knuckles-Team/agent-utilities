@@ -11,7 +11,8 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ except ImportError:
 
 class DistributedCoordinator:
     """Enterprise-scale Distributed Coordinator using NATS JetStream or local priority queue.
-    
+
     Dynamically routes tasks based on semantic roles and topologies.
     """
 
@@ -37,7 +38,9 @@ class DistributedCoordinator:
     async def connect(self) -> bool:
         """Establish connection to NATS cluster, fallback to local queues on failure."""
         if nats is None:
-            logger.info("NATS client library 'nats-py' not installed. Running in localized fallback mode.")
+            logger.info(
+                "NATS client library 'nats-py' not installed. Running in localized fallback mode."
+            )
             self._connected = False
             return False
 
@@ -47,10 +50,15 @@ class DistributedCoordinator:
             # Register streams
             await self._js.add_stream(name="agent_tasks", subjects=["agent.tasks.*"])
             self._connected = True
-            logger.info("DistributedCoordinator successfully connected to NATS cluster.")
+            logger.info(
+                "DistributedCoordinator successfully connected to NATS cluster."
+            )
             return True
         except Exception as e:
-            logger.warning("Failed to connect to NATS cluster (%s). Falling back to local routing.", e)
+            logger.warning(
+                "Failed to connect to NATS cluster (%s). Falling back to local routing.",
+                e,
+            )
             self._connected = False
             return False
 
@@ -72,16 +80,20 @@ class DistributedCoordinator:
         await self._local_queues[subject].put(task_payload)
         logger.info("Routed task locally to queue: %s", subject)
 
-    async def register_listener(self, role: str, handler: Callable[[dict[str, Any]], Any]) -> asyncio.Task | None:
+    async def register_listener(
+        self, role: str, handler: Callable[[dict[str, Any]], Any]
+    ) -> asyncio.Task | None:
         """Register a worker to listen for tasks matching a given agent role."""
         subject = f"agent.tasks.{role.lower().replace(':', '_')}"
-        
+
         async def _worker_loop():
             while True:
                 try:
                     if self._connected and self._js is not None:
                         # Pull subscription
-                        sub = await self._js.pull_subscribe(subject, f"durable-{role.replace(':', '_')}")
+                        sub = await self._js.pull_subscribe(
+                            subject, f"durable-{role.replace(':', '_')}"
+                        )
                         msgs = await sub.fetch(1, timeout=1.0)
                         if msgs:
                             msg = msgs[0]

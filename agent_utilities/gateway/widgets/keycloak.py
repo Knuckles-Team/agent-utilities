@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -24,7 +29,9 @@ class Widget(BaseWidget):
             WidgetField(key="realms", label="Realms", format="number"),
             WidgetField(key="users", label="Users", format="number"),
             WidgetField(key="clients", label="Clients", format="number"),
-            WidgetField(key="sessions", label="Sessions", format="number", highlight=True),
+            WidgetField(
+                key="sessions", label="Sessions", format="number", highlight=True
+            ),
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:

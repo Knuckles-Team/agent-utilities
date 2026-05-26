@@ -7,12 +7,12 @@ This document details the robust locking and process lifecycle architecture impl
 ## 1. POSIX Advisory Locking & Watcher Synchronization
 
 ### The Locking Hazard (Before)
-Previously, the backend attempted to actively delete the advisory lock file (`*.lock`) in `LadybugBackend._recover_connection()` or upon release. Since `filelock` uses OS-level advisory locking (`flock`/`fcntl`), unlinking the lock file from disk while another process is holding the active lock descriptor breaks mutual exclusion on POSIX systems. 
+Previously, the backend attempted to actively delete the advisory lock file (`*.lock`) in `LadybugBackend._recover_connection()` or upon release. Since `filelock` uses OS-level advisory locking (`flock`/`fcntl`), unlinking the lock file from disk while another process is holding the active lock descriptor breaks mutual exclusion on POSIX systems.
 
 Unlinking the file allows a second process to create a new inode with the exact same name and acquire a lock on the new descriptor, leading to concurrent writes, catalog exceptions, or fatal segmentation faults.
 
 ### Robust POSIX Advisory Locking (After)
-To prevent this concurrency hazard, the lock file is **never unlinked** from disk once created. Mutual exclusion is managed naturally via the filesystem inode's file-lock metadata. 
+To prevent this concurrency hazard, the lock file is **never unlinked** from disk once created. Mutual exclusion is managed naturally via the filesystem inode's file-lock metadata.
 
 The background synchronization watcher (`watcher.py`) no longer checks for file existence using `os.path.exists(lock_path)`. Instead, it attempts a **non-blocking lock acquisition** (`timeout=0`). If the lock is held by active ingestion, it gracefully skips the iteration; if acquired, it releases it immediately and runs the scan safely.
 
@@ -31,7 +31,7 @@ sequenceDiagram
     Watcher->>lock: Try non-blocking acquisition (timeout=0)
     lock-->>Watcher: Lock already held (Timeout Exception)
     Watcher->>Watcher: Gracefully skip iteration (No Block)
-    
+
     Note over CLI, DB: Scenario 2: Ingestion Complete (Scan Execution)
     CLI->>lock: Release flock (fd closed, file remains)
     deactivate lock
@@ -46,7 +46,7 @@ sequenceDiagram
 ## 2. Native C++ Handle Destruction & Connection Cleanup
 
 ### The Destruction Sequence Hazard (Before)
-LadybugDB uses native C++ bindings for high-performance SQLite operations and HNSW vector computations. The C++ `ladybug.Connection` instances rely on active references to `ladybug.Database` handles. 
+LadybugDB uses native C++ bindings for high-performance SQLite operations and HNSW vector computations. The C++ `ladybug.Connection` instances rely on active references to `ladybug.Database` handles.
 
 If the python interpreter performs garbage collection out-of-order, or if Python attempts to destroy the parent `Database` handle while the children `Connection` handles are still active, it results in native C++ null-pointer dereferences or double-free segmentation faults.
 
@@ -109,7 +109,7 @@ graph LR
     Path["Repository Path Input"] --> Match{"Nested under Domain?"}
     Match -->|Yes| ExtractNested["Extract slug, repo, and nested subfolders"]
     Match -->|No| DirectRepo["Fallback classification by repository name"]
-    
+
     ExtractNested --> Assign["Assign to Active Concept Scheme & SKOS Concept Hierarchy"]
     DirectRepo --> Assign
 ```

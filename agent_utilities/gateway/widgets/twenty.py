@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 
@@ -24,6 +29,7 @@ class Widget(BaseWidget):
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from twenty_mcp.api_client import TwentyApi
+
         url = self._resolve_url(config)
         token = self._resolve_token(config)
         client = TwentyApi(base_url=url, api_key=token)
@@ -31,7 +37,9 @@ class Widget(BaseWidget):
             people = client.list_people() or {}
             companies = client.list_companies() or {}
             p_count = people.get("totalCount", 0) if isinstance(people, dict) else 0
-            c_count = companies.get("totalCount", 0) if isinstance(companies, dict) else 0
+            c_count = (
+                companies.get("totalCount", 0) if isinstance(companies, dict) else 0
+            )
         except Exception:
             return WidgetData(status="error", error="Connection failed")
 

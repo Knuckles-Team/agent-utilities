@@ -45,10 +45,14 @@ class StalenessItem:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "type": self.item_type, "name": self.name,
-            "last_used": self.last_used, "usage_count": self.usage_count,
-            "age_days": self.age_days, "recommendation": self.recommendation,
-            "reason": self.reason, "confidence": self.confidence,
+            "type": self.item_type,
+            "name": self.name,
+            "last_used": self.last_used,
+            "usage_count": self.usage_count,
+            "age_days": self.age_days,
+            "recommendation": self.recommendation,
+            "reason": self.reason,
+            "confidence": self.confidence,
         }
 
 
@@ -80,8 +84,8 @@ class StalenessReport:
             "",
             f"> {self.summary}",
             "",
-            f"| Recommendation | Count |",
-            f"|---|---|",
+            "| Recommendation | Count |",
+            "|---|---|",
             f"| KEEP | {len(self.keep_items)} |",
             f"| UPDATE | {len(self.update_items)} |",
             f"| REMOVE | {len(self.remove_items)} |",
@@ -91,8 +95,10 @@ class StalenessReport:
         if self.remove_items:
             lines.append("## Recommended Removals\n")
             for item in self.remove_items:
-                lines.append(f"- **[{item.item_type}] {item.name}** — {item.reason} "
-                             f"(confidence: {item.confidence:.0%})")
+                lines.append(
+                    f"- **[{item.item_type}] {item.name}** — {item.reason} "
+                    f"(confidence: {item.confidence:.0%})"
+                )
             lines.append("")
 
         if self.update_items:
@@ -199,6 +205,7 @@ class ConfigStalenessAuditor:
             return items
 
         import re
+
         content = agents_md.read_text(encoding="utf-8")
         sections = re.findall(r"^(#{1,3}\s+.+)$", content, re.MULTILINE)
 
@@ -212,7 +219,10 @@ class ConfigStalenessAuditor:
                 age_days=usage.get("age_days", 0),
             )
 
-            if usage.get("count", 0) == 0 and usage.get("age_days", 0) > self.stale_threshold:
+            if (
+                usage.get("count", 0) == 0
+                and usage.get("age_days", 0) > self.stale_threshold
+            ):
                 item.recommendation = "REMOVE"
                 item.reason = f"Never referenced in {usage.get('age_days', 0)} days"
                 item.confidence = 0.7
@@ -241,7 +251,8 @@ class ConfigStalenessAuditor:
             for row in results:
                 skill_name = str(row.get("name") or row.get("id") or "unknown")
                 item = StalenessItem(
-                    item_type="skill", name=skill_name,
+                    item_type="skill",
+                    name=skill_name,
                     usage_count=int(row.get("uses", 0)),
                 )
                 if row.get("uses", 0) == 0:
@@ -265,7 +276,8 @@ class ConfigStalenessAuditor:
             if hook_file.is_file():
                 age = (time.time() - hook_file.stat().st_mtime) / 86400
                 item = StalenessItem(
-                    item_type="hook", name=hook_file.name,
+                    item_type="hook",
+                    name=hook_file.name,
                     age_days=int(age),
                 )
                 if age > self.stale_threshold * 2:
@@ -286,11 +298,14 @@ class ConfigStalenessAuditor:
         for plugin_dir in plugins_dir.iterdir():
             if plugin_dir.is_dir():
                 age = (time.time() - plugin_dir.stat().st_mtime) / 86400
-                items.append(StalenessItem(
-                    item_type="plugin", name=plugin_dir.name,
-                    age_days=int(age),
-                    recommendation="KEEP",
-                ))
+                items.append(
+                    StalenessItem(
+                        item_type="plugin",
+                        name=plugin_dir.name,
+                        age_days=int(age),
+                        recommendation="KEEP",
+                    )
+                )
 
         return items
 

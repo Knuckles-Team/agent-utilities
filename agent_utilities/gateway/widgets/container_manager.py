@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -21,7 +26,9 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="containers", label="Containers", format="number"),
-            WidgetField(key="running", label="Running", format="number", highlight=True),
+            WidgetField(
+                key="running", label="Running", format="number", highlight=True
+            ),
             WidgetField(key="images", label="Images", format="number"),
             WidgetField(key="volumes", label="Volumes", format="number"),
             WidgetField(key="networks", label="Networks", format="number"),
@@ -36,7 +43,9 @@ class Widget(BaseWidget):
             images = client.list_images() or []
             volumes = client.list_volumes() or []
             networks = client.list_networks() or []
-            running = sum(1 for c in containers if c.get("State", "").lower() == "running")
+            running = sum(
+                1 for c in containers if c.get("State", "").lower() == "running"
+            )
         except Exception as e:
             logger.debug("Container Manager fetch: %s", e)
             return WidgetData(status="error", error=str(e))

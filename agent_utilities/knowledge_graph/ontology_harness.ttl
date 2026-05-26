@@ -10,6 +10,71 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+:AgentManagerDRI a owl:Class ;
+    rdfs:label "Agent Manager DRI" ;
+    rdfs:comment "The directly responsible individual (DRI) tasked with maintaining, reviewing, and optimizing agent rules." ;
+    rdfs:subClassOf :BusinessLayer .
+
+:ContextFile a owl:Class ;
+    rdfs:label "Context File" ;
+    rdfs:comment "Structured local files or config assets containing layered rules, policies, or ignores (e.g. .ignore, CLAUDE.md)." ;
+    rdfs:subClassOf :TechnologyLayer .
+
+:GovernanceWorkingGroup a owl:Class ;
+    rdfs:label "Governance Working Group" ;
+    rdfs:comment "Cross-functional governance board that manages policy compliance and periodic evaluations." ;
+    rdfs:subClassOf :BusinessLayer .
+
+:Hook a owl:Class ;
+    rdfs:label "Hook" ;
+    rdfs:comment "A customized script or executable process that triggers during startup or shutdown lifecycle phases." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:LSPServer a owl:Class ;
+    rdfs:label "LSP Server" ;
+    rdfs:comment "An active Language Server Protocol instance facilitating precise symbol indexing and query navigation." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:Plugin a owl:Class ;
+    rdfs:label "Plugin" ;
+    rdfs:comment "A bundled package of hooks, skills, and configuration schemas mapped to specific developer roles." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:SubagentConfig a owl:Class ;
+    rdfs:label "Subagent Config" ;
+    rdfs:comment "Configuration schemas and boundaries governing isolated child-agents during workspace exploration." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:enforcesPattern a owl:ObjectProperty ;
+    rdfs:label "enforces pattern" ;
+    rdfs:comment "Links a Policy, Agent, or Working Group to a specific OptimizationPattern." ;
+    rdfs:range :OptimizationPattern .
+
+:hasExtensionPoint a owl:ObjectProperty ;
+    rdfs:label "has extension point" ;
+    rdfs:comment "Links an Agent or Plugin to a HarnessExtensionPoint." ;
+    rdfs:range :HarnessExtensionPoint .
+
+:proposesContextUpdate a owl:DatatypeProperty ;
+    rdfs:label "proposes context update" ;
+    rdfs:comment "Actionable text payload indicating recommended update policies for LLM context files." ;
+    rdfs:range xsd:string .
+
+:scopesPath a owl:DatatypeProperty ;
+    rdfs:label "scopes path" ;
+    rdfs:comment "Specifies the path or directory boundary that this context, hook, or optimization scopes to." ;
+    rdfs:range xsd:string .
+
+:symbolPrecisionSupport a owl:DatatypeProperty ;
+    rdfs:label "symbol precision support" ;
+    rdfs:comment "Boolean flag showing if the LSP server supports high-precision symbol resolution queries." ;
+    rdfs:range xsd:boolean .
+
+:triggersOnEvent a owl:DatatypeProperty ;
+    rdfs:label "triggers on event" ;
+    rdfs:comment "Lifecycle event triggering this hook (e.g. startup, shutdown, pre-flight)." ;
+    rdfs:range xsd:string .
+
 <http://knuckles.team/kg/harness> a owl:Ontology ;
     rdfs:label "Developer Harness and AI Optimization Patterns Ontology" ;
     rdfs:comment """Ontology extension mapping the Claude Code best practices,
@@ -18,36 +83,9 @@ optimization patterns, and human-in-the-loop DRI roles.
 Aligned to ArchiMate 3.2 layers.""" ;
     owl:imports <http://knuckles.team/kg> .
 
-# Class Mappings to ArchiMate Layers
-
 :HarnessExtensionPoint a owl:Class ;
     rdfs:label "Harness Extension Point" ;
     rdfs:comment "An entry-point or registry enabling third-party agents or tools to hook into the core agent workflow." ;
-    rdfs:subClassOf :ApplicationLayer .
-
-:ContextFile a owl:Class ;
-    rdfs:label "Context File" ;
-    rdfs:comment "Structured local files or config assets containing layered rules, policies, or ignores (e.g. .ignore, CLAUDE.md)." ;
-    rdfs:subClassOf :TechnologyLayer .
-
-:Hook a owl:Class ;
-    rdfs:label "Hook" ;
-    rdfs:comment "A customized script or executable process that triggers during startup or shutdown lifecycle phases." ;
-    rdfs:subClassOf :ApplicationLayer .
-
-:Plugin a owl:Class ;
-    rdfs:label "Plugin" ;
-    rdfs:comment "A bundled package of hooks, skills, and configuration schemas mapped to specific developer roles." ;
-    rdfs:subClassOf :ApplicationLayer .
-
-:LSPServer a owl:Class ;
-    rdfs:label "LSP Server" ;
-    rdfs:comment "An active Language Server Protocol instance facilitating precise symbol indexing and query navigation." ;
-    rdfs:subClassOf :ApplicationLayer .
-
-:SubagentConfig a owl:Class ;
-    rdfs:label "Subagent Config" ;
-    rdfs:comment "Configuration schemas and boundaries governing isolated child-agents during workspace exploration." ;
     rdfs:subClassOf :ApplicationLayer .
 
 :OptimizationPattern a owl:Class ;
@@ -55,45 +93,3 @@ Aligned to ArchiMate 3.2 layers.""" ;
     rdfs:comment "A verified AI optimization pattern, e.g., lean contexts, command scoping, or review periods." ;
     rdfs:subClassOf :MotivationLayer .
 
-:AgentManagerDRI a owl:Class ;
-    rdfs:label "Agent Manager DRI" ;
-    rdfs:comment "The directly responsible individual (DRI) tasked with maintaining, reviewing, and optimizing agent rules." ;
-    rdfs:subClassOf :BusinessLayer .
-
-:GovernanceWorkingGroup a owl:Class ;
-    rdfs:label "Governance Working Group" ;
-    rdfs:comment "Cross-functional governance board that manages policy compliance and periodic evaluations." ;
-    rdfs:subClassOf :BusinessLayer .
-
-
-# Custom Properties for the Developer Harness
-
-:hasExtensionPoint a owl:ObjectProperty ;
-    rdfs:label "has extension point" ;
-    rdfs:comment "Links an Agent or Plugin to a HarnessExtensionPoint." ;
-    rdfs:range :HarnessExtensionPoint .
-
-:enforcesPattern a owl:ObjectProperty ;
-    rdfs:label "enforces pattern" ;
-    rdfs:comment "Links a Policy, Agent, or Working Group to a specific OptimizationPattern." ;
-    rdfs:range :OptimizationPattern .
-
-:scopesPath a owl:DatatypeProperty ;
-    rdfs:label "scopes path" ;
-    rdfs:comment "Specifies the path or directory boundary that this context, hook, or optimization scopes to." ;
-    rdfs:range xsd:string .
-
-:triggersOnEvent a owl:DatatypeProperty ;
-    rdfs:label "triggers on event" ;
-    rdfs:comment "Lifecycle event triggering this hook (e.g. startup, shutdown, pre-flight)." ;
-    rdfs:range xsd:string .
-
-:symbolPrecisionSupport a owl:DatatypeProperty ;
-    rdfs:label "symbol precision support" ;
-    rdfs:comment "Boolean flag showing if the LSP server supports high-precision symbol resolution queries." ;
-    rdfs:range xsd:boolean .
-
-:proposesContextUpdate a owl:DatatypeProperty ;
-    rdfs:label "proposes context update" ;
-    rdfs:comment "Actionable text payload indicating recommended update policies for LLM context files." ;
-    rdfs:range xsd:string .

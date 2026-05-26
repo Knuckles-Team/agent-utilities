@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -27,6 +32,7 @@ class Widget(BaseWidget):
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from documentdb_mcp.api_client import DocumentDBApi
+
         client = DocumentDBApi()
         try:
             dbs = client.list_databases() or []
@@ -35,6 +41,10 @@ class Widget(BaseWidget):
             return WidgetData(status="error", error=str(e))
 
         return WidgetData(
-            fields={"databases": len(dbs) if isinstance(dbs, list) else 0, "collections": 0, "status": "Online"},
+            fields={
+                "databases": len(dbs) if isinstance(dbs, list) else 0,
+                "collections": 0,
+                "status": "Online",
+            },
             status="ok",
         )

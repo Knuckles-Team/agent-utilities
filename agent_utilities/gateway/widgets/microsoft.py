@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -20,13 +25,16 @@ class Widget(BaseWidget):
 
     def get_fields(self) -> list[WidgetField]:
         return [
-            WidgetField(key="unread_emails", label="Unread", format="number", highlight=True),
+            WidgetField(
+                key="unread_emails", label="Unread", format="number", highlight=True
+            ),
             WidgetField(key="events_today", label="Events", format="number"),
             WidgetField(key="status", label="Status", format="text"),
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from microsoft_agent.api_client import MicrosoftApi
+
         token = self._resolve_token(config)
         client = MicrosoftApi(token=token)
         try:

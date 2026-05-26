@@ -23,7 +23,9 @@ class HydrationManager:
         """Check environment variables to see which sources are configured."""
         status = {
             "gitlab": {
-                "configured": bool(os.environ.get("GITLAB_TOKEN") or os.environ.get("GITLAB_API_TOKEN")),
+                "configured": bool(
+                    os.environ.get("GITLAB_TOKEN") or os.environ.get("GITLAB_API_TOKEN")
+                ),
                 "url": os.environ.get("GITLAB_URL", "https://gitlab.com"),
             },
             "leanix": {
@@ -31,7 +33,9 @@ class HydrationManager:
                 "url": os.environ.get("LEANIX_URL", ""),
             },
             "twenty": {
-                "configured": bool(os.environ.get("TWENTY_TOKEN") or os.environ.get("TWENTY_API_TOKEN")),
+                "configured": bool(
+                    os.environ.get("TWENTY_TOKEN") or os.environ.get("TWENTY_API_TOKEN")
+                ),
                 "url": os.environ.get("TWENTY_URL", ""),
             },
             "servicenow": {
@@ -42,15 +46,22 @@ class HydrationManager:
                 "url": os.environ.get("SERVICENOW_URL", ""),
             },
             "jira": {
-                "configured": bool(os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN")),
+                "configured": bool(
+                    os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN")
+                ),
                 "url": os.environ.get("JIRA_URL", ""),
             },
             "plane": {
-                "configured": bool(os.environ.get("PLANE_TOKEN") or os.environ.get("PLANE_API_TOKEN")),
+                "configured": bool(
+                    os.environ.get("PLANE_TOKEN") or os.environ.get("PLANE_API_TOKEN")
+                ),
                 "url": os.environ.get("PLANE_URL", ""),
             },
             "portainer": {
-                "configured": bool(os.environ.get("PORTAINER_TOKEN") or os.environ.get("PORTAINER_PASSWORD")),
+                "configured": bool(
+                    os.environ.get("PORTAINER_TOKEN")
+                    or os.environ.get("PORTAINER_PASSWORD")
+                ),
                 "url": os.environ.get("PORTAINER_URL", ""),
             },
             "uptime_kuma": {
@@ -58,55 +69,86 @@ class HydrationManager:
                 "url": os.environ.get("UPTIME_KUMA_URL", ""),
             },
             "lgtm": {
-                "configured": bool(os.environ.get("LGTM_URL") or os.environ.get("GRAFANA_URL")),
+                "configured": bool(
+                    os.environ.get("LGTM_URL") or os.environ.get("GRAFANA_URL")
+                ),
                 "url": os.environ.get("LGTM_URL", ""),
             },
             "langfuse": {
-                "configured": bool(os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")),
+                "configured": bool(
+                    os.environ.get("LANGFUSE_PUBLIC_KEY")
+                    and os.environ.get("LANGFUSE_SECRET_KEY")
+                ),
                 "url": os.environ.get("LANGFUSE_URL", "https://cloud.langfuse.com"),
             },
             "keycloak": {
-                "configured": bool(os.environ.get("KEYCLOAK_URL") and os.environ.get("KEYCLOAK_ADMIN_PASSWORD")),
+                "configured": bool(
+                    os.environ.get("KEYCLOAK_URL")
+                    and os.environ.get("KEYCLOAK_ADMIN_PASSWORD")
+                ),
                 "url": os.environ.get("KEYCLOAK_URL", ""),
             },
             "openbao": {
-                "configured": bool(os.environ.get("BAO_URL") or os.environ.get("VAULT_URL")),
+                "configured": bool(
+                    os.environ.get("BAO_URL") or os.environ.get("VAULT_URL")
+                ),
                 "url": os.environ.get("BAO_URL", ""),
             },
             "nextcloud": {
-                "configured": bool(os.environ.get("NEXTCLOUD_URL") and os.environ.get("NEXTCLOUD_PASSWORD")),
+                "configured": bool(
+                    os.environ.get("NEXTCLOUD_URL")
+                    and os.environ.get("NEXTCLOUD_PASSWORD")
+                ),
                 "url": os.environ.get("NEXTCLOUD_URL", ""),
             },
             "listmonk": {
-                "configured": bool(os.environ.get("LISTMONK_URL") and os.environ.get("LISTMONK_TOKEN")),
+                "configured": bool(
+                    os.environ.get("LISTMONK_URL") and os.environ.get("LISTMONK_TOKEN")
+                ),
                 "url": os.environ.get("LISTMONK_URL", ""),
             },
             "mattermost": {
-                "configured": bool(os.environ.get("MATTERMOST_URL") and os.environ.get("MATTERMOST_TOKEN")),
+                "configured": bool(
+                    os.environ.get("MATTERMOST_URL")
+                    and os.environ.get("MATTERMOST_TOKEN")
+                ),
                 "url": os.environ.get("MATTERMOST_URL", ""),
             },
             "technitium_dns": {
-                "configured": bool(os.environ.get("TECHNITIUM_URL") and os.environ.get("TECHNITIUM_TOKEN")),
+                "configured": bool(
+                    os.environ.get("TECHNITIUM_URL")
+                    and os.environ.get("TECHNITIUM_TOKEN")
+                ),
                 "url": os.environ.get("TECHNITIUM_URL", ""),
             },
             "caddy": {
-                "configured": bool(os.environ.get("CADDY_URL") or os.environ.get("CADDY_API_URL")),
+                "configured": bool(
+                    os.environ.get("CADDY_URL") or os.environ.get("CADDY_API_URL")
+                ),
                 "url": os.environ.get("CADDY_URL", ""),
             },
             "tunnel_manager": {
-                "configured": bool(os.environ.get("TUNNEL_MANAGER_URL") or os.environ.get("TUNNEL_URL")),
+                "configured": bool(
+                    os.environ.get("TUNNEL_MANAGER_URL") or os.environ.get("TUNNEL_URL")
+                ),
                 "url": os.environ.get("TUNNEL_MANAGER_URL", ""),
             },
             "scholarx": {
-                "configured": bool(os.environ.get("SCHOLARX_URL") or os.environ.get("SCHOLARX_API_KEY")),
+                "configured": bool(
+                    os.environ.get("SCHOLARX_URL") or os.environ.get("SCHOLARX_API_KEY")
+                ),
                 "url": os.environ.get("SCHOLARX_URL", ""),
             },
             "emerald_exchange": {
-                "configured": bool(os.environ.get("EMERALD_URL") or os.environ.get("EMERALD_API_KEY")),
+                "configured": bool(
+                    os.environ.get("EMERALD_URL") or os.environ.get("EMERALD_API_KEY")
+                ),
                 "url": os.environ.get("EMERALD_URL", ""),
             },
             "postiz": {
-                "configured": bool(os.environ.get("POSTIZ_URL") and os.environ.get("POSTIZ_TOKEN")),
+                "configured": bool(
+                    os.environ.get("POSTIZ_URL") and os.environ.get("POSTIZ_TOKEN")
+                ),
                 "url": os.environ.get("POSTIZ_URL", ""),
             },
         }
@@ -151,7 +193,9 @@ class HydrationManager:
         for src, conf in status.items():
             if conf["configured"]:
                 try:
-                    logger.info(f"Starting scheduled hydration for configured source: {src}")
+                    logger.info(
+                        f"Starting scheduled hydration for configured source: {src}"
+                    )
                     res = self.hydrate_source(engine, src)
                     results[src] = res
                 except Exception as e:
@@ -177,7 +221,10 @@ class HydrationManager:
         url = os.environ.get("GITLAB_URL", "https://gitlab.com")
         token = os.environ.get("GITLAB_TOKEN") or os.environ.get("GITLAB_API_TOKEN")
         if not token:
-            return {"status": "skipped", "reason": "Missing GITLAB_TOKEN/GITLAB_API_TOKEN"}
+            return {
+                "status": "skipped",
+                "reason": "Missing GITLAB_TOKEN/GITLAB_API_TOKEN",
+            }
 
         client = GitLabApi(base_url=url, token=token, verify=False)
         try:
@@ -200,15 +247,17 @@ class HydrationManager:
 
             node_id = f"gitlab:proj:{proj_id}"
             # OWL Mapping: GitLabProject -> repository
-            entities.append({
-                "id": node_id,
-                "type": "repository",
-                "name": p.get("name", f"Repo {proj_id}"),
-                "full_path": p.get("path_with_namespace", ""),
-                "description": p.get("description", ""),
-                "web_url": p.get("web_url", ""),
-                "domain": "gitlab",
-            })
+            entities.append(
+                {
+                    "id": node_id,
+                    "type": "repository",
+                    "name": p.get("name", f"Repo {proj_id}"),
+                    "full_path": p.get("path_with_namespace", ""),
+                    "description": p.get("description", ""),
+                    "web_url": p.get("web_url", ""),
+                    "domain": "gitlab",
+                }
+            )
 
             try:
                 pipes = client.get_pipelines(proj_id, per_page=5)
@@ -222,37 +271,50 @@ class HydrationManager:
 
                         pipe_node_id = f"gitlab:pipeline:{pipe_id}"
                         # OWL Mapping: GitLabPipeline -> pipeline
-                        entities.append({
-                            "id": pipe_node_id,
-                            "type": "pipeline",
-                            "name": f"Pipeline #{pipe_id}",
-                            "status": pipe.get("status", ""),
-                            "ref": pipe.get("ref", ""),
-                            "sha": pipe.get("sha", ""),
-                            "web_url": pipe.get("web_url", ""),
-                            "domain": "gitlab",
-                        })
+                        entities.append(
+                            {
+                                "id": pipe_node_id,
+                                "type": "pipeline",
+                                "name": f"Pipeline #{pipe_id}",
+                                "status": pipe.get("status", ""),
+                                "ref": pipe.get("ref", ""),
+                                "sha": pipe.get("sha", ""),
+                                "web_url": pipe.get("web_url", ""),
+                                "domain": "gitlab",
+                            }
+                        )
 
-                        relationships.append({
-                            "source": pipe_node_id,
-                            "target": node_id,
-                            "type": "depends_on",
-                            "domain": "gitlab",
-                        })
+                        relationships.append(
+                            {
+                                "source": pipe_node_id,
+                                "target": node_id,
+                                "type": "depends_on",
+                                "domain": "gitlab",
+                            }
+                        )
             except Exception as pe:
-                logger.debug(f"Failed to fetch pipelines for GitLab project {proj_id}: {pe}")
+                logger.debug(
+                    f"Failed to fetch pipelines for GitLab project {proj_id}: {pe}"
+                )
 
         if entities:
             engine.ingest_external_batch("gitlab", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_jira(self, engine: Any) -> dict[str, Any]:
         """Hydrate Jira Issues & Epics, focusing on specific configured projects."""
         try:
             from atlassian_agent.api_client import JiraApi  # type: ignore
         except ImportError:
-            return {"status": "skipped", "reason": "atlassian-agent package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "atlassian-agent package not installed",
+            }
 
         url = os.environ.get("JIRA_URL")
         token = os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN")
@@ -274,7 +336,9 @@ class HydrationManager:
                 jql = f"project in ({','.join(project_keys)}) AND " + jql
 
             issues_resp = client.search_issues(jql=jql, max_results=50)
-            issues = issues_resp.get("issues", []) if isinstance(issues_resp, dict) else []
+            issues = (
+                issues_resp.get("issues", []) if isinstance(issues_resp, dict) else []
+            )
 
             for issue in issues:
                 key = issue.get("key")
@@ -285,49 +349,61 @@ class HydrationManager:
                 node_id = f"jira:issue:{key}"
 
                 # OWL Mapping: JiraIssue -> issue
-                entities.append({
-                    "id": node_id,
-                    "type": "issue",
-                    "name": fields.get("summary", f"Issue {key}"),
-                    "status": fields.get("status", {}).get("name", ""),
-                    "priority": fields.get("priority", {}).get("name", ""),
-                    "domain": "jira",
-                })
+                entities.append(
+                    {
+                        "id": node_id,
+                        "type": "issue",
+                        "name": fields.get("summary", f"Issue {key}"),
+                        "status": fields.get("status", {}).get("name", ""),
+                        "priority": fields.get("priority", {}).get("name", ""),
+                        "domain": "jira",
+                    }
+                )
 
                 # Assignee relation
                 assignee = fields.get("assignee")
                 if assignee:
                     user_id = assignee.get("accountId") or assignee.get("name")
                     user_node_id = f"jira:user:{user_id}"
-                    entities.append({
-                        "id": user_node_id,
-                        "type": "person",
-                        "name": assignee.get("displayName", f"User {user_id}"),
-                        "domain": "jira",
-                    })
-                    relationships.append({
-                        "source": node_id,
-                        "target": user_node_id,
-                        "type": "has_role",
-                        "domain": "jira",
-                    })
+                    entities.append(
+                        {
+                            "id": user_node_id,
+                            "type": "person",
+                            "name": assignee.get("displayName", f"User {user_id}"),
+                            "domain": "jira",
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source": node_id,
+                            "target": user_node_id,
+                            "type": "has_role",
+                            "domain": "jira",
+                        }
+                    )
 
                 # Link issues if parent / epic exists
-                epic = fields.get("epic") or fields.get("customfield_10014")  # standard Epic link field
+                epic = fields.get("epic") or fields.get(
+                    "customfield_10014"
+                )  # standard Epic link field
                 if epic:
                     epic_node_id = f"jira:epic:{epic}"
-                    entities.append({
-                        "id": epic_node_id,
-                        "type": "goal",
-                        "name": f"Epic {epic}",
-                        "domain": "jira",
-                    })
-                    relationships.append({
-                        "source": node_id,
-                        "target": epic_node_id,
-                        "type": "part_of",
-                        "domain": "jira",
-                    })
+                    entities.append(
+                        {
+                            "id": epic_node_id,
+                            "type": "goal",
+                            "name": f"Epic {epic}",
+                            "domain": "jira",
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source": node_id,
+                            "target": epic_node_id,
+                            "type": "part_of",
+                            "domain": "jira",
+                        }
+                    )
 
         except Exception as e:
             return {"status": "error", "error": f"Failed to fetch Jira issues: {e}"}
@@ -335,7 +411,11 @@ class HydrationManager:
         if entities:
             engine.ingest_external_batch("jira", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_plane(self, engine: Any) -> dict[str, Any]:
         """Hydrate from Plane PMS cycle tasks, filtering by configured projects."""
@@ -349,7 +429,11 @@ class HydrationManager:
         if not url or not token:
             return {"status": "skipped", "reason": "Missing PLANE_URL or PLANE_TOKEN"}
 
-        target_project_ids = [p.strip() for p in os.environ.get("PLANE_PROJECT_IDS", "").split(",") if p.strip()]
+        target_project_ids = [
+            p.strip()
+            for p in os.environ.get("PLANE_PROJECT_IDS", "").split(",")
+            if p.strip()
+        ]
 
         client = PlaneApi(base_url=url, token=token)
         entities: list[dict[str, Any]] = []
@@ -360,12 +444,24 @@ class HydrationManager:
             projects = target_project_ids
             if not projects:
                 proj_resp = client.get_projects()
-                proj_list = proj_resp.get("results", []) if isinstance(proj_resp, dict) else proj_resp
-                projects = [str(p.get("id")) for p in proj_list if isinstance(p, dict) and p.get("id")]
+                proj_list = (
+                    proj_resp.get("results", [])
+                    if isinstance(proj_resp, dict)
+                    else proj_resp
+                )
+                projects = [
+                    str(p.get("id"))
+                    for p in proj_list
+                    if isinstance(p, dict) and p.get("id")
+                ]
 
             for proj_id in projects[:5]:
                 issues_resp = client.get_project_issues(proj_id)
-                issues = issues_resp.get("results", []) if isinstance(issues_resp, dict) else []
+                issues = (
+                    issues_resp.get("results", [])
+                    if isinstance(issues_resp, dict)
+                    else []
+                )
 
                 for issue in issues:
                     issue_id = str(issue.get("id"))
@@ -374,29 +470,35 @@ class HydrationManager:
 
                     node_id = f"plane:issue:{issue_id}"
                     # OWL Mapping: PlaneIssue -> issue
-                    entities.append({
-                        "id": node_id,
-                        "type": "issue",
-                        "name": issue.get("name", f"Plane Issue {issue_id}"),
-                        "state": issue.get("state", {}).get("name", ""),
-                        "priority": issue.get("priority", ""),
-                        "domain": "plane",
-                    })
+                    entities.append(
+                        {
+                            "id": node_id,
+                            "type": "issue",
+                            "name": issue.get("name", f"Plane Issue {issue_id}"),
+                            "state": issue.get("state", {}).get("name", ""),
+                            "priority": issue.get("priority", ""),
+                            "domain": "plane",
+                        }
+                    )
 
                     # Project node
                     proj_node_id = f"plane:proj:{proj_id}"
-                    entities.append({
-                        "id": proj_node_id,
-                        "type": "software_project",
-                        "name": f"Plane Project {proj_id}",
-                        "domain": "plane",
-                    })
-                    relationships.append({
-                        "source": node_id,
-                        "target": proj_node_id,
-                        "type": "part_of",
-                        "domain": "plane",
-                    })
+                    entities.append(
+                        {
+                            "id": proj_node_id,
+                            "type": "software_project",
+                            "name": f"Plane Project {proj_id}",
+                            "domain": "plane",
+                        }
+                    )
+                    relationships.append(
+                        {
+                            "source": node_id,
+                            "target": proj_node_id,
+                            "type": "part_of",
+                            "domain": "plane",
+                        }
+                    )
 
         except Exception as e:
             return {"status": "error", "error": f"Failed to fetch Plane issues: {e}"}
@@ -404,7 +506,11 @@ class HydrationManager:
         if entities:
             engine.ingest_external_batch("plane", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     # ══════════════════════════════════════════════════════════════════
     # Tier 2 & 3 - Portainer, Uptime Kuma, technitium-dns, caddy (Topology)
@@ -415,12 +521,20 @@ class HydrationManager:
         try:
             from portainer_agent.api_client import PortainerApi  # type: ignore
         except ImportError:
-            return {"status": "skipped", "reason": "portainer-agent package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "portainer-agent package not installed",
+            }
 
         url = os.environ.get("PORTAINER_URL")
-        token = os.environ.get("PORTAINER_TOKEN") or os.environ.get("PORTAINER_PASSWORD")
+        token = os.environ.get("PORTAINER_TOKEN") or os.environ.get(
+            "PORTAINER_PASSWORD"
+        )
         if not url or not token:
-            return {"status": "skipped", "reason": "Missing PORTAINER_URL or PORTAINER_TOKEN"}
+            return {
+                "status": "skipped",
+                "reason": "Missing PORTAINER_URL or PORTAINER_TOKEN",
+            }
 
         client = PortainerApi(base_url=url, token=token)
         entities: list[dict[str, Any]] = []
@@ -436,12 +550,14 @@ class HydrationManager:
                 s_id = str(s.get("Id"))
                 node_id = f"portainer:stack:{s_id}"
                 # OWL Mapping: PortainerStack -> container_stack
-                entities.append({
-                    "id": node_id,
-                    "type": "container_stack",
-                    "name": s.get("Name", f"Stack {s_id}"),
-                    "domain": "portainer",
-                })
+                entities.append(
+                    {
+                        "id": node_id,
+                        "type": "container_stack",
+                        "name": s.get("Name", f"Stack {s_id}"),
+                        "domain": "portainer",
+                    }
+                )
 
             # Fetch endpoints/environments and their containers
             endpoints = client.get_endpoints()
@@ -452,13 +568,15 @@ class HydrationManager:
                 ep_id = str(ep.get("Id"))
                 host_node_id = f"portainer:host:{ep_id}"
                 # OWL Mapping: Host -> host
-                entities.append({
-                    "id": host_node_id,
-                    "type": "host",
-                    "name": ep.get("Name", f"Docker Host {ep_id}"),
-                    "url": ep.get("URL", ""),
-                    "domain": "portainer",
-                })
+                entities.append(
+                    {
+                        "id": host_node_id,
+                        "type": "host",
+                        "name": ep.get("Name", f"Docker Host {ep_id}"),
+                        "url": ep.get("URL", ""),
+                        "domain": "portainer",
+                    }
+                )
 
                 containers = client.get_endpoint_containers(ep_id)
                 if isinstance(containers, list):
@@ -469,36 +587,52 @@ class HydrationManager:
 
                         container_node_id = f"docker:container:{c_id}"
                         # OWL Mapping: DockerContainer -> container
-                        entities.append({
-                            "id": container_node_id,
-                            "type": "container",
-                            "name": c.get("Names", [f"Container {c_id}"])[0].lstrip("/"),
-                            "status": c.get("Status", ""),
-                            "state": c.get("State", ""),
-                            "domain": "portainer",
-                        })
+                        entities.append(
+                            {
+                                "id": container_node_id,
+                                "type": "container",
+                                "name": c.get("Names", [f"Container {c_id}"])[0].lstrip(
+                                    "/"
+                                ),
+                                "status": c.get("Status", ""),
+                                "state": c.get("State", ""),
+                                "domain": "portainer",
+                            }
+                        )
 
-                        relationships.append({
-                            "source": container_node_id,
-                            "target": host_node_id,
-                            "type": "runs_on",
-                            "domain": "portainer",
-                        })
+                        relationships.append(
+                            {
+                                "source": container_node_id,
+                                "target": host_node_id,
+                                "type": "runs_on",
+                                "domain": "portainer",
+                            }
+                        )
 
         except Exception as e:
-            return {"status": "error", "error": f"Failed to fetch Portainer topology: {e}"}
+            return {
+                "status": "error",
+                "error": f"Failed to fetch Portainer topology: {e}",
+            }
 
         if entities:
             engine.ingest_external_batch("portainer", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_uptime_kuma(self, engine: Any) -> dict[str, Any]:
         """Hydrate Kuma Synthetics monitors (Tier 2)."""
         try:
             from uptime_kuma_agent.api_client import KumaApi  # type: ignore
         except ImportError:
-            return {"status": "skipped", "reason": "uptime-kuma-agent package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "uptime-kuma-agent package not installed",
+            }
 
         url = os.environ.get("UPTIME_KUMA_URL")
         if not url:
@@ -517,20 +651,26 @@ class HydrationManager:
                 m_id = str(m.get("id"))
                 node_id = f"kuma:monitor:{m_id}"
                 # OWL Mapping: UptimeMonitor -> uptime_monitor
-                entities.append({
-                    "id": node_id,
-                    "type": "uptime_monitor",
-                    "name": m.get("name", f"Monitor {m_id}"),
-                    "url": m.get("url", ""),
-                    "domain": "uptime_kuma",
-                })
+                entities.append(
+                    {
+                        "id": node_id,
+                        "type": "uptime_monitor",
+                        "name": m.get("name", f"Monitor {m_id}"),
+                        "url": m.get("url", ""),
+                        "domain": "uptime_kuma",
+                    }
+                )
         except Exception as e:
             return {"status": "error", "error": f"Failed to fetch Kuma monitors: {e}"}
 
         if entities:
             engine.ingest_external_batch("uptime_kuma", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_leanix(self, engine: Any) -> dict[str, Any]:
         """Hydrate from LeanIX Pathfinder (Tier 3)."""
@@ -542,7 +682,10 @@ class HydrationManager:
         url = os.environ.get("LEANIX_URL")
         token = os.environ.get("LEANIX_TOKEN")
         if not url or not token:
-            return {"status": "skipped", "reason": "Missing LEANIX_URL and/or LEANIX_TOKEN"}
+            return {
+                "status": "skipped",
+                "reason": "Missing LEANIX_URL and/or LEANIX_TOKEN",
+            }
 
         client = LeanIXGraphQL(base_url=url, token=token)
         query = """
@@ -565,10 +708,16 @@ class HydrationManager:
             try:
                 res = client.query(query)
             except Exception as query_err:
-                return {"status": "error", "error": f"GraphQL queries failed: {e} / {query_err}"}
+                return {
+                    "status": "error",
+                    "error": f"GraphQL queries failed: {e} / {query_err}",
+                }
 
         if not isinstance(res, dict):
-            return {"status": "error", "error": f"Invalid LeanIX GQL response: {type(res)}"}
+            return {
+                "status": "error",
+                "error": f"Invalid LeanIX GQL response: {type(res)}",
+            }
 
         data = res.get("data", {}) if "data" in res else res
         all_fs = data.get("allFactSheets", {})
@@ -584,19 +733,25 @@ class HydrationManager:
                 continue
 
             # OWL Mapping: LeanIXFactSheet -> platform_service
-            entities.append({
-                "id": f"leanix:fs:{fs_id}",
-                "type": "platform_service",
-                "name": node.get("name", ""),
-                "factsheet_type": node.get("type", ""),
-                "description": node.get("description", ""),
-                "domain": "leanix",
-            })
+            entities.append(
+                {
+                    "id": f"leanix:fs:{fs_id}",
+                    "type": "platform_service",
+                    "name": node.get("name", ""),
+                    "factsheet_type": node.get("type", ""),
+                    "description": node.get("description", ""),
+                    "domain": "leanix",
+                }
+            )
 
         if entities:
             engine.ingest_external_batch("leanix", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_twenty(self, engine: Any) -> dict[str, Any]:
         """Hydrate from Twenty CRM (Tier 3)."""
@@ -608,7 +763,10 @@ class HydrationManager:
         url = os.environ.get("TWENTY_URL")
         token = os.environ.get("TWENTY_TOKEN") or os.environ.get("TWENTY_API_TOKEN")
         if not url or not token:
-            return {"status": "skipped", "reason": "Missing TWENTY_URL and/or TWENTY_TOKEN"}
+            return {
+                "status": "skipped",
+                "reason": "Missing TWENTY_URL and/or TWENTY_TOKEN",
+            }
 
         client = TwentyApi(base_url=url, token=token)
         entities: list[dict[str, Any]] = []
@@ -617,7 +775,11 @@ class HydrationManager:
         # 1. Companies
         try:
             companies_resp = client.get_companies()
-            companies = companies_resp.get("data", []) if isinstance(companies_resp, dict) else companies_resp
+            companies = (
+                companies_resp.get("data", [])
+                if isinstance(companies_resp, dict)
+                else companies_resp
+            )
             if not isinstance(companies, list):
                 companies = []
 
@@ -629,19 +791,25 @@ class HydrationManager:
                     continue
 
                 # OWL Mapping: CRMCompany -> organization
-                entities.append({
-                    "id": f"twenty:company:{c_id}",
-                    "type": "organization",
-                    "name": c.get("name", f"Org {c_id}"),
-                    "domain_tag": "twenty",
-                })
+                entities.append(
+                    {
+                        "id": f"twenty:company:{c_id}",
+                        "type": "organization",
+                        "name": c.get("name", f"Org {c_id}"),
+                        "domain_tag": "twenty",
+                    }
+                )
         except Exception as e:
             logger.debug(f"Failed to fetch CRM companies: {e}")
 
         # 2. People (Contacts)
         try:
             people_resp = client.get_people()
-            people = people_resp.get("data", []) if isinstance(people_resp, dict) else people_resp
+            people = (
+                people_resp.get("data", [])
+                if isinstance(people_resp, dict)
+                else people_resp
+            )
             if not isinstance(people, list):
                 people = []
 
@@ -654,29 +822,36 @@ class HydrationManager:
 
                 node_id = f"twenty:person:{p_id}"
                 # OWL Mapping: CRMPerson -> person
-                entities.append({
-                    "id": node_id,
-                    "type": "person",
-                    "name": f"{p.get('firstName', '')} {p.get('lastName', '')}".strip() or f"Person {p_id}",
-                    "email": p.get("email", ""),
-                    "domain": "twenty",
-                })
+                entities.append(
+                    {
+                        "id": node_id,
+                        "type": "person",
+                        "name": f"{p.get('firstName', '')} {p.get('lastName', '')}".strip()
+                        or f"Person {p_id}",
+                        "email": p.get("email", ""),
+                        "domain": "twenty",
+                    }
+                )
 
                 c_id = p.get("companyId")
                 if c_id:
-                    relationships.append({
-                        "source": node_id,
-                        "target": f"twenty:company:{c_id}",
-                        "type": "works_at",
-                        "domain": "twenty",
-                    })
+                    relationships.append(
+                        {
+                            "source": node_id,
+                            "target": f"twenty:company:{c_id}",
+                            "type": "works_at",
+                            "domain": "twenty",
+                        }
+                    )
         except Exception as e:
             logger.debug(f"Failed to fetch CRM people: {e}")
 
         # 3. Opportunities
         try:
             opps_resp = client.get_opportunities()
-            opps = opps_resp.get("data", []) if isinstance(opps_resp, dict) else opps_resp
+            opps = (
+                opps_resp.get("data", []) if isinstance(opps_resp, dict) else opps_resp
+            )
             if not isinstance(opps, list):
                 opps = []
 
@@ -689,43 +864,57 @@ class HydrationManager:
 
                 node_id = f"twenty:opportunity:{o_id}"
                 # OWL Mapping: CRMOpportunity -> opportunity
-                entities.append({
-                    "id": node_id,
-                    "type": "opportunity",
-                    "name": o.get("name", f"Opp {o_id}"),
-                    "amount": o.get("amount", 0),
-                    "stage": o.get("stage", ""),
-                    "domain": "twenty",
-                })
+                entities.append(
+                    {
+                        "id": node_id,
+                        "type": "opportunity",
+                        "name": o.get("name", f"Opp {o_id}"),
+                        "amount": o.get("amount", 0),
+                        "stage": o.get("stage", ""),
+                        "domain": "twenty",
+                    }
+                )
 
                 c_id = o.get("companyId")
                 if c_id:
-                    relationships.append({
-                        "source": node_id,
-                        "target": f"twenty:company:{c_id}",
-                        "type": "related_to",
-                        "domain": "twenty",
-                    })
+                    relationships.append(
+                        {
+                            "source": node_id,
+                            "target": f"twenty:company:{c_id}",
+                            "type": "related_to",
+                            "domain": "twenty",
+                        }
+                    )
         except Exception as e:
             logger.debug(f"Failed to fetch CRM opportunities: {e}")
 
         if entities:
             engine.ingest_external_batch("twenty", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_servicenow(self, engine: Any) -> dict[str, Any]:
         """Hydrate from ServiceNow CMDB (Tier 3)."""
         try:
             from servicenow_api.api_client import ServiceNowApi
         except ImportError:
-            return {"status": "skipped", "reason": "servicenow-api package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "servicenow-api package not installed",
+            }
 
         url = os.environ.get("SERVICENOW_URL")
         username = os.environ.get("SERVICENOW_USER")
         password = os.environ.get("SERVICENOW_PASSWORD")
         if not url or not username or not password:
-            return {"status": "skipped", "reason": "Missing SERVICENOW_URL, USER, or PASSWORD"}
+            return {
+                "status": "skipped",
+                "reason": "Missing SERVICENOW_URL, USER, or PASSWORD",
+            }
 
         client = ServiceNowApi(base_url=url, username=username, password=password)
         entities: list[dict[str, Any]] = []
@@ -734,7 +923,7 @@ class HydrationManager:
         target_classes = {
             "cmdb_ci_appl": "platform_service",
             "cmdb_ci_server": "server",
-            "cmdb_ci_database": "system"
+            "cmdb_ci_database": "system",
         }
 
         for class_name, owl_type in target_classes.items():
@@ -763,20 +952,28 @@ class HydrationManager:
                     name = item.get("name") or item.get("display_value", f"CI {sys_id}")
 
                     # OWL Mapping: CMDB Application/Server/Database -> platform_service/server/system
-                    entities.append({
-                        "id": f"servicenow:ci:{sys_id}",
-                        "type": owl_type,
-                        "name": name,
-                        "ci_class": class_name,
-                        "domain": "servicenow",
-                    })
+                    entities.append(
+                        {
+                            "id": f"servicenow:ci:{sys_id}",
+                            "type": owl_type,
+                            "name": name,
+                            "ci_class": class_name,
+                            "domain": "servicenow",
+                        }
+                    )
             except Exception as class_err:
-                logger.debug(f"Failed to fetch ServiceNow class {class_name}: {class_err}")
+                logger.debug(
+                    f"Failed to fetch ServiceNow class {class_name}: {class_err}"
+                )
 
         if entities:
             engine.ingest_external_batch("servicenow", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     # ══════════════════════════════════════════════════════════════════
     # Tier 4 - LGTM alerts/metrics & Langfuse standardization
@@ -788,7 +985,10 @@ class HydrationManager:
             # LGTM doesn't have a rigid Python client package, so we mock / fetch gracefully
             lgtm_url = os.environ.get("LGTM_URL") or os.environ.get("GRAFANA_URL")
             if not lgtm_url:
-                return {"status": "skipped", "reason": "Missing LGTM_URL or GRAFANA_URL"}
+                return {
+                    "status": "skipped",
+                    "reason": "Missing LGTM_URL or GRAFANA_URL",
+                }
 
             entities: list[dict[str, Any]] = []
             relationships: list[dict[str, Any]] = []
@@ -796,26 +996,34 @@ class HydrationManager:
             # Represent Grafana Alerting rule states inside the graph
             alert_id = "lgtm:alert:cpu_limit_reached"
             # OWL Mapping: Alert -> alert
-            entities.append({
-                "id": alert_id,
-                "type": "alert",
-                "name": "Grafana CPU Limit Threshold Alert",
-                "state": "firing",
-                "domain": "lgtm",
-            })
-            
+            entities.append(
+                {
+                    "id": alert_id,
+                    "type": "alert",
+                    "name": "Grafana CPU Limit Threshold Alert",
+                    "state": "firing",
+                    "domain": "lgtm",
+                }
+            )
+
             # Map alert directly to its target container Stack or host CI
-            relationships.append({
-                "source": alert_id,
-                "target": "portainer:host:1",
-                "type": "monitors",
-                "domain": "lgtm",
-            })
+            relationships.append(
+                {
+                    "source": alert_id,
+                    "target": "portainer:host:1",
+                    "type": "monitors",
+                    "domain": "lgtm",
+                }
+            )
 
             if entities:
                 engine.ingest_external_batch("lgtm", entities, relationships)
 
-            return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+            return {
+                "status": "ok",
+                "nodes_hydrated": len(entities),
+                "relations_hydrated": len(relationships),
+            }
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
@@ -824,48 +1032,64 @@ class HydrationManager:
         try:
             from langfuse_agent.api_client import LangfuseApi  # type: ignore
         except ImportError:
-            return {"status": "skipped", "reason": "langfuse-agent package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "langfuse-agent package not installed",
+            }
 
-        url = os.environ.get("LANGFUSE_URL", "https://cloud.langfuse.com")
+        os.environ.get("LANGFUSE_URL", "https://cloud.langfuse.com")
         pub_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
         sec_key = os.environ.get("LANGFUSE_SECRET_KEY")
         if not pub_key or not sec_key:
-            return {"status": "skipped", "reason": "Missing LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY"}
+            return {
+                "status": "skipped",
+                "reason": "Missing LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY",
+            }
 
         entities: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
 
         trace_id = "langfuse:trace:session-12345"
         # OWL Mapping: LangfuseTrace -> reasoning_trace
-        entities.append({
-            "id": trace_id,
-            "type": "reasoning_trace",
-            "name": "User Chat Session Inference Trace",
-            "latency": 1.25,
-            "domain": "langfuse",
-        })
+        entities.append(
+            {
+                "id": trace_id,
+                "type": "reasoning_trace",
+                "name": "User Chat Session Inference Trace",
+                "latency": 1.25,
+                "domain": "langfuse",
+            }
+        )
 
         prompt_id = "langfuse:prompt:system-v1"
         # OWL Mapping: LangfusePrompt -> prompt
-        entities.append({
-            "id": prompt_id,
-            "type": "prompt",
-            "name": "System Code Assistant Prompt",
-            "version": "1.0.0",
-            "domain": "langfuse",
-        })
+        entities.append(
+            {
+                "id": prompt_id,
+                "type": "prompt",
+                "name": "System Code Assistant Prompt",
+                "version": "1.0.0",
+                "domain": "langfuse",
+            }
+        )
 
-        relationships.append({
-            "source": trace_id,
-            "target": prompt_id,
-            "type": "depends_on",
-            "domain": "langfuse",
-        })
+        relationships.append(
+            {
+                "source": trace_id,
+                "target": prompt_id,
+                "type": "depends_on",
+                "domain": "langfuse",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("langfuse", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     # ══════════════════════════════════════════════════════════════════
     # Tier 5 - Keycloak & OpenBao strictly metadata
@@ -876,7 +1100,10 @@ class HydrationManager:
         try:
             from keycloak_agent.api_client import KeycloakAdmin  # type: ignore
         except ImportError:
-            return {"status": "skipped", "reason": "keycloak-agent package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "keycloak-agent package not installed",
+            }
 
         url = os.environ.get("KEYCLOAK_URL")
         if not url:
@@ -888,33 +1115,43 @@ class HydrationManager:
 
         realm_id = "keycloak:realm:master"
         # OWL Mapping: KeycloakRealm -> organization (realm space)
-        entities.append({
-            "id": realm_id,
-            "type": "organization",
-            "name": "Keycloak Master Realm",
-            "domain": "keycloak",
-        })
+        entities.append(
+            {
+                "id": realm_id,
+                "type": "organization",
+                "name": "Keycloak Master Realm",
+                "domain": "keycloak",
+            }
+        )
 
         role_id = "keycloak:role:admin"
         # OWL Mapping: KeycloakRole -> role
-        entities.append({
-            "id": role_id,
-            "type": "role",
-            "name": "Administrator Role Metadata",
-            "domain": "keycloak",
-        })
+        entities.append(
+            {
+                "id": role_id,
+                "type": "role",
+                "name": "Administrator Role Metadata",
+                "domain": "keycloak",
+            }
+        )
 
-        relationships.append({
-            "source": role_id,
-            "target": realm_id,
-            "type": "part_of",
-            "domain": "keycloak",
-        })
+        relationships.append(
+            {
+                "source": role_id,
+                "target": realm_id,
+                "type": "part_of",
+                "domain": "keycloak",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("keycloak", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_openbao(self, engine: Any) -> dict[str, Any]:
         """Hydrate OpenBao secret engine metadata trees (Tier 5)."""
@@ -925,18 +1162,24 @@ class HydrationManager:
 
             secret_engine_id = "openbao:engine:kv-v2-apps"
             # OWL Mapping: SecretEngine -> system
-            entities.append({
-                "id": secret_engine_id,
-                "type": "system",
-                "name": "OpenBao Apps Vault KV Engine",
-                "mount_path": "apps/",
-                "domain": "openbao",
-            })
+            entities.append(
+                {
+                    "id": secret_engine_id,
+                    "type": "system",
+                    "name": "OpenBao Apps Vault KV Engine",
+                    "mount_path": "apps/",
+                    "domain": "openbao",
+                }
+            )
 
             if entities:
                 engine.ingest_external_batch("openbao", entities, relationships)
 
-            return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+            return {
+                "status": "ok",
+                "nodes_hydrated": len(entities),
+                "relations_hydrated": len(relationships),
+            }
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
@@ -949,7 +1192,10 @@ class HydrationManager:
         try:
             from nextcloud_agent.api_client import NextcloudClient  # type: ignore
         except ImportError:
-            return {"status": "skipped", "reason": "nextcloud-agent package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "nextcloud-agent package not installed",
+            }
 
         url = os.environ.get("NEXTCLOUD_URL")
         if not url:
@@ -961,26 +1207,34 @@ class HydrationManager:
         # Map active calendar items and shared files to event and document
         event_id = "nextcloud:event:daily_sync"
         # OWL Mapping: CalendarEvent -> event
-        entities.append({
-            "id": event_id,
-            "type": "event",
-            "name": "Daily Enterprise Sync Meeting",
-            "domain": "nextcloud",
-        })
+        entities.append(
+            {
+                "id": event_id,
+                "type": "event",
+                "name": "Daily Enterprise Sync Meeting",
+                "domain": "nextcloud",
+            }
+        )
 
         doc_id = "nextcloud:doc:architecture_guide"
         # OWL Mapping: Document -> document
-        entities.append({
-            "id": doc_id,
-            "type": "document",
-            "name": "Nextcloud Shared Architecture Guide.pdf",
-            "domain": "nextcloud",
-        })
+        entities.append(
+            {
+                "id": doc_id,
+                "type": "document",
+                "name": "Nextcloud Shared Architecture Guide.pdf",
+                "domain": "nextcloud",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("nextcloud", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_listmonk(self, engine: Any) -> dict[str, Any]:
         """Hydrate Listmonk templates & campaigns (Tier 6)."""
@@ -991,17 +1245,23 @@ class HydrationManager:
 
             campaign_id = "listmonk:campaign:weekly_newsletter"
             # OWL Mapping: Campaign -> document
-            entities.append({
-                "id": campaign_id,
-                "type": "document",
-                "name": "Weekly Newsletter Campaign",
-                "domain": "listmonk",
-            })
+            entities.append(
+                {
+                    "id": campaign_id,
+                    "type": "document",
+                    "name": "Weekly Newsletter Campaign",
+                    "domain": "listmonk",
+                }
+            )
 
             if entities:
                 engine.ingest_external_batch("listmonk", entities, relationships)
 
-            return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+            return {
+                "status": "ok",
+                "nodes_hydrated": len(entities),
+                "relations_hydrated": len(relationships),
+            }
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
@@ -1010,7 +1270,10 @@ class HydrationManager:
         try:
             from mattermost_mcp.api_client import MattermostApi  # type: ignore
         except ImportError:
-            return {"status": "skipped", "reason": "mattermost-mcp package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "mattermost-mcp package not installed",
+            }
 
         url = os.environ.get("MATTERMOST_URL")
         if not url:
@@ -1021,63 +1284,87 @@ class HydrationManager:
 
         channel_id = "mattermost:channel:engineering"
         # OWL Mapping: ChatChannel -> chat_channel
-        entities.append({
-            "id": channel_id,
-            "type": "chat_channel",
-            "name": "Mattermost Engineering Channel",
-            "domain": "mattermost",
-        })
+        entities.append(
+            {
+                "id": channel_id,
+                "type": "chat_channel",
+                "name": "Mattermost Engineering Channel",
+                "domain": "mattermost",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("mattermost", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_technitium_dns(self, engine: Any) -> dict[str, Any]:
         """Hydrate DNS zones and resource records from Technitium DNS (Tier 3)."""
         try:
-            from technitium_dns_mcp.api_client import Api as TechnitiumApi  # type: ignore
+            from technitium_dns_mcp.api_client import (
+                Api as TechnitiumApi,  # type: ignore
+            )
         except ImportError:
-            return {"status": "skipped", "reason": "technitium-dns-mcp package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "technitium-dns-mcp package not installed",
+            }
 
         url = os.environ.get("TECHNITIUM_URL")
         token = os.environ.get("TECHNITIUM_TOKEN")
         if not url or not token:
-            return {"status": "skipped", "reason": "Missing TECHNITIUM_URL or TECHNITIUM_TOKEN"}
+            return {
+                "status": "skipped",
+                "reason": "Missing TECHNITIUM_URL or TECHNITIUM_TOKEN",
+            }
 
         entities: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
 
         zone_id = "dns:zone:example.com"
         # OWL Mapping: DnsZone -> system
-        entities.append({
-            "id": zone_id,
-            "type": "system",
-            "name": "example.com DNS Zone",
-            "domain": "technitium",
-        })
+        entities.append(
+            {
+                "id": zone_id,
+                "type": "system",
+                "name": "example.com DNS Zone",
+                "domain": "technitium",
+            }
+        )
 
         rec_id = "dns:record:app.example.com:A"
         # OWL Mapping: DnsRecord -> system
-        entities.append({
-            "id": rec_id,
-            "type": "system",
-            "name": "app.example.com [A]",
-            "value": "10.0.0.50",
-            "domain": "technitium",
-        })
+        entities.append(
+            {
+                "id": rec_id,
+                "type": "system",
+                "name": "app.example.com [A]",
+                "value": "10.0.0.50",
+                "domain": "technitium",
+            }
+        )
 
-        relationships.append({
-            "source": rec_id,
-            "target": zone_id,
-            "type": "part_of",
-            "domain": "technitium",
-        })
+        relationships.append(
+            {
+                "source": rec_id,
+                "target": zone_id,
+                "type": "part_of",
+                "domain": "technitium",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("technitium_dns", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_caddy(self, engine: Any) -> dict[str, Any]:
         """Hydrate active routing configurations and reverse proxies from Caddy (Tier 3)."""
@@ -1091,18 +1378,24 @@ class HydrationManager:
 
         route_id = "caddy:route:app-reverse-proxy"
         # OWL Mapping: CaddyRoute -> platform_service
-        entities.append({
-            "id": route_id,
-            "type": "platform_service",
-            "name": "Caddy Reverse Proxy Route: app.example.com",
-            "upstream": "http://web-app-container:8080",
-            "domain": "caddy",
-        })
+        entities.append(
+            {
+                "id": route_id,
+                "type": "platform_service",
+                "name": "Caddy Reverse Proxy Route: app.example.com",
+                "upstream": "http://web-app-container:8080",
+                "domain": "caddy",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("caddy", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_tunnel_manager(self, engine: Any) -> dict[str, Any]:
         """Hydrate operational SSH tunnel session topology (Tier 3)."""
@@ -1111,17 +1404,23 @@ class HydrationManager:
 
         tunnel_id = "tunnel:session:prod-ssh-overlay"
         # OWL Mapping: SshTunnel -> system
-        entities.append({
-            "id": tunnel_id,
-            "type": "system",
-            "name": "SSH Overlay Tunnel (Local port 9000 -> Host port 22)",
-            "domain": "tunnel_manager",
-        })
+        entities.append(
+            {
+                "id": tunnel_id,
+                "type": "system",
+                "name": "SSH Overlay Tunnel (Local port 9000 -> Host port 22)",
+                "domain": "tunnel_manager",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("tunnel_manager", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_scholarx(self, engine: Any) -> dict[str, Any]:
         """Hydrate recently fetched research papers and literature citation loops (Advanced Ingestion)."""
@@ -1135,75 +1434,98 @@ class HydrationManager:
 
         paper_id = "scholarx:paper:agent_frameworks_2026"
         # OWL Mapping: ResearchPaper -> document
-        entities.append({
-            "id": paper_id,
-            "type": "document",
-            "name": "Ontological Frameworks for Self-Evolving Swarms",
-            "abstract": "A review of dynamic graph self-hydration and OWL promotion in agentic cycles.",
-            "year": 2026,
-            "domain": "scholarx",
-        })
+        entities.append(
+            {
+                "id": paper_id,
+                "type": "document",
+                "name": "Ontological Frameworks for Self-Evolving Swarms",
+                "abstract": "A review of dynamic graph self-hydration and OWL promotion in agentic cycles.",
+                "year": 2026,
+                "domain": "scholarx",
+            }
+        )
 
         author_id = "scholarx:author:alice_smith"
         # OWL Mapping: Author -> person
-        entities.append({
-            "id": author_id,
-            "type": "person",
-            "name": "Dr. Alice Smith",
-            "domain": "scholarx",
-        })
+        entities.append(
+            {
+                "id": author_id,
+                "type": "person",
+                "name": "Dr. Alice Smith",
+                "domain": "scholarx",
+            }
+        )
 
-        relationships.append({
-            "source": paper_id,
-            "target": author_id,
-            "type": "creator",
-            "domain": "scholarx",
-        })
+        relationships.append(
+            {
+                "source": paper_id,
+                "target": author_id,
+                "type": "creator",
+                "domain": "scholarx",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("scholarx", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_emerald_exchange(self, engine: Any) -> dict[str, Any]:
         """Hydrate balances, positions, and order execution records (Advanced Ingestion)."""
         try:
             from emerald_exchange.backends import PaperBackend  # type: ignore
         except ImportError:
-            return {"status": "skipped", "reason": "emerald-exchange package not installed"}
+            return {
+                "status": "skipped",
+                "reason": "emerald-exchange package not installed",
+            }
 
         entities: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
 
         acct_id = "emerald:acct:paper-sim"
         # OWL Mapping: TradingAccount -> account
-        entities.append({
-            "id": acct_id,
-            "type": "account",
-            "name": "Emerald Paper Simulation Account",
-            "domain": "emerald_exchange",
-        })
+        entities.append(
+            {
+                "id": acct_id,
+                "type": "account",
+                "name": "Emerald Paper Simulation Account",
+                "domain": "emerald_exchange",
+            }
+        )
 
         inst_id = "emerald:inst:USDC"
         # OWL Mapping: FinancialInstrument -> financial_instrument
-        entities.append({
-            "id": inst_id,
-            "type": "financial_instrument",
-            "name": "USD Coin (USDC)",
-            "domain": "emerald_exchange",
-        })
+        entities.append(
+            {
+                "id": inst_id,
+                "type": "financial_instrument",
+                "name": "USD Coin (USDC)",
+                "domain": "emerald_exchange",
+            }
+        )
 
-        relationships.append({
-            "source": acct_id,
-            "target": inst_id,
-            "type": "has_financial_instrument",
-            "domain": "emerald_exchange",
-        })
+        relationships.append(
+            {
+                "source": acct_id,
+                "target": inst_id,
+                "type": "has_financial_instrument",
+                "domain": "emerald_exchange",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("emerald_exchange", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }
 
     def _hydrate_postiz(self, engine: Any) -> dict[str, Any]:
         """Hydrate scheduled marketing campaigns and social media publications (Advanced Ingestion)."""
@@ -1212,31 +1534,40 @@ class HydrationManager:
 
         post_id = "postiz:post:release_announcement"
         # OWL Mapping: ScheduledPost -> creative_work
-        entities.append({
-            "id": post_id,
-            "type": "creative_work",
-            "name": "Version 3.0 Ontological Release Thread",
-            "domain": "postiz",
-        })
+        entities.append(
+            {
+                "id": post_id,
+                "type": "creative_work",
+                "name": "Version 3.0 Ontological Release Thread",
+                "domain": "postiz",
+            }
+        )
 
         chan_id = "postiz:channel:twitter-eng"
         # OWL Mapping: SocialChannel -> organization
-        entities.append({
-            "id": chan_id,
-            "type": "organization",
-            "name": "Google Deepmind AI Outreach Channel",
-            "domain": "postiz",
-        })
+        entities.append(
+            {
+                "id": chan_id,
+                "type": "organization",
+                "name": "Google Deepmind AI Outreach Channel",
+                "domain": "postiz",
+            }
+        )
 
-        relationships.append({
-            "source": post_id,
-            "target": chan_id,
-            "type": "associated_with",
-            "domain": "postiz",
-        })
+        relationships.append(
+            {
+                "source": post_id,
+                "target": chan_id,
+                "type": "associated_with",
+                "domain": "postiz",
+            }
+        )
 
         if entities:
             engine.ingest_external_batch("postiz", entities, relationships)
 
-        return {"status": "ok", "nodes_hydrated": len(entities), "relations_hydrated": len(relationships)}
-
+        return {
+            "status": "ok",
+            "nodes_hydrated": len(entities),
+            "relations_hydrated": len(relationships),
+        }

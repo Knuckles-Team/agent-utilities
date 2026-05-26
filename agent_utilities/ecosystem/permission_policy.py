@@ -107,8 +107,10 @@ class PermissionPolicy:
             "allow_paths": self.allow_paths,
             "deny_write_paths": self.deny_write_paths,
             "deny_tools": self.deny_tools,
-            "rules": [{"tool": r.tool, "deny_args": r.deny_args, "description": r.description}
-                      for r in self.rules],
+            "rules": [
+                {"tool": r.tool, "deny_args": r.deny_args, "description": r.description}
+                for r in self.rules
+            ],
         }
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -151,7 +153,14 @@ class PermissionPolicyEngine:
                         )
 
         # Check file paths in arguments
-        for key in ("file_path", "path", "target_file", "filename", "source", "destination"):
+        for key in (
+            "file_path",
+            "path",
+            "target_file",
+            "filename",
+            "source",
+            "destination",
+        ):
             if key in args:
                 self._check_path(str(args[key]), tool_name)
 
@@ -166,7 +175,9 @@ class PermissionPolicyEngine:
         # Additional write-specific deny paths
         rel = self._relative_path(file_path)
         for pattern in self.policy.deny_write_paths:
-            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(Path(rel).name, pattern):
+            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(
+                Path(rel).name, pattern
+            ):
                 raise PolicyViolation("deny_write_path", f"Write to '{rel}' is denied")
 
     def _check_path(self, file_path: str, operation: str) -> None:
@@ -175,8 +186,12 @@ class PermissionPolicyEngine:
 
         # Check deny paths
         for pattern in self.policy.deny_paths:
-            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(Path(rel).name, pattern):
-                raise PolicyViolation("deny_path", f"Access to '{rel}' is denied ({operation})")
+            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(
+                Path(rel).name, pattern
+            ):
+                raise PolicyViolation(
+                    "deny_path", f"Access to '{rel}' is denied ({operation})"
+                )
 
         # If allow_paths is set, check that path matches at least one
         if self.policy.allow_paths:
@@ -200,7 +215,8 @@ class PermissionPolicyEngine:
         """Return a PRE_TOOL_USE hook callable."""
 
         async def _permission_hook(input: HookInput) -> HookResult | None:
-            from ..capabilities.hooks import HookEvent, HookResult as HR
+            from ..capabilities.hooks import HookEvent
+            from ..capabilities.hooks import HookResult as HR
 
             if input.event != HookEvent.PRE_TOOL_USE:
                 return None

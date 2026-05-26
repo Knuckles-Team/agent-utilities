@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -22,12 +27,15 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="models", label="Models", format="number"),
-            WidgetField(key="running", label="Running", format="number", highlight=True),
+            WidgetField(
+                key="running", label="Running", format="number", highlight=True
+            ),
             WidgetField(key="status", label="Status", format="text"),
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         import httpx
+
         url = self._resolve_url(config)
         try:
             resp = httpx.get(f"{url}/api/tags", timeout=5.0)

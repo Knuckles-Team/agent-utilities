@@ -41,7 +41,7 @@ class InteractionRecord(BaseModel):
 
 class DistributedReplayEngine:
     """Manages the lifecycle of recording, querying, and replaying execution traces.
-    
+
     Integrates with the Active Knowledge Graph to store traces as queryable sub-graphs.
     """
 
@@ -53,8 +53,12 @@ class DistributedReplayEngine:
         """Initialize a new trace recording manifest."""
         manifest = ReplayManifest(process_id=process_id, agent_id=agent_id)
         self._manifests[process_id] = manifest
-        logger.info("ReplayEngine started recording process: %s (agent=%s)", process_id, agent_id)
-        
+        logger.info(
+            "ReplayEngine started recording process: %s (agent=%s)",
+            process_id,
+            agent_id,
+        )
+
         # Persist manifest to KG if available
         if self.engine is not None:
             try:
@@ -83,7 +87,9 @@ class DistributedReplayEngine:
         """Record an individual execution step within an active trace."""
         manifest = self._manifests.get(process_id)
         if not manifest:
-            logger.warning("Attempted to record step for unregistered process: %s", process_id)
+            logger.warning(
+                "Attempted to record step for unregistered process: %s", process_id
+            )
             return None
 
         record = InteractionRecord(

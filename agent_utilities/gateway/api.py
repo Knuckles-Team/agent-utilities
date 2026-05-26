@@ -130,9 +130,12 @@ async def trigger_hydration(source: str) -> dict[str, Any]:
     """Manually trigger hydration for a specific external source."""
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.hydration import HydrationManager
+
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
-        raise HTTPException(status_code=500, detail="Active Knowledge Graph engine not available")
+        raise HTTPException(
+            status_code=500, detail="Active Knowledge Graph engine not available"
+        )
     try:
         res = HydrationManager().hydrate_source(engine, source)
         return res
@@ -147,9 +150,12 @@ async def trigger_all_hydration() -> dict[str, Any]:
     """Manually trigger hydration for all configured/active sources sequentially."""
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.hydration import HydrationManager
+
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
-        raise HTTPException(status_code=500, detail="Active Knowledge Graph engine not available")
+        raise HTTPException(
+            status_code=500, detail="Active Knowledge Graph engine not available"
+        )
     try:
         res = HydrationManager().hydrate_all(engine)
         return res
@@ -161,5 +167,5 @@ async def trigger_all_hydration() -> dict[str, Any]:
 async def get_hydration_status() -> dict[str, Any]:
     """Retrieve configuration status of all hydration sources."""
     from agent_utilities.knowledge_graph.core.hydration import HydrationManager
-    return HydrationManager().get_status()
 
+    return HydrationManager().get_status()

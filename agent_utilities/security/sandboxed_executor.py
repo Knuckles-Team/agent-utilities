@@ -11,7 +11,8 @@ import logging
 import multiprocessing
 import queue
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -37,7 +38,12 @@ class SandboxResult(BaseModel):
     terminated_by_limit: bool = False
 
 
-def _worker_wrapper(func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any], out_queue: multiprocessing.Queue) -> None:
+def _worker_wrapper(
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    out_queue: multiprocessing.Queue,
+) -> None:
     """Standard multiprocessing target to execute the target function safely."""
     try:
         res = func(*args, **kwargs)
@@ -52,7 +58,9 @@ class SandboxedExecutor:
     def __init__(self, limits: SandboxLimits | None = None) -> None:
         self.limits = limits or SandboxLimits()
 
-    def execute(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> SandboxResult:
+    def execute(
+        self, func: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> SandboxResult:
         """Execute a function inside a separate process with time limit enforcement."""
         out_queue = multiprocessing.Queue()
         p = multiprocessing.Process(

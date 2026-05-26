@@ -46,7 +46,7 @@ flowchart TD
     Query --> Request
     Headers --> Request
     Request --> Transform
-    
+
     Transform --> KGCheck
     KGCheck -- Yes --> KGQuery
     KGQuery --> KGCache

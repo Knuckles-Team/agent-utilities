@@ -73,7 +73,7 @@ class MockTerminalSandbox:
         for pattern in forbidden:
             if pattern in command_str:
                 raise PermissionError(f"Security Alert: Command injection detected: {command_str}")
-        
+
         self.history.append(command_str)
         return f"stdout for: {command_str}"
 

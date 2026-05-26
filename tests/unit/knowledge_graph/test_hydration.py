@@ -494,5 +494,3 @@ def test_hydrate_langfuse(mock_engine):
         assert res["status"] == "ok"
         assert res["nodes_hydrated"] == 2
         assert res["relations_hydrated"] == 1
-
-

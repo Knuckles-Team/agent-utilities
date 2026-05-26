@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -38,8 +43,14 @@ class Widget(BaseWidget):
         try:
             health = client.health() or {}
             traces = client.get_traces(limit=1) or {}
-            total_traces = traces.get("totalItems", 0) if isinstance(traces, dict) else 0
-            status_text = health.get("status", "unknown") if isinstance(health, dict) else "unknown"
+            total_traces = (
+                traces.get("totalItems", 0) if isinstance(traces, dict) else 0
+            )
+            status_text = (
+                health.get("status", "unknown")
+                if isinstance(health, dict)
+                else "unknown"
+            )
         except Exception as e:
             logger.debug("Langfuse fetch: %s", e)
             return WidgetData(status="error", error=str(e))

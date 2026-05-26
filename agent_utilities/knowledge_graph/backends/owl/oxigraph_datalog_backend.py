@@ -24,23 +24,25 @@ try:
 except ImportError:
     HAS_RUST_COMPUTE = False
 
-    class EpistemicGraph:
+    class EpistemicGraphFallback:
         def add_node(self, node_id: str, properties_json: str) -> None:
-            ...
+            pass
 
         def add_edge(
             self, source_id: str, target_id: str, properties_json: str
         ) -> None:
-            ...
+            pass
 
-        def run_datalog_reasoning(self, *args, **kwargs) -> list:
-            ...
+        def run_datalog_reasoning(self, *args, **kwargs) -> list[Any]:
+            return []
 
-        def get_nodes(self) -> list:
-            ...
+        def get_nodes(self) -> list[Any]:
+            return []
 
-        def get_edges(self) -> list:
-            ...
+        def get_edges(self) -> list[Any]:
+            return []
+
+    EpistemicGraph = EpistemicGraphFallback  # type: ignore[misc,assignment]
 
 
 try:
@@ -444,9 +446,9 @@ class OxigraphDatalogBackend(OWLBackend):
 
         # 3. Export inferences
         for inf in self.inferred:
-            sub = inf.get("subject")
-            pred = inf.get("predicate")
-            obj = inf.get("object")
+            sub = str(inf.get("subject") or "")
+            pred = str(inf.get("predicate") or "")
+            obj = str(inf.get("object") or "")
             if pred == "type":
                 lines.append(f"ex:{sub} a ex:{obj} . # Inferred")
             else:
@@ -638,9 +640,9 @@ class OxigraphDatalogBackend(OWLBackend):
 
             # 3. Export inferences
             for inf in self.inferred:
-                sub = inf.get("subject")
-                pred = inf.get("predicate")
-                obj = inf.get("object")
+                sub = str(inf.get("subject") or "")
+                pred = str(inf.get("predicate") or "")
+                obj = str(inf.get("object") or "")
                 if pred == "type":
                     lines.append(f"ex:{sub} a ex:{obj} .")
                 else:
