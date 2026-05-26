@@ -12,20 +12,18 @@ verifying:
 import os
 import shutil
 import tempfile
-import pytest
-import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from agent_utilities.capabilities.checkpointing import FileCheckpointStore
 from agent_utilities.graph.parallel_engine import ParallelEngine
 from agent_utilities.models.execution_manifest import (
     AgentSpec,
     ExecutionManifest,
     SynthesisSpec,
-    AgentExecutionResult,
 )
 from agent_utilities.workflows.skill_compiler import SkillCompiler
-from agent_utilities.capabilities.checkpointing import FileCheckpointStore
 
 # Setup environment variables for clean testing
 os.environ["OTEL_SDK_DISABLED"] = "true"
@@ -149,7 +147,10 @@ async def test_parallel_engine_topological_execution():
     mock_pydantic_agent = MagicMock()
     mock_pydantic_agent.run = AsyncMock(return_value=mock_run_result)
 
-    with patch("agent_utilities.agent.factory.create_agent", return_value=(mock_pydantic_agent, [])):
+    with patch(
+        "agent_utilities.agent.factory.create_agent",
+        return_value=(mock_pydantic_agent, []),
+    ):
         res = await engine.execute(manifest)
 
         assert res.success is True
@@ -167,6 +168,7 @@ async def test_parallel_engine_topological_execution():
 async def test_checkpointing_saves_and_resumes():
     """Verify checkpoint store saves wave execution results correctly to disk."""
     from agent_utilities.capabilities.checkpointing import Checkpoint
+
     temp_dir = tempfile.mkdtemp()
     try:
         store = FileCheckpointStore(directory=temp_dir)
@@ -178,7 +180,7 @@ async def test_checkpointing_saves_and_resumes():
             label="Wave 0 checkpoint",
             turn=1,
             messages=[],
-            metadata={"some": "metadata"}
+            metadata={"some": "metadata"},
         )
 
         await store.save(cp)
@@ -216,7 +218,10 @@ async def test_auto_healing_triggers_on_failures():
     engine = ParallelEngine()
 
     # Force agent invocation failure by letting `create_agent` raise an exception
-    with patch("agent_utilities.agent.factory.create_agent", side_effect=Exception("API limit exceeded")):
+    with patch(
+        "agent_utilities.agent.factory.create_agent",
+        side_effect=Exception("API limit exceeded"),
+    ):
         res = await engine.execute(manifest)
 
         assert res.success is False

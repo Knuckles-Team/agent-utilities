@@ -125,6 +125,21 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "deployment_prerequisite": "DeploymentPrerequisite",
     "mcp_server_deployment": "MCPServerDeployment",
     "deployment_profile": "DeploymentProfile",
+    # Legal Entity & Compliance domain (CONCEPT:LGC-1.0)
+    "legal_trust": "LegalTrust",
+    "trustee_role": "TrusteeRole",
+    "settlor_role": "SettlorRole",
+    "beneficiary_role": "BeneficiaryRole",
+    "legal_entity": "LegalEntity",
+    "company": "Company",
+    "ein_application": "EINApplication",
+    # Infrastructure additions
+    "host": "BladeServer",
+    "container": "Container",
+    "container_stack": "ContainerStack",
+    "platform_service": "PlatformService",
+    "gpu_accelerator": "GPUAccelerator",
+    "storage_array": "StorageArray",
 }
 
 # Mapping from LPG edge type values to OWL object property local names
@@ -220,6 +235,19 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "serves_endpoint": "servesEndpoint",
     "uses_profile": "usesProfile",
     "transitioned_to": "transitionedTo",
+    # Legal Entity & Compliance domain edges (CONCEPT:LGC-1.0)
+    "has_trustee": "hasTrustee",
+    "has_settlor": "hasSettlor",
+    "has_beneficiary": "hasBeneficiary",
+    "trust_agreement": "trustAgreement",
+    "governed_by_doc": "governedByDoc",
+    "filed_by": "filedBy",
+    # Infrastructure property additions
+    "runs_on": "runsOn",
+    "has_accelerator": "hasAccelerator",
+    "attached_storage": "attachedStorage",
+    "deployed_on": "deployedOn",
+    "belongs_to_stack": "belongsToStack",
 }
 
 

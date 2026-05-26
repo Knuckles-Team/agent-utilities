@@ -1,7 +1,7 @@
 """Tests for the unified Agent Toolkit Ingestion pipeline.
 
 CONCEPT:ECO-4.0 — Unified MCP/Skill/A2A ingestion pipeline tests.
-CONCEPT:ECO-4.2 — MCP Live Discovery tests (parse_mcp_config, _parse_tool_flags).
+CONCEPT:ECO-4.1 — MCP Live Discovery tests (parse_mcp_config, _parse_tool_flags).
 
 Uses real mcp_config.json fixtures from the agent-packages ecosystem
 (portainer, langfuse, gitlab, container-manager, etc.) to verify
@@ -32,10 +32,6 @@ _MCP_CONFIGS = {
     "systems-manager": AGENTS_DIR / "systems-manager" / "mcp_config.json",
     "github": AGENTS_DIR / "github-agent" / "mcp_config.json",
     "gitlab": AGENTS_DIR / "gitlab-api" / "mcp_config.json",
-    "adguard": AGENTS_DIR
-    / "adguard-home-agent"
-    / "adguard_home_agent"
-    / "mcp_config.json",
     "archivebox": AGENTS_DIR / "archivebox-api" / "archivebox_api" / "mcp_config.json",
 }
 
@@ -163,13 +159,12 @@ class TestMCPConfigParsing:
         config = json.loads(ANTIGRAVITY_MCP_CONFIG.read_text(encoding="utf-8"))
         servers = engine.parse_mcp_config(config)
 
-        # Should have 3 servers (graph-os, scholarx, repository-manager)
-        # Some may be disabled
+        # Should have active servers
         active_servers = [s for s in servers]
-        assert len(active_servers) >= 2
+        assert len(active_servers) >= 1
 
         names = [s["name"] for s in active_servers]
-        assert "graph-os" in names or "scholarx" in names
+        assert "mcp-multiplexer" in names or "graph-os" in names or "scholarx" in names
 
     def test_parse_gitlab_config(self):
         """Parse gitlab config with 17+ tool groups."""

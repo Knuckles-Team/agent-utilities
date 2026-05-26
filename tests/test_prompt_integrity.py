@@ -233,4 +233,3 @@ class TestStructuredPromptRoundtrip:
 
         reloaded_mutated = StructuredPrompt.load(mutated_dest)
         assert reloaded_mutated.tone == "playful"
-

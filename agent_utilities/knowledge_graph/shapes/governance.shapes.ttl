@@ -35,6 +35,24 @@
             sh:path :name ] ;
     sh:targetClass :Agent .
 
+:HookShape a sh:NodeShape ;
+    sh:description "Hooks must specify their trigger lifecycle event." ;
+    sh:name "Hook Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Hook must specify its trigger lifecycle event via triggersOnEvent." ;
+            sh:minCount 1 ;
+            sh:path :triggersOnEvent ] ;
+    sh:targetClass :Hook .
+
+:OptimizationPatternShape a sh:NodeShape ;
+    sh:description "Optimization patterns must specify their directory scope." ;
+    sh:name "Optimization Pattern Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Optimization pattern must define its directory scope via scopesPath." ;
+            sh:minCount 1 ;
+            sh:path :scopesPath ] ;
+    sh:targetClass :OptimizationPattern .
+
 :PolicyShape a sh:NodeShape ;
     sh:description "Policies should be linked to the concepts they govern." ;
     sh:name "Policy Shape" ;

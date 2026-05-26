@@ -178,7 +178,7 @@ class TestPreemptionAndResume:
         await scheduler.submit("agent-b", task="B")
         await scheduler.preempt(proc_a.id)
         # Now agent-b is running, but another fills the slot
-        proc_c = await scheduler.submit("agent-c", task="C")
+        await scheduler.submit("agent-c", task="C")
         # Capacity is full (b + c), so resume should queue
         resumed = await scheduler.resume(proc_a.id)
         assert resumed is False

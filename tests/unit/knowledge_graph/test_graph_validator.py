@@ -97,7 +97,7 @@ class TestTier1AutoFix:
         mock_engine.graph.add_edge("a", "b", type="extends")
 
         validator = GraphValidator(mock_engine)
-        report = validator.validate()
+        validator.validate()
 
         edge_data = mock_engine.graph.edges["a", "b", 0]
         assert edge_data["type"] == "inherits_from"
@@ -109,7 +109,7 @@ class TestTier1AutoFix:
         mock_engine.graph.add_edge("a", "b", type="provides", weight=15.0)
 
         validator = GraphValidator(mock_engine)
-        report = validator.validate()
+        validator.validate()
 
         assert mock_engine.graph.edges["a", "b", 0]["weight"] == 10.0
 

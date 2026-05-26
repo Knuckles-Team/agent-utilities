@@ -35,15 +35,13 @@ from pydantic import BaseModel
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 
 from ..models import GraphResponse
-from ..models.knowledge_graph import (
-    TeamComposition,
-)
 from .config_helpers import emit_graph_event, load_specialized_prompts
 from .state import GraphDeps, GraphState
 from .team_composer import KGTeamComposer
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+    from ..models.knowledge_graph import TeamComposition
 
 logger = logging.getLogger(__name__)
 

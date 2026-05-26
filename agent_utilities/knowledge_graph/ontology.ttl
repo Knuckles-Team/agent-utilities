@@ -27,6 +27,7 @@ Modular imports:
   - banking, government, hr, legal, medical: Domain-specific extensions""" ;
     owl:imports <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
+        <http://knuckles.team/kg/harness>,
         <http://knuckles.team/kg/media>,
         <http://knuckles.team/kg/personal>,
         <http://knuckles.team/kg/quant>,

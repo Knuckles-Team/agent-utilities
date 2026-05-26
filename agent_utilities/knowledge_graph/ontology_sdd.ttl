@@ -23,6 +23,18 @@
     rdfs:domain :APIContract ;
     rdfs:range xsd:string .
 
+:approach a owl:DatatypeProperty ;
+    rdfs:label "approach" ;
+    rdfs:comment "Detailed engineering approach or strategy defined by this plan." ;
+    rdfs:domain :ImplementationPlan ;
+    rdfs:range xsd:string .
+
+:chatSessionId a owl:DatatypeProperty ;
+    rdfs:label "chat session ID" ;
+    rdfs:comment "Unique identifier of the chat session where this plan version was created." ;
+    rdfs:domain :ImplementationPlan ;
+    rdfs:range xsd:string .
+
 :constrainedBy a owl:ObjectProperty ;
     rdfs:label "constrained by" ;
     rdfs:comment "Links a SoftwareFeature to ComplianceConstraints it must satisfy." ;
@@ -53,6 +65,18 @@
     rdfs:domain :SoftwareFeature ;
     rdfs:range :SoftwareComponent .
 
+:planForFeature a owl:ObjectProperty ;
+    rdfs:label "plan for feature" ;
+    rdfs:comment "Links an ImplementationPlan to the SoftwareFeature it is designed to deliver." ;
+    rdfs:domain :ImplementationPlan ;
+    rdfs:range :SoftwareFeature .
+
+:planHash a owl:DatatypeProperty ;
+    rdfs:label "plan hash" ;
+    rdfs:comment "MD5 or SHA-256 hash of the plan content to uniquely identify changes." ;
+    rdfs:domain :ImplementationPlan ;
+    rdfs:range xsd:string .
+
 :priority a owl:DatatypeProperty ;
     rdfs:label "priority" ;
     rdfs:comment "Requirement priority: critical, high, medium, low." ;
@@ -76,6 +100,12 @@ Example: SoftwareFeature realizes ApplicationFunction.""" .
     rdfs:domain :UserStory ;
     rdfs:range xsd:integer .
 
+:supersedesPlan a owl:ObjectProperty ;
+    rdfs:label "supersedes plan" ;
+    rdfs:comment "Links an ImplementationPlan to the previous version it supersedes." ;
+    rdfs:domain :ImplementationPlan ;
+    rdfs:range :ImplementationPlan .
+
 :testStatus a owl:DatatypeProperty ;
     rdfs:label "test status" ;
     rdfs:comment "Test execution status: passed, failed, skipped, pending." ;
@@ -88,83 +118,96 @@ Example: SoftwareFeature realizes ApplicationFunction.""" .
     rdfs:domain :Requirement ;
     rdfs:range :TestCase .
 
+:version a owl:DatatypeProperty ;
+    rdfs:label "version" ;
+    rdfs:comment "Version iteration number of the implementation plan or task list." ;
+    rdfs:domain :ImplementationPlan ;
+    rdfs:range xsd:integer .
+
 <http://knuckles.team/kg/sdd> a owl:Ontology ;
     rdfs:label "Spec-Driven Development Ontology" ;
     rdfs:comment """SDD-specific extensions for software specification, feature
-management, requirements engineering, and quality assurance.
-Maps to ArchiMate 3.2 for enterprise architecture governance.
+    management, requirements engineering, and quality assurance.
+    Maps to ArchiMate 3.2 for enterprise architecture governance.
 
-CONCEPT:KG-2.7 — Context Graph Architecture (SDD Layer)""" ;
+    CONCEPT:KG-2.7 — Context Graph Architecture (SDD Layer)""" ;
     owl:imports <http://knuckles.team/kg> .
 
 :AcceptanceCriteria a owl:Class ;
     rdfs:label "Acceptance Criteria" ;
     rdfs:comment """Testable conditions that define when a Requirement is met.
-Subclass of Specification. ArchiMate: Motivation → Requirement.
-Links to TestCases for automated verification.""" ;
+    Subclass of Specification. ArchiMate: Motivation → Requirement.
+    Links to TestCases for automated verification.""" ;
     rdfs:subClassOf :Specification .
 
 :ComplianceConstraint a owl:Class ;
     rdfs:label "Compliance Constraint" ;
     rdfs:comment """A regulatory or policy constraint on software development.
-Subclass of Regulation. ArchiMate: Motivation → Constraint.
-May be enforced via SHACL shapes for automated validation.""" ;
+    Subclass of Regulation. ArchiMate: Motivation → Constraint.
+    May be enforced via SHACL shapes for automated validation.""" ;
     rdfs:subClassOf :Regulation .
 
 :DesignGuideline a owl:Class ;
     rdfs:label "Design Guideline" ;
     rdfs:comment """An enterprise design standard or coding guideline.
-Subclass of Principle. ArchiMate: Motivation → Principle.
-Inherited from the enterprise core ontology, overridable by domains.""" ;
+    Subclass of Principle. ArchiMate: Motivation → Principle.
+    Inherited from the enterprise core ontology, overridable by domains.""" ;
     rdfs:subClassOf :Principle .
 
 :UserStory a owl:Class ;
     rdfs:label "User Story" ;
     rdfs:comment """A user-facing requirement in 'As a… I want… So that…' format.
-Subclass of Requirement. ArchiMate: Motivation → Requirement.
-Bridges business intent to technical implementation.""" ;
+    Subclass of Requirement. ArchiMate: Motivation → Requirement.
+    Bridges business intent to technical implementation.""" ;
     rdfs:subClassOf :Requirement .
 
 :APIContract a owl:Class ;
     rdfs:label "API Contract" ;
     rdfs:comment """A formal API interface contract (OpenAPI, GraphQL, gRPC).
-BFO:GenericallyDependentContinuant. ArchiMate: Application → ApplicationInterface.
-Specifies the boundary between SoftwareComponents.""" ;
+    BFO:GenericallyDependentContinuant. ArchiMate: Application → ApplicationInterface.
+    Specifies the boundary between SoftwareComponents.""" ;
     rdfs:subClassOf bfo:0000031 .
 
 :SoftwareComponent a owl:Class ;
     rdfs:label "Software Component" ;
     rdfs:comment """A modular, deployable unit of software.
-BFO:IndependentContinuant. ArchiMate: Application → ApplicationComponent.
-May be a microservice, library, module, or package.""" ;
+    BFO:IndependentContinuant. ArchiMate: Application → ApplicationComponent.
+    May be a microservice, library, module, or package.""" ;
     rdfs:subClassOf bfo:0000004 .
 
 :TestCase a owl:Class ;
     rdfs:label "Test Case" ;
     rdfs:comment """An executable test verifying a Requirement or AcceptanceCriteria.
-BFO:Process (an activity that produces a pass/fail result).
-ArchiMate: Application → ApplicationFunction.""" ;
+    BFO:Process (an activity that produces a pass/fail result).
+    ArchiMate: Application → ApplicationFunction.""" ;
     rdfs:subClassOf bfo:0000015 .
 
 :SoftwareFeature a owl:Class ;
     rdfs:label "Software Feature" ;
     rdfs:comment """A discrete, deliverable software capability.
-BFO:GenericallyDependentContinuant. ArchiMate: Application → ApplicationFunction.
-Realized via SoftwareComponents and traced to Requirements.""" ;
-    rdfs:subClassOf bfo:0000031 .
-
-:Specification a owl:Class ;
-    rdfs:label "Specification" ;
-    rdfs:comment """A formal specification document describing expected system behavior.
-BFO:GenericallyDependentContinuant. ArchiMate: Strategy → Capability.
-Central artifact in spec-driven development — all requirements,
-user stories, and acceptance criteria trace back to a Specification.""" ;
+    BFO:GenericallyDependentContinuant. ArchiMate: Application → ApplicationFunction.
+    Realized via SoftwareComponents and traced to Requirements.""" ;
     rdfs:subClassOf bfo:0000031 .
 
 :Requirement a owl:Class ;
     rdfs:label "Requirement" ;
     rdfs:comment """A functional or non-functional requirement derived from a Specification.
-Subclass of Specification. ArchiMate: Motivation → Requirement.
-Must be testable and linked to AcceptanceCriteria.""" ;
+    Subclass of Specification. ArchiMate: Motivation → Requirement.
+    Must be testable and linked to AcceptanceCriteria.""" ;
+    rdfs:subClassOf :Specification .
+
+:Specification a owl:Class ;
+    rdfs:label "Specification" ;
+    rdfs:comment """A formal specification document describing expected system behavior.
+    BFO:GenericallyDependentContinuant. ArchiMate: Strategy → Capability.
+    Central artifact in spec-driven development — all requirements,
+    user stories, and acceptance criteria trace back to a Specification.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ImplementationPlan a owl:Class ;
+    rdfs:label "Implementation Plan" ;
+    rdfs:comment """A detailed engineering implementation plan that defines how to implement a SoftwareFeature.
+    BFO:GenericallyDependentContinuant. ArchiMate: Strategy → Capability.
+    Allows recording different historical versions of the plan within a single chat session or across workspace edits.""" ;
     rdfs:subClassOf :Specification .
 

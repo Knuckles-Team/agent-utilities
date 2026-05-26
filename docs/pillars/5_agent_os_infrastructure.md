@@ -78,6 +78,44 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ---
 
+## 🏠 Gateway Service Dashboard (CONCEPT:GW-1.0)
+
+The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is the unified data layer that all three frontends (agent-webui, agent-terminal-ui, geniusbot) use to render service health, metrics, and quick-access links for 50+ integrated services.
+
+> [!NOTE]
+> Consolidated from the former standalone `service-dashboard-core` package into
+> `agent_utilities/gateway/` to eliminate duplicate registries, duplicate XDG path
+> logic, and an orphaned package dependency. See [GW-1.0](5_agent_os_infrastructure/GW-1.0-Gateway_Service_Dashboard.md) for full documentation.
+
+### Key Components
+
+| Component | Source | Description |
+|-----------|--------|-------------|
+| **Widget Registry** | `gateway/registry.py` | Lazy-loading discovery of 50 widget types (graceful degradation) |
+| **Config Manager** | `gateway/config.py` | YAML service layout + auto-discovery from `mcp_config.json` |
+| **Aggregator** | `gateway/aggregator.py` | Async parallel data fetching via `ThreadPoolExecutor` |
+| **Dashboard Router** | `gateway/api.py` | REST endpoints: `/layout`, `/data`, `/widgets`, `/health`, `/discover` |
+| **WebSocket Manager** | `gateway/ws.py` | Real-time streaming at `/ws/dashboard` |
+| **Widget Modules** | `gateway/widgets/*.py` | 50 service-specific implementations (Portainer, GitLab, Jellyfin, etc.) |
+
+### Integration Architecture
+
+```
+agent-webui ──── REST /api/dashboard ────┐
+                 WS /ws/dashboard ───────┤
+                                         ├── Aggregator ── Registry ── 50 Widgets
+agent-terminal-ui ── direct Python ──────┤
+                                         │
+geniusbot ────── QThread/direct ─────────┘
+```
+
+All XDG paths delegate to `core/paths.py`:
+- `services_config_path()` → `~/.config/agent-utilities/services.yaml`
+- `dashboard_layout_path()` → `~/.local/share/agent-utilities/layout.yaml`
+- `mcp_config_path()` → `~/.config/agent-utilities/mcp_config.json`
+
+---
+
 ## 🔒 Secrets & Authentication (CONCEPT:OS-5.1)
 
 ### Session Concurrency Management
@@ -124,7 +162,7 @@ Supports native xAI OAuth 2.0 PKCE authentication to access the X / xAI API and 
 
 ---
 
-## 🛡️ Declarative Sensory Guardrails & Safety Contracts (CONCEPT:OS-5.3)
+## 🛡️ Declarative Sensory Guardrails & Safety Contracts (CONCEPT:OS-5.1)
 
 Sensory verification utilizes declarative tool contracts (`ContractValidator`) enforcing functional pre-conditions and strict schema-validated post-conditions on execution steps. This ensures that agent steps operate strictly within validated environments and return safety-compliant data structures.
 
@@ -163,14 +201,14 @@ sequenceDiagram
 
 ---
 
-## 📈 Telemetry, Observability & Token Usage (CONCEPT:OS-5.4)
+## 📈 Telemetry, Observability & Token Usage (CONCEPT:OS-5.1)
 
 ### Token Usage Tracker
 
 Provides 4-bucket granular token analytics (prompt/response/thoughts/tool_use) with session aggregation, agent breakdown, and budget alerting. Ported from MATE's `token_usage_service.py`. Uses OWL-inferred `highCostAgent` classification.
 *   **Source Code**: `agent_utilities/observability/token_tracker.py`
 
-### Audit Logger (CONCEPT:OS-5.7)
+### Audit Logger (CONCEPT:OS-5.4)
 
 Append-only compliance audit trail with 30+ action constants, never-raise semantics, configurable retention, and query filtering. Ported from MATE's `audit_service.py`. Uses OWL-inferred `escalationChain` temporal reasoning.
 *   **Source Code**: `agent_utilities/observability/audit_logger.py`
@@ -217,3 +255,64 @@ Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots v
 | AG-UI (web + terminal) | Sideband SSE events + `POST /api/approve` |
 | ACP | pydantic-acp's native `NativeApprovalBridge` (automatic) |
 | SSE (`/stream`) | Same as AG-UI |
+
+---
+
+## 🪙 Reactive Budget Guardrails (CONCEPT:OS-5.3)
+
+To prevent runaway API costs and infinite loops, the system implements a **Reactive Budget Guardrail** framework. It provides real-time, fine-grained tracking of token counts, monetary expenses, and execution step thresholds.
+
+### Key Capabilities
+
+1. **Preemption Thresholds**: The execution manager continuously monitors active agent session costs. When usage reaches a pre-configured preemption threshold (e.g., 90% of the maximum allotted budget), a reactive event is dispatched.
+2. **Homeostatic Model Downgrades**: Instead of outright killing the agent mid-task, the scheduler triggers a homeostatic model downgrade. For example, routing shifts from a high-cost model (like Claude 3.5 Sonnet) to a low-cost model (like GPT-4o-mini) to complete the final steps of execution within budget.
+3. **Structured Preemption**: If the budget is completely exhausted, the system halts execution, captures a serialized state checkpoint (`CONCEPT:ORCH-1.3`), and yields control back to the orchestrator with a structured `BudgetExceededError`, ensuring no progress is lost.
+
+*   **Source Code Paths**:
+    *   `agent_utilities/graph/reactive/budget.py`
+    *   `agent_utilities/observability/token_tracker.py`
+
+---
+
+## ⚡ Massive Scale Architecture & WASM Sandbox (CONCEPT:OS-5.4)
+
+Scaling to **100,000,000 concurrent agents** requires swapping out local memory queues, resolving GIL contention, and running untrusted agent code in highly secure, low-overhead environments.
+
+### Key Capabilities
+
+1. **Pluggable Event Fabrics**: Local, in-memory queues are abstracted using a unified `QueueBackend` interface (`CONCEPT:ECO-4.05`). The system supports zero-overhead memory backends, NATS messaging clusters (`NatsQueueBackend`), and distributed Apache Kafka partitions (`KafkaQueueBackend`) for multi-host, high-throughput event sourcing.
+2. **Compiled Rust Graph Compute**: High-performance epistemic reasoning, transitive closure calculations, and topological analogy scans are compiled in Rust using PyO3 bindings (`epistemic-graph`) and the high-performance `rustworkx` graph library (`CONCEPT:KG-2.2`), reducing analytical overhead by up to 98%.
+3. **WebAssembly sandboxed Micro-Agents**: Untrusted or user-generated micro-agents are executed inside an isolated WebAssembly sandbox using `wasmtime` (`CONCEPT:ORCH-1.29`). Sandboxes enforce strict gas limits, precise memory caps, and virtualized system calls. If WebAssembly compilation is unavailable on the host system, execution dynamically falls back to a secure Python emulation layer.
+
+*   **Source Code Paths**:
+    *   `agent_utilities/core/wasm_runner.py`
+    *   `agent_utilities/knowledge_graph/core/queue_backend.py`
+    *   `agent_utilities/knowledge_graph/core/nats_queue_backend.py`
+    *   `agent_utilities/knowledge_graph/core/kafka_queue_backend.py`
+
+---
+
+## 🔀 Distributed Replay, Sandboxing, & Epistemic Scheduling (OS-5.7)
+
+To satisfy strict regulatory compliance, low-level isolation, and intelligent resource allocation, the Agent OS is extended with advanced core modules connecting low-level execution with the epistemic Knowledge Graph.
+
+### Key Synergistic Core Modules:
+
+1. **Deterministic Replay & Trace Ontology (`OS-5.7`)**:
+   Captures step-by-step agent executions (prompts, tool calls, memory state transitions) and registers them as first-class OWL sub-graphs under the **PROV-O (Provenance Ontology)**. This creates crypotographically immutable, auditable provenance logs.
+   * *Source Code*: [replay_engine.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/observability/replay_engine.py)
+
+2. **Hardened WASM Sandbox Executor (`OS-5.8`)**:
+   Runs untrusted external tools and sub-agent scripts inside isolated WebAssembly processes with custom Gas Limit Bounds and Memory Allocation limits (e.g. 64MB cap), executing with microsecond-level process containment.
+   * *Source Code*: [sandboxed_executor.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/sandboxed_executor.py)
+
+3. **Epistemic Resource Scheduler (`OS-5.9`)**:
+   An advanced CPU/thread scheduler that dynamically calculates the **eigenvector/out-degree centrality** of active agent nodes in the live Knowledge Graph. High-centrality orchestrator blocks are scaled with increased execution quotas, while low-centrality crawler blocks are checkpointed and paged to disk under system load.
+   * *Source Code*: [cognitive_scheduler.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/core/cognitive_scheduler.py)
+
+4. **Ontological Guardrail Engine (`OS-5.10`)**:
+   Intercepts tool schemas and checks parameter payload arguments using real-time OWL subsumption reasoning. Automatically blocks access to files, network targets, or commands if they inherit from banned policy classes inside the Knowledge Graph.
+   * *Source Code*: [tool_guard.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/tool_guard.py)
+
+For a complete architectural analysis, refer to the detailed guide:
+👉 [OS-5.7 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](file:///home/apps/workspace/agent-packages/agent-utilities/docs/pillars/5_agent_os_infrastructure/OS-5.7-Distributed_Replay_And_Coordination.md)

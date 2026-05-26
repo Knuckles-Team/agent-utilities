@@ -14,7 +14,11 @@ from typing import Any
 
 from pydantic_ai import Agent
 from pydantic_graph import End
-from pydantic_graph.beta import StepContext
+
+try:
+    from pydantic_graph.step import StepContext
+except ImportError:
+    from pydantic_graph.beta import StepContext
 
 from ..models import GraphResponse
 from .config_helpers import emit_graph_event, load_specialized_prompts

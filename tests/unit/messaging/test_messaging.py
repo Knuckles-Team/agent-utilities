@@ -1,4 +1,4 @@
-"""Unit tests for MessagingBackend ABC and core models (CONCEPT:ECO-4.5).
+"""Unit tests for MessagingBackend ABC and core models (CONCEPT:ECO-4.0).
 
 Tests the base protocol, Pydantic models, capability matrix, and registry
 without requiring any platform dependencies.
@@ -7,8 +7,10 @@ without requiring any platform dependencies.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from typing import Any
+
 import pytest
-from typing import Any, AsyncIterator
 
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
@@ -31,12 +33,11 @@ from agent_utilities.messaging.models import (
 )
 from agent_utilities.messaging.registry import MessagingRegistry
 
-
 # ── Concrete Test Backend ────────────────────────────────────────────
 
 
 class MockBackend(MessagingBackend):
-    """Minimal concrete backend for testing the ABC. CONCEPT:ECO-4.5"""
+    """Minimal concrete backend for testing the ABC. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -82,7 +83,7 @@ class MockBackend(MessagingBackend):
 
 
 class TestModels:
-    """CONCEPT:ECO-4.5 — Pydantic model validation."""
+    """CONCEPT:ECO-4.0 — Pydantic model validation."""
 
     def test_message_creation(self) -> None:
         msg = Message(
@@ -149,7 +150,7 @@ class TestModels:
 
 
 class TestMessagingBackendABC:
-    """CONCEPT:ECO-4.5 — MessagingBackend ABC contract."""
+    """CONCEPT:ECO-4.0 — MessagingBackend ABC contract."""
 
     @pytest.fixture
     def backend(self) -> MockBackend:
@@ -197,6 +198,7 @@ class TestMessagingBackendABC:
                 events.append(event)
                 break
             return events
+
         events = asyncio.run(_run())
         assert len(events) == 1
         assert events[0].content == "test message"
@@ -225,7 +227,7 @@ class TestMessagingBackendABC:
 
 
 class TestCapabilities:
-    """CONCEPT:ECO-4.5 — Capability matrix validation."""
+    """CONCEPT:ECO-4.0 — Capability matrix validation."""
 
     def test_all_platforms_have_capabilities(self) -> None:
         """Every PlatformId must have a capability entry."""
@@ -263,7 +265,7 @@ class TestCapabilities:
 
 
 class TestRegistry:
-    """CONCEPT:ECO-4.5 — MessagingRegistry discovery."""
+    """CONCEPT:ECO-4.0 — MessagingRegistry discovery."""
 
     def test_singleton(self) -> None:
         r1 = MessagingRegistry.instance()
@@ -296,7 +298,7 @@ class TestRegistry:
 
 
 class TestAgentConfigMessaging:
-    """CONCEPT:ECO-4.5 — Verify messaging fields in AgentConfig (config.json)."""
+    """CONCEPT:ECO-4.0 — Verify messaging fields in AgentConfig (config.json)."""
 
     def test_messaging_fields_exist(self) -> None:
         """All messaging fields must exist on AgentConfig."""
@@ -361,7 +363,7 @@ class TestAgentConfigMessaging:
 
 
 class TestXDGMessagingPaths:
-    """CONCEPT:ECO-4.5 + CONCEPT:OS-5.0 — XDG path integration."""
+    """CONCEPT:ECO-4.0 + CONCEPT:OS-5.0 — XDG path integration."""
 
     def test_messaging_sessions_dir(self) -> None:
         from agent_utilities.core.paths import messaging_sessions_dir

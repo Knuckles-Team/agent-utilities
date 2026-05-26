@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Agentic Harness MCP Server — Exposes DSTDD and agent-native tools.
 
-CONCEPT:ECO-4.2 — Harness MCP Exposure
+CONCEPT:ECO-4.1 — Harness MCP Exposure
 
 Exposes the DSTDD design governance pipeline, agent self-model,
 team composition, and evaluation history as MCP tools for external

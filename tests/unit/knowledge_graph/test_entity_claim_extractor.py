@@ -161,7 +161,7 @@ class TestEntityClaimExtractor:
             "We recommend implementing tiered validation for all graph data. "
             "Therefore, the system should auto-fix recoverable issues before flagging errors."
         )
-        result = extractor.extract_and_persist(
+        extractor.extract_and_persist(
             content, source_id="doc:claims", domain="validation"
         )
 

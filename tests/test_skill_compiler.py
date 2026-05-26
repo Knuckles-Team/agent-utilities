@@ -180,7 +180,10 @@ Some post-execution steps.
         # Verify YAML frontmatter is completely preserved
         assert "custom_field: preserve-this" in updated_markdown
         # Verify intro prose and alert are preserved
-        assert "This is some introductory prose that must be preserved." in updated_markdown
+        assert (
+            "This is some introductory prose that must be preserved."
+            in updated_markdown
+        )
         assert "> [!NOTE]" in updated_markdown
         # Verify concluding section is preserved
         assert "## Concluding Section" in updated_markdown
@@ -188,7 +191,9 @@ Some post-execution steps.
 
         # Verify step updates
         assert "Gather updated details." in updated_markdown
-        assert "### Step 2: agent-b [depends_on: agent-a, agent-extra]" in updated_markdown
+        assert (
+            "### Step 2: agent-b [depends_on: agent-a, agent-extra]" in updated_markdown
+        )
 
     def test_lossless_roundtrip_save_new(self) -> None:
         """Verify that SkillCompiler.save creates a new file if it doesn't exist."""
@@ -196,7 +201,11 @@ Some post-execution steps.
             skill_dir = Path(td)
             plan = GraphPlan(
                 steps=[
-                    ExecutionStep(node_id="new-agent", refined_subtask="New step task", depends_on=[])
+                    ExecutionStep(
+                        node_id="new-agent",
+                        refined_subtask="New step task",
+                        depends_on=[],
+                    )
                 ]
             )
             SkillCompiler.save(skill_dir, plan)
@@ -206,7 +215,6 @@ Some post-execution steps.
             content = skill_path.read_text(encoding="utf-8")
             assert "New step task" in content
             assert "### Step 1: new-agent" in content
-
 
 
 # ---------------------------------------------------------------------------

@@ -51,10 +51,6 @@ if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 from ..graph.hierarchical_planner import ConvergenceMonitor
-from ..models.knowledge_graph import (
-    AgentProcessNode,
-    RegistryEdgeType,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +237,36 @@ class CognitiveScheduler:
         # CONCEPT:AHE-3.2 — Optional convergence monitor for multi-loop tasks
         self.convergence_monitor: ConvergenceMonitor | None = None
 
+    def _get_kg_centrality(self, agent_id: str) -> float:
+        """Query the topological centrality of the agent's node in the active graph.
+
+        CONCEPT:OS-5.9 — Epistemic Resource Scheduler.
+
+        Returns 0.0 (no boost) when the KG engine is unavailable or the agent
+        is not present in the graph.  Only agents with actual graph connectivity
+        receive priority/quota boosts.
+        """
+        if (
+            not self.engine
+            or not hasattr(self.engine, "graph")
+            or self.engine.graph is None
+        ):
+            return 0.0
+
+        try:
+            graph = self.engine.graph
+            if agent_id in graph:
+                degree = graph.degree(agent_id)
+                num_nodes = len(graph.nodes)
+                if num_nodes > 1:
+                    return float(degree) / (num_nodes - 1)
+        except Exception as e:
+            logger.debug(
+                "Failed to calculate graph centrality for agent %s: %s", agent_id, e
+            )
+
+        return 0.0
+
     # ── Process Lifecycle ──────────────────────────────────────────────
 
     async def submit(
@@ -264,11 +290,24 @@ class CognitiveScheduler:
         Returns:
             The created ``AgentProcess``.
         """
+        # CONCEPT:OS-5.9 — Epistemic dynamic priority & quota scaling based on KG Centrality
+        centrality = self._get_kg_centrality(agent_id)
+
+        final_quota = token_quota or self.default_token_quota
+        # Scale quota proportional to centrality
+        if centrality > 0.5:
+            final_quota = int(final_quota * (1.0 + centrality))
+
+        # Boost priority for high-centrality routes (smaller int = higher priority)
+        adjusted_priority = priority
+        if centrality > 0.6 and priority > SchedulerPriority.CRITICAL:
+            adjusted_priority = max(SchedulerPriority.CRITICAL, priority - 1)
+
         proc = AgentProcess(
             agent_id=agent_id,
-            priority=priority,
+            priority=adjusted_priority,
             task_description=task,
-            token_quota=token_quota or self.default_token_quota,
+            token_quota=final_quota,
         )
 
         async with self._lock:
@@ -281,19 +320,23 @@ class CognitiveScheduler:
             if running_count < self.max_concurrent:
                 proc.state = ProcessState.RUNNING
                 logger.info(
-                    "Scheduler: %s → RUNNING (priority=%d, agent=%s)",
+                    "Scheduler: %s → RUNNING (priority=%d, agent=%s, centrality=%.2f, quota=%d)",
                     proc.id,
                     proc.priority,
                     proc.agent_id,
+                    centrality,
+                    proc.token_quota,
                 )
             else:
                 proc.state = ProcessState.WAITING
                 await self._queue.put((proc.priority, proc.created_at, proc.id))
                 logger.info(
-                    "Scheduler: %s → WAITING (queue depth=%d, agent=%s)",
+                    "Scheduler: %s → WAITING (queue depth=%d, agent=%s, centrality=%.2f, quota=%d)",
                     proc.id,
                     self._queue.qsize(),
                     proc.agent_id,
+                    centrality,
+                    proc.token_quota,
                 )
 
         # Persist to KG if available
@@ -744,6 +787,8 @@ class CognitiveScheduler:
             return
 
         try:
+            from ..models.knowledge_graph import AgentProcessNode, RegistryEdgeType
+
             node = AgentProcessNode(
                 id=proc.id,
                 name=f"Process: {proc.agent_id}",

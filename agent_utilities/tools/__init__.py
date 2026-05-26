@@ -72,6 +72,9 @@ _ATTR_MAP = {
     "take_element_screenshot": ".browser",
     "take_screenshot": ".browser",
     "type_text": ".browser",
+    # codebase_map_tools
+    "generate_codebase_map": ".codebase_map_tools",
+    "CodebaseMapGenerator": ".codebase_map_tools",
 }
 
 __all__ = [
@@ -136,6 +139,9 @@ __all__ = [
     "init_agents_md",
     "read_agents_md",
     "update_agents_md",
+    # Codebase map tools
+    "generate_codebase_map",
+    "CodebaseMapGenerator",
 ]
 
 _cached_modules = {}

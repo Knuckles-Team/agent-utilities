@@ -87,7 +87,7 @@ _CATEGORY_RULES: dict[PackageCategory, list[str]] = {
         "kubernetes",
         "systems",
         "tunnel",
-        "adguard",
+        "technitium",
         "home-assistant",
         "uptime",
     ],

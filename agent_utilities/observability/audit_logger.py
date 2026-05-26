@@ -86,6 +86,33 @@ class AuditRecord(BaseModel):
             self.id = f"audit:{self.action}:{self.timestamp}"
 
 
+class PiiRedactionFilter(logging.Filter):
+    """Logging filter to redact PII (like SSNs, Tax IDs, and emails) from log lines.
+
+    Concept: observability-governance
+    """
+
+    def __init__(self, name: str = "") -> None:
+        super().__init__(name)
+        from agent_utilities.security.guardrails import PiiSanitizer
+
+        self.sanitizer = PiiSanitizer()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = self.sanitizer.sanitize_text(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                self.sanitizer.sanitize_text(arg) if isinstance(arg, str) else arg
+                for arg in record.args
+            )
+        elif isinstance(record.args, dict):
+            record.args = {
+                k: self.sanitizer.sanitize(v) for k, v in record.args.items()
+            }
+        return True
+
+
 class AuditLogger:
     """Append-only audit logger. CONCEPT:OS-5.1
 
@@ -116,24 +143,35 @@ class AuditLogger:
     ) -> AuditRecord | None:
         """Append audit entry. Never raises."""
         try:
+            from agent_utilities.security.guardrails import PiiSanitizer
+
+            sanitizer = PiiSanitizer()
+
+            clean_details = sanitizer.sanitize_dict(details or {})
+            clean_resource_id = (
+                sanitizer.sanitize_text(resource_id) if resource_id else ""
+            )
+            clean_actor = sanitizer.sanitize_text(actor or "system")
+            clean_session_id = sanitizer.sanitize_text(session_id or "")
+
             record = AuditRecord(
-                actor=actor or "system",
+                actor=clean_actor,
                 action=action,
                 resource_type=resource_type,
-                resource_id=str(resource_id) if resource_id else "",
-                details=details or {},
+                resource_id=clean_resource_id,
+                details=clean_details,
                 ip_address=ip_address,
-                session_id=session_id,
+                session_id=clean_session_id,
             )
             self._records.append(record)
             if len(self._records) > self._max_in_memory:
                 self._records = self._records[-self._max_in_memory :]
             logger.debug(
                 "Audit: actor=%s action=%s resource=%s/%s",
-                actor,
+                clean_actor,
                 action,
                 resource_type,
-                resource_id,
+                clean_resource_id,
             )
             return record
         except Exception as exc:

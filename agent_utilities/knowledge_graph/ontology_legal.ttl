@@ -8,18 +8,39 @@
 @prefix : <http://knuckles.team/kg#> .
 @prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:BeneficiaryRole a owl:Class ;
+    rdfs:label "Beneficiary Role" ;
+    rdfs:comment "The recipient of the trust benefits." ;
+    rdfs:subClassOf bfo:0000023 .
+
+:LLCFormationFiling a owl:Class ;
+    rdfs:label "LLC Formation Filing" ;
+    rdfs:comment "A state-level regulatory filing for establishing a Limited Liability Company." ;
+    rdfs:subClassOf :RegulatoryFiling .
 
 :MunicipalCode a owl:Class ;
     rdfs:label "Municipal Code" ;
     rdfs:comment "A city or county ordinance." ;
     rdfs:subClassOf :Statute .
 
+:SettlorRole a owl:Class ;
+    rdfs:label "Settlor Role" ;
+    rdfs:comment "The creator and funder of the trust." ;
+    rdfs:subClassOf bfo:0000023 .
+
 :StateStatute a owl:Class ;
     rdfs:label "State Statute" ;
     rdfs:comment "A US state law enacted by a state legislature." ;
     rdfs:subClassOf :Statute .
+
+:TrusteeRole a owl:Class ;
+    rdfs:label "Trustee Role" ;
+    rdfs:comment "A role held by an individual or corporation administering trust assets." ;
+    rdfs:subClassOf bfo:0000023 .
 
 :cfrPart a owl:DatatypeProperty ;
     rdfs:label "CFR Part" ;
@@ -96,10 +117,22 @@
     rdfs:domain :LegalMatter ;
     rdfs:range :Statute .
 
+:hasBeneficiary a owl:ObjectProperty ;
+    rdfs:domain :LegalTrust ;
+    rdfs:range [ owl:unionOf ( :Person :Company ) ] .
+
 :hasClause a owl:ObjectProperty ;
     rdfs:label "has clause" ;
     rdfs:domain :Contract ;
     rdfs:range :ContractClause .
+
+:hasSettlor a owl:ObjectProperty ;
+    rdfs:domain :LegalTrust ;
+    rdfs:range :Person .
+
+:hasTrustee a owl:ObjectProperty ;
+    rdfs:domain :LegalTrust ;
+    rdfs:range [ owl:unionOf ( :Person :Company ) ] .
 
 :involvesEmployee a owl:ObjectProperty ;
     rdfs:label "involves employee" ;
@@ -160,6 +193,15 @@
     rdfs:domain :Statute ;
     rdfs:range :Jurisdiction .
 
+:trustAgreement a owl:ObjectProperty ;
+    rdfs:domain :LegalTrust ;
+    rdfs:range :CorporateGovernanceDoc .
+
+:trustType a owl:DatatypeProperty ;
+    rdfs:comment "revocable, irrevocable, asset_protection, special_needs, charitable." ;
+    rdfs:domain :LegalTrust ;
+    rdfs:range xsd:string .
+
 :uscSection a owl:DatatypeProperty ;
     rdfs:label "USC Section" ;
     rdfs:comment "United States Code section reference (e.g., 26 USC § 501)." ;
@@ -213,11 +255,10 @@ Discrimination claims, wrongful termination, wage disputes, etc.""" ;
 BFO:GenericallyDependentContinuant.""" ;
     rdfs:subClassOf bfo:0000031 .
 
-:RegulatoryFiling a owl:Class ;
-    rdfs:label "Regulatory Filing" ;
-    rdfs:comment """A required filing with a government regulatory body.
-BFO:Process.""" ;
-    rdfs:subClassOf bfo:0000015 .
+:LegalTrust a owl:Class ;
+    rdfs:label "Legal Trust" ;
+    rdfs:comment "A fiduciary relationship in which a settlor gives a trustee the right to hold title to assets for the benefit of a beneficiary." ;
+    rdfs:subClassOf bfo:0000031 .
 
 :Statute a owl:Class ;
     rdfs:label "Statute" ;
@@ -228,4 +269,10 @@ BFO:Process.""" ;
     rdfs:label "Intellectual Property" ;
     rdfs:comment "An IP asset owned by the company." ;
     rdfs:subClassOf bfo:0000031 .
+
+:RegulatoryFiling a owl:Class ;
+    rdfs:label "Regulatory Filing" ;
+    rdfs:comment """A required filing with a government regulatory body.
+BFO:Process.""" ;
+    rdfs:subClassOf bfo:0000015 .
 

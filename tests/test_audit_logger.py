@@ -223,3 +223,48 @@ class TestActionConstants:
         assert len(actions) >= 30
         for a in actions:
             assert "." in a, f"Action '{a}' should be dotted (e.g., 'agent.create')"
+
+
+# ---------------------------------------------------------------------------
+# PII Log Redaction & Audit Scrubbing Tests
+# ---------------------------------------------------------------------------
+
+from agent_utilities.observability.audit_logger import PiiRedactionFilter
+import logging
+
+class TestPiiLogRedaction:
+    def test_pii_redaction_filter(self):
+        filtr = PiiRedactionFilter()
+        log_record = logging.LogRecord(
+            name="test_logger",
+            level=logging.INFO,
+            pathname="test_file.py",
+            lineno=10,
+            msg="My SSN is 123-45-6789",
+            args=(),
+            exc_info=None,
+        )
+        assert filtr.filter(log_record) is True
+        assert log_record.msg == "My SSN is [REDACTED_SSN]"
+
+    def test_audit_logger_pii_scrubbing(self, audit_logger):
+        # Sensitive details with SSN and EIN
+        details = {
+            "ein": "12-3456789",
+            "metadata": {"ssn": "111-22-3333"}
+        }
+        record = audit_logger.log(
+            actor="user-123-45-6789", # PII in actor
+            action="agent.create",
+            resource_type="agent",
+            resource_id="agent-99-9999999", # PII in resource_id
+            details=details,
+            session_id="session-111-22-3333", # PII in session_id
+        )
+
+        assert record is not None
+        assert record.actor == "user-[REDACTED_SSN]"
+        assert record.resource_id == "agent-[REDACTED_TAX_ID]"
+        assert record.session_id == "session-[REDACTED_SSN]"
+        assert record.details["ein"] == "[REDACTED_TAX_ID]"
+        assert record.details["metadata"]["ssn"] == "[REDACTED_SSN]"

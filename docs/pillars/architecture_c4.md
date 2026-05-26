@@ -1,6 +1,6 @@
 # agent-utilities C4 Architecture
 
-This document provides formal C4 architecture diagrams showing how the 5 pillars
+This document provides formal C4 architecture diagrams showing how the 6 pillars
 of `agent-utilities` interconnect with each other and with external IDE consumers.
 
 > [!NOTE]
@@ -27,16 +27,19 @@ C4Context
     System_Ext(devin, "Devin", "Cognition coding agent")
     System_Ext(terminal, "agent-terminal-ui", "Textual TUI client")
     System_Ext(webui, "agent-webui", "React web client")
+    System_Ext(geniusbot, "geniusbot", "Premium multi-platform PySide6 Systems & Finance Cockpit")
     System_Ext(skills, "universal-skills", "Skill graph and SDD tooling")
 
     Rel(dev, antigravity, "Develops in")
     Rel(dev, terminal, "CLI interaction")
+    Rel(dev, geniusbot, "Visual interaction")
     Rel(antigravity, au, "MCP: KG queries, tool execution")
     Rel(claude, au, "MCP: shared KG read/write")
     Rel(opencode, au, "MCP: shared KG read")
     Rel(devin, au, "MCP: shared KG read")
     Rel(terminal, au, "Direct Python API (zero-copy)")
     Rel(webui, au, "ACP/AG-UI protocol")
+    Rel(geniusbot, au, "Direct Python API & AgentBridge (asynchronous)")
     Rel(skills, au, "DSTDD pipeline, skill ingestion")
     Rel(agent, au, "Orchestrated execution")
 ```
@@ -53,7 +56,7 @@ C4Container
 
     System_Boundary(au, "agent-utilities") {
         Container(orch, "ORCH: Orchestration Engine", "Python", "Router, Planner, Dispatcher, Capability Wiring")
-        Container(kg, "KG: Knowledge Graph", "Python + LadybugDB", "Native graph-os ingestion, OWL ontology, hybrid retrieval")
+        Container(kg, "KG: Knowledge Graph", "Python + epistemic-graph (Oxigraph FFI/Datalog)", "Native graph-os ingestion, OWL ontology via Rust-compiled Datalog, hybrid retrieval")
         Container(ahe, "AHE: Agentic Harness", "Python", "Self-model, TeamConfig, evolution, evaluation")
         Container(eco, "ECO: Ecosystem Peripherals", "Python + FastMCP", "MCP server factory, A2A, skill management")
         Container(os_k, "OS: Agent OS Kernel", "Python + FastAPI", "Auth, guardrails, lifecycle, telemetry")
@@ -128,7 +131,9 @@ C4Component
         Component(pipeline, "Graph-OS Ingestion", "Python", "Ingest, enrich, index, materialize, evolve via MCP")
         Component(retrieval, "Hybrid Retriever", "Python", "Semantic 72% + keyword 28% search")
         Component(dci, "🔬 DCI Retriever", "Python", "KG-2.3: Multi-hop graph traversal retrieval. Research: 2605.05242v1")
-        Component(ontology, "OWL Bridge + SPARQL", "Python + RDFLib", "Formal ontology, SPARQL endpoint, materialization")
+        Component(ontology, "OWL Bridge + SPARQL", "Python + epistemic-graph", "Formal ontology, SPARQL endpoint, Rust FFI Datalog reasoning")
+        Component(oxigraph_datalog, "🔬 Oxigraph Datalog Engine", "Rust (PyO3 FFI)", "KG-2.17: Compiled sub-millisecond forward-chaining OWL reasoning rules")
+        Component(quant_ffi, "🔬 Quant FFI Engine", "Rust (PyO3 FFI)", "KG-2.18: C-speed rolling variance, moving averages, and order matching simulation")
         Component(sdd_ont, "SDD Ontology", "OWL/Turtle", "KG-2.7: Spec, Feature, Requirement, TestCase classes")
         Component(shacl, "SHACL Validator", "Python + pyshacl", "KG-2.7: Enterprise governance shape validation")
         Component(publisher, "Ontology Publisher", "Python", "KG-2.7: Push to Stardog/Fuseki")
@@ -144,6 +149,8 @@ C4Component
     Rel(retrieval, engine, "Queries via hybrid scoring")
     Rel(dci, retrieval, "Seeds from hybrid, then graph traversal")
     Rel(ontology, engine, "Schema enforcement via OWL")
+    Rel(ontology, oxigraph_datalog, "Delegates Datalog reasoning")
+    Rel(engine, quant_ffi, "Executes vectorized calculations")
     Rel(ontology, sdd_ont, "owl:imports SDD classes")
     Rel(shacl, ontology, "Validates materialized RDF")
     Rel(publisher, ontology, "Exports/pushes ontology")
@@ -231,6 +238,7 @@ C4Component
         Component(budget, "🔬 Inference Budget Controller", "Python", "OS-5.2: Cost-aware tier fallback. Research: 2605.05701v1")
         Component(telemetry, "Telemetry Pipeline", "Python", "OTEL, token tracking, audit logging")
         Component(paths, "XDG Paths Module", "Python + platformdirs", "Centralized path resolution")
+        Component(gateway, "Gateway Service Dashboard", "Python + FastAPI", "GW-1.0: 50-widget registry, aggregator, REST+WS API, MCP auto-discovery")
     }
 
     Rel(auth, threat, "Validates before routing")
@@ -238,6 +246,30 @@ C4Component
     Rel(guardrails, telemetry, "Records enforcement decisions")
     Rel(scheduler, budget, "Tracks cost + auto-downgrades model tier")
     Rel(paths, auth, "Provides config/data locations")
+    Rel(paths, gateway, "XDG config + data paths")
+    Rel(gateway, telemetry, "Reports widget fetch metrics")
+```
+
+### Pillar 6: GeniusBot Cockpit (GUI)
+
+```mermaid
+C4Component
+    title GUI — GeniusBot Cockpit Components
+
+    Container_Boundary(gui, "GeniusBot Cockpit") {
+        Component(bridge, "AgentBridge", "Python", "Async Python-to-Qt bridge for agent I/O")
+        Component(dashboard, "Systems Dashboard", "PySide6", "Real-time infrastructure health, container status, DNS")
+        Component(finance, "Finance Cockpit", "PySide6 + QtCharts", "Portfolio analytics, P&L, risk dashboards")
+        Component(chat, "Agent Chat", "PySide6 + QWebEngineView", "Conversational UI with streaming markdown")
+        Component(kg_viz, "KG Visualizer", "PySide6 + D3.js", "Interactive graph exploration and traversal")
+        Component(settings, "Settings Manager", "PySide6", "MCP server configuration, model selection, theme")
+    }
+
+    Rel(bridge, dashboard, "Pushes system metrics")
+    Rel(bridge, finance, "Streams portfolio data")
+    Rel(bridge, chat, "SSE streaming agent responses")
+    Rel(bridge, kg_viz, "Graph query results")
+    Rel(settings, bridge, "Configures agent connections")
 ```
 
 ## Cross-Pillar Data Flows
@@ -369,6 +401,20 @@ flowchart LR
             WD_BUNDLE -->|"YAML / JSON"| WD_PRESET["ORCH-1.25: Domain Presets"]
             WD_PRESET -->|"seed_into_kg()"| WD_KG
         end
+
+        subgraph GATEWAY ["Gateway Service Dashboard Flow (GW-1.0)"]
+            direction LR
+            GW_MCP["GW-1.0: mcp_config.json"] -->|"auto-discover"| GW_CONFIG["GW-1.0: ConfigManager"]
+            GW_CONFIG -->|"ServiceConfig[]"| GW_REG["GW-1.0: Widget Registry"]
+            GW_REG -->|"lazy-import"| GW_WIDGET["GW-1.0: 50 Widget Modules"]
+            GW_WIDGET -->|"fetch_data()"| GW_AGG["GW-1.0: Aggregator"]
+            GW_AGG -->|"WidgetData{}"| GW_API["GW-1.0: REST /api/dashboard"]
+            GW_AGG -->|"stream"| GW_WS["GW-1.0: WebSocket /ws/dashboard"]
+            GW_API -->|"JSON"| GW_WEBUI["agent-webui"]
+            GW_WS -->|"real-time"| GW_WEBUI
+            GW_AGG -->|"direct Python"| GW_TUI["agent-terminal-ui"]
+            GW_AGG -->|"QThread"| GW_GUI["geniusbot"]
+        end
     end
 ```
 
@@ -422,12 +468,17 @@ graph TD
         Utility["<b>agent-utilities</b><br/>(Python)"]
         Terminal["<b>agent-terminal-ui</b><br/>(Python/Textual)"]
         Web["<b>agent-webui</b><br/>(React/Next.js)"]
+        Genius["<b>geniusbot</b><br/>(Python/PySide6)"]
     end
 
     subgraph Internal_Deps ["Internal Interface Layer"]
         direction LR
         Terminal -- depends on --> Utility
         Web -- interfaces with --> Utility
+        Genius -- interfaces with --> Utility
+        Terminal -. "gateway.Aggregator" .-> Utility
+        Web -. "gateway.api + ws" .-> Utility
+        Genius -. "gateway.Aggregator" .-> Utility
     end
 
     subgraph External_Utility ["agent-utilities Dependencies"]
@@ -457,6 +508,13 @@ graph TD
         Vite[vite]
     end
 
+    subgraph External_Genius ["geniusbot Dependencies"]
+        direction TB
+        PySide[PySide6]
+        QtCharts[QtCharts]
+        WebEngine[QWebEngineView]
+    end
+
     Utility --> PAI
     Utility --> PGraph
     Utility --> PACP
@@ -474,6 +532,10 @@ graph TD
     Web --> React
     Web --> Tailwind
     Web --> Vite
+
+    Genius --> PySide
+    Genius --> QtCharts
+    Genius --> WebEngine
 ```
 
 ### C4 Container Diagram

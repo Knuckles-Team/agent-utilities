@@ -34,6 +34,8 @@ description: "Main development environment for the agent-packages ecosystem."
 repositories:
   - url: "https://github.com/Knuckles-Team/pipelines.git"
     description: "GitHub Actions pipelines for the agent ecosystem."
+  - url: "http://gitlab.arpa/homelab/pipelines/gitlab-pipelines.git"
+    description: "GitLab CI pipelines for the agent ecosystem."
 
 subdirectories:
   agent-packages:
@@ -56,7 +58,6 @@ subdirectories:
       agents:
         description: "Collection of specialized agent implementations, MCP servers, API Wrappers/Core Python Tools."
         repositories:
-          - url: "https://github.com/Knuckles-Team/adguard-home-agent.git"
           - url: "https://github.com/Knuckles-Team/ansible-tower-mcp.git"
           - url: "https://github.com/Knuckles-Team/archivebox-api.git"
           - url: "https://github.com/Knuckles-Team/arr-mcp.git"

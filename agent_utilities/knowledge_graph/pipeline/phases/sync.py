@@ -94,6 +94,9 @@ async def execute_sync(
         if "ingestion_timestamp" in ctx.metadata:
             props["last_seen_timestamp"] = ctx.metadata["ingestion_timestamp"]
 
+        # JSON serialize dict/list properties for database compatibility
+        import json
+
         valid_keys = None
         if db.__class__.__name__ == "LadybugBackend":
             from agent_utilities.models.schema_definition import SCHEMA
@@ -102,6 +105,27 @@ async def execute_sync(
                 if node.name == label:
                     valid_keys = set(node.columns.keys())
                     break
+
+        if valid_keys is not None and "metadata" in valid_keys:
+            extra_props = {}
+            for k in list(props.keys()):
+                if k != "id" and k not in valid_keys:
+                    extra_props[k] = props.pop(k)
+            if extra_props:
+                curr_meta = props.get("metadata", {})
+                if isinstance(curr_meta, str):
+                    try:
+                        curr_meta = json.loads(curr_meta)
+                    except Exception:
+                        curr_meta = {}
+                if not isinstance(curr_meta, dict):
+                    curr_meta = {}
+                curr_meta.update(extra_props)
+                props["metadata"] = curr_meta
+
+        for k, v in list(props.items()):
+            if isinstance(v, dict | list):
+                props[k] = json.dumps(v)
 
         keys = sorted(
             [

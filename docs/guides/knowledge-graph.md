@@ -219,8 +219,11 @@ All graph storage is routed through the `GraphBackend` ABC (`backends/base.py`),
 | Backend | Status | Connection | Use Case |
 |---|---|---|---|
 | **LadybugDB** | Full (default) | File path (`knowledge_graph.db`) | Embedded, zero-config, schema-enforced Cypher |
-| **FalkorDB** | Stub | `host:port` (Redis protocol) | Distributed, high-throughput graph workloads |
-| **Neo4j** | Stub | `bolt://host:port` | Enterprise, ACID-compliant graph databases |
+| **FalkorDB** | Full | `host:port` (Redis protocol) | High-performance, distributed graph workloads |
+| **Neo4j** | Full | `bolt://host:port` or `neo4j://` | Enterprise, ACID-compliant property graphs |
+| **PostgreSQL / pgGraph** | Full | `postgresql://host:port` | Relational + graph unified storage via pgvector & transpiler |
+
+For step-by-step setup, Docker files, and multi-agent production guides, see the [Deploying Graph Databases Guide](graph-db-deployment.md).
 
 **OWL Reasoning Backends** (for Hybrid OWL Layer):
 | Backend | Status | Connection | Use Case |
@@ -238,6 +241,7 @@ backend = create_backend()
 # Explicit backend selection
 backend = create_backend(backend_type="neo4j", uri="bolt://prod-neo4j:7687")
 backend = create_backend(backend_type="falkordb", host="redis-host", port=6380)
+backend = create_backend(backend_type="postgresql", uri="postgresql://agent:agent@localhost:5433/agent_kg")
 
 # With db_path for LadybugDB
 backend = create_backend(db_path="/data/agent.db")
@@ -246,14 +250,17 @@ backend = create_backend(db_path="/data/agent.db")
 **Environment Variables:**
 | Variable | Description | Default |
 |---|---|---|
-| `GRAPH_BACKEND` | Backend type: `ladybug`, `falkordb`, `neo4j` | `ladybug` |
+| `GRAPH_BACKEND` | Backend type: `ladybug`, `falkordb`, `neo4j`, `postgresql` | `ladybug` |
 | `GRAPH_DB_PATH` | File path for LadybugDB | `knowledge_graph.db` |
 | `GRAPH_DB_HOST` | Host for FalkorDB/Neo4j | `localhost` |
 | `GRAPH_DB_PORT` | Port for FalkorDB (6379) or Neo4j (7687) | varies |
-| `GRAPH_DB_URI` | Full URI for Neo4j | `bolt://localhost:7687` |
-| `GRAPH_DB_USER` | Username for Neo4j | `neo4j` |
-| `GRAPH_DB_PASSWORD` | Password for Neo4j | `password` |
-| `GRAPH_DB_NAME` | Database name for FalkorDB | `agent_graph` |
+| `GRAPH_DB_URI` | Full URI for Neo4j or PostgreSQL | `bolt://localhost:7687` |
+| `GRAPH_DB_USER` | Username for Neo4j/PostgreSQL | `neo4j` |
+| `GRAPH_DB_PASSWORD` | Password for Neo4j/PostgreSQL | `password` |
+| `GRAPH_DB_NAME` | Database/graph name for FalkorDB/PostgreSQL | `agent_graph` |
+| `GRAPH_POOL_MIN` | Minimum PostgreSQL connection pool size | `2` |
+| `GRAPH_POOL_MAX` | Maximum PostgreSQL connection pool size | `10` |
+| `GRAPH_PGGRAPH_SCHEMA` | Schema for pgGraph table registration | `public` |
 | `OWL_BACKEND` | OWL backend type: `owlready2`, `stardog` | `owlready2` |
 | `OWL_DB_PATH` | SQLite quadstore path for Owlready2 | `owl_store.db` |
 | `STARDOG_ENDPOINT` | Stardog server URL | `http://localhost:5820` |

@@ -254,9 +254,170 @@ def extract_project_metadata(workspace_path: str | Path) -> dict[str, Any]:
     return metadata
 
 
+def load_agents_md_layered(
+    cwd: str | Path,
+    root: str | Path | None = None,
+) -> str | None:
+    """Load AGENTS.md with additive hierarchical layering.
+
+    CONCEPT:KG-2.1 — Project-Aware Context (Layered)
+
+    Walks UP from ``cwd`` to ``root`` (or filesystem root), collecting
+    every AGENTS.md found at each directory level.  Assembles them in
+    root-first order so that root-level rules appear first and
+    subdirectory-specific rules layer on top additively.
+
+    This mirrors the Claude Code pattern: root AGENTS.md = big picture,
+    subdirectory AGENTS.md = local conventions.
+
+    Args:
+        cwd: Current working directory to start walking from.
+        root: Optional project root to stop at.  If None, walks to ``/``.
+
+    Returns:
+        Combined AGENTS.md content in root-first order, or ``None``.
+
+    Example::
+
+        # From /project/src/payments/api/, collects:
+        #   /project/AGENTS.md (root)
+        #   /project/src/AGENTS.md (middle)
+        #   /project/src/payments/AGENTS.md (local)
+        content = load_agents_md_layered("/project/src/payments/api/", "/project")
+    """
+    current = Path(cwd).resolve()
+    if current.is_file():
+        current = current.parent
+
+    stop_at = Path(root).resolve() if root else None
+
+    # Collect all AGENTS.md files walking upward
+    found: list[tuple[Path, str]] = []
+    visited: set[Path] = set()
+
+    while current not in visited:
+        visited.add(current)
+
+        for filename in _AGENTS_FILENAMES:
+            path = current / filename
+            if path.is_file():
+                try:
+                    text = path.read_text(encoding="utf-8").strip()
+                    if text:
+                        found.append((current, text))
+                        break  # One per directory level
+                except Exception as exc:
+                    logger.warning("Failed to read %s: %s", path, exc)
+
+        # Stop at project root
+        if stop_at and current == stop_at:
+            break
+
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    if not found:
+        return None
+
+    # Reverse to get root-first order
+    found.reverse()
+
+    parts: list[str] = []
+    for dir_path, content in found:
+        rel = str(dir_path.relative_to(stop_at)) if stop_at else str(dir_path)
+        if rel == ".":
+            rel = "(root)"
+        parts.append(f"--- AGENTS.md [{rel}] ---\n{content}")
+
+    return "\n\n".join(parts)
+
+
+def extract_scoped_commands(
+    cwd: str | Path,
+    root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Extract build/test/lint commands scoped to the current directory.
+
+    CONCEPT:KG-2.1 — Subdirectory Command Scoping
+
+    Walks from ``cwd`` upward, finding the nearest AGENTS.md with
+    command sections.  Subdirectory commands override root-level ones.
+
+    Args:
+        cwd: Current working directory.
+        root: Optional project root.
+
+    Returns:
+        Dict with ``build_commands``, ``test_commands``, ``useful_commands``
+        keys.  Values from the nearest directory take precedence.
+    """
+    import re
+
+    current = Path(cwd).resolve()
+    if current.is_file():
+        current = current.parent
+    stop_at = Path(root).resolve() if root else None
+
+    commands: dict[str, str] = {}
+    command_keys = {
+        "build commands",
+        "test commands",
+        "useful commands",
+        "lint commands",
+    }
+
+    visited: set[Path] = set()
+    while current not in visited:
+        visited.add(current)
+
+        for filename in _AGENTS_FILENAMES:
+            path = current / filename
+            if path.is_file():
+                try:
+                    content = path.read_text(encoding="utf-8")
+                    # Extract command sections
+                    current_header = ""
+                    current_lines: list[str] = []
+                    for line in content.split("\n"):
+                        header_match = re.match(r"^#{1,3}\s+(.+)$", line)
+                        if header_match:
+                            if current_header and current_lines:
+                                key = current_header.lower().strip()
+                                if key in command_keys and key not in commands:
+                                    commands[key] = "\n".join(current_lines).strip()
+                            current_header = header_match.group(1)
+                            current_lines = []
+                        else:
+                            current_lines.append(line)
+                    if current_header and current_lines:
+                        key = current_header.lower().strip()
+                        if key in command_keys and key not in commands:
+                            commands[key] = "\n".join(current_lines).strip()
+                except Exception:
+                    pass
+
+        if stop_at and current == stop_at:
+            break
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    return {
+        "build_commands": commands.get("build commands", ""),
+        "test_commands": commands.get("test commands", ""),
+        "useful_commands": commands.get("useful commands", ""),
+        "lint_commands": commands.get("lint commands", ""),
+    }
+
+
 __all__ = [
     "extract_project_metadata",
+    "extract_scoped_commands",
     "find_agents_md",
     "inject_project_context",
     "load_agents_md",
+    "load_agents_md_layered",
 ]

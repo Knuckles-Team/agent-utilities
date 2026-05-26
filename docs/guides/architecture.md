@@ -330,6 +330,7 @@ With the recent modularization, `agent-utilities` has been restructured to clean
 | `rlm/` | Recursive Language Model handlers for autonomous sub-shells and self-prompting loops. | `repl.py` |
 | `sdd/` | Spec-Driven Development pipelines decomposing `.specify` files into actionable graphs. | `orchestrator.py` |
 | `server/` | FastAPI applications hosting all HTTP, ACP, and SSE routes. | `app.py`, `routers/` |
+| `gateway/` | Homepage-style service dashboard data layer (CONCEPT:GW-1.0). 50 widget types, aggregator, REST+WS API. Consolidated from former `service-dashboard-core`. | `models.py`, `registry.py`, `config.py`, `aggregator.py`, `api.py`, `ws.py`, `widgets/` |
 
 ## Hierarchical State Machine (HSM) Architecture
 
@@ -418,6 +419,14 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 | `/mcp/config` | GET | Interoperability | Return the current MCP server configuration |
 | `/mcp/tools` | GET | Interoperability | List all tools from connected MCP servers |
 | `/mcp/reload` | POST | Interoperability | Hot-reload MCP servers and rebuild graph |
+| `/api/dashboard/layout` | GET/PUT | Dashboard (GW-1.0) | Get or save dashboard service layout |
+| `/api/dashboard/data` | GET | Dashboard (GW-1.0) | Fetch all widget data from 50 services |
+| `/api/dashboard/data/{id}` | GET | Dashboard (GW-1.0) | Fetch single service widget data |
+| `/api/dashboard/full` | GET | Dashboard (GW-1.0) | Layout + data in single request (initial load) |
+| `/api/dashboard/widgets` | GET | Dashboard (GW-1.0) | List available widget types |
+| `/api/dashboard/health` | GET | Dashboard (GW-1.0) | Health check across all services |
+| `/api/dashboard/discover` | GET | Dashboard (GW-1.0) | Auto-discover services from mcp_config |
+| `/ws/dashboard` | WS | Dashboard (GW-1.0) | Real-time streaming updates |
 
 ## The Complete Execution Journey
 

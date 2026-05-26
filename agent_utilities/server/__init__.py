@@ -107,6 +107,16 @@ def _run_agent_server(
     enable_web_logs: bool = DEFAULT_ENABLE_WEB_LOGS,
 ):
     """Create and run an agent server with FastAPI and FastMCP."""
+    # Force disable terminal UI in tests or non-interactive environments to prevent hangs
+    is_pytest = (
+        "pytest" in sys.modules
+        or "py.test" in sys.modules
+        or os.getenv("PYTEST_CURRENT_TEST") is not None
+    )
+    is_non_interactive = not sys.stdin or not sys.stdin.isatty()
+    if is_pytest or is_non_interactive:
+        enable_terminal_ui = False
+
     import uvicorn
 
     global _CLEANUP_REGISTERED
@@ -321,6 +331,16 @@ def create_agent_server(
     pydantic-graph from the tag→prompt mapping, enhances the system prompt
     with graph routing information, and starts the server.
     """
+    # Force disable terminal UI in tests or non-interactive environments to prevent hangs
+    is_pytest = (
+        "pytest" in sys.modules
+        or "py.test" in sys.modules
+        or os.getenv("PYTEST_CURRENT_TEST") is not None
+    )
+    is_non_interactive = not sys.stdin or not sys.stdin.isatty()
+    if is_pytest or is_non_interactive:
+        enable_terminal_ui = False
+
     from agent_utilities.core.workspace import WORKSPACE_DIR as _ws_sentinel
 
     if workspace:

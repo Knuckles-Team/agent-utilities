@@ -9,9 +9,11 @@ This package contains:
 - Observer (KG-2.10) — LLM-powered transcript→observation extraction
 - Reflector (KG-2.10) — Observation→reflection condensation
 - Startup context builder (KG-2.10) — Budgeted payload for agent hooks
+- Semantic compactor (KG-2.20) — Trace compaction to prevent graph explosion
 """
 
 from .consolidation import ConsolidationEngine, ConsolidationProposal
+from .memory_compaction import SemanticCompactor
 from .memory_materializer import (
     MemoryMaterializer,
     ingest_memory_edits,
@@ -44,4 +46,6 @@ __all__ = [
     "StartupContextBuilder",
     "StartupPayload",
     "build_startup_payload",
+    # Semantic Compactor (KG-2.20)
+    "SemanticCompactor",
 ]

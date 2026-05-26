@@ -10,11 +10,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from agent_utilities.models.knowledge_graph import DoomLoopIncidentNode
+if TYPE_CHECKING:
+    from agent_utilities.models.knowledge_graph import DoomLoopIncidentNode
 
 # --- Merged from execution_stability_engine.py ---
 
@@ -547,6 +548,8 @@ class DoomLoopDetector:
         Returns:
             DoomLoopIncidentNode if a pattern is detected, None otherwise.
         """
+        from agent_utilities.models.knowledge_graph import DoomLoopIncidentNode
+
         if len(self._signatures) < self._consecutive_threshold:
             return None
 

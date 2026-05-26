@@ -357,7 +357,7 @@ def __getattr__(name):
         )
 
         return locals()[name]
-    # Agent-Runtimes Capabilities (CONCEPT:ECO-4.1, ECO-4.12, AHE-3.23)
+    # Agent-Runtimes Capabilities (CONCEPT:ECO-4.0, ECO-4.12, AHE-3.23)
     elif name == "DurableExecutionManager":
         from .orchestration.durable_execution import DurableExecutionManager
 
@@ -374,6 +374,70 @@ def __getattr__(name):
         from .core.agentspec_catalog import AgentSpecGenerator
 
         return AgentSpecGenerator
+    # Reactive Framework (CONCEPT:ORCH-1.28)
+    elif name in [
+        "EventLedger",
+        "BehaviorDispatcher",
+        "reactive_behavior",
+        "BudgetGuard",
+        "BudgetTrippedException",
+    ]:
+        from .graph.reactive import (
+            BehaviorDispatcher,
+            BudgetGuard,
+            BudgetTrippedException,
+            EventLedger,
+            reactive_behavior,
+        )
+
+        return locals()[name]
+    # WASM Agent Runner (CONCEPT:OS-5.4)
+    elif name == "WasmAgentRunner":
+        from .core.wasm_runner import WasmAgentRunner
+
+        return WasmAgentRunner
+    # Cognitive Scheduler (CONCEPT:OS-5.2)
+    elif name == "CognitiveScheduler":
+        from .core.cognitive_scheduler import CognitiveScheduler
+
+        return CognitiveScheduler
+    # Distributed Coordination (CONCEPT:OS-5.6)
+    elif name == "DistributedCoordinator":
+        from .orchestration.distributed_coordinator import DistributedCoordinator
+
+        return DistributedCoordinator
+    elif name == "RecoveryDaemon":
+        from .orchestration.recovery_daemon import RecoveryDaemon
+
+        return RecoveryDaemon
+    # Semantic Compactor (CONCEPT:KG-2.20)
+    elif name == "SemanticCompactor":
+        from .knowledge_graph.memory.memory_compaction import SemanticCompactor
+
+        return SemanticCompactor
+    # Replay Engine (CONCEPT:OS-5.7)
+    elif name in ["DistributedReplayEngine", "ReplayManifest", "InteractionRecord"]:
+        from .observability.replay_engine import (
+            DistributedReplayEngine,
+            InteractionRecord,
+            ReplayManifest,
+        )
+
+        return locals()[name]
+    # Telemetry Engine (CONCEPT:OS-5.1)
+    elif name == "TelemetryEngine":
+        from .observability import TelemetryEngine
+
+        return TelemetryEngine
+    # Sandboxed Executor (CONCEPT:OS-5.7)
+    elif name in ["SandboxedExecutor", "SandboxLimits", "SandboxResult"]:
+        from .security.sandboxed_executor import (
+            SandboxedExecutor,
+            SandboxLimits,
+            SandboxResult,
+        )
+
+        return locals()[name]
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -514,4 +578,29 @@ __all__ = [
     "JupyterKernelAdapter",
     "SandboxExecutor",
     "AgentSpecGenerator",
+    # Reactive Framework (CONCEPT:ORCH-1.28)
+    "EventLedger",
+    "BehaviorDispatcher",
+    "reactive_behavior",
+    "BudgetGuard",
+    "BudgetTrippedException",
+    # WASM Agent Runner (CONCEPT:OS-5.4)
+    "WasmAgentRunner",
+    # Cognitive Scheduler (CONCEPT:OS-5.2)
+    "CognitiveScheduler",
+    # Distributed Coordination (CONCEPT:OS-5.6)
+    "DistributedCoordinator",
+    "RecoveryDaemon",
+    # Semantic Compactor (CONCEPT:KG-2.20)
+    "SemanticCompactor",
+    # Replay Engine (CONCEPT:OS-5.7)
+    "DistributedReplayEngine",
+    "ReplayManifest",
+    "InteractionRecord",
+    # Telemetry Engine (CONCEPT:OS-5.1)
+    "TelemetryEngine",
+    # Sandboxed Executor (CONCEPT:OS-5.7)
+    "SandboxedExecutor",
+    "SandboxLimits",
+    "SandboxResult",
 ]

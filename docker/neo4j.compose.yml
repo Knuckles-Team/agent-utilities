@@ -1,0 +1,26 @@
+# Neo4j Stack for agent-utilities KG Backend Integration Tests
+#
+# Usage:
+#   docker compose -f docker/neo4j.compose.yml up -d
+#
+# Environment:
+#   GRAPH_BACKEND=neo4j
+#   GRAPH_DB_URI=bolt://localhost:7687
+#   GRAPH_DB_USER=neo4j
+#   GRAPH_DB_PASSWORD=password
+
+services:
+  neo4j-db:
+    image: neo4j:latest
+    container_name: agent-neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: unless-stopped
+
+volumes:
+  neo4j-data:

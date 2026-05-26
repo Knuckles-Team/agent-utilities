@@ -294,43 +294,22 @@ uv run my-agent-mcp -t streamable-http --auth-type jwt \
 uv run my-agent --web --port 8080
 ```
 
+## Dynamic Tool Selection & Visibility
+
+All MCP servers built with `create_mcp_server()` automatically support **Dynamic Tool Selection & Visibility**. This allows connected clients to dynamically restrict or query which tools are exposed by the server on a per-request or per-session basis to prevent context bloop and optimize token utilization.
+
+Key controls supported:
+- **CLI Options**: `--tools` / `--disabled-tools` to enable/disable specific tools on startup.
+- **Process Environment Defaults**: `MCP_ENABLED_TOOLS` / `MCP_DISABLED_TOOLS` or `MCP_ENABLED_TAGS` / `MCP_DISABLED_TAGS`.
+- **HTTP/SSE Query Parameters**: Passing `?tools=...`, `?disabled_tools=...`, `?tags=...`, or semantic search query `?q=...`.
+- **HTTP Request Headers**: Passing `X-MCP-Enabled-Tools`, `X-MCP-Disabled-Tools`, `X-MCP-Enabled-Tags`, or `X-MCP-Query` for dynamic multi-vector Knowledge Graph query matches.
+
+> **Full Dynamic Selection Guide**: For the complete architecture, usage examples, and integration patterns, see [Centralized Dynamic Tool Selection & Visibility](dynamic-tool-selection.md).
+
+---
+
 ## Next Steps
 
-- See [Creating an Agent](../4_ecosystem_and_tooling/creating-an-agent.md) for the full agent server setup
-- See [Architecture](../1_graph_orchestration/architecture.md) for how MCP tools integrate with the graph orchestration pipeline
-- See [Features](../3_agentic_harness_engineering/features.md) for tool guard behavior and elicitation patterns
-
-
-## Building MCP Servers & API Wrappers
-
-Use `create_mcp_server()` to bootstrap a fully configured FastMCP server with authentication, middleware, and CLI parsing:
-
-```python
-from agent_utilities.mcp.utilities import create_mcp_server, ctx_progress, ctx_log, ctx_confirm_destructive
-from fastmcp import Context
-from pydantic import Field
-
-args, mcp, middlewares = create_mcp_server(name="My Service MCP", version="1.0.0")
-
-@mcp.tool(annotations={"title": "Delete Resource", "destructiveHint": True}, tags={"resources"})
-async def delete_resource(
-    resource_id: str = Field(description="Resource ID to delete."),
-    ctx: Context = Field(description="MCP context.", default=None),
-) -> dict:
-    """Delete a resource. Expected return object type: dict"""
-    if not await ctx_confirm_destructive(ctx, f"delete resource {resource_id}"):
-        return {"status": "cancelled"}
-    await ctx_progress(ctx, 0, 100)
-    # ... perform deletion ...
-    await ctx_progress(ctx, 100, 100)
-    return {"status": "success", "deleted": resource_id}
-```
-
-**Context helpers** (`ctx_*`) are the standard way to interact with MCP context across the ecosystem:
-- `ctx_progress(ctx, progress, total)` — Report progress
-- `ctx_confirm_destructive(ctx, action)` — Elicitation guard for destructive operations
-- `ctx_log(ctx, logger, level, msg)` — Dual-log to server and MCP client
-- `ctx_set_state/ctx_get_state` — Namespaced session state
-- `ctx_sample(ctx, prompt)` — Ask the client LLM to generate a response
-
-> **Full guide**: See [docs/building-mcp-servers.md](docs/pillars/4_ecosystem_and_tooling/building-mcp-servers.md) for complete coverage including API wrappers, authentication options, OpenAPI import, and running instructions.
+- See [Creating an Agent](creating-an-agent.md) for the full agent server setup
+- See [Architecture](../pillars/1_graph_orchestration.md) for how MCP tools integrate with the graph orchestration pipeline
+- See [Features](../pillars/3_agentic_harness_engineering.md) for tool guard behavior and elicitation patterns

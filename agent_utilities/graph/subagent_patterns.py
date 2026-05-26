@@ -62,6 +62,24 @@ class SubagentPattern(StrEnum):
     Use for complex multi-step tasks requiring negotiation."""
 
 
+class SubagentMode(StrEnum):
+    """Execution mode for subagents (CONCEPT:ORCH-1.3b).
+
+    Controls whether a subagent can modify the codebase or is
+    restricted to read-only exploration.  Read-only subagents map
+    a subsystem and write findings to a structured file, then the
+    parent agent edits with the full picture.
+    """
+
+    READ_WRITE = "read_write"
+    """Full access — subagent can read and modify files."""
+
+    READ_ONLY = "read_only"
+    """Exploration only — subagent can read files, run queries, and
+    search but cannot write, delete, or run modifying commands.
+    Findings are written to a structured output file."""
+
+
 class PatternComplexity(IntEnum):
     """Task complexity tiers for pattern selection."""
 
@@ -80,6 +98,7 @@ class SubagentPatternDecision(BaseModel):
     """
 
     pattern: SubagentPattern
+    mode: SubagentMode = SubagentMode.READ_WRITE
     task_complexity: PatternComplexity
     parallelizable: bool = False
     needs_collaboration: bool = False
@@ -125,6 +144,7 @@ class SubagentPatternRouter:
         needs_collaboration: bool = False,
         specialist_count: int = 1,
         has_a2a_peers: bool = False,
+        read_only: bool = False,
     ) -> SubagentPatternDecision:
         """Select the optimal subagent pattern for the given task parameters.
 
@@ -134,11 +154,16 @@ class SubagentPatternRouter:
             needs_collaboration: Whether adaptive_agent_router need to exchange messages.
             specialist_count: Number of adaptive_agent_router the planner wants to invoke.
             has_a2a_peers: Whether remote A2A agents are available.
+            read_only: If True, subagent is restricted to exploration-only
+                (read files, search, query) with no write/delete/modify access.
+                Findings are written to a structured output file for the
+                parent agent to act on.
 
         Returns:
             A ``SubagentPatternDecision`` with the selected pattern and reasoning.
         """
         complexity = PatternComplexity(min(task_complexity, 5))
+        mode = SubagentMode.READ_ONLY if read_only else SubagentMode.READ_WRITE
 
         # Decision tree (ordered by cost — prefer cheaper patterns)
         if complexity <= PatternComplexity.SIMPLE and specialist_count <= 1:
@@ -184,12 +209,17 @@ class SubagentPatternRouter:
             reasoning = "Default fallback to inline tool execution."
             confidence = 0.6
 
+        # Append read-only note to reasoning
+        if read_only:
+            reasoning += " [READ_ONLY: exploration-only, no file modifications]"
+
         # Check historical performance if KG is available
         if self.engine is not None:
             confidence = self._adjust_from_history(pattern, confidence)
 
         decision = SubagentPatternDecision(
             pattern=pattern,
+            mode=mode,
             task_complexity=complexity,
             parallelizable=parallelizable,
             needs_collaboration=needs_collaboration,

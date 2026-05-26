@@ -26,7 +26,7 @@ from pydantic_ai.capabilities import AbstractCapability
 
 from agent_utilities.protocols.capability import CapabilityContext
 
-from ..models.knowledge_graph import RegistryNodeType, TaskNode, TeamNode
+# Multi-agent team coordination capability
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,8 @@ class TeamCapability(AbstractCapability[Any]):
 
         engine = getattr(ctx.deps, "graph_engine", None)
         if engine:
+            from ..models.knowledge_graph import RegistryNodeType, TeamNode
+
             node = TeamNode(
                 id=self.team_id,
                 type=RegistryNodeType.TEAM,
@@ -98,6 +100,8 @@ class TeamCapability(AbstractCapability[Any]):
 
         engine = getattr(ctx.deps, "graph_engine", None)
         if engine:
+            from ..models.knowledge_graph import RegistryNodeType, TaskNode
+
             node = TaskNode(
                 id=task_id,
                 type=RegistryNodeType.TASK,
@@ -162,6 +166,8 @@ class TeamCapability(AbstractCapability[Any]):
             return []
 
         teams: list[dict[str, Any]] = []
+        from ..models.knowledge_graph import RegistryNodeType
+
         for node_id, data in engine.graph.nodes(data=True):
             if (
                 data.get("type") == RegistryNodeType.TEAM

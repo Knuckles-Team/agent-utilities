@@ -1,4 +1,5 @@
 #!/usr/bin/python
+# ruff: noqa: F822
 """MCP Utilities Module — backward-compatible re-exports.
 
 New code should import from the submodules directly:
@@ -11,51 +12,70 @@ CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 
 __version__ = "0.16.0"
 
-# Re-export server factory (parser, server, config loading, defaults)
-# Re-export config loader (still defined here — too coupled to move without
-# broader refactoring of pydantic-ai integration)
-from agent_utilities.core.config import (  # noqa: F401
-    DEFAULT_LLM_API_KEY,
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_MODEL_ID,
-    DEFAULT_LLM_PROVIDER,
-)
-from agent_utilities.mcp.config_loader import (  # noqa: F401
-    load_mcp_servers_from_config,
-)
 
-# Re-export context helpers
-from agent_utilities.mcp.context_helpers import (  # noqa: F401
-    ctx_confirm_destructive,
-    ctx_get_state,
-    ctx_log,
-    ctx_progress,
-    ctx_sample,
-    ctx_set_state,
-)
+def __getattr__(name: str):
+    # LLM Config Defaults
+    if name in (
+        "DEFAULT_LLM_API_KEY",
+        "DEFAULT_LLM_BASE_URL",
+        "DEFAULT_LLM_MODEL_ID",
+        "DEFAULT_LLM_PROVIDER",
+    ):
+        import agent_utilities.core.config as config_mod
 
-# Re-export delegated auth helpers
-from agent_utilities.mcp.delegated_auth import (  # noqa: F401
-    exchange_authorization_code,
-    get_3lo_authorization_url,
-    get_delegated_token,
-    get_user_claims,
-    get_user_identity,
-    get_user_token,
-    is_delegation_enabled,
-    refresh_access_token,
-)
-from agent_utilities.mcp.server_factory import (  # noqa: F401
-    DEFAULT_SSL_VERIFY,
-    DEFAULT_TRANSPORT,
-    create_mcp_parser,
-    create_mcp_server,
-    mcp_auth_config,
-)
+        return getattr(config_mod, name)
 
-# Maintain backward compatibility aliases
-config = mcp_auth_config
-load_mcp_config = load_mcp_servers_from_config
+    # Config Loader
+    if name == "load_mcp_servers_from_config" or name == "load_mcp_config":
+        import agent_utilities.mcp.config_loader as loader_mod
+
+        return loader_mod.load_mcp_servers_from_config
+
+    # Context Helpers
+    if name in (
+        "ctx_progress",
+        "ctx_confirm_destructive",
+        "ctx_log",
+        "ctx_set_state",
+        "ctx_get_state",
+        "ctx_sample",
+    ):
+        import agent_utilities.mcp.context_helpers as ctx_mod
+
+        return getattr(ctx_mod, name)
+
+    # Delegated Auth
+    if name in (
+        "get_delegated_token",
+        "get_user_token",
+        "get_user_claims",
+        "get_user_identity",
+        "is_delegation_enabled",
+        "get_3lo_authorization_url",
+        "exchange_authorization_code",
+        "refresh_access_token",
+    ):
+        import agent_utilities.mcp.delegated_auth as auth_mod
+
+        return getattr(auth_mod, name)
+
+    # Server Factory
+    if name in (
+        "DEFAULT_TRANSPORT",
+        "DEFAULT_SSL_VERIFY",
+        "create_mcp_parser",
+        "create_mcp_server",
+        "mcp_auth_config",
+        "config",
+    ):
+        import agent_utilities.mcp.server_factory as factory_mod
+
+        if name == "config":
+            return factory_mod.mcp_auth_config
+        return getattr(factory_mod, name)
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "create_mcp_parser",

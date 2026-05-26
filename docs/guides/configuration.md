@@ -12,13 +12,17 @@ Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated
 ### Graph Database
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `ladybug` | Backend to use (`ladybug`, `falkordb`, `neo4j`) |
+| `GRAPH_BACKEND` | `ladybug` | Backend to use (`ladybug`, `falkordb`, `neo4j`, `postgresql`) |
 | `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for LadybugDB (DuckDB) |
 | `GRAPH_DB_HOST` | `localhost` | Host for Neo4j/FalkorDB |
 | `GRAPH_DB_PORT` | `7687` | Port for Neo4j/FalkorDB |
-| `GRAPH_DB_URI` | *None* | Direct connection URI (overrides Host/Port) |
-| `GRAPH_DB_USER` | `neo4j` | Username for remote DBs |
-| `GRAPH_DB_PASSWORD` | *None* | Password for remote DBs |
+| `GRAPH_DB_URI` | *None* | Direct connection URI (overrides Host/Port; e.g. for PostgreSQL bolt/URI) |
+| `GRAPH_DB_USER` | `neo4j` | Username for remote DBs (Neo4j/PostgreSQL) |
+| `GRAPH_DB_PASSWORD` | *None* | Password for remote DBs (Neo4j/PostgreSQL) |
+| `GRAPH_DB_NAME` | `agent_graph` | Database/graph name for FalkorDB/PostgreSQL |
+| `GRAPH_POOL_MIN` | `2` | Minimum PostgreSQL connection pool size |
+| `GRAPH_POOL_MAX` | `10` | Maximum PostgreSQL connection pool size |
+| `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pgGraph table registration |
 
 ### OWL Reasoning
 | Variable | Default | Description |

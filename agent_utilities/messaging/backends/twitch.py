@@ -1,10 +1,11 @@
-"""Twitch Messaging Backend (CONCEPT:ECO-4.5).
+"""Twitch Messaging Backend (CONCEPT:ECO-4.0).
 
 Uses ``twitchio`` for Twitch IRC chat and EventSub.
 
 Install: ``pip install agent-utilities[messaging-twitch]``
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class TwitchBackend(MessagingBackend):
-    """Twitch chat backend via twitchio. CONCEPT:ECO-4.5"""
+    """Twitch chat backend via twitchio. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -47,7 +48,7 @@ class TwitchBackend(MessagingBackend):
         return CAPABILITY_MATRIX["twitch"]
 
     async def connect(self) -> None:
-        """Connect to Twitch IRC. CONCEPT:ECO-4.5"""
+        """Connect to Twitch IRC. CONCEPT:ECO-4.0"""
         try:
             from twitchio.ext import commands
         except ImportError:
@@ -64,10 +65,10 @@ class TwitchBackend(MessagingBackend):
             raise ValueError("Set TWITCH_OAUTH_TOKEN.")
 
         class AgentBot(commands.Bot):
-            def __init__(bot_self, **kwargs: Any) -> None:
+            def __init__(self, **kwargs: Any) -> None:
                 super().__init__(**kwargs)
 
-            async def event_message(bot_self, message: Any) -> None:
+            async def event_message(self, message: Any) -> None:
                 if message.echo:
                     return
                 ev = InboundEvent(
@@ -95,7 +96,7 @@ class TwitchBackend(MessagingBackend):
         asyncio.create_task(self._bot.start())
         await asyncio.sleep(2)
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] Twitch backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] Twitch backend connected.")
 
     async def send_message(
         self,

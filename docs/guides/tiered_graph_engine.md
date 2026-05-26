@@ -78,30 +78,38 @@ impact = nx.ancestors(subgraph, target_id)
 
 | Environment | Backend | NetworkX Role | Use Case |
 |-------------|---------|---------------|----------|
-| **Production** | LadybugDB (default) | Compute scratchpad only | Enterprise deployment |
-| **Scale-out** | Neo4j / PostgreSQL | Compute scratchpad only | 100K+ employees |
-| **Development** | LadybugDB (local SQLite) | Compute scratchpad | Local dev with persistence |
+| **Production (Embedded)** | LadybugDB (default) | Compute scratchpad only | Enterprise deployment, zero-config |
+| **Production (Scale-out)** | Neo4j / PostgreSQL / FalkorDB | Compute scratchpad only | Large-scale, high-concurrency multi-agent swarms |
+| **Development** | LadybugDB / FalkorDB / Postgres | Compute scratchpad | Local dev with persistence |
 | **Testing/CI** | MemoryBackend (`memory`) | Both storage & compute | Unit tests, small graphs |
 | **Edge/Embedded** | MemoryBackend + `save_to_json()` | Both + manual persistence | IoT, offline agents |
 
 ### Configuration
 
+For a detailed walkthrough, compose files, and connection examples, see the [Deploying Graph Databases Guide](graph-db-deployment.md).
+
 ```bash
-# Default (LadybugDB — zero-config, self-contained SQLite)
+# 1. Default (LadybugDB — zero-config, self-contained SQLite)
 export GRAPH_BACKEND=ladybug
 
-# Testing/CI — no persistence needed
+# 2. Testing/CI — no persistence needed
 export GRAPH_BACKEND=memory
 
-# Enterprise — Neo4j cluster
+# 3. Enterprise — Neo4j cluster
 export GRAPH_BACKEND=neo4j
-export GRAPH_DB_URI=bolt://neo4j-cluster:7687
+export GRAPH_DB_URI=bolt://localhost:7687
 export GRAPH_DB_USER=neo4j
-export GRAPH_DB_PASSWORD=secret
+export GRAPH_DB_PASSWORD=password
 
-# Enterprise — PostgreSQL with Apache AGE
+# 4. High-Performance — FalkorDB
+export GRAPH_BACKEND=falkordb
+export GRAPH_DB_HOST=localhost
+export GRAPH_DB_PORT=6380
+export GRAPH_DB_NAME=agent_graph
+
+# 5. Production Relational + Graph — PostgreSQL with pgvector & pgGraph
 export GRAPH_BACKEND=postgresql
-export GRAPH_DB_URI=postgresql://db-host:5432/agent_graph
+export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
 ```
 
 ## Why Not a Cypher Parser for NetworkX?

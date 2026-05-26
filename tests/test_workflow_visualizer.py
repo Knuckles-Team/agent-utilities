@@ -6,7 +6,6 @@ CONCEPT:ORCH-1.25 — Parallel Engine Visualizer
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from agent_utilities.models.execution_manifest import AgentSpec, ExecutionManifest
 from agent_utilities.workflows.visualizer import WorkflowVisualizer
@@ -21,7 +20,7 @@ def test_workflow_visualizer_generation():
         agents=[],
         query="Run analysis",
     )
-    
+
     wave1 = [
         AgentSpec(
             agent_id="data-collector",
@@ -32,7 +31,7 @@ def test_workflow_visualizer_generation():
             agent_id="network-auditor",
             role="network-inspector",
             tools=["tunnel_manager_list_tunnels"],
-        )
+        ),
     ]
     wave2 = [
         AgentSpec(
@@ -41,23 +40,23 @@ def test_workflow_visualizer_generation():
             depends_on=["data-collector", "network-auditor"],
         )
     ]
-    
+
     waves = [wave1, wave2]
-    
+
     mermaid_code = WorkflowVisualizer.generate(manifest, waves)
-    
+
     assert "flowchart TD" in mermaid_code
     assert "subgraph Wave 1 &#40;Parallel Layer&#41;" in mermaid_code
     assert "subgraph Wave 2 &#40;Parallel Layer&#41;" in mermaid_code
-    
+
     # Assert node sanitization and formatting
     assert "data_collector" in mermaid_code
     assert "sys_synth" in mermaid_code
-    
+
     # Assert dependency edges
     assert "data_collector --> sys_synth" in mermaid_code
     assert "network_auditor --> sys_synth" in mermaid_code
-    
+
     # Assert class highlights are added
     assert "classDef success" in mermaid_code
     assert "classDef active" in mermaid_code

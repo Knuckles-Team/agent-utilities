@@ -95,11 +95,78 @@ def build_sensitive_tool_names() -> set[str]:
     return sensitive
 
 
+def check_ontological_guardrails(
+    tool_name: str,
+    tool_args: dict[str, Any],
+    engine: Any | None = None,
+) -> bool:
+    """Performs real-time OWL reasoning / classification on tool arguments.
+
+    CONCEPT:OS-5.10 — Ontological Guardrail Engine.
+    Checks target files, directories, network hosts, or database tables against
+    active SecurityPolicyNode classifications in the Knowledge Graph.
+    """
+    try:
+        # Extract potential targets from arguments
+        targets = []
+        for key, val in tool_args.items():
+            if isinstance(val, str):
+                if key in (
+                    "path",
+                    "filepath",
+                    "dir",
+                    "directory",
+                    "host",
+                    "hostname",
+                    "url",
+                    "db",
+                    "database",
+                    "table",
+                ):
+                    targets.append(val.lower())
+
+        if not targets:
+            return False
+
+        # 1. Query Knowledge Graph for active SecurityPolicyNode restrictions
+        if engine and hasattr(engine, "graph") and engine.graph is not None:
+            for nid, ndata in engine.graph.nodes(data=True):
+                if ndata.get("type") == "SecurityPolicyNode":
+                    restricted_target = ndata.get("target", "").lower()
+                    if restricted_target:
+                        for target in targets:
+                            if restricted_target in target:
+                                logger.warning(
+                                    "Ontological Guardrail (KG): Blocked target '%s' matching policy '%s' in tool '%s'",
+                                    target,
+                                    ndata.get("name", nid),
+                                    tool_name,
+                                )
+                                return True
+
+        # 2. Check active fallback security policy constraints (restricted system paths)
+        restricted_keywords = ("/etc", "/var/run", "admin", "db_root", "production_db")
+        for target in targets:
+            for kw in restricted_keywords:
+                if kw in target:
+                    logger.warning(
+                        "Ontological Guardrail (Fallback): Flagged restricted target '%s' in tool '%s'",
+                        target,
+                        tool_name,
+                    )
+                    return True
+    except Exception as e:
+        logger.debug("Ontological guardrail query skipped: %s", e)
+
+    return False
+
+
 def flag_mcp_tool_definitions(
     toolsets: list[Any],
     sensitive_names: set[str] | None = None,
     permissions_kernel: Any | None = None,
     agent_identity: Any | None = None,
+    engine: Any | None = None,
 ) -> list[Any]:
     """Wrap MCP toolsets so sensitive tools require human approval.
 
@@ -125,6 +192,7 @@ def flag_mcp_tool_definitions(
         permissions_kernel: Optional ``PermissionsKernel`` for identity-based
             authorization (CONCEPT:OS-5.1).
         agent_identity: Optional ``AgentIdentity`` for the calling agent.
+        engine: Optional KG engine for ontological guardrails.
 
     Returns:
         A new list of toolsets where MCP toolsets are wrapped with
@@ -146,6 +214,10 @@ def flag_mcp_tool_definitions(
         _ctx: Any, tool_def: Any, _tool_args: dict[str, Any]
     ) -> bool:
         name = getattr(tool_def, "name", "")
+
+        # CONCEPT:OS-5.10 — Ontological Guardrails (real-time argument analysis)
+        if check_ontological_guardrails(name, _tool_args, engine=engine):
+            return True
 
         # CONCEPT:OS-5.1 — Identity-based policy check (highest priority)
         if permissions_kernel and agent_identity:

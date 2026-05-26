@@ -8,10 +8,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pytest
-
 from agent_utilities.graph.parallel_engine import ParallelEngine
-from agent_utilities.models.execution_manifest import AgentSpec, ExecutionManifest, SynthesisSpec
+from agent_utilities.models.execution_manifest import (
+    AgentSpec,
+    ExecutionManifest,
+    SynthesisSpec,
+)
 from agent_utilities.workflows.skill_compiler import SkillCompiler
 
 # Environment settings for clean integration tests
@@ -21,7 +23,9 @@ os.environ["OTEL_SDK_DISABLED"] = "true"
 def get_skills_root() -> Path:
     """Find the universal-skills folder from the workspace."""
     # The path structure is agent-packages/skills/universal-skills/universal_skills/workflows/
-    root = Path("/home/apps/workspace/agent-packages/skills/universal-skills/universal_skills/workflows")
+    root = Path(
+        "/home/apps/workspace/agent-packages/skills/universal-skills/universal_skills/workflows"
+    )
     if not root.exists():
         raise FileNotFoundError(f"Skills directory not found at {root}")
     return root
@@ -63,7 +67,10 @@ def test_deploy_observability_stack_compilation():
     assert "loki-setup" in team["specialist_ids"]
     assert "observability-synth" in team["specialist_ids"]
     assert "checkpointing" in team["capability_overrides"]["prometheus-setup"]
-    assert "adversarial_verification" in team["capability_overrides"]["observability-synth"]
+    assert (
+        "adversarial_verification"
+        in team["capability_overrides"]["observability-synth"]
+    )
 
 
 def test_alpha_factor_mining_compilation():
@@ -145,7 +152,9 @@ def test_parallel_engine_wave_scheduling_for_workflows():
     engine = ParallelEngine()
 
     # 1. Test deploy_observability_stack scheduling
-    observability_plan = SkillCompiler.compile(skills_root / "infra" / "deploy_observability_stack")
+    observability_plan = SkillCompiler.compile(
+        skills_root / "infra" / "deploy_observability_stack"
+    )
     assert observability_plan is not None
 
     agents = [
@@ -168,12 +177,18 @@ def test_parallel_engine_wave_scheduling_for_workflows():
     waves = engine._schedule_waves(manifest)
     assert len(waves) == 2
     # Wave 0 has 3 agents
-    assert set(a.agent_id for a in waves[0]) == {"prometheus-setup", "grafana-setup", "loki-setup"}
+    assert set(a.agent_id for a in waves[0]) == {
+        "prometheus-setup",
+        "grafana-setup",
+        "loki-setup",
+    }
     # Wave 1 has 1 agent
     assert [a.agent_id for a in waves[1]] == ["observability-synth"]
 
     # 2. Test sdd_full_lifecycle scheduling
-    sdd_plan = SkillCompiler.compile(skills_root / "dev-workflows" / "sdd_full_lifecycle")
+    sdd_plan = SkillCompiler.compile(
+        skills_root / "dev-workflows" / "sdd_full_lifecycle"
+    )
     assert sdd_plan is not None
 
     sdd_agents = [
@@ -212,7 +227,16 @@ def test_all_library_workflows_compilation():
     skills_root = get_skills_root()
     engine = ParallelEngine()
 
-    folders = ["infra", "health", "system", "finance", "dev-workflows", "research", "social", "ops"]
+    folders = [
+        "infra",
+        "health",
+        "system",
+        "finance",
+        "dev-workflows",
+        "research",
+        "social",
+        "ops",
+    ]
 
     workflow_paths = []
     for f in folders:
@@ -224,7 +248,9 @@ def test_all_library_workflows_compilation():
                 workflow_paths.append(p)
 
     # We expect exactly 240 workflows (or very close depending on initial setup)
-    assert len(workflow_paths) >= 235, f"Expected around 240 workflows, found {len(workflow_paths)}"
+    assert len(workflow_paths) >= 235, (
+        f"Expected around 240 workflows, found {len(workflow_paths)}"
+    )
 
     for skill_dir in workflow_paths:
         # 1. Compile workflow
@@ -257,5 +283,3 @@ def test_all_library_workflows_compilation():
 
         waves = engine._schedule_waves(manifest)
         assert len(waves) >= 1, f"Failed to schedule waves for {skill_dir.name}"
-
-

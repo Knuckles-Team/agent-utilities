@@ -112,6 +112,40 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     modified = True
 
+            # Centralized Knowledge Graph Coordination Protocol
+            # CONCEPT:KG-1.0
+            coordinated_kg_server = None
+            if "agent-utilities-kg" in mcp_servers:
+                from agent_utilities.core.config import DEFAULT_VALIDATION_MODE
+
+                if not DEFAULT_VALIDATION_MODE:
+                    import httpx
+                    from pydantic_ai.mcp import MCPServerSSE
+
+                    from agent_utilities.mcp.kg_coordinator import KGCoordinator
+
+                    kg_host = os.getenv("KG_SERVER_HOST", "127.0.0.1")
+                    kg_port = int(os.getenv("KG_SERVER_PORT", "8100"))
+
+                    logger.info(
+                        "Coordinated KG check: Intercepting agent-utilities-kg server config"
+                    )
+                    try:
+                        KGCoordinator.get_kg_client(host=kg_host, port=kg_port)
+
+                        # Remove from dict to prevent stdio spawning by pydantic-ai
+                        mcp_servers.pop("agent-utilities-kg")
+                        modified = True
+
+                        # Create SSE client directly
+                        coordinated_kg_server = MCPServerSSE(
+                            f"http://{kg_host}:{kg_port}/sse",
+                            http_client=httpx.AsyncClient(timeout=60),
+                        )
+                        coordinated_kg_server.id = "agent-utilities-kg"
+                    except Exception as e:
+                        logger.error(f"Failed to coordinate centralized KG server: {e}")
+
             if modified:
                 expanded_content = json.dumps(config_data)
         except Exception as e:
@@ -140,6 +174,13 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
                 if i < len(servers):
                     servers[i].id = name
                     logger.debug(f"MCP Config: Loaded server '{name}'")
+
+            # Add coordinated KG server back if present
+            if coordinated_kg_server is not None:
+                servers.append(coordinated_kg_server)
+                logger.info(
+                    "Coordinated KG check: successfully appended MCPServerSSE client for agent-utilities-kg"
+                )
 
             return servers
         finally:

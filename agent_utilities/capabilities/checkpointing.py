@@ -27,8 +27,6 @@ from pydantic_ai.messages import ModelMessage
 
 from agent_utilities.protocols.capability import CapabilityContext
 
-from ..models.knowledge_graph import CheckpointNode, RegistryNodeType
-
 logger = logging.getLogger(__name__)
 
 
@@ -102,6 +100,11 @@ class GraphCheckpointStore(CheckpointStore):
         self.engine = engine
 
     async def save(self, checkpoint: Checkpoint) -> None:
+        from agent_utilities.models.knowledge_graph import (
+            CheckpointNode,
+            RegistryNodeType,
+        )
+
         node = CheckpointNode(
             id=checkpoint.id,
             type=RegistryNodeType.CHECKPOINT,
@@ -131,6 +134,8 @@ class GraphCheckpointStore(CheckpointStore):
             logger.error(f"Failed to save checkpoint to graph: {e}")
 
     async def get(self, checkpoint_id: str) -> Checkpoint | None:
+        from agent_utilities.models.knowledge_graph import RegistryNodeType
+
         try:
             if self.engine.backend:
                 data = await self.engine.backend.get_node(

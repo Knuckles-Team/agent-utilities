@@ -1,4 +1,4 @@
-# Distributed Agent State Concurrency (CONCEPT:AHE-3.5)
+# Distributed Agent State Concurrency (CONCEPT:AHE-3.4)
 
 ## Overview
 The `BranchMergeStateLocker` handles parallel state branching, versioned optimistic staging, and three-way recursive dictionary merging to coordinate concurrent agent execution swarms without database locking bottlenecks.
@@ -35,7 +35,7 @@ When merging a branch back to the base state:
 ## Implementation Details
 * **Source Code Path**: [distributed_state_manager.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/harness/distributed_state_manager.py)
 * **Pillar**: Agentic Harness Engineering (AHE)
-* **Concept ID**: `CONCEPT:AHE-3.5`
+* **Concept ID**: `CONCEPT:AHE-3.4`
 
 ## Example Usage
 

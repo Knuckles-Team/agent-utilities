@@ -1,4 +1,4 @@
-"""Messaging Backend Implementations (CONCEPT:ECO-4.5).
+"""Messaging Backend Implementations (CONCEPT:ECO-4.0).
 
 Each backend module in this package implements the ``MessagingBackend`` ABC
 for a specific messaging platform. Backends are lazily imported via
@@ -33,4 +33,4 @@ Or install all with::
     pip install agent-utilities[messaging]
 """
 
-# CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+# CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction

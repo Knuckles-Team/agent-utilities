@@ -571,7 +571,7 @@ class TestEndToEndOrchestration:
         g = nx.MultiDiGraph()
         engine = IntelligenceGraphEngine(g, backend=None)
         composer = KGTeamComposer(engine=engine)
-        team = composer.compose_team("Analyze data", complexity=3)
+        composer.compose_team("Analyze data", complexity=3)
 
         class MockState:
             query = "Analyze data"
@@ -584,7 +584,7 @@ class TestEndToEndOrchestration:
             usage = None
 
         cp = StateCheckpointer(engine=engine)
-        ckpt_id = cp.checkpoint(MockState(), session_id="e2e-sess")
+        cp.checkpoint(MockState(), session_id="e2e-sess")
         restored = cp.restore("e2e-sess")
         assert restored is not None
         assert restored["query"] == "Analyze data"

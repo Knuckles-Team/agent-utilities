@@ -25,8 +25,6 @@ from pydantic_ai.tools import ToolDefinition
 
 from agent_utilities.protocols.capability import CapabilityContext
 
-from ..models.knowledge_graph import RegistryNodeType, ToolCallNode
-
 logger = logging.getLogger(__name__)
 
 
@@ -141,6 +139,8 @@ class HooksCapability(AbstractCapability[Any]):
         if self.auto_graph_trace:
             engine = getattr(ctx.deps, "graph_engine", None)
             if engine:
+                from ..models.knowledge_graph import RegistryNodeType, ToolCallNode
+
                 node = ToolCallNode(
                     id=call.tool_call_id,
                     type=RegistryNodeType.TOOL_CALL,

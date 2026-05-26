@@ -37,6 +37,11 @@
     rdfs:comment "A dynamic DNS updater process." ;
     rdfs:subClassOf bfo:0000015 .
 
+:PlatformService a owl:Class ;
+    rdfs:label "Platform Service" ;
+    rdfs:comment "A software service or platform application deployed on our infrastructure." ;
+    rdfs:subClassOf bfo:0000004 .
+
 :attachedStorage a owl:ObjectProperty ;
     rdfs:label "attached storage" ;
     rdfs:domain au:HardwareNode ;

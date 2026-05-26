@@ -1,11 +1,11 @@
-"""KG Auto-Ingest for Messaging Events (CONCEPT:ECO-4.5 + KG-2.1).
+"""KG Auto-Ingest for Messaging Events (CONCEPT:ECO-4.0 + KG-2.1).
 
 Auto-ingests inbound and outbound messages into the Knowledge Graph as
 ``ChatMessage`` memory nodes with Ebbinghaus decay. This creates a
 searchable, cross-platform conversational memory that agents can query
 via ``recall_memory()``.
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 CONCEPT:KG-2.1 — Tiered Memory & Context
 CONCEPT:KG-2.3 — Auto-Similarity Memory Graph
 
@@ -35,7 +35,7 @@ async def ingest_message_to_kg(
 ) -> str | None:
     """Ingest a messaging event into the Knowledge Graph as a memory node.
 
-    CONCEPT:ECO-4.5 + CONCEPT:KG-2.1
+    CONCEPT:ECO-4.0 + CONCEPT:KG-2.1
 
     Creates a tiered memory node with:
     - ``memory_type="episodic"`` (conversation memories decay over time)
@@ -64,7 +64,7 @@ async def ingest_message_to_kg(
         try:
             engine = _get_default_engine()
         except Exception:
-            logger.debug("[CONCEPT:ECO-4.5] No KG engine available, skipping ingest.")
+            logger.debug("[CONCEPT:ECO-4.0] No KG engine available, skipping ingest.")
             return None
 
     if engine is None:
@@ -102,7 +102,7 @@ async def ingest_message_to_kg(
         )
 
         logger.debug(
-            "[CONCEPT:ECO-4.5] Ingested message to KG: %s (platform=%s, user=%s)",
+            "[CONCEPT:ECO-4.0] Ingested message to KG: %s (platform=%s, user=%s)",
             memory_id,
             platform,
             user,
@@ -110,7 +110,7 @@ async def ingest_message_to_kg(
         return memory_id
 
     except Exception as e:
-        logger.warning("[CONCEPT:ECO-4.5] Failed to ingest message to KG: %s", e)
+        logger.warning("[CONCEPT:ECO-4.0] Failed to ingest message to KG: %s", e)
         return None
 
 
@@ -121,7 +121,7 @@ async def ingest_outbound_to_kg(
 ) -> str | None:
     """Ingest an outbound message into the KG for full conversation tracking.
 
-    CONCEPT:ECO-4.5 + CONCEPT:KG-2.1
+    CONCEPT:ECO-4.0 + CONCEPT:KG-2.1
 
     Stores agent-sent messages as semantic memories (longer half-life
     than episodic) for future context retrieval.
@@ -172,21 +172,21 @@ async def ingest_outbound_to_kg(
         )
 
         logger.debug(
-            "[CONCEPT:ECO-4.5] Ingested outbound to KG: %s (platform=%s)",
+            "[CONCEPT:ECO-4.0] Ingested outbound to KG: %s (platform=%s)",
             memory_id,
             platform,
         )
         return memory_id
 
     except Exception as e:
-        logger.warning("[CONCEPT:ECO-4.5] Failed to ingest outbound to KG: %s", e)
+        logger.warning("[CONCEPT:ECO-4.0] Failed to ingest outbound to KG: %s", e)
         return None
 
 
 def _get_default_engine() -> Any | None:
     """Attempt to load the default RegistryGraphEngine from workspace.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     Returns:
         RegistryGraphEngine instance or None.
@@ -211,5 +211,5 @@ def _get_default_engine() -> Any | None:
     except ImportError:
         return None
     except Exception as e:
-        logger.debug("[CONCEPT:ECO-4.5] Default engine load failed: %s", e)
+        logger.debug("[CONCEPT:ECO-4.0] Default engine load failed: %s", e)
         return None

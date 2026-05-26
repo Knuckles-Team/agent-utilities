@@ -1,11 +1,12 @@
-"""Signal Messaging Backend (CONCEPT:ECO-4.5).
+"""Signal Messaging Backend (CONCEPT:ECO-4.0).
 
 Uses ``semaphore-bot`` (signal-cli bridge) for Signal messaging.
 
 Install: ``pip install agent-utilities[messaging-signal]``
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class SignalBackend(MessagingBackend):
-    """Signal messaging backend via semaphore-bot. CONCEPT:ECO-4.5"""
+    """Signal messaging backend via semaphore-bot. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -48,7 +49,7 @@ class SignalBackend(MessagingBackend):
         return CAPABILITY_MATRIX["signal"]
 
     async def connect(self) -> None:
-        """Connect to Signal via signal-cli. CONCEPT:ECO-4.5"""
+        """Connect to Signal via signal-cli. CONCEPT:ECO-4.0"""
         try:
             from semaphore import Bot
         except ImportError:
@@ -82,7 +83,7 @@ class SignalBackend(MessagingBackend):
 
         asyncio.create_task(self._bot.start())
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] Signal backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] Signal backend connected.")
 
     async def send_message(
         self,

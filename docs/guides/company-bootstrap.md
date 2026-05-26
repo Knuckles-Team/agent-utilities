@@ -1,7 +1,7 @@
 # Company Bootstrap Deployment Guide
 
-**CONCEPT:KG-2.12 — Company Operations Domain**
-**CONCEPT:ECO-4.13 — Company Infrastructure Orchestration**
+**CONCEPT:KG-2.6 — Company Operations Domain**
+**CONCEPT:ECO-4.3 — Company Infrastructure Orchestration**
 
 This guide walks through bootstrapping an autonomous AI-driven company
 from scratch using the agent-utilities ecosystem.

@@ -38,7 +38,7 @@ except ImportError:
             pass
 
 
-from ..models.knowledge_graph import RegistryNodeType, SelfEvaluationNode
+# StuckLoopError is raised when loop is detected
 
 
 class StuckLoopError(Exception):
@@ -115,6 +115,8 @@ class StuckLoopDetection(AbstractCapability[Any]):
         # Graph integration: Write SelfEvaluation node
         engine = getattr(ctx.deps, "graph_engine", None)
         if engine:
+            from ..models.knowledge_graph import RegistryNodeType, SelfEvaluationNode
+
             eval_node = SelfEvaluationNode(
                 id=f"stuck:{int(time.time())}:{hashlib.md5(message.encode(), usedforsecurity=False).hexdigest()[:8]}",
                 type=RegistryNodeType.SELF_EVALUATION,

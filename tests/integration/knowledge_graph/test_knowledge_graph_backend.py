@@ -76,7 +76,8 @@ class TestLadybugBackend:
         "agent_utilities.knowledge_graph.backends.ladybug_backend.ladybug.Connection"
     )
     def test_initialization(self, mock_conn, mock_db):
-        LadybugBackend("test.db")
+        backend = LadybugBackend("test.db")
+        backend._ensure_connection()
         # Check that it was called with the correct path as the first argument
         args, kwargs = mock_db.call_args
         assert args[0] == "test.db"

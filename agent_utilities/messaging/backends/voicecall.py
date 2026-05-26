@@ -1,8 +1,9 @@
-"""Voice Call Backend (CONCEPT:ECO-4.5). Uses Twilio for voice/SMS.
+"""Voice Call Backend (CONCEPT:ECO-4.0). Uses Twilio for voice/SMS.
 
 Install: ``pip install agent-utilities[messaging-voicecall]``
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class VoiceCallBackend(MessagingBackend):
-    """Voice/SMS backend via Twilio. CONCEPT:ECO-4.5"""
+    """Voice/SMS backend via Twilio. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -42,7 +43,7 @@ class VoiceCallBackend(MessagingBackend):
         return CAPABILITY_MATRIX["voicecall"]
 
     async def connect(self) -> None:
-        """Initialize Twilio client. CONCEPT:ECO-4.5"""
+        """Initialize Twilio client. CONCEPT:ECO-4.0"""
         try:
             from twilio.rest import Client
         except ImportError:
@@ -57,7 +58,7 @@ class VoiceCallBackend(MessagingBackend):
             raise ValueError("Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.")
         self._client = Client(sid, token)
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] Voice call backend connected (Twilio).")
+        logger.info("[CONCEPT:ECO-4.0] Voice call backend connected (Twilio).")
 
     async def send_message(
         self,
@@ -68,7 +69,7 @@ class VoiceCallBackend(MessagingBackend):
         reply_to_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send SMS via Twilio. CONCEPT:ECO-4.5"""
+        """Send SMS via Twilio. CONCEPT:ECO-4.0"""
         try:
             import os
 
@@ -95,7 +96,7 @@ class VoiceCallBackend(MessagingBackend):
     async def make_call(
         self, to: str, twiml: str = "", url: str = ""
     ) -> dict[str, Any]:
-        """Initiate a voice call. CONCEPT:ECO-4.5"""
+        """Initiate a voice call. CONCEPT:ECO-4.0"""
         import os
 
         from_number = self.config.extra.get(
@@ -112,7 +113,7 @@ class VoiceCallBackend(MessagingBackend):
         return {"call_sid": call.sid, "status": call.status}
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield events (webhook-populated for inbound calls/SMS). CONCEPT:ECO-4.5"""
+        """Yield events (webhook-populated for inbound calls/SMS). CONCEPT:ECO-4.0"""
         while self._connected:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)

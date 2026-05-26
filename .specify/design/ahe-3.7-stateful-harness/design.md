@@ -1,4 +1,4 @@
-# Design: Transactional State Manager and Sensory Validation (CONCEPT:AHE-3.5)
+# Design: Transactional State Manager and Sensory Validation (CONCEPT:AHE-3.4)
 
 ## 1. Context & Motivation
 

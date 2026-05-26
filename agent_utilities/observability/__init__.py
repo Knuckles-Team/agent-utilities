@@ -5,6 +5,7 @@ CONCEPT:OS-5.1 — Telemetry Engine
 Provides a single entry point for all observability concerns:
 - Token usage tracking (OS-5.6 via ``TokenTracker``)
 - Audit logging (OS-5.7 via ``AuditLogger``)
+- Deterministic replay (OS-5.7 via ``DistributedReplayEngine``)
 - OpenTelemetry setup (OS-5.9 placeholder)
 
 This facade wires the previously unwired AuditLogger and TokenTracker
@@ -151,3 +152,19 @@ class TelemetryEngine:
             records = self._audit_logger.query(action=action_filter, limit=limit)
             return [r.model_dump() for r in records]
         return []
+
+
+# Replay Engine (OS-5.7) — Deterministic execution trace recording & replay
+from .replay_engine import (  # noqa: E402
+    DistributedReplayEngine,
+    InteractionRecord,
+    ReplayManifest,
+)
+
+__all__ = [
+    "TelemetryEngine",
+    # Replay Engine (OS-5.7)
+    "DistributedReplayEngine",
+    "ReplayManifest",
+    "InteractionRecord",
+]

@@ -396,7 +396,7 @@ class TestGraphDistillationMigrator:
             _make_node("node_b", embedding=_similar_embedding(base_emb, noise=0.05)),
         ]
 
-        stats1 = migrator.distill_batch(nodes, incremental=True)
+        migrator.distill_batch(nodes, incremental=True)
         stats2 = migrator.distill_batch(nodes, incremental=True)
 
         # Second batch should process 0 new nodes
