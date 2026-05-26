@@ -1,11 +1,12 @@
-"""Google Chat Messaging Backend (CONCEPT:ECO-4.5).
+"""Google Chat Messaging Backend (CONCEPT:ECO-4.0).
 
 Uses ``google-api-python-client`` for Google Chat spaces/messages.
 
 Install: ``pip install agent-utilities[messaging-googlechat]``
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class GoogleChatBackend(MessagingBackend):
-    """Google Chat backend via Workspace API. CONCEPT:ECO-4.5"""
+    """Google Chat backend via Workspace API. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -50,7 +51,7 @@ class GoogleChatBackend(MessagingBackend):
         return CAPABILITY_MATRIX["googlechat"]
 
     async def connect(self) -> None:
-        """Connect via Google Workspace service account. CONCEPT:ECO-4.5"""
+        """Connect via Google Workspace service account. CONCEPT:ECO-4.0"""
         try:
             from google.oauth2 import service_account
             from googleapiclient.discovery import build
@@ -70,7 +71,7 @@ class GoogleChatBackend(MessagingBackend):
         )
         self._service = build("chat", "v1", credentials=creds)
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] Google Chat backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] Google Chat backend connected.")
 
     async def send_message(
         self,
@@ -81,7 +82,7 @@ class GoogleChatBackend(MessagingBackend):
         reply_to_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send to Google Chat space. CONCEPT:ECO-4.5"""
+        """Send to Google Chat space. CONCEPT:ECO-4.0"""
         try:
             body: dict[str, Any] = {"text": text}
             if thread_id:
@@ -108,7 +109,7 @@ class GoogleChatBackend(MessagingBackend):
     async def create_thread(
         self, channel_id: str, message_id: str, title: str = ""
     ) -> Thread:
-        """Google Chat threads. CONCEPT:ECO-4.5"""
+        """Google Chat threads. CONCEPT:ECO-4.0"""
         return Thread(
             id=message_id,
             parent_message_id=message_id,
@@ -117,7 +118,7 @@ class GoogleChatBackend(MessagingBackend):
         )
 
     async def list_channels(self) -> list[Channel]:
-        """List spaces. CONCEPT:ECO-4.5"""
+        """List spaces. CONCEPT:ECO-4.0"""
         result = await asyncio.to_thread(self._service.spaces().list().execute)
         return [
             Channel(
@@ -129,7 +130,7 @@ class GoogleChatBackend(MessagingBackend):
         ]
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield events (webhook-populated). CONCEPT:ECO-4.5"""
+        """Yield events (webhook-populated). CONCEPT:ECO-4.0"""
         while self._connected:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
@@ -138,7 +139,7 @@ class GoogleChatBackend(MessagingBackend):
                 continue
 
     async def process_webhook(self, body: dict[str, Any]) -> None:
-        """Process Google Chat webhook event. CONCEPT:ECO-4.5"""
+        """Process Google Chat webhook event. CONCEPT:ECO-4.0"""
         msg = body.get("message", {})
         if msg:
             event = InboundEvent(

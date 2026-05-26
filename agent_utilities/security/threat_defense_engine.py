@@ -8,13 +8,16 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import networkx as nx
 from pydantic import BaseModel, Field
 
-from agent_utilities.knowledge_graph.core.analogy_engine import TopologicalAnalogyEngine
-from agent_utilities.models.knowledge_graph import TopologicalVulnerabilityNode
+if TYPE_CHECKING:
+    from agent_utilities.knowledge_graph.core.analogy_engine import (
+        TopologicalAnalogyEngine,
+    )
+    from agent_utilities.models.knowledge_graph import TopologicalVulnerabilityNode
 
 # --- Merged from threat_defense_engine.py ---
 
@@ -797,6 +800,8 @@ class TopologicalScanner:
         Returns:
             A list of discovered TopologicalVulnerabilityNodes.
         """
+        from agent_utilities.models.knowledge_graph import TopologicalVulnerabilityNode
+
         vulnerabilities: list[TopologicalVulnerabilityNode] = []
 
         for risk_topology in self.known_risk_topologies:

@@ -61,3 +61,17 @@ def test_agent_config_langfuse_base_url():
         assert config.langfuse_host == "https://custom-langfuse.arpa"
     finally:
         os.environ.pop("LANGFUSE_BASE_URL", None)
+
+
+@pytest.mark.concept("CONCEPT:OS-5.0")
+def test_lazy_module_level_getattr():
+    from agent_utilities.core.config import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_LLM_PROVIDER
+    assert DEFAULT_HOST == "0.0.0.0"
+    assert DEFAULT_PORT == 9000
+    assert DEFAULT_LLM_PROVIDER == "openai" or DEFAULT_LLM_PROVIDER is not None
+
+
+@pytest.mark.concept("CONCEPT:OS-5.0")
+def test_lazy_mcp_utilities_getattr():
+    from agent_utilities.mcp_utilities import DEFAULT_LLM_PROVIDER
+    assert DEFAULT_LLM_PROVIDER == "openai" or DEFAULT_LLM_PROVIDER is not None

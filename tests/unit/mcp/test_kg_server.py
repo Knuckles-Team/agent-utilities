@@ -1,6 +1,6 @@
 """Test suite for the Knowledge Graph MCP Server tools (graph-os).
 
-CONCEPT:ECO-4.2 — KG MCP Server & Execution
+CONCEPT:ECO-4.1 — KG MCP Server & Execution
 
 Tests use the consolidated graph-os tool names: graph_query, graph_search,
 graph_write, graph_ingest, graph_analyze, graph_orchestrate, graph_configure.
@@ -227,3 +227,24 @@ def test_graph_query_blocks_writes(mock_engine, server_tools):
     res = json.loads(res_str)
     assert "error" in res
     assert "CREATE" in res["error"]
+
+
+def test_kg_server_watcher_delegation():
+    """Test that kg_server thin-wraps the watcher by calling engine.start_sdd_watcher()."""
+    mock_mcp = MockMCP()
+    build_engine = MagicMock()
+    build_engine.backend = MagicMock()
+    build_engine.backend.read_only = False
+
+    with (
+        patch(
+            "agent_utilities.mcp.server_factory.create_mcp_server",
+            return_value=(None, mock_mcp, []),
+        ),
+        patch("agent_utilities.mcp.kg_server._get_engine", return_value=build_engine),
+    ):
+        from agent_utilities.mcp.kg_server import _build_server
+
+        _build_server()
+
+        build_engine.start_sdd_watcher.assert_called_once()

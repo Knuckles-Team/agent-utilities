@@ -35,8 +35,22 @@ To maintain 1:1 parity between external file systems and the Knowledge Graph, th
 ### Graph-Level Access Control (RBAC/ABAC)
 Security is implemented natively at the query layer. Cryptographic ABAC middleware injects dynamic `requiresClassification` and `SecurityClearance` filters directly into Cypher statements. This guarantees that agents cannot traverse restricted sub-graphs (like executive compensation data) regardless of the prompt.
 
-### Semantic Subsumption & Inductive Hypergraphs (KG-2.16 & KG-2.4)
+### Semantic Subsumption & Inductive Hypergraphs (KG-2.2 & KG-2.4)
 When new information is encountered, **OWL-Driven Semantic Subsumption** automatically computes embedding similarities against OWL class prototypes, injecting the new concept into the correct lineage. **Inductive Knowledge Hypergraphs** vectorize relationship intersections via `EncPI` (Positional Interaction Encodings), enabling the graph to perform zero-shot generalization over entirely novel runtime topologies.
+
+### Rust-Compiled Epistemic Reasoning Backend (CONCEPT:KG-2.6)
+The core OWL reasoning engine has transitioned to using a high-performance **Rust-Compiled Epistemic Backend** (`OxigraphDatalogBackend`) as the framework-wide default. By leveraging `epistemic-graph` via PyO3 FFI and under-the-hood `pyoxigraph` serialization, the backend completely bypasses the legacy Java Virtual Machine (JVM) overhead of `owlready2`.
+
+It performs high-performance, compiled Datalog forward-chaining reasoning directly in Rust with standard OWL structural inference rules:
+- **Subclass Transitivity**: Propagates hierarchical node typing down class inheritance lineages.
+- **Subproperty Transitivity**: Matches and infers subproperty roles.
+- **Symmetric & Inverse Properties**: Automatically populates reciprocal relationships (e.g., `partnerOf` reciprocity, or `childOf` translating to `parentOf`).
+- **Transitive Properties**: Infers paths across transitive edge networks (e.g., `dependsOn`).
+
+### High-Performance Quant FFI Engine (CONCEPT:KG-2.18)
+To support advanced quantitative reasoning and high-throughput financial factor analysis natively within the agent’s execution stack, the `epistemic-graph` integrates native vectorized computing primitives:
+- **Vectorized Moving Averages & Variance**: `moving_average`, `exponential_moving_average`, `rolling_variance`, and `rolling_zscore` calculated over arbitrary streaming windows at C-speed.
+- **High-Performance Order Book Matching**: Native tick simulation (`simulate_order_matching`) matching bidirectional buy/sell orders against streaming L2 limits to simulate trade executions in real-time.
 
 ### Formal Mathematical Primitives (KG-2.41 — KG-2.49)
 We integrated advanced primitives from the MIT Mathematics for Computer Science (MCS) curriculum:
@@ -58,8 +72,13 @@ We integrated advanced primitives from the MIT Mathematics for Computer Science 
 
 ## Key Concepts Leveraged
 - **KG-2.0**: Active Knowledge Graph
+- **KG-2.2**: Ontology & Epistemics (Semantic Subsumption)
 - **KG-2.4**: Inductive Knowledge Hypergraphs
-- **KG-2.16**: Semantic Subsumption
+- **KG-2.11**: Vectorized Retrieval
+- **KG-2.15**: Centralized Epistemic Gateway & Transaction Proxy
+- **KG-2.16**: Compiled Rust & Rustworkx Compute Engine 🔬
+- **KG-2.17**: Rust-Compiled Epistemic Reasoning Backend
+- **KG-2.18**: High-Performance Quant FFI Engine
 - **KG-2.21**: Multi-Timescale Memory
 - **KG-2.34**: Spectral Cluster Navigator
 - **KG-2.38**: RAG-KG Unification

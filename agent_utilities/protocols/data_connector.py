@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Market Data Connector Protocol — generic data source abstraction.
 
-CONCEPT:ECO-4.1 — Market Data Connector Protocol
+CONCEPT:ECO-4.0 — Market Data Connector Protocol
 
 Provides a pluggable ``DataConnectorProtocol`` that any specialist can
 implement to provide structured data ingestion into the Knowledge Graph.
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 class DataFetchResult(BaseModel):
     """Result of a data fetch operation.
 
-    CONCEPT:ECO-4.1
+    CONCEPT:ECO-4.0
 
     Attributes:
         rows: The fetched data rows (list of dicts).
@@ -76,7 +76,7 @@ class DataFetchResult(BaseModel):
 class DataConnectorProtocol(Protocol):
     """Protocol for data source connectors.
 
-    CONCEPT:ECO-4.1
+    CONCEPT:ECO-4.0
 
     Implementers provide structured data retrieval from external sources.
     The ``name``, ``provider``, and ``priority`` attributes enable
@@ -119,7 +119,7 @@ class DataConnectorProtocol(Protocol):
 class DataConnectorRegistry:
     """Registry with auto-fallback chain for data connectors.
 
-    CONCEPT:ECO-4.1 — Market Data Connector Protocol
+    CONCEPT:ECO-4.0 — Market Data Connector Protocol
 
     Manages a prioritized set of ``DataConnectorProtocol`` implementations.
     When a primary connector fails, the registry automatically tries the
@@ -204,7 +204,7 @@ class DataConnectorRegistry:
     ) -> DataFetchResult:
         """Fetch data with automatic fallback across registered connectors.
 
-        CONCEPT:ECO-4.1
+        CONCEPT:ECO-4.0
 
         Tries connectors in priority order. If a connector fails or returns
         no data, the next connector in the chain is tried. Rate-limited

@@ -53,7 +53,7 @@ from ..base_utilities import __version__, to_boolean
 from .concurrency import AsyncioConcurrencyManager, RedisConcurrencyManager
 from .dependencies import inject_reload_app, resolve_model_registry, verify_api_key
 from .models import ReloadableApp
-from .routers import agent_ui, core, human, interop
+from .routers import agent_ui, commands, core, human, interop
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +196,7 @@ def build_agent_app(
                     logger.debug("skill-graphs package not found.")
 
             if custom_skills_directory and os.path.exists(custom_skills_directory):
-                skill_dirs.append(str(custom_skills_directory))
+                skill_dirs.append(custom_skills_directory)
 
         skills_list = []
         for d in skill_dirs:
@@ -445,6 +445,7 @@ def build_agent_app(
         app.include_router(agent_ui.router)
         app.include_router(interop.router)
         app.include_router(human.router)
+        app.include_router(commands.router)
 
         if enable_acp:
             from agent_utilities.protocols.acp_adapter import (

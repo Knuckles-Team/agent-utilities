@@ -70,7 +70,7 @@ class TestContextCompactorPersistence:
         """persist_compaction() should call engine.add_node to create a Summary."""
         source_ids = ["msg_001", "msg_002", "msg_003", "msg_004", "msg_005"]
 
-        result_id = compactor.persist_compaction(
+        compactor.persist_compaction(
             result=compacted_result,
             thread_id="thread_abc",
             source_message_ids=source_ids,

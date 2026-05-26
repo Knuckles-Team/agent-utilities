@@ -11,7 +11,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic_graph import End
-from pydantic_graph.beta import StepContext
+
+try:
+    from pydantic_graph.step import StepContext
+except ImportError:
+    from pydantic_graph.beta import StepContext
 
 from .executor import _execute_specialized_step
 from .state import GraphDeps, GraphState

@@ -102,7 +102,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "position",
     "portfolio",
     "strategy",
-    # Market Data Connector Protocol (CONCEPT:ECO-4.1)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.0)
     "data_connector",
     "data_fetch_record",
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
@@ -155,6 +155,25 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     # Context Graph Architecture (CONCEPT:KG-2.6)
     "architecture_decision",
     "archimate_element",
+    # Legal Entity & Compliance domain (CONCEPT:LGC-1.0)
+    "legal_trust",
+    "trustee_role",
+    "settlor_role",
+    "beneficiary_role",
+    "legal_entity",
+    "company",
+    "ein_application",
+    "host",
+    "container",
+    "container_stack",
+    "platform_service",
+    "gpu_accelerator",
+    "storage_array",
+    # Hydration Core Entities
+    "opportunity",
+    "uptime_monitor",
+    "alert",
+    "chat_channel",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -192,6 +211,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "cites_source",
     "has_financial_instrument",
     "executed_transaction",
+    "account",
     # AHE Edges (CONCEPT:AHE-3.0)
     "edited_in_round",
     "predicted_fix",
@@ -220,7 +240,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "belongs_to_portfolio",
     "executes_strategy",
     "backtested_with",
-    # Market Data Connector Protocol (CONCEPT:ECO-4.1)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.0)
     "fetched_from",
     "falls_back_to",
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
@@ -277,6 +297,24 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "alternatives_to",
     "decided_by",
     "supersedes",
+    # Legal Entity & Compliance domain edges (CONCEPT:LGC-1.0)
+    "has_trustee",
+    "has_settlor",
+    "has_beneficiary",
+    "trust_agreement",
+    "governed_by_doc",
+    "filed_by",
+    "runs_on",
+    "has_accelerator",
+    "attached_storage",
+    "deployed_on",
+    "belongs_to_stack",
+    # Hydration Core Edges
+    "blocked_by",
+    "monitors",
+    "works_at",
+    "related_to",
+    "associated_with",
 }
 
 

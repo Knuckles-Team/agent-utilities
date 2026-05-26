@@ -1,6 +1,6 @@
 # Universal Knowledge Assimilation Engine
 
-**CONCEPT:KG-2.7** — Universal Knowledge Assimilation
+**CONCEPT:KG-2.6** — Universal Knowledge Assimilation
 
 > The "Master Control Program" for autonomous self-evolution. A unified pipeline
 > that discovers, classifies, ingests, and evolves agent-utilities from ALL

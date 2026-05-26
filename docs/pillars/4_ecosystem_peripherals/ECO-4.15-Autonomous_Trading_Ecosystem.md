@@ -1,4 +1,4 @@
-# Autonomous Trading Ecosystem (CONCEPT:ECO-4.15)
+# Autonomous Trading Ecosystem (CONCEPT:ECO-4.05)
 
 ## Overview
 The Autonomous Trading Ecosystem provides a full suite of infrastructure, configurations, and AI-native patterns for executing quantitative and algorithmic trading via the `emerald-exchange` MCP server and the `agent-utilities` ontology framework.

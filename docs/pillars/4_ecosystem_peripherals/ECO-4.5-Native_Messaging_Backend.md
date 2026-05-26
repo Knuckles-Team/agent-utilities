@@ -1,6 +1,6 @@
 # ECO-4.5 — Native Messaging Backend Abstraction
 
-> **CONCEPT:ECO-4.5** | Pillar 4: Ecosystem & Peripherals
+> **CONCEPT:ECO-4.0** | Pillar 4: Ecosystem & Peripherals
 >
 > Provides a pluggable, transport-agnostic messaging framework enabling agents
 > to send and receive messages across 17+ platforms with full KG integration.

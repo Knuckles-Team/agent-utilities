@@ -215,7 +215,7 @@ def memory_view_dir() -> Path:
 def messaging_sessions_dir() -> Path:
     """Return the path for messaging backend session data.
 
-    CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+    CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 
     Default: ``~/.local/share/agent-utilities/messaging/``
 
@@ -229,7 +229,7 @@ def messaging_sessions_dir() -> Path:
 def messaging_config_path() -> Path:
     """Return the path to the messaging section in the global config.
 
-    CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+    CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 
     Default: ``~/.config/agent-utilities/config.json``
     (messaging keys are inside the same config.json, not a separate file)
@@ -240,6 +240,31 @@ def messaging_config_path() -> Path:
         environment variables that the ``MessagingRegistry`` reads.
     """
     return config_dir() / "config.json"
+
+
+def services_config_path() -> Path:
+    """Return the path to the dashboard services YAML configuration.
+
+    CONCEPT:GW-1.0 — Gateway Service Dashboard
+
+    Default: ``~/.config/agent-utilities/services.yaml``
+
+    Contains the user-editable service layout for the gateway dashboard.
+    Auto-generated from ``mcp_config.json`` on first run if not present.
+    """
+    return config_dir() / "services.yaml"
+
+
+def dashboard_layout_path() -> Path:
+    """Return the path to persisted dashboard layout state.
+
+    CONCEPT:GW-1.0 — Gateway Service Dashboard
+
+    Default: ``~/.local/share/agent-utilities/layout.yaml``
+
+    Stores user customizations (column order, collapsed groups, theme).
+    """
+    return data_dir() / "layout.yaml"
 
 
 def ensure_dirs() -> None:

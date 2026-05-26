@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import networkx as nx
 import pytest
+pytest.importorskip("owlready2")
 
 from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import (
     Owlready2Backend,

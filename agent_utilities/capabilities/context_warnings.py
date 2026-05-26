@@ -20,8 +20,6 @@ from pydantic_ai.messages import ModelRequest, SystemPromptPart
 
 from agent_utilities.protocols.capability import CapabilityContext
 
-from ..models.knowledge_graph import RegistryNodeType, SelfEvaluationNode
-
 logger = logging.getLogger(__name__)
 
 
@@ -73,6 +71,11 @@ class ContextLimitWarner(AbstractCapability[Any]):
             # Record event in knowledge graph if configured
             engine = getattr(ctx.deps, "graph_engine", None)
             if engine:
+                from ..models.knowledge_graph import (
+                    RegistryNodeType,
+                    SelfEvaluationNode,
+                )
+
                 eval_node = SelfEvaluationNode(
                     id=f"ctx_crit:{int(time.time())}",
                     type=RegistryNodeType.SELF_EVALUATION,

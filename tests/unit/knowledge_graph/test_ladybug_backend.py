@@ -73,7 +73,8 @@ def test_ladybug_backend_cleanup_corrupted(temp_db_dir):
         # Force corruption error on first call, then success
         mock_db.side_effect = [Exception("invalid wal record"), MagicMock()]
 
-        LadybugBackend(str(db_path))
+        backend = LadybugBackend(str(db_path))
+        backend._ensure_connection()
 
         # Files should be gone after cleanup (except the main DB)
         assert db_path.exists()
@@ -110,16 +111,18 @@ def test_ladybug_backend_get_lock(temp_db_dir):
         with mem_lock:
             pass  # Should not raise any error
 
-        # Test file database lock (should be filelock.FileLock)
+        # Test file database lock (should be CombinedLock wrapping FileLock)
         backend.db_path = db_path
-        file_lock = backend._get_lock()
+        combined_lock = backend._get_lock()
         from filelock import FileLock
+        from agent_utilities.knowledge_graph.backends.ladybug_backend import CombinedLock
 
-        assert isinstance(file_lock, FileLock)
-        assert file_lock.lock_file == f"{db_path}.lock"
+        assert isinstance(combined_lock, CombinedLock)
+        assert isinstance(combined_lock.file_lock, FileLock)
+        assert combined_lock.file_lock.lock_file == f"{db_path}.lock"
 
         # Verify it actually locks
-        with file_lock:
+        with combined_lock:
             # Try to acquire lock again with timeout=0, should raise Timeout
             from filelock import Timeout
 

@@ -164,12 +164,12 @@ class ParallelEngine:
         mermaid_code = None
         try:
             from agent_utilities.workflows.visualizer import WorkflowVisualizer
+
             mermaid_code = WorkflowVisualizer.generate(resolved, waves)
             logger.info(
                 "\n" + "=" * 80 + "\n"
                 "[VISUALIZER] Deterministically Generated Mermaid Topography:\n\n"
-                f"```mermaid\n{mermaid_code}\n```\n"
-                + "=" * 80 + "\n"
+                f"```mermaid\n{mermaid_code}\n```\n" + "=" * 80 + "\n"
             )
         except Exception as vis_err:
             logger.warning("Failed to generate workflow Mermaid diagram: %s", vis_err)

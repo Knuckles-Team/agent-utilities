@@ -46,6 +46,9 @@ def _localappdata() -> Path:
 
 _CONTEXT_CMD = "agent-utilities context --for {agent} --cwd $PWD"
 _OBSERVE_CMD = "agent-utilities observe --source {agent}"
+_LINT_CMD = "agent-utilities lint-check --cwd $PWD"
+_REFLECTOR_CMD = "agent-utilities reflect --source {agent} --cwd $PWD"
+_STALENESS_CMD = "agent-utilities staleness-audit --cwd $PWD"
 
 _CLAUDE_HOOKS = {
     "hooks": {
@@ -53,7 +56,8 @@ _CLAUDE_HOOKS = {
             {"type": "command", "command": _CONTEXT_CMD.format(agent="claude")}
         ],
         "SessionEnd": [
-            {"type": "command", "command": _OBSERVE_CMD.format(agent="claude")}
+            {"type": "command", "command": _OBSERVE_CMD.format(agent="claude")},
+            {"type": "command", "command": _REFLECTOR_CMD.format(agent="claude")},
         ],
         "PreCompact": [
             {"type": "command", "command": _OBSERVE_CMD.format(agent="claude")}

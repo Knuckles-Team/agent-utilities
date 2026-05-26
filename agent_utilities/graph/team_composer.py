@@ -30,14 +30,11 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
-from ..models.knowledge_graph import (
-    RegistryNodeType,
-    TeamComposition,
-)
 from .dynamic_graph_orchestrator import DynamicSubgraphOrchestrator
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+    from ..models.knowledge_graph import TeamComposition
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +126,8 @@ class KGTeamComposer:
         if not self.engine:
             return None
 
+        from ..models.knowledge_graph import RegistryNodeType
+
         # Build a TeamConfigNode from the composition
         specialist_ids = [
             s.get("agent_id", s.get("role", ""))
@@ -178,6 +177,8 @@ class KGTeamComposer:
         """Search KG for a proven TeamConfigNode matching this query."""
         if not self.engine:
             return None
+
+        from ..models.knowledge_graph import TeamComposition
 
         try:
             # Try to find matching team configs via the registry mixin

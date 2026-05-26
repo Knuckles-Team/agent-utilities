@@ -7,9 +7,11 @@ Aligned to LKIF-Core, Akoma Ntoso, SALI/CLNR, EDRM.
 
 
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+from agent_utilities.models.knowledge_graph import RegistryNode, RegistryNodeType
 
 
 class PrecedentStrength(StrEnum):
@@ -74,3 +76,52 @@ class LegalMatterNode(BaseModel):
     opened_date: str = ""
     closed_date: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LegalTrustNode(RegistryNode):
+    """Fiduciary trust entity tracking.
+    Maps to OWL class :LegalTrust in ontology_legal.ttl.
+    """
+
+    type: RegistryNodeType = Field(default=RegistryNodeType.LEGAL_TRUST)
+    trust_name: str = Field(..., description="Full legal name of the trust")
+    trust_type: Literal[
+        "revocable", "irrevocable", "asset_protection", "special_needs"
+    ] = Field(..., description="Legal category of the trust")
+    governing_law_state: str = Field(
+        ..., description="US state of governing law (e.g., 'WY', 'NV')"
+    )
+    settlor_id: str = Field(..., description="Person node ID of the settlor")
+    trustee_ids: list[str] = Field(
+        default_factory=list, description="Person/Company IDs of trustees"
+    )
+    beneficiary_ids: list[str] = Field(
+        default_factory=list, description="Person/Company IDs of beneficiaries"
+    )
+    is_funded: bool = Field(
+        default=False, description="Whether assets have been assigned to Schedule A"
+    )
+    ein: str | None = Field(
+        default=None,
+        description="Employer Identification Number for irrevocable trusts",
+    )
+
+
+class LLCFormationFiling(RegistryNode):
+    """State filing lifecycle tracker for an LLC.
+    Maps to OWL class :RegulatoryFiling in ontology_legal.ttl.
+    """
+
+    type: RegistryNodeType = Field(default=RegistryNodeType.LLC_FORMATION_FILING)
+    company_id: str = Field(..., description="CompanyProfile node ID")
+    filing_state: str = Field(..., description="Filing state (e.g., 'DE', 'WY')")
+    registered_agent_name: str = Field(..., description="Designated registered agent")
+    registered_agent_address: str = Field(
+        ..., description="Address of registered agent"
+    )
+    articles_of_organization_path: str = Field(
+        ..., description="Path to generated articles document"
+    )
+    filing_status: Literal[
+        "draft", "pending_submission", "submitted", "active", "rejected"
+    ] = "draft"

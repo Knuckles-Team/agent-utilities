@@ -1,5 +1,5 @@
 """
-Graph-Native Durable Execution Engine (CONCEPT:ECO-4.1)
+Graph-Native Durable Execution Engine (CONCEPT:ECO-4.0)
 
 Provides fault-tolerant, resumable state execution by persisting
 graph execution traces (DurableExecutionNode) natively into the

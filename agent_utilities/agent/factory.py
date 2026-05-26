@@ -21,8 +21,15 @@ from pydantic_ai import Agent, DeferredToolRequests, ModelSettings
 from pydantic_ai.mcp import (
     MCPServerSSE,
     MCPServerStreamableHTTP,
-    load_mcp_servers,
 )
+
+
+def load_mcp_servers(config_path: str) -> Any:
+    """Load MCP servers from configuration using the centralized coordinator."""
+    from agent_utilities.mcp_utilities import load_mcp_config
+
+    return load_mcp_config(config_path)
+
 
 # Guarded import for fastmcp (may have broken installation)
 try:
@@ -314,7 +321,24 @@ def create_agent(
         A tuple containing the initialized Agent and a list of all initialized toolsets.
 
     """
-    from agent_utilities.core.workspace import resolve_mcp_config_path
+
+    # Centralized Knowledge Graph Coordination
+    import sys
+
+    is_testing = (
+        os.environ.get("AGENT_UTILITIES_TESTING") == "true"
+        or "pytest" in sys.modules
+        or os.getenv("PYTEST_CURRENT_TEST") is not None
+    )
+    if not DEFAULT_VALIDATION_MODE and not is_testing:
+        try:
+            from agent_utilities.mcp.kg_coordinator import KGCoordinator
+
+            kg_host = os.getenv("KG_SERVER_HOST", "127.0.0.1")
+            kg_port = int(os.getenv("KG_SERVER_PORT", "8100"))
+            KGCoordinator.get_kg_client(host=kg_host, port=kg_port)
+        except Exception as e:
+            logger.debug(f"Auto-coordinating KG failed in create_agent: {e}")
 
     agent_toolsets = []
     initialized_mcp_toolsets = []
@@ -358,6 +382,8 @@ def create_agent(
             )
         else:
             try:
+                from agent_utilities.core.workspace import resolve_mcp_config_path
+
                 mcp_path = resolve_mcp_config_path(mcp_config)
                 if mcp_path:
                     mcp_config = str(mcp_path)
@@ -365,7 +391,9 @@ def create_agent(
 
                 mcp_toolset = load_mcp_servers(mcp_config)
                 for server in mcp_toolset:
-                    if hasattr(server, "http_client"):
+                    if hasattr(server, "http_client") and not getattr(
+                        server, "http_client", None
+                    ):
                         server.http_client = httpx.AsyncClient(
                             verify=ssl_verify, timeout=DEFAULT_TIMEOUT
                         )

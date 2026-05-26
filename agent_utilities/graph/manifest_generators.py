@@ -189,7 +189,7 @@ def manifest_from_heavy_thinking(
     """Generate manifest for heavy thinking parallel reasoning.
 
     CONCEPT:ORCH-1.25 — Parallel Engine
-    CONCEPT:AHE-3.5 — Heavy Thinking & Background Intelligence
+    CONCEPT:AHE-3.4 — Heavy Thinking & Background Intelligence
 
     Creates K parallel thinker agents + 1 deliberator agent with
     ``depends_on=[all thinkers]``. This replaces the standalone

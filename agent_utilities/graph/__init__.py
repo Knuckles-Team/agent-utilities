@@ -103,6 +103,14 @@ from .protocol_agnostic_execution import (
     execute_graph_iter,
     execute_graph_stream,
 )
+from .reactive import (
+    BehaviorDispatcher,
+    BudgetGuard,
+    BudgetTrippedException,
+    # CONCEPT:ORCH-1.28 — Graph-Native Reactive Event Sourcing and OS Guardrails
+    EventLedger,
+    reactive_behavior,
+)
 from .reward_decomposition import (
     # CONCEPT:AHE-3.1 — Decomposed Reward Signals
     DecomposedRewardRecord,
@@ -119,6 +127,12 @@ from .state import (
 )
 
 __all__ = [
+    # CONCEPT:ORCH-1.28 — Graph-Native Reactive Event Sourcing and OS Guardrails
+    "EventLedger",
+    "BehaviorDispatcher",
+    "reactive_behavior",
+    "BudgetGuard",
+    "BudgetTrippedException",
     # State
     "GraphState",
     "GraphDeps",

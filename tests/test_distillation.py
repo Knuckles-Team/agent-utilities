@@ -187,7 +187,7 @@ class TestLSHIndex:
 
         results = idx.query(emb1, k=5, exclude_id="b1")
         # b2 should be a high-similarity candidate
-        result_ids = [r[0] for r in results]
+        [r[0] for r in results]
         # At minimum, the query should return candidates
         assert isinstance(results, list)
 

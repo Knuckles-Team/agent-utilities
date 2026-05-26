@@ -47,6 +47,8 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.25**: [**Parallel Engine**](1_graph_orchestration/ORCH-1.25-Parallel_Engine.md) — unified 1→300+ agent execution engine with semaphore-governed concurrency, DAG scheduling, and tiered synthesis
 - **ORCH-1.26**: RLM-Native Hierarchical Synthesis — flat/hierarchical/progressive/rlm output merging strategies
 - **ORCH-1.27**: Autonomous Department Orchestration — OWL-materialized company departments with `reportsTo` hierarchy
+- **ORCH-1.28**: Reactive Event Sourcing — reactive event-driven state and graph staging dispatcher
+- **ORCH-1.29**: WASM Micro-Agent Execution — isolated WebAssembly sandbox runner with gas/memory limits and Python emulation fallback
 
 
 ## 🧬 First Principles Architecture

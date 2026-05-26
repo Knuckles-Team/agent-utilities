@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **GeniusBot Desktop Cockpit Integration (CONCEPT:GBOT-6.0 – 6.6)** — Built complete systems-level integration and visual design systems mapping for `geniusbot`, a premium Qt/PySide6-based Multi-Platform Systems and Finance Cockpit:
+  - **GBOT-6.0 (Desktop Cockpit Orchestrator)**: Native Python/PySide6 interface orchestration for autonomous agent interactions.
+  - **GBOT-6.1 (Ecosystem Dynamic Tab Matrix)**: Tabular matrix manager for swappable multi-plugin ecosystem cockpits.
+  - **GBOT-6.2 (Embedded Terminal Sandbox)**: High-performance terminal emulator directly within the Qt GUI for sandboxed shell interactions.
+  - **GBOT-6.3 (Universal Tool Approval Gate)**: Interactive, secure popup dialogs for human-in-the-loop tool approvals.
+  - **GBOT-6.4 (Topological Cockpit Memory)**: Real-time Virtual Context Block and memory-in-view topological visualizer.
+  - **GBOT-6.5 (Multi-Tenant Daemon & Tray)**: System tray daemon for background watcher execution and background ingestion notifications.
+  - **GBOT-6.6 (High-Performance Visual Finance Cockpit)**: Snappy trade visualization dashboard with real-time price feeds, Kelly position sizing, and historical comparison charts.
+- **Ecosystem Architecture Mapping** — Fully integrated `geniusbot` into the core systems context and container architecture:
+  - Updated `overview.md` systems table and ecosystem architecture catalogs.
+  - Added `geniusbot` to the canonical System Context C4 Context diagram in `architecture_c4.md`.
+  - Added Qt/PySide6 dependencies and interface links to the Ecosystem Dependency Graph in `architecture_c4.md`.
+  - Extended the **Canonical Concept Registry** (`concept_map.md`) to formally track all 7 `GBOT` concepts with 1:1:1 traceability across code and documentation.
+
 ### Changed
 - **BREAKING: Registry-Based Configuration Migration** — Fully deprecated all legacy per-tier LLM environment variable fields (`LLM_PROVIDER`, `LLM_MODEL_ID`, `LLM_BASE_URL`, `LLM_API_KEY`, `LITE_LLM_*`, `SUPER_LLM_*`, `EMBEDDING_*`) from `AgentConfig`. All LLM and embedding configuration now routes exclusively through the `chat_models` and `embedding_models` registries in `config.json`. Per-model `base_url` and `api_key` overrides are supported natively within each registry entry.
   - New `AgentConfig` properties: `default_chat_model`, `lite_chat_model`, `super_chat_model`, `default_embedding_model` (registry-derived)
@@ -72,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **CONCEPT:AHE-3.1: Citation Quality Tracking** — Extracts and evaluates citations (KG refs, concept IDs, external URLs, file paths, arXiv IDs) in agent responses. `CitationTracker` with precision/recall/F1 computation. Lazy-loaded in `EvaluationEngine`. New module: `agent_utilities/harness/citation_tracker.py`.
 - 33 new tests in `test_browsecomp_innovations.py` covering all 5 components.
 - **CONCEPT:ECO-4.0: Terminal Agent Launcher** — `kg_launch_terminal_agent` MCP tool to spawn CLI-based agents (`agent-terminal-ui`, `claude`, `opencode`, `devin`) in managed tmux sessions. Supports configurable `--prompt` and `--override` (yolo) mode flags per agent type. Tmux auto-detects whether to create a new window (inside tmux) or a detached session (outside tmux).
-- **CONCEPT:ECO-4.2: KG Agent Execution** — `kg_execute_agent` MCP tool to trigger the Pydantic AI agent graph execution natively from the KG MCP server, dynamically initializing the orchestration graph and routing queries to specialist agents.
+- **CONCEPT:ECO-4.1: KG Agent Execution** — `kg_execute_agent` MCP tool to trigger the Pydantic AI agent graph execution natively from the KG MCP server, dynamically initializing the orchestration graph and routing queries to specialist agents.
 - **CONCEPT:KG-2.0: Document Retrieval** — `kg_get_document` MCP tool to retrieve full documents from the Knowledge Graph by target path, with chunk reassembly and sorting.
 - **Configurable Default Terminal Agent** — Added `default_terminal_agent` to `AgentConfig` with `DEFAULT_TERMINAL_AGENT` constant export. Users can override via XDG `config.json` to switch the default CLI agent (e.g., `claude-code`, `opencode`, `devin`).
 
@@ -104,8 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CONCEPT:AHE-3.4: KG-Native Agentic Task Detection** — Evaluates topological complexity via KG subgraphs to route dense API toolchains to complex models automatically.
 - **CONCEPT:AHE-3.4: Topological Reasoning Detection** — Maps user queries to `MathematicalFoundationNode` or quantitative financial concepts to trigger reasoning models natively.
 - **CONCEPT:OS-5.0: Topological Session Persistence** — Pins the model for multi-turn conversations directly to the SessionNode to avoid jarring mid-thread model bouncing.
-- **CONCEPT:ECO-4.1**: Graph-Native Durable Execution Engine for fault-tolerant multi-leg algorithmic trading.
-- **CONCEPT:ECO-4.1**: Secure Jupyter Sandbox with State Machine Invariant checks for code generation.
+- **CONCEPT:ECO-4.0**: Graph-Native Durable Execution Engine for fault-tolerant multi-leg algorithmic trading.
+- **CONCEPT:ECO-4.0**: Secure Jupyter Sandbox with State Machine Invariant checks for code generation.
 - **CONCEPT:AHE-3.4**: AgentSpecs Catalog Generator for shareable OWL-driven agent blueprints.
 - **CONCEPT:KG-2.6**: Latent Topology RAG (Latte) for hierarchical routing.
 - **CONCEPT:KG-2.5**: Single-Shot SIRA for retrieval sparsity optimization.
@@ -113,8 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CONCEPT:KG-2.3**: Cognitive Trap Defense for topological vulnerability mitigation.
 - **CONCEPT:KG-2.3**: Experience Alignment for natively managed few-shot adaptation.
 - Domain-driven knowledge_graph refactoring with zero-stub parity.
-- **CONCEPT:ECO-4.1: Graph-Native Durable Execution** — Fault-tolerant, resumable state execution by persisting graph execution traces natively into the Knowledge Graph (LadybugDB) for high-assurance multi-leg trading. New module: `agent_utilities/orchestration/durable_execution.py`.
-- **CONCEPT:ECO-4.1: Secure Jupyter Sandbox** — Isolated code generation sandbox with Vectorized Topology AST validation and State Machine Invariant checks (MCS Ch 6). Blocks unsafe OS commands. New modules: `agent_utilities/tools/jupyter_adapter.py`, `agent_utilities/tools/sandbox_executor.py`.
+- **CONCEPT:ECO-4.0: Graph-Native Durable Execution** — Fault-tolerant, resumable state execution by persisting graph execution traces natively into the Knowledge Graph (LadybugDB) for high-assurance multi-leg trading. New module: `agent_utilities/orchestration/durable_execution.py`.
+- **CONCEPT:ECO-4.0: Secure Jupyter Sandbox** — Isolated code generation sandbox with Vectorized Topology AST validation and State Machine Invariant checks (MCS Ch 6). Blocks unsafe OS commands. New modules: `agent_utilities/tools/jupyter_adapter.py`, `agent_utilities/tools/sandbox_executor.py`.
 - **CONCEPT:AHE-3.4: OWL-Driven AgentSpecs** — Compiles dynamic agent topologies into exportable JSON AgentSpec catalogs, strongly typed by OWL ontologies for reproducibility. New module: `agent_utilities/core/agentspec_catalog.py`.
 - **CONCEPT:KG-2.6: Research Intelligence Sub-Agent** — Isolated research context with citation graph traversal (Semantic Scholar API), doom-loop detection, and KG persistence. Adapted from ml-intern's research_tool.py sub-agent pattern. New module: `agent_utilities/knowledge_graph/orchestration/research_subagent.py`.
 - **CONCEPT:KG-2.5: Spectral Cluster Navigator** — Tuning-free spectral clustering using normalized Laplacian eigengap heuristics for automatic k-selection. OWL-integrated via `skos:Concept` alignment with financial regime detection extension. Adapted from contextplus. New module: `agent_utilities/knowledge_graph/core/spectral_navigator.py`.
@@ -216,7 +231,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cross-Session Chat Recall** — `search_chat_history()` function in `chat_persistence.py` for keyword-based search across stored `Thread`/`Message` nodes. Adapted from Goose's `ChatHistorySearch` (Rust/SQLite). Uses KG Cypher backend with relevance scoring.
 - **OWL Bridge Extension** — Added `security_finding` and `experience` to `PROMOTABLE_NODE_TYPES`; `detected_threat` and `triggered_retry` to `PROMOTABLE_EDGE_TYPES` for transitive risk inference.
 - **CONCEPT:KG-2.6: Financial Trading Pipeline** — Added 5 new KG node types (`TradingSignalNode`, `OrderNode`, `PositionNode`, `PortfolioNode`, `StrategyNode`) and 6 edge types for modeling complete trading pipeline lifecycle. OWL-promoted with FIBO alignment for transitive provenance chains (e.g., Strategy → Signal → Order → Position → Portfolio).
-- **CONCEPT:ECO-4.1: Market Data Connector Protocol** — Generic `DataConnectorProtocol` with auto-fallback chain and provenance tracking. Includes `DataConnectorRegistry` with prioritized failover, rate-limit awareness, and `DataFetchRecordNode` for immutable audit trails. OWL `fallsBackTo` declared as transitive for automated connector chain inference.
+- **CONCEPT:ECO-4.0: Market Data Connector Protocol** — Generic `DataConnectorProtocol` with auto-fallback chain and provenance tracking. Includes `DataConnectorRegistry` with prioritized failover, rate-limit awareness, and `DataFetchRecordNode` for immutable audit trails. OWL `fallsBackTo` declared as transitive for automated connector chain inference.
 - **CONCEPT:ORCH-1.4: Swarm Preset Template Engine** — YAML-driven declarative multi-agent workflow engine with DAG-based dependency resolution, parallel dispatch identification, and variable substitution. Includes `SwarmPresetEngine` with topological sort, cycle detection, and layer-based execution ordering. KG-persisted via `SwarmPresetNode`, `SwarmRunNode`, `SwarmTaskRecordNode`.
 - **CONCEPT:ORCH-1.3: Multi-Level Abstraction Layering** — Planners emit coarse-grained abstraction steps and delegate fine-grained execution to specialist nodes, reducing upfront planning token overhead.
 - **Adaptive Model Routing & Reward-Driven Routing** — Included adaptive fast-path model selection (`gpt-4o-mini` fallback) for simple queries. Leverages ACO `pheromone_trails` to down-weight specialists with historically low success rates.

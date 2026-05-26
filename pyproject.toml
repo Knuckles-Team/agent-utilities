@@ -24,6 +24,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "networkx>=3.6.0",
     "ladybug>=0.16.0",
+    "epistemic-graph>=0.1.0",
     "numpy",
     "scipy",
     "cryptography>=48.0.0",
@@ -116,7 +117,8 @@ falkordb = [
 owl = [
     "owlready2>=0.46",
     "rdflib>=7.0.0",
-    "pyshacl>=0.29.0"
+    "pyshacl>=0.29.0",
+    "pyoxigraph>=0.3.22"
 ]
 stardog = [
     "agent-utilities[owl]",
@@ -196,6 +198,7 @@ all = [
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
+mcp-multiplexer = "agent_utilities.mcp.multiplexer:main"
 
 [project.entry-points."agent_utilities.messaging"]
 discord = "agent_utilities.messaging.backends.discord:DiscordBackend"
@@ -220,7 +223,7 @@ nextcloud = "agent_utilities.messaging.backends.nextcloud:NextcloudTalkBackend"
 include-package-data = true
 
 [tool.setuptools.package-data]
-agent_utilities = ["agent_data/**", "prompts/*.json"]
+agent_utilities = ["agent_data/**", "prompts/*.json", "**/*.ttl", "**/*.owl", "py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["."]

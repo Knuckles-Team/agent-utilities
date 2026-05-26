@@ -16,7 +16,11 @@ from typing import Any
 
 from pydantic_ai import Agent
 from pydantic_graph import End
-from pydantic_graph.beta import StepContext
+
+try:
+    from pydantic_graph.step import StepContext
+except ImportError:
+    from pydantic_graph.beta import StepContext
 
 from agent_utilities.core.config import config
 
@@ -405,25 +409,26 @@ async def router_step(
         # CONCEPT:KG-2.1 — Reward-Driven Routing Optimization
         # Leverage existing ACO pheromone trails (hidden value-add) to filter out low-performing adaptive_agent_router
         try:
-            from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
+            if deps.knowledge_engine:
+                from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
-            memory_retriever = MemoryRetriever(deps.knowledge_engine)
-            current = memory_retriever.get_current()
-            if current and current.pheromone_trails and relevant:
-                optimized_relevant = []
-                for a in relevant:
-                    trails = current.pheromone_trails.get(a.name, {})
-                    if trails:
-                        avg_affinity = sum(trails.values()) / len(trails)
-                        if (
-                            avg_affinity < 0.1
-                        ):  # Downweight historically poor performers
-                            logger.info(
-                                f"Router: Reward-Driven Optimization — Dropping '{a.name}' due to low historical affinity ({avg_affinity:.2f})"
-                            )
-                            continue
-                    optimized_relevant.append(a)
-                relevant = optimized_relevant
+                memory_retriever = MemoryRetriever(deps.knowledge_engine)
+                current = memory_retriever.get_current()
+                if current and current.pheromone_trails and relevant:
+                    optimized_relevant = []
+                    for a in relevant:
+                        trails = current.pheromone_trails.get(a.name, {})
+                        if trails:
+                            avg_affinity = sum(trails.values()) / len(trails)
+                            if (
+                                avg_affinity < 0.1
+                            ):  # Downweight historically poor performers
+                                logger.info(
+                                    f"Router: Reward-Driven Optimization — Dropping '{a.name}' due to low historical affinity ({avg_affinity:.2f})"
+                                )
+                                continue
+                        optimized_relevant.append(a)
+                    relevant = optimized_relevant
         except Exception as e:
             logger.debug(f"Reward-driven routing optimization failed: {e}")
 
@@ -544,8 +549,8 @@ async def router_step(
                     output_type=GraphPlan,
                     system_prompt="Parse the following text into a valid GraphPlan JSON structure.",
                 )
-                res = await router_agent.run(f"Text to parse:\n{rlm_result}")
-                plan_output = res.output
+                parse_res = await router_agent.run(f"Text to parse:\n{rlm_result}")
+                plan_output = parse_res.output
         else:
             # CONCEPT:KG-2.1 — Adaptive Model Routing (Planner Path)
             # CONCEPT:AHE-3.4 — KG-Native Agentic Task Detection
@@ -1155,6 +1160,8 @@ async def expert_executor_step(
 
             # CORE ARCHITECTURE STEPS (Preserved for pipeline stability)
             # Lazy imports to avoid circular dependencies between submodules
+            from typing import Any, cast
+
             from .hierarchical_planner import (
                 architect_step,
                 planner_step,
@@ -1163,19 +1170,19 @@ async def expert_executor_step(
             from .verification import verifier_step
 
             if node_id == "researcher":
-                await researcher_step(ctx)
+                await researcher_step(cast(Any, ctx))
             elif node_id == "architect":
-                await architect_step(ctx)
+                await architect_step(cast(Any, ctx))
             elif node_id == "planner":
-                await planner_step(ctx)
+                await planner_step(cast(Any, ctx))
             elif node_id == "verifier":
-                await verifier_step(ctx)
+                await verifier_step(cast(Any, ctx))
             elif node_id == "mcp_server":
                 domain = ""
                 input_data = step.input_data
                 if isinstance(input_data, dict):
                     domain = input_data.get("domain", "")
-                await _execute_domain_logic(ctx, domain)
+                await _execute_domain_logic(cast(Any, ctx), domain)
 
             # DYNAMIC GRAPH-NATIVE AGENT SPAWNING
             else:
@@ -1363,7 +1370,7 @@ async def mcp_server_step(
         or 'error_recovery'.
 
     """
-    server_name = ctx.input
+    server_name = ctx.inputs
     query = ctx.state.query
 
     logger.info(f"Executing MCP Server Step: {server_name} for query: {query}")
@@ -1421,7 +1428,7 @@ async def mcp_server_step(
                         ctx.deps.event_queue,
                         "agent_node_delta",
                         content=chunk,
-                        node=ctx.node.name,
+                        node="mcp_server_execution",
                     )
                 output = await stream.get_output()
             usage = stream.usage()
@@ -1454,14 +1461,14 @@ async def mcp_server_step(
                                     args=part.args,
                                 )
                     elif isinstance(msg, ModelRequest):
-                        for part in msg.parts:
-                            if isinstance(part, ToolReturnPart):
+                        for req_part in msg.parts:
+                            if isinstance(req_part, ToolReturnPart):
                                 emit_graph_event(
                                     ctx.deps.event_queue,
                                     event_type="tool_result",
                                     agent=server_name,
-                                    tool=part.tool_name,
-                                    result=str(part.content)[:500],
+                                    tool=req_part.tool_name,
+                                    result=str(req_part.content)[:500],
                                 )
 
         emit_graph_event(

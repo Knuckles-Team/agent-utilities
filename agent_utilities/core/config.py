@@ -72,14 +72,25 @@ def get_env_file() -> str | None:
     return ".env"
 
 
-try:
-    from dotenv import load_dotenv
+_env_loaded = False
 
-    _env_file = get_env_file()
-    if _env_file:
-        load_dotenv(_env_file)
-except ImportError:
-    pass
+
+def _ensure_env_loaded():
+    global _env_loaded
+    if _env_loaded:
+        return
+    _env_loaded = True
+
+    try:
+        from dotenv import load_dotenv
+
+        _env_file = get_env_file()
+        if _env_file:
+            load_dotenv(_env_file)
+    except ImportError:
+        pass
+
+    _load_xdg_json_config()
 
 
 def _load_xdg_json_config():
@@ -144,7 +155,7 @@ class EmbeddingModelConfig(BaseModel):
     chunk_size: int = 768
 
 
-_load_xdg_json_config()
+# _load_xdg_json_config() is now called dynamically via _ensure_env_loaded()
 
 
 class NestedSecretsSettingsSource(PydanticBaseSettingsSource):
@@ -362,6 +373,14 @@ class AgentConfig(BaseSettings):
 
     routing_strategy: str = Field(default="hybrid", alias="ROUTING_STRATEGY")
     graph_persistence_type: str = Field(default="file", alias="GRAPH_PERSISTENCE_TYPE")
+    queue_backend: str = Field(default="sqlite", alias="QUEUE_BACKEND")
+    nats_url: str | None = Field(default=None, alias="NATS_URL")
+    kafka_bootstrap_servers: str | None = Field(
+        default=None, alias="KAFKA_BOOTSTRAP_SERVERS"
+    )
+    graph_compute_backend: str = Field(
+        default="networkx", alias="GRAPH_COMPUTE_BACKEND"
+    )
     graph_persistence_path: str = Field(
         default=DEFAULT_DB_PATH, alias="GRAPH_PERSISTENCE_PATH"
     )
@@ -381,6 +400,8 @@ class AgentConfig(BaseSettings):
         default=True, alias="KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
     )
     """Enable or disable background task workers for the Knowledge Graph pipeline."""
+    enable_sdd_watcher: bool = Field(default=True, alias="ENABLE_SDD_WATCHER")
+    """Enable or disable the background plan/task watcher thread in the KG MCP server."""
     model_registry_path: str | None = Field(default=None, alias="MODEL_REGISTRY_PATH")
     """Path to a YAML or JSON file defining the model registry."""
     graph_direct_execution: bool = Field(default=True, alias="GRAPH_DIRECT_EXECUTION")
@@ -497,176 +518,176 @@ class AgentConfig(BaseSettings):
     )
     """Path to local specialist registry directory (CONCEPT:OS-5.2)."""
 
-    # --- Native Messaging Backend (CONCEPT:ECO-4.5) ---
+    # --- Native Messaging Backend (CONCEPT:ECO-4.0) ---
 
     messaging_enabled_backends: list[str] = Field(
         default_factory=list, alias="MESSAGING_ENABLED_BACKENDS"
     )
-    """List of messaging backend IDs to auto-connect on startup (CONCEPT:ECO-4.5).
+    """List of messaging backend IDs to auto-connect on startup (CONCEPT:ECO-4.0).
     Example: ["discord", "slack", "telegram"]."""
 
     messaging_kg_ingest: bool = Field(default=True, alias="MESSAGING_KG_INGEST")
-    """Enable automatic Knowledge Graph ingestion for all inbound/outbound messages (CONCEPT:ECO-4.5)."""
+    """Enable automatic Knowledge Graph ingestion for all inbound/outbound messages (CONCEPT:ECO-4.0)."""
 
     messaging_kg_memory_type: str = Field(
         default="episodic", alias="MESSAGING_KG_MEMORY_TYPE"
     )
-    """Default KG memory tier for inbound messages: 'episodic', 'semantic', or 'procedural' (CONCEPT:ECO-4.5)."""
+    """Default KG memory tier for inbound messages: 'episodic', 'semantic', or 'procedural' (CONCEPT:ECO-4.0)."""
 
     messaging_route_to_planner: bool = Field(
         default=True, alias="MESSAGING_ROUTE_TO_PLANNER"
     )
-    """Route inbound messaging events to the Planner Graph Agent for orchestration (CONCEPT:ECO-4.5)."""
+    """Route inbound messaging events to the Planner Graph Agent for orchestration (CONCEPT:ECO-4.0)."""
 
     # Per-platform tokens (read from config.json or env vars)
     messaging_discord_token: str | None = Field(
         default=None, alias="MESSAGING_DISCORD_TOKEN"
     )
-    """Discord bot token. Also reads from DISCORD_BOT_TOKEN (CONCEPT:ECO-4.5)."""
+    """Discord bot token. Also reads from DISCORD_BOT_TOKEN (CONCEPT:ECO-4.0)."""
 
     messaging_slack_token: str | None = Field(
         default=None, alias="MESSAGING_SLACK_TOKEN"
     )
-    """Slack bot token (xoxb-...). Also reads from SLACK_BOT_TOKEN (CONCEPT:ECO-4.5)."""
+    """Slack bot token (xoxb-...). Also reads from SLACK_BOT_TOKEN (CONCEPT:ECO-4.0)."""
 
     messaging_slack_app_token: str | None = Field(
         default=None, alias="MESSAGING_SLACK_APP_TOKEN"
     )
-    """Slack app-level token (xapp-...) for Socket Mode (CONCEPT:ECO-4.5)."""
+    """Slack app-level token (xapp-...) for Socket Mode (CONCEPT:ECO-4.0)."""
 
     messaging_telegram_token: str | None = Field(
         default=None, alias="MESSAGING_TELEGRAM_TOKEN"
     )
-    """Telegram bot token. Also reads from TELEGRAM_BOT_TOKEN (CONCEPT:ECO-4.5)."""
+    """Telegram bot token. Also reads from TELEGRAM_BOT_TOKEN (CONCEPT:ECO-4.0)."""
 
     messaging_whatsapp_token: str | None = Field(
         default=None, alias="MESSAGING_WHATSAPP_TOKEN"
     )
-    """WhatsApp API token. Also reads from WHATSAPP_TOKEN (CONCEPT:ECO-4.5)."""
+    """WhatsApp API token. Also reads from WHATSAPP_TOKEN (CONCEPT:ECO-4.0)."""
 
     messaging_whatsapp_phone_number_id: str | None = Field(
         default=None, alias="MESSAGING_WHATSAPP_PHONE_NUMBER_ID"
     )
-    """WhatsApp Business API phone number ID (CONCEPT:ECO-4.5)."""
+    """WhatsApp Business API phone number ID (CONCEPT:ECO-4.0)."""
 
     messaging_whatsapp_use_business_api: bool = Field(
         default=False, alias="MESSAGING_WHATSAPP_USE_BUSINESS_API"
     )
-    """Use official WhatsApp Business API (True) or neonize bridge (False) (CONCEPT:ECO-4.5)."""
+    """Use official WhatsApp Business API (True) or neonize bridge (False) (CONCEPT:ECO-4.0)."""
 
     messaging_teams_app_id: str | None = Field(
         default=None, alias="MESSAGING_TEAMS_APP_ID"
     )
-    """Microsoft Teams Bot Framework app ID (CONCEPT:ECO-4.5)."""
+    """Microsoft Teams Bot Framework app ID (CONCEPT:ECO-4.0)."""
 
     messaging_teams_app_secret: str | None = Field(
         default=None, alias="MESSAGING_TEAMS_APP_SECRET"
     )
-    """Microsoft Teams Bot Framework app password (CONCEPT:ECO-4.5)."""
+    """Microsoft Teams Bot Framework app password (CONCEPT:ECO-4.0)."""
 
     messaging_googlechat_service_account: str | None = Field(
         default=None, alias="MESSAGING_GOOGLECHAT_TOKEN"
     )
-    """Path to Google Chat service account JSON file (CONCEPT:ECO-4.5)."""
+    """Path to Google Chat service account JSON file (CONCEPT:ECO-4.0)."""
 
     messaging_googlemeet_service_account: str | None = Field(
         default=None, alias="MESSAGING_GOOGLEMEET_TOKEN"
     )
-    """Path to Google Meet service account JSON file (CONCEPT:ECO-4.5)."""
+    """Path to Google Meet service account JSON file (CONCEPT:ECO-4.0)."""
 
     messaging_mattermost_token: str | None = Field(
         default=None, alias="MESSAGING_MATTERMOST_TOKEN"
     )
-    """Mattermost personal access token (CONCEPT:ECO-4.5)."""
+    """Mattermost personal access token (CONCEPT:ECO-4.0)."""
 
     messaging_mattermost_url: str | None = Field(
         default=None, alias="MESSAGING_MATTERMOST_URL"
     )
-    """Mattermost server URL (CONCEPT:ECO-4.5)."""
+    """Mattermost server URL (CONCEPT:ECO-4.0)."""
 
     messaging_matrix_token: str | None = Field(
         default=None, alias="MESSAGING_MATRIX_TOKEN"
     )
-    """Matrix access token (CONCEPT:ECO-4.5)."""
+    """Matrix access token (CONCEPT:ECO-4.0)."""
 
     messaging_matrix_homeserver: str | None = Field(
         default=None, alias="MESSAGING_MATRIX_HOMESERVER"
     )
-    """Matrix homeserver URL (CONCEPT:ECO-4.5)."""
+    """Matrix homeserver URL (CONCEPT:ECO-4.0)."""
 
     messaging_matrix_user_id: str | None = Field(
         default=None, alias="MESSAGING_MATRIX_USER_ID"
     )
-    """Matrix user ID (e.g. @bot:matrix.org) (CONCEPT:ECO-4.5)."""
+    """Matrix user ID (e.g. @bot:matrix.org) (CONCEPT:ECO-4.0)."""
 
     messaging_irc_server: str | None = Field(default=None, alias="MESSAGING_IRC_SERVER")
-    """IRC server hostname (CONCEPT:ECO-4.5)."""
+    """IRC server hostname (CONCEPT:ECO-4.0)."""
 
     messaging_irc_port: int = Field(default=6667, alias="MESSAGING_IRC_PORT")
-    """IRC server port (CONCEPT:ECO-4.5)."""
+    """IRC server port (CONCEPT:ECO-4.0)."""
 
     messaging_irc_nickname: str = Field(
         default="agent_bot", alias="MESSAGING_IRC_NICKNAME"
     )
-    """IRC nickname (CONCEPT:ECO-4.5)."""
+    """IRC nickname (CONCEPT:ECO-4.0)."""
 
     messaging_irc_channels: list[str] = Field(
         default_factory=list, alias="MESSAGING_IRC_CHANNELS"
     )
-    """IRC channels to auto-join (CONCEPT:ECO-4.5)."""
+    """IRC channels to auto-join (CONCEPT:ECO-4.0)."""
 
     messaging_signal_phone: str | None = Field(
         default=None, alias="MESSAGING_SIGNAL_TOKEN"
     )
-    """Signal phone number for semaphore-bot (CONCEPT:ECO-4.5)."""
+    """Signal phone number for semaphore-bot (CONCEPT:ECO-4.0)."""
 
     messaging_line_token: str | None = Field(default=None, alias="MESSAGING_LINE_TOKEN")
-    """LINE channel access token (CONCEPT:ECO-4.5)."""
+    """LINE channel access token (CONCEPT:ECO-4.0)."""
 
     messaging_twitch_token: str | None = Field(
         default=None, alias="MESSAGING_TWITCH_TOKEN"
     )
-    """Twitch OAuth token (CONCEPT:ECO-4.5)."""
+    """Twitch OAuth token (CONCEPT:ECO-4.0)."""
 
     messaging_twitch_channels: list[str] = Field(
         default_factory=list, alias="MESSAGING_TWITCH_CHANNELS"
     )
-    """Twitch channels to join (CONCEPT:ECO-4.5)."""
+    """Twitch channels to join (CONCEPT:ECO-4.0)."""
 
     messaging_synology_webhook_url: str | None = Field(
         default=None, alias="MESSAGING_SYNOLOGY_WEBHOOK_URL"
     )
-    """Synology Chat incoming webhook URL (CONCEPT:ECO-4.5)."""
+    """Synology Chat incoming webhook URL (CONCEPT:ECO-4.0)."""
 
     messaging_twilio_account_sid: str | None = Field(
         default=None, alias="MESSAGING_VOICECALL_APP_ID"
     )
-    """Twilio account SID for voice/SMS (CONCEPT:ECO-4.5)."""
+    """Twilio account SID for voice/SMS (CONCEPT:ECO-4.0)."""
 
     messaging_twilio_auth_token: str | None = Field(
         default=None, alias="MESSAGING_VOICECALL_TOKEN"
     )
-    """Twilio auth token for voice/SMS (CONCEPT:ECO-4.5)."""
+    """Twilio auth token for voice/SMS (CONCEPT:ECO-4.0)."""
 
     messaging_twilio_from_number: str | None = Field(
         default=None, alias="MESSAGING_VOICECALL_FROM_NUMBER"
     )
-    """Twilio 'from' phone number (CONCEPT:ECO-4.5)."""
+    """Twilio 'from' phone number (CONCEPT:ECO-4.0)."""
 
     messaging_nextcloud_url: str | None = Field(
         default=None, alias="MESSAGING_NEXTCLOUD_URL"
     )
-    """Nextcloud server URL (CONCEPT:ECO-4.5)."""
+    """Nextcloud server URL (CONCEPT:ECO-4.0)."""
 
     messaging_nextcloud_token: str | None = Field(
         default=None, alias="MESSAGING_NEXTCLOUD_TOKEN"
     )
-    """Nextcloud app token (CONCEPT:ECO-4.5)."""
+    """Nextcloud app token (CONCEPT:ECO-4.0)."""
 
     messaging_nextcloud_user: str | None = Field(
         default=None, alias="MESSAGING_NEXTCLOUD_APP_ID"
     )
-    """Nextcloud username (CONCEPT:ECO-4.5)."""
+    """Nextcloud username (CONCEPT:ECO-4.0)."""
 
     # --- Parallel Engine (CONCEPT:ORCH-1.25) ---
 
@@ -800,217 +821,243 @@ class AgentConfig(BaseSettings):
     )
 
 
-config = AgentConfig()
+# --- Lazy Configuration Management ---
+
+_LAZY_CACHE = {}
 
 
-DEFAULT_AGENT_NAME = config.default_agent_name
-DEFAULT_AGENT_DESCRIPTION = config.agent_description
-DEFAULT_AGENT_SYSTEM_PROMPT = config.agent_system_prompt
-DEFAULT_HOST = config.host
-DEFAULT_PORT = config.port
-DEFAULT_DEBUG = config.debug
-# --- Derive DEFAULT_LLM_* from chat_models / embedding_models registry ---
-_default_chat = config.default_chat_model
-_lite_chat = config.lite_chat_model
-_super_chat = config.super_chat_model
-_default_embed = config.default_embedding_model
+def _init_lazy_config():
+    if "_config" in _LAZY_CACHE:
+        return
 
-DEFAULT_LLM_PROVIDER = (
-    (_default_chat.provider if _default_chat else None)
-    or os.getenv("PROVIDER")
-    or "openai"
-)
-DEFAULT_LLM_MODEL_ID = (
-    (_default_chat.id if _default_chat else None)
-    or os.getenv("MODEL_ID")
-    or "qwen/qwen3.5-9b"
-)
-DEFAULT_LLM_BASE_URL = _default_chat.base_url if _default_chat else None
-DEFAULT_LLM_API_KEY = _default_chat.api_key if _default_chat else None
+    _ensure_env_loaded()
 
-DEFAULT_LITE_LLM_PROVIDER = (
-    _lite_chat.provider if _lite_chat else None
-) or DEFAULT_LLM_PROVIDER
-DEFAULT_LITE_LLM_MODEL_ID = (
-    _lite_chat.id if _lite_chat else None
-) or DEFAULT_LLM_MODEL_ID
-DEFAULT_LITE_LLM_BASE_URL = (
-    _lite_chat.base_url if _lite_chat else None
-) or DEFAULT_LLM_BASE_URL
-DEFAULT_LITE_LLM_API_KEY = (
-    _lite_chat.api_key if _lite_chat else None
-) or DEFAULT_LLM_API_KEY
+    cfg = AgentConfig()
+    _LAZY_CACHE["_config"] = cfg
+    _LAZY_CACHE["config"] = cfg
 
-DEFAULT_SUPER_LLM_PROVIDER = (
-    _super_chat.provider if _super_chat else None
-) or DEFAULT_LLM_PROVIDER
-DEFAULT_SUPER_LLM_MODEL_ID = (
-    _super_chat.id if _super_chat else None
-) or DEFAULT_LLM_MODEL_ID
-DEFAULT_SUPER_LLM_BASE_URL = (
-    _super_chat.base_url if _super_chat else None
-) or DEFAULT_LLM_BASE_URL
-DEFAULT_SUPER_LLM_API_KEY = (
-    _super_chat.api_key if _super_chat else None
-) or DEFAULT_LLM_API_KEY
+    _LAZY_CACHE["DEFAULT_AGENT_NAME"] = cfg.default_agent_name
+    _LAZY_CACHE["DEFAULT_AGENT_DESCRIPTION"] = cfg.agent_description
+    _LAZY_CACHE["DEFAULT_AGENT_SYSTEM_PROMPT"] = cfg.agent_system_prompt
+    _LAZY_CACHE["DEFAULT_DEBUG"] = cfg.debug
 
-DEFAULT_EMBEDDING_PROVIDER = (
-    _default_embed.provider if _default_embed else None
-) or DEFAULT_LLM_PROVIDER
-DEFAULT_EMBEDDING_MODEL_ID = (
-    _default_embed.id if _default_embed else None
-) or "text-embedding-nomic-embed-text-v2-moe"
-DEFAULT_EMBEDDING_BASE_URL = (
-    _default_embed.base_url if _default_embed else None
-) or DEFAULT_LLM_BASE_URL
-DEFAULT_EMBEDDING_API_KEY = (
-    _default_embed.api_key if _default_embed else None
-) or DEFAULT_LLM_API_KEY
-DEFAULT_MCP_URL = config.mcp_url
+    # --- Derive DEFAULT_LLM_* from chat_models / embedding_models registry ---
+    _default_chat = cfg.default_chat_model
+    _lite_chat = cfg.lite_chat_model
+    _super_chat = cfg.super_chat_model
+    _default_embed = cfg.default_embedding_model
 
+    _LAZY_CACHE["DEFAULT_LLM_PROVIDER"] = (
+        (_default_chat.provider if _default_chat else None)
+        or os.getenv("PROVIDER")
+        or "openai"
+    )
+    _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"] = (
+        (_default_chat.id if _default_chat else None)
+        or os.getenv("MODEL_ID")
+        or "qwen/qwen3.5-9b"
+    )
+    _LAZY_CACHE["DEFAULT_LLM_BASE_URL"] = (
+        _default_chat.base_url if _default_chat else None
+    )
+    _LAZY_CACHE["DEFAULT_LLM_API_KEY"] = (
+        _default_chat.api_key if _default_chat else None
+    )
 
-DEFAULT_MCP_CONFIG = config.mcp_config
-DEFAULT_CUSTOM_SKILLS_DIRECTORY = config.custom_skills_directory
-DEFAULT_SKILL_TYPES = config.skill_types
-DEFAULT_ENABLE_WEB_UI = config.enable_web_ui
-DEFAULT_ENABLE_TERMINAL_UI = config.enable_terminal_ui
-DEFAULT_ENABLE_WEB_LOGS = config.enable_web_logs
-DEFAULT_ENABLE_OTEL = config.enable_otel
-DEFAULT_ENABLE_ACP = config.enable_acp
-DEFAULT_ACP_PORT = config.acp_port
-DEFAULT_ACP_SESSION_ROOT = config.acp_session_root
-DEFAULT_TERMINAL_AGENT = config.default_terminal_agent
+    _LAZY_CACHE["DEFAULT_LITE_LLM_PROVIDER"] = (
+        _lite_chat.provider if _lite_chat else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
+    _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"] = (
+        _lite_chat.id if _lite_chat else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"]
+    _LAZY_CACHE["DEFAULT_LITE_LLM_BASE_URL"] = (
+        _lite_chat.base_url if _lite_chat else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
+    _LAZY_CACHE["DEFAULT_LITE_LLM_API_KEY"] = (
+        _lite_chat.api_key if _lite_chat else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
 
-if not config.enable_otel:
-    os.environ["OTEL_SDK_DISABLED"] = "true"
-else:
-    os.environ.pop("OTEL_SDK_DISABLED", None)
+    _LAZY_CACHE["DEFAULT_SUPER_LLM_PROVIDER"] = (
+        _super_chat.provider if _super_chat else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
+    _LAZY_CACHE["DEFAULT_SUPER_LLM_MODEL_ID"] = (
+        _super_chat.id if _super_chat else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_MODEL_ID"]
+    _LAZY_CACHE["DEFAULT_SUPER_LLM_BASE_URL"] = (
+        _super_chat.base_url if _super_chat else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
+    _LAZY_CACHE["DEFAULT_SUPER_LLM_API_KEY"] = (
+        _super_chat.api_key if _super_chat else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
 
-DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT = config.otel_exporter_otlp_endpoint
-DEFAULT_OTEL_EXPORTER_OTLP_HEADERS = config.otel_exporter_otlp_headers
-DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY = config.otel_exporter_otlp_public_key
-DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY = config.otel_exporter_otlp_secret_key
-DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL = config.otel_exporter_otlp_protocol
+    _LAZY_CACHE["DEFAULT_EMBEDDING_PROVIDER"] = (
+        _default_embed.provider if _default_embed else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_PROVIDER"]
+    _LAZY_CACHE["DEFAULT_EMBEDDING_MODEL_ID"] = (
+        _default_embed.id if _default_embed else None
+    ) or "text-embedding-nomic-embed-text-v2-moe"
+    _LAZY_CACHE["DEFAULT_EMBEDDING_BASE_URL"] = (
+        _default_embed.base_url if _default_embed else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_BASE_URL"]
+    _LAZY_CACHE["DEFAULT_EMBEDDING_API_KEY"] = (
+        _default_embed.api_key if _default_embed else None
+    ) or _LAZY_CACHE["DEFAULT_LLM_API_KEY"]
+    _LAZY_CACHE["DEFAULT_MCP_URL"] = cfg.mcp_url
 
-DEFAULT_LANGFUSE_PUBLIC_KEY = config.langfuse_public_key
-DEFAULT_LANGFUSE_SECRET_KEY = config.langfuse_secret_key
-DEFAULT_LANGFUSE_HOST = config.langfuse_host
-DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD = config.langfuse_dataset_capture_threshold
+    _LAZY_CACHE["DEFAULT_MCP_CONFIG"] = cfg.mcp_config
+    _LAZY_CACHE["DEFAULT_CUSTOM_SKILLS_DIRECTORY"] = cfg.custom_skills_directory
+    _LAZY_CACHE["DEFAULT_SKILL_TYPES"] = cfg.skill_types
+    _LAZY_CACHE["DEFAULT_ENABLE_WEB_UI"] = cfg.enable_web_ui
+    _LAZY_CACHE["DEFAULT_ENABLE_TERMINAL_UI"] = cfg.enable_terminal_ui
+    _LAZY_CACHE["DEFAULT_ENABLE_WEB_LOGS"] = cfg.enable_web_logs
+    _LAZY_CACHE["DEFAULT_ENABLE_OTEL"] = cfg.enable_otel
+    _LAZY_CACHE["DEFAULT_ENABLE_ACP"] = cfg.enable_acp
+    _LAZY_CACHE["DEFAULT_ACP_PORT"] = cfg.acp_port
+    _LAZY_CACHE["DEFAULT_ACP_SESSION_ROOT"] = cfg.acp_session_root
+    _LAZY_CACHE["DEFAULT_TERMINAL_AGENT"] = cfg.default_terminal_agent
 
-DEFAULT_A2A_BROKER = config.a2a_broker
-DEFAULT_A2A_BROKER_URL = config.a2a_broker_url
-DEFAULT_A2A_STORAGE = config.a2a_storage
-DEFAULT_A2A_STORAGE_URL = config.a2a_storage_url
-DEFAULT_A2A_CONFIG = config.a2a_config
-DEFAULT_A2A_REFRESH_INTERVAL = config.a2a_refresh_interval
+    if not cfg.enable_otel:
+        os.environ["OTEL_SDK_DISABLED"] = "true"
+    else:
+        os.environ.pop("OTEL_SDK_DISABLED", None)
 
-DEFAULT_MAX_TOKENS = config.max_tokens
-DEFAULT_TEMPERATURE = config.temperature
-DEFAULT_TOP_P = config.top_p
-DEFAULT_TIMEOUT = config.timeout
-DEFAULT_TOOL_TIMEOUT = config.tool_timeout
-DEFAULT_PARALLEL_TOOL_CALLS = config.parallel_tool_calls
-DEFAULT_SEED = config.seed
-DEFAULT_PRESENCE_PENALTY = config.presence_penalty
-DEFAULT_FREQUENCY_PENALTY = config.frequency_penalty
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_HEADERS"] = cfg.otel_exporter_otlp_headers
+    _LAZY_CACHE[
+        "DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"
+    ] = cfg.otel_exporter_otlp_public_key
+    _LAZY_CACHE[
+        "DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"
+    ] = cfg.otel_exporter_otlp_secret_key
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
+    _LAZY_CACHE["DEFAULT_LANGFUSE_PUBLIC_KEY"] = cfg.langfuse_public_key
+    _LAZY_CACHE["DEFAULT_LANGFUSE_SECRET_KEY"] = cfg.langfuse_secret_key
+    _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
+    _LAZY_CACHE[
+        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
+    ] = cfg.langfuse_dataset_capture_threshold
 
-DEFAULT_LOGIT_BIAS = (
-    config.logit_bias
-    if config.logit_bias is not None
-    else to_dict(os.getenv("LOGIT_BIAS"))
-)
-DEFAULT_STOP_SEQUENCES = (
-    config.stop_sequences
-    if config.stop_sequences is not None
-    else to_list(os.getenv("STOP_SEQUENCES"))
-)
-DEFAULT_EXTRA_HEADERS = (
-    config.extra_headers
-    if config.extra_headers is not None
-    else to_dict(os.getenv("EXTRA_HEADERS"))
-)
-DEFAULT_EXTRA_BODY = (
-    config.extra_body
-    if config.extra_body is not None
-    else to_dict(os.getenv("EXTRA_BODY"))
-)
+    _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
+    _LAZY_CACHE["DEFAULT_A2A_BROKER_URL"] = cfg.a2a_broker_url
+    _LAZY_CACHE["DEFAULT_A2A_STORAGE"] = cfg.a2a_storage
+    _LAZY_CACHE["DEFAULT_A2A_STORAGE_URL"] = cfg.a2a_storage_url
+    _LAZY_CACHE["DEFAULT_A2A_CONFIG"] = cfg.a2a_config
+    _LAZY_CACHE["DEFAULT_A2A_REFRESH_INTERVAL"] = cfg.a2a_refresh_interval
 
-DEFAULT_MIN_CONFIDENCE = config.min_confidence
-DEFAULT_VALIDATION_MODE = (
-    config.validation_mode
-    or to_boolean(os.getenv("VALIDATION_MODE", "False"))
-    or to_boolean(os.getenv("AGENT_UTILITIES_TESTING", "False"))
-)
-DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
-DEFAULT_APPROVAL_TIMEOUT = config.approval_timeout
-DEFAULT_MAX_CRON_LOG_ENTRIES = 50
+    _LAZY_CACHE["DEFAULT_MAX_TOKENS"] = cfg.max_tokens
+    _LAZY_CACHE["DEFAULT_TEMPERATURE"] = cfg.temperature
+    _LAZY_CACHE["DEFAULT_TOP_P"] = cfg.top_p
+    _LAZY_CACHE["DEFAULT_TIMEOUT"] = cfg.timeout
+    _LAZY_CACHE["DEFAULT_TOOL_TIMEOUT"] = cfg.tool_timeout
+    _LAZY_CACHE["DEFAULT_PARALLEL_TOOL_CALLS"] = cfg.parallel_tool_calls
+    _LAZY_CACHE["DEFAULT_SEED"] = cfg.seed
+    _LAZY_CACHE["DEFAULT_PRESENCE_PENALTY"] = cfg.presence_penalty
+    _LAZY_CACHE["DEFAULT_FREQUENCY_PENALTY"] = cfg.frequency_penalty
 
+    _LAZY_CACHE["DEFAULT_LOGIT_BIAS"] = (
+        cfg.logit_bias
+        if cfg.logit_bias is not None
+        else to_dict(os.getenv("LOGIT_BIAS"))
+    )
+    _LAZY_CACHE["DEFAULT_STOP_SEQUENCES"] = (
+        cfg.stop_sequences
+        if cfg.stop_sequences is not None
+        else to_list(os.getenv("STOP_SEQUENCES"))
+    )
+    _LAZY_CACHE["DEFAULT_EXTRA_HEADERS"] = (
+        cfg.extra_headers
+        if cfg.extra_headers is not None
+        else to_dict(os.getenv("EXTRA_HEADERS"))
+    )
+    _LAZY_CACHE["DEFAULT_EXTRA_BODY"] = (
+        cfg.extra_body
+        if cfg.extra_body is not None
+        else to_dict(os.getenv("EXTRA_BODY"))
+    )
 
-TOOL_GUARD_MODE = config.tool_guard_mode
-SENSITIVE_TOOL_PATTERNS = config.sensitive_tool_patterns
+    _LAZY_CACHE["DEFAULT_MIN_CONFIDENCE"] = cfg.min_confidence
+    _LAZY_CACHE["DEFAULT_VALIDATION_MODE"] = (
+        cfg.validation_mode
+        or to_boolean(os.getenv("VALIDATION_MODE", "False"))
+        or to_boolean(os.getenv("AGENT_UTILITIES_TESTING", "False"))
+    )
+    _LAZY_CACHE["DEFAULT_SSL_VERIFY"] = GET_DEFAULT_SSL_VERIFY()
+    _LAZY_CACHE["DEFAULT_APPROVAL_TIMEOUT"] = cfg.approval_timeout
+    _LAZY_CACHE["DEFAULT_MAX_CRON_LOG_ENTRIES"] = 50
 
-# Router/KG models: find models with can_route/can_kg flags, else fallback to lite
-_router_model = next((m for m in config.chat_models if m.can_route), _lite_chat)
-_kg_model = next((m for m in config.chat_models if m.can_kg), _lite_chat)
-DEFAULT_ROUTER_MODEL = (
-    _router_model.id if _router_model else None
-) or DEFAULT_LITE_LLM_MODEL_ID
+    _LAZY_CACHE["TOOL_GUARD_MODE"] = cfg.tool_guard_mode
+    _LAZY_CACHE["SENSITIVE_TOOL_PATTERNS"] = cfg.sensitive_tool_patterns
 
-DEFAULT_GRAPH_PERSISTENCE_TYPE = config.graph_persistence_type
-DEFAULT_GRAPH_PERSISTENCE_PATH = config.graph_persistence_path
-DEFAULT_ENABLE_LLM_VALIDATION = config.enable_llm_validation
-DEFAULT_ROUTING_STRATEGY = config.routing_strategy
-DEFAULT_GRAPH_ROUTER_TIMEOUT = config.graph_router_timeout
-DEFAULT_GRAPH_VERIFIER_TIMEOUT = config.graph_verifier_timeout
-DEFAULT_ENABLE_KG_EMBEDDINGS = config.enable_kg_embeddings
-DEFAULT_KG_BACKUPS = config.kg_backups
-DEFAULT_KG_INGESTION_WORKERS = config.kg_ingestion_workers
-DEFAULT_KG_LLM_CONCURRENCY = config.kg_llm_concurrency
-DEFAULT_KG_MODEL_ID = (_kg_model.id if _kg_model else None) or DEFAULT_LITE_LLM_MODEL_ID
-DEFAULT_KG_ANALYSIS_MAX_DEPTH = config.kg_analysis_max_depth
-DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND = config.knowledge_graph_sync_background
-DEFAULT_GRAPH_DIRECT_EXECUTION = config.graph_direct_execution
+    # Router/KG models: find models with can_route/can_kg flags, else fallback to lite
+    _router_model = next((m for m in cfg.chat_models if m.can_route), _lite_chat)
+    _kg_model = next((m for m in cfg.chat_models if m.can_kg), _lite_chat)
+    _LAZY_CACHE["DEFAULT_ROUTER_MODEL"] = (
+        _router_model.id if _router_model else None
+    ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
 
-# --- Parallel Engine Defaults (CONCEPT:ORCH-1.25) ---
-DEFAULT_MAX_PARALLEL_AGENTS = config.max_parallel_agents
-DEFAULT_PARALLEL_BATCH_SIZE = config.parallel_batch_size
-DEFAULT_SYNTHESIS_STRATEGY = config.synthesis_strategy
-DEFAULT_SYNTHESIS_RATIO = config.synthesis_ratio
-DEFAULT_AGENT_EXECUTION_TIMEOUT = config.agent_execution_timeout
-DEFAULT_CIRCUIT_BREAKER_THRESHOLD = config.circuit_breaker_threshold
-DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS = config.enable_progressive_synthesis
+    _LAZY_CACHE["DEFAULT_GRAPH_PERSISTENCE_TYPE"] = cfg.graph_persistence_type
+    _LAZY_CACHE["DEFAULT_GRAPH_PERSISTENCE_PATH"] = cfg.graph_persistence_path
+    _LAZY_CACHE["DEFAULT_ENABLE_LLM_VALIDATION"] = cfg.enable_llm_validation
+    _LAZY_CACHE["DEFAULT_ROUTING_STRATEGY"] = cfg.routing_strategy
+    _LAZY_CACHE["DEFAULT_GRAPH_ROUTER_TIMEOUT"] = cfg.graph_router_timeout
+    _LAZY_CACHE["DEFAULT_GRAPH_VERIFIER_TIMEOUT"] = cfg.graph_verifier_timeout
+    _LAZY_CACHE["DEFAULT_ENABLE_KG_EMBEDDINGS"] = cfg.enable_kg_embeddings
+    _LAZY_CACHE["DEFAULT_KG_BACKUPS"] = cfg.kg_backups
+    _LAZY_CACHE["DEFAULT_KG_INGESTION_WORKERS"] = cfg.kg_ingestion_workers
+    _LAZY_CACHE["DEFAULT_KG_LLM_CONCURRENCY"] = cfg.kg_llm_concurrency
+    _LAZY_CACHE["DEFAULT_KG_MODEL_ID"] = (
+        _kg_model.id if _kg_model else None
+    ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
+    _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
+    _LAZY_CACHE[
+        "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
+    ] = cfg.knowledge_graph_sync_background
+    _LAZY_CACHE["DEFAULT_GRAPH_DIRECT_EXECUTION"] = cfg.graph_direct_execution
 
-AGENT_API_KEY = config.agent_api_key
-ENABLE_API_AUTH = config.enable_api_auth
-MAX_UPLOAD_SIZE = config.max_upload_size
+    # --- Parallel Engine Defaults ---
+    _LAZY_CACHE["DEFAULT_MAX_PARALLEL_AGENTS"] = cfg.max_parallel_agents
+    _LAZY_CACHE["DEFAULT_PARALLEL_BATCH_SIZE"] = cfg.parallel_batch_size
+    _LAZY_CACHE["DEFAULT_SYNTHESIS_STRATEGY"] = cfg.synthesis_strategy
+    _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
+    _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
+    _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
+    _LAZY_CACHE[
+        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
+    ] = cfg.enable_progressive_synthesis
 
-SECRETS_BACKEND = config.secrets_backend
-SECRETS_SQLITE_PATH = config.secrets_sqlite_path
-SECRETS_VAULT_URL = config.secrets_vault_url
-SECRETS_VAULT_MOUNT = config.secrets_vault_mount
+    _LAZY_CACHE["AGENT_API_KEY"] = cfg.agent_api_key
+    _LAZY_CACHE["ENABLE_API_AUTH"] = cfg.enable_api_auth
+    _LAZY_CACHE["MAX_UPLOAD_SIZE"] = cfg.max_upload_size
 
-AUTH_JWT_JWKS_URI = config.auth_jwt_jwks_uri
-AUTH_JWT_ISSUER = config.auth_jwt_issuer
-AUTH_JWT_AUDIENCE = config.auth_jwt_audience
-ALLOWED_ORIGINS = config.allowed_origins
-ALLOWED_HOSTS = config.allowed_hosts
+    _LAZY_CACHE["SECRETS_BACKEND"] = cfg.secrets_backend
+    _LAZY_CACHE["SECRETS_SQLITE_PATH"] = cfg.secrets_sqlite_path
+    _LAZY_CACHE["SECRETS_VAULT_URL"] = cfg.secrets_vault_url
+    _LAZY_CACHE["SECRETS_VAULT_MOUNT"] = cfg.secrets_vault_mount
 
-# Agent OS Architecture defaults (CONCEPT:OS-5.2)
-DEFAULT_COGNITIVE_SCHEDULER_ENABLED = config.cognitive_scheduler_enabled
-DEFAULT_MAX_CONCURRENT_AGENTS = config.max_concurrent_agents
-DEFAULT_AGENT_TOKEN_QUOTA = config.agent_token_quota
-DEFAULT_PREEMPTION_THRESHOLD_PCT = config.preemption_threshold_pct
-DEFAULT_AGENT_POLICIES_PATH = config.agent_policies_path
-DEFAULT_PERMISSIONS_SIGNING_KEY = config.permissions_signing_key
-DEFAULT_SPECIALIST_REGISTRY_PATH = config.specialist_registry_path
+    _LAZY_CACHE["AUTH_JWT_JWKS_URI"] = cfg.auth_jwt_jwks_uri
+    _LAZY_CACHE["AUTH_JWT_ISSUER"] = cfg.auth_jwt_issuer
+    _LAZY_CACHE["AUTH_JWT_AUDIENCE"] = cfg.auth_jwt_audience
+    _LAZY_CACHE["ALLOWED_ORIGINS"] = cfg.allowed_origins
+    _LAZY_CACHE["ALLOWED_HOSTS"] = cfg.allowed_hosts
 
-# Innovation Framework defaults (CONCEPT:OS-5.2 through CONCEPT:OS-5.2)
-DEFAULT_HOMEOSTATIC_DOWNGRADE = config.homeostatic_downgrade_enabled
-DEFAULT_ADVERSARIAL_VERIFICATION = config.adversarial_verification
-DEFAULT_MAINTENANCE_TOKEN_BUDGET = config.maintenance_token_budget
-DEFAULT_MAINTENANCE_PRIORITY = config.maintenance_priority
-DEFAULT_WATCHDOG_PATTERNS = config.watchdog_patterns
+    # Agent OS Architecture defaults
+    _LAZY_CACHE["DEFAULT_COGNITIVE_SCHEDULER_ENABLED"] = cfg.cognitive_scheduler_enabled
+    _LAZY_CACHE["DEFAULT_MAX_CONCURRENT_AGENTS"] = cfg.max_concurrent_agents
+    _LAZY_CACHE["DEFAULT_AGENT_TOKEN_QUOTA"] = cfg.agent_token_quota
+    _LAZY_CACHE["DEFAULT_PREEMPTION_THRESHOLD_PCT"] = cfg.preemption_threshold_pct
+    _LAZY_CACHE["DEFAULT_AGENT_POLICIES_PATH"] = cfg.agent_policies_path
+    _LAZY_CACHE["DEFAULT_PERMISSIONS_SIGNING_KEY"] = cfg.permissions_signing_key
+    _LAZY_CACHE["DEFAULT_SPECIALIST_REGISTRY_PATH"] = cfg.specialist_registry_path
+
+    # Innovation Framework defaults
+    _LAZY_CACHE["DEFAULT_HOMEOSTATIC_DOWNGRADE"] = cfg.homeostatic_downgrade_enabled
+    _LAZY_CACHE["DEFAULT_ADVERSARIAL_VERIFICATION"] = cfg.adversarial_verification
+    _LAZY_CACHE["DEFAULT_MAINTENANCE_TOKEN_BUDGET"] = cfg.maintenance_token_budget
+    _LAZY_CACHE["DEFAULT_MAINTENANCE_PRIORITY"] = cfg.maintenance_priority
+    _LAZY_CACHE["DEFAULT_WATCHDOG_PATTERNS"] = cfg.watchdog_patterns
+
+    _ensure_config_template()
 
 
 def _ensure_config_template():
@@ -1033,11 +1080,153 @@ def _ensure_config_template():
         try:
             cfg_dir.mkdir(parents=True, exist_ok=True)
             with open(cfg_file, "w") as f:
-                json.dump(config.model_dump(by_alias=False), f, indent=4)
+                json.dump(_LAZY_CACHE["config"].model_dump(by_alias=False), f, indent=4)
         except Exception as e:
             import logging
 
             logging.getLogger(__name__).warning(f"Failed to write config template: {e}")
 
 
-_ensure_config_template()
+def __getattr__(name: str) -> Any:
+    # Handle the decoupled HOST/PORT directly for instant resolution
+    if name == "DEFAULT_HOST":
+        return os.environ.get("HOST", "0.0.0.0")
+    if name == "DEFAULT_PORT":
+        try:
+            return int(os.environ.get("PORT", "9000"))
+        except ValueError:
+            return 9000
+
+    if name.startswith("__"):
+        raise AttributeError(name)
+
+    _init_lazy_config()
+
+    if name in _LAZY_CACHE:
+        return _LAZY_CACHE[name]
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(
+        list(globals().keys())
+        + [
+            "config",
+            "DEFAULT_AGENT_NAME",
+            "DEFAULT_AGENT_DESCRIPTION",
+            "DEFAULT_AGENT_SYSTEM_PROMPT",
+            "DEFAULT_HOST",
+            "DEFAULT_PORT",
+            "DEFAULT_DEBUG",
+            "DEFAULT_LLM_PROVIDER",
+            "DEFAULT_LLM_MODEL_ID",
+            "DEFAULT_LLM_BASE_URL",
+            "DEFAULT_LLM_API_KEY",
+            "DEFAULT_LITE_LLM_PROVIDER",
+            "DEFAULT_LITE_LLM_MODEL_ID",
+            "DEFAULT_LITE_LLM_BASE_URL",
+            "DEFAULT_LITE_LLM_API_KEY",
+            "DEFAULT_SUPER_LLM_PROVIDER",
+            "DEFAULT_SUPER_LLM_MODEL_ID",
+            "DEFAULT_SUPER_LLM_BASE_URL",
+            "DEFAULT_SUPER_LLM_API_KEY",
+            "DEFAULT_EMBEDDING_PROVIDER",
+            "DEFAULT_EMBEDDING_MODEL_ID",
+            "DEFAULT_EMBEDDING_BASE_URL",
+            "DEFAULT_EMBEDDING_API_KEY",
+            "DEFAULT_MCP_URL",
+            "DEFAULT_MCP_CONFIG",
+            "DEFAULT_CUSTOM_SKILLS_DIRECTORY",
+            "DEFAULT_SKILL_TYPES",
+            "DEFAULT_ENABLE_WEB_UI",
+            "DEFAULT_ENABLE_TERMINAL_UI",
+            "DEFAULT_ENABLE_WEB_LOGS",
+            "DEFAULT_ENABLE_OTEL",
+            "DEFAULT_ENABLE_ACP",
+            "DEFAULT_ACP_PORT",
+            "DEFAULT_ACP_SESSION_ROOT",
+            "DEFAULT_TERMINAL_AGENT",
+            "DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT",
+            "DEFAULT_OTEL_EXPORTER_OTLP_HEADERS",
+            "DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY",
+            "DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY",
+            "DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL",
+            "DEFAULT_LANGFUSE_PUBLIC_KEY",
+            "DEFAULT_LANGFUSE_SECRET_KEY",
+            "DEFAULT_LANGFUSE_HOST",
+            "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD",
+            "DEFAULT_A2A_BROKER",
+            "DEFAULT_A2A_BROKER_URL",
+            "DEFAULT_A2A_STORAGE",
+            "DEFAULT_A2A_STORAGE_URL",
+            "DEFAULT_A2A_CONFIG",
+            "DEFAULT_A2A_REFRESH_INTERVAL",
+            "DEFAULT_MAX_TOKENS",
+            "DEFAULT_TEMPERATURE",
+            "DEFAULT_TOP_P",
+            "DEFAULT_TIMEOUT",
+            "DEFAULT_TOOL_TIMEOUT",
+            "DEFAULT_PARALLEL_TOOL_CALLS",
+            "DEFAULT_SEED",
+            "DEFAULT_PRESENCE_PENALTY",
+            "DEFAULT_FREQUENCY_PENALTY",
+            "DEFAULT_LOGIT_BIAS",
+            "DEFAULT_STOP_SEQUENCES",
+            "DEFAULT_EXTRA_HEADERS",
+            "DEFAULT_EXTRA_BODY",
+            "DEFAULT_MIN_CONFIDENCE",
+            "DEFAULT_VALIDATION_MODE",
+            "DEFAULT_SSL_VERIFY",
+            "DEFAULT_APPROVAL_TIMEOUT",
+            "DEFAULT_MAX_CRON_LOG_ENTRIES",
+            "TOOL_GUARD_MODE",
+            "SENSITIVE_TOOL_PATTERNS",
+            "DEFAULT_ROUTER_MODEL",
+            "DEFAULT_GRAPH_PERSISTENCE_TYPE",
+            "DEFAULT_GRAPH_PERSISTENCE_PATH",
+            "DEFAULT_ENABLE_LLM_VALIDATION",
+            "DEFAULT_ROUTING_STRATEGY",
+            "DEFAULT_GRAPH_ROUTER_TIMEOUT",
+            "DEFAULT_GRAPH_VERIFIER_TIMEOUT",
+            "DEFAULT_ENABLE_KG_EMBEDDINGS",
+            "DEFAULT_KG_BACKUPS",
+            "DEFAULT_KG_INGESTION_WORKERS",
+            "DEFAULT_KG_LLM_CONCURRENCY",
+            "DEFAULT_KG_MODEL_ID",
+            "DEFAULT_KG_ANALYSIS_MAX_DEPTH",
+            "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND",
+            "DEFAULT_GRAPH_DIRECT_EXECUTION",
+            "DEFAULT_MAX_PARALLEL_AGENTS",
+            "DEFAULT_PARALLEL_BATCH_SIZE",
+            "DEFAULT_SYNTHESIS_STRATEGY",
+            "DEFAULT_SYNTHESIS_RATIO",
+            "DEFAULT_AGENT_EXECUTION_TIMEOUT",
+            "DEFAULT_CIRCUIT_BREAKER_THRESHOLD",
+            "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS",
+            "AGENT_API_KEY",
+            "ENABLE_API_AUTH",
+            "MAX_UPLOAD_SIZE",
+            "SECRETS_BACKEND",
+            "SECRETS_SQLITE_PATH",
+            "SECRETS_VAULT_URL",
+            "SECRETS_VAULT_MOUNT",
+            "AUTH_JWT_JWKS_URI",
+            "AUTH_JWT_ISSUER",
+            "AUTH_JWT_AUDIENCE",
+            "ALLOWED_ORIGINS",
+            "ALLOWED_HOSTS",
+            "DEFAULT_COGNITIVE_SCHEDULER_ENABLED",
+            "DEFAULT_MAX_CONCURRENT_AGENTS",
+            "DEFAULT_AGENT_TOKEN_QUOTA",
+            "DEFAULT_PREEMPTION_THRESHOLD_PCT",
+            "DEFAULT_AGENT_POLICIES_PATH",
+            "DEFAULT_PERMISSIONS_SIGNING_KEY",
+            "DEFAULT_SPECIALIST_REGISTRY_PATH",
+            "DEFAULT_HOMEOSTATIC_DOWNGRADE",
+            "DEFAULT_ADVERSARIAL_VERIFICATION",
+            "DEFAULT_MAINTENANCE_TOKEN_BUDGET",
+            "DEFAULT_MAINTENANCE_PRIORITY",
+            "DEFAULT_WATCHDOG_PATTERNS",
+        ]
+    )

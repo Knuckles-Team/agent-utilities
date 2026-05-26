@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Universal Knowledge Classifier.
 
-CONCEPT:KG-2.7 — Universal Knowledge Assimilation
+CONCEPT:KG-2.6 — Universal Knowledge Assimilation
 
 LLM-backed classifier that evaluates ANY incoming content for KG ingestion.
 Determines importance tier, evolution potential, and ingestion routing for

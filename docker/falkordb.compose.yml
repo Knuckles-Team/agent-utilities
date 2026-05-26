@@ -1,0 +1,18 @@
+# FalkorDB Stack for agent-utilities KG Backend Integration Tests
+#
+# Usage:
+#   docker compose -f docker/falkordb.compose.yml up -d
+#
+# Environment:
+#   GRAPH_BACKEND=falkordb
+#   GRAPH_DB_HOST=localhost
+#   GRAPH_DB_PORT=6379
+#   GRAPH_DB_NAME=agent_graph
+
+services:
+  falkordb-db:
+    image: falkordb/falkordb:latest
+    container_name: agent-falkordb
+    ports:
+      - "6380:6379"
+    restart: unless-stopped

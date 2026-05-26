@@ -59,7 +59,7 @@ class FinanceSchemaPack(SchemaPack):
         RegistryNodeType.VERSIONED_TRADE_COMMIT,
         RegistryNodeType.EXECUTION_GUARD,
         RegistryNodeType.UNIFIED_TRADING_ACCOUNT,
-        # Data connectors (CONCEPT:ECO-4.1)
+        # Data connectors (CONCEPT:ECO-4.0)
         RegistryNodeType.DATA_CONNECTOR,
         RegistryNodeType.DATA_FETCH_RECORD,
         # Risk scoring (CONCEPT:KG-2.6)
@@ -91,7 +91,7 @@ class FinanceSchemaPack(SchemaPack):
         RegistryEdgeType.FORECASTED,
         RegistryEdgeType.VERSIONED_IN,
         RegistryEdgeType.GUARDED_BY,
-        # Data connector edges (CONCEPT:ECO-4.1)
+        # Data connector edges (CONCEPT:ECO-4.0)
         RegistryEdgeType.FETCHED_FROM,
         RegistryEdgeType.FALLS_BACK_TO,
         # Risk scoring edges (CONCEPT:KG-2.6)

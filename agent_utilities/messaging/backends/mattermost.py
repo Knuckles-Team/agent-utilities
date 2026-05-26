@@ -1,11 +1,12 @@
-"""Mattermost Messaging Backend (CONCEPT:ECO-4.5).
+"""Mattermost Messaging Backend (CONCEPT:ECO-4.0).
 
 Uses ``mattermostdriver`` for WebSocket-based real-time messaging.
 
 Install: ``pip install agent-utilities[messaging-mattermost]``
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class MattermostBackend(MessagingBackend):
-    """Mattermost backend via mattermostdriver. CONCEPT:ECO-4.5"""
+    """Mattermost backend via mattermostdriver. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -47,7 +48,7 @@ class MattermostBackend(MessagingBackend):
         return CAPABILITY_MATRIX["mattermost"]
 
     async def connect(self) -> None:
-        """Connect to Mattermost server. CONCEPT:ECO-4.5"""
+        """Connect to Mattermost server. CONCEPT:ECO-4.0"""
         try:
             from mattermostdriver import Driver
         except ImportError:
@@ -64,7 +65,7 @@ class MattermostBackend(MessagingBackend):
         )
         await asyncio.to_thread(self._driver.login)
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] Mattermost backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] Mattermost backend connected.")
 
     async def disconnect(self) -> None:
         if self._driver:
@@ -80,7 +81,7 @@ class MattermostBackend(MessagingBackend):
         reply_to_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send to Mattermost channel. CONCEPT:ECO-4.5"""
+        """Send to Mattermost channel. CONCEPT:ECO-4.0"""
         try:
             payload: dict[str, Any] = {"channel_id": channel_id, "message": text}
             if thread_id:
@@ -98,7 +99,7 @@ class MattermostBackend(MessagingBackend):
             )
 
     async def send_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
-        """Add reaction. CONCEPT:ECO-4.5"""
+        """Add reaction. CONCEPT:ECO-4.0"""
         user = await asyncio.to_thread(self._driver.users.get_user, "me")
         await asyncio.to_thread(
             self._driver.reactions.create_reaction,
@@ -116,7 +117,7 @@ class MattermostBackend(MessagingBackend):
         )
 
     async def list_channels(self) -> list[Channel]:
-        """List Mattermost channels. CONCEPT:ECO-4.5"""
+        """List Mattermost channels. CONCEPT:ECO-4.0"""
         user = await asyncio.to_thread(self._driver.users.get_user, "me")
         teams = await asyncio.to_thread(self._driver.teams.get_user_teams, user["id"])
         channels = []

@@ -39,6 +39,15 @@ class IntelligencePipeline:
 
         runner = PipelineRunner(PHASES)
 
+        # Temporarily pause background watcher to avoid database locks/deadlocks during active ingestion
+        try:
+            import agent_utilities.sdd.watcher as sdd_watcher
+
+            sdd_watcher._WATCHER_PAUSED = True  # type: ignore
+            logger.info("Paused background plan watcher during active ingestion.")
+        except Exception as e:
+            logger.debug(f"Could not pause watcher: {e}")
+
         try:
             results = await runner.run(ctx)
 
@@ -62,6 +71,14 @@ class IntelligencePipeline:
         except Exception as e:
             logger.error(f"Pipeline failed: {e}", exc_info=True)
             raise
+        finally:
+            try:
+                import agent_utilities.sdd.watcher as sdd_watcher
+
+                sdd_watcher._WATCHER_PAUSED = False  # type: ignore
+                logger.info("Resumed background plan watcher after ingestion.")
+            except Exception as e:
+                logger.debug(f"Could not resume watcher: {e}")
 
 
 RegistryPipeline = IntelligencePipeline

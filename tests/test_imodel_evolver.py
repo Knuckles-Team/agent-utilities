@@ -239,7 +239,7 @@ class TestIModelEvolver:
             interpretability_score=0.3,
         )
         frontier = evolver.evolve_round()
-        frontier_names = {p.model_class_name for p in frontier}
+        {p.model_class_name for p in frontier}
         # Mediocre is dominated by Accurate (better rank, and when Mediocre
         # has interp=0.3, Accurate is close at 0.2 but has much better rank)
         # Actually: Accurate rank=0.0 interp=0.2, Mediocre rank=0.5 interp=0.3

@@ -1631,7 +1631,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # ── Infrastructure Discovery Nodes (CONCEPT:OS-5.3) ────────────────
+        # ── Infrastructure Discovery Nodes (CONCEPT:OS-5.1) ────────────────
         # Runtime-agnostic container and orchestration nodes
         TableDefinition(
             name="Container",
@@ -2339,6 +2339,75 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
+        TableDefinition(
+            name="ImplementationPlan",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "title": "STRING",
+                "version": "INT64",
+                "chatSessionId": "STRING",
+                "planHash": "STRING",
+                "approach": "STRING",
+                "raw_content": "STRING",
+                "timestamp": "STRING",
+                "last_updated": "INT64",
+            },
+        ),
+        TableDefinition(
+            name="Tasks",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "title": "STRING",
+                "version": "INT64",
+                "chatSessionId": "STRING",
+                "tasksHash": "STRING",
+                "raw_content": "STRING",
+                "timestamp": "STRING",
+                "last_updated": "INT64",
+            },
+        ),
+        TableDefinition(
+            name="SoftwareFeature",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "title": "STRING",
+                "description": "STRING",
+                "status": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="Project",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "name": "STRING",
+                "description": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
+            name="Session",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "title": "STRING",
+                "status": "STRING",
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
     ],
     edges=[
         # Core Relationships
@@ -2375,6 +2444,10 @@ SCHEMA = GraphSchemaDefinition(
             ],
         ),
         RelDefinition(type="CONTAINS", connections=[{"from": "Code", "to": "Code"}]),
+        RelDefinition(
+            type="INHERITS_FROM",
+            connections=[{"from": "Code", "to": "Code"}],
+        ),
         RelDefinition(
             type="RELATED_TO",
             connections=[
@@ -2595,6 +2668,8 @@ SCHEMA = GraphSchemaDefinition(
             connections=[
                 {"from": "Fact", "to": "Fact"},
                 {"from": "SystemPrompt", "to": "SystemPrompt"},
+                {"from": "ImplementationPlan", "to": "ImplementationPlan"},
+                {"from": "Tasks", "to": "Tasks"},
             ],
         ),
         # Knowledge Base Relationships
@@ -3043,7 +3118,7 @@ SCHEMA = GraphSchemaDefinition(
             type="DERIVED_FROM",
             connections=[{"from": "WorkflowDefinition", "to": "RunTrace"}],
         ),
-        # ── Infrastructure Topology Relationships (CONCEPT:OS-5.3) ─────────
+        # ── Infrastructure Topology Relationships (CONCEPT:OS-5.1) ─────────
         RelDefinition(
             type="RUNS_ON",
             connections=[
@@ -3149,6 +3224,23 @@ SCHEMA = GraphSchemaDefinition(
         RelDefinition(
             type="ATTACHED_STORAGE",
             connections=[{"from": "HardwareNode", "to": "StorageArray"}],
+        ),
+        RelDefinition(
+            type="PLAN_FOR_FEATURE",
+            connections=[{"from": "ImplementationPlan", "to": "SoftwareFeature"}],
+        ),
+        RelDefinition(
+            type="TASKS_FOR_FEATURE",
+            connections=[{"from": "Tasks", "to": "SoftwareFeature"}],
+        ),
+        RelDefinition(
+            type="HAS_ARTIFACT",
+            connections=[
+                {"from": "Project", "to": "ImplementationPlan"},
+                {"from": "Session", "to": "ImplementationPlan"},
+                {"from": "Project", "to": "Tasks"},
+                {"from": "Session", "to": "Tasks"},
+            ],
         ),
     ],
 )

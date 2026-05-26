@@ -342,16 +342,6 @@ def get_default_catalog() -> tuple[SpecialistPackage, ...]:
 
     packages.append(
         _kt_package(
-            "adguard-home-agent",
-            "AdGuard Home — DNS filtering, DHCP, query logs, and client management.",
-            "adguard-mcp",
-            ["iot", "security", "dns"],
-            pip_name="adguard-home-agent",
-        )
-    )
-
-    packages.append(
-        _kt_package(
             "uptime-kuma-agent",
             "Uptime Kuma — uptime monitoring, status pages, and alert management.",
             "uptime-mcp",

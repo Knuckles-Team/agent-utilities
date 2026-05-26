@@ -273,7 +273,7 @@ class TestTrajectoryShuffler:
             for i in range(5)
         ]
         original_ids = [e.thinker_id for e in entries]
-        shuffled = TrajectoryShuffler.shuffle(entries)
+        TrajectoryShuffler.shuffle(entries)
 
         # Original should be unchanged
         assert [e.thinker_id for e in entries] == original_ids

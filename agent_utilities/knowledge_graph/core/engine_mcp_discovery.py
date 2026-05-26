@@ -1,6 +1,6 @@
 """MCP Discovery Mixin — Live tool discovery and freshness verification.
 
-CONCEPT:ECO-4.2 — MCP Server Live Tool Discovery
+CONCEPT:ECO-4.1 — MCP Server Live Tool Discovery
 
 Provides the ability to connect to MCP servers at ingestion time,
 discover their tools via ``list_tools()``, and cache the metadata
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 class MCPDiscoveryMixin(_Base):
     """Live MCP server tool discovery and KG cache management.
 
-    CONCEPT:ECO-4.2 — MCP Server Live Tool Discovery
+    CONCEPT:ECO-4.1 — MCP Server Live Tool Discovery
 
     Enables the ingestion pipeline to:
     1. Parse ``mcp_config.json`` files to extract server entries.
@@ -98,7 +98,7 @@ class MCPDiscoveryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """Start an MCP server from its config, call ``list_tools()``, return tool metadata.
 
-        CONCEPT:ECO-4.2 — Live MCP server connection for tool metadata caching.
+        CONCEPT:ECO-4.1 — Live MCP server connection for tool metadata caching.
 
         This attempts to start the server as a subprocess (using the command/args
         from the config), connect via stdio, and retrieve the tool list. If the

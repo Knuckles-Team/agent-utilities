@@ -281,6 +281,8 @@ class MemoryMixin(_Base):
         properties: dict[str, Any] | None = None,
     ):
         """Create a relationship between two nodes in the graph."""
+        if rel_type:
+            rel_type = rel_type.upper()
         props = properties or {}
         if source_id in self.graph and target_id in self.graph:
             self.graph.add_edge(source_id, target_id, type=rel_type, **props)

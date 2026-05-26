@@ -83,6 +83,7 @@ class StartupContextBuilder:
         cwd: str | None = None,
         task: str | None = None,
         agent: str | None = None,
+        team: str | None = None,
     ) -> StartupPayload:
         """Build a deterministic, budgeted startup payload.
 
@@ -91,11 +92,12 @@ class StartupContextBuilder:
             cwd: Current working directory for routing context.
             task: Current task description for routing context.
             agent: Agent name (claude, codex, grok, etc.) for routing.
+            team: Team name for loading team-specific conventions from KG.
 
         Returns:
             StartupPayload with bounded text and expansion handles.
         """
-        budget = max(int(budget_chars or DEFAULT_BUDGET_CHARS), MIN_BUDGET_CHARS)
+        budget = max(budget_chars or DEFAULT_BUDGET_CHARS, MIN_BUDGET_CHARS)
 
         # Ensure materialized files exist
         self.materializer.materialize()
@@ -103,6 +105,17 @@ class StartupContextBuilder:
 
         # Build chunks from materialized files
         chunks = self._build_chunks(base_dir, cwd=cwd, task=task, agent=agent)
+
+        # Inject team-specific context from KG
+        if team:
+            team_chunks = self._load_team_context(team)
+            chunks.extend(team_chunks)
+
+        # Inject layered AGENTS.md from CWD
+        if cwd:
+            layered_chunk = self._load_layered_agents_md(cwd)
+            if layered_chunk:
+                chunks.append(layered_chunk)
 
         # Assemble payload
         header = self._build_header(budget, cwd=cwd, task=task, agent=agent)
@@ -307,6 +320,70 @@ class StartupContextBuilder:
         for c in chunks:
             lines.append(f"- `{c.handle}` ({c.size} chars, {c.source}: {c.heading})")
         return "\n".join(lines)
+
+    def _load_team_context(self, team: str) -> list[StartupChunk]:
+        """Load team-specific context from KG TeamConfigNode nodes.
+
+        CONCEPT:ECO-4.16 — Team-Specific Startup Context
+
+        Queries the KG for ``TeamConfigNode`` or ``team_config`` nodes
+        matching the team name and converts their conventions/preferences
+        into startup chunks with high priority.
+        """
+        chunks: list[StartupChunk] = []
+        try:
+            results = self.engine.query_cypher(
+                "MATCH (t) WHERE (t.node_type = 'team_config' OR "
+                "t.node_type = 'TeamConfigNode') AND t.name CONTAINS $team "
+                "RETURN t.name as name, t.description as desc, "
+                "t.conventions as conventions, t.preferences as prefs",
+                {"team": team},
+            )
+            for row in results:
+                body_parts = [f"## Team: {row.get('name', team)}"]
+                if row.get("desc"):
+                    body_parts.append(str(row["desc"]))
+                if row.get("conventions"):
+                    body_parts.append(f"### Conventions\n{row['conventions']}")
+                if row.get("prefs"):
+                    body_parts.append(f"### Preferences\n{row['prefs']}")
+                body = "\n\n".join(body_parts)
+                chunks.append(
+                    StartupChunk(
+                        source="team",
+                        heading=f"Team: {team}",
+                        body=body,
+                        handle=f"startup:team:{self._slug(team)}",
+                        priority=8,  # High priority — team conventions matter
+                    )
+                )
+        except Exception as e:
+            logger.debug("Team context load failed for '%s': %s", team, e)
+        return chunks
+
+    def _load_layered_agents_md(self, cwd: str) -> StartupChunk | None:
+        """Load hierarchically layered AGENTS.md content from CWD.
+
+        CONCEPT:KG-2.1 — Layered Project-Aware Context
+
+        Uses ``load_agents_md_layered`` to walk upward from CWD and collect
+        all AGENTS.md files, assembling them root-first.
+        """
+        try:
+            from ..core.agents_md import load_agents_md_layered
+
+            content = load_agents_md_layered(cwd)
+            if content:
+                return StartupChunk(
+                    source="agents_md",
+                    heading="Project Rules (Layered)",
+                    body=f"## Project Rules (AGENTS.md)\n\n{content}",
+                    handle="startup:agents_md:layered",
+                    priority=9,  # Very high — project rules are critical
+                )
+        except Exception as e:
+            logger.debug("Layered AGENTS.md load failed: %s", e)
+        return None
 
     def _hard_trim(self, text: str, budget: int) -> str:
         marker = (

@@ -1,4 +1,4 @@
-"""Telegram Messaging Backend (CONCEPT:ECO-4.5).
+"""Telegram Messaging Backend (CONCEPT:ECO-4.0).
 
 Implements ``MessagingBackend`` for Telegram using ``python-telegram-bot``.
 Supports forum topics (threads), reactions, inline keyboards, polls,
@@ -12,7 +12,7 @@ Configuration::
 
     TELEGRAM_BOT_TOKEN=<your-bot-token>
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramBackend(MessagingBackend):
-    """Telegram messaging backend using ``python-telegram-bot``. CONCEPT:ECO-4.5"""
+    """Telegram messaging backend using ``python-telegram-bot``. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -59,7 +59,7 @@ class TelegramBackend(MessagingBackend):
         return CAPABILITY_MATRIX["telegram"]
 
     async def connect(self) -> None:
-        """Connect to Telegram Bot API. CONCEPT:ECO-4.5"""
+        """Connect to Telegram Bot API. CONCEPT:ECO-4.0"""
         try:
             from telegram.ext import ApplicationBuilder, MessageHandler, filters
         except ImportError:
@@ -123,10 +123,10 @@ class TelegramBackend(MessagingBackend):
         await self._app.start()
         asyncio.create_task(self._app.updater.start_polling())
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] Telegram backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] Telegram backend connected.")
 
     async def disconnect(self) -> None:
-        """Disconnect from Telegram. CONCEPT:ECO-4.5"""
+        """Disconnect from Telegram. CONCEPT:ECO-4.0"""
         if self._app:
             await self._app.updater.stop()
             await self._app.stop()
@@ -142,7 +142,7 @@ class TelegramBackend(MessagingBackend):
         reply_to_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send a Telegram message. CONCEPT:ECO-4.5"""
+        """Send a Telegram message. CONCEPT:ECO-4.0"""
         try:
             kwargs: dict[str, Any] = {"chat_id": int(channel_id), "text": text}
             if thread_id:
@@ -160,7 +160,7 @@ class TelegramBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            logger.error("[CONCEPT:ECO-4.5] Telegram send failed: %s", e)
+            logger.error("[CONCEPT:ECO-4.0] Telegram send failed: %s", e)
             return SendResult(success=False, platform=PlatformId.TELEGRAM, error=str(e))
 
     async def send_media(
@@ -172,7 +172,7 @@ class TelegramBackend(MessagingBackend):
         thread_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send media to Telegram. CONCEPT:ECO-4.5"""
+        """Send media to Telegram. CONCEPT:ECO-4.0"""
         try:
             kwargs: dict[str, Any] = {"chat_id": int(channel_id)}
             if caption:
@@ -201,11 +201,11 @@ class TelegramBackend(MessagingBackend):
             return SendResult(success=False, platform=PlatformId.TELEGRAM, error=str(e))
 
     async def send_typing(self, channel_id: str) -> None:
-        """Send typing action. CONCEPT:ECO-4.5"""
+        """Send typing action. CONCEPT:ECO-4.0"""
         await self._app.bot.send_chat_action(chat_id=int(channel_id), action="typing")
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield inbound Telegram events. CONCEPT:ECO-4.5"""
+        """Yield inbound Telegram events. CONCEPT:ECO-4.0"""
         while self._connected:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)

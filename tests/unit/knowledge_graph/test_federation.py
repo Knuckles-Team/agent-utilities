@@ -70,7 +70,7 @@ def test_ingest_external_entity_stub(graph_engine):
 
     # Verify edge exists
     edge = graph_engine.graph.edges[internal_node, stub_id, 0]
-    assert edge["type"] == "mapped_to_external"
+    assert edge["type"] == "MAPPED_TO_EXTERNAL"
 
 
 @patch("requests.post")

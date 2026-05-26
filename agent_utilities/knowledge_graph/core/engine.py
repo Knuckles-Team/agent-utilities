@@ -108,9 +108,8 @@ class IntelligenceGraphEngine(
         db_path: str | None = None,
         external_ontologies: list[str] | None = None,
     ):
-        super().__init__()
         self.graph = graph
-        self.backend: GraphBackend | None = None
+        self.backend = None
 
         # Use provided backend, or check for an active one, or create one from factory
         if backend is not None:
@@ -123,6 +122,16 @@ class IntelligenceGraphEngine(
                 self.backend = create_backend(db_path=db_path)
             else:
                 self.backend = None
+
+        # Initialize compiled / optimized Graph Compute Engine (Rust/rustworkx/NetworkX)
+        from agent_utilities.core.config import config
+
+        from .graph_compute import GraphComputeEngine
+
+        compute_backend = getattr(config, "graph_compute_backend", "epistemic_graph")
+        self.graph_compute = GraphComputeEngine(backend_type=compute_backend)
+
+        super().__init__()
 
         # Start workers if there are pending tasks in the database natively
         if self.backend:
@@ -209,8 +218,23 @@ class IntelligenceGraphEngine(
         """Explicitly set the active engine instance."""
         cls._ACTIVE_ENGINE = engine
 
+    def _normalize_label(self, label: str) -> str:
+        """Find canonical case for a label from the schema."""
+        if not label:
+            return label
+        try:
+            from ...models.schema_definition import SCHEMA
+
+            for node_def in SCHEMA.nodes:
+                if node_def.name.lower() == label.lower():
+                    return node_def.name
+        except ImportError:
+            pass
+        return label
+
     def _get_allowed_columns(self, label: str) -> list[str]:
         """Get the list of allowed columns for a given node label from the schema."""
+        label = self._normalize_label(label)
         try:
             from ...models.schema_definition import SCHEMA
 
@@ -260,6 +284,8 @@ class IntelligenceGraphEngine(
 
         Filters properties against the schema if the backend is Ladybug.
         """
+        if label:
+            label = self._normalize_label(label)
         valid_keys = None
         is_ladybug = (
             self.backend and self.backend.__class__.__name__ == "LadybugBackend"
@@ -290,6 +316,8 @@ class IntelligenceGraphEngine(
         """Perform an idempotent upsert of a node using MATCH/SET then CREATE."""
         if not self.backend:
             return
+
+        label = self._normalize_label(label)
 
         # 1. Try to update existing
         set_clause = self._get_set_clause(data, label=label)
@@ -335,6 +363,8 @@ class IntelligenceGraphEngine(
         - If backend exists and not ephemeral: writes to backend ONLY (source of truth).
         - If ephemeral or no backend: writes to NX (compute scratchpad / memory-only mode).
         """
+        if rel_type:
+            rel_type = rel_type.upper()
         props = properties or {}
         # Inject lightweight provenance/confidence tags for structural memory
         if "confidence" not in props:
@@ -347,18 +377,37 @@ class IntelligenceGraphEngine(
 
             props["valid_from"] = datetime.now(UTC).isoformat()
 
+        # Always update graph_compute cache in real-time
+        self.graph_compute.add_edge(source_id, target_id, {"type": rel_type, **props})
+
         if self.backend and not ephemeral:
             # Tier 1: Backend is source of truth
             set_clause = self._get_set_clause(props, alias="r")
 
-            s_label_res = self.backend.execute(
-                "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl", {"id": source_id}
+            is_postgres = self.backend.__class__.__name__ == "PostgreSQLBackend"
+            s_query = (
+                "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"
+                if is_postgres
+                else "MATCH (n) WHERE n.id = $id RETURN labels(n)[0] as lbl"
             )
-            t_label_res = self.backend.execute(
-                "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl", {"id": target_id}
+            t_query = (
+                "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"
+                if is_postgres
+                else "MATCH (n) WHERE n.id = $id RETURN labels(n)[0] as lbl"
             )
-            s_label = f":{s_label_res[0]['lbl']}" if s_label_res else ""
-            t_label = f":{t_label_res[0]['lbl']}" if t_label_res else ""
+
+            s_label_res = self.backend.execute(s_query, {"id": source_id})
+            t_label_res = self.backend.execute(t_query, {"id": target_id})
+            s_label = (
+                f":{s_label_res[0]['lbl']}"
+                if s_label_res and s_label_res[0].get("lbl")
+                else ""
+            )
+            t_label = (
+                f":{t_label_res[0]['lbl']}"
+                if t_label_res and t_label_res[0].get("lbl")
+                else ""
+            )
 
             query = (
                 f"MATCH (s{s_label} {{id: $sid}}), (t{t_label} {{id: $tid}}) "
@@ -443,8 +492,12 @@ class IntelligenceGraphEngine(
         - If backend exists and not ephemeral: writes to backend ONLY (source of truth).
         - If ephemeral or no backend: writes to NX (compute scratchpad / memory-only mode).
         """
+        node_type = self._normalize_label(node_type)
         props = properties or {}
         props["type"] = node_type
+
+        # Always update graph_compute cache in real-time
+        self.graph_compute.add_node(node_id, props)
 
         if self.backend and not ephemeral:
             # Tier 1: Backend is source of truth
@@ -453,6 +506,46 @@ class IntelligenceGraphEngine(
         else:
             # Tier 2 fallback: NX only (memory-only mode or ephemeral)
             self.graph.add_node(node_id, **props)
+
+    def get_blast_radius(self, node_id: str, depth: int) -> list[dict[str, Any]]:
+        """Retrieve the blast radius (dependencies) from a starting node.
+
+        Uses the high-performance GraphComputeEngine with compiled Rust and
+        rustworkx backends for fast traversals.
+        """
+        if self.backend:
+            # Cypher-powered query: handles millions of nodes directly in the database
+            query = f"""
+            MATCH (s {{id: $node_id}})-[*1..{depth}]->(t)
+            WITH s, t, shortestPath((s)-[*1..{depth}]->(t)) as p
+            RETURN distinct t.id as id, labels(t)[0] as type, length(p) as depth
+            """
+            try:
+                results = self.backend.execute(query, {"node_id": node_id})
+                return [
+                    {
+                        "id": r["id"],
+                        "type": r.get("type", "Node"),
+                        "depth": r["depth"],
+                    }
+                    for r in results
+                ]
+            except Exception as e:
+                logger.warning(
+                    f"Cypher blast radius query failed: {e}. Falling back to compute engine."
+                )
+
+        # Fallback/Memory-only: ensure compute engine is hydrated from local graph
+        if (
+            not self.graph_compute.has_node(node_id)
+            and self.graph.number_of_nodes() > 0
+        ):
+            for nid, data in self.graph.nodes(data=True):
+                self.graph_compute.add_node(nid, data)
+            for u, v, data in self.graph.edges(data=True):
+                self.graph_compute.add_edge(u, v, data)
+
+        return self.graph_compute.get_blast_radius(node_id, depth)
 
     # --- Tier 2: Compute Scratchpad (NetworkX on-demand loading) ---
 
@@ -661,6 +754,76 @@ class IntelligenceGraphEngine(
             "llm_summary_length": len(llm_summary),
             "llm_summary": llm_summary[:2000],
         }
+
+    def delete_node(self, node_id: str, ephemeral: bool = False) -> None:
+        """Remove a node and its associated relationships from the graph.
+
+        Tiered write path:
+        - If backend exists and not ephemeral: writes to backend ONLY (source of truth).
+        - If ephemeral or no backend: writes to NX (compute scratchpad / memory-only mode).
+        """
+        # Always update graph_compute cache in real-time
+        try:
+            self.graph_compute.remove_node(node_id)
+        except Exception as e:
+            logger.debug(f"graph_compute remove_node failed or node not found: {e}")
+
+        if self.backend and not ephemeral:
+            try:
+                self.backend.execute(
+                    "MATCH (n {id: $id}) DETACH DELETE n",
+                    {"id": node_id},
+                )
+            except Exception as e:
+                logger.warning(f"Backend delete_node failed: {e}")
+        elif node_id in self.graph:
+            self.graph.remove_node(node_id)
+
+    def remove_node(self, node_id: str, ephemeral: bool = False) -> None:
+        """Alias for delete_node to support backward compatibility."""
+        self.delete_node(node_id, ephemeral)
+
+    def delete_edge(
+        self,
+        source_id: str,
+        target_id: str,
+        rel_type: str | None = None,
+        ephemeral: bool = False,
+    ) -> None:
+        """Remove a relationship between two nodes in the graph.
+
+        Tiered write path:
+        - If backend exists and not ephemeral: writes to backend ONLY (source of truth).
+        - If ephemeral or no backend: writes to NX (compute scratchpad / memory-only mode).
+        """
+        # Always update graph_compute cache in real-time
+        try:
+            self.graph_compute.remove_edge(source_id, target_id)
+        except Exception as e:
+            logger.debug(f"graph_compute remove_edge failed or edge not found: {e}")
+
+        if self.backend and not ephemeral:
+            try:
+                if rel_type:
+                    rel_type = rel_type.upper()
+                    query = (
+                        f"MATCH (s {{id: $sid}})-[r:{rel_type}]->(t {{id: $tid}}) "
+                        "DELETE r"
+                    )
+                else:
+                    query = "MATCH (s {id: $sid})-[r]->(t {id: $tid}) DELETE r"
+                self.backend.execute(query, {"sid": source_id, "tid": target_id})
+            except Exception as e:
+                logger.warning(f"Backend delete_edge failed: {e}")
+        elif self.graph.has_edge(source_id, target_id):
+            # Find and remove matching edges in MultiDiGraph
+            edges_to_remove = []
+            for u, v, key, data in self.graph.edges(keys=True, data=True):
+                if u == source_id and v == target_id:
+                    if not rel_type or data.get("type", "").upper() == rel_type.upper():
+                        edges_to_remove.append((u, v, key))
+            for u, v, key in edges_to_remove:
+                self.graph.remove_edge(u, v, key)
 
 
 # Alias for backward compatibility

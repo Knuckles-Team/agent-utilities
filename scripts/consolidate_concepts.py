@@ -161,7 +161,7 @@ def process_file(path: Path, dry_run: bool = True) -> tuple[bool, int]:
         return False, 0
 
     # Count changes
-    changes = sum(1 for a, b in zip(original, result) if a != b)
+    changes = sum(1 for a, b in zip(original, result, strict=False) if a != b)
 
     if not dry_run:
         path.write_text(result, encoding="utf-8")

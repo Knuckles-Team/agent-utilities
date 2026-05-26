@@ -4,6 +4,12 @@
 
 ---
 
+> [!NOTE]
+> **Experience the Platform in Action**
+> Read our comprehensive **[Technical Novel: The Narrative Journey](journey.md)** to see all 5 pillars and 64 concepts trace the high-stakes execution of a quantitative portfolio rebalancing mandate.
+
+---
+
 ## How This Documentation Is Organized
 
 All documentation is organized under the **5-Pillar Architecture**. Each pillar has:
@@ -14,6 +20,7 @@ All documentation is organized under the **5-Pillar Architecture**. Each pillar 
 ```
 docs/
 ├── index.md                          ← You are here
+├── journey.md                        ← The Technical Novel: Narrative Journey
 ├── overview.md                       ← Concept Galaxy (33 canonical concepts, Mermaid map)
 │
 └── pillars/
@@ -57,6 +64,7 @@ docs/
     └── 5_agent_os_infrastructure/
         ├── permissions-kernel.md
         ├── OS-5.3-Session_Concurrency_Management.md
+        ├── GW-1.0-Gateway_Service_Dashboard.md
         └── ...
 ```
 
@@ -68,6 +76,7 @@ docs/
 
 | Document | Description |
 |:---------|:------------|
+| [Technical Novel: The Narrative Journey](journey.md) | Experience `agent-utilities` live via a high-stakes quantitative rebalancing story |
 | [Concept Galaxy (overview.md)](overview.md) | High-level map of all 33 canonical concepts across 5 pillars |
 
 ### The 5 Pillars
@@ -77,7 +86,7 @@ docs/
 | 1 | [Graph Orchestration](pillars/1_graph_orchestration.md) | Routing, planning, execution, state management | Routes work to the right agent/model |
 | 2 | [Epistemic Knowledge Graph](pillars/2_epistemic_knowledge_graph.md) | Memory, ontology, retrieval, reasoning, **Company Brain** | Maintains organizational state with provenance |
 | 3 | [Agentic Harness Engineering](pillars/3_agentic_harness_engineering.md) | Evaluation, self-improvement, experience tracking | Makes the system smarter over time |
-| 4 | [Ecosystem & Peripherals](pillars/4_ecosystem_peripherals.md) | Tooling, connectors, integrations, 40-repo ecosystem | Connects to external systems and sensors |
+| 4 | [Ecosystem & Peripherals](pillars/4_ecosystem_peripherals.md) | Tooling, connectors, integrations, governance, 40-repo ecosystem | Connects to external systems and enforces governance |
 | 5 | [Agent OS Infrastructure](pillars/5_agent_os_infrastructure.md) | Permissions, security, observability, governance | Wraps everything in policy and compliance |
 
 ### Company Brain (Pillar 2 Deep-Dive)
@@ -110,6 +119,10 @@ The Company Brain is the operational state layer that transforms the Knowledge G
 | Permissions Kernel | P5 | [pillars/5_agent_os_infrastructure/permissions-kernel.md](pillars/5_agent_os_infrastructure/permissions-kernel.md) |
 | Configuration | P5 | [pillars/5_agent_os_infrastructure/configuration.md](pillars/5_agent_os_infrastructure/configuration.md) |
 | **Enterprise Entities** | P2 | [pillars/2_epistemic_knowledge_graph/enterprise_entities.md](pillars/2_epistemic_knowledge_graph/enterprise_entities.md) |
+| **Enterprise Agent Governance** | P4 | [pillars/4_ecosystem_peripherals.md#enterprise-agent-governance](pillars/4_ecosystem_peripherals.md#-enterprise-agent-governance-eco-416--eco-422) |
+| **Graph DB Deployment** | P2 | [guides/graph-db-deployment.md](guides/graph-db-deployment.md) |
+| **OWL Ontology & OS Synergies** | P2/P5 | [owl_kg_synergies.md](owl_kg_synergies.md) |
+| **Gateway Service Dashboard** | GW | [pillars/5_agent_os_infrastructure/GW-1.0-Gateway_Service_Dashboard.md](pillars/5_agent_os_infrastructure/GW-1.0-Gateway_Service_Dashboard.md) |
 
 ---
 
@@ -168,8 +181,10 @@ All concepts are uniquely identified and traceable to source code:
 
 | Prefix | Pillar | Range |
 |:-------|:-------|:------|
-| `ORCH-1.x` | Graph Orchestration Engine | 1.0 – 1.6 |
-| `KG-2.x` | Epistemic Knowledge Graph | 2.0 – 2.10 |
-| `AHE-3.x` | Agentic Harness Engineering | 3.0 – 3.6 |
-| `ECO-4.x` | Ecosystem & Peripherals | 4.0 – 4.4 |
-| `OS-5.x` | Agent OS Infrastructure | 5.0 – 5.4 |
+| `ORCH-1.x` | Graph Orchestration Engine | 1.0 – 1.29 |
+| `KG-2.x` | Epistemic Knowledge Graph | 2.0 – 2.20 |
+| `AHE-3.x` | Agentic Harness Engineering | 3.0 – 3.16 |
+| `ECO-4.x` | Ecosystem & Peripherals | 4.0 – 4.23 |
+| `OS-5.x` | Agent OS Infrastructure | 5.0 – 5.10 |
+| `GW-1.x` | Gateway Service Dashboard | 1.0 |
+| `GBOT-6.x` | GeniusBot Desktop Cockpit | 6.0 – 6.6 |

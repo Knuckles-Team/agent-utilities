@@ -128,6 +128,11 @@ class RegistryNodeType(StrEnum):
     # Agent OS Infrastructure
     HOST = "host"
     INFRASTRUCTURE_TEMPLATE = "infrastructure_template"
+    CONTAINER = "container"
+    CONTAINER_STACK = "container_stack"
+    PLATFORM_SERVICE = "platform_service"
+    GPU_ACCELERATOR = "gpu_accelerator"
+    STORAGE_ARRAY = "storage_array"
     # Squeeze Evolve Routing (CONCEPT:ORCH-1.2)
     ROUTING_DECISION = "routing_decision"
     # Schema Packs (CONCEPT:KG-2.2)
@@ -153,7 +158,7 @@ class RegistryNodeType(StrEnum):
     VERSIONED_TRADE_COMMIT = "versioned_trade_commit"
     EXECUTION_GUARD = "execution_guard"
     UNIFIED_TRADING_ACCOUNT = "unified_trading_account"
-    # Market Data Connector Protocol (CONCEPT:ECO-4.1)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.0)
     DATA_CONNECTOR = "data_connector"
     DATA_FETCH_RECORD = "data_fetch_record"
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
@@ -285,15 +290,15 @@ class RegistryNodeType(StrEnum):
     USER_PROFILE = "user_profile"
     ACTIVE_CONTEXT = "active_context"
     MEMORY_MATERIALIZATION_EVENT = "memory_materialization_event"
-    # Native Messaging Backend Abstraction (CONCEPT:ECO-4.5)
+    # Native Messaging Backend Abstraction (CONCEPT:ECO-4.0)
     MESSAGING_BACKEND = "messaging_backend"
     MESSAGING_CHANNEL = "messaging_channel"
     MESSAGING_CONVERSATION = "messaging_conversation"
-    # Social Content Ingestion (CONCEPT:ECO-4.6)
+    # Social Content Ingestion (CONCEPT:ECO-4.0)
     SOCIAL_POST = "social_post"
-    # Universal Knowledge Assimilation (CONCEPT:KG-2.7)
+    # Universal Knowledge Assimilation (CONCEPT:KG-2.6)
     EVOLUTION_CANDIDATE = "evolution_candidate"
-    # Company Operations (CONCEPT:KG-2.12, CONCEPT:KG-2.13)
+    # Company Operations (CONCEPT:KG-2.6, CONCEPT:KG-2.1)
     COMPANY = "company"
     STRATEGIC_GOAL = "strategic_goal"
     KPI = "kpi"
@@ -305,7 +310,9 @@ class RegistryNodeType(StrEnum):
     REGULATORY_FILING = "regulatory_filing"
     INTELLECTUAL_PROPERTY = "intellectual_property"
     EMPLOYMENT_LAW_MATTER = "employment_law_matter"
-    # Company Infrastructure (CONCEPT:ECO-4.13, CONCEPT:ECO-4.14)
+    LEGAL_TRUST = "legal_trust"
+    LLC_FORMATION_FILING = "llc_formation_filing"
+    # Company Infrastructure (CONCEPT:ECO-4.3, CONCEPT:ECO-4.04)
     COMPANY_SOFTWARE = "company_software"
     DEPLOYMENT_BLUEPRINT = "deployment_blueprint"
 
@@ -486,7 +493,7 @@ class RegistryEdgeType(StrEnum):
     FORECASTED = "forecasted"
     VERSIONED_IN = "versioned_in"
     GUARDED_BY = "guarded_by"
-    # Market Data Connector Protocol (CONCEPT:ECO-4.1)
+    # Market Data Connector Protocol (CONCEPT:ECO-4.0)
     FETCHED_FROM = "fetched_from"
     FALLS_BACK_TO = "falls_back_to"
     # Swarm Preset Template Engine (CONCEPT:ORCH-1.4)
@@ -654,14 +661,14 @@ class RegistryEdgeType(StrEnum):
     OBSERVED_THROUGH = "observed_through"
     REFLECTED_FROM = "reflected_from"
     PROFILE_ATTRIBUTE = "profile_attribute"
-    # Social Content Ingestion (CONCEPT:ECO-4.6)
+    # Social Content Ingestion (CONCEPT:ECO-4.0)
     PROMOTES_RESEARCH = "promotes_research"
     CREATED_BY_PERSON = "created_by_person"
     PUBLISHED_ON_PLATFORM = "published_on_platform"
-    # Universal Knowledge Assimilation (CONCEPT:KG-2.7)
+    # Universal Knowledge Assimilation (CONCEPT:KG-2.6)
     EVOLUTION_CANDIDATE_OF = "evolution_candidate_of"
     TRIGGERED_EVOLUTION = "triggered_evolution"
-    # Company Operations (CONCEPT:KG-2.12, CONCEPT:KG-2.13)
+    # Company Operations (CONCEPT:KG-2.6, CONCEPT:KG-2.1)
     HAS_DEPARTMENT = "has_department"
     HAS_GOAL = "has_goal"
     HAS_KPI = "has_kpi"
@@ -883,32 +890,54 @@ class PipelineConfig(BaseModel):
     exclude_patterns: list[str] = Field(
         default_factory=lambda: [
             ".git",
+            ".venv",
             "node_modules",
             "venv",
             "__pycache__",
             ".repo_graph",
             ".ladybug",
+            ".pytest_cache",
+            ".ruff_cache",
+            "target",
+            "build",
+            "dist",
         ]
     )
     multimodal: bool = False
     incremental: bool = True
     # Knowledge Base settings
-    enable_knowledge_base: bool = True
+    enable_knowledge_base: bool = Field(
+        default_factory=lambda: __import__("os").getenv("ENABLE_KG_KB", "true").lower()
+        in ("true", "1", "yes")
+    )
     kb_auto_ingest_skill_graphs: bool = False  # On-demand by default
     kb_chunk_size: int = 1024
     kb_extraction_model: str | None = None  # None = use default provider model
     kb_archive_age_days: int = 180
     kb_archive_importance_threshold: float = 0.3
-    enable_workspace_sync: bool = True
+    enable_workspace_sync: bool = Field(
+        default_factory=lambda: __import__("os")
+        .getenv("ENABLE_KG_WORKSPACE_SYNC", "true")
+        .lower()
+        in ("true", "1", "yes")
+    )
     kb_auto_ingest_cloned_repos: bool = True
     # OWL Reasoning settings
-    enable_owl_reasoning: bool = True
-    owl_backend: str = "owlready2"
+    enable_owl_reasoning: bool = Field(
+        default_factory=lambda: __import__("os").getenv("ENABLE_KG_OWL", "true").lower()
+        in ("true", "1", "yes")
+    )
+    owl_backend: str = "oxigraph"
     owl_ontology_path: str | None = None
     owl_promotion_importance_threshold: float = 0.1
     owl_promotion_recency_days: int = 7
     # External Graph Endpoints settings
-    enable_external_graphs: bool = True
+    enable_external_graphs: bool = Field(
+        default_factory=lambda: __import__("os")
+        .getenv("ENABLE_KG_EXTERNAL_GRAPHS", "true")
+        .lower()
+        in ("true", "1", "yes")
+    )
     external_sparql_endpoints: list[str] = Field(default_factory=list)
     external_lpg_endpoints: dict[str, str] = Field(default_factory=dict)
 
@@ -1503,7 +1532,7 @@ class KBIndexNode(RegistryNode):
 class SocialPostNode(RegistryNode):
     """Social media post persisted in the Knowledge Graph.
 
-    CONCEPT:ECO-4.6 — Social Content Ingestion
+    CONCEPT:ECO-4.0 — Social Content Ingestion
 
     Aligned with ontology_social.ttl ``SocialPost`` OWL class
     (rdfs:subClassOf CreativeWork, schema:SocialMediaPosting).
@@ -1536,7 +1565,7 @@ class SocialPostNode(RegistryNode):
 class EvolutionCandidateNode(RegistryNode):
     """A knowledge item flagged for agent-utilities self-evolution review.
 
-    CONCEPT:KG-2.7 — Universal Knowledge Assimilation
+    CONCEPT:KG-2.6 — Universal Knowledge Assimilation
 
     Created by the UniversalKnowledgeClassifier when incoming content has
     high evolution potential. Links to the source node (SocialPost, Article,
@@ -3322,13 +3351,13 @@ class StrategyNode(RegistryNode):
     universes: list[str] = Field(default_factory=list)
 
 
-# --- Market Data Connector Nodes (CONCEPT:ECO-4.1) ---
+# --- Market Data Connector Nodes (CONCEPT:ECO-4.0) ---
 
 
 class DataConnectorNode(RegistryNode):
     """A registered external data source with health and rate-limit metadata.
 
-    CONCEPT:ECO-4.1 — Market Data Connector Protocol
+    CONCEPT:ECO-4.0 — Market Data Connector Protocol
 
     Represents an external data provider that can be queried by agents.
     The ``FALLS_BACK_TO`` edge creates a prioritized fallback chain.
@@ -3360,7 +3389,7 @@ class DataConnectorNode(RegistryNode):
 class DataFetchRecordNode(RegistryNode):
     """Immutable provenance record of a data fetch operation.
 
-    CONCEPT:ECO-4.1 — Market Data Connector Protocol
+    CONCEPT:ECO-4.0 — Market Data Connector Protocol
 
     Records every data retrieval for audit, debugging, and cost tracking.
     Links to the source ``DataConnectorNode`` via ``FETCHED_FROM``.

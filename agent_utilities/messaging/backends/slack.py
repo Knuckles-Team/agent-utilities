@@ -1,4 +1,4 @@
-"""Slack Messaging Backend (CONCEPT:ECO-4.5).
+"""Slack Messaging Backend (CONCEPT:ECO-4.0).
 
 Implements ``MessagingBackend`` for Slack using ``slack-bolt`` with Socket Mode
 for real-time inbound events. Supports Block Kit rich formatting, threads,
@@ -13,7 +13,7 @@ Configuration::
     SLACK_BOT_TOKEN=xoxb-...
     SLACK_APP_TOKEN=xapp-...   # Required for Socket Mode
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 class SlackBackend(MessagingBackend):
     """Slack messaging backend using ``slack-bolt``.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
     """
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
@@ -64,7 +64,7 @@ class SlackBackend(MessagingBackend):
         return CAPABILITY_MATRIX["slack"]
 
     async def connect(self) -> None:
-        """Connect to Slack via Socket Mode. CONCEPT:ECO-4.5"""
+        """Connect to Slack via Socket Mode. CONCEPT:ECO-4.0"""
         try:
             from slack_bolt.adapter.socket_mode.async_handler import (
                 AsyncSocketModeHandler,
@@ -88,7 +88,7 @@ class SlackBackend(MessagingBackend):
         self._client = self._app.client
 
         @self._app.message("")
-        async def handle_message(message: dict[str, Any], say: Any) -> None:
+        async def handle_message(message: dict[str, Any]) -> None:
             event = InboundEvent(
                 event_type=EventType.MESSAGE,
                 platform=PlatformId.SLACK,
@@ -127,10 +127,10 @@ class SlackBackend(MessagingBackend):
             asyncio.create_task(handler.start_async())
 
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] Slack backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] Slack backend connected.")
 
     async def disconnect(self) -> None:
-        """Disconnect from Slack. CONCEPT:ECO-4.5"""
+        """Disconnect from Slack. CONCEPT:ECO-4.0"""
         await super().disconnect()
 
     async def send_message(
@@ -142,7 +142,7 @@ class SlackBackend(MessagingBackend):
         reply_to_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send a Slack message. Supports Block Kit via metadata['blocks']. CONCEPT:ECO-4.5"""
+        """Send a Slack message. Supports Block Kit via metadata['blocks']. CONCEPT:ECO-4.0"""
         try:
             kwargs: dict[str, Any] = {"channel": channel_id, "text": text}
             if thread_id:
@@ -158,24 +158,24 @@ class SlackBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            logger.error("[CONCEPT:ECO-4.5] Slack send failed: %s", e)
+            logger.error("[CONCEPT:ECO-4.0] Slack send failed: %s", e)
             return SendResult(success=False, platform=PlatformId.SLACK, error=str(e))
 
     async def send_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
-        """Add a reaction. CONCEPT:ECO-4.5"""
+        """Add a reaction. CONCEPT:ECO-4.0"""
         await self._client.reactions_add(
             channel=channel_id, timestamp=message_id, name=emoji
         )
 
     async def send_typing(self, channel_id: str) -> None:
-        """Indicate typing. CONCEPT:ECO-4.5"""
+        """Indicate typing. CONCEPT:ECO-4.0"""
         # Slack doesn't have a direct typing API for bots
         pass
 
     async def create_thread(
         self, channel_id: str, message_id: str, title: str = ""
     ) -> Thread:
-        """Reply in thread to create it. CONCEPT:ECO-4.5"""
+        """Reply in thread to create it. CONCEPT:ECO-4.0"""
         return Thread(
             id=message_id,
             parent_message_id=message_id,
@@ -184,7 +184,7 @@ class SlackBackend(MessagingBackend):
         )
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield inbound Slack events. CONCEPT:ECO-4.5"""
+        """Yield inbound Slack events. CONCEPT:ECO-4.0"""
         while self._connected:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
@@ -193,7 +193,7 @@ class SlackBackend(MessagingBackend):
                 continue
 
     async def list_channels(self) -> list[Channel]:
-        """List Slack channels. CONCEPT:ECO-4.5"""
+        """List Slack channels. CONCEPT:ECO-4.0"""
         result = await self._client.conversations_list(
             types="public_channel,private_channel"
         )

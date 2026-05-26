@@ -29,7 +29,7 @@ try:
 except ImportError:
     try:
         from pydantic_ai.providers.openai import (
-            OpenAIChatModel,  # type: ignore[no-redef]
+            OpenAIChatModel,  # type: ignore[attr-defined, no-redef]
         )
     except ImportError:
         OpenAIChatModel: Any = None  # type: ignore[no-redef]
@@ -49,7 +49,7 @@ try:
 except ImportError:
     try:
         from pydantic_ai.providers.anthropic import (
-            AnthropicModel,  # type: ignore[no-redef]
+            AnthropicModel,  # type: ignore[attr-defined, no-redef]
         )
     except ImportError:
         AnthropicModel: Any = None  # type: ignore[no-redef]
@@ -58,7 +58,9 @@ try:
     from pydantic_ai.models.groq import GroqModel
 except ImportError:
     try:
-        from pydantic_ai.providers.groq import GroqModel  # type: ignore[no-redef]
+        from pydantic_ai.providers.groq import (
+            GroqModel,  # type: ignore[attr-defined, no-redef]
+        )
     except ImportError:
         GroqModel: Any = None  # type: ignore[no-redef]
 
@@ -66,7 +68,9 @@ try:
     from pydantic_ai.models.mistral import MistralModel
 except ImportError:
     try:
-        from pydantic_ai.providers.mistral import MistralModel  # type: ignore[no-redef]
+        from pydantic_ai.providers.mistral import (
+            MistralModel,  # type: ignore[attr-defined, no-redef]
+        )
     except ImportError:
         MistralModel: Any = None  # type: ignore[no-redef]
 
@@ -75,7 +79,7 @@ try:
 except ImportError:
     try:
         from pydantic_ai.providers.huggingface import (
-            HuggingFaceModel,  # type: ignore[no-redef]
+            HuggingFaceModel,  # type: ignore[attr-defined, no-redef]
         )
     except ImportError:
         HuggingFaceModel: Any = None  # type: ignore[no-redef]
@@ -85,22 +89,22 @@ try:
     from openai import AsyncOpenAI
     from pydantic_ai.providers.openai import OpenAIProvider
 except ImportError:
-    AsyncOpenAI = None
-    OpenAIProvider = None
+    AsyncOpenAI = None  # type: ignore[misc, assignment]
+    OpenAIProvider = None  # type: ignore[misc, assignment]
 
 try:
     from anthropic import AsyncAnthropic
     from pydantic_ai.providers.anthropic import AnthropicProvider
 except ImportError:
-    AsyncAnthropic = None
-    AnthropicProvider = None
+    AsyncAnthropic = None  # type: ignore[misc, assignment]
+    AnthropicProvider = None  # type: ignore[misc, assignment]
 
 try:
     from groq import AsyncGroq
     from pydantic_ai.providers.groq import GroqProvider
 except ImportError:
-    AsyncGroq = None
-    GroqProvider = None
+    AsyncGroq = None  # type: ignore[misc, assignment]
+    GroqProvider = None  # type: ignore[misc, assignment]
 
 
 logger = logging.getLogger(__name__)
@@ -189,16 +193,16 @@ def create_model(
         if target_api_key:
             os.environ["OPENAI_API_KEY"] = target_api_key
 
-        if AsyncOpenAI and OpenAIProvider:
-            client = AsyncOpenAI(
+        if AsyncOpenAI is not None and OpenAIProvider is not None:
+            openai_client = AsyncOpenAI(
                 api_key=target_api_key or "EMPTY",
                 base_url=target_base_url,
                 http_client=http_client,
                 default_headers=custom_headers,
                 timeout=timeout,
             )
-            provider_instance = OpenAIProvider(openai_client=client)
-            return OpenAIChatModel(model_name=_model_id, provider=provider_instance)
+            openai_provider = OpenAIProvider(openai_client=openai_client)
+            return OpenAIChatModel(model_name=_model_id, provider=openai_provider)
 
         return OpenAIChatModel(model_name=_model_id, provider="openai")
 
@@ -208,15 +212,15 @@ def create_model(
         )
         target_api_key = api_key or "ollama"
 
-        if http_client and AsyncOpenAI and OpenAIProvider:
-            client = AsyncOpenAI(
+        if http_client and AsyncOpenAI is not None and OpenAIProvider is not None:
+            openai_client = AsyncOpenAI(
                 api_key=target_api_key,
                 base_url=target_base_url,
                 http_client=http_client,
                 default_headers=custom_headers,
             )
-            provider_instance = OpenAIProvider(openai_client=client)
-            return OpenAIChatModel(model_name=_model_id, provider=provider_instance)
+            openai_provider = OpenAIProvider(openai_client=openai_client)
+            return OpenAIChatModel(model_name=_model_id, provider=openai_provider)
 
         os.environ["OPENAI_BASE_URL"] = target_base_url
         os.environ["OPENAI_API_KEY"] = target_api_key
@@ -231,16 +235,16 @@ def create_model(
         try:
             from pydantic_ai.providers.deepseek import DeepSeekProvider
 
-            if http_client and AsyncOpenAI:
-                client = AsyncOpenAI(
+            if http_client and AsyncOpenAI is not None:
+                openai_client = AsyncOpenAI(
                     api_key=target_api_key or "EMPTY",
                     base_url=target_base_url,
                     http_client=http_client,
                     default_headers=custom_headers,
                     timeout=timeout,
                 )
-                provider_instance = DeepSeekProvider(openai_client=client)
-                return OpenAIChatModel(model_name=_model_id, provider=provider_instance)
+                ds_provider = DeepSeekProvider(openai_client=openai_client)
+                return OpenAIChatModel(model_name=_model_id, provider=ds_provider)
         except ImportError:
             pass
 
@@ -257,13 +261,19 @@ def create_model(
             os.environ["ANTHROPIC_API_KEY"] = target_api_key
 
         try:
-            if http_client and AsyncAnthropic and AnthropicProvider:
-                client = AsyncAnthropic(
+            if (
+                http_client
+                and AsyncAnthropic is not None
+                and AnthropicProvider is not None
+            ):
+                anthropic_client = AsyncAnthropic(
                     api_key=target_api_key,
                     http_client=http_client,
                 )
-                provider_instance = AnthropicProvider(anthropic_client=client)
-                return AnthropicModel(model_name=_model_id, provider=provider_instance)
+                anthropic_provider = AnthropicProvider(
+                    anthropic_client=anthropic_client
+                )
+                return AnthropicModel(model_name=_model_id, provider=anthropic_provider)
         except ImportError:
             pass
 
@@ -280,13 +290,13 @@ def create_model(
         if target_api_key:
             os.environ["GROQ_API_KEY"] = target_api_key
 
-        if http_client and AsyncGroq and GroqProvider:
-            client = AsyncGroq(
+        if http_client and AsyncGroq is not None and GroqProvider is not None:
+            groq_client = AsyncGroq(
                 api_key=target_api_key,
                 http_client=http_client,
             )
-            provider_instance = GroqProvider(groq_client=client)
-            return GroqModel(model_name=_model_id, provider=provider_instance)
+            groq_provider = GroqProvider(groq_client=groq_client)
+            return GroqModel(model_name=_model_id, provider=groq_provider)
 
         return GroqModel(model_name=_model_id)
 

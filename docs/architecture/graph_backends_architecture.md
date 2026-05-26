@@ -47,7 +47,7 @@ graph TB
 
 | Capability | LadybugDB | Neo4j | FalkorDB | PostgreSQL + pgGraph | Memory |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **Status** | Production | Experimental | Experimental | **Production** | Testing |
+| **Status** | Production | Production | Production | **Production** | Testing |
 | Cypher Support | Native | Native | Native | Transpiled | Basic |
 | Vector Search (HNSW) | ✅ | ✅ | ✅ | ✅ pgvector | ✅ NumPy |
 | BM25 Lexical Search | — | — | — | ✅ ParadeDB | — |

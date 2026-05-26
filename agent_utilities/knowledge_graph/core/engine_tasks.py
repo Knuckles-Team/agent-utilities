@@ -98,76 +98,114 @@ def _decode_metadata(raw: str | None) -> dict[str, Any]:
 
 import sqlite3
 
+from .queue_backend import QueueBackend
 
-class SQLiteTaskQueue:
+
+class SQLiteTaskQueue(QueueBackend):
     """Thread-safe, persistent SQLite-backed queue for tasks to prevent memory loss on restarts."""
 
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.lock = threading.Lock()
         with self.lock:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute(
-                    "CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY, data TEXT)"
-                )
-                conn.execute(
-                    "CREATE TABLE IF NOT EXISTS staging (id INTEGER PRIMARY KEY, job_id TEXT, graph_data TEXT)"
-                )
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            try:
+                with conn:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute(
+                        "CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY, data TEXT)"
+                    )
+                    conn.execute(
+                        "CREATE TABLE IF NOT EXISTS staging (id INTEGER PRIMARY KEY, job_id TEXT, graph_data TEXT)"
+                    )
+            finally:
+                conn.close()
 
     def put(self, item: dict):
         with self.lock:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                conn.execute("INSERT INTO queue (data) VALUES (?)", (json.dumps(item),))
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            try:
+                with conn:
+                    conn.execute(
+                        "INSERT INTO queue (data) VALUES (?)", (json.dumps(item),)
+                    )
+            finally:
+                conn.close()
 
     def get(self) -> tuple[int, dict] | None:
         with self.lock:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                cur = conn.execute("SELECT id, data FROM queue ORDER BY id ASC LIMIT 1")
-                row = cur.fetchone()
-                if row:
-                    return row[0], json.loads(row[1])
-                return None
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            try:
+                with conn:
+                    cur = conn.execute(
+                        "SELECT id, data FROM queue ORDER BY id ASC LIMIT 1"
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        return row[0], json.loads(row[1])
+                    return None
+            finally:
+                conn.close()
 
     def ack(self, item_id: int):
         with self.lock:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                conn.execute("DELETE FROM queue WHERE id = ?", (item_id,))
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            try:
+                with conn:
+                    conn.execute("DELETE FROM queue WHERE id = ?", (item_id,))
+            finally:
+                conn.close()
 
     def get_queue_size(self) -> int:
         with self.lock:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                cur = conn.execute("SELECT COUNT(*) FROM queue")
-                row = cur.fetchone()
-                return row[0] if row else 0
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            try:
+                with conn:
+                    cur = conn.execute("SELECT COUNT(*) FROM queue")
+                    row = cur.fetchone()
+                    return row[0] if row else 0
+            finally:
+                conn.close()
 
     def put_staged_graph(self, job_id: str, nodes: list, edges: list):
         """Insert a serialized graph into the staging queue for the GraphWriterDaemon."""
         payload = json.dumps({"nodes": nodes, "edges": edges})
         with self.lock:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                conn.execute(
-                    "INSERT INTO staging (job_id, graph_data) VALUES (?, ?)",
-                    (job_id, payload),
-                )
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            try:
+                with conn:
+                    conn.execute(
+                        "INSERT INTO staging (job_id, graph_data) VALUES (?, ?)",
+                        (job_id, payload),
+                    )
+            finally:
+                conn.close()
 
     def get_staged_graph(self) -> tuple[int, str, dict] | None:
         """Fetch the oldest staged graph payload."""
         with self.lock:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                cur = conn.execute(
-                    "SELECT id, job_id, graph_data FROM staging ORDER BY id ASC LIMIT 1"
-                )
-                row = cur.fetchone()
-                if row:
-                    return row[0], row[1], json.loads(row[2])
-                return None
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            try:
+                with conn:
+                    cur = conn.execute(
+                        "SELECT id, job_id, graph_data FROM staging ORDER BY id ASC LIMIT 1"
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        return row[0], row[1], json.loads(row[2])
+                    return None
+            finally:
+                conn.close()
 
     def ack_staged_graph(self, item_id: int):
         """Acknowledge and remove a processed staged graph."""
         with self.lock:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                conn.execute("DELETE FROM staging WHERE id = ?", (item_id,))
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            try:
+                with conn:
+                    conn.execute("DELETE FROM staging WHERE id = ?", (item_id,))
+            finally:
+                conn.close()
 
 
 class GraphEngineProtocol(Protocol):
@@ -210,11 +248,38 @@ class TaskManagerMixin(GraphEngineProtocol):
         self._worker_lock = threading.Lock()
         self._claim_lock = threading.Lock()
 
-        # Initialize SQLite persistent task queue
+        # Pre-import LlamaIndex components in main thread to avoid parallel worker import race conditions
+        try:
+            from llama_index.core import SimpleDirectoryReader  # noqa: F401
+            from llama_index.core.embeddings import BaseEmbedding  # noqa: F401
+        except ImportError:
+            pass
+
+        # Initialize pluggable persistent task queue
+        from agent_utilities.core.config import config
         from agent_utilities.core.paths import data_dir
 
         queue_db_path = data_dir() / "kg_task_queue.db"
-        self._submission_queue = SQLiteTaskQueue(str(queue_db_path))
+        backend_type = str(getattr(config, "queue_backend", "sqlite")).lower()
+
+        self._submission_queue: QueueBackend
+
+        if backend_type == "nats":
+            from .nats_queue_backend import NatsQueueBackend
+
+            self._submission_queue = NatsQueueBackend(
+                fallback_db_path=str(queue_db_path),
+                nats_url=getattr(config, "nats_url", None),
+            )
+        elif backend_type == "kafka":
+            from .kafka_queue_backend import KafkaQueueBackend
+
+            self._submission_queue = KafkaQueueBackend(
+                fallback_db_path=str(queue_db_path),
+                bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
+            )
+        else:
+            self._submission_queue = SQLiteTaskQueue(str(queue_db_path))
 
         import os
         import sys
@@ -263,6 +328,55 @@ class TaskManagerMixin(GraphEngineProtocol):
                 name="KG-Evolution-Daemon",
             )
             self._evolution_thread.start()
+
+            # Start SDD plan/tasks watcher daemon natively
+            self.start_sdd_watcher()
+
+    def start_sdd_watcher(self):
+        """Start the background plan/task watcher thread natively.
+
+        CONCEPT:KG-2.6 — Implementation Plan & Tasks versioning and KG lineage.
+        """
+        import os
+        import sys
+
+        if os.environ.get("AGENT_UTILITIES_TESTING") or "--stage-to-queue" in sys.argv:
+            logger.debug("Skipping plan watcher in test mode / staging.")
+            return
+
+        from agent_utilities.core.config import config
+
+        if not config.enable_sdd_watcher:
+            logger.info(
+                "Plan watcher is disabled via config.json / environment variables."
+            )
+            return
+
+        if getattr(self, "_watcher_thread_running", False):
+            logger.debug("Plan watcher thread is already running.")
+            return
+
+        try:
+            from agent_utilities.sdd.watcher import (
+                get_workspace_path,
+                run_plan_watcher_loop,
+            )
+
+            workspace_path = get_workspace_path()
+            self._watcher_thread_running = True
+            self._plan_watcher_thread = threading.Thread(
+                target=run_plan_watcher_loop,
+                args=(self, workspace_path),
+                daemon=True,
+                name="KGPlanWatcherThread",
+            )
+            self._plan_watcher_thread.start()
+            logger.info(
+                f"Successfully launched background KGPlanWatcherThread for {workspace_path}"
+            )
+        except Exception as e:
+            self._watcher_thread_running = False
+            logger.error(f"Failed to start background KGPlanWatcherThread: {e}")
 
     def _kg_analysis_loop(self):
         """Background daemon thread to autonomously synthesize relationships and concepts using LLMs.
@@ -623,8 +737,39 @@ class TaskManagerMixin(GraphEngineProtocol):
                         # Filter valid properties
                         valid_keys = schema_cache.get(label)
                         props = {k: v for k, v in node.items() if v is not None}
+                        # Preserve original semantic type for Code nodes (file/symbol/module)
+                        if label == "Code" and raw_type and raw_type != "code":
+                            props["type"] = raw_type
+
+                        # Collect extra properties into metadata dict, mirroring sync.py logic
+                        if valid_keys is not None and "metadata" in valid_keys:
+                            extra_props = {}
+                            for k in list(props.keys()):
+                                if k != "id" and k not in valid_keys:
+                                    extra_props[k] = props.pop(k)
+                            if extra_props:
+                                curr_meta = props.get("metadata", {})
+                                if isinstance(curr_meta, str):
+                                    try:
+                                        import json
+
+                                        curr_meta = json.loads(curr_meta)
+                                    except Exception:
+                                        curr_meta = {}
+                                if not isinstance(curr_meta, dict):
+                                    curr_meta = {}
+                                curr_meta.update(extra_props)
+                                props["metadata"] = curr_meta
+
                         if valid_keys:
                             props = {k: v for k, v in props.items() if k in valid_keys}
+
+                        # Serialize dict/list values to JSON strings
+                        for k, v in list(props.items()):
+                            if isinstance(v, dict | list):
+                                import json
+
+                                props[k] = json.dumps(v)
 
                         # Execute MERGE
                         # Using query_cypher to pass props nicely

@@ -120,14 +120,14 @@ class TestSPARQL:
         bridge = OWLBridge(graph=sample_graph, owl_backend=mock_owl_backend)
 
         # First query — builds cache
-        results1 = bridge.query_sparql("SELECT ?s WHERE { ?s a au:Agent }")
+        bridge.query_sparql("SELECT ?s WHERE { ?s a au:Agent }")
         hash1 = bridge._rdf_cache_hash  # type: ignore[attr-defined]
 
         # Add a node to the graph
         sample_graph.add_node("agent_2", type="agent", name="NewAgent")
 
         # Second query — should rebuild cache
-        results2 = bridge.query_sparql("SELECT ?s WHERE { ?s a au:Agent }")
+        bridge.query_sparql("SELECT ?s WHERE { ?s a au:Agent }")
         hash2 = bridge._rdf_cache_hash  # type: ignore[attr-defined]
 
         assert hash2 != hash1, "Cache hash should change after graph modification"

@@ -62,7 +62,6 @@ class TestSupportResistanceDetector:
 class TestPatternDetector:
     def test_detect_double_top(self):
         # Construct a clear double top
-        n = 50
         prices = np.concatenate(
             [
                 np.linspace(100, 110, 15),  # Rise
@@ -79,7 +78,6 @@ class TestPatternDetector:
         assert isinstance(patterns, list)
 
     def test_detect_breakout(self):
-        n = 50
         # Flat range then strong breakout above range highs
         flat = np.full(30, 100.0) + np.random.default_rng(42).normal(0, 0.3, 30)
         breakout = np.linspace(103, 120, 20)  # Clearly above flat range

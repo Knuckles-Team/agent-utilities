@@ -544,130 +544,131 @@ async def sync_mcp_agents(
     if not config_path:
         config_path = get_workspace_path(CORE_FILES["MCP_CONFIG"])
 
-    if True:
-        if True:
-            # 1. Extract Tool Metadata
-            tools_inventory = await extract_tool_metadata(config_path)
-            if not tools_inventory:
-                logger.info("No tools found to sync.")
+    config_path = Path(config_path)
+
+    if force_reprompt or should_sync(config_path):
+        # 1. Extract Tool Metadata
+        tools_inventory = await extract_tool_metadata(config_path)
+        if not tools_inventory:
+            logger.info("No tools found to sync.")
+            return
+
+        # 1b. Score all tools deterministically
+        score_tools(tools_inventory)
+        avg_score = (
+            sum(t.relevance_score for t in tools_inventory) // len(tools_inventory)
+            if tools_inventory
+            else 0
+        )
+        logger.info(
+            f"Tool scoring complete: {len(tools_inventory)} tools, "
+            f"avg relevance {avg_score}/100"
+        )
+
+        # 2. Ingest into Knowledge Graph
+        import networkx as nx
+
+        from agent_utilities.core.workspace import get_agent_workspace
+        from agent_utilities.knowledge_graph.core.engine import (
+            IntelligenceGraphEngine,
+        )
+
+        logger.info(
+            f"Starting Knowledge Graph ingestion for {len(tools_inventory)} tools"
+        )
+        is_local_engine = False
+        try:
+            engine = IntelligenceGraphEngine.get_active()
+            if not engine:
+                ws_path = get_agent_workspace()
+                db_path = str(ws_path / "knowledge_graph.db")
+                logger.info(
+                    f"No active engine, creating new IntelligenceGraphEngine with db_path: {db_path}"
+                )
+                engine = IntelligenceGraphEngine(
+                    graph=nx.MultiDiGraph(), db_path=db_path
+                )
+                is_local_engine = True
+
+            backend = engine.backend
+            if backend is None:
+                logger.error(
+                    "Graph backend is not available. Cannot sync tools to graph."
+                )
+                if is_local_engine:
+                    pass  # no backend to close
                 return
 
-            # 1b. Score all tools deterministically
-            score_tools(tools_inventory)
-            avg_score = (
-                sum(t.relevance_score for t in tools_inventory) // len(tools_inventory)
-                if tools_inventory
-                else 0
+            # 2a. Sync Prompts from registry builder
+            from agent_utilities.agent.registry_builder import (
+                ingest_prompts_to_graph,
             )
+
+            await ingest_prompts_to_graph()
+
+            # 2b. Upsert Tool Nodes
+            import time
+
+            sync_ts = int(time.time())
+
+            # Batch upsert tools for performance (single loop, minimal queries)
             logger.info(
-                f"Tool scoring complete: {len(tools_inventory)} tools, "
-                f"avg relevance {avg_score}/100"
+                f"Batching {len(tools_inventory)} tool upserts to Knowledge Graph..."
             )
-
-            # 2. Ingest into Knowledge Graph
-            import networkx as nx
-
-            from agent_utilities.core.workspace import get_agent_workspace
-            from agent_utilities.knowledge_graph.core.engine import (
-                IntelligenceGraphEngine,
-            )
-
-            logger.info(
-                f"Starting Knowledge Graph ingestion for {len(tools_inventory)} tools"
-            )
-            is_local_engine = False
-            try:
-                engine = IntelligenceGraphEngine.get_active()
-                if not engine:
-                    ws_path = get_agent_workspace()
-                    db_path = str(ws_path / "knowledge_graph.db")
-                    logger.info(
-                        f"No active engine, creating new IntelligenceGraphEngine with db_path: {db_path}"
-                    )
-                    engine = IntelligenceGraphEngine(
-                        graph=nx.MultiDiGraph(), db_path=db_path
-                    )
-                    is_local_engine = True
-
-                backend = engine.backend
-                if backend is None:
-                    logger.error(
-                        "Graph backend is not available. Cannot sync tools to graph."
-                    )
-                    if is_local_engine:
-                        pass  # no backend to close
-                    return
-
-                # 2a. Sync Prompts from registry builder
-                from agent_utilities.agent.registry_builder import (
-                    ingest_prompts_to_graph,
-                )
-
-                await ingest_prompts_to_graph()
-
-                # 2b. Upsert Tool Nodes
-                import time
-
-                sync_ts = int(time.time())
-
-                # Batch upsert tools for performance (single loop, minimal queries)
-                logger.info(
-                    f"Batching {len(tools_inventory)} tool upserts to Knowledge Graph..."
-                )
-                # Pre-create server nodes in bulk (deduplicated)
-                seen_servers: set[str] = set()
-                for tool in tools_inventory:
-                    if tool.mcp_server not in seen_servers:
-                        seen_servers.add(tool.mcp_server)
-                        backend.execute(
-                            "MERGE (s:Server {id: $server_id}) SET s.name = $server_name, s.last_sync = $sync_ts",
-                            {
-                                "server_id": f"server:{tool.mcp_server}",
-                                "server_name": tool.mcp_server,
-                                "sync_ts": sync_ts,
-                            },
-                        )
-
-                for tool in tools_inventory:
-                    query = "MERGE (t:Tool {id: $id}) SET t.name = $name, t.description = $description, t.mcp_server = $mcp_server, t.relevance_score = $score, t.tags = $tags, t.requires_approval = $requires_approval, t.last_sync = $sync_ts"
-                    props = {
-                        "id": f"tool:{tool.name}",
-                        "name": tool.name,
-                        "description": tool.description,
-                        "mcp_server": tool.mcp_server,
-                        "score": tool.relevance_score,
-                        "tags": tool.all_tags or [tool.tag] if tool.tag else [],
-                        "requires_approval": tool.requires_approval,
-                        "sync_ts": sync_ts,
-                    }
-                    backend.execute(query, props)
-
-                    # Link Tool to Server node
-                    query_link = "MATCH (s:Server {id: $server_id}), (t:Tool {id: $tool_id}) MERGE (s)-[:PROVIDES]->(t)"
+            # Pre-create server nodes in bulk (deduplicated)
+            seen_servers: set[str] = set()
+            for tool in tools_inventory:
+                if tool.mcp_server not in seen_servers:
+                    seen_servers.add(tool.mcp_server)
                     backend.execute(
-                        query_link,
+                        "MERGE (s:Server {id: $server_id}) SET s.name = $server_name, s.last_sync = $sync_ts",
                         {
                             "server_id": f"server:{tool.mcp_server}",
-                            "tool_id": f"tool:{tool.name}",
+                            "server_name": tool.mcp_server,
+                            "sync_ts": sync_ts,
                         },
                     )
 
-                logger.info(
-                    f"✅ Synced {len(tools_inventory)} MCP tools directly to the Knowledge Graph."
+            for tool in tools_inventory:
+                query = "MERGE (t:Tool {id: $id}) SET t.name = $name, t.description = $description, t.mcp_server = $mcp_server, t.relevance_score = $score, t.tags = $tags, t.requires_approval = $requires_approval, t.last_sync = $sync_ts"
+                props = {
+                    "id": f"tool:{tool.name}",
+                    "name": tool.name,
+                    "description": tool.description,
+                    "mcp_server": tool.mcp_server,
+                    "score": tool.relevance_score,
+                    "tags": tool.all_tags or [tool.tag] if tool.tag else [],
+                    "requires_approval": tool.requires_approval,
+                    "sync_ts": sync_ts,
+                }
+                backend.execute(query, props)
+
+                # Link Tool to Server node
+                query_link = "MATCH (s:Server {id: $server_id}), (t:Tool {id: $tool_id}) MERGE (s)-[:PROVIDES]->(t)"
+                backend.execute(
+                    query_link,
+                    {
+                        "server_id": f"server:{tool.mcp_server}",
+                        "tool_id": f"tool:{tool.name}",
+                    },
                 )
 
-                # CONCEPT:ORCH-1.2 — Invalidate hot cache after sync
-                from agent_utilities.graph.config_helpers import (
-                    invalidate_registry_cache,
-                )
+            logger.info(
+                f"✅ Synced {len(tools_inventory)} MCP tools directly to the Knowledge Graph."
+            )
 
-                invalidate_registry_cache()
+            # CONCEPT:ORCH-1.2 — Invalidate hot cache after sync
+            from agent_utilities.graph.config_helpers import (
+                invalidate_registry_cache,
+            )
 
-            except Exception as e:
-                logger.exception(f"Failed to sync MCP agents to Knowledge Graph: {e}")
-            finally:
-                if is_local_engine and "backend" in locals() and backend:
-                    backend.close()
+            invalidate_registry_cache()
+
+        except Exception as e:
+            logger.exception(f"Failed to sync MCP agents to Knowledge Graph: {e}")
+        finally:
+            if is_local_engine and "backend" in locals() and backend:
+                backend.close()
 
 
 if __name__ == "__main__":

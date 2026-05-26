@@ -1,11 +1,12 @@
-"""LINE Messaging Backend (CONCEPT:ECO-4.5).
+"""LINE Messaging Backend (CONCEPT:ECO-4.0).
 
 Uses ``line-bot-sdk`` for LINE Messaging API.
 
 Install: ``pip install agent-utilities[messaging-line]``
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 class LINEBackend(MessagingBackend):
-    """LINE messaging backend via line-bot-sdk. CONCEPT:ECO-4.5"""
+    """LINE messaging backend via line-bot-sdk. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -48,7 +49,7 @@ class LINEBackend(MessagingBackend):
         return CAPABILITY_MATRIX["line"]
 
     async def connect(self) -> None:
-        """Connect to LINE Messaging API. CONCEPT:ECO-4.5"""
+        """Connect to LINE Messaging API. CONCEPT:ECO-4.0"""
         try:
             from linebot.v3.messaging import ApiClient, Configuration, MessagingApi
         except ImportError:
@@ -63,7 +64,7 @@ class LINEBackend(MessagingBackend):
         config = Configuration(access_token=token)
         self._api = MessagingApi(ApiClient(config))
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] LINE backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] LINE backend connected.")
 
     async def send_message(
         self,
@@ -88,7 +89,7 @@ class LINEBackend(MessagingBackend):
             return SendResult(success=False, platform=PlatformId.LINE, error=str(e))
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield events (webhook-populated). CONCEPT:ECO-4.5"""
+        """Yield events (webhook-populated). CONCEPT:ECO-4.0"""
         while self._connected:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
@@ -97,7 +98,7 @@ class LINEBackend(MessagingBackend):
                 continue
 
     async def process_webhook(self, body: dict[str, Any]) -> None:
-        """Process LINE webhook event. CONCEPT:ECO-4.5"""
+        """Process LINE webhook event. CONCEPT:ECO-4.0"""
         for event in body.get("events", []):
             if event.get("type") == "message":
                 msg = event.get("message", {})

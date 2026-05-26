@@ -1,6 +1,6 @@
 # ECO-4.5 — Messaging Configuration Guide
 
-> **CONCEPT:ECO-4.5** | Pillar 4: Ecosystem & Peripherals
+> **CONCEPT:ECO-4.0** | Pillar 4: Ecosystem & Peripherals
 >
 > Complete reference for configuring all 17 messaging backends through the
 > unified XDG `config.json` system. Every environment variable and config

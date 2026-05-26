@@ -1,8 +1,9 @@
-"""Nextcloud Talk Backend (CONCEPT:ECO-4.5). REST API via httpx.
+"""Nextcloud Talk Backend (CONCEPT:ECO-4.0). REST API via httpx.
 
 Install: ``pip install agent-utilities[messaging-nextcloud]``
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class NextcloudTalkBackend(MessagingBackend):
-    """Nextcloud Talk backend via OCS/Talk REST API. CONCEPT:ECO-4.5"""
+    """Nextcloud Talk backend via OCS/Talk REST API. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -47,7 +48,7 @@ class NextcloudTalkBackend(MessagingBackend):
         return CAPABILITY_MATRIX["nextcloud"]
 
     async def connect(self) -> None:
-        """Connect to Nextcloud Talk API. CONCEPT:ECO-4.5"""
+        """Connect to Nextcloud Talk API. CONCEPT:ECO-4.0"""
         try:
             import httpx
         except ImportError:
@@ -69,7 +70,7 @@ class NextcloudTalkBackend(MessagingBackend):
             headers={"OCS-APIRequest": "true", "Accept": "application/json"},
         )
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] Nextcloud Talk backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] Nextcloud Talk backend connected.")
 
     async def disconnect(self) -> None:
         if self._client:
@@ -122,7 +123,7 @@ class NextcloudTalkBackend(MessagingBackend):
         ]
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Poll for new messages (Nextcloud doesn't have native WebSocket). CONCEPT:ECO-4.5"""
+        """Poll for new messages (Nextcloud doesn't have native WebSocket). CONCEPT:ECO-4.0"""
         last_known: dict[str, int] = {}
         while self._connected:
             try:
@@ -158,5 +159,5 @@ class NextcloudTalkBackend(MessagingBackend):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.debug("[CONCEPT:ECO-4.5] Nextcloud poll error: %s", e)
+                logger.debug("[CONCEPT:ECO-4.0] Nextcloud poll error: %s", e)
                 await asyncio.sleep(10)

@@ -50,7 +50,7 @@ Default: `pytest -m "not live"` runs unit + integration.
 | `TOOL_GUARD_MODE` | `on`, `off`, `custom` | `on` |
 | `DISABLE_TOOL_GUARD` | Boolean to disable tool guard | `False` |
 | `ENABLE_DELEGATION` | Enable OIDC token delegation | `False` |
-| `GRAPH_BACKEND` | Backend type: `ladybug`, `falkordb`, `neo4j` | `ladybug` |
+| `GRAPH_BACKEND` | Backend type: `ladybug`, `falkordb`, `neo4j`, `postgresql` | `ladybug` |
 | `GRAPH_DIRECT_EXECUTION` | Direct graph dispatch in AG-UI/ACP (bypasses LLM tool-call hop) | `True` |
 | `SECRETS_BACKEND` | Secrets storage backend: `inmemory`, `sqlite`, `vault` | `inmemory` |
 | `SECRETS_SQLITE_PATH` | SQLite secrets database path | `~/.agent-utilities/secrets.db` |

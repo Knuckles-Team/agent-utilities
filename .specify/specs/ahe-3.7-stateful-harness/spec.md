@@ -1,4 +1,4 @@
-# Spec: Stateful Harness & Sensory Verification (CONCEPT:AHE-3.5)
+# Spec: Stateful Harness & Sensory Verification (CONCEPT:AHE-3.4)
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 

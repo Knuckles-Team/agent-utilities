@@ -514,6 +514,61 @@ class IngestionMixin(_Base):
             version=version,
         )
 
+    def bootstrap_hydration_jobs(self) -> dict[str, Any]:
+        """Bootstrap the default recurrent hydration jobs in the Knowledge Graph.
+
+        Creates or updates Job nodes for GitLab (weekly), ServiceNow (daily),
+        Twenty CRM (daily), and LeanIX (monthly) hydration schedules.
+        """
+        jobs = [
+            {
+                "id": "hydrate-gitlab",
+                "name": "GitLab Weekly Hydration",
+                "schedule": 10080,  # 7 days in minutes
+                "command": "__internal:hydrate:gitlab",
+            },
+            {
+                "id": "hydrate-servicenow",
+                "name": "ServiceNow CMDB Daily Hydration",
+                "schedule": 1440,  # 1 day in minutes
+                "command": "__internal:hydrate:servicenow",
+            },
+            {
+                "id": "hydrate-twenty",
+                "name": "Twenty CRM Daily Hydration",
+                "schedule": 1440,  # 1 day in minutes
+                "command": "__internal:hydrate:twenty",
+            },
+            {
+                "id": "hydrate-leanix",
+                "name": "LeanIX Monthly Hydration",
+                "schedule": 43200,  # 30 days in minutes
+                "command": "__internal:hydrate:leanix",
+            },
+        ]
+
+        logger.info(
+            "Bootstrapping external hydration Job nodes in the Knowledge Graph..."
+        )
+        bootstrapped = []
+        if not self.backend:
+            logger.warning("No active backend found for bootstrapping Job nodes.")
+            return {"bootstrapped": []}
+
+        for job in jobs:
+            try:
+                self.backend.execute(
+                    "MERGE (j:Job {id: $id}) "
+                    "SET j.name = $name, j.schedule = $schedule, j.command = $command, "
+                    "j.last_run = coalesce(j.last_run, '—'), j.next_approx = coalesce(j.next_approx, '—')",
+                    job,
+                )
+                bootstrapped.append(job["id"])
+            except Exception as e:
+                logger.error(f"Failed to bootstrap Job node '{job['id']}': {e}")
+
+        return {"bootstrapped": bootstrapped}
+
     # --- Discovery & Retrieval Tools ---
 
     # --- Knowledge Distillation (CONCEPT:KG-2.2) ---

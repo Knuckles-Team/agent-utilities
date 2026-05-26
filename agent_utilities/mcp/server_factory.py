@@ -242,6 +242,19 @@ def create_mcp_parser() -> argparse.ArgumentParser:
         help="OAuth client secret for OpenAPI import",
     )
 
+    parser.add_argument(
+        "--tools",
+        "--toolsets",
+        default=os.getenv("MCP_ENABLED_TOOLS"),
+        help="Comma-separated list of enabled tools or toolsets to expose",
+    )
+    parser.add_argument(
+        "--disabled-tools",
+        "--disabled-toolsets",
+        default=os.getenv("MCP_DISABLED_TOOLS"),
+        help="Comma-separated list of disabled tools or toolsets to exclude",
+    )
+
     parser.add_argument("--help", action="store_true", help="Show usage")
     return parser
 
@@ -585,6 +598,12 @@ def create_mcp_server(
             """Enforces environment-variable and header-based tag and tool filters dynamically across all components."""
 
             def _filter_components(self, components):
+                enabled_tools_list = []
+                disabled_tools_list = []
+                enabled_tags_list = []
+                disabled_tags_list = []
+                query_filter = None
+
                 # 1. Start with environment variable defaults
                 enabled_tags_env = os.environ.get("MCP_ENABLED_TAGS")
                 disabled_tags_env = os.environ.get("MCP_DISABLED_TAGS")
@@ -595,74 +614,270 @@ def create_mcp_server(
                     "MCP_DISABLED_TOOLS"
                 ) or os.environ.get("MCP_DISABLED_COMPONENTS")
 
-                # 2. Extract request headers if HTTP/SSE transport is active
+                if enabled_components_env:
+                    enabled_tools_list.extend(
+                        [
+                            x.strip()
+                            for x in enabled_components_env.split(",")
+                            if x.strip()
+                        ]
+                    )
+                if disabled_components_env:
+                    disabled_tools_list.extend(
+                        [
+                            x.strip()
+                            for x in disabled_components_env.split(",")
+                            if x.strip()
+                        ]
+                    )
+                if enabled_tags_env:
+                    enabled_tags_list.extend(
+                        [x.strip() for x in enabled_tags_env.split(",") if x.strip()]
+                    )
+                if disabled_tags_env:
+                    disabled_tags_list.extend(
+                        [x.strip() for x in disabled_tags_env.split(",") if x.strip()]
+                    )
+
+                # 1.5. Override/Append with parsed CLI args if specified
+                cli_tools = getattr(args, "tools", None)
+                if cli_tools:
+                    enabled_tools_list = [
+                        x.strip() for x in cli_tools.split(",") if x.strip()
+                    ]
+                cli_disabled_tools = getattr(args, "disabled_tools", None)
+                if cli_disabled_tools:
+                    disabled_tools_list = [
+                        x.strip() for x in cli_disabled_tools.split(",") if x.strip()
+                    ]
+
+                # 2. Extract request query parameters and headers if HTTP/SSE transport is active
                 try:
                     from fastmcp.server.dependencies import get_http_request
 
                     req = get_http_request()
                     if req:
+                        # Extract query parameters (supporting list getlist syntax and CSV syntax)
+                        q_params = req.query_params
+
+                        # Gather all enabled tools/toolsets from query params
+                        q_tools = []
+                        for key in ["tools", "toolsets"]:
+                            if hasattr(q_params, "getlist"):
+                                vals = q_params.getlist(key)
+                            else:
+                                vals = [q_params.get(key)] if q_params.get(key) else []
+                            for val in vals:
+                                if val:
+                                    q_tools.extend(
+                                        [x.strip() for x in val.split(",") if x.strip()]
+                                    )
+                        if q_tools:
+                            enabled_tools_list = (
+                                q_tools  # Query params override env/CLI if provided
+                            )
+
+                        # Gather all disabled tools/toolsets from query params
+                        q_disabled = []
+                        for key in ["disabled_tools", "disabled_toolsets"]:
+                            if hasattr(q_params, "getlist"):
+                                vals = q_params.getlist(key)
+                            else:
+                                vals = [q_params.get(key)] if q_params.get(key) else []
+                            for val in vals:
+                                if val:
+                                    q_disabled.extend(
+                                        [x.strip() for x in val.split(",") if x.strip()]
+                                    )
+                        if q_disabled:
+                            disabled_tools_list = q_disabled
+
+                        # Gather all enabled tags from query params
+                        q_tags = []
+                        if hasattr(q_params, "getlist"):
+                            vals = q_params.getlist("tags")
+                        else:
+                            vals = (
+                                [q_params.get("tags")] if q_params.get("tags") else []
+                            )
+                        for val in vals:
+                            if val:
+                                q_tags.extend(
+                                    [x.strip() for x in val.split(",") if x.strip()]
+                                )
+                        if q_tags:
+                            enabled_tags_list = q_tags
+
+                        # Gather all disabled tags from query params
+                        q_disabled_tags = []
+                        if hasattr(q_params, "getlist"):
+                            vals = q_params.getlist("disabled_tags")
+                        else:
+                            vals = (
+                                [q_params.get("disabled_tags")]
+                                if q_params.get("disabled_tags")
+                                else []
+                            )
+                        for val in vals:
+                            if val:
+                                q_disabled_tags.extend(
+                                    [x.strip() for x in val.split(",") if x.strip()]
+                                )
+                        if q_disabled_tags:
+                            disabled_tags_list = q_disabled_tags
+
+                        # Gather query/search keyword from query params (e.g. q=dns or query=dns)
+                        for key in ["q", "query", "search"]:
+                            if q_params.get(key):
+                                query_filter = q_params.get(key)
+                                break
+
+                        # Extract request headers (headers take top precedence)
                         headers = req.headers
-                        enabled_tags_env = headers.get(
-                            "x-mcp-enabled-tags", enabled_tags_env
-                        )
-                        disabled_tags_env = headers.get(
-                            "x-mcp-disabled-tags", disabled_tags_env
-                        )
-                        enabled_components_env = headers.get(
-                            "x-mcp-enabled-tools",
-                            headers.get(
-                                "x-mcp-enabled-components", enabled_components_env
-                            ),
-                        )
-                        disabled_components_env = headers.get(
-                            "x-mcp-disabled-tools",
-                            headers.get(
-                                "x-mcp-disabled-components", disabled_components_env
-                            ),
-                        )
+                        if headers:
+                            # Gather all enabled tools/components from headers
+                            h_tools = []
+                            for key in [
+                                "x-mcp-enabled-tools",
+                                "x-mcp-enabled-components",
+                            ]:
+                                if hasattr(headers, "getlist"):
+                                    vals = headers.getlist(key)
+                                else:
+                                    vals = (
+                                        [headers.get(key)] if headers.get(key) else []
+                                    )
+                                for val in vals:
+                                    if val:
+                                        h_tools.extend(
+                                            [
+                                                x.strip()
+                                                for x in val.split(",")
+                                                if x.strip()
+                                            ]
+                                        )
+                            if h_tools:
+                                enabled_tools_list = h_tools
+
+                            # Gather all disabled tools/components from headers
+                            h_disabled = []
+                            for key in [
+                                "x-mcp-disabled-tools",
+                                "x-mcp-disabled-components",
+                            ]:
+                                if hasattr(headers, "getlist"):
+                                    vals = headers.getlist(key)
+                                else:
+                                    vals = (
+                                        [headers.get(key)] if headers.get(key) else []
+                                    )
+                                for val in vals:
+                                    if val:
+                                        h_disabled.extend(
+                                            [
+                                                x.strip()
+                                                for x in val.split(",")
+                                                if x.strip()
+                                            ]
+                                        )
+                            if h_disabled:
+                                disabled_tools_list = h_disabled
+
+                            # Gather all enabled tags from headers
+                            h_tags = []
+                            if hasattr(headers, "getlist"):
+                                vals = headers.getlist("x-mcp-enabled-tags")
+                            else:
+                                vals = (
+                                    [headers.get("x-mcp-enabled-tags")]
+                                    if headers.get("x-mcp-enabled-tags")
+                                    else []
+                                )
+                            for val in vals:
+                                if val:
+                                    h_tags.extend(
+                                        [x.strip() for x in val.split(",") if x.strip()]
+                                    )
+                            if h_tags:
+                                enabled_tags_list = h_tags
+
+                            # Gather all disabled tags from headers
+                            h_disabled_tags = []
+                            if hasattr(headers, "getlist"):
+                                vals = headers.getlist("x-mcp-disabled-tags")
+                            else:
+                                vals = (
+                                    [headers.get("x-mcp-disabled-tags")]
+                                    if headers.get("x-mcp-disabled-tags")
+                                    else []
+                                )
+                            for val in vals:
+                                if val:
+                                    h_disabled_tags.extend(
+                                        [x.strip() for x in val.split(",") if x.strip()]
+                                    )
+                            if h_disabled_tags:
+                                disabled_tags_list = h_disabled_tags
+
+                            # Gather query/search keyword from headers
+                            for key in ["x-mcp-query", "x-mcp-search"]:
+                                if headers.get(key):
+                                    query_filter = headers.get(key)
+                                    break
                 except Exception:
                     pass
 
-                # 3. Parse comma-separated strings to sets
-                enabled_tags = (
-                    set(t.strip() for t in enabled_tags_env.split(",") if t.strip())
-                    if enabled_tags_env
-                    else None
-                )
-                disabled_tags = (
-                    set(t.strip() for t in disabled_tags_env.split(",") if t.strip())
-                    if disabled_tags_env
-                    else None
-                )
-                enabled_names = (
-                    set(
-                        n.strip()
-                        for n in enabled_components_env.split(",")
-                        if n.strip()
-                    )
-                    if enabled_components_env
-                    else None
-                )
+                # If query_filter is active, resolve matching tools from the Knowledge Graph!
+                if query_filter:
+                    try:
+                        from agent_utilities.knowledge_graph.core.engine import (
+                            IntelligenceGraphEngine,
+                        )
+                        from agent_utilities.tools.dynamic_tool_orchestrator import (
+                            DynamicToolOrchestrator,
+                        )
+
+                        engine = IntelligenceGraphEngine.get_active()
+                        if engine:
+                            orchestrator = DynamicToolOrchestrator(engine)
+                            kg_matched = orchestrator.resolve_mcp_tools(
+                                query_filter, server_name=name
+                            )
+                            if kg_matched:
+                                if enabled_tools_list:
+                                    enabled_tools_list = [
+                                        t for t in enabled_tools_list if t in kg_matched
+                                    ]
+                                else:
+                                    enabled_tools_list = kg_matched
+                    except Exception as e:
+                        logger.debug(
+                            "Failed to filter components using Knowledge Graph: %s", e
+                        )
+
+                # 3. Convert lists to sets
+                enabled_tags = set(enabled_tags_list) if enabled_tags_list else None
+                disabled_tags = set(disabled_tags_list) if disabled_tags_list else None
+                enabled_names = set(enabled_tools_list) if enabled_tools_list else None
                 disabled_names = (
-                    set(
-                        n.strip()
-                        for n in disabled_components_env.split(",")
-                        if n.strip()
-                    )
-                    if disabled_components_env
-                    else None
+                    set(disabled_tools_list) if disabled_tools_list else None
                 )
+
+                # Fallback: if enabled_names contains "all" or is empty, expose all tools
+                if enabled_names is not None:
+                    if "all" in enabled_names or not enabled_names:
+                        enabled_names = None
 
                 filtered = []
                 for c in components:
-                    name = getattr(c, "name", None) or getattr(c, "uri", None)
-                    if not name:
+                    c_name = getattr(c, "name", None) or getattr(c, "uri", None)
+                    if not c_name:
                         filtered.append(c)
                         continue
 
-                    if enabled_names is not None and name not in enabled_names:
+                    if enabled_names is not None and c_name not in enabled_names:
                         continue
-                    if disabled_names is not None and name in disabled_names:
+                    if disabled_names is not None and c_name in disabled_names:
                         continue
 
                     if hasattr(c, "tags") and c.tags:

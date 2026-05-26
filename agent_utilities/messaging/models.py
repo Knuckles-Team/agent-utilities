@@ -1,10 +1,10 @@
-"""Pydantic models for the Native Messaging Backend (CONCEPT:ECO-4.5).
+"""Pydantic models for the Native Messaging Backend (CONCEPT:ECO-4.0).
 
 Provides transport-agnostic data models for cross-platform messaging.
 All models are Pydantic BaseModel subclasses for runtime validation
 and seamless serialization to/from the Knowledge Graph.
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -18,17 +18,17 @@ from pydantic import BaseModel, Field
 # ── Enums ────────────────────────────────────────────────────────────
 
 
-class MessageDirection(str, enum.Enum):
+class MessageDirection(enum.StrEnum):
     """Direction of a message relative to the agent."""
 
     INBOUND = "inbound"
     OUTBOUND = "outbound"
 
 
-class EventType(str, enum.Enum):
+class EventType(enum.StrEnum):
     """Types of inbound events from messaging platforms.
 
-    CONCEPT:ECO-4.5 — Modeled after OpenClaw's ChannelGatewayEventType
+    CONCEPT:ECO-4.0 — Modeled after OpenClaw's ChannelGatewayEventType
     with Python-idiomatic naming.
     """
 
@@ -50,7 +50,7 @@ class EventType(str, enum.Enum):
     UNKNOWN = "unknown"
 
 
-class MediaType(str, enum.Enum):
+class MediaType(enum.StrEnum):
     """Supported media attachment types."""
 
     IMAGE = "image"
@@ -64,10 +64,10 @@ class MediaType(str, enum.Enum):
     LOCATION = "location"
 
 
-class PlatformId(str, enum.Enum):
+class PlatformId(enum.StrEnum):
     """Canonical identifiers for all supported messaging platforms.
 
-    CONCEPT:ECO-4.5 — Equivalent to OpenClaw's ChannelId union type.
+    CONCEPT:ECO-4.0 — Equivalent to OpenClaw's ChannelId union type.
     """
 
     DISCORD = "discord"
@@ -95,7 +95,7 @@ class PlatformId(str, enum.Enum):
 class MediaAttachment(BaseModel):
     """A media file attached to a message.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     Attributes:
         media_type: The type of media (image, video, audio, etc.).
@@ -119,7 +119,7 @@ class MediaAttachment(BaseModel):
 class Channel(BaseModel):
     """A messaging channel or conversation target.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     Represents a channel, group, DM, or conversation on any platform.
     The ``platform_id`` field ties this to a specific backend.
@@ -148,7 +148,7 @@ class Channel(BaseModel):
 class Thread(BaseModel):
     """A message thread or reply chain.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     Attributes:
         id: Platform-specific thread identifier.
@@ -170,7 +170,7 @@ class Thread(BaseModel):
 class Message(BaseModel):
     """A message sent or received on any messaging platform.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     This is the canonical representation of a message across all 17
     supported platforms. Platform-specific features (e.g., Discord embeds,
@@ -212,7 +212,7 @@ class Message(BaseModel):
 class InboundEvent(BaseModel):
     """An event received from a messaging platform.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     All inbound events (messages, reactions, typing indicators, presence
     updates, etc.) are normalized into this model. The ``event_type``
@@ -250,7 +250,7 @@ class InboundEvent(BaseModel):
 class SendResult(BaseModel):
     """Result of sending a message to a platform.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     Attributes:
         success: Whether the message was sent successfully.
@@ -272,7 +272,7 @@ class SendResult(BaseModel):
 class MessagingConfig(BaseModel):
     """Configuration for a messaging backend instance.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     Attributes:
         platform: Which platform this config is for.

@@ -1,4 +1,4 @@
-"""WhatsApp Messaging Backend (CONCEPT:ECO-4.5).
+"""WhatsApp Messaging Backend (CONCEPT:ECO-4.0).
 
 Dual-mode WhatsApp backend supporting both:
 1. **Official Business API** (``use_business_api=True``) — webhook-based via httpx
@@ -18,7 +18,7 @@ Configuration::
     # Bridge mode (default)
     # neonize auto-connects via QR code on first run
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 class WhatsAppBackend(MessagingBackend):
     """WhatsApp messaging backend with dual Business API / bridge support.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     Mode is controlled by ``config.use_business_api``:
     - ``True``: Uses the official WhatsApp Business Cloud API via httpx
@@ -71,19 +71,19 @@ class WhatsAppBackend(MessagingBackend):
         return CAPABILITY_MATRIX["whatsapp"]
 
     async def connect(self) -> None:
-        """Connect to WhatsApp (Business API or bridge). CONCEPT:ECO-4.5"""
+        """Connect to WhatsApp (Business API or bridge). CONCEPT:ECO-4.0"""
         if self._use_business_api:
             await self._connect_business_api()
         else:
             await self._connect_bridge()
         self._connected = True
         logger.info(
-            "[CONCEPT:ECO-4.5] WhatsApp backend connected (mode=%s).",
+            "[CONCEPT:ECO-4.0] WhatsApp backend connected (mode=%s).",
             "business_api" if self._use_business_api else "bridge",
         )
 
     async def _connect_business_api(self) -> None:
-        """Initialize WhatsApp Business API client. CONCEPT:ECO-4.5"""
+        """Initialize WhatsApp Business API client. CONCEPT:ECO-4.0"""
         try:
             import httpx
         except ImportError:
@@ -103,7 +103,7 @@ class WhatsAppBackend(MessagingBackend):
         )
 
     async def _connect_bridge(self) -> None:
-        """Initialize neonize bridge client. CONCEPT:ECO-4.5"""
+        """Initialize neonize bridge client. CONCEPT:ECO-4.0"""
         try:
             import neonize
         except ImportError:
@@ -139,7 +139,7 @@ class WhatsAppBackend(MessagingBackend):
         asyncio.create_task(asyncio.to_thread(self._client.connect))
 
     async def disconnect(self) -> None:
-        """Disconnect from WhatsApp. CONCEPT:ECO-4.5"""
+        """Disconnect from WhatsApp. CONCEPT:ECO-4.0"""
         if self._use_business_api and hasattr(self._client, "aclose"):
             await self._client.aclose()
         elif hasattr(self._client, "disconnect"):
@@ -155,20 +155,20 @@ class WhatsAppBackend(MessagingBackend):
         reply_to_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send a WhatsApp message. CONCEPT:ECO-4.5"""
+        """Send a WhatsApp message. CONCEPT:ECO-4.0"""
         try:
             if self._use_business_api:
                 return await self._send_business_api(channel_id, text, reply_to_id)
             else:
                 return await self._send_bridge(channel_id, text, reply_to_id)
         except Exception as e:
-            logger.error("[CONCEPT:ECO-4.5] WhatsApp send failed: %s", e)
+            logger.error("[CONCEPT:ECO-4.0] WhatsApp send failed: %s", e)
             return SendResult(success=False, platform=PlatformId.WHATSAPP, error=str(e))
 
     async def _send_business_api(
         self, channel_id: str, text: str, reply_to_id: str = ""
     ) -> SendResult:
-        """Send via Business API. CONCEPT:ECO-4.5"""
+        """Send via Business API. CONCEPT:ECO-4.0"""
         payload: dict[str, Any] = {
             "messaging_product": "whatsapp",
             "to": channel_id,
@@ -192,7 +192,7 @@ class WhatsAppBackend(MessagingBackend):
     async def _send_bridge(
         self, channel_id: str, text: str, reply_to_id: str = ""
     ) -> SendResult:
-        """Send via neonize bridge. CONCEPT:ECO-4.5"""
+        """Send via neonize bridge. CONCEPT:ECO-4.0"""
         result = await asyncio.to_thread(self._client.sendMessage, channel_id, text)
         return SendResult(
             success=True,
@@ -202,7 +202,7 @@ class WhatsAppBackend(MessagingBackend):
         )
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield inbound WhatsApp events. CONCEPT:ECO-4.5"""
+        """Yield inbound WhatsApp events. CONCEPT:ECO-4.0"""
         while self._connected:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)

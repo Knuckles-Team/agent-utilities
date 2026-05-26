@@ -368,6 +368,59 @@ async def background_processor(agent: Any):
                     if cmd == "cleanup_cron_log":
                         cleanup_cron_log()
                         logger.debug("Cron log cleanup completed")
+                    elif cmd.startswith("hydrate:"):
+                        source = cmd.split(":", 1)[1]
+                        logger.info(
+                            f"Running internal hydration task for source: {source}"
+                        )
+                        from agent_utilities.knowledge_graph.core.engine import (
+                            IntelligenceGraphEngine,
+                        )
+                        from agent_utilities.knowledge_graph.core.hydration import (
+                            HydrationManager,
+                        )
+
+                        engine = IntelligenceGraphEngine.get_active()
+                        if engine:
+                            try:
+                                res = HydrationManager().hydrate_source(engine, source)
+                                logger.info(
+                                    f"Internal hydration for '{source}' completed: {res}"
+                                )
+                            except Exception as he:
+                                logger.error(
+                                    f"Internal hydration for '{source}' failed: {he}"
+                                )
+                        else:
+                            logger.error(
+                                "Failed to fetch active Knowledge Graph engine for hydration task"
+                            )
+                    elif cmd == "hydrate_all" or cmd == "hydrate:all":
+                        logger.info(
+                            "Running internal hydration task for all active sources"
+                        )
+                        from agent_utilities.knowledge_graph.core.engine import (
+                            IntelligenceGraphEngine,
+                        )
+                        from agent_utilities.knowledge_graph.core.hydration import (
+                            HydrationManager,
+                        )
+
+                        engine = IntelligenceGraphEngine.get_active()
+                        if engine:
+                            try:
+                                res = HydrationManager().hydrate_all(engine)
+                                logger.info(
+                                    f"Internal hydration for all active sources completed: {res}"
+                                )
+                            except Exception as he:
+                                logger.error(
+                                    f"Internal hydration for all active sources failed: {he}"
+                                )
+                        else:
+                            logger.error(
+                                "Failed to fetch active Knowledge Graph engine for hydration task"
+                            )
                     continue
 
                 resolved_prompt = resolve_prompt(task.prompt)

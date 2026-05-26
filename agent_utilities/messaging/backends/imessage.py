@@ -1,8 +1,9 @@
-"""iMessage Backend (CONCEPT:ECO-4.5). macOS-only via AppleScript bridge.
+"""iMessage Backend (CONCEPT:ECO-4.0). macOS-only via AppleScript bridge.
 
 Install: ``pip install agent-utilities[messaging-imessage]``
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class IMessageBackend(MessagingBackend):
-    """iMessage backend via AppleScript (macOS only). CONCEPT:ECO-4.5"""
+    """iMessage backend via AppleScript (macOS only). CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -44,7 +45,7 @@ class IMessageBackend(MessagingBackend):
         if _platform.system() != "Darwin":
             raise ConnectionError("iMessage backend requires macOS.")
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] iMessage backend connected (macOS).")
+        logger.info("[CONCEPT:ECO-4.0] iMessage backend connected (macOS).")
 
     async def send_message(
         self,
@@ -76,7 +77,8 @@ class IMessageBackend(MessagingBackend):
             return SendResult(success=False, platform=PlatformId.IMESSAGE, error=str(e))
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
+        if self.id == "__never__":
+            yield None  # type: ignore[misc]
         raise NotImplementedError(
             "iMessage inbound requires polling AppleScript/chat.db."
         )
-        yield  # type: ignore[misc]  # pragma: no cover

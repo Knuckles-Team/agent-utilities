@@ -56,5 +56,5 @@ The framework registers several new `OntologySchema` types into the core KG engi
 
 ## Related Concepts
 - `CONCEPT:KG-2.6` - Domain: Finance (Base Layer)
-- `CONCEPT:ECO-4.1` - Market Data Connectors
+- `CONCEPT:ECO-4.0` - Market Data Connectors
 - `CONCEPT:KG-2.0` - Active Knowledge Graph

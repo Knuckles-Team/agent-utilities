@@ -1,14 +1,16 @@
 """Tests for Company Operations Pydantic Models.
 
-CONCEPT:KG-2.12 — Company Operations Domain
-CONCEPT:KG-2.13 — Company Intelligence Graph
+CONCEPT:KG-2.6 — Company Operations Domain
+CONCEPT:KG-2.1 — Company Intelligence Graph
 
 Validates all company Pydantic models, their field constraints,
 and OWL ontology alignment.
 """
+
 import pytest
 
 from agent_utilities.models.company import (
+    KPI,
     AgentDepartment,
     BenefitsPlan,
     CompanyLicense,
@@ -17,7 +19,6 @@ from agent_utilities.models.company import (
     CorporateGovernanceDoc,
     DeploymentBlueprint,
     IntellectualPropertyAsset,
-    KPI,
     PayrollRecord,
     RegulatoryFiling,
     StrategicGoal,
@@ -179,7 +180,7 @@ class TestAgentDepartment:
         with pytest.raises(Exception):
             AgentDepartment(
                 id="bad",
-            name="Bad Dept",
+                name="Bad Dept",
                 department_type="finance",
                 team_config_id="tc",
                 automation_level=1.5,  # > 1.0

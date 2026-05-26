@@ -1,4 +1,4 @@
-"""Inbound Message Router — Routes platform events to Planner Graph Agent (CONCEPT:ECO-4.5).
+"""Inbound Message Router — Routes platform events to Planner Graph Agent (CONCEPT:ECO-4.0).
 
 Consumes ``InboundEvent`` streams from all connected messaging backends and
 routes them to the planner graph agent for KG-aware orchestration. The planner
@@ -12,7 +12,7 @@ Architecture::
                          KG Auto-Ingest      KG recall_memory()
                          (kg_ingest.py)      (engine_memory.py)
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 
 See Also:
     - ``graph/builder.py`` for ``create_graph_agent()``
@@ -42,7 +42,7 @@ EventHandler = Callable[[InboundEvent, "MessagingBackend"], Awaitable[None]]
 class InboundRouter:
     """Routes inbound messaging events to the planner graph agent.
 
-    CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+    CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 
     The router listens on all connected backends simultaneously and
     dispatches events to registered handlers. The default handler
@@ -90,14 +90,14 @@ class InboundRouter:
         """
         self._backends.append(backend)
         logger.info(
-            "[CONCEPT:ECO-4.5] Registered backend '%s' for inbound routing.",
+            "[CONCEPT:ECO-4.0] Registered backend '%s' for inbound routing.",
             backend.id,
         )
 
     def on_event(self, event_type: EventType) -> Callable[[EventHandler], EventHandler]:
         """Decorator to register a handler for a specific event type.
 
-        CONCEPT:ECO-4.5
+        CONCEPT:ECO-4.0
 
         Usage::
 
@@ -123,7 +123,7 @@ class InboundRouter:
     def set_default_handler(self, handler: EventHandler) -> None:
         """Set the default handler for events without a specific handler.
 
-        CONCEPT:ECO-4.5
+        CONCEPT:ECO-4.0
 
         The default handler is typically the planner graph agent
         dispatcher, which routes messages through the KG-aware
@@ -137,21 +137,21 @@ class InboundRouter:
     async def start(self) -> None:
         """Start listening on all registered backends.
 
-        CONCEPT:ECO-4.5
+        CONCEPT:ECO-4.0
 
         Creates an async task for each backend's ``listen()`` method
         and dispatches events to registered handlers.
         """
         self._running = True
         logger.info(
-            "[CONCEPT:ECO-4.5] Starting inbound router with %d backends.",
+            "[CONCEPT:ECO-4.0] Starting inbound router with %d backends.",
             len(self._backends),
         )
 
         for backend in self._backends:
             if not backend.is_connected:
                 logger.warning(
-                    "[CONCEPT:ECO-4.5] Backend '%s' is not connected, skipping.",
+                    "[CONCEPT:ECO-4.0] Backend '%s' is not connected, skipping.",
                     backend.id,
                 )
                 continue
@@ -167,7 +167,7 @@ class InboundRouter:
     async def stop(self) -> None:
         """Stop all listener tasks gracefully.
 
-        CONCEPT:ECO-4.5
+        CONCEPT:ECO-4.0
         """
         self._running = False
         for task in self._tasks:
@@ -175,12 +175,12 @@ class InboundRouter:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
-        logger.info("[CONCEPT:ECO-4.5] Inbound router stopped.")
+        logger.info("[CONCEPT:ECO-4.0] Inbound router stopped.")
 
     async def _listen_loop(self, backend: MessagingBackend) -> None:
         """Internal listener loop for a single backend.
 
-        CONCEPT:ECO-4.5
+        CONCEPT:ECO-4.0
 
         Consumes the backend's ``listen()`` async iterator and
         dispatches each event to the appropriate handler.
@@ -188,22 +188,22 @@ class InboundRouter:
         Args:
             backend: The messaging backend to listen on.
         """
-        logger.info("[CONCEPT:ECO-4.5] Listening for events on '%s'...", backend.id)
+        logger.info("[CONCEPT:ECO-4.0] Listening for events on '%s'...", backend.id)
         try:
             async for event in backend.listen():
                 if not self._running:
                     break
                 await self._dispatch(event, backend)
         except asyncio.CancelledError:
-            logger.debug("[CONCEPT:ECO-4.5] Listener cancelled for '%s'.", backend.id)
+            logger.debug("[CONCEPT:ECO-4.0] Listener cancelled for '%s'.", backend.id)
         except NotImplementedError:
             logger.warning(
-                "[CONCEPT:ECO-4.5] Backend '%s' does not support inbound listening.",
+                "[CONCEPT:ECO-4.0] Backend '%s' does not support inbound listening.",
                 backend.id,
             )
         except Exception as e:
             logger.error(
-                "[CONCEPT:ECO-4.5] Error in listener for '%s': %s",
+                "[CONCEPT:ECO-4.0] Error in listener for '%s': %s",
                 backend.id,
                 e,
                 exc_info=True,
@@ -212,7 +212,7 @@ class InboundRouter:
     async def _dispatch(self, event: InboundEvent, backend: MessagingBackend) -> None:
         """Dispatch an event to registered handlers.
 
-        CONCEPT:ECO-4.5
+        CONCEPT:ECO-4.0
 
         Priority:
         1. Specific event-type handlers (registered via ``on_event``)
@@ -231,7 +231,7 @@ class InboundRouter:
                     await handler(event, backend)
                 except Exception as e:
                     logger.error(
-                        "[CONCEPT:ECO-4.5] Handler error for %s event: %s",
+                        "[CONCEPT:ECO-4.0] Handler error for %s event: %s",
                         event.event_type,
                         e,
                         exc_info=True,
@@ -241,13 +241,13 @@ class InboundRouter:
                 await self._default_handler(event, backend)
             except Exception as e:
                 logger.error(
-                    "[CONCEPT:ECO-4.5] Default handler error: %s",
+                    "[CONCEPT:ECO-4.0] Default handler error: %s",
                     e,
                     exc_info=True,
                 )
         else:
             logger.debug(
-                "[CONCEPT:ECO-4.5] No handler for %s event from '%s'.",
+                "[CONCEPT:ECO-4.0] No handler for %s event from '%s'.",
                 event.event_type,
                 backend.id,
             )
@@ -258,7 +258,7 @@ async def create_planner_handler(
 ) -> EventHandler:
     """Create a default event handler that routes to the planner graph agent.
 
-    CONCEPT:ECO-4.5
+    CONCEPT:ECO-4.0
 
     This handler:
     1. Auto-ingests the inbound message into the KG
@@ -278,7 +278,7 @@ async def create_planner_handler(
     async def planner_handler(event: InboundEvent, backend: MessagingBackend) -> None:
         """Route an inbound message through the planner graph agent.
 
-        CONCEPT:ECO-4.5
+        CONCEPT:ECO-4.0
         """
         if event.event_type != EventType.MESSAGE:
             return  # Only handle messages for now
@@ -291,7 +291,7 @@ async def create_planner_handler(
         try:
             await ingest_message_to_kg(event, knowledge_engine=knowledge_engine)
         except Exception as e:
-            logger.warning("[CONCEPT:ECO-4.5] KG ingest failed: %s", e)
+            logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
 
         # 2. Recall conversation context from KG
         kg_context = ""
@@ -308,7 +308,7 @@ async def create_planner_handler(
                         f"- {m.get('description', '')[:200]}" for m in memories
                     )
             except Exception as e:
-                logger.debug("[CONCEPT:ECO-4.5] KG recall failed: %s", e)
+                logger.debug("[CONCEPT:ECO-4.0] KG recall failed: %s", e)
 
         # 3. Run through planner graph agent
         try:
@@ -317,7 +317,7 @@ async def create_planner_handler(
                 pass
 
             logger.info(
-                "[CONCEPT:ECO-4.5] Routing message from %s/%s to planner.",
+                "[CONCEPT:ECO-4.0] Routing message from %s/%s to planner.",
                 event.platform,
                 event.user_name,
             )
@@ -338,6 +338,6 @@ async def create_planner_handler(
                 await backend.send_message(event.channel_id, response_text)
 
         except Exception as e:
-            logger.error("[CONCEPT:ECO-4.5] Planner routing failed: %s", e)
+            logger.error("[CONCEPT:ECO-4.0] Planner routing failed: %s", e)
 
     return planner_handler

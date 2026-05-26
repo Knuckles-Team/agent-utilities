@@ -1,7 +1,7 @@
 # X Personal Assistant & Social Content Ingestion Guide
 
-**CONCEPT:ECO-4.6** — Social Content Ingestion
-**CONCEPT:KG-2.7** — Universal Knowledge Assimilation
+**CONCEPT:ECO-4.0** — Social Content Ingestion
+**CONCEPT:KG-2.6** — Universal Knowledge Assimilation
 
 > This guide covers the native X (formerly Twitter) integration in agent-utilities,
 > including authenticated search, post retrieval, automatic Knowledge Graph ingestion,

@@ -1,4 +1,4 @@
-# Drift Report: Spec: Stateful Harness & Sensory Verification (CONCEPT:AHE-3.5)
+# Drift Report: Spec: Stateful Harness & Sensory Verification (CONCEPT:AHE-3.4)
 
 ## Overview
 This report summarizes potential specification, requirement, or execution discrepancies discovered during automated alignment scanning.

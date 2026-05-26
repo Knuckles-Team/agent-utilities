@@ -35,9 +35,116 @@ For financial workflows (linked to KG-2.46 Optimal Execution), the ecosystem imp
 - **ECO-4.1**: Capability Registry Engine
 - **ECO-4.2**: A2A Network & Consensus
 - **ECO-4.4**: Market Data Connector Protocol
+- **ECO-4.5**: Native Messaging Backend Abstraction — NATS/Kafka event queue messaging interfaces
 - **ECO-4.8**: Skill Evolution Engine
 - **ECO-4.10**: Agent Toolkit Ingestor — unified MCP/Skill/A2A ingestion with auto-detection heuristics
 - **ECO-4.11**: MCP Live Discovery — live `list_tools()` invocation, config hash freshness, and KG caching
+- **ECO-4.15**: Pluggable Event Queue Backend — Abstract QueueBackend with Memory, Nats, and Kafka implementations for multi-scale event distribution
+- **ECO-4.16**: Hierarchical AGENTS.md & Team Context — Root-first layered configuration walking
+- **ECO-4.17**: Self-Improving AGENTS.md Reflector — Stop-hook that proposes configuration updates
+- **ECO-4.18**: Deterministic Lint Enforcement Hook — Subprocess-based code quality gates
+- **ECO-4.19**: Plugin Bundle Distribution System — Manifest-based skill/hook/config packaging
+- **ECO-4.20**: Permission Policy Engine — File & tool deny/allow rules via PRE_TOOL_USE hooks
+- **ECO-4.21**: Configuration Staleness Auditor — Periodic review of unused rules, skills, and hooks
+- **ECO-4.22**: Governance Workflow Pipeline — Unified change proposal, risk scoring, and approval routing
+- **ECO-4.23**: Codebase Map Generator — Deterministic `CODEBASE.md` generation for navigational context
+
+---
+
+## 🏛️ Enterprise Agent Governance (ECO-4.16 — ECO-4.22)
+
+Enterprise-grade governance for large-scale agent deployments. Inspired by [Anthropic's Claude Code at Scale](https://www.anthropic.com) best practices, these modules bridge autonomous agent actions with human-in-the-loop oversight, ensuring compliance, auditability, and configuration hygiene across multi-team ecosystems.
+
+### 📄 Hierarchical AGENTS.md & Team Context (ECO-4.16)
+
+Implements **root-first additive** AGENTS.md resolution. When an agent operates in a subdirectory, it walks UP from CWD to project root, collecting all `AGENTS.md` files and assembling them root-first (root rules → subdirectory overrides). Team-specific conventions are injected at startup via KG `TeamConfigNode` entries.
+
+- **Source Code**: `knowledge_graph/core/agents_md.py` (`load_agents_md_layered()`), `knowledge_graph/memory/startup_context.py` (`team` parameter)
+- **Behavior**: Root rules form the base; subdirectories only ADD or OVERRIDE sections. Scoped build/test/lint commands use nearest-directory-wins precedence.
+
+### 🔄 Self-Improving AGENTS.md Reflector (ECO-4.17)
+
+A **SessionEnd stop hook** that reflects on session transcripts to propose AGENTS.md updates. Detects patterns like unused rules, frequently corrected conventions, and new capabilities discovered during work.
+
+- **Source Code**: `ecosystem/agents_md_reflector.py`
+- **Behavior**: Proposals above 0.9 confidence auto-apply. Below threshold, proposals are persisted as `agents_md_proposal` KG nodes for human review. Generates markdown diffs for clear change visualization.
+
+### 🔍 Deterministic Lint Enforcement Hook (ECO-4.18)
+
+A **PRE_TOOL_USE** hook that intercepts file writes and runs linters (`ruff`, `mypy`, `eslint`) in subprocess. Ensures code quality is enforced deterministically without LLM involvement.
+
+- **Source Code**: `ecosystem/lint_enforcement_hook.py`
+- **Behavior**: Configurable per-linter thresholds. Fails the file write if violations exceed limits. Results are cached by content hash to avoid re-running on identical content.
+
+### 📦 Plugin Bundle Distribution System (ECO-4.19)
+
+Manifest-based distribution for unified sets of skills, hooks, and MCP configurations. Bundles are registered in the KG and can be shared globally via GitHub.
+
+- **Source Code**: `ecosystem/plugin_bundle.py`
+- **Behavior**: YAML manifest format with version pinning, compatibility declarations, and install/uninstall lifecycle. The KG registry enables discovery and compliance auditing across teams.
+
+### 🛡️ Permission Policy Engine (ECO-4.20)
+
+Version-controlled deny/allow rules for file paths and tool names, enforced at the PRE_TOOL_USE lifecycle hook. Policies are YAML files tracked alongside code.
+
+- **Source Code**: `ecosystem/permission_policy.py`
+- **Behavior**: Path glob matching for file access control, tool name pattern matching for tool access. All policy decisions are persisted to the KG for audit trail.
+
+### 📊 Configuration Staleness Auditor (ECO-4.21)
+
+Periodic (default 30-day) health check that reviews AGENTS.md sections, skills, hooks, and plugins for staleness. Identifies rules never triggered, skills never invoked, and hooks compensating for resolved model limitations.
+
+- **Source Code**: `ecosystem/config_staleness_auditor.py`
+- **Behavior**: KG-backed usage tracking with markdown report generation. Each item receives a KEEP / UPDATE / REMOVE recommendation with confidence scores.
+
+### ⚖️ Governance Workflow Pipeline (ECO-4.22)
+
+**Unified governance pipeline** that orchestrates approval flows for all ecosystem mutations. Integrates the `ApprovalManager`, `PermissionsKernel`, `PolicyIngestor`, and `ConfigStalenessAuditor` into a single compliance layer.
+
+- **Source Code**: `ecosystem/governance_workflow.py`
+- **Architecture**:
+
+```mermaid
+graph TD
+    subgraph Proposal ["1. Change Proposal"]
+        A[Agent/Human Action] -->|"ChangeProposal"| B[GovernanceWorkflow.submit]
+    end
+
+    subgraph Evaluation ["2. Risk Evaluation"]
+        B --> C{Risk Score}
+        C -->|"< 0.4"| D[Auto-Approve]
+        C -->|">= 0.4"| E{Policy Check}
+        E -->|"Violation"| F[Policy Denied]
+        E -->|"Clean"| G[Queue for Human Review]
+    end
+
+    subgraph Resolution ["3. Human Review"]
+        G --> H[Approval Manager]
+        H -->|"approve/reject"| I[GovernanceDecision]
+    end
+
+    subgraph Persistence ["4. Audit Trail"]
+        D --> J[KG governance_decision Node]
+        F --> J
+        I --> J
+    end
+
+    style D fill:#d5e8d4,stroke:#82b366
+    style F fill:#f8cecc,stroke:#b85450
+    style G fill:#fff2cc,stroke:#d6b656
+    style J fill:#dae8fe,stroke:#6c8ebf
+```
+
+- **Change Types**: `agents_md_edit`, `hook_install/uninstall`, `plugin_install/uninstall`, `permission_change`, `policy_update`, `constitution_amend`, `skill_install`, `tool_registration`
+- **Risk Scoring**: Constitution amendments (0.9), permission changes (0.8), policy updates (0.7), hook installs (0.5), plugin installs (0.4), AGENTS.md edits (0.3), tool registrations (0.2). Human-initiated changes receive a 0.7x modifier.
+- **Audit Cycle**: `run_audit_cycle()` coordinates staleness auditor + reflector proposals + combined markdown report generation.
+
+### 🗺️ Codebase Map Generator (ECO-4.23)
+
+Generates deterministic `CODEBASE.md` files with directory-tree TOCs and docstring summaries. Fully subprocess-based (no LLM inference) for always-accurate project navigation context.
+
+- **Source Code**: `tools/codebase_map_tools.py`
+- **Behavior**: Walks the file tree, extracts module docstrings, and produces a navigational markdown document. Registered as a graph-os MCP tool.
 
 
 ### graph-os MCP Tools

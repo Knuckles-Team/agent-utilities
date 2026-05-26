@@ -31,17 +31,11 @@ Environment Variables:
 
 import logging
 import os
-
-from .base import GraphBackend
-from .falkordb_backend import FalkorDBBackend
-from .ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
-from .memory_backend import MemoryBackend
-from .neo4j_backend import Neo4jBackend
-from .postgresql_backend import PostgreSQLBackend
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_ACTIVE_BACKEND: GraphBackend | None = None
+_ACTIVE_BACKEND: Any = None
 
 __all__ = [
     "GraphBackend",
@@ -57,12 +51,42 @@ __all__ = [
 ]
 
 
-def get_active_backend() -> GraphBackend | None:
+def __getattr__(name: str):
+    if name == "GraphBackend":
+        from .base import GraphBackend
+
+        return GraphBackend
+    if name == "FalkorDBBackend":
+        from .falkordb_backend import FalkorDBBackend
+
+        return FalkorDBBackend
+    if name in ("LadybugBackend", "LADYBUG_AVAILABLE"):
+        from .ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
+
+        if name == "LadybugBackend":
+            return LadybugBackend
+        return LADYBUG_AVAILABLE
+    if name == "MemoryBackend":
+        from .memory_backend import MemoryBackend
+
+        return MemoryBackend
+    if name == "Neo4jBackend":
+        from .neo4j_backend import Neo4jBackend
+
+        return Neo4jBackend
+    if name == "PostgreSQLBackend":
+        from .postgresql_backend import PostgreSQLBackend
+
+        return PostgreSQLBackend
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def get_active_backend():
     """Retrieve the currently active graph backend instance."""
     return _ACTIVE_BACKEND
 
 
-def set_active_backend(backend: GraphBackend | None):
+def set_active_backend(backend):
     """Explicitly set the active graph backend instance."""
     global _ACTIVE_BACKEND
     _ACTIVE_BACKEND = backend
@@ -78,7 +102,7 @@ def create_backend(
     password: str | None = None,
     db_name: str | None = None,
     **kwargs,
-) -> GraphBackend | None:
+):
     """Factory function to create the appropriate graph backend.
 
     Resolves configuration from explicit arguments first, then falls back to
@@ -108,12 +132,16 @@ def create_backend(
         (backend_type or os.environ.get("GRAPH_BACKEND") or "ladybug").lower().strip()
     )
 
-    backend: GraphBackend | None = None
+    backend = None
 
     if backend_type == "memory":
+        from .memory_backend import MemoryBackend
+
         backend = MemoryBackend()
 
     elif backend_type == "ladybug":
+        from .ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
+
         if not LADYBUG_AVAILABLE:
             logger.warning(
                 "LadybugDB requested but 'ladybug' package is not installed."
@@ -134,6 +162,8 @@ def create_backend(
         backend = LadybugBackend(resolved_path)
 
     elif backend_type == "falkordb":
+        from .falkordb_backend import FalkorDBBackend
+
         resolved_host = host or os.environ.get("GRAPH_DB_HOST") or "localhost"
         resolved_port = port or int(os.environ.get("GRAPH_DB_PORT", "6379"))
         resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
@@ -142,6 +172,8 @@ def create_backend(
         )
 
     elif backend_type == "neo4j":
+        from .neo4j_backend import Neo4jBackend
+
         resolved_uri = uri or os.environ.get("GRAPH_DB_URI") or "bolt://localhost:7687"
         resolved_user = user or os.environ.get("GRAPH_DB_USER") or "neo4j"
         resolved_password = (
@@ -152,6 +184,8 @@ def create_backend(
         )
 
     elif backend_type == "postgresql":
+        from .postgresql_backend import PostgreSQLBackend
+
         resolved_uri = (
             uri
             or os.environ.get("GRAPH_DB_URI")

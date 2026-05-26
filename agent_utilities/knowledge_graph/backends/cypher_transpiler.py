@@ -34,7 +34,9 @@ _LIMIT_CLAUSE = re.compile(r"LIMIT\s+(\$?\w+)", re.IGNORECASE)
 _ORDER_BY_CLAUSE = re.compile(
     r"ORDER\s+BY\s+(.+?)(?:LIMIT|$)", re.IGNORECASE | re.DOTALL
 )
-_MERGE_REL = re.compile(r"MERGE\s+\((\w+)\)-\[(\w+):(\w+)\]->\((\w+)\)", re.IGNORECASE)
+_MERGE_REL = re.compile(
+    r"MERGE\s+\((\w+)\)-\[(\w+):(\w+)(?:\s*\{([^}]+)\})?\]->\((\w+)\)", re.IGNORECASE
+)
 _MATCH_REL = re.compile(
     r"MATCH\s+\((\w+)(?::(\w+))?\s*(?:\{[^}]*\})?\)-\[(\w+)?:?(\w+)?\]->?\((\w+)(?::(\w+))?\s*(?:\{[^}]*\})?\)",
     re.IGNORECASE,
@@ -122,7 +124,7 @@ def transpile(
     if m and cypher_stripped.upper().startswith("CREATE"):
         alias, label, props_str = m.group(1), m.group(2), m.group(3)
         # Parse "key: $param" pairs
-        prop_pairs = re.findall(r"(\w+)\s*:\s*\$(\w+)", props_str)
+        prop_pairs = re.findall(r"`?(\w+)`?\s*:\s*\$(\w+)", props_str)
         cols = [p[0] for p in prop_pairs]
         param_keys = [p[1] for p in prop_pairs]
         placeholders = ["%s" for _ in cols]
@@ -139,7 +141,7 @@ def transpile(
         alias, label, id_param = m_id.group(1), m_id.group(2), m_id.group(3)
         set_str = m_set.group(1).strip()
         # Parse "n.key = $param" pairs
-        set_pairs = re.findall(rf"{alias}\.(\w+)\s*=\s*\$(\w+)", set_str)
+        set_pairs = re.findall(rf"{alias}\.`?(\w+)`?\s*=\s*\$(\w+)", set_str)
         if set_pairs:
             set_clauses = [f'"{p[0]}" = %s' for p in set_pairs]
             values = [clean_params.get(p[1]) for p in set_pairs]
@@ -182,6 +184,67 @@ def transpile(
                 query_type=QueryType.LABEL_LOOKUP,
                 return_columns=[lbl_alias],
             )
+
+    # --- Pattern 3.5: MATCH (s)-[r]->(t) (relationship select) ---
+    m_rel = _MATCH_REL.search(cypher_stripped)
+    if m_rel and not cypher_stripped.upper().startswith("MERGE"):
+        s_alias = m_rel.group(1)
+        m_rel.group(2)
+        r_alias = m_rel.group(3) or "r"
+        r_type = m_rel.group(4)
+        t_alias = m_rel.group(5)
+        m_rel.group(6)
+
+        sid_param = _find_id_param(cypher_stripped, s_alias, clean_params)
+        tid_param = _find_id_param(cypher_stripped, t_alias, clean_params)
+        sid = clean_params.get(sid_param, clean_params.get("sid"))
+        tid = clean_params.get(tid_param, clean_params.get("tid"))
+
+        m_ret = _RETURN_CLAUSE.search(cypher_stripped)
+        select_cols = []
+        return_cols = []
+        if m_ret:
+            ret_raw = m_ret.group(1).strip()
+            items = [item.strip() for item in ret_raw.split(",")]
+            for item in items:
+                m_prop = re.search(
+                    rf"{r_alias}\.(\w+)\s+(?:AS\s+)?(\w+)", item, re.IGNORECASE
+                )
+                if m_prop:
+                    prop_name = m_prop.group(1)
+                    prop_alias = m_prop.group(2)
+                    select_cols.append(f"(properties->>'{prop_name}') AS {prop_alias}")
+                    return_cols.append(prop_alias)
+                else:
+                    m_prop_simple = re.search(rf"{r_alias}\.(\w+)", item, re.IGNORECASE)
+                    if m_prop_simple:
+                        prop_name = m_prop_simple.group(1)
+                        select_cols.append(
+                            f"(properties->>'{prop_name}') AS {prop_name}"
+                        )
+                        return_cols.append(prop_name)
+                    elif item == r_alias:
+                        select_cols.append("properties")
+                        return_cols.append(r_alias)
+
+        if not select_cols:
+            select_cols = ["properties"]
+            return_cols = [r_alias]
+
+        select_clause = ", ".join(select_cols)
+
+        sql = f"SELECT {select_clause} FROM {EDGE_TABLE} WHERE source_id = %s AND target_id = %s"
+        params_list = [sid, tid]
+        if r_type:
+            sql += " AND rel_type = %s"
+            params_list.append(r_type)
+
+        return TranspiledQuery(
+            sql=sql,
+            params=params_list,
+            query_type=QueryType.SELECT,
+            return_columns=return_cols,
+        )
 
     # --- Pattern 4: MATCH (n:Label) WHERE ... RETURN n (with filters) ---
     if cypher_stripped.upper().startswith("MATCH"):
@@ -234,7 +297,8 @@ def transpile(
             s_alias = m_merge.group(1)
             _r_alias = m_merge.group(2)  # noqa: F841
             rel_type = m_merge.group(3)
-            t_alias = m_merge.group(4)
+            props_str = m_merge.group(4)
+            t_alias = m_merge.group(5)
             # Extract source/target IDs from earlier MATCH
             sid_param = _find_id_param(cypher_stripped, s_alias, clean_params)
             tid_param = _find_id_param(cypher_stripped, t_alias, clean_params)
@@ -245,12 +309,31 @@ def transpile(
                 f"VALUES (%s, %s, %s, %s::jsonb) "
                 f"ON CONFLICT (source_id, target_id, rel_type) DO UPDATE SET properties = EXCLUDED.properties"  # nosec B608
             )
-            # Collect edge properties
-            edge_props = {
-                k: v
-                for k, v in clean_params.items()
-                if k not in ("sid", "tid", "id", "source", "target")
-            }
+            # Collect edge properties (both inline literals and params)
+            edge_props = {}
+            if props_str:
+                for pair in re.split(r",\s*", props_str):
+                    parts = pair.split(":")
+                    if len(parts) == 2:
+                        k_prop = parts[0].strip()
+                        v_raw = parts[1].strip()
+                        if (v_raw.startswith("'") and v_raw.endswith("'")) or (
+                            v_raw.startswith('"') and v_raw.endswith('"')
+                        ):
+                            edge_props[k_prop] = v_raw[1:-1]
+                        else:
+                            try:
+                                if "." in v_raw:
+                                    edge_props[k_prop] = float(v_raw)
+                                else:
+                                    edge_props[k_prop] = int(v_raw)
+                            except ValueError:
+                                edge_props[k_prop] = v_raw
+
+            for k, v in clean_params.items():
+                if k not in ("sid", "tid", "id", "source", "target"):
+                    edge_props[k] = v
+
             import json
 
             return TranspiledQuery(
@@ -406,10 +489,13 @@ def _build_where(
 
 def _find_id_param(cypher: str, alias: str, params: dict[str, Any]) -> str:
     """Find the parameter name used for an alias's ID in MATCH clauses."""
+    m = re.search(rf"\b{alias}\b(?::\w+)?\s*\{{id:\s*\$(\w+)\}}", cypher)
+    if m:
+        return m.group(1)
     m = re.search(rf"\{{{alias}\w*\s*:\s*\$(\w+)\}}", cypher)
     if m:
         return m.group(1)
-    m = re.search(rf"{alias}\.id\s*=\s*\$(\w+)", cypher)
+    m = re.search(rf"\b{alias}\b\.id\s*=\s*\$(\w+)", cypher)
     if m:
         return m.group(1)
     m = re.search(r"\{id:\s*\$(\w+)\}", cypher)

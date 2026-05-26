@@ -1,4 +1,4 @@
-"""Microsoft Teams Messaging Backend (CONCEPT:ECO-4.5).
+"""Microsoft Teams Messaging Backend (CONCEPT:ECO-4.0).
 
 Implements ``MessagingBackend`` for Microsoft Teams using ``botbuilder-core``.
 Supports Adaptive Cards, threads, reactions, and Bot Framework webhook events.
@@ -12,7 +12,7 @@ Configuration::
     MSTEAMS_APP_ID=<app-id>
     MSTEAMS_APP_PASSWORD=<app-password>
 
-CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 class TeamsBackend(MessagingBackend):
-    """Microsoft Teams messaging backend using ``botbuilder-core``. CONCEPT:ECO-4.5"""
+    """Microsoft Teams messaging backend using ``botbuilder-core``. CONCEPT:ECO-4.0"""
 
     def __init__(self, config: MessagingConfig | None = None) -> None:
         super().__init__(config)
@@ -58,7 +58,7 @@ class TeamsBackend(MessagingBackend):
         return CAPABILITY_MATRIX["teams"]
 
     async def connect(self) -> None:
-        """Initialize Bot Framework adapter. CONCEPT:ECO-4.5"""
+        """Initialize Bot Framework adapter. CONCEPT:ECO-4.0"""
         try:
             from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
         except ImportError:
@@ -74,10 +74,10 @@ class TeamsBackend(MessagingBackend):
         )
         self._adapter = BotFrameworkAdapter(settings)
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.5] Teams backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] Teams backend connected.")
 
     async def disconnect(self) -> None:
-        """Disconnect from Teams. CONCEPT:ECO-4.5"""
+        """Disconnect from Teams. CONCEPT:ECO-4.0"""
         await super().disconnect()
 
     async def send_message(
@@ -89,7 +89,7 @@ class TeamsBackend(MessagingBackend):
         reply_to_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send a Teams message. Supports Adaptive Cards via metadata. CONCEPT:ECO-4.5"""
+        """Send a Teams message. Supports Adaptive Cards via metadata. CONCEPT:ECO-4.0"""
         try:
             from botbuilder.core import MessageFactory
 
@@ -112,17 +112,17 @@ class TeamsBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            logger.error("[CONCEPT:ECO-4.5] Teams send failed: %s", e)
+            logger.error("[CONCEPT:ECO-4.0] Teams send failed: %s", e)
             return SendResult(success=False, platform=PlatformId.TEAMS, error=str(e))
 
     async def send_typing(self, channel_id: str) -> None:
-        """Send typing indicator. CONCEPT:ECO-4.5"""
+        """Send typing indicator. CONCEPT:ECO-4.0"""
         pass  # Handled via TurnContext in webhook handler
 
     async def create_thread(
         self, channel_id: str, message_id: str, title: str = ""
     ) -> Thread:
-        """Create a thread reply. CONCEPT:ECO-4.5"""
+        """Create a thread reply. CONCEPT:ECO-4.0"""
         return Thread(
             id=message_id,
             parent_message_id=message_id,
@@ -131,7 +131,7 @@ class TeamsBackend(MessagingBackend):
         )
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield inbound Teams events (populated via webhook handler). CONCEPT:ECO-4.5"""
+        """Yield inbound Teams events (populated via webhook handler). CONCEPT:ECO-4.0"""
         while self._connected:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
@@ -144,7 +144,7 @@ class TeamsBackend(MessagingBackend):
     ) -> None:
         """Process an incoming Bot Framework webhook activity.
 
-        CONCEPT:ECO-4.5
+        CONCEPT:ECO-4.0
 
         Call this from your web server's webhook endpoint to inject
         Teams events into the inbound router pipeline.
@@ -153,6 +153,8 @@ class TeamsBackend(MessagingBackend):
             body: The raw activity JSON from Bot Framework.
             auth_header: The Authorization header for verification.
         """
+        if auth_header:
+            logger.debug("[CONCEPT:ECO-4.0] Webhook received with auth header present.")
         activity_type = body.get("type", "")
         if activity_type == "message":
             event = InboundEvent(

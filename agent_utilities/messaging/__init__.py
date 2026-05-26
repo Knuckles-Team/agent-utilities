@@ -1,4 +1,4 @@
-"""Native Messaging Backend Abstraction (CONCEPT:ECO-4.5).
+"""Native Messaging Backend Abstraction (CONCEPT:ECO-4.0).
 
 Provides a pluggable, transport-agnostic messaging framework that enables
 agents to send and receive messages across 17+ platforms (Discord, Slack,
@@ -37,7 +37,7 @@ See Also:
     - ``docs/architecture/messaging_architecture.md``
 """
 
-# CONCEPT:ECO-4.5 — Native Messaging Backend Abstraction
+# CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
@@ -73,5 +73,5 @@ __all__ = [
     "CAPABILITY_MATRIX",
 ]
 """
-Description: Public API for the messaging framework (CONCEPT:ECO-4.5).
+Description: Public API for the messaging framework (CONCEPT:ECO-4.0).
 """

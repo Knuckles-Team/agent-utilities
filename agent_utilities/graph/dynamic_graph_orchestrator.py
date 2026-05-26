@@ -24,13 +24,11 @@ from agent_utilities.core.config import (
 )
 from agent_utilities.core.model_factory import create_model
 
-from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 from ..knowledge_graph.core.formal_reasoning_core import (
     chromatic_schedule,
     dag_critical_path,
 )
 from ..models import GraphResponse
-from ..models.knowledge_graph import TeamComposition
 from .config_helpers import (
     DEFAULT_GRAPH_TIMEOUT,
     emit_graph_event,
@@ -54,6 +52,7 @@ and execution paths.
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+    from ..models.knowledge_graph import TeamComposition
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +86,8 @@ class DynamicSubgraphOrchestrator:
             4. Use graph theory primitives to find critical paths and parallel groups.
             5. Construct the TeamComposition.
         """
+        from ..models.knowledge_graph import TeamComposition
+
         team_id = f"team:dyn:{uuid.uuid4().hex[:8]}"
 
         # Step 1 & 2: Get candidate agents for this task
@@ -338,7 +339,7 @@ logger = logging.getLogger(__name__)
 class KGDrivenExecutionEngine:
     """Orchestrates dynamic pydantic-graph execution using the KG.
 
-    CONCEPT:ORCH-1.4 — KG-Driven Pydantic Graph Engine
+    CONCEPT:ORCH-1.4 - KG-Driven Pydantic Graph Engine
     """
 
     def __init__(self, engine: IntelligenceGraphEngine):

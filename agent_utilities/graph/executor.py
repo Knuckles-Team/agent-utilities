@@ -17,7 +17,11 @@ from typing import Any
 
 from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_graph import End
-from pydantic_graph.beta import StepContext
+
+try:
+    from pydantic_graph.step import StepContext
+except ImportError:
+    from pydantic_graph.beta import StepContext
 
 from agent_utilities.agent.factory import create_agent
 from agent_utilities.tools.tool_filtering import filter_tools_by_tag
@@ -924,14 +928,14 @@ async def _execute_dynamic_mcp_agent(
                                         content=part.content,
                                     )
                         elif isinstance(msg, ModelRequest):
-                            for part in msg.parts:
-                                if isinstance(part, ToolReturnPart):
+                            for req_part in msg.parts:
+                                if isinstance(req_part, ToolReturnPart):
                                     emit_graph_event(
                                         ctx.deps.event_queue,
                                         event_type="tool_result",
                                         agent=agent_info.name,
-                                        tool=part.tool_name,
-                                        result=str(part.content)[:500],
+                                        tool=req_part.tool_name,
+                                        result=str(req_part.content)[:500],
                                     )
                 # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
                 # and mirror to results (keyed by domain tag, for backwards compatibility).
@@ -971,12 +975,15 @@ async def _execute_dynamic_mcp_agent(
                 ):
                     from pydantic_ai.messages import ModelRequest, ToolReturnPart
 
-                    tool_returns = []
+                    tool_returns: list[str] = []
                     for msg in res.all_messages():
                         if isinstance(msg, ModelRequest):
-                            for part in msg.parts:
-                                if isinstance(part, ToolReturnPart) and part.content:
-                                    content_str = str(part.content)
+                            for ret_part in msg.parts:
+                                if (
+                                    isinstance(ret_part, ToolReturnPart)
+                                    and ret_part.content
+                                ):
+                                    content_str = str(ret_part.content)
                                     if content_str and content_str not in (
                                         "[]",
                                         "None",
@@ -984,7 +991,7 @@ async def _execute_dynamic_mcp_agent(
                                         "",
                                     ):
                                         tool_returns.append(
-                                            f"**{part.tool_name}**: {content_str}"
+                                            f"**{ret_part.tool_name}**: {content_str}"
                                         )
                     if tool_returns:
                         logger.warning(
@@ -998,6 +1005,7 @@ async def _execute_dynamic_mcp_agent(
                         )
                 node_uid = f"{cache_key}_{ctx.state.step_cursor}"
                 ctx.state.results_registry[node_uid] = result_str
+
                 result_key = agent_info.name or cache_key
                 ctx.state.results[result_key] = result_str
                 ctx.state.routed_domain = result_key
@@ -1146,7 +1154,7 @@ async def _execute_agent_package_logic(
     ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
     node_id: str,
     meta: dict,
-) -> str:
+) -> str | End[Any]:
     """Execute specialized logic for a discovered agent package.
 
     This function handles the dispatch logic for two primary agent types:
@@ -1224,7 +1232,7 @@ async def _execute_agent_package_logic(
 async def agent_package_step(
     ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
     node_id: str,
-) -> str:
+) -> str | End[Any]:
     """Graph node step wrapper for agent package execution.
 
     This acts as the standardized entry point for all specialist agent nodes

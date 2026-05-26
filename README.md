@@ -25,6 +25,7 @@
 
 ## Table of Contents
 
+- [The Technical Novel: Narrative Journey](docs/journey.md)
 - [Overview](#overview)
 - [Key Features](#key-features)
 - [Intelligence Graph](#-intelligence-graph)
@@ -41,8 +42,21 @@
 - [Contributing](#contributing)
 - [License](#license)
 
+---
+
+## 🌌 The Journey of Agent Utilities: The Technical Novel
+
+> [!NOTE]
+> **New to the project?** Rather than reading dry configuration tables, experience `agent-utilities` live!
+> Read our comprehensive technical biography tracing the lifecycle of a high-stakes quantitative rebalancing mandate.
+>
+> 📖 **[Read the Immersive Narrative Journey (docs/journey.md)](docs/journey.md)**
+
+---
+
 ## 🌌 Mission & Future State: Distributed Evolution
-The core vision for `agent-utilities` transcends being just an execution harness—it is the bedrock for **Distributed Agentic Evolution**.
+
+The core vision for `agent-utilities` transcends being just an execution harness—it is the bedrock for **Distributed Agentic Evolution** and the substrate for the **AI-First Autonomous Organization**.
 
 As autonomous agents leverage this ecosystem to solve complex problems, they continuously learn, adapt, and refine their own capabilities. Our future state envisions a community of independent, self-improving agents that not only run on this harness but dynamically contribute their localized evolutionary breakthroughs—new skills, optimized TeamConfigs, refined prompts, and advanced reasoning traces—back to the open-source collective.
 
@@ -52,26 +66,30 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 
 - **[Multi-Domain Expert System](docs/guides/features.md#comprehensive-feature-list)**: Scale across finance, medical, and scientific domains using Vectorized Topological Memory and specialized MCP tools.
 - **[Unified Intelligence Graph](docs/guides/features.md#comprehensive-feature-list)**: A topological pipeline combining in-memory NetworkX analysis with persistent Cypher (LadybugDB/Neo4j/Falkor) backends.
+- **[Centralized Sessions & Goals (API-First Gateway)](docs/centralized_kg_coordination.md#7-centralized-sessions--autonomous-goal-coordination)**: A highly-resilient, centralized REST API gateway running on Port `8100` that handles background goal loops, durable turns, and user session reply orchestration.
+- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.6-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` providing fast AST parsing, VF2 subgraph matching, and a Reactive State Ledger designed to scale seamlessly up to 100,000,000 concurrent agents.
 - **[Spec-Driven Development (SDD)](docs/guides/features.md#spec-driven-development-sdd-lifecycle)**: High-fidelity orchestration that decomposes goals into structured specs, implementation plans, and parallel tasks.
 - **[Emergent Architecture](docs/guides/features.md#emergent-architecture-conceptkg-20-through-conceptorch-12)**: Dynamic AgentCapability auto-activation, TeamConfig coalition promotion, and evolutionary skill refinement via self-models.
 - **[Agent OS & Safety](docs/guides/features.md#human-in-the-loop--tool-safety)**: Built-in Universal Tool Guards, structural vulnerability scanning, and transparent process lifecycle management.
+- **[Enterprise Agent Governance](docs/pillars/4_ecosystem_peripherals.md#-enterprise-agent-governance-eco-416--eco-422)**: Production-grade mutation governance with risk-scored change proposals, human-in-the-loop approval gates, AGENTS.md self-improvement, lint enforcement hooks, plugin bundle distribution, permission policies, staleness auditing, and unified governance workflow pipeline.
 
 > 📖 **[View the Comprehensive Feature List & Architecture Deep Dives](docs/guides/features.md)**
 
 ## 🗺 Concept Map
 
-Consolidated from 169 tags into **34 canonical concepts** across **5 Core Pillars**.
+Consolidated from 169 tags into **64 canonical concepts** across **5 Core Pillars**.
 
 → **Full Concept Map**: [docs/concept_map.md](docs/concept_map.md) — canonical concept registry (single source of truth).
 → **Concept Index**: [docs/overview.md](docs/overview.md#concept-index) — all pillars with descriptions and code paths.
 
 | Pillar | ID Range | Count | Focus |
 |:------|:---------|:---:|:------|
-| **ORCH-1** Graph Orchestration | ORCH-1.0 – 1.6 | 7 | Intelligence graph, HTN planning, routing, execution safety, DSTDD |
-| **KG-2** Knowledge Graph | KG-2.0 – 2.8 | 9 | Active KG, memory, ontology, retrieval, research, finance, enterprise |
-| **AHE-3** Agentic Harness | AHE-3.0 – 3.6 | 7 | Evaluation, evolution, teams, heavy thinking, backtest |
-| **ECO-4** Ecosystem | ECO-4.0 – 4.5 | 6 | MCP, A2A, telemetry, connectors, KG server, terminal agent launcher |
-| **OS-5** Agent OS | OS-5.0 – 5.4 | 5 | Kernel, security, scheduling, guardrails, observability |
+| **ORCH-1** Graph Orchestration | ORCH-1.0 – 1.29 | 14 | Intelligence graph, HTN planning, routing, execution safety, DSTDD, parallel engine, reactive sourcing, WASM sandbox |
+| **KG-2** Knowledge Graph | KG-2.0 – 2.18 | 16 | Active KG, memory, ontology, retrieval, research, finance, enterprise, quant FFI, compiled compute |
+| **AHE-3** Agentic Harness | AHE-3.0 – 3.16 | 10 | Evaluation, evolution, teams, heavy thinking, backtest, model evolver |
+| **ECO-4** Ecosystem | ECO-4.0 – 4.23 | 17 | MCP, A2A, telemetry, connectors, messaging, governance, hooks, plugins, permissions |
+| **OS-5** Agent OS | OS-5.0 – 5.6 | 7 | Kernel, security, scheduling, guardrails, observability, budgets, massive-scale |
+| **GBOT-6** GeniusBot Cockpit | GBOT-6.0 – 6.6 | 7 | Premium Systems GUI, swappable tab matrix, embedded sandboxed terminal, universal approval gate, real-time finance dashboard |
 
 ## 🏗️ Architecture & Pillar Reference
 
@@ -87,6 +105,8 @@ The detailed architectural diagrams and deep-dive documentation for `agent-utili
   * *Contains: graph-os MCP Tools, Server Endpoints, MCP Loading & Registry Architecture.*
 * **[5. Agent OS Infrastructure](docs/pillars/5_agent_os_infrastructure.md)**
   * *Contains: Human-in-the-Loop Tool Approval, Process Lifecycle, Auth/Security.*
+* **[6. GeniusBot Desktop Cockpit](docs/pillars/6_geniusbot_cockpit.md)**
+  * *Contains: Premium Systems Cockpit, swappable plugins tab matrix, sandboxed terminal widget, visual finance trading dashboard.*
 * **[C4 Architecture Diagrams](docs/pillars/architecture_c4.md)**
   * *Contains: Ecosystem Dependency Graph, C4 Container Diagram, Cross-Pillar Data Flows.*
 * **[Memory Architecture](docs/pillars/memory_architecture.md)**

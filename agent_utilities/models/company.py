@@ -1,8 +1,8 @@
 #!/usr/bin/python
 """Company Operations Pydantic Models.
 
-CONCEPT:KG-2.12 — Company Operations Domain
-CONCEPT:KG-2.13 — Company Intelligence Graph
+CONCEPT:KG-2.6 — Company Operations Domain
+CONCEPT:KG-2.1 — Company Intelligence Graph
 
 Provides Pydantic models for autonomous company operations including:
 - CompanyProfile: The top-level company entity
@@ -18,6 +18,7 @@ Provides Pydantic models for autonomous company operations including:
 - CompanySoftware: Deployed software systems
 - DeploymentBlueprint: Docker Swarm deployment templates
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -282,7 +283,7 @@ class CompanySoftware(RegistryNode):
     """A software system deployed for company operations.
 
     Maps to OWL class :CompanySoftware in ontology_company_infra.ttl.
-    CONCEPT:ECO-4.13 — Company Infrastructure Orchestration.
+    CONCEPT:ECO-4.3 — Company Infrastructure Orchestration.
     """
 
     type: RegistryNodeType = RegistryNodeType.COMPANY_SOFTWARE
@@ -307,7 +308,7 @@ class CompanySoftware(RegistryNode):
         description="Agent-packages MCP server identifier, if available",
     )
     dns_rewrite: str | None = Field(
-        default=None, description="DNS hostname configured via AdGuard Home"
+        default=None, description="DNS hostname configured via Technitium DNS"
     )
     host_id: str | None = Field(default=None, description="InfrastructureHost node ID")
 
@@ -316,7 +317,7 @@ class DeploymentBlueprint(RegistryNode):
     """A reusable Docker Swarm / Compose blueprint for deploying company software.
 
     Maps to OWL class :DeploymentBlueprint in ontology_company_infra.ttl.
-    CONCEPT:ECO-4.14 — Infrastructure Blueprint Library.
+    CONCEPT:ECO-4.04 — Infrastructure Blueprint Library.
     """
 
     type: RegistryNodeType = RegistryNodeType.DEPLOYMENT_BLUEPRINT

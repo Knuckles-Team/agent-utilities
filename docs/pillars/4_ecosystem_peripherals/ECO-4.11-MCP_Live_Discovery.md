@@ -7,8 +7,8 @@
 | **Concept ID** | `ECO-4.11` |
 | **Pillar** | 4 — Ecosystem & Peripherals |
 | **Status** | Implemented |
-| **Source Modules** | `engine_mcp_discovery.py` |
-| **Test Modules** | `test_agent_toolkit_ingestion.py` |
+| **Source Modules** | `engine_mcp_discovery.py`, `tools/dynamic_tool_orchestrator.py` |
+| **Test Modules** | `test_agent_toolkit_ingestion.py`, `test_dynamic_tool_selection.py` |
 | **C4 Component** | MCP Live Discovery |
 
 ## Overview
@@ -87,6 +87,18 @@ Subsequent Ingestion:
   2. If fresh → SKIP (saves ~30s per server)
   3. If stale → re-run live discovery
 ```
+
+## Dynamic Toolset Resolution & Cache Refresh
+
+Beyond static ingestion-time discovery, **ECO-4.11** supports runtime dynamic toolset resolution and background cache refreshing via the `DynamicToolOrchestrator`.
+
+When an MCP client passes query filters or custom headers requesting context-scoped capabilities:
+1. **Direct KG Resolution**: The `DynamicToolOrchestrator` queries the Active Knowledge Graph using optimized, LLM-free Cypher matching against `CallableResource` nodes to filter the active tools list.
+2. **Lazy Cache Freshness Guard**: The orchestrator verifies the server node's last updated timestamp:
+   - If the age exceeds **24 hours**, it returns the cached list instantly to keep request latencies under sub-milliseconds.
+   - Concurrently, it schedules a **non-blocking background task** (`refresh_cached_tools`) to execute live introspection against the target server subprocess and asynchronously update the graph database entries.
+
+---
 
 ## Related Concepts
 

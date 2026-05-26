@@ -1,5 +1,5 @@
 """
-Tests for Graph-Native Durable Execution (CONCEPT:ECO-4.1).
+Tests for Graph-Native Durable Execution (CONCEPT:ECO-4.0).
 """
 
 from agent_utilities.orchestration.durable_execution import DurableExecutionManager

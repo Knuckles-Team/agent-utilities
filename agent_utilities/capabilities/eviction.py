@@ -23,8 +23,6 @@ from pydantic_ai.tools import ToolDefinition
 
 from agent_utilities.protocols.capability import CapabilityContext
 
-from ..models.knowledge_graph import RawSourceNode, RegistryNodeType
-
 logger = logging.getLogger(__name__)
 
 
@@ -71,6 +69,8 @@ class ToolOutputEviction(AbstractCapability[Any]):
         if self.store_in_graph:
             engine = getattr(ctx.deps, "graph_engine", None)
             if engine:
+                from ..models.knowledge_graph import RawSourceNode, RegistryNodeType
+
                 content_hash = hashlib.sha256(content.encode()).hexdigest()
                 node = RawSourceNode(
                     id=f"evicted_{content_hash[:12]}",

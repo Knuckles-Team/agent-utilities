@@ -45,7 +45,7 @@ async def main():
         from agent_utilities.knowledge_graph.backends import create_backend
 
         ensure_dirs()
-        db_path = str(kg_db_path())
+        str(kg_db_path())
         backend = create_backend(backend_type="ladybug")
         graph = nx.MultiDiGraph()
         engine = IntelligenceGraphEngine(graph=graph, backend=backend)

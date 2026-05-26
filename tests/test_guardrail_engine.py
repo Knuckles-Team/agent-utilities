@@ -266,3 +266,69 @@ class TestTriggerLog:
         engine.check_input("sk-key123")
         engine.check_output("SSN: 111-22-3333")
         assert len(engine.trigger_log) >= 2
+
+
+# ---------------------------------------------------------------------------
+# PII Sanitizer & Ephemeral Context Tests
+# ---------------------------------------------------------------------------
+
+from agent_utilities.security.guardrails import (
+    PiiSanitizer,
+    EphemeralContext,
+    PIISanitizerPolicy,
+)
+
+class TestPiiSanitizer:
+    def test_sanitize_text_ssn(self):
+        sanitizer = PiiSanitizer()
+        text = "My SSN is 123-45-6789."
+        assert sanitizer.sanitize_text(text) == "My SSN is [REDACTED_SSN]."
+
+    def test_sanitize_text_tax_id(self):
+        sanitizer = PiiSanitizer()
+        # Test 50-state tax_id / EIN pattern
+        text = "Company EIN is 12-3456789."
+        assert sanitizer.sanitize_text(text) == "Company EIN is [REDACTED_TAX_ID]."
+
+    def test_sanitize_dict_recursive(self):
+        sanitizer = PiiSanitizer()
+        data = {
+            "name": "John Doe",
+            "sensitive": {
+                "ssn": "123-45-6789",
+                "nested_list": ["12-3456789", "clean text"]
+            }
+        }
+        sanitized = sanitizer.sanitize_dict(data)
+        assert sanitized["sensitive"]["ssn"] == "[REDACTED_SSN]"
+        assert sanitized["sensitive"]["nested_list"][0] == "[REDACTED_TAX_ID]"
+        assert sanitized["sensitive"]["nested_list"][1] == "clean text"
+
+
+class TestEphemeralContext:
+    def test_scrub_and_zero(self):
+        buf = bytearray(b"sensitive_password")
+        data_list = ["temp", "data"]
+        data_dict = {"key": "val"}
+
+        with EphemeralContext(buf=buf, data_list=data_list, data_dict=data_dict) as ctx:
+            assert ctx["buf"] == buf
+
+        # Verify scrubbing
+        assert all(b == 0 for b in buf)
+        assert len(data_list) == 0
+        assert len(data_dict) == 0
+
+
+class TestPIISanitizerPolicy:
+    def test_policy_blocks_pii(self):
+        policy = PIISanitizerPolicy()
+        result = policy.evaluate("clean input", "My SSN is 123-45-6789")
+        assert result.allowed is False
+        assert "PII detected" in result.reason
+        assert "ssn" in result.metadata["detected_types"]
+
+    def test_policy_allows_clean(self):
+        policy = PIISanitizerPolicy()
+        result = policy.evaluate("clean input", "clean output")
+        assert result.allowed is True

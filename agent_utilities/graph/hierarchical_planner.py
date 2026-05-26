@@ -31,7 +31,11 @@ from typing import Any
 
 from pydantic_ai import Agent
 from pydantic_graph import End
-from pydantic_graph.beta import StepContext
+
+try:
+    from pydantic_graph.step import StepContext
+except ImportError:
+    from pydantic_graph.beta import StepContext
 
 from ..models import ExecutionStep, GraphPlan
 from ..tools.knowledge_tools import knowledge_tools

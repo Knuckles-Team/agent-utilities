@@ -76,3 +76,35 @@ class CrossTenantInsightNode(RegistryNode):
     source_tenant_id: str = ""
     anonymized: bool = True
     insight_type: str = "pattern"
+
+
+class ContainerNode(RegistryNode):
+    type: RegistryNodeType = RegistryNodeType.CONTAINER
+    runtime: str = "docker"
+    status: str = "running"
+    image: str = ""
+
+
+class ContainerStackNode(RegistryNode):
+    type: RegistryNodeType = RegistryNodeType.CONTAINER_STACK
+    compose_file: str = ""
+    status: str = "active"
+
+
+class PlatformServiceNode(RegistryNode):
+    type: RegistryNodeType = RegistryNodeType.PLATFORM_SERVICE
+    endpoint: str = ""
+    status: str = "active"
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
+class GPUAcceleratorNode(RegistryNode):
+    type: RegistryNodeType = RegistryNodeType.GPU_ACCELERATOR
+    vram_gb: float = 0.0
+    vendor: str = "Nvidia"
+
+
+class StorageArrayNode(RegistryNode):
+    type: RegistryNodeType = RegistryNodeType.STORAGE_ARRAY
+    capacity_tb: float = 0.0
+    storage_type: str = "SSD"
