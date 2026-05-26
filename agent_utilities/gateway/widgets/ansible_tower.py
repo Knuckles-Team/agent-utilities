@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -22,13 +27,18 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="templates", label="Templates", format="number"),
-            WidgetField(key="running_jobs", label="Running", format="number", highlight=True),
-            WidgetField(key="failed_jobs", label="Failed", format="number", highlight=True),
+            WidgetField(
+                key="running_jobs", label="Running", format="number", highlight=True
+            ),
+            WidgetField(
+                key="failed_jobs", label="Failed", format="number", highlight=True
+            ),
             WidgetField(key="hosts", label="Hosts", format="number"),
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from ansible_tower_mcp.api_client import AnsibleTowerApi
+
         url = self._resolve_url(config)
         token = self._resolve_token(config)
         client = AnsibleTowerApi(base_url=url, token=token)
@@ -37,7 +47,9 @@ class Widget(BaseWidget):
             jobs = client.list_jobs(status="running") or []
             failed = client.list_jobs(status="failed") or []
             inventories = client.list_inventories() or []
-            hosts = sum(i.get("total_hosts", 0) for i in inventories if isinstance(i, dict))
+            hosts = sum(
+                i.get("total_hosts", 0) for i in inventories if isinstance(i, dict)
+            )
         except Exception as e:
             logger.debug("Ansible Tower fetch: %s", e)
             return WidgetData(status="error", error=str(e))

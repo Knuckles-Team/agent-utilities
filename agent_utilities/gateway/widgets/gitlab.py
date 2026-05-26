@@ -31,9 +31,13 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="projects", label="Projects", format="number"),
-            WidgetField(key="open_mrs", label="Open MRs", format="number", highlight=True),
+            WidgetField(
+                key="open_mrs", label="Open MRs", format="number", highlight=True
+            ),
             WidgetField(key="pipelines_running", label="Running", format="number"),
-            WidgetField(key="pipelines_failed", label="Failed", format="number", highlight=True),
+            WidgetField(
+                key="pipelines_failed", label="Failed", format="number", highlight=True
+            ),
             WidgetField(key="runners_online", label="Runners", format="number"),
         ]
 

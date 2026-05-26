@@ -24,9 +24,20 @@ __all__ = ["CodebaseMapGenerator", "generate_codebase_map"]
 
 # Directories always excluded from the map
 _EXCLUDED_DIRS = {
-    "__pycache__", ".git", ".tox", ".mypy_cache", ".pytest_cache",
-    ".ruff_cache", "node_modules", ".venv", "venv", ".eggs", "dist",
-    "build", "*.egg-info", ".agents",
+    "__pycache__",
+    ".git",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "node_modules",
+    ".venv",
+    "venv",
+    ".eggs",
+    "dist",
+    "build",
+    "*.egg-info",
+    ".agents",
 }
 
 
@@ -102,7 +113,11 @@ class CodebaseMapGenerator:
     # -- Internal --
 
     def _walk_tree(
-        self, path: Path, depth: int, current_depth: int, prefix: str = "",
+        self,
+        path: Path,
+        depth: int,
+        current_depth: int,
+        prefix: str = "",
     ) -> list[str]:
         """Recursively walk directory tree and build map entries."""
         if current_depth >= depth:
@@ -117,8 +132,13 @@ class CodebaseMapGenerator:
         except PermissionError:
             return []
 
-        dirs = [e for e in entries if e.is_dir() and e.name not in _EXCLUDED_DIRS
-                and not e.name.startswith(".")]
+        dirs = [
+            e
+            for e in entries
+            if e.is_dir()
+            and e.name not in _EXCLUDED_DIRS
+            and not e.name.startswith(".")
+        ]
         files = [e for e in entries if e.is_file() and not e.name.startswith(".")]
 
         for d in dirs:
@@ -132,10 +152,21 @@ class CodebaseMapGenerator:
 
         # Only show key files at depth 0
         if current_depth == 0:
-            key_files = [f for f in files if f.name in (
-                "pyproject.toml", "setup.py", "Makefile", "Dockerfile",
-                "docker-compose.yml", "AGENTS.md", "README.md", "CODEBASE.md",
-            )]
+            key_files = [
+                f
+                for f in files
+                if f.name
+                in (
+                    "pyproject.toml",
+                    "setup.py",
+                    "Makefile",
+                    "Dockerfile",
+                    "docker-compose.yml",
+                    "AGENTS.md",
+                    "README.md",
+                    "CODEBASE.md",
+                )
+            ]
             for f in key_files:
                 lines.append(f"- 📄 **{f.name}**")
 
@@ -166,7 +197,9 @@ class CodebaseMapGenerator:
         try:
             children = list(dir_path.iterdir())
             py_count = sum(1 for c in children if c.suffix == ".py")
-            dir_count = sum(1 for c in children if c.is_dir() and c.name != "__pycache__")
+            dir_count = sum(
+                1 for c in children if c.is_dir() and c.name != "__pycache__"
+            )
             return f"{py_count} Python files, {dir_count} subdirectories"
         except Exception:
             return "..."

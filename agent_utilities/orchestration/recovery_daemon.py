@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class RecoveryDaemon:
     """A background polling worker that restores failed or timed out agent checkpoints.
-    
+
     Acts as a homeostatic stabilizer for the agent execution pool.
     """
 
@@ -69,7 +69,7 @@ class RecoveryDaemon:
         """Perform a single sweep of all active processes, recovering failed nodes."""
         recovered = 0
         now = time.time()
-        
+
         # Access all scheduler processes
         processes = list(self.scheduler._processes.values())
         for proc in processes:
@@ -86,7 +86,7 @@ class RecoveryDaemon:
                 if resumed:
                     recovered += 1
                     self.recovered_count += 1
-            
+
             # 2. Prevent hung processes (running longer than threshold)
             elif proc.state == "running":
                 elapsed = now - proc.created_at
@@ -97,7 +97,9 @@ class RecoveryDaemon:
                         elapsed,
                         self.max_running_duration_seconds,
                     )
-                    checkpoint_id = await self.scheduler.preempt(proc.id, reason="hang_preemption")
+                    checkpoint_id = await self.scheduler.preempt(
+                        proc.id, reason="hang_preemption"
+                    )
                     if checkpoint_id:
                         recovered += 1
                         self.recovered_count += 1

@@ -6,10 +6,10 @@ high-level declarative knowledge representations to prevent graph explosion.
 """
 
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ..core.engine import IntelligenceGraphEngine
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,9 @@ class SemanticCompactor:
             rust_graph = getattr(self._compute_engine, "_rust_graph", None)
             if rust_graph is not None and hasattr(rust_graph, "compact_nodes_by_type"):
                 try:
-                    removed = rust_graph.compact_nodes_by_type("AgentProcess", threshold)
+                    removed = rust_graph.compact_nodes_by_type(
+                        "AgentProcess", threshold
+                    )
                     if removed:
                         logger.info(
                             f"SemanticCompactor (Rust): Compacted {len(removed)} "
@@ -47,7 +49,9 @@ class SemanticCompactor:
                         )
                         return len(removed)
                 except Exception as e:
-                    logger.warning(f"Rust compaction failed, falling back to Cypher: {e}")
+                    logger.warning(
+                        f"Rust compaction failed, falling back to Cypher: {e}"
+                    )
 
         # Try to find all trace nodes for the agent from the database
         try:
@@ -57,7 +61,7 @@ class SemanticCompactor:
                 "RETURN p.id, p.state, p.tokens_used"
             )
             res = self.engine.backend.execute(query, {"agent_id": agent_id})
-            
+
             trace_nodes = []
             if res and hasattr(res, "rows"):
                 trace_nodes = res.rows
@@ -69,7 +73,7 @@ class SemanticCompactor:
 
             # Aggregate stats
             total_tokens = 0
-            states_summary = {}
+            states_summary: dict[str, int] = {}
             for row in trace_nodes:
                 # row can be a dict, a list/tuple, or an object
                 state = "unknown"
@@ -79,15 +83,15 @@ class SemanticCompactor:
                     pid = row.get("p.id") or row.get("id")
                     state = row.get("p.state") or row.get("state") or "unknown"
                     tokens = row.get("p.tokens_used") or row.get("tokens_used") or 0
-                elif isinstance(row, (list, tuple)) and len(row) >= 3:
+                elif isinstance(row, list | tuple) and len(row) >= 3:
                     pid, state, tokens = row[0], row[1], row[2]
-                
+
                 if pid:
                     total_tokens += int(tokens or 0)
                     states_summary[state] = states_summary.get(state, 0) + 1
 
             summary_node_id = f"summary:agent:{agent_id}:{len(trace_nodes)}_compacted"
-            
+
             # 1. Create consolidated summary node
             query_summary = (
                 "MERGE (s:SemanticSummary {id: $summary_id}) "
@@ -124,9 +128,9 @@ class SemanticCompactor:
                 pid = None
                 if isinstance(row, dict):
                     pid = row.get("p.id") or row.get("id")
-                elif isinstance(row, (list, tuple)):
+                elif isinstance(row, list | tuple):
                     pid = row[0]
-                
+
                 if pid:
                     query_delete = "MATCH (p:AgentProcess {id: $pid}) DETACH DELETE p"
                     self.engine.backend.execute(query_delete, {"pid": pid})

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 
@@ -18,9 +23,13 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="nodes", label="Nodes", format="number"),
-            WidgetField(key="sessions", label="Sessions", format="number", highlight=True),
+            WidgetField(
+                key="sessions", label="Sessions", format="number", highlight=True
+            ),
             WidgetField(key="status", label="Status", format="text"),
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        return WidgetData(fields={"nodes": 0, "sessions": 0, "status": "Ready"}, status="ok")
+        return WidgetData(
+            fields={"nodes": 0, "sessions": 0, "status": "Ready"}, status="ok"
+        )

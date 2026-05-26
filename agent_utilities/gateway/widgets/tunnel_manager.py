@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -21,12 +26,15 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="hosts", label="Hosts", format="number"),
-            WidgetField(key="sessions", label="Sessions", format="number", highlight=True),
+            WidgetField(
+                key="sessions", label="Sessions", format="number", highlight=True
+            ),
             WidgetField(key="status", label="Status", format="text"),
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from tunnel_manager.api_client import TunnelManagerApi
+
         client = TunnelManagerApi()
         try:
             hosts = client.list_hosts() or []

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -28,6 +33,7 @@ class Widget(BaseWidget):
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from postiz_agent.api_client import PostizApi
+
         url = self._resolve_url(config)
         token = self._resolve_token(config)
         client = PostizApi(base_url=url, token=token)
@@ -41,7 +47,9 @@ class Widget(BaseWidget):
             fields={
                 "scheduled": 0,
                 "published": 0,
-                "integrations": len(integrations) if isinstance(integrations, list) else 0,
+                "integrations": len(integrations)
+                if isinstance(integrations, list)
+                else 0,
             },
             status="ok",
         )

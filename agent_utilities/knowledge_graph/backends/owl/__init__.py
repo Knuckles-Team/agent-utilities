@@ -24,7 +24,11 @@ from .base import OWLBackend
 try:
     from .oxigraph_datalog_backend import OxigraphDatalogBackend
 except ImportError:
-    OxigraphDatalogBackend = None
+
+    class OxigraphDatalogBackendFallback:
+        pass
+
+    OxigraphDatalogBackend = OxigraphDatalogBackendFallback  # type: ignore[misc,assignment]
 
 logger = logging.getLogger(__name__)
 

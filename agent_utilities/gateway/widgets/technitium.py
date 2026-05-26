@@ -31,10 +31,14 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="total_queries", label="Queries", format="number"),
-            WidgetField(key="blocked", label="Blocked", format="number", highlight=True),
+            WidgetField(
+                key="blocked", label="Blocked", format="number", highlight=True
+            ),
             WidgetField(key="zones", label="Zones", format="number"),
             WidgetField(key="cached", label="Cached", format="number"),
-            WidgetField(key="block_rate", label="Block Rate", format="percent", suffix="%"),
+            WidgetField(
+                key="block_rate", label="Block Rate", format="percent", suffix="%"
+            ),
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:

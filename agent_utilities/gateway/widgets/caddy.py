@@ -31,8 +31,18 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="routes", label="Routes", format="number"),
-            WidgetField(key="upstreams_healthy", label="Healthy", format="number", highlight=True),
-            WidgetField(key="upstreams_unhealthy", label="Unhealthy", format="number", highlight=True),
+            WidgetField(
+                key="upstreams_healthy",
+                label="Healthy",
+                format="number",
+                highlight=True,
+            ),
+            WidgetField(
+                key="upstreams_unhealthy",
+                label="Unhealthy",
+                format="number",
+                highlight=True,
+            ),
             WidgetField(key="tls_certificates", label="TLS Certs", format="number"),
         ]
 

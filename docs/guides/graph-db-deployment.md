@@ -2,7 +2,7 @@
 
 > **CONCEPT:KG-2.0** — High-Scale Graph Database Backends
 
-This guide provides a comprehensive, production-ready reference for deploying, configuring, and maintaining scale-out persistent graph backends for the `agent-utilities` Knowledge Graph engine. 
+This guide provides a comprehensive, production-ready reference for deploying, configuring, and maintaining scale-out persistent graph backends for the `agent-utilities` Knowledge Graph engine.
 
 While **LadybugDB** is the zero-config embedded default, transitioning to a distributed or enterprise-grade backend is simple and seamless. We fully support **FalkorDB**, **Neo4j**, and **PostgreSQL (pgGraph)** with 100% feature parity (including Cypher CRUD, HNSW vector embeddings, and relationship indexing).
 

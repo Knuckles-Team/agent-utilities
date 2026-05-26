@@ -132,7 +132,9 @@ def create_backend(
         (backend_type or os.environ.get("GRAPH_BACKEND") or "ladybug").lower().strip()
     )
 
-    backend = None
+    from .base import GraphBackend
+
+    backend: GraphBackend | None = None
 
     if backend_type == "memory":
         from .memory_backend import MemoryBackend

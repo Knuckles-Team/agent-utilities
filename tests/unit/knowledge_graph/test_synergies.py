@@ -29,15 +29,15 @@ def test_speculative_graph_brancher():
     }
 
     brancher = SpeculativeGraphBrancher(main_engine, main_state)
-    
+
     # 1. Create speculative branch
     branch_state = brancher.create_branch("branch-1")
     assert "node1" in branch_state["nodes"]
-    
+
     # 2. Mutate speculative branch
     branch_state["nodes"]["node3"] = {"name": "Node 3", "type": "Test"}
     branch_state["edges"].append(("node2", "node3", "LINKS_TO"))
-    
+
     # 3. Merge branch
     commit = brancher.merge_branch("branch-1")
     assert commit is not None
@@ -57,13 +57,13 @@ def test_speculative_graph_brancher_conflict():
 
     brancher = SpeculativeGraphBrancher(main_engine, main_state)
     branch_state = brancher.create_branch("branch-1")
-    
+
     # Modify node1 in branch
     branch_state["nodes"]["node1"]["name"] = "Node 1 Modified"
-    
+
     # Concurrently delete node1 in main_state
     main_state["nodes"].pop("node1")
-    
+
     # Try to merge branch - should raise ValueError/conflict
     with pytest.raises(ValueError, match="Merge Conflict"):
         brancher.merge_branch("branch-1")
@@ -78,19 +78,19 @@ def test_semantic_compactor():
         {"id": "process:2", "state": "completed", "tokens_used": 200},
         {"id": "process:3", "state": "failed", "tokens_used": 50},
     ]
-    
+
     # Mocking rows returned by database execution
     mock_res = MagicMock()
     mock_res.rows = mock_rows
     mock_engine.backend.execute.return_value = mock_res
 
     compactor = SemanticCompactor(mock_engine)
-    
+
     # If threshold is 2, it should perform compaction (since we have 3 nodes)
     deleted_count = compactor.compact_traces(agent_id="agent-123", threshold=2)
-    
+
     assert deleted_count == 3
-    
+
     # Check that it executed queries to merge the summary, link it, and delete the processes
     mock_engine.backend.execute.assert_any_call(
         ANY,
@@ -132,16 +132,16 @@ def test_ontological_guardrails_kg_integration():
 
     # Match target
     res = check_ontological_guardrails(
-        "write_file", 
-        {"directory": "/home/user/restricted_dir/file.txt"}, 
+        "write_file",
+        {"directory": "/home/user/restricted_dir/file.txt"},
         engine=mock_engine
     )
     assert res is True
 
     # No match target
     res_no_match = check_ontological_guardrails(
-        "write_file", 
-        {"directory": "/home/user/allowed_dir/file.txt"}, 
+        "write_file",
+        {"directory": "/home/user/allowed_dir/file.txt"},
         engine=mock_engine
     )
     assert res_no_match is False

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -22,7 +27,9 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="projects", label="Projects", format="number"),
-            WidgetField(key="open_issues", label="Open", format="number", highlight=True),
+            WidgetField(
+                key="open_issues", label="Open", format="number", highlight=True
+            ),
             WidgetField(key="in_progress", label="In Progress", format="number"),
             WidgetField(key="completed", label="Done", format="number"),
         ]
@@ -38,7 +45,11 @@ class Widget(BaseWidget):
             workspaces = client.get_workspaces() or []
             projects = []
             if workspaces:
-                ws_slug = workspaces[0].get("slug", "") if isinstance(workspaces[0], dict) else ""
+                ws_slug = (
+                    workspaces[0].get("slug", "")
+                    if isinstance(workspaces[0], dict)
+                    else ""
+                )
                 if ws_slug:
                     projects = client.get_projects(workspace_slug=ws_slug) or []
         except Exception as e:

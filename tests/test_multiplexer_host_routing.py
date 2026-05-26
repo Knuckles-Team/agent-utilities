@@ -23,7 +23,7 @@ def test_clean_tool_name_prefixing():
     # Verify that clean_tool_name applies prefixes correctly without collisions and within length budgets
     prefix = get_server_prefix("systems-manager-mcp-r510")
     assert prefix == "sys_r510"
-    
+
     cleaned = clean_tool_name(prefix, "systems-manager-mcp-r510", "systems_manager_mcp_run_command")
     # Prefix (sys_r510) + "__" + stripped tool name (run_command)
     assert cleaned == "sys_r510__run_command"
@@ -38,11 +38,11 @@ def test_multiplexer_tool_filtering():
         "cm_compose_operations",
         "trace_port_namespace",
     ]
-    
+
     # Whitelist only image and volume
     enabled_tools = ["*image*", "*volume*"]
     disabled_tools = []
-    
+
     filtered = []
     for t in tools:
         if enabled_tools is not None:
@@ -54,13 +54,13 @@ def test_multiplexer_tool_filtering():
             if matched_disabled:
                 continue
         filtered.append(t)
-        
+
     assert filtered == ["cm_image_operations", "cm_volume_operations"]
-    
+
     # Test blacklist only
     enabled_tools_2 = None
     disabled_tools_2 = ["*compose*"]
-    
+
     filtered_2 = []
     for t in tools:
         if enabled_tools_2 is not None:
@@ -72,5 +72,5 @@ def test_multiplexer_tool_filtering():
             if matched_disabled:
                 continue
         filtered_2.append(t)
-        
+
     assert filtered_2 == ["cm_image_operations", "cm_volume_operations", "trace_port_namespace"]

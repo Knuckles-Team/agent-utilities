@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Any
 
 from agent_utilities.gateway.models import (
     ServiceCategory,
@@ -110,9 +109,7 @@ class BaseWidget(ABC):
         try:
             return self.fetch_data(config)
         except ImportError as e:
-            logger.warning(
-                "Widget %s: missing dependency — %s", self.service_type, e
-            )
+            logger.warning("Widget %s: missing dependency — %s", self.service_type, e)
             return WidgetData(
                 status="error",
                 error=f"Missing dependency: {e}",

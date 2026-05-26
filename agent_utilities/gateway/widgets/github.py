@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -21,7 +26,9 @@ class Widget(BaseWidget):
     def get_fields(self) -> list[WidgetField]:
         return [
             WidgetField(key="repos", label="Repos", format="number"),
-            WidgetField(key="open_prs", label="Open PRs", format="number", highlight=True),
+            WidgetField(
+                key="open_prs", label="Open PRs", format="number", highlight=True
+            ),
             WidgetField(key="open_issues", label="Issues", format="number"),
         ]
 
@@ -32,7 +39,7 @@ class Widget(BaseWidget):
         client = GitHubApi(token=token)
 
         try:
-            user = client.get_authenticated_user() or {}
+            client.get_authenticated_user() or {}
             repos = client.list_repos() or []
         except Exception as e:
             logger.debug("GitHub fetch: %s", e)

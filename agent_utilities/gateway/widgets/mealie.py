@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -38,7 +43,9 @@ class Widget(BaseWidget):
             recipes = client.get_recipes(page=1, per_page=1) or {}
             categories = client.get_categories() or []
             tags = client.get_tags() or []
-            total_recipes = recipes.get("total", 0) if isinstance(recipes, dict) else len(recipes)
+            total_recipes = (
+                recipes.get("total", 0) if isinstance(recipes, dict) else len(recipes)
+            )
         except Exception as e:
             logger.debug("Mealie fetch: %s", e)
             return WidgetData(status="error", error=str(e))

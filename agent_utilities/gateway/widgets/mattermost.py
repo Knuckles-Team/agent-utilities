@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -37,7 +42,9 @@ class Widget(BaseWidget):
         try:
             users = client.get_users(per_page=1) or {}
             teams = client.get_teams() or []
-            total_users = users.get("total_count", 0) if isinstance(users, dict) else len(users)
+            total_users = (
+                users.get("total_count", 0) if isinstance(users, dict) else len(users)
+            )
         except Exception as e:
             logger.debug("Mattermost fetch: %s", e)
             return WidgetData(status="error", error=str(e))

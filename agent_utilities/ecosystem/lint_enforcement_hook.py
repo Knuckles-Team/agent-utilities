@@ -52,19 +52,30 @@ class LintConfig:
         """Default linter config for Python projects."""
         rules = []
         if shutil.which("ruff"):
-            rules.append(LintRule(
-                name="ruff-check", command=["ruff", "check", "--no-fix"],
-                extensions=[".py"], fix_command=["ruff", "check", "--fix"],
-            ))
-            rules.append(LintRule(
-                name="ruff-format", command=["ruff", "format", "--check"],
-                extensions=[".py"], fix_command=["ruff", "format"],
-            ))
+            rules.append(
+                LintRule(
+                    name="ruff-check",
+                    command=["ruff", "check", "--no-fix"],
+                    extensions=[".py"],
+                    fix_command=["ruff", "check", "--fix"],
+                )
+            )
+            rules.append(
+                LintRule(
+                    name="ruff-format",
+                    command=["ruff", "format", "--check"],
+                    extensions=[".py"],
+                    fix_command=["ruff", "format"],
+                )
+            )
         if shutil.which("mypy"):
-            rules.append(LintRule(
-                name="mypy", command=["mypy", "--no-error-summary"],
-                extensions=[".py"],
-            ))
+            rules.append(
+                LintRule(
+                    name="mypy",
+                    command=["mypy", "--no-error-summary"],
+                    extensions=[".py"],
+                )
+            )
         return cls(rules=rules)
 
     @classmethod
@@ -144,8 +155,11 @@ class LintEnforcementHook:
                 fix_result = self._run_fix(rule, str(fp))
                 if fix_result:
                     result = LintResult(
-                        rule_name=rule.name, file_path=str(fp),
-                        passed=True, output="Auto-fixed", fixed=True,
+                        rule_name=rule.name,
+                        file_path=str(fp),
+                        passed=True,
+                        output="Auto-fixed",
+                        fixed=True,
                     )
                     results[-1] = result
 
@@ -156,23 +170,31 @@ class LintEnforcementHook:
         cmd = rule.command + [file_path]
         try:
             proc = subprocess.run(
-                cmd, capture_output=True, text=True,
-                timeout=self.timeout, cwd=str(self.workspace_path),
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                cwd=str(self.workspace_path),
             )
             return LintResult(
-                rule_name=rule.name, file_path=file_path,
+                rule_name=rule.name,
+                file_path=file_path,
                 passed=proc.returncode == 0,
                 output=(proc.stdout + proc.stderr).strip()[:2000],
             )
         except subprocess.TimeoutExpired:
             return LintResult(
-                rule_name=rule.name, file_path=file_path,
-                passed=False, output=f"Timeout after {self.timeout}s",
+                rule_name=rule.name,
+                file_path=file_path,
+                passed=False,
+                output=f"Timeout after {self.timeout}s",
             )
         except FileNotFoundError:
             return LintResult(
-                rule_name=rule.name, file_path=file_path,
-                passed=True, output=f"Linter '{rule.command[0]}' not found, skipping",
+                rule_name=rule.name,
+                file_path=file_path,
+                passed=True,
+                output=f"Linter '{rule.command[0]}' not found, skipping",
             )
 
     def _run_fix(self, rule: LintRule, file_path: str) -> bool:
@@ -182,8 +204,10 @@ class LintEnforcementHook:
         try:
             proc = subprocess.run(
                 rule.fix_command + [file_path],
-                capture_output=True, text=True,
-                timeout=self.timeout, cwd=str(self.workspace_path),
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                cwd=str(self.workspace_path),
             )
             return proc.returncode == 0
         except Exception:
@@ -193,7 +217,8 @@ class LintEnforcementHook:
         """Return a callable for HooksCapability POST_TOOL_USE registration."""
 
         async def _lint_hook(input: HookInput) -> HookResult | None:
-            from ..capabilities.hooks import HookEvent, HookResult as HR
+            from ..capabilities.hooks import HookEvent
+            from ..capabilities.hooks import HookResult as HR
 
             if input.event != HookEvent.POST_TOOL_USE:
                 return None
@@ -208,14 +233,13 @@ class LintEnforcementHook:
             if not failures:
                 return None
 
-            report = "\n".join(
-                f"[{r.rule_name}] {r.output[:500]}" for r in failures
-            )
+            report = "\n".join(f"[{r.rule_name}] {r.output[:500]}" for r in failures)
             logger.info("[ECO-4.3] Lint violations in %s:\n%s", file_path, report)
 
             return HR(
                 modify_result=f"\n\n⚠️ Lint violations detected:\n{report}"
-                if not self.config.fail_on_error else None,
+                if not self.config.fail_on_error
+                else None,
             )
 
         return _lint_hook

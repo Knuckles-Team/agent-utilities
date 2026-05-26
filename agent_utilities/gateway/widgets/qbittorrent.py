@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -21,7 +26,9 @@ class Widget(BaseWidget):
 
     def get_fields(self) -> list[WidgetField]:
         return [
-            WidgetField(key="downloading", label="Downloading", format="number", highlight=True),
+            WidgetField(
+                key="downloading", label="Downloading", format="number", highlight=True
+            ),
             WidgetField(key="seeding", label="Seeding", format="number"),
             WidgetField(key="paused", label="Paused", format="number"),
             WidgetField(key="dl_speed", label="↓ Speed", format="bytes", suffix="/s"),
@@ -44,7 +51,9 @@ class Widget(BaseWidget):
             torrents = []
             transfer = {}
 
-        downloading = sum(1 for t in torrents if t.get("state", "").startswith("download"))
+        downloading = sum(
+            1 for t in torrents if t.get("state", "").startswith("download")
+        )
         seeding = sum(1 for t in torrents if t.get("state", "").startswith("upload"))
         paused = sum(1 for t in torrents if "paused" in t.get("state", "").lower())
 

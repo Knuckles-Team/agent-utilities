@@ -7,7 +7,7 @@
 
 ## Prologue: The Spark & The Sovereign Substrate
 
-The screen is a dark slate void, glowing with HSL-curated Hues. A human developer sits before the terminal. There is a challenge: a volatile market regime shift is threatening the firm's capital allocations, and manual rebalancing is too slow. 
+The screen is a dark slate void, glowing with HSL-curated Hues. A human developer sits before the terminal. There is a challenge: a volatile market regime shift is threatening the firm's capital allocations, and manual rebalancing is too slow.
 
 The developer presses a key, submitting a single high-level corporate directive:
 
@@ -21,7 +21,7 @@ In that single millisecond, a spark of execution is struck. But this is not a ba
 
 ## Chapter 1: The Sovereign Sandbox (Agent OS)
 
-Before a single line of reasoning can be formed, the **Agent OS Kernel** (`CONCEPT:OS-5.0`) wakes. It operates as the foundational substrate, resolving standardized XDG directories to load the system config and establish safe boundaries. 
+Before a single line of reasoning can be formed, the **Agent OS Kernel** (`CONCEPT:OS-5.0`) wakes. It operates as the foundational substrate, resolving standardized XDG directories to load the system config and establish safe boundaries.
 
 The first order of business is sovereignty and security. The kernel boots the **Security & Auth module** (`CONCEPT:OS-5.1`), verifying the execution token against JWT and OAuth SSO providers. In tandem, the **Cognitive Resource Scheduler** (`CONCEPT:OS-5.2`) analyzes the current system workload. Rather than letting the incoming agent swarm consume arbitrary hardware cycles, it allocates a strict **Agent Token Quota** and sets up the execution threads.
 
@@ -51,7 +51,7 @@ Finally, the **Epistemic Resource Scheduler** (`CONCEPT:OS-5.9`) and the **Ontol
 
 Now secure within its sandbox, the system must figure out *how* to execute the developer's grand mandate. This is where the **Graph Orchestration Engine (Pillar 1)** takes control.
 
-The query enters the **Intelligence Graph Core** (`CONCEPT:ORCH-1.0`). The Core is the brain’s drafting table, designed to structure execution not as a linear sequence, but as a dynamic directed acyclic graph (DAG). 
+The query enters the **Intelligence Graph Core** (`CONCEPT:ORCH-1.0`). The Core is the brain’s drafting table, designed to structure execution not as a linear sequence, but as a dynamic directed acyclic graph (DAG).
 
 To map the path, the Core invokes the **HTN (Hierarchical Task Network) Planning Pipeline** (`CONCEPT:ORCH-1.1`). The planner recursively decomposes the high-level mandate into smaller, concrete goals:
 1.  *Fetch historical price indicators from external market streams.*
@@ -70,17 +70,17 @@ To map the path, the Core invokes the **HTN (Hierarchical Task Network) Planning
 [Fetch Price Data]   [Analyze Correlation]   [Render Visuals]
 ```
 
-With the task breakdown mapped, the **Specialist Routing & Discovery engine** (`CONCEPT:ORCH-1.2`) looks up the available agents in the firm. It queries the Active Knowledge Graph to locate agents matching the exact capabilities required for each sub-task. 
+With the task breakdown mapped, the **Specialist Routing & Discovery engine** (`CONCEPT:ORCH-1.2`) looks up the available agents in the firm. It queries the Active Knowledge Graph to locate agents matching the exact capabilities required for each sub-task.
 
 Every step along this planning path is governed by **Execution Safety & State Checkpointing** (`CONCEPT:ORCH-1.3`). If a specialist fails, or a network link drops, the checkpointing system can freeze the graph state and replay the execution from the last safe node without losing hours of context.
 
 But what if a new tool or API is introduced during execution? The **Capability Wiring Engine** (`CONCEPT:ORCH-1.4`) dynamically binds new tools to the active agents on the fly, injecting required connection secrets and parameters. The **Agent Orchestrator** (`CONCEPT:ORCH-1.5`) acts as the conductor, managing the active lifecycles of these spawned runner processes.
 
-To ensure the planning itself is robust, the system leverages the **DSTDD (Design-Spec-Test Driven Development) Pipeline** (`CONCEPT:ORCH-1.6`). Before writing a single line of executable plan, the orchestrator generates a structural spec and validates it against simulated edge cases. 
+To ensure the planning itself is robust, the system leverages the **DSTDD (Design-Spec-Test Driven Development) Pipeline** (`CONCEPT:ORCH-1.6`). Before writing a single line of executable plan, the orchestrator generates a structural spec and validates it against simulated edge cases.
 
 As execution proceeds, the **Prediction Linkage Layer** (`CONCEPT:ORCH-1.7`) analyzes execution traces from previous iterations, using them to predict and bypass potential routing errors. For exceptionally complex problems where agents must negotiate latent spaces, the **RecursiveMAS Latent Orchestrator** (`CONCEPT:ORCH-1.8`) projects multi-agent dialogue into continuous latent vector states to converge on the optimal solution.
 
-When it is time to execute the massive task list, the **Parallel Engine** (`CONCEPT:ORCH-1.25`) fires up, dispatching up to 300+ specialist agents simultaneously. The engine enforces thread safety via asynchronous semaphores, gathering results through the **RLM-Native Hierarchical Synthesis engine** (`CONCEPT:ORCH-1.26`) to merge fragmented outputs into a single, cohesive business report. 
+When it is time to execute the massive task list, the **Parallel Engine** (`CONCEPT:ORCH-1.25`) fires up, dispatching up to 300+ specialist agents simultaneously. The engine enforces thread safety via asynchronous semaphores, gathering results through the **RLM-Native Hierarchical Synthesis engine** (`CONCEPT:ORCH-1.26`) to merge fragmented outputs into a single, cohesive business report.
 
 This swarm structure is mapped directly to real corporate hierarchies via **Autonomous Department Orchestration** (`CONCEPT:ORCH-1.27`). Agents belong to specific departments (e.g., "Risk", "Finance", "Legal") with explicit `reportsTo` chains. As actions are taken, the **Reactive Event Sourcing engine** (`CONCEPT:ORCH-1.28`) publishes state events to a ledger, distributing them safely to **WASM Micro-Agent Execution sandboxes** (`CONCEPT:ORCH-1.29`) for distributed, lightweight processing.
 
@@ -112,7 +112,7 @@ When an agent needs context, the **Tiered Memory & Context Engine** (`CONCEPT:KG
 
 To prevent context window bloat, the memory engine continuously runs semantic compaction, squeezing long trails of reasoning into tight, high-fidelity context blocks.
 
-To understand the relationships between financial concepts, the system utilizes the **Ontology & Epistemics layer** (`CONCEPT:KG-2.2`). This layer aligns local corporate models with international standards like BFO (Basic Formal Ontology) and PROV-O, ensuring that every piece of information has a clear lineage and absolute semantic provenance. 
+To understand the relationships between financial concepts, the system utilizes the **Ontology & Epistemics layer** (`CONCEPT:KG-2.2`). This layer aligns local corporate models with international standards like BFO (Basic Formal Ontology) and PROV-O, ensuring that every piece of information has a clear lineage and absolute semantic provenance.
 
 When retrieving memories, the **Graph Integrity & Retrieval engine** (`CONCEPT:KG-2.3`) ensures that the returned nodes are cryptographically fingerprinted and structurally valid. It utilizes **Inductive Knowledge Synthesis** (`CONCEPT:KG-2.4`) to deduce new facts from existing connections—for example, automatically recognizing that a sudden spike in one asset class represents a systemic risk to a correlated portfolio.
 
@@ -152,7 +152,7 @@ As the parallel specialists run, they communicate over the **A2A (Agent-to-Agent
 
 Every interaction is mapped inside the **Community Telemetry & Ecosystem Map** (`CONCEPT:ECO-4.2`), which tracks service health across all active agent packages. Real-time market connectivity is established by the **Market Data Connectors** (`CONCEPT:ECO-4.3`), which bind directly to external exchanges.
 
-For direct execution against the system's own memory, the **KG MCP Server & Execution environment** (`CONCEPT:ECO-4.4`) exposes the Knowledge Graph as a set of standard tools, allowing external agents to query database states natively. 
+For direct execution against the system's own memory, the **KG MCP Server & Execution environment** (`CONCEPT:ECO-4.4`) exposes the Knowledge Graph as a set of standard tools, allowing external agents to query database states natively.
 
 To handle massive asynchronous volumes, the ecosystem utilizes the **Native Messaging Backend Abstraction** (`CONCEPT:ECO-4.5`), managing high-throughput event queues. If the user wants to ingest a new external library or skill, the **Agent Toolkit Ingestor** (`CONCEPT:ECO-4.10`) parses its API footprint, discovers active endpoints in real-time via **MCP Live Discovery** (`CONCEPT:ECO-4.11`), and registers it within the **Self-Documenting Skill-Graph** (`CONCEPT:ECO-4.12`).
 
@@ -218,11 +218,11 @@ The entire GUI loop is run by the **Desktop Cockpit Orchestrator** (`CONCEPT:GBO
   └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-The interface is structured as an **Ecosystem Dynamic Tab Matrix** (`CONCEPT:GBOT-6.1`). Developers can drag and drop plugins on the fly, reorganizing their workspaces in real-time with smooth resize transitions. 
+The interface is structured as an **Ecosystem Dynamic Tab Matrix** (`CONCEPT:GBOT-6.1`). Developers can drag and drop plugins on the fly, reorganizing their workspaces in real-time with smooth resize transitions.
 
 Directly inside the window sits the **Embedded Terminal Sandbox** (`CONCEPT:GBOT-6.2`), letting developers watch raw logs and run background shell executions without ever leaving the cockpit.
 
-Suddenly, the Trading Swarm prepares to submit a portfolio transaction worth millions of dollars. Because this tool is flagged as sensitive, the execution halts. 
+Suddenly, the Trading Swarm prepares to submit a portfolio transaction worth millions of dollars. Because this tool is flagged as sensitive, the execution halts.
 
 In the center of the screen, the **Universal Tool Approval Gate** (`CONCEPT:GBOT-6.3`) pops up. It displays a beautiful, high-contrast visual diff of the proposed transaction, the exact code block that generated it, and the computed risk score. The developer reviews the details and clicks **[Approve]**, releasing the asyncio Future and letting the execution swarm proceed.
 

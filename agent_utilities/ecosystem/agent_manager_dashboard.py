@@ -94,8 +94,13 @@ class DashboardReport:
             "timestamp": self.timestamp,
             "health_score": self.health_score,
             "components": [
-                {"category": c.category, "name": c.name, "status": c.status,
-                 "detail": c.detail, "usage_count": c.usage_count}
+                {
+                    "category": c.category,
+                    "name": c.name,
+                    "status": c.status,
+                    "detail": c.detail,
+                    "usage_count": c.usage_count,
+                }
                 for c in self.components
             ],
             "summary": self.summary,
@@ -139,13 +144,18 @@ class AgentManagerDashboard:
         report.health_score = ok / total
 
         report.summary = {
-            "total": total, "ok": ok,
+            "total": total,
+            "ok": ok,
             "warnings": sum(1 for c in report.components if c.status == "warning"),
             "errors": sum(1 for c in report.components if c.status == "error"),
         }
 
-        logger.info("[ECO-4.8] Dashboard: health=%.0f%% (%d/%d ok)",
-                     report.health_score * 100, ok, total)
+        logger.info(
+            "[ECO-4.8] Dashboard: health=%.0f%% (%d/%d ok)",
+            report.health_score * 100,
+            ok,
+            total,
+        )
         return report
 
     def _check_agents_md(self) -> list[ComponentStatus]:
@@ -156,24 +166,34 @@ class AgentManagerDashboard:
         if agents_md.is_file():
             age = (time.time() - agents_md.stat().st_mtime) / 86400
             status = "ok" if age < 90 else "stale"
-            items.append(ComponentStatus(
-                category="agents_md", name="AGENTS.md",
-                status=status,
-                detail=f"Last modified {int(age)} days ago",
-            ))
+            items.append(
+                ComponentStatus(
+                    category="agents_md",
+                    name="AGENTS.md",
+                    status=status,
+                    detail=f"Last modified {int(age)} days ago",
+                )
+            )
         else:
-            items.append(ComponentStatus(
-                category="agents_md", name="AGENTS.md",
-                status="error", detail="File not found",
-            ))
+            items.append(
+                ComponentStatus(
+                    category="agents_md",
+                    name="AGENTS.md",
+                    status="error",
+                    detail="File not found",
+                )
+            )
 
         # Check for CODEBASE.md
         codebase_md = self.workspace / "CODEBASE.md"
-        items.append(ComponentStatus(
-            category="agents_md", name="CODEBASE.md",
-            status="ok" if codebase_md.is_file() else "warning",
-            detail="Present" if codebase_md.is_file() else "Not generated yet",
-        ))
+        items.append(
+            ComponentStatus(
+                category="agents_md",
+                name="CODEBASE.md",
+                status="ok" if codebase_md.is_file() else "warning",
+                detail="Present" if codebase_md.is_file() else "Not generated yet",
+            )
+        )
 
         return items
 
@@ -185,14 +205,22 @@ class AgentManagerDashboard:
         if hooks_dir.exists():
             for hook in hooks_dir.iterdir():
                 if hook.is_file():
-                    items.append(ComponentStatus(
-                        category="hooks", name=hook.name, status="ok",
-                    ))
+                    items.append(
+                        ComponentStatus(
+                            category="hooks",
+                            name=hook.name,
+                            status="ok",
+                        )
+                    )
         else:
-            items.append(ComponentStatus(
-                category="hooks", name="hooks_directory",
-                status="warning", detail="No hooks directory found",
-            ))
+            items.append(
+                ComponentStatus(
+                    category="hooks",
+                    name="hooks_directory",
+                    status="warning",
+                    detail="No hooks directory found",
+                )
+            )
 
         return items
 
@@ -205,13 +233,17 @@ class AgentManagerDashboard:
             for pd in plugins_dir.iterdir():
                 if pd.is_dir():
                     manifest = any(
-                        (pd / n).exists() for n in ("plugin.yaml", "plugin.yml", "plugin.json")
+                        (pd / n).exists()
+                        for n in ("plugin.yaml", "plugin.yml", "plugin.json")
                     )
-                    items.append(ComponentStatus(
-                        category="plugins", name=pd.name,
-                        status="ok" if manifest else "warning",
-                        detail="Valid manifest" if manifest else "Missing manifest",
-                    ))
+                    items.append(
+                        ComponentStatus(
+                            category="plugins",
+                            name=pd.name,
+                            status="ok" if manifest else "warning",
+                            detail="Valid manifest" if manifest else "Missing manifest",
+                        )
+                    )
 
         return items
 
@@ -224,20 +256,32 @@ class AgentManagerDashboard:
             try:
                 data = json.loads(perm_file.read_text(encoding="utf-8"))
                 deny_count = len(data.get("deny_paths", []))
-                items.append(ComponentStatus(
-                    category="permissions", name="permissions.json",
-                    status="ok", detail=f"{deny_count} deny rules",
-                ))
+                items.append(
+                    ComponentStatus(
+                        category="permissions",
+                        name="permissions.json",
+                        status="ok",
+                        detail=f"{deny_count} deny rules",
+                    )
+                )
             except Exception:
-                items.append(ComponentStatus(
-                    category="permissions", name="permissions.json",
-                    status="error", detail="Invalid JSON",
-                ))
+                items.append(
+                    ComponentStatus(
+                        category="permissions",
+                        name="permissions.json",
+                        status="error",
+                        detail="Invalid JSON",
+                    )
+                )
         else:
-            items.append(ComponentStatus(
-                category="permissions", name="permissions.json",
-                status="warning", detail="No permission policy configured",
-            ))
+            items.append(
+                ComponentStatus(
+                    category="permissions",
+                    name="permissions.json",
+                    status="warning",
+                    detail="No permission policy configured",
+                )
+            )
 
         return items
 
@@ -256,11 +300,14 @@ class AgentManagerDashboard:
             for row in results:
                 name = row.get("name", "unknown")
                 uses = row.get("uses", 0)
-                items.append(ComponentStatus(
-                    category="skills", name=name,
-                    status="ok" if uses > 0 else "stale",
-                    usage_count=uses,
-                ))
+                items.append(
+                    ComponentStatus(
+                        category="skills",
+                        name=name,
+                        status="ok" if uses > 0 else "stale",
+                        usage_count=uses,
+                    )
+                )
         except Exception as e:
             logger.debug("[ECO-4.8] Skill check failed: %s", e)
         return items
@@ -273,10 +320,13 @@ class AgentManagerDashboard:
         if proposals_dir.exists():
             files = list(proposals_dir.glob("*.md"))
             if files:
-                items.append(ComponentStatus(
-                    category="proposals", name="pending_updates",
-                    status="warning",
-                    detail=f"{len(files)} pending AGENTS.md proposals to review",
-                ))
+                items.append(
+                    ComponentStatus(
+                        category="proposals",
+                        name="pending_updates",
+                        status="warning",
+                        detail=f"{len(files)} pending AGENTS.md proposals to review",
+                    )
+                )
 
         return items

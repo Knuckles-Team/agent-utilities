@@ -105,9 +105,7 @@ class ServiceConfig(BaseModel):
         default=None,
         description="Specific fields to show (None = all available)",
     )
-    refresh_interval: int = Field(
-        default=30, description="Polling interval in seconds"
-    )
+    refresh_interval: int = Field(default=30, description="Polling interval in seconds")
     websocket: bool = Field(
         default=False, description="Use WebSocket for real-time updates if available"
     )
@@ -146,8 +144,12 @@ class DashboardLayout(BaseModel):
 
     groups: list[ServiceGroup] = Field(default_factory=list)
     columns: int = Field(default=4, description="Number of grid columns")
-    theme: str = Field(default="system", description="Theme: system, dark, light, glass")
-    card_size: str = Field(default="medium", description="Card size: small, medium, large")
+    theme: str = Field(
+        default="system", description="Theme: system, dark, light, glass"
+    )
+    card_size: str = Field(
+        default="medium", description="Card size: small, medium, large"
+    )
     show_search: bool = Field(default=True)
     show_status_indicators: bool = Field(default=True)
     auto_refresh: bool = Field(default=True)

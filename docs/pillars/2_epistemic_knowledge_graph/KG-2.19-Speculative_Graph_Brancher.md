@@ -1,7 +1,7 @@
 # Speculative Graph Brancher (CONCEPT:KG-2.19)
 
 ## Overview
-The **Speculative Graph Brancher** enables concurrent, non-blocking mutations on the Knowledge Graph by spawning isolated transactional branches (`KGTransaction`). Multiple agents can execute reasoning paths in parallel without acquiring global database locks. 
+The **Speculative Graph Brancher** enables concurrent, non-blocking mutations on the Knowledge Graph by spawning isolated transactional branches (`KGTransaction`). Multiple agents can execute reasoning paths in parallel without acquiring global database locks.
 
 When execution concludes, a semantic diff is calculated and validated for conflicts (such as concurrent deletion of nodes modified by the branch) before being atomically committed back to the main graph state (`KGCommit`).
 

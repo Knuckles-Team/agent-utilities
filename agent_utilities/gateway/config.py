@@ -340,7 +340,9 @@ class ConfigManager:
             category_groups[category].append(svc)
 
         groups = []
-        for idx, (cat, services) in enumerate(sorted(category_groups.items(), key=lambda x: x[0].value)):
+        for idx, (cat, services) in enumerate(
+            sorted(category_groups.items(), key=lambda x: x[0].value)
+        ):
             groups.append(
                 ServiceGroup(
                     name=cat.value,

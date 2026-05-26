@@ -22,7 +22,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from agent_utilities.gateway.aggregator import Aggregator
 from agent_utilities.gateway.config import ConfigManager
-from agent_utilities.gateway.models import WidgetData
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +117,7 @@ async def dashboard_ws(ws: WebSocket) -> None:
                     interval = max(5.0, min(120.0, float(msg.get("seconds", 15))))
                     logger.debug("Client set interval to: %ss", interval)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
             # Fetch and send update

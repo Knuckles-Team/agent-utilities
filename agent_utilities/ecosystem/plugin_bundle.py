@@ -69,7 +69,8 @@ class PluginBundle:
         p = Path(path)
         data = yaml.safe_load(p.read_text(encoding="utf-8"))
         return cls(
-            name=data["name"], version=data.get("version", "0.1.0"),
+            name=data["name"],
+            version=data.get("version", "0.1.0"),
             description=data.get("description", ""),
             author=data.get("author", ""),
             skills=data.get("skills", []),
@@ -86,9 +87,12 @@ class PluginBundle:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "name": self.name, "version": self.version,
-            "description": self.description, "author": self.author,
-            "skills": self.skills, "hooks": self.hooks,
+            "name": self.name,
+            "version": self.version,
+            "description": self.description,
+            "author": self.author,
+            "skills": self.skills,
+            "hooks": self.hooks,
             "mcp_configs": self.mcp_configs,
             "agents_md_overlay": self.agents_md_overlay,
             "source_url": self.source_url,
@@ -96,6 +100,7 @@ class PluginBundle:
 
     def to_yaml(self) -> str:
         import yaml
+
         return yaml.dump(self.to_dict(), default_flow_style=False, sort_keys=False)
 
 
@@ -148,20 +153,32 @@ class PluginBundleManager:
 
         logger.info(
             "[ECO-4.4] Installed plugin '%s' v%s (%d skills, %d hooks, %d MCP configs)",
-            manifest.name, manifest.version, len(manifest.skills),
-            len(manifest.hooks), len(manifest.mcp_configs),
+            manifest.name,
+            manifest.version,
+            len(manifest.skills),
+            len(manifest.hooks),
+            len(manifest.mcp_configs),
         )
         return manifest
 
     def install_from_github(
-        self, repo: str, subpath: str = "", branch: str = "main",
+        self,
+        repo: str,
+        subpath: str = "",
+        branch: str = "main",
     ) -> PluginBundle:
         """Clone and install a plugin from GitHub."""
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            clone_cmd = ["git", "clone", "--depth=1", f"--branch={branch}",
-                         f"https://github.com/{repo}.git", tmpdir]
+            clone_cmd = [
+                "git",
+                "clone",
+                "--depth=1",
+                f"--branch={branch}",
+                f"https://github.com/{repo}.git",
+                tmpdir,
+            ]
             subprocess.run(clone_cmd, check=True, capture_output=True, timeout=60)
 
             source = Path(tmpdir) / subpath if subpath else Path(tmpdir)
@@ -216,13 +233,19 @@ class PluginBundleManager:
 
     def _install_skills(self, bundle: PluginBundle, source: Path) -> None:
         for skill_name in bundle.skills:
-            logger.debug("[ECO-4.4] Skill '%s' registered from plugin '%s'", skill_name, bundle.name)
+            logger.debug(
+                "[ECO-4.4] Skill '%s' registered from plugin '%s'",
+                skill_name,
+                bundle.name,
+            )
 
     def _install_hooks(self, bundle: PluginBundle, source: Path) -> None:
         for hook_name, hook_path in bundle.hooks.items():
             hp = source / hook_path
             if hp.is_file():
-                dest = self.workspace / ".agents" / "hooks" / f"{bundle.name}_{hook_name}"
+                dest = (
+                    self.workspace / ".agents" / "hooks" / f"{bundle.name}_{hook_name}"
+                )
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(hp, dest)
 
@@ -230,7 +253,12 @@ class PluginBundleManager:
         for server_name, config_path in bundle.mcp_configs.items():
             cp = source / config_path
             if cp.is_file():
-                dest = self.workspace / ".agents" / "mcp" / f"{bundle.name}_{server_name}.json"
+                dest = (
+                    self.workspace
+                    / ".agents"
+                    / "mcp"
+                    / f"{bundle.name}_{server_name}.json"
+                )
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(cp, dest)
 
@@ -251,15 +279,21 @@ class PluginBundleManager:
         if not self.engine:
             return
         try:
-            self.engine.add_node(f"plugin_{bundle.name}", "plugin_bundle", {
-                "name": bundle.name, "version": bundle.version,
-                "description": bundle.description, "author": bundle.author,
-                "skill_count": len(bundle.skills),
-                "hook_count": len(bundle.hooks),
-                "mcp_count": len(bundle.mcp_configs),
-                "source_url": bundle.source_url,
-                "importance_score": 0.7,
-            })
+            self.engine.add_node(
+                f"plugin_{bundle.name}",
+                "plugin_bundle",
+                {
+                    "name": bundle.name,
+                    "version": bundle.version,
+                    "description": bundle.description,
+                    "author": bundle.author,
+                    "skill_count": len(bundle.skills),
+                    "hook_count": len(bundle.hooks),
+                    "mcp_count": len(bundle.mcp_configs),
+                    "source_url": bundle.source_url,
+                    "importance_score": 0.7,
+                },
+            )
         except Exception as e:
             logger.debug("[ECO-4.4] KG registration failed: %s", e)
 
@@ -273,7 +307,10 @@ class PluginBundleManager:
 
 
 def install_plugin_from_github(
-    repo: str, workspace: str | Path = ".", subpath: str = "", engine: Any = None,
+    repo: str,
+    workspace: str | Path = ".",
+    subpath: str = "",
+    engine: Any = None,
 ) -> PluginBundle:
     """Convenience: install a plugin from GitHub in one call."""
     mgr = PluginBundleManager(workspace=workspace, engine=engine)

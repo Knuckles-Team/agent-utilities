@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -28,6 +33,7 @@ class Widget(BaseWidget):
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from vector_mcp.api_client import VectorApi
+
         url = self._resolve_url(config)
         token = self._resolve_token(config)
         client = VectorApi(base_url=url, api_key=token)

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 logger = logging.getLogger(__name__)
@@ -26,6 +31,7 @@ class Widget(BaseWidget):
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from leanix_agent.api_client import LeanIXApi
+
         token = self._resolve_token(config)
         url = self._resolve_url(config)
         client = LeanIXApi(base_url=url, token=token)

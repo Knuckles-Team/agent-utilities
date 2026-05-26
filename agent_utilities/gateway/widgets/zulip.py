@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from agent_utilities.gateway.models import ServiceCategory, ServiceConfig, WidgetData, WidgetField
+from agent_utilities.gateway.models import (
+    ServiceCategory,
+    ServiceConfig,
+    WidgetData,
+    WidgetField,
+)
 from agent_utilities.gateway.widgets.base import BaseWidget
 
 
@@ -24,13 +29,16 @@ class Widget(BaseWidget):
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
         from zulip_agent.api_client import ZulipApi
+
         url = self._resolve_url(config)
         email = self._resolve_env(config, "email")
         api_key = self._resolve_token(config)
         client = ZulipApi(base_url=url, email=email, api_key=api_key)
         try:
             streams = client.get_streams() or {}
-            stream_list = streams.get("streams", []) if isinstance(streams, dict) else []
+            stream_list = (
+                streams.get("streams", []) if isinstance(streams, dict) else []
+            )
         except Exception:
             return WidgetData(status="error", error="Connection failed")
 

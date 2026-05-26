@@ -55,13 +55,13 @@ from pydantic import Field
 logger = logging.getLogger(__name__)
 
 
-REGISTERED_TOOLS = {}
+REGISTERED_TOOLS: dict[str, Any] = {}
 
 
 def _build_dummy_request(path_params=None, json_body=None):
     from starlette.requests import Request
 
-    scope = {
+    scope: dict[str, Any] = {
         "type": "http",
         "path_params": path_params or {},
         "query_string": b"",
@@ -127,7 +127,7 @@ def _parse_skill_md(path: Any) -> dict[str, Any]:
     try:
         content = path_obj.read_text(encoding="utf-8", errors="ignore")
         match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
-        metadata = {}
+        metadata: dict[str, Any] = {}
         if match:
             try:
                 metadata = yaml.safe_load(match.group(1)) or {}

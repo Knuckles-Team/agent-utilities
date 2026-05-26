@@ -13,8 +13,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
-from typing import AsyncIterator
 
 from agent_utilities.gateway.config import ConfigManager
 from agent_utilities.gateway.models import (
@@ -53,7 +53,9 @@ class Aggregator:
             Dict mapping service_id to WidgetData.
         """
         layout = self.config_manager.load()
-        services = [svc for group in layout.groups for svc in group.services if svc.visible]
+        services = [
+            svc for group in layout.groups for svc in group.services if svc.visible
+        ]
 
         results: dict[str, WidgetData] = {}
         tasks = []
@@ -69,13 +71,11 @@ class Aggregator:
         if tasks:
             fetched = await asyncio.gather(*tasks, return_exceptions=True)
             for svc, result in zip(
-                [s for s in services if s.id not in results], fetched
+                [s for s in services if s.id not in results], fetched, strict=False
             ):
                 if isinstance(result, Exception):
                     logger.error("Widget %s failed: %s", svc.id, result)
-                    results[svc.id] = WidgetData(
-                        status="error", error=str(result)
-                    )
+                    results[svc.id] = WidgetData(status="error", error=str(result))
                 else:
                     results[svc.id] = result
                     self._set_cached(svc.id, result)
@@ -87,9 +87,7 @@ class Aggregator:
         services = self.config_manager.get_all_services()
         svc = next((s for s in services if s.id == service_id), None)
         if not svc:
-            return WidgetData(
-                status="error", error=f"Service '{service_id}' not found"
-            )
+            return WidgetData(status="error", error=f"Service '{service_id}' not found")
         return await self._fetch_one(svc)
 
     async def _fetch_one(self, config: ServiceConfig) -> WidgetData:
@@ -102,9 +100,7 @@ class Aggregator:
             )
 
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            self._executor, widget._safe_fetch, config
-        )
+        return await loop.run_in_executor(self._executor, widget._safe_fetch, config)
 
     async def stream(
         self, interval: float = 30.0
@@ -144,8 +140,10 @@ class Aggregator:
             svc_with_widgets = [
                 s for s in services if self.registry.get_widget(s.widget_type)
             ]
-            for svc, result in zip(svc_with_widgets, health_results):
-                results[svc.id] = bool(result) if not isinstance(result, Exception) else False
+            for svc, result in zip(svc_with_widgets, health_results, strict=False):
+                results[svc.id] = (
+                    bool(result) if not isinstance(result, Exception) else False
+                )
 
         return results
 

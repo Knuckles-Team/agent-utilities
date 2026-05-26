@@ -82,7 +82,7 @@ class DynamicToolOrchestrator:
         if not self.engine.backend:
             return []
 
-        matched_tools = []
+        matched_tools: list[str] = []
         try:
             # Multi-vector match: matches name, description, or tags (if present)
             cypher_query = """
@@ -96,7 +96,7 @@ class DynamicToolOrchestrator:
             rows = self.engine.backend.execute(
                 cypher_query, {"query": query, "server_name": server_name}
             )
-            matched_tools = [r.get("name") for r in rows if r.get("name")]
+            matched_tools = [str(r.get("name")) for r in rows if r.get("name")]
         except Exception as e:
             logger.debug("Error during resolve_mcp_tools: %s", e)
 
@@ -110,7 +110,7 @@ class DynamicToolOrchestrator:
                 rows = self.engine.backend.execute(
                     cypher_all, {"server_name": server_name}
                 )
-                matched_tools = [r.get("name") for r in rows if r.get("name")]
+                matched_tools = [str(r.get("name")) for r in rows if r.get("name")]
             except Exception as e:
                 logger.debug("Error during resolve_mcp_tools fallback: %s", e)
 
