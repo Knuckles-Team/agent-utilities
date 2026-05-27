@@ -134,7 +134,7 @@ class BaseWidget(ABC):
             url = self._resolve_url(config)
             if not url:
                 return False
-            resp = httpx.get(url, timeout=5.0, verify=False)
+            resp = httpx.get(url, timeout=5.0, verify=False)  # nosec B501
             return resp.status_code < 500
         except Exception:
             return False

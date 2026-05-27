@@ -833,12 +833,12 @@ class HydrationManager:
                     }
                 )
 
-                c_id = p.get("companyId")
-                if c_id:
+                company_id = p.get("companyId")
+                if company_id:
                     relationships.append(
                         {
                             "source": node_id,
-                            "target": f"twenty:company:{c_id}",
+                            "target": f"twenty:company:{company_id}",
                             "type": "works_at",
                             "domain": "twenty",
                         }
@@ -848,14 +848,16 @@ class HydrationManager:
 
         # 3. Opportunities
         try:
-            opps_resp = client.get_opportunities()
-            opps = (
-                opps_resp.get("data", []) if isinstance(opps_resp, dict) else opps_resp
+            opportunities_resp = client.get_opportunities()
+            opportunities = (
+                opportunities_resp.get("data", [])
+                if isinstance(opportunities_resp, dict)
+                else opportunities_resp
             )
-            if not isinstance(opps, list):
-                opps = []
+            if not isinstance(opportunities, list):
+                opportunities = []
 
-            for o in opps:
+            for o in opportunities:
                 if not isinstance(o, dict):
                     continue
                 o_id = str(o.get("id", ""))
@@ -875,12 +877,12 @@ class HydrationManager:
                     }
                 )
 
-                c_id = o.get("companyId")
-                if c_id:
+                company_id = o.get("companyId")
+                if company_id:
                     relationships.append(
                         {
                             "source": node_id,
-                            "target": f"twenty:company:{c_id}",
+                            "target": f"twenty:company:{company_id}",
                             "type": "related_to",
                             "domain": "twenty",
                         }
@@ -1030,7 +1032,9 @@ class HydrationManager:
     def _hydrate_langfuse(self, engine: Any) -> dict[str, Any]:
         """Hydrate LLM traces, prompts, and evaluation datasets from Langfuse (Tier 4)."""
         try:
-            from langfuse_agent.api_client import LangfuseApi  # type: ignore
+            from langfuse_agent.api_client import (
+                LangfuseApi,  # type: ignore # noqa: F401
+            )
         except ImportError:
             return {
                 "status": "skipped",
@@ -1098,7 +1102,9 @@ class HydrationManager:
     def _hydrate_keycloak(self, engine: Any) -> dict[str, Any]:
         """Hydrate Keycloak realms, clients, and role metadata (Tier 5)."""
         try:
-            from keycloak_agent.api_client import KeycloakAdmin  # type: ignore
+            from keycloak_agent.api_client import (
+                KeycloakAdmin,  # type: ignore # noqa: F401
+            )
         except ImportError:
             return {
                 "status": "skipped",
@@ -1190,7 +1196,9 @@ class HydrationManager:
     def _hydrate_nextcloud(self, engine: Any) -> dict[str, Any]:
         """Hydrate Nextcloud active calendars and document structures (Tier 6)."""
         try:
-            from nextcloud_agent.api_client import NextcloudClient  # type: ignore
+            from nextcloud_agent.api_client import (
+                NextcloudClient,  # type: ignore # noqa: F401
+            )
         except ImportError:
             return {
                 "status": "skipped",
@@ -1268,7 +1276,9 @@ class HydrationManager:
     def _hydrate_mattermost(self, engine: Any) -> dict[str, Any]:
         """Hydrate Mattermost channel structures and webhooks/integrations (Tier 6)."""
         try:
-            from mattermost_mcp.api_client import MattermostApi  # type: ignore
+            from mattermost_mcp.api_client import (
+                MattermostApi,  # type: ignore # noqa: F401
+            )
         except ImportError:
             return {
                 "status": "skipped",
@@ -1305,7 +1315,7 @@ class HydrationManager:
     def _hydrate_technitium_dns(self, engine: Any) -> dict[str, Any]:
         """Hydrate DNS zones and resource records from Technitium DNS (Tier 3)."""
         try:
-            from technitium_dns_mcp.api_client import (
+            from technitium_dns_mcp.api_client import (  # noqa: F401
                 Api as TechnitiumApi,  # type: ignore
             )
         except ImportError:
@@ -1369,7 +1379,9 @@ class HydrationManager:
     def _hydrate_caddy(self, engine: Any) -> dict[str, Any]:
         """Hydrate active routing configurations and reverse proxies from Caddy (Tier 3)."""
         try:
-            from caddy_mcp.api_client import Api as CaddyApi  # type: ignore
+            from caddy_mcp.api_client import (
+                Api as CaddyApi,  # type: ignore # noqa: F401
+            )
         except ImportError:
             return {"status": "skipped", "reason": "caddy-mcp package not installed"}
 
@@ -1425,7 +1437,7 @@ class HydrationManager:
     def _hydrate_scholarx(self, engine: Any) -> dict[str, Any]:
         """Hydrate recently fetched research papers and literature citation loops (Advanced Ingestion)."""
         try:
-            from scholarx.api_client import ScholarXClient  # type: ignore
+            from scholarx.api_client import ScholarXClient  # type: ignore # noqa: F401
         except ImportError:
             return {"status": "skipped", "reason": "scholarx package not installed"}
 
@@ -1477,7 +1489,9 @@ class HydrationManager:
     def _hydrate_emerald_exchange(self, engine: Any) -> dict[str, Any]:
         """Hydrate balances, positions, and order execution records (Advanced Ingestion)."""
         try:
-            from emerald_exchange.backends import PaperBackend  # type: ignore
+            from emerald_exchange.backends import (
+                PaperBackend,  # type: ignore # noqa: F401
+            )
         except ImportError:
             return {
                 "status": "skipped",

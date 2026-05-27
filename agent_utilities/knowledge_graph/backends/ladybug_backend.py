@@ -58,6 +58,26 @@ def _cleanup_all_backends() -> None:
 
 atexit.register(_cleanup_all_backends)
 
+_LAST_GC_TIME = 0.0
+_GC_LOCK = threading.Lock()
+
+
+def _throttled_gc() -> None:
+    """Run garbage collection, but throttled to at most once per second.
+
+    This avoids massive GC thrashing when transient connections are closed
+    after every query.
+    """
+    global _LAST_GC_TIME
+    with _GC_LOCK:
+        now = _time.monotonic()
+        if now - _LAST_GC_TIME > 1.0:
+            import gc
+
+            gc.collect()
+            _LAST_GC_TIME = now
+
+
 # ── G1: TTL-cached gateway health state ──────────────────────────────────
 # Avoids per-query TCP+HTTP health check overhead. At 1000 agents × 100 qps,
 # this reduces health checks from ~100K/sec to 1 every _HEALTH_TTL seconds.
@@ -120,7 +140,7 @@ class CombinedLock:
         return self
 
     def __exit__(
-        self, exc_type: typing.Any, exc_val: typing.Any, exc_tb: typing.Any
+        self, _exc_type: typing.Any, _exc_val: typing.Any, _exc_tb: typing.Any
     ) -> None:
         try:
             self.file_lock.release()
@@ -348,8 +368,6 @@ class LadybugBackend(GraphBackend):
 
     def close(self) -> None:
         """Close the database connection and database object."""
-        import gc
-
         conn = getattr(self, "conn", None)
         if conn is not None:
             try:
@@ -357,11 +375,11 @@ class LadybugBackend(GraphBackend):
             except Exception:  # nosec B110
                 pass
             self.conn = None
-            gc.collect()
+            _throttled_gc()
         db = getattr(self, "db", None)
         if db is not None:
             self.db = None
-            gc.collect()
+            _throttled_gc()
 
     def __del__(self) -> None:
         """Ensure connection is destroyed before database to avoid C++ Kuzu abort."""

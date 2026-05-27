@@ -33,7 +33,7 @@ SCRATCH_DIR = Path(__file__).resolve().parents[1] / "scratch"
 async def main():
     # Force use of local LM studio if not configured otherwise
     os.environ.setdefault("LLM_PROVIDER", "openai")
-    os.environ.setdefault("LLM_BASE_URL", "http://10.0.0.18:1234/v1")
+    os.environ.setdefault("LLM_BASE_URL", "http://vllm.arpa/v1")
     os.environ.setdefault("LITE_LLM_MODEL_ID", "qwen/qwen3.5-9b")
 
     logger.info("Initializing Intelligence Graph Engine...")

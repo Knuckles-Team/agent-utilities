@@ -63,7 +63,7 @@ High-risk tools (e.g. writing system configurations, executing financial transac
 
 ### Safety Proof Model:
 ```
-  [Proposed Tool Argument: Path = "/home/genius/workspace/secret.key"]
+  [Proposed Tool Argument: Path = "/home/user/workspace/secret.key"]
                        |
                        v
          (Ontological Guardrail Check)

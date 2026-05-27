@@ -25,11 +25,11 @@ except ImportError:
     HAS_RUST_COMPUTE = False
 
     class EpistemicGraphFallback:
-        def add_node(self, node_id: str, properties_json: str) -> None:
+        def add_node(self, node_id: str, _properties_json: str) -> None:
             pass
 
         def add_edge(
-            self, source_id: str, target_id: str, properties_json: str
+            self, source_id: str, target_id: str, _properties_json: str
         ) -> None:
             pass
 

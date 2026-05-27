@@ -45,10 +45,6 @@ except (ImportError, ModuleNotFoundError):
             pass
 
 
-from universal_skills.skill_utilities import (
-    get_universal_skills_path,
-)
-
 from agent_utilities.base_utilities import (
     is_loopback_url,
     to_boolean,
@@ -103,7 +99,6 @@ from agent_utilities.core.workspace import (
     get_skills_path,
 )
 from agent_utilities.models import AgentDeps
-from agent_utilities.prompting.builder import build_system_prompt_from_workspace
 from agent_utilities.security.tool_guard import apply_tool_guard_approvals
 from agent_utilities.tools.tool_filtering import (
     filter_tools_by_tag,
@@ -481,6 +476,8 @@ def create_agent(
             skill_dirs.extend(skills_path)
 
         if "universal" in _skill_types:
+            from universal_skills.skill_utilities import get_universal_skills_path
+
             skill_dirs.extend(get_universal_skills_path())
 
         if "graphs" in _skill_types:
@@ -513,6 +510,8 @@ def create_agent(
         logger.info(
             "No system_prompt provided to create_agent. Building from workspace..."
         )
+        from agent_utilities.prompting.builder import build_system_prompt_from_workspace
+
         system_prompt_str = build_system_prompt_from_workspace()
     else:
         logger.debug(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")

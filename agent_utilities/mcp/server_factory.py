@@ -63,6 +63,22 @@ def create_mcp_parser() -> argparse.ArgumentParser:
         An argparse.ArgumentParser instance.
 
     """
+    # Keycloak defaults integration
+    keycloak_url = os.environ.get("KEYCLOAK_URL")
+    keycloak_realm = os.environ.get("KEYCLOAK_REALM", "master")
+    default_oidc_config = os.environ.get("OIDC_CONFIG_URL")
+    if not default_oidc_config and keycloak_url:
+        default_oidc_config = (
+            f"{keycloak_url}/realms/{keycloak_realm}/.well-known/openid-configuration"
+        )
+
+    default_oidc_client_id = os.environ.get("OIDC_CLIENT_ID") or os.environ.get(
+        "KEYCLOAK_CLIENT_ID"
+    )
+    default_oidc_client_secret = os.environ.get("OIDC_CLIENT_SECRET") or os.environ.get(
+        "KEYCLOAK_CLIENT_SECRET"
+    )
+
     parser = argparse.ArgumentParser(add_help=False, description="MCP Server")
     parser.add_argument(
         "-t",
@@ -86,18 +102,24 @@ def create_mcp_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--auth-type",
-        default="none",
+        default=os.environ.get("AUTH_TYPE", "none"),
         choices=["none", "static", "jwt", "oauth-proxy", "oidc-proxy", "remote-oauth"],
         help="Authentication type for MCP server: 'none' (disabled), 'static' (internal), 'jwt' (external token verification), 'oauth-proxy', 'oidc-proxy', 'remote-oauth' (external) (default: none)",
     )
     parser.add_argument(
-        "--token-jwks-uri", default=None, help="JWKS URI for JWT verification"
+        "--token-jwks-uri",
+        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_JWKS_URI"),
+        help="JWKS URI for JWT verification",
     )
     parser.add_argument(
-        "--token-issuer", default=None, help="Issuer for JWT verification"
+        "--token-issuer",
+        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_ISSUER"),
+        help="Issuer for JWT verification",
     )
     parser.add_argument(
-        "--token-audience", default=None, help="Audience for JWT verification"
+        "--token-audience",
+        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_AUDIENCE"),
+        help="Audience for JWT verification",
     )
     parser.add_argument(
         "--token-algorithm",
@@ -154,11 +176,25 @@ def create_mcp_parser() -> argparse.ArgumentParser:
         "--oauth-base-url", default=None, help="Base URL for OAuth Proxy"
     )
     parser.add_argument(
-        "--oidc-config-url", default=None, help="OIDC configuration URL"
+        "--oidc-config-url",
+        default=default_oidc_config,
+        help="OIDC configuration URL",
     )
-    parser.add_argument("--oidc-client-id", default=None, help="OIDC client ID")
-    parser.add_argument("--oidc-client-secret", default=None, help="OIDC client secret")
-    parser.add_argument("--oidc-base-url", default=None, help="Base URL for OIDC Proxy")
+    parser.add_argument(
+        "--oidc-client-id",
+        default=default_oidc_client_id,
+        help="OIDC client ID",
+    )
+    parser.add_argument(
+        "--oidc-client-secret",
+        default=default_oidc_client_secret,
+        help="OIDC client secret",
+    )
+    parser.add_argument(
+        "--oidc-base-url",
+        default=os.environ.get("OIDC_BASE_URL"),
+        help="Base URL for OIDC Proxy",
+    )
     parser.add_argument(
         "--remote-auth-servers",
         default=None,
@@ -174,17 +210,19 @@ def create_mcp_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--eunomia-type",
-        default="none",
+        default=os.environ.get("EUNOMIA_TYPE", "none"),
         choices=["none", "embedded", "remote"],
         help="Eunomia authorization type: 'none' (disabled), 'embedded' (built-in), 'remote' (external) (default: none)",
     )
     parser.add_argument(
         "--eunomia-policy-file",
-        default="mcp_policies.json",
+        default=os.environ.get("EUNOMIA_POLICY_FILE", "mcp_policies.json"),
         help="Policy file for embedded Eunomia (default: mcp_policies.json)",
     )
     parser.add_argument(
-        "--eunomia-remote-url", default=None, help="URL for remote Eunomia server"
+        "--eunomia-remote-url",
+        default=os.environ.get("EUNOMIA_REMOTE_URL", None),
+        help="URL for remote Eunomia server",
     )
     parser.add_argument(
         "--enable-delegation",
@@ -514,13 +552,18 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
         try:
             from eunomia_mcp import create_eunomia_middleware
 
-            policy_file = args.eunomia_policy_file or "mcp_policies.json"
-            eunomia_endpoint = (
-                args.eunomia_remote_url if args.eunomia_type == "remote" else None
-            )
-            eunomia_mw = create_eunomia_middleware(
-                policy_file=policy_file, eunomia_endpoint=eunomia_endpoint
-            )
+            if args.eunomia_type == "remote":
+                eunomia_mw = create_eunomia_middleware(
+                    policy_file=None,
+                    use_remote_eunomia=True,
+                    eunomia_endpoint=args.eunomia_remote_url,
+                )
+            else:
+                policy_file = args.eunomia_policy_file or "mcp_policies.json"
+                eunomia_mw = create_eunomia_middleware(
+                    policy_file=policy_file,
+                    use_remote_eunomia=False,
+                )
             middlewares.append(eunomia_mw)
         except Exception as e:
             logger.error(f"Failed to load Eunomia middleware: {e}")
@@ -559,13 +602,37 @@ def create_mcp_server(
             - middlewares: A list of configured middleware instances.
 
     """
+    import builtins
     import logging
     import sys
+    import warnings
 
     from fastmcp import FastMCP
 
     # Force all logging to stderr to prevent JSON-RPC corruption over stdio
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, force=True)
+
+    # Wrap builtins.print to force stderr redirection by default to prevent stdout pollution
+    original_print = builtins.print
+
+    def stderr_print(*args, **kwargs):
+        if (
+            "file" not in kwargs
+            or kwargs["file"] is None
+            or kwargs["file"] == sys.stdout
+        ):
+            kwargs["file"] = sys.stderr
+        original_print(*args, **kwargs)
+
+    builtins.print = stderr_print
+
+    # Wrap warnings to write strictly to sys.stderr
+    def stderr_showwarning(message, category, filename, lineno, file=None, line=None):
+        log_msg = f"[{category.__name__}] {message} ({filename}:{lineno})\n"
+        sys.stderr.write(log_msg)
+        sys.stderr.flush()
+
+    warnings.showwarning = stderr_showwarning
 
     parser = create_mcp_parser()
     args, _ = parser.parse_known_args(command_args)

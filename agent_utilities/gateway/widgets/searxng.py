@@ -35,7 +35,7 @@ class Widget(BaseWidget):
 
         url = self._resolve_url(config)
         try:
-            resp = httpx.get(f"{url}/config", timeout=5.0, verify=False)
+            resp = httpx.get(f"{url}/config", timeout=5.0, verify=False)  # nosec B501
             data = resp.json() if resp.status_code == 200 else {}
             engines = data.get("engines", [])
         except Exception as e:

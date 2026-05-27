@@ -115,3 +115,39 @@ def test_create_mcp_server_invalid_port():
         with pytest.raises(SystemExit) as excinfo:
             mcp_utilities.create_mcp_server()
         assert excinfo.value.code == 1
+
+
+@patch("eunomia_mcp.create_eunomia_middleware")
+def test_create_mcp_server_eunomia(mock_create_mw):
+    # Mocking parse_known_args to return Eunomia options
+    with patch("argparse.ArgumentParser.parse_known_args") as mock_parse:
+        # Test Case 1: Embedded Eunomia
+        mock_args = MagicMock()
+        mock_args.port = 8000
+        mock_args.enable_delegation = False
+        mock_args.auth_type = "none"
+        mock_args.help = False
+        mock_args.eunomia_type = "embedded"
+        mock_args.eunomia_policy_file = "my_custom_policy.json"
+        mock_args.eunomia_remote_url = None
+        mock_parse.return_value = (mock_args, [])
+
+        mcp_utilities.create_mcp_server(name="TestServerEmbedded")
+        mock_create_mw.assert_called_with(
+            policy_file="my_custom_policy.json",
+            use_remote_eunomia=False,
+        )
+
+        mock_create_mw.reset_mock()
+
+        # Test Case 2: Remote Eunomia
+        mock_args.eunomia_type = "remote"
+        mock_args.eunomia_policy_file = None
+        mock_args.eunomia_remote_url = "http://eunomia:8421"
+
+        mcp_utilities.create_mcp_server(name="TestServerRemote")
+        mock_create_mw.assert_called_with(
+            policy_file=None,
+            use_remote_eunomia=True,
+            eunomia_endpoint="http://eunomia:8421",
+        )

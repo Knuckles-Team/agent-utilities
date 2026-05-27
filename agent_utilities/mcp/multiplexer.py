@@ -187,6 +187,79 @@ class MCPMultiplexer:
                     isError=True,
                 )
 
+    async def _start_child(
+        self, server_name: str, cfg: dict
+    ) -> tuple[str, ClientSession, list[mcp.types.Tool], dict] | None:
+        """Starts a single child server, registers its exit stack on success, and returns its tools and session."""
+        command = cfg.get("command")
+        if not command:
+            logger.warning(f"Server '{server_name}' has no command, skipping.")
+            return None
+
+        args = cfg.get("args", [])
+        env = cfg.get("env", None)
+        timeout = float(cfg.get("timeout", 300.0))
+
+        # Build environment dict with dynamic expansions
+        merged_env = os.environ.copy()
+        if env:
+            for k, v in env.items():
+                merged_env[k] = os.path.expandvars(str(v))
+
+        # Ensure PYTHONPATH and active path are preserved
+        if "PYTHONPATH" not in merged_env and "PYTHONPATH" in os.environ:
+            merged_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+
+        logger.info(
+            f"Starting child server '{server_name}' with timeout {timeout}s: {command} {' '.join(args)}"
+        )
+
+        child_stack = contextlib.AsyncExitStack()
+        try:
+
+            async def _connect_and_init():
+                server_params = StdioServerParameters(
+                    command=command, args=args, env=merged_env
+                )
+
+                # Connect via stdio transport
+                read_stream, write_stream = await child_stack.enter_async_context(
+                    stdio_client(server_params)
+                )
+
+                # Create client session
+                session = await child_stack.enter_async_context(
+                    ClientSession(read_stream, write_stream)
+                )
+
+                await session.initialize()
+                tools_result = await session.list_tools()
+                return session, tools_result.tools
+
+            session, tools = await asyncio.wait_for(
+                _connect_and_init(), timeout=timeout
+            )
+
+            # Register the child_stack in the main exit_stack so it persists
+            await self.exit_stack.enter_async_context(child_stack)
+
+            logger.info(f"Loaded {len(tools)} tools from child server '{server_name}'")
+            return server_name, session, tools, cfg
+
+        except TimeoutError:
+            logger.error(
+                f"Failed to start child server '{server_name}': Timeout of {timeout}s exceeded"
+            )
+            await child_stack.aclose()
+            return None
+        except Exception as e:
+            logger.error(
+                f"Failed to start child server '{server_name}': {e}",
+                exc_info=True,
+            )
+            await child_stack.aclose()
+            return None
+
     async def start_children(self):
         """Parse configuration and start all child processes concurrently."""
         if not self.config_path.exists():
@@ -217,102 +290,69 @@ class MCPMultiplexer:
 
         mcp_servers = config_data.get("mcpServers", {})
 
+        tasks = []
         for server_name, cfg in mcp_servers.items():
             # Skip ourselves to avoid self-infinite recursion loops
             if server_name == "mcp-multiplexer" or cfg.get("disabled", False):
                 continue
+            tasks.append(self._start_child(server_name, cfg))
 
-            command = cfg.get("command")
-            if not command:
-                logger.warning(f"Server '{server_name}' has no command, skipping.")
+        if not tasks:
+            logger.info("No active child servers configured.")
+            return
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException):
+                # An exception propagated from asyncio.gather, already logged inside task
                 continue
 
-            args = cfg.get("args", [])
-            env = cfg.get("env", None)
+            if not isinstance(result, tuple):
+                continue
 
-            # Build environment dict with dynamic expansions
-            merged_env = os.environ.copy()
-            if env:
-                for k, v in env.items():
-                    merged_env[k] = os.path.expandvars(str(v))
+            server_name, session, tools, cfg = result
+            self.sessions[server_name] = session
 
-            # Ensure PYTHONPATH and active path are preserved
-            if "PYTHONPATH" not in merged_env and "PYTHONPATH" in os.environ:
-                merged_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+            disabled_tools = cfg.get("disabledTools", [])
+            enabled_tools = cfg.get("enabledTools", None)
 
-            logger.info(
-                f"Starting child server '{server_name}': {command} {' '.join(args)}"
-            )
+            for tool in tools:
+                # 1. Whitelist Check (if enabledTools is defined)
+                if enabled_tools is not None:
+                    import fnmatch
 
-            try:
-                server_params = StdioServerParameters(
-                    command=command, args=args, env=merged_env
-                )
-
-                # Connect via stdio transport
-                read_stream, write_stream = await self.exit_stack.enter_async_context(
-                    stdio_client(server_params)
-                )
-
-                # Create client session
-                session = await self.exit_stack.enter_async_context(
-                    ClientSession(read_stream, write_stream)
-                )
-
-                await session.initialize()
-
-                tools_result = await session.list_tools()
-                logger.info(
-                    f"Loaded {len(tools_result.tools)} tools from child server '{server_name}'"
-                )
-
-                disabled_tools = cfg.get("disabledTools", [])
-                enabled_tools = cfg.get("enabledTools", None)
-
-                self.sessions[server_name] = session
-                for tool in tools_result.tools:
-                    # 1. Whitelist Check (if enabledTools is defined)
-                    if enabled_tools is not None:
-                        import fnmatch
-
-                        matched = any(
-                            fnmatch.fnmatch(tool.name, pat) for pat in enabled_tools
-                        )
-                        if not matched:
-                            logger.info(
-                                f"Skipping non-whitelisted tool '{tool.name}' from child server '{server_name}'"
-                            )
-                            continue
-
-                    # 2. Blacklist Check
-                    if disabled_tools:
-                        import fnmatch
-
-                        matched_disabled = any(
-                            fnmatch.fnmatch(tool.name, pat) for pat in disabled_tools
-                        )
-                        if matched_disabled:
-                            logger.info(
-                                f"Skipping disabled tool '{tool.name}' from child server '{server_name}'"
-                            )
-                            continue
-
-                    prefix = get_server_prefix(server_name)
-                    prefixed_name = clean_tool_name(prefix, server_name, tool.name)
-                    self.tool_to_server[prefixed_name] = (server_name, tool.name)
-
-                    prefixed_tool = mcp.types.Tool(
-                        name=prefixed_name,
-                        description=tool.description or "",
-                        inputSchema=tool.inputSchema,
+                    matched = any(
+                        fnmatch.fnmatch(tool.name, pat) for pat in enabled_tools
                     )
-                    self.aggregated_tools.append(prefixed_tool)
+                    if not matched:
+                        logger.info(
+                            f"Skipping non-whitelisted tool '{tool.name}' from child server '{server_name}'"
+                        )
+                        continue
 
-            except Exception as e:
-                logger.error(
-                    f"Failed to start/initialize child server '{server_name}': {e}",
-                    exc_info=True,
+                # 2. Blacklist Check
+                if disabled_tools:
+                    import fnmatch
+
+                    matched_disabled = any(
+                        fnmatch.fnmatch(tool.name, pat) for pat in disabled_tools
+                    )
+                    if matched_disabled:
+                        logger.info(
+                            f"Skipping disabled tool '{tool.name}' from child server '{server_name}'"
+                        )
+                        continue
+
+                prefix = get_server_prefix(server_name)
+                prefixed_name = clean_tool_name(prefix, server_name, tool.name)
+                self.tool_to_server[prefixed_name] = (server_name, tool.name)
+
+                prefixed_tool = mcp.types.Tool(
+                    name=prefixed_name,
+                    description=tool.description or "",
+                    inputSchema=tool.inputSchema,
                 )
+                self.aggregated_tools.append(prefixed_tool)
 
     async def run(self):
         """Run the multiplexer stdio server."""
@@ -349,7 +389,7 @@ def main():
         config_path = Path(args.config)
     else:
         candidates = [
-            Path("/home/genius/.gemini/antigravity/mcp_config.json"),
+            Path.home() / ".gemini" / "antigravity" / "mcp_config.json",
             Path.home() / ".config" / "agent-utilities" / "mcp_config.json",
             Path.home() / ".config" / "agent-utilities" / "config.json",
             Path("mcp_config.json"),

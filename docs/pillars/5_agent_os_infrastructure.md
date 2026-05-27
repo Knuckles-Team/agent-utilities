@@ -52,7 +52,7 @@ The primary configuration file is located at `~/.config/agent-utilities/config.j
     {
       "id": "text-embedding-nomic-embed-text-v2-moe",
       "provider": "openai",
-      "base_url": "http://10.0.0.18:1234/v1"
+      "base_url": "http://vllm-embed.arpa/v1"
     }
   ]
 }
@@ -212,6 +212,34 @@ Provides 4-bucket granular token analytics (prompt/response/thoughts/tool_use) w
 
 Append-only compliance audit trail with 30+ action constants, never-raise semantics, configurable retention, and query filtering. Ported from MATE's `audit_service.py`. Uses OWL-inferred `escalationChain` temporal reasoning.
 *   **Source Code**: `agent_utilities/observability/audit_logger.py`
+
+### Centralized Logging & XDG Path Resolution (CONCEPT:OS-5.22)
+
+To ensure workspace cleanliness, seamless containerization, and standardized troubleshooting, `agent-utilities` employs a centralized logging and path resolution architecture based on the **XDG Base Directory Specification**. All agent packages and downstream tools redirect their execution and debug logs away from workspace folders and into a single, unified log folder.
+
+#### Path Resolution Architecture
+*   **Standard XDG Log Directory**: Resolves by default to the standard platform-specific user log path, utilizing `user_log_path(APP_NAME, APP_AUTHOR)` (e.g., `~/.cache/agent-utilities/log/` on Linux).
+*   **Environment Override**: Developers and CI/CD environments can easily override the path using the `AGENT_UTILITIES_LOG_DIR` environment variable.
+*   **Centralized Path Helpers**: Exposed as first-class standard helpers in `agent_utilities.core.paths` via `log_dir() -> Path` and auto-created during initialization via `ensure_dirs()`.
+
+#### Package Standardization & Standalone Resilience
+To prevent runtime `ImportError` failures when individual packages or tools are run in standalone environments without the full `agent-utilities` library installed, packages use a resilient fallback pattern with `platformdirs`:
+
+```python
+try:
+    from agent_utilities.core.paths import log_dir
+    logs_dir = log_dir()
+except ImportError:
+    import platformdirs
+    logs_dir = Path(platformdirs.user_log_path("agent-utilities", "knuckles-team"))
+```
+
+#### Standardized Components & Log Files
+*   **`repository-manager`**: Centralizes operational debug traces to `repository_manager_debug.log` and active server integration test output to `server_integration.log`.
+*   **`geniusbot`**: Standardizes all chat assistant logs to `geniusbot.log` located exclusively within the unified log directory.
+*   **Workspace Protection**: Guarantees that no developer logs, temporary telemetry databases, or debug outputs clutter workspace repositories, preserving git and build environment cleanliness.
+
+*   **Source Code**: [paths.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/core/paths.py)
 
 ### Telemetry & Observability
 

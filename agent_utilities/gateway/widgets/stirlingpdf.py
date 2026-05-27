@@ -35,7 +35,7 @@ class Widget(BaseWidget):
 
         url = self._resolve_url(config)
         try:
-            resp = httpx.get(f"{url}/api/v1/info/status", timeout=5.0, verify=False)
+            resp = httpx.get(f"{url}/api/v1/info/status", timeout=5.0, verify=False)  # nosec B501
             online = resp.status_code == 200
         except Exception as e:
             logger.debug("Stirling PDF fetch: %s", e)

@@ -3,6 +3,7 @@
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 WASMTIME_AVAILABLE = False
 wasmtime = None
 try:
-    import wasmtime
+    import wasmtime  # type: ignore[no-redef]
 
     WASMTIME_AVAILABLE = True
 except ImportError:
@@ -21,14 +22,14 @@ import ast
 import operator as op
 
 # Supported operators for safe math
-_BIN_OPS = {
+_BIN_OPS: dict[type[ast.operator], Callable[[Any, Any], Any]] = {
     ast.Add: op.add,
     ast.Sub: op.sub,
     ast.Mult: op.mul,
     ast.Div: op.truediv,
 }
 
-_UNARY_OPS = {
+_UNARY_OPS: dict[type[ast.unaryop], Callable[[Any], Any]] = {
     ast.USub: op.neg,
     ast.UAdd: op.pos,
 }
@@ -61,10 +62,10 @@ def safe_eval_math(expr: str, variables: dict[str, Any]) -> Any:
                 raise ValueError(f"Operator {op_type} is not supported.")
             elif isinstance(n, ast.UnaryOp):
                 operand = _eval(n.operand)
-                op_type = type(n.op)
-                if op_type in _UNARY_OPS:
-                    return _UNARY_OPS[op_type](operand)
-                raise ValueError(f"Unary operator {op_type} is not supported.")
+                unary_op_type = type(n.op)
+                if unary_op_type in _UNARY_OPS:
+                    return _UNARY_OPS[unary_op_type](operand)
+                raise ValueError(f"Unary operator {unary_op_type} is not supported.")
             elif isinstance(n, ast.Name):
                 if n.id in variables:
                     val = variables[n.id]
@@ -88,10 +89,10 @@ class WasmAgentRunner:
 
     def __init__(self, limit_memory_pages: int = 16):
         self.limit_memory_pages = limit_memory_pages
-        self.store = None
-        self.module = None
-        self.instance = None
-        self.engine = None
+        self.store: Any = None
+        self.module: Any = None
+        self.instance: Any = None
+        self.engine: Any = None
 
         if WASMTIME_AVAILABLE and wasmtime is not None:
             # Configure wasmtime engine with memory/resource limits

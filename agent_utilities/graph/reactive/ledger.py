@@ -181,7 +181,7 @@ class EventLedger:
                 if data.get("type") == "event" and data.get("episode_id") == run_id:
                     try:
                         events.append(self.mapper._deserialize(dict(data), EventNode))
-                    except Exception:  # nosec B110
+                    except Exception:  # nosec B110, B112
                         continue
 
         # Sort chronologically by timestamp

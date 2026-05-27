@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from agent_utilities.gateway.models import (
     ServiceCategory,
@@ -43,7 +44,7 @@ class Widget(BaseWidget):
 
         try:
             workspaces = client.get_workspaces() or []
-            projects = []
+            projects: list[Any] = []
             if workspaces:
                 ws_slug = (
                     workspaces[0].get("slug", "")

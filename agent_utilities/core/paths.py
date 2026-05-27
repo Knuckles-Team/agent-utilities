@@ -267,6 +267,19 @@ def dashboard_layout_path() -> Path:
     return data_dir() / "layout.yaml"
 
 
+def log_dir() -> Path:
+    """Return the XDG log directory for agent-utilities.
+
+    Default: ``~/.cache/agent-utilities/log/`` or standard platform user_log_path.
+
+    Override via ``AGENT_UTILITIES_LOG_DIR`` environment variable.
+    """
+    override = os.environ.get("AGENT_UTILITIES_LOG_DIR")
+    if override:
+        return Path(override).expanduser()
+    return Path(platformdirs.user_log_path(APP_NAME, APP_AUTHOR))
+
+
 def ensure_dirs() -> None:
     """Create all XDG directories on first run.
 
@@ -284,12 +297,14 @@ def ensure_dirs() -> None:
         messaging_sessions_dir(),
         messaging_sessions_dir() / "sessions",
         messaging_sessions_dir() / "history",
+        log_dir(),
     ]
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
     logger.debug(
-        "XDG directories ensured at: config=%s, data=%s, cache=%s",
+        "XDG directories ensured at: config=%s, data=%s, cache=%s, log=%s",
         config_dir(),
         data_dir(),
         cache_dir(),
+        log_dir(),
     )

@@ -20,7 +20,7 @@ graph TD
     E --> F["JSON Response\n(answer + citations)"]
     F --> G{auto_ingest?}
     G -->|Yes| H["XIngestionBridge"]
-    H --> I["UniversalKnowledgeClassifier\nLM Studio @ 10.0.0.18:1234"]
+    H --> I["UniversalKnowledgeClassifier\nLM Studio @ vllm.arpa"]
     I --> J{Content Tier}
     J -->|ephemeral| K["SocialPost node\n(decays via GraphMaintainer)"]
     J -->|high_value| L["SocialPost node\n(permanent, concepts linked)"]
@@ -222,14 +222,14 @@ Incoming X Post (high evolution potential)
 
 ---
 
-## LM Studio Execution Path
+## vLLM Execution Path
 
 All classification and extraction runs through the local LLM:
 
 ```
 AgentConfig.default_chat_model
   → model_id: "qwen/qwen3.5-9b"
-  → base_url: "http://10.0.0.18:1234/v1"
+  → base_url: "http://vllm.arpa/v1"
   → UniversalKnowledgeClassifier._get_agent()
   → Pydantic AI Agent(model=..., output_type=KnowledgeClassification)
   → Structured JSON output validated by Pydantic
