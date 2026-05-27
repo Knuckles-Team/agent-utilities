@@ -30,8 +30,8 @@ class DistributedCoordinator:
 
     def __init__(self, nats_url: str | None = None) -> None:
         self.nats_url = nats_url or os.environ.get("NATS_URL", "nats://localhost:4222")
-        self._nc = None
-        self._js = None
+        self._nc: Any = None
+        self._js: Any = None
         self._local_queues: dict[str, asyncio.Queue] = {}
         self._connected = False
 

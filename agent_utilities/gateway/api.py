@@ -140,9 +140,9 @@ async def trigger_hydration(source: str) -> dict[str, Any]:
         res = HydrationManager().hydrate_source(engine, source)
         return res
     except ValueError as val_err:
-        raise HTTPException(status_code=400, detail=str(val_err))
+        raise HTTPException(status_code=400, detail=str(val_err)) from val_err
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Hydration failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Hydration failed: {e}") from e
 
 
 @dashboard_router.post("/hydrate")
@@ -160,7 +160,7 @@ async def trigger_all_hydration() -> dict[str, Any]:
         res = HydrationManager().hydrate_all(engine)
         return res
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Hydration failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Hydration failed: {e}") from e
 
 
 @dashboard_router.get("/hydration-status")

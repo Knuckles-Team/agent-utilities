@@ -45,13 +45,13 @@ class QueueBackend(Protocol):
         elif backend_type == "nats":
             from .nats_queue_backend import NatsQueueBackend
 
-            fallback_db = kwargs.pop("fallback_db_path", "/tmp/nats_fallback.db")
+            fallback_db = kwargs.pop("fallback_db_path", "/tmp/nats_fallback.db")  # nosec B108
             nats_url = kwargs.pop("nats_url", kwargs.pop("servers", [None])[0])
             return NatsQueueBackend(fallback_db_path=fallback_db, nats_url=nats_url)
         elif backend_type == "kafka":
             from .kafka_queue_backend import KafkaQueueBackend
 
-            fallback_db = kwargs.pop("fallback_db_path", "/tmp/kafka_fallback.db")
+            fallback_db = kwargs.pop("fallback_db_path", "/tmp/kafka_fallback.db")  # nosec B108
             bootstrap_servers = kwargs.pop("bootstrap_servers", ["localhost:9092"])
             return KafkaQueueBackend(
                 fallback_db_path=fallback_db, bootstrap_servers=bootstrap_servers
@@ -64,8 +64,8 @@ class MemoryQueueBackend(QueueBackend):
     """In-memory, lightweight queue backend conforming to the QueueBackend Protocol."""
 
     def __init__(self):
-        self._tasks = collections.deque()
-        self._staged_graphs = collections.deque()
+        self._tasks: collections.deque[Any] = collections.deque()
+        self._staged_graphs: collections.deque[Any] = collections.deque()
         self._counter = 0
         self._connected = False
         self._subscriptions = collections.defaultdict(list)

@@ -62,8 +62,9 @@ async def test_aggregator_fetch_all(tmp_path):
     assert "portainer-test" in results
     assert results["portainer-test"].status == "healthy"
     assert results["portainer-test"].fields["cpu"] == 12.5
+    assert results["portainer-test"].raw is not None
     assert (
-        results["portainer-test"].raw["summary"]
+        results["portainer-test"].raw.get("summary")
         == "Portainer healthy with 2 running containers."
     )
 
@@ -96,4 +97,5 @@ async def test_aggregator_fetch_one(tmp_path):
     # Fetch non-existent
     result_fail = await agg.fetch_one("non-existent")
     assert result_fail.status == "error"
+    assert result_fail.error is not None
     assert "not found" in result_fail.error

@@ -163,7 +163,7 @@ def build_agent_app(
                 debug=debug,
                 skill_types=skill_types,
                 graph_bundle=graph_bundle,
-                tool_guard_mode="on",
+                tool_guard_mode=os.getenv("TOOL_GUARD_MODE", "on"),
                 isolate_mcp=isolate_mcp,
                 mcp_toolsets=mcp_toolsets,
             )

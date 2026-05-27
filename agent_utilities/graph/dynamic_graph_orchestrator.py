@@ -776,6 +776,9 @@ async def run_graph(
             f"registry_keys={list(state.results_registry.keys())}"
         )
 
+    # pydantic-graph End wraps the value in .data
+    result = getattr(result, "data", result)
+
     if isinstance(result, GraphResponse):
         result.mermaid = mermaid_prefix if mermaid_prefix else None
         result.metadata.update({"run_id": run_id, "domain": state.routed_domain})

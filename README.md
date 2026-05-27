@@ -255,7 +255,7 @@ Here is a fully-populated and production-ready `config.json` file representing t
     {
       "id": "qwen/qwen3.5-9b",
       "provider": "openai",
-      "base_url": "http://10.0.0.18:1234/v1",
+      "base_url": "http://vllm.arpa/v1",
       "supports_json": false,
       "vision": true,
       "reasoning": true,
@@ -271,7 +271,7 @@ Here is a fully-populated and production-ready `config.json` file representing t
     {
       "id": "text-embedding-nomic-embed-text-v2-moe",
       "provider": "openai",
-      "base_url": "http://10.0.0.18:1234/v1",
+      "base_url": "http://vllm-embed.arpa/v1",
       "parallel_instances": 4,
       "chunk_size": 768
     }

@@ -122,23 +122,25 @@ async def main():
             f"Intelligence Graph Updated: {metadata.node_count} nodes, {metadata.edge_count} edges."
         )
         if args.stage_to_queue:
-            from agent_utilities.core.config import config
+            from typing import Any
+
+            from agent_utilities.core.config import config as app_config
             from agent_utilities.core.paths import data_dir
             from agent_utilities.knowledge_graph.core.engine_tasks import (
                 SQLiteTaskQueue,
             )
 
             queue_db_path = data_dir() / "kg_task_queue.db"
-            backend_type = str(getattr(config, "queue_backend", "sqlite")).lower()
+            backend_type = str(getattr(app_config, "queue_backend", "sqlite")).lower()
 
             if backend_type == "nats":
                 from agent_utilities.knowledge_graph.core.nats_queue_backend import (
                     NatsQueueBackend,
                 )
 
-                queue = NatsQueueBackend(
+                queue: Any = NatsQueueBackend(
                     fallback_db_path=str(queue_db_path),
-                    nats_url=getattr(config, "nats_url", None),
+                    nats_url=getattr(app_config, "nats_url", None),
                 )
             elif backend_type == "kafka":
                 from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
@@ -147,7 +149,9 @@ async def main():
 
                 queue = KafkaQueueBackend(
                     fallback_db_path=str(queue_db_path),
-                    bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
+                    bootstrap_servers=getattr(
+                        app_config, "kafka_bootstrap_servers", None
+                    ),
                 )
             else:
                 queue = SQLiteTaskQueue(str(queue_db_path))

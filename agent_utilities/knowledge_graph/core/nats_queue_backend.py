@@ -26,9 +26,9 @@ class NatsQueueBackend(QueueBackend):
         self.nats_url = nats_url or os.environ.get(
             "AGENT_UTILITIES_NATS_URL", "nats://localhost:4222"
         )
-        self._fallback_queue = None
-        self._nats_client = None
-        self._js = None
+        self._fallback_queue: Any = None
+        self._nats_client: Any = None
+        self._js: Any = None
         self._loop = None
 
         # Check if we can connect to NATS

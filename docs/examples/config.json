@@ -13,7 +13,7 @@
     "acp_session_root": ".acp-sessions",
     "provider": null,
     "model_id": null,
-    "llm_base_url": "http://10.0.0.18:1234/v1",
+    "llm_base_url": "http://vllm.arpa/v1",
     "llm_api_key": null,
     "mcp_url": null,
     "mcp_config": null,
@@ -27,7 +27,7 @@
     "allowed_hosts": null,
     "routing_strategy": "hybrid",
     "graph_persistence_type": "file",
-    "graph_persistence_path": "/home/genius/.local/share/agent-utilities/graph_state",
+    "graph_persistence_path": "/home/user/.local/share/agent-utilities/graph_state",
     "enable_llm_validation": false,
     "graph_router_timeout": 300.0,
     "graph_verifier_timeout": 300.0,
@@ -159,7 +159,7 @@
         {
             "id": "qwen/qwen3.5-9b",
             "provider": "openai",
-            "base_url": "http://10.0.0.18:1234/v1",
+            "base_url": "http://vllm.arpa/v1",
             "supports_json": false,
             "vision": true,
             "reasoning": true,
@@ -173,7 +173,7 @@
         {
             "id": "google/gemma-4-e2b",
             "provider": "openai",
-            "base_url": "http://10.0.0.18:1234/v1",
+            "base_url": "http://vllm.arpa/v1",
             "supports_json": false,
             "vision": true,
             "reasoning": true,
@@ -187,7 +187,7 @@
         {
             "id": "liquid/lfm2-1.2b",
             "provider": "openai",
-            "base_url": "http://10.0.0.18:1234/v1",
+            "base_url": "http://vllm.arpa/v1",
             "supports_json": true,
             "vision": false,
             "reasoning": false,
@@ -201,7 +201,7 @@
         {
             "id": "nvidia/nemotron-3-nano-omni",
             "provider": "openai",
-            "base_url": "http://10.0.0.18:1234/v1",
+            "base_url": "http://vllm.arpa/v1",
             "supports_json": true,
             "vision": true,
             "reasoning": true,
@@ -217,7 +217,7 @@
         {
             "id": "text-embedding-nomic-embed-text-v2-moe",
             "provider": "openai",
-            "base_url": "http://10.0.0.18:1234/v1",
+            "base_url": "http://vllm-embed.arpa/v1",
             "parallel_instances": 4,
             "chunk_size": 768
         }

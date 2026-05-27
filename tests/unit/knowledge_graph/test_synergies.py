@@ -62,7 +62,8 @@ def test_speculative_graph_brancher_conflict():
     branch_state["nodes"]["node1"]["name"] = "Node 1 Modified"
 
     # Concurrently delete node1 in main_state
-    main_state["nodes"].pop("node1")
+    main_nodes: Any = main_state["nodes"]
+    main_nodes.pop("node1")
 
     # Try to merge branch - should raise ValueError/conflict
     with pytest.raises(ValueError, match="Merge Conflict"):

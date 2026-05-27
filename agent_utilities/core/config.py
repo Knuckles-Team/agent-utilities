@@ -823,7 +823,7 @@ class AgentConfig(BaseSettings):
 
 # --- Lazy Configuration Management ---
 
-_LAZY_CACHE = {}
+_LAZY_CACHE: dict[str, Any] = {}
 
 
 def _init_lazy_config():

@@ -35,7 +35,7 @@ class Widget(BaseWidget):
 
         url = self._resolve_url(config)
         try:
-            resp = httpx.get(f"{url}/api/v1/core/snapshot", timeout=5.0, verify=False)
+            resp = httpx.get(f"{url}/api/v1/core/snapshot", timeout=5.0, verify=False)  # nosec B501
             data = resp.json() if resp.status_code == 200 else {}
             total = data.get("count", 0) if isinstance(data, dict) else 0
         except Exception as e:

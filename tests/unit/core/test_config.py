@@ -9,11 +9,19 @@ from agent_utilities.core.config import AgentConfig, get_env_file
 
 @pytest.mark.concept("CONCEPT:OS-5.0")
 def test_agent_config_defaults():
-    config = AgentConfig()
-    assert config.host == "0.0.0.0"
-    assert config.port == 9000
-    assert config.routing_strategy == "hybrid"
-    assert config.tool_guard_mode == "strict"
+    orig_host = os.environ.pop("HOST", None)
+    orig_port = os.environ.pop("PORT", None)
+    try:
+        config = AgentConfig()
+        assert config.host == "0.0.0.0"
+        assert config.port == 9000
+        assert config.routing_strategy == "hybrid"
+        assert config.tool_guard_mode == "strict"
+    finally:
+        if orig_host is not None:
+            os.environ["HOST"] = orig_host
+        if orig_port is not None:
+            os.environ["PORT"] = orig_port
 
 
 @pytest.mark.concept("CONCEPT:OS-5.0")

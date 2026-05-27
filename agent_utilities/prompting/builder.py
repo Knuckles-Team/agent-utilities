@@ -29,10 +29,6 @@ if TYPE_CHECKING:
     pass
 from pathlib import Path
 
-from universal_skills.skill_utilities import (
-    resolve_mcp_reference,
-)
-
 from agent_utilities.core.workspace import (
     load_workspace_file,
 )
@@ -111,6 +107,8 @@ def get_system_prompt_from_reference(agent_name: str) -> str | None:
         The extracted system prompt string, or None if no reference is found.
 
     """
+    from universal_skills.skill_utilities import resolve_mcp_reference
+
     identity_query = f"{agent_name}-identity.md"
     md_path = resolve_mcp_reference(identity_query)
 

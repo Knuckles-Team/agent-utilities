@@ -44,21 +44,24 @@ class Widget(BaseWidget):
                 f"{url}/api/search?type=dash-db",
                 headers=headers,
                 timeout=5.0,
-                verify=False,
+                verify=False,  # nosec B501
             )
             dashboards = resp.json() if resp.status_code == 200 else []
             alerts_resp = httpx.get(
                 f"{url}/api/v1/provisioning/alert-rules",
                 headers=headers,
                 timeout=5.0,
-                verify=False,
+                verify=False,  # nosec B501
             )
             alerts = alerts_resp.json() if alerts_resp.status_code == 200 else []
             firing = sum(
                 1 for a in alerts if isinstance(a, dict) and a.get("state") == "firing"
             )
             ds_resp = httpx.get(
-                f"{url}/api/datasources", headers=headers, timeout=5.0, verify=False
+                f"{url}/api/datasources",
+                headers=headers,
+                timeout=5.0,
+                verify=False,  # nosec B501
             )
             datasources = ds_resp.json() if ds_resp.status_code == 200 else []
         except Exception as e:

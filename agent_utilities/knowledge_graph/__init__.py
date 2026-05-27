@@ -7,6 +7,8 @@ combining agent registries, tools, codebase structure, and long-term memory.
 
 
 def __getattr__(name: str):
+    from typing import Any
+
     if name in ("CodeNode", "MemoryNode", "PipelineConfig", "RegistryGraphMetadata"):
         from ..models.knowledge_graph import (
             CodeNode as cn,
@@ -21,13 +23,13 @@ def __getattr__(name: str):
             RegistryGraphMetadata as rgm,
         )
 
-        mapping = {
+        mapping_models: dict[str, Any] = {
             "CodeNode": cn,
             "MemoryNode": mn,
             "PipelineConfig": pc,
             "RegistryGraphMetadata": rgm,
         }
-        return mapping[name]
+        return mapping_models[name]
 
     if name in ("IntelligenceGraphEngine", "RegistryGraphEngine"):
         from .core.engine import (
@@ -37,11 +39,11 @@ def __getattr__(name: str):
             RegistryGraphEngine as rge,
         )
 
-        mapping = {
+        mapping_engines: dict[str, Any] = {
             "IntelligenceGraphEngine": ige,
             "RegistryGraphEngine": rge,
         }
-        return mapping[name]
+        return mapping_engines[name]
 
     if name in ("IntelligencePipeline", "RegistryPipeline"):
         from .pipeline import (
@@ -51,11 +53,11 @@ def __getattr__(name: str):
             RegistryPipeline as rp,
         )
 
-        mapping = {
+        mapping_pipelines: dict[str, Any] = {
             "IntelligencePipeline": ip,
             "RegistryPipeline": rp,
         }
-        return mapping[name]
+        return mapping_pipelines[name]
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

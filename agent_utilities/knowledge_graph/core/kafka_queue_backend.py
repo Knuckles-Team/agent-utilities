@@ -19,9 +19,9 @@ class KafkaQueueBackend(QueueBackend):
         self.bootstrap_servers = bootstrap_servers or os.environ.get(
             "AGENT_UTILITIES_KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"
         )
-        self._fallback_queue = None
-        self._producer = None
-        self._consumer = None
+        self._fallback_queue: Any = None
+        self._producer: Any = None
+        self._consumer: Any = None
 
         # Check if we can connect to Kafka
         try:

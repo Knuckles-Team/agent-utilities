@@ -347,32 +347,32 @@ def transpile(
 
         # Determine return columns
         m_ret = _RETURN_CLAUSE.search(cypher_stripped)
-        select_cols = "*"
+        sel_cols = "*"
         if m_ret:
             ret_raw = m_ret.group(1).strip()
             # Remove ORDER BY / LIMIT from return
             ret_raw = re.sub(r"ORDER\s+BY.*$", "", ret_raw, flags=re.IGNORECASE).strip()
             ret_raw = re.sub(r"LIMIT\s+.*$", "", ret_raw, flags=re.IGNORECASE).strip()
             if ret_raw == alias:
-                select_cols = "*"
+                sel_cols = "*"
             elif f"{alias}." in ret_raw:
                 # Extract specific columns
                 col_matches = re.findall(rf"{alias}\.(\w+)", ret_raw)
                 if col_matches:
-                    select_cols = ", ".join(f'"{c}"' for c in col_matches)
+                    sel_cols = ", ".join(f'"{c}"' for c in col_matches)
 
         if label:
-            sql = f'SELECT {select_cols} FROM "{label}"'
+            sql = f'SELECT {sel_cols} FROM "{label}"'
         else:
             # No label — search all tables
-            sql = _union_all_tables(known_tables, select_cols)
+            sql = _union_all_tables(known_tables, sel_cols)
 
         if where_sql:
             if label:
                 sql += f" WHERE {where_sql}"
             else:
                 # For UNION ALL, wrap each with WHERE
-                sql = _union_all_tables(known_tables, select_cols, where_sql)
+                sql = _union_all_tables(known_tables, sel_cols, where_sql)
 
         # ORDER BY
         m_order = _ORDER_BY_CLAUSE.search(cypher_stripped)

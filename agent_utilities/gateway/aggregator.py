@@ -73,7 +73,7 @@ class Aggregator:
             for svc, result in zip(
                 [s for s in services if s.id not in results], fetched, strict=False
             ):
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     logger.error("Widget %s failed: %s", svc.id, result)
                     results[svc.id] = WidgetData(status="error", error=str(result))
                 else:

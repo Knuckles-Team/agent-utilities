@@ -62,7 +62,7 @@ class SandboxedExecutor:
         self, func: Callable[..., Any], *args: Any, **kwargs: Any
     ) -> SandboxResult:
         """Execute a function inside a separate process with time limit enforcement."""
-        out_queue = multiprocessing.Queue()
+        out_queue: multiprocessing.Queue[Any] = multiprocessing.Queue()
         p = multiprocessing.Process(
             target=_worker_wrapper,
             args=(func, args, kwargs, out_queue),

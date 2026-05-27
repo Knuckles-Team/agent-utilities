@@ -178,7 +178,7 @@ The KG MCP server relies on the unified `agent-utilities` configuration for LLM 
     {
       "id": "text-embedding-nomic-embed-text-v2-moe",
       "provider": "openai",
-      "base_url": "http://10.0.0.18:1234/v1"
+      "base_url": "http://vllm-embed.arpa/v1"
     }
   ]
 }

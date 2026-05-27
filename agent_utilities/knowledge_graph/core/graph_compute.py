@@ -444,12 +444,12 @@ class GraphComputeEngine:
             return self._rust_graph.vf2_subgraph_match(pattern._rust_graph)
 
         # Universal pure-Python backtracking isomorphic solver
-        matches = []
+        matches: list[dict[str, str]] = []
         pattern_nodes = list(pattern._get_all_nodes())
         if not pattern_nodes:
             return matches
 
-        current_mapping = {}
+        current_mapping: dict[str, str] = {}
         mapped_targets = set()
 
         def backtrack(idx):
@@ -545,7 +545,7 @@ class GraphComputeEngine:
             return self._rust_graph.to_json()
 
         # Serialization fallback
-        data = {"nodes": [], "edges": []}
+        data: dict[str, list[Any]] = {"nodes": [], "edges": []}
         for node_id in self._get_all_nodes():
             data["nodes"].append(
                 (node_id, json.dumps(self._get_node_properties(node_id)))

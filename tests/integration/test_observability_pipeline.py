@@ -49,7 +49,7 @@ def engine(tmp_path_factory):
 def otel_setup():
     """Initialize OTel pipeline for the test module."""
     os.environ.setdefault("LLM_PROVIDER", "openai")
-    os.environ.setdefault("LLM_BASE_URL", "http://10.0.0.18:1234/v1")
+    os.environ.setdefault("LLM_BASE_URL", "http://vllm.arpa/v1")
     os.environ.setdefault("LITE_LLM_MODEL_ID", "qwen/qwen3.5-9b")
 
     config.reload()
