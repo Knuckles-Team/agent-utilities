@@ -2692,13 +2692,13 @@ def _build_server():
 
     @mcp.tool(
         name="graph_hydrate",
-        description="Trigger instant hydration of the Knowledge Graph from external data sources (LeanIX, GitLab, Twenty CRM, ServiceNow CMDB).",
+        description="Trigger instant hydration of the Knowledge Graph from configured external data sources.",
         tags=["graph-os", "hydration"],
     )
     async def graph_hydrate(
         source: str = Field(
             default="all",
-            description="The source to hydrate: 'gitlab', 'leanix', 'twenty', 'servicenow', or 'all' to run all active sequential.",
+            description="The source connector to hydrate (any key from the CAPABILITY_REGISTRY), or 'all' to run all configured sources sequentially.",
         ),
     ) -> str:
         """Trigger instant hydration of the Knowledge Graph from external data sources."""

@@ -174,6 +174,13 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "uptime_monitor",
     "alert",
     "chat_channel",
+    # Capability Abstraction Layer (CONCEPT:KG-2.7)
+    "service_capability",
+    "vpn_purpose",
+    "development_domain",
+    "development_standard",
+    "ea_fact_sheet",
+    "process_model",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -315,6 +322,57 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "works_at",
     "related_to",
     "associated_with",
+    # Capability Abstraction Layer (CONCEPT:KG-2.7)
+    "provides_capability",
+    "requires_capability",
+    "swappable_with",
+    "has_purpose",
+    "requires_vpn_for_purpose",
+    "applies_to_domain",
+    "works_on_domain",
+    "must_follow",
+    # Universal Relationship Properties (CONCEPT:KG-2.8)
+    # Lineage / Ancestry
+    "has_parent",
+    "has_child",
+    "has_ancestor",
+    "has_descendant",
+    "has_sibling",
+    # Participation
+    "participated_in",
+    "had_participant",
+    "occurred_at",
+    # Membership
+    "member_of",
+    "has_member",
+    # Ownership
+    "owns",
+    "owned_by",
+    # Authorship
+    "created_by",
+    "author_of",
+    # Spatial
+    "located_in",
+    # Succession
+    "succeeds",
+    "precedes",
+    # Influence
+    "influenced_by",
+    "influenced",
+    # Derivation
+    "derived_from",
+    "had_derivation",
+    # Governance
+    "governed_by",
+    "approved_by",
+    # Dependency
+    "dependency_of",
+    # Composition
+    "has_part",
+    # Classification
+    "classified_as",
+    # Alignment
+    "aligned_with",
 }
 
 

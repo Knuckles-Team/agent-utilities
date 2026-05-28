@@ -25,7 +25,8 @@ Modular imports:
   - sdd: Spec-driven development (Requirements, Features, TestCases)
   - infrastructure: Runtime-agnostic infra topology (CONCEPT:OS-5.3)
   - banking, government, hr, legal, medical: Domain-specific extensions""" ;
-    owl:imports <http://knuckles.team/kg/energy_geopolitics>,
+    owl:imports <http://knuckles.team/kg/capability>,
+        <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
         <http://knuckles.team/kg/harness>,
         <http://knuckles.team/kg/media>,
@@ -169,18 +170,6 @@ Modular imports:
     rdfs:subClassOf bfo:0000004 ;
     owl:equivalentClass foaf:Person .
 
-:Phase a owl:Class ;
-    rdfs:label "Temporal Phase" ;
-    rdfs:comment "A named temporal interval. BFO:TemporalRegion, aligned to time:ProperInterval." ;
-    rdfs:seeAlso time:ProperInterval ;
-    rdfs:subClassOf bfo:0000008 .
-
-:Place a owl:Class ;
-    rdfs:label "Place" ;
-    rdfs:comment "A physical, virtual, or contextual location. BFO:IndependentContinuant." ;
-    rdfs:seeAlso schema:Place ;
-    rdfs:subClassOf bfo:0000004 .
-
 :Policy a owl:Class ;
     rdfs:label "Policy" ;
     rdfs:comment "A governance rule or constraint." ;
@@ -258,17 +247,151 @@ Modular imports:
     rdfs:seeAlso schema:SoftwareApplication ;
     rdfs:subClassOf bfo:0000004 .
 
+:alignedWith a owl:ObjectProperty,
+        owl:SymmetricProperty ;
+    rdfs:label "aligned with" ;
+    rdfs:comment """Declares that two entities from different domains or
+sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:approvedBy a owl:ObjectProperty ;
+    rdfs:label "approved by" ;
+    rdfs:comment """Links an entity to the Person, Role, or Organization that
+approved/authorized it.  Decision audit trail.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000004 .
+
+:authorOf a owl:ObjectProperty ;
+    rdfs:label "author of" ;
+    rdfs:comment "Links a creator to their creation. Inverse of createdBy." ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :createdBy .
+
 :blocksTask a owl:ObjectProperty ;
     rdfs:label "blocks task" ;
     rdfs:comment "Links an Incident to the Task(s) it blocks." ;
     rdfs:domain :Incident ;
     rdfs:range :Task .
 
+:classifiedAs a owl:ObjectProperty ;
+    rdfs:label "classified as" ;
+    rdfs:comment """Links an entity to its classification category.
+Works for DataClassification, SecurityClearance, risk tier, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000031 .
+
+:contains a owl:ObjectProperty ;
+    rdfs:label "contains" ;
+    rdfs:comment "A Place or container holding other entities. Inverse of locatedIn." ;
+    rdfs:domain :Place ;
+    rdfs:range bfo:0000004 ;
+    owl:inverseOf :locatedIn .
+
+:dependencyOf a owl:ObjectProperty ;
+    rdfs:label "dependency of" ;
+    rdfs:comment "Reverse dependency — this entity is depended upon. Inverse of dependsOn." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :dependsOn .
+
+:governedBy a owl:ObjectProperty ;
+    rdfs:label "governed by" ;
+    rdfs:comment """Links an entity to the Policy, Regulation, or governance body
+that controls it.  Works for System→Policy, Organization→Regulation, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:hadDerivation a owl:ObjectProperty ;
+    rdfs:label "had derivation" ;
+    rdfs:comment "Links a source to an entity derived from it. Inverse of derivedFrom." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :derivedFrom .
+
+:hadParticipant a owl:ObjectProperty ;
+    rdfs:label "had participant" ;
+    rdfs:comment "Links an Event to an entity that participated. Inverse of participatedIn." ;
+    rdfs:domain :Event ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :participatedIn .
+
+:hasChild a owl:ObjectProperty ;
+    rdfs:label "has child" ;
+    rdfs:comment "Direct child/derivative. Inverse of hasParent." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :hasParent .
+
+:hasDescendant a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "has descendant" ;
+    rdfs:comment "Any descendant in the lineage chain. Inverse of hasAncestor." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :hasAncestor .
+
+:hasMember a owl:ObjectProperty ;
+    rdfs:label "has member" ;
+    rdfs:comment "Links a group/collection to its members. Inverse of memberOf." ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range bfo:0000004 ;
+    owl:inverseOf :memberOf .
+
+:hasPart a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "has part" ;
+    rdfs:comment "Inverse of partOf. Links a whole to its parts." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :partOf .
+
+:hasSibling a owl:ObjectProperty,
+        owl:SymmetricProperty ;
+    rdfs:label "has sibling" ;
+    rdfs:comment "Shares a common parent (biological, organizational, or conceptual)." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:influenced a owl:ObjectProperty ;
+    rdfs:label "influenced" ;
+    rdfs:comment "Active influence. Inverse of influencedBy." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :influencedBy .
+
 :inspiredChange a owl:ObjectProperty ;
     rdfs:label "inspired change" ;
     rdfs:comment "Links a research Document to a code change it inspired." ;
     rdfs:domain :Document ;
     rdfs:range :Concept .
+
+:occurredAt a owl:ObjectProperty ;
+    rdfs:label "occurred at" ;
+    rdfs:comment "Links an Event to the Place where it happened." ;
+    rdfs:domain :Event ;
+    rdfs:range :Place .
+
+:occurredDuring a owl:ObjectProperty ;
+    rdfs:label "occurred during" ;
+    rdfs:comment "Links an Event to the temporal Phase during which it took place." ;
+    rdfs:domain :Event ;
+    rdfs:range :Phase .
+
+:ownedBy a owl:ObjectProperty ;
+    rdfs:label "owned by" ;
+    rdfs:comment "Links an entity to its owner. Inverse of owns." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000004 ;
+    owl:inverseOf :owns .
+
+:precedes a owl:ObjectProperty ;
+    rdfs:label "precedes" ;
+    rdfs:comment "Temporal ordering — this entity comes before another. Inverse of succeeds." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :succeeds .
 
 :selfHealedVia a owl:ObjectProperty ;
     rdfs:label "self healed via" ;
@@ -301,11 +424,106 @@ Modular imports:
         schema:DigitalDocument ;
     rdfs:subClassOf bfo:0000031 .
 
+:Phase a owl:Class ;
+    rdfs:label "Temporal Phase" ;
+    rdfs:comment "A named temporal interval. BFO:TemporalRegion, aligned to time:ProperInterval." ;
+    rdfs:seeAlso time:ProperInterval ;
+    rdfs:subClassOf bfo:0000008 .
+
+:createdBy a owl:ObjectProperty ;
+    rdfs:label "created by" ;
+    rdfs:comment """Attribution of creation. Works for Document→Person,
+SoftwareProject→Team, CreativeWork→Agent, etc. Aligned to prov:wasAttributedTo.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000004 .
+
+:dependsOn a owl:ObjectProperty ;
+    rdfs:label "depends on" ;
+    rdfs:comment """Generic dependency relationship.  Works for System→System,
+SoftwareProject→SoftwareProject, Task→Task, Skill→Skill, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:derivedFrom a owl:ObjectProperty ;
+    rdfs:label "derived from" ;
+    rdfs:comment """Links an entity to a source it was derived from.
+Aligned to prov:wasDerivedFrom.  Works for fork→upstream,
+translation→original, dataset→raw_source, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:hasAncestor a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "has ancestor" ;
+    rdfs:comment """Any ancestor in the lineage chain.  Transitivity enables
+the OWL reasoner to infer full ancestry from asserted hasParent edges.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:hasParent a owl:ObjectProperty ;
+    rdfs:label "has parent" ;
+    rdfs:comment """Direct parent/progenitor relationship (literal or figurative).
+Works for biological parents, software forks, organizational spin-offs,
+mentor relationships, concept derivation chains, or event hierarchies.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:influencedBy a owl:ObjectProperty ;
+    rdfs:label "influenced by" ;
+    rdfs:comment """Generic influence relationship. Aligned to prov:wasInfluencedBy.
+Works for Person→Person (mentor), Document→Concept, Event→Decision, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:locatedIn a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "located in" ;
+    rdfs:comment """Spatial or logical containment.  Transitivity enables
+Server→Rack→DataCenter→Region inference.  Works for physical and virtual.""" ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range :Place .
+
+:memberOf a owl:ObjectProperty ;
+    rdfs:label "member of" ;
+    rdfs:comment """Links an entity to a group, organization, or collection it belongs to.
+Works for Person→Organization, Agent→Team, Server→Cluster, etc.""" ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range bfo:0000004 .
+
+:owns a owl:ObjectProperty ;
+    rdfs:label "owns" ;
+    rdfs:comment """Links an entity to something it owns or is responsible for.
+Works for Person→Asset, Organization→System, Team→SoftwareProject, etc.""" ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range bfo:0000001 .
+
+:partOf a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "part of" ;
+    rdfs:comment """Mereological part-whole relationship. Transitivity enables
+Module→System→Platform inference. BFO-standard mereology.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:participatedIn a owl:ObjectProperty ;
+    rdfs:label "participated in" ;
+    rdfs:comment """Links any entity to an Event it participated in.
+Aligned to prov:wasAssociatedWith (inverse direction).""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range :Event .
+
 :resolvedIncident a owl:ObjectProperty ;
     rdfs:label "resolved incident" ;
     rdfs:comment "Links a remediation Action to the Incident it resolved." ;
     rdfs:domain :Action ;
     rdfs:range :Incident .
+
+:succeeds a owl:ObjectProperty ;
+    rdfs:label "succeeds" ;
+    rdfs:comment """Temporal ordering — this entity comes after another.
+Works for versions, phases, events, role transitions, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
 
 bfo:0000008 a owl:Class ;
     rdfs:label "Temporal Region" ;
@@ -323,21 +541,16 @@ bfo:0000008 a owl:Class ;
     rdfs:comment "Base class for cross-domain associative reasoning." ;
     rdfs:subClassOf bfo:0000004 .
 
-bfo:0000001 a owl:Class ;
-    rdfs:label "Entity" ;
-    rdfs:comment "BFO:Entity — root of all entities." .
-
 bfo:0000003 a owl:Class ;
     rdfs:label "Occurrent" ;
     rdfs:comment "BFO:Occurrent — entities that unfold or happen over time." ;
     rdfs:subClassOf bfo:0000001 .
 
-:Event a owl:Class ;
-    rdfs:label "Event" ;
-    rdfs:comment "A temporally-bounded happening. BFO:Process, aligned to schema:Event and prov:Activity." ;
-    rdfs:seeAlso prov:Activity ;
-    rdfs:subClassOf bfo:0000015 ;
-    owl:equivalentClass schema:Event .
+:Place a owl:Class ;
+    rdfs:label "Place" ;
+    rdfs:comment "A physical, virtual, or contextual location. BFO:IndependentContinuant." ;
+    rdfs:seeAlso schema:Place ;
+    rdfs:subClassOf bfo:0000004 .
 
 :System a owl:Class ;
     rdfs:label "System" ;
@@ -364,13 +577,24 @@ bfo:0000015 a owl:Class ;
     rdfs:comment "BFO:Process — an occurrent that has temporal parts." ;
     rdfs:subClassOf bfo:0000003 .
 
-bfo:0000004 a owl:Class ;
-    rdfs:label "Independent Continuant" ;
-    rdfs:comment "BFO:IndependentContinuant — can exist autonomously." ;
-    rdfs:subClassOf bfo:0000002 .
+:Event a owl:Class ;
+    rdfs:label "Event" ;
+    rdfs:comment "A temporally-bounded happening. BFO:Process, aligned to schema:Event and prov:Activity." ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf bfo:0000015 ;
+    owl:equivalentClass schema:Event .
 
 bfo:0000031 a owl:Class ;
     rdfs:label "Generically Dependent Continuant" ;
     rdfs:comment "BFO:GenericallyDependentContinuant — information entities." ;
     rdfs:subClassOf bfo:0000002 .
+
+bfo:0000004 a owl:Class ;
+    rdfs:label "Independent Continuant" ;
+    rdfs:comment "BFO:IndependentContinuant — can exist autonomously." ;
+    rdfs:subClassOf bfo:0000002 .
+
+bfo:0000001 a owl:Class ;
+    rdfs:label "Entity" ;
+    rdfs:comment "BFO:Entity — root of all entities." .
 

@@ -239,8 +239,8 @@
 
 :transitionedTo a owl:ObjectProperty ;
     rdfs:label "transitioned to" ;
-    rdfs:comment """Records the transition from direct container-manager-mcp
-management to Portainer-managed orchestration during bootstrap.""" ;
+    rdfs:comment """Records the transition from one deployment management phase
+to another (e.g., from direct container management to orchestrator-managed).""" ;
     rdfs:domain :DeploymentPhase ;
     rdfs:range :DeploymentPhase .
 
@@ -262,7 +262,7 @@ management to Portainer-managed orchestration during bootstrap.""" ;
 
 :ContainerRegistry a owl:Class ;
     rdfs:label "Container Registry" ;
-    rdfs:comment "An OCI image registry (GitLab Registry, Harbor, Nexus, ECR)." ;
+    rdfs:comment "An OCI-compliant container image registry." ;
     rdfs:subClassOf bfo:0000004 .
 
 :CoolingUnit a owl:Class ;
@@ -289,7 +289,7 @@ BFO:GenericallyDependentContinuant.""" ;
 
 :MetricsExporter a owl:Class ;
     rdfs:label "Metrics Exporter" ;
-    rdfs:comment "An agent exporting metrics (node_exporter, cAdvisor, DCGM)." ;
+    rdfs:comment "An agent exporting metrics to an observability stack." ;
     rdfs:subClassOf bfo:0000004 .
 
 :NetworkInterface a owl:Class ;
@@ -309,12 +309,12 @@ BFO:GenericallyDependentContinuant.""" ;
 
 :ReverseProxy a owl:Class ;
     rdfs:label "Reverse Proxy" ;
-    rdfs:comment "A traffic routing system (Traefik, Nginx, Caddy, HAProxy)." ;
+    rdfs:comment "A traffic routing and TLS termination system providing :ReverseProxyCapability." ;
     rdfs:subClassOf bfo:0000004 .
 
 :VPNTunnel a owl:Class ;
     rdfs:label "VPN Tunnel" ;
-    rdfs:comment "A secure tunnel (WireGuard, Tailscale, IPsec, Cloudflare Tunnel)." ;
+    rdfs:comment "A secure encrypted tunnel providing :VPNCapability. Links to :VPNPurpose via :hasPurpose." ;
     rdfs:subClassOf bfo:0000015 .
 
 :ContainerStack a owl:Class ;
@@ -324,7 +324,7 @@ BFO:GenericallyDependentContinuant.""" ;
 
 :DNSService a owl:Class ;
     rdfs:label "DNS Service" ;
-    rdfs:comment "A DNS resolver/server (AdGuard Home, Pi-hole, BIND, CoreDNS)." ;
+    rdfs:comment "A DNS resolver or authoritative name server providing :DNSCapability." ;
     rdfs:subClassOf bfo:0000004 .
 
 :DeploymentPrerequisite a owl:Class ;
@@ -352,7 +352,7 @@ network endpoint URL.""" ;
 
 :ObservabilityStack a owl:Class ;
     rdfs:label "Observability Stack" ;
-    rdfs:comment "An observability platform (Langfuse, Grafana, Prometheus, ELK)." ;
+    rdfs:comment "An observability platform providing :MonitoringCapability." ;
     rdfs:subClassOf bfo:0000004 .
 
 :StorageArray a owl:Class ;

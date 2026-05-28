@@ -38,7 +38,7 @@ def test_deploy_observability_stack_compilation():
 
     plan = SkillCompiler.compile(skill_dir)
     assert plan is not None
-    assert len(plan.steps) == 4
+    assert len(plan.steps) == 5
 
     # Assert node IDs
     node_ids = [step.node_id for step in plan.steps]
@@ -46,6 +46,7 @@ def test_deploy_observability_stack_compilation():
     assert "grafana-setup" in node_ids
     assert "loki-setup" in node_ids
     assert "observability-synth" in node_ids
+    assert "kg-persistence" in node_ids
 
     # Assert step dependencies
     step_dict = {step.node_id: step for step in plan.steps}
@@ -57,6 +58,7 @@ def test_deploy_observability_stack_compilation():
         "grafana-setup",
         "loki-setup",
     }
+    assert step_dict["kg-persistence"].depends_on == ["observability-synth"]
 
     # Verify team.yaml loading
     team = SkillCompiler.load_team_config(skill_dir)
@@ -80,7 +82,7 @@ def test_alpha_factor_mining_compilation():
 
     plan = SkillCompiler.compile(skill_dir)
     assert plan is not None
-    assert len(plan.steps) == 4
+    assert len(plan.steps) == 5
 
     # Assert node IDs
     node_ids = [step.node_id for step in plan.steps]
@@ -88,6 +90,7 @@ def test_alpha_factor_mining_compilation():
     assert "fundamental-alpha" in node_ids
     assert "sentiment-alpha" in node_ids
     assert "factor-fusion" in node_ids
+    assert "kg-persistence" in node_ids
 
     # Assert step dependencies
     step_dict = {step.node_id: step for step in plan.steps}
@@ -99,6 +102,7 @@ def test_alpha_factor_mining_compilation():
         "fundamental-alpha",
         "sentiment-alpha",
     }
+    assert step_dict["kg-persistence"].depends_on == ["factor-fusion"]
 
     # Verify team.yaml loading
     team = SkillCompiler.load_team_config(skill_dir)
@@ -116,7 +120,7 @@ def test_sdd_full_lifecycle_compilation():
 
     plan = SkillCompiler.compile(skill_dir)
     assert plan is not None
-    assert len(plan.steps) == 5
+    assert len(plan.steps) == 6
 
     # Assert node IDs
     node_ids = [step.node_id for step in plan.steps]
@@ -125,6 +129,7 @@ def test_sdd_full_lifecycle_compilation():
     assert "typescript-frontend-developer" in node_ids
     assert "qa-test-engineer" in node_ids
     assert "verification-gate" in node_ids
+    assert "kg-persistence" in node_ids
 
     # Assert step dependencies
     step_dict = {step.node_id: step for step in plan.steps}
@@ -137,6 +142,7 @@ def test_sdd_full_lifecycle_compilation():
         "typescript-frontend-developer",
         "qa-test-engineer",
     }
+    assert step_dict["kg-persistence"].depends_on == ["verification-gate"]
 
     # Verify team.yaml loading
     team = SkillCompiler.load_team_config(skill_dir)
@@ -175,7 +181,7 @@ def test_parallel_engine_wave_scheduling_for_workflows():
     )
 
     waves = engine._schedule_waves(manifest)
-    assert len(waves) == 2
+    assert len(waves) == 3
     # Wave 0 has 3 agents
     assert set(a.agent_id for a in waves[0]) == {
         "prometheus-setup",
@@ -184,6 +190,8 @@ def test_parallel_engine_wave_scheduling_for_workflows():
     }
     # Wave 1 has 1 agent
     assert [a.agent_id for a in waves[1]] == ["observability-synth"]
+    # Wave 2 has 1 agent
+    assert [a.agent_id for a in waves[2]] == ["kg-persistence"]
 
     # 2. Test sdd_full_lifecycle scheduling
     sdd_plan = SkillCompiler.compile(
@@ -209,7 +217,7 @@ def test_parallel_engine_wave_scheduling_for_workflows():
     )
 
     sdd_waves = engine._schedule_waves(sdd_manifest)
-    assert len(sdd_waves) == 3
+    assert len(sdd_waves) == 4
     # Wave 0
     assert [a.agent_id for a in sdd_waves[0]] == ["spec-generator"]
     # Wave 1
@@ -220,6 +228,8 @@ def test_parallel_engine_wave_scheduling_for_workflows():
     }
     # Wave 2
     assert [a.agent_id for a in sdd_waves[2]] == ["verification-gate"]
+    # Wave 3
+    assert [a.agent_id for a in sdd_waves[3]] == ["kg-persistence"]
 
 
 def test_all_library_workflows_compilation():
