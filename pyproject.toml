@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.22.1"
+version = "0.22.2"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -53,7 +53,7 @@ mcp = [
     "httpx>=0.28.1"
 ]
 agent = [
-    "agent-utilities[mcp,ag-ui,terminal]>=0.22.0",
+    "agent-utilities[mcp,ag-ui,terminal]>=0.22.1",
     "universal-skills>=0.23.1",
     "skill-graphs>=0.23.0",
     "pydantic-ai-skills>=0.10.0",
@@ -92,16 +92,16 @@ documents = [
 embeddings = [
     "llama-index-core>=0.14.15"]
 embeddings-openai = [
-    "agent-utilities[embeddings]>=0.22.0",
+    "agent-utilities[embeddings]>=0.22.1",
     "llama-index-embeddings-openai>=0.5.1"]
 embeddings-huggingface = [
-    "agent-utilities[embeddings]>=0.22.0",
+    "agent-utilities[embeddings]>=0.22.1",
     "llama-index-embeddings-huggingface>=0.7.0"]
 embeddings-ollama = [
-    "agent-utilities[embeddings]>=0.22.0",
+    "agent-utilities[embeddings]>=0.22.1",
     "llama-index-embeddings-ollama>=0.8.6"]
 logfire = [
-    "agent-utilities[agent]>=0.22.0",
+    "agent-utilities[agent]>=0.22.1",
     "pydantic-ai-slim[logfire]>=1.90.0,<2.0.0"
 ]
 graph = [
@@ -193,7 +193,7 @@ test = [
     "agent-utilities[agent,graph,acp,owl,finance]"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,browser,test,owl,stardog,vault,auth,finance,messaging]>=0.22.0"]
+    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,browser,test,owl,stardog,vault,auth,finance,messaging]>=0.22.1"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:main"
