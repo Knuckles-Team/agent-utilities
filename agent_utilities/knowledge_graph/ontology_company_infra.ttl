@@ -74,7 +74,7 @@
 
 :dnsRewrite a owl:DatatypeProperty ;
     rdfs:label "DNS rewrite" ;
-    rdfs:comment "DNS hostname configured via AdGuard Home." ;
+    rdfs:comment "DNS hostname configured via the active DNS management service." ;
     rdfs:domain :CompanySoftware ;
     rdfs:range xsd:string .
 

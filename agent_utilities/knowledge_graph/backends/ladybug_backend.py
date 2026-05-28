@@ -41,6 +41,9 @@ _ACTIVE_LOCKS_LOCK = threading.Lock()
 
 _ACTIVE_BACKENDS: weakref.WeakSet[Any] = weakref.WeakSet()
 
+_SYNCHRONIZED_DB_PATHS: set[str] = set()
+_SYNCHRONIZED_DB_PATHS_LOCK = threading.Lock()
+
 
 def _cleanup_all_backends() -> None:
     """atexit handler to cleanly close all active Ladybug backends in order.
@@ -294,10 +297,22 @@ class LadybugBackend(GraphBackend):
 
                 # Auto-initialize schema if not read-only
                 if not self.read_only:
-                    try:
-                        self._create_schema_unlocked()
-                    except Exception as schema_err:
-                        logger.warning(f"Auto-initializing schema failed: {schema_err}")
+                    abs_db_path = (
+                        os.path.abspath(self.db_path)
+                        if self.db_path != ":memory:"
+                        else ":memory:"
+                    )
+                    with _SYNCHRONIZED_DB_PATHS_LOCK:
+                        already_synced = abs_db_path in _SYNCHRONIZED_DB_PATHS
+                    if not already_synced:
+                        try:
+                            self._create_schema_unlocked()
+                            with _SYNCHRONIZED_DB_PATHS_LOCK:
+                                _SYNCHRONIZED_DB_PATHS.add(abs_db_path)
+                        except Exception as schema_err:
+                            logger.warning(
+                                f"Auto-initializing schema failed: {schema_err}"
+                            )
 
                 # Backup only if we successfully recovered after retries
                 if attempt > 0:

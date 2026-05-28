@@ -521,8 +521,33 @@ async def memory_selection_step(
     memories = []
 
     # Phase 1: Scan Workspace Documentation (Markdown files)
+    ignored_dirs = {
+        ".venv",
+        ".git",
+        ".gemini",
+        "node_modules",
+        ".cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".specify",
+        ".validation_reports",
+        ".acp-sessions",
+        ".agent",
+        ".agent_data",
+        ".agent_utilities_test",
+        ".config",
+        ".hypothesis",
+        ".lbdb",
+        ".local",
+        ".mypy_cache",
+        ".npm",
+        ".opencode",
+        ".openvscode-server",
+        "dist",
+        "build",
+    }
     for p in Path(root).rglob("*.md"):
-        if ".gemini" in str(p) or "node_modules" in str(p):
+        if any(part in p.parts for part in ignored_dirs):
             continue
         try:
             content = p.read_text(encoding="utf-8", errors="ignore")
@@ -646,6 +671,8 @@ async def memory_selection_step(
         loaded_context = []
         for filename in selected:
             for p in Path(root).rglob(filename):
+                if any(part in p.parts for part in ignored_dirs):
+                    continue
                 loaded_context.append(
                     f"### {filename}\n{p.read_text(encoding='utf-8', errors='ignore')}"
                 )

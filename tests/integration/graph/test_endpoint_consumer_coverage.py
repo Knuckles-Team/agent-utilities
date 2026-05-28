@@ -54,6 +54,14 @@ ADMIN_ONLY_ENDPOINTS: dict[str, str] = {
         "Static avatar FileResponse; served via markup/<img src>, not a "
         "fetch call in either UI tree."
     ),
+    "/config-files": (
+        "Provides administrative access to load and manage workspace "
+        "configurations, not yet exposed in the UI."
+    ),
+    "/ecosystem/services": (
+        "Retrieves system services and container health info for "
+        "background operations, not exposed to users."
+    ),
     "/graph/link": (
         "Creates a relationship between two existing nodes. Only reached "
         "via the ``link_knowledge_nodes`` tool, never the UI."
@@ -68,6 +76,38 @@ ADMIN_ONLY_ENDPOINTS: dict[str, str] = {
     ),
     "/kb/update": (
         "Incremental KB re-ingestion; scheduled maintenance, no end-user entry point."
+    ),
+    "/prompts/graph": (
+        "Lists the full registry of prompt graph templates, currently "
+        "consumed by CLI tools, not user-facing UI."
+    ),
+    "/prompts/graph/{prompt_id}": (
+        "Fetches a specific prompt graph from the repository, "
+        "restricted to backend workflows."
+    ),
+    "/prompts/graph/{prompt_id}/diff/{version_a}/{version_b}": (
+        "Computes structural and lexical differences between prompt graph "
+        "versions, only visible to developers."
+    ),
+    "/prompts/graph/{prompt_id}/rollback/{version_id}": (
+        "Rolls back a prompt graph to a previous active version, "
+        "restricted to admin control."
+    ),
+    "/prompts/graph/{prompt_id}/versions": (
+        "Lists all historical versions of a prompt graph, not "
+        "currently displayed in UI."
+    ),
+    "/skills/{skill_id}/toggle": (
+        "Toggles a specific skill on or off for downstream agents, "
+        "managed strictly via background controllers."
+    ),
+    "/tools/graph": (
+        "Returns the full tools metadata graph registry, reserved "
+        "for backend dependency analysis."
+    ),
+    "/tools/graph/{tool_id}/toggle": (
+        "Toggles a tools graph status, replacing the old tools "
+        "toggle path on the router."
     ),
     "/upload": (
         "Workspace file upload. Current FilesView.tsx is a 124-LOC "
@@ -84,9 +124,6 @@ ADMIN_ONLY_ENDPOINTS: dict[str, str] = {
         "Parity gap: no rename/delete chat flow in either UI. Backend "
         "also has a latent verb bug (``delete_chat`` on ``@router.get``). "
         "Allowlisted pending a coordinated fix."
-    ),
-    "/tools/{tool_id}/toggle": (
-        "Tool toggling endpoint. Allowlisted pending UI integration."
     ),
 }
 

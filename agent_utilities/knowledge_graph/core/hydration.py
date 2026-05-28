@@ -2,6 +2,13 @@
 
 Handles dynamic discovery, instantiation, ontological translation, and batch
 ingestion from domain-specific APIs into OWL-promotable LPG nodes and edges.
+
+Architecture (CONCEPT:KG-2.7 — Capability Abstraction Layer):
+  The CAPABILITY_REGISTRY decouples concrete connectors from abstract
+  capability categories.  Each entry maps a source identifier to its
+  capability category and the private method that implements the connector.
+  New sources are added by extending the registry — the core orchestration
+  logic (hydrate_source / hydrate_all) never changes.
 """
 
 from __future__ import annotations
@@ -12,9 +19,51 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# ═══════════════════════════════════════════════════════════════════
+# CAPABILITY_REGISTRY — maps source identifiers to abstract capability
+# categories and their connector methods.  Adding a new data source only
+# requires appending an entry here; the orchestration loop is generic.
+# ═══════════════════════════════════════════════════════════════════
+CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
+    "gitlab": {"category": "source_control", "method": "_hydrate_gitlab"},
+    "leanix": {"category": "enterprise_architecture", "method": "_hydrate_leanix"},
+    "twenty": {"category": "crm", "method": "_hydrate_twenty"},
+    "servicenow": {"category": "itsm", "method": "_hydrate_servicenow"},
+    "jira": {"category": "issue_tracking", "method": "_hydrate_jira"},
+    "plane": {"category": "issue_tracking", "method": "_hydrate_plane"},
+    "portainer": {
+        "category": "container_orchestration",
+        "method": "_hydrate_portainer",
+    },
+    "uptime_kuma": {"category": "uptime_monitoring", "method": "_hydrate_uptime_kuma"},
+    "lgtm": {"category": "monitoring", "method": "_hydrate_lgtm"},
+    "langfuse": {"category": "monitoring", "method": "_hydrate_langfuse"},
+    "keycloak": {"category": "authentication", "method": "_hydrate_keycloak"},
+    "openbao": {"category": "secret_management", "method": "_hydrate_openbao"},
+    "nextcloud": {"category": "collaboration", "method": "_hydrate_nextcloud"},
+    "listmonk": {"category": "mailing", "method": "_hydrate_listmonk"},
+    "mattermost": {"category": "collaboration", "method": "_hydrate_mattermost"},
+    "technitium_dns": {"category": "dns", "method": "_hydrate_technitium_dns"},
+    "caddy": {"category": "reverse_proxy", "method": "_hydrate_caddy"},
+    "tunnel_manager": {"category": "vpn", "method": "_hydrate_tunnel_manager"},
+    "scholarx": {"category": "research", "method": "_hydrate_scholarx"},
+    "emerald_exchange": {
+        "category": "financial_exchange",
+        "method": "_hydrate_emerald_exchange",
+    },
+    "postiz": {"category": "social_media", "method": "_hydrate_postiz"},
+}
+
 
 class HydrationManager:
-    """Orchestrates dynamic client loading and batch OWL-native graph hydration."""
+    """Orchestrates dynamic client loading and batch OWL-native graph hydration.
+
+    Connector methods are resolved through the module-level CAPABILITY_REGISTRY,
+    which maps source identifiers to abstract capability categories and their
+    implementing methods.  This enables swappable backends — replacing one DNS
+    tool with another only requires changing the connector method, not the
+    orchestration logic.
+    """
 
     def __init__(self) -> None:
         pass
@@ -155,35 +204,21 @@ class HydrationManager:
         return status
 
     def hydrate_source(self, engine: Any, source: str) -> dict[str, Any]:
-        """Trigger instant hydration for a specific source."""
-        source = source.lower().strip()
-        methods = {
-            "gitlab": self._hydrate_gitlab,
-            "leanix": self._hydrate_leanix,
-            "twenty": self._hydrate_twenty,
-            "servicenow": self._hydrate_servicenow,
-            "jira": self._hydrate_jira,
-            "plane": self._hydrate_plane,
-            "portainer": self._hydrate_portainer,
-            "uptime_kuma": self._hydrate_uptime_kuma,
-            "lgtm": self._hydrate_lgtm,
-            "langfuse": self._hydrate_langfuse,
-            "keycloak": self._hydrate_keycloak,
-            "openbao": self._hydrate_openbao,
-            "nextcloud": self._hydrate_nextcloud,
-            "listmonk": self._hydrate_listmonk,
-            "mattermost": self._hydrate_mattermost,
-            "technitium_dns": self._hydrate_technitium_dns,
-            "caddy": self._hydrate_caddy,
-            "tunnel_manager": self._hydrate_tunnel_manager,
-            "scholarx": self._hydrate_scholarx,
-            "emerald_exchange": self._hydrate_emerald_exchange,
-            "postiz": self._hydrate_postiz,
-        }
+        """Trigger instant hydration for a specific source.
 
-        if source in methods:
-            return methods[source](engine)
-        raise ValueError(f"Unknown hydration source: '{source}'")
+        Resolves the connector method from CAPABILITY_REGISTRY, enabling
+        tool-agnostic orchestration.
+        """
+        source = source.lower().strip()
+        entry = CAPABILITY_REGISTRY.get(source)
+        if entry is None:
+            raise ValueError(f"Unknown hydration source: '{source}'")
+        method = getattr(self, entry["method"], None)
+        if method is None:
+            raise ValueError(
+                f"Connector method '{entry['method']}' not found for source '{source}'"
+            )
+        return method(engine)
 
     def hydrate_all(self, engine: Any) -> dict[str, Any]:
         """Sequentially hydrate all active/configured sources."""
@@ -732,7 +767,7 @@ class HydrationManager:
             if not fs_id:
                 continue
 
-            # OWL Mapping: LeanIXFactSheet -> platform_service
+            # OWL Mapping: EAFactSheet -> platform_service
             entities.append(
                 {
                     "id": f"leanix:fs:{fs_id}",

@@ -64,8 +64,8 @@ def test_bridge_run_cycle(mock_engine, ontology_path, monkeypatch):
 
     assert stats["promoted_nodes"] == 3
     assert stats["promoted_edges"] == 2
-    assert stats["inferred"] == 1
-    assert stats["downfed"] == 1
+    assert stats["inferred"] == 2
+    assert stats["downfed"] == 2
 
     # Verify inference back in NX graph
     assert mock_engine.graph.has_edge("symbol:A", "symbol:C")

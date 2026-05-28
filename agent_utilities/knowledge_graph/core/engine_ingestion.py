@@ -295,7 +295,7 @@ class IngestionMixin(_Base):
     ) -> dict[str, Any]:
         """Ingest a batch of standardized entities and relationships from a peripheral agent.
 
-        This is the primary ingestion API for the hub-and-spoke model (e.g., AD, ServiceNow).
+        This is the primary ingestion API for the hub-and-spoke model (e.g., directory services, ITSM connectors).
         Entities are expected to be pre-mapped to the BFO/PROV-O ontology.
         """
         if not self.backend:
@@ -517,31 +517,33 @@ class IngestionMixin(_Base):
     def bootstrap_hydration_jobs(self) -> dict[str, Any]:
         """Bootstrap the default recurrent hydration jobs in the Knowledge Graph.
 
-        Creates or updates Job nodes for GitLab (weekly), ServiceNow (daily),
-        Twenty CRM (daily), and LeanIX (monthly) hydration schedules.
+        Creates or updates Job nodes for source control (weekly), ITSM (daily),
+        CRM (daily), and enterprise architecture (monthly) hydration schedules.
+        Job identifiers use source names from the CAPABILITY_REGISTRY;
+        display names reference abstract capability categories.
         """
         jobs = [
             {
                 "id": "hydrate-gitlab",
-                "name": "GitLab Weekly Hydration",
+                "name": "Source Control Weekly Hydration",
                 "schedule": 10080,  # 7 days in minutes
                 "command": "__internal:hydrate:gitlab",
             },
             {
                 "id": "hydrate-servicenow",
-                "name": "ServiceNow CMDB Daily Hydration",
+                "name": "ITSM Daily Hydration",
                 "schedule": 1440,  # 1 day in minutes
                 "command": "__internal:hydrate:servicenow",
             },
             {
                 "id": "hydrate-twenty",
-                "name": "Twenty CRM Daily Hydration",
+                "name": "CRM Daily Hydration",
                 "schedule": 1440,  # 1 day in minutes
                 "command": "__internal:hydrate:twenty",
             },
             {
                 "id": "hydrate-leanix",
-                "name": "LeanIX Monthly Hydration",
+                "name": "Enterprise Architecture Monthly Hydration",
                 "schedule": 43200,  # 30 days in minutes
                 "command": "__internal:hydrate:leanix",
             },
