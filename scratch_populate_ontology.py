@@ -40,9 +40,11 @@ def assign_dept(role_name: str) -> str:
     return "Admin"
 
 
-departments = {}
-agent_roles = {}
-tools_set = set()
+from typing import Any
+
+departments: dict[str, list[dict[str, Any]]] = {}
+agent_roles: dict[str, dict[str, Any]] = {}
+tools_set: set[str] = set()
 
 for jf in json_files:
     try:
