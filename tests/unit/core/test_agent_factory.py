@@ -157,10 +157,10 @@ def test_parser_mcp_options() -> None:
     """MCP url and config options."""
     parser = agent_factory.create_agent_parser()
     args = parser.parse_args(
-        ["--mcp-url", "https://mcp.example.com", "--mcp-config", "/tmp/mcp.json"]
+        ["--mcp-url", "https://mcp.example.com", "--mcp-config", ".tmp/mcp.json"]
     )
     assert args.mcp_url == "https://mcp.example.com"
-    assert args.mcp_config == "/tmp/mcp.json"
+    assert args.mcp_config == ".tmp/mcp.json"
 
 
 def test_parser_workspace_option() -> None:
@@ -173,8 +173,8 @@ def test_parser_workspace_option() -> None:
 def test_parser_custom_skills_directory() -> None:
     """--custom-skills-directory."""
     parser = agent_factory.create_agent_parser()
-    args = parser.parse_args(["--custom-skills-directory", "/tmp/my-skills"])
-    assert args.custom_skills_directory == "/tmp/my-skills"
+    args = parser.parse_args(["--custom-skills-directory", ".tmp/my-skills"])
+    assert args.custom_skills_directory == ".tmp/my-skills"
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +447,7 @@ def test_create_agent_validation_mode_skips_mcp_config(
 
     agent, mcp_toolsets = agent_factory.create_agent(
         name="TestValMCPConfig",
-        mcp_config="/tmp/some-config.json",
+        mcp_config=".tmp/some-config.json",
         skill_types=[],
         enable_skills=False,
         enable_universal_tools=False,
@@ -658,7 +658,7 @@ def test_create_agent_mcp_config_load_error(
     )
     agent, _ = agent_factory.create_agent(
         name="TestMCPConfigFail",
-        mcp_config="/tmp/nonexistent.json",
+        mcp_config=".tmp/nonexistent.json",
         skill_types=[],
         enable_skills=False,
         enable_universal_tools=False,

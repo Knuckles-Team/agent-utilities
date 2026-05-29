@@ -203,7 +203,7 @@ def test_resolve_model_registry_prefers_explicit_registry(monkeypatch):
     )
     monkeypatch.setattr(
         "agent_utilities.server.dependencies.config.model_registry_path",
-        "/tmp/does-not-exist.json",
+        ".tmp/does-not-exist.json",
     )
     result = resolve_model_registry(
         registry=explicit,

@@ -24,7 +24,9 @@ from agent_utilities.models.knowledge_graph import ExperienceNode
 
 @pytest.fixture
 def mock_engine():
-    graph = GraphComputeEngine(backend_type="rust")
+    import uuid
+    graph_name = f"test_graph_{uuid.uuid4().hex}"
+    graph = GraphComputeEngine(backend_type="rust", graph_name=graph_name)
     engine = IntelligenceGraphEngine(graph=graph)
     engine.backend = MagicMock()
     return engine

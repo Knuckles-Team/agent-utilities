@@ -63,6 +63,16 @@ class GraphComputeEngine:
             "Connected to epistemic-graph Tokio service (graph: %s).",
             graph_name,
         )
+
+        try:
+            if self._client:
+                # Try to create the graph so tests and dynamic instances don't fail
+                # if the graph doesn't exist in the Rust backend yet.
+                self._client.create_graph(graph_name)
+        except Exception:
+            # Graph may already exist — that's fine.
+            pass
+
         # Bridging local events to the rust service when kafka isn't running
         if (
             os.environ.get("KAFKA_BOOTSTRAP_SERVERS") is None
@@ -536,6 +546,16 @@ class GraphComputeEngine:
         if data:
             return [(node_id, s, self._get_edge_properties(node_id, s)) for s in succs]
         return [(node_id, s) for s in succs]
+
+    def in_edges(self, node_id: str, data: bool = False) -> list:
+        """Return incoming edges to *node_id*.
+
+        When *data* is True, returns ``(src, tgt, props)`` triples.
+        """
+        preds = self.get_predecessors(node_id)
+        if data:
+            return [(p, node_id, self._get_edge_properties(p, node_id)) for p in preds]
+        return [(p, node_id) for p in preds]
 
     def _get_edge_properties(self, source_id: str, target_id: str) -> dict[str, Any]:
         """Retrieve edge properties between two nodes."""

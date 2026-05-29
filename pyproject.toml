@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.26.0"
+version = "0.27.0"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -24,7 +24,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
 
     "ladybug>=0.16.0",
-    "epistemic-graph>=0.9.0",
+    "epistemic-graph>=0.10.0",
     "numpy",
     "scipy",
     "cryptography>=48.0.0",
@@ -54,8 +54,8 @@ mcp = [
 ]
 agent = [
     "agent-utilities[mcp,ag-ui,terminal]>=0.26.0",
-    "universal-skills>=0.27.0",
-    "skill-graphs>=0.23.0",
+    "universal-skills>=0.28.0",
+    "skill-graphs>=0.24.0",
     "pydantic-ai-skills>=0.10.0",
     "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.90.0,<2.0.0",
     "pydantic-graph>=1.0.0"
@@ -76,7 +76,7 @@ agent-huggingface = [
     "pydantic-ai-slim[huggingface]>=1.90.0,<2.0.0"
 ]
 ag-ui = [
-    "agent-webui>=0.23.0"]
+    "agent-webui>=0.24.0"]
 terminal = [
     "agent-terminal-ui>=0.12.0"]
 browser = [

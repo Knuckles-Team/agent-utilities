@@ -46,38 +46,99 @@ def detect_communities(graph: Any) -> list[set[str]]:
     try:
         from agent_utilities.knowledge_graph.core import graph_primitives as rx
 
-        G = rx.PyGraph()
-        node_map: dict[str, int] = {}
+        # If graph is already a PyGraph, use it directly
+        if isinstance(graph, rx.PyGraph):
+            G = graph
+        else:
+            G = rx.PyGraph()
+            node_map: dict[str, int] = {}
 
-        if hasattr(graph, "node_ids"):
-            for node_id in graph.node_ids():
-                idx = G.add_node(node_id)
-                node_map[node_id] = idx
-            for src, tgt in graph._get_all_edges():
-                if src in node_map and tgt in node_map:
-                    G.add_edge(node_map[src], node_map[tgt], 1.0)
+            if hasattr(graph, "node_ids"):
+                for node_id in graph.node_ids():
+                    idx = G.add_node(node_id)
+                    node_map[node_id] = idx
+                for src, tgt in graph._get_all_edges():
+                    if src in node_map and tgt in node_map:
+                        G.add_edge(node_map[src], node_map[tgt], 1.0)
 
-        # Use connected components as community approximation
-        if rx.is_connected(G):
-            return [{G[idx] for idx in G.node_indices()}] if G.num_nodes() > 1 else []
-        # Find connected components manually
-        visited: set[int] = set()
-        components: list[set[str]] = []
-        for start in G.node_indices():
-            if start in visited:
-                continue
-            comp: set[str] = set()
-            stack = [start]
-            while stack:
-                n = stack.pop()
-                if n in visited:
+        # Community detection via bridge-edge removal
+        # Bridge edges are edges whose removal increases the number of
+        # connected components.  Removing them naturally splits the graph
+        # into dense clusters (cliques / near-cliques).
+        if G.num_nodes() < 2:
+            return []
+
+        def _connected_components(graph_obj) -> list[set]:
+            """Find connected components using BFS."""
+            vis: set[int] = set()
+            comps: list[set] = []
+            for start_idx in graph_obj.node_indices():
+                if start_idx in vis:
                     continue
-                visited.add(n)
-                comp.add(G[n])
-                stack.extend(nb for nb in G.neighbors(n) if nb not in visited)
-            if len(comp) > 1:
-                components.append(comp)
-        return components
+                comp: set = set()
+                stack = [start_idx]
+                while stack:
+                    node = stack.pop()
+                    if node in vis:
+                        continue
+                    vis.add(node)
+                    comp.add(graph_obj[node])
+                    stack.extend(nb for nb in graph_obj.neighbors(node) if nb not in vis)
+                if len(comp) > 1:
+                    comps.append(comp)
+            return comps
+
+        # Find bridge edges using naive method: try removing each edge
+        # and check if the graph becomes disconnected.
+        bridges = []
+        for u_idx in G.node_indices():
+            for v_idx in G.neighbors(u_idx):
+                if u_idx >= v_idx:
+                    continue  # avoid duplicate pairs
+                # Temporarily check if removing this edge disconnects
+                # by seeing if u can reach v without this edge
+                visited_check: set[int] = set()
+                queue = [u_idx]
+                found = False
+                while queue and not found:
+                    current = queue.pop(0)
+                    if current in visited_check:
+                        continue
+                    visited_check.add(current)
+                    for nb in G.neighbors(current):
+                        if nb == v_idx and current == u_idx:
+                            continue  # skip this edge
+                        if nb == u_idx and current == v_idx:
+                            continue  # skip this edge (reverse direction)
+                        if nb == v_idx:
+                            found = True
+                            break
+                        if nb not in visited_check:
+                            queue.append(nb)
+                if not found:
+                    bridges.append((u_idx, v_idx))
+
+        if bridges:
+            # Build new graph without bridge edges
+            G2 = rx.PyGraph()
+            idx_map: dict[int, int] = {}
+            for idx in G.node_indices():
+                idx_map[idx] = G2.add_node(G[idx])
+            bridge_set = {(u, v) for u, v in bridges}
+            bridge_set |= {(v, u) for u, v in bridges}
+            for u_idx in G.node_indices():
+                for v_idx in G.neighbors(u_idx):
+                    if u_idx >= v_idx:
+                        continue
+                    if (u_idx, v_idx) not in bridge_set:
+                        G2.add_edge(idx_map[u_idx], idx_map[v_idx], 1.0)
+
+            comps = _connected_components(G2)
+            if len(comps) > 1:
+                return comps
+
+        # Fallback: connected components on original graph
+        return _connected_components(G)
     except Exception as e:
         logger.error(f"Community detection fallback failed: {e}")
         return []
