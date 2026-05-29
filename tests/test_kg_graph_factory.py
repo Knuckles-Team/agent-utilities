@@ -3,7 +3,7 @@
 Tests the full lifecycle from KG template ingestion → graph materialization
 → step execution → provenance tracking.
 
-All tests use in-memory NetworkX graphs (no LadybugDB) for isolation.
+All tests use in-memory graph compute engines (no LadybugDB) for isolation.
 Set AGENT_UTILITIES_TESTING=true to avoid engine startup.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 os.environ["AGENT_UTILITIES_TESTING"] = "true"
 
@@ -36,11 +36,11 @@ from agent_utilities.models.knowledge_graph import (
 class MockEngine:
     """Minimal mock of IntelligenceGraphEngine for testing.
 
-    Uses an in-memory NetworkX graph and a mock backend.
+    Uses an in-memory graph compute engine and a mock backend.
     """
 
     def __init__(self):
-        self.graph = nx.DiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = MockBackend(self.graph)
 
     def search(self, query: str, top_k: int = 10, node_types=None):
@@ -68,9 +68,9 @@ class MockEngine:
 
 
 class MockBackend:
-    """Mock Cypher backend that queries the NetworkX graph."""
+    """Mock Cypher backend that queries the graph compute engine."""
 
-    def __init__(self, graph: nx.DiGraph):
+    def __init__(self, graph: GraphComputeEngine):
         self._graph = graph
 
     def execute(self, query: str, params: dict):

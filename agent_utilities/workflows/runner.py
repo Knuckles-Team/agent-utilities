@@ -174,6 +174,9 @@ class WorkflowRunner:
 
     The entire workflow is tracked as a Langfuse session for
     end-to-end observability.
+
+    For new workflows, prefer ``execute_via_parallel_engine()`` which
+    routes through the single ``ParallelEngine`` entry point.
     """
 
     def __init__(self, max_steps_per_agent: int = 10) -> None:
@@ -183,6 +186,41 @@ class WorkflowRunner:
             max_steps_per_agent: Max graph steps per individual agent call.
         """
         self.max_steps_per_agent = max_steps_per_agent
+
+    async def execute_via_parallel_engine(
+        self,
+        plan: GraphPlan,
+        engine: IntelligenceGraphEngine,
+        workflow_name: str = "unnamed",
+        query: str = "",
+    ):
+        """Execute a GraphPlan by delegating to ParallelEngine.
+
+        CONCEPT:ORCH-1.25 — Workflow → ParallelEngine Bridge
+
+        Converts the ``GraphPlan`` to an ``ExecutionManifest`` and invokes
+        ``ParallelEngine.execute()``, ensuring a single execution path for
+        all workflow types.
+
+        Args:
+            plan: The GraphPlan to execute.
+            engine: IntelligenceGraphEngine for resolution.
+            workflow_name: Name for the workflow.
+            query: Original user query.
+
+        Returns:
+            ``ExecutionResult`` from ``ParallelEngine``.
+        """
+        from agent_utilities.graph.parallel_engine import ParallelEngine
+        from agent_utilities.models.execution_manifest import ExecutionManifest
+
+        manifest = ExecutionManifest.from_graph_plan(
+            plan,
+            name=workflow_name,
+            query=query,
+        )
+        pe = ParallelEngine(engine=engine)
+        return await pe.execute(manifest)
 
     async def execute(
         self,

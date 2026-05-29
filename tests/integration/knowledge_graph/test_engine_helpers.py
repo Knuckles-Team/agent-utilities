@@ -6,7 +6,7 @@ CONCEPT:KG-2.0 — Granular Resource Queries
 CONCEPT:KG-2.0 — Workspace Reload
 """
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -25,7 +25,7 @@ def _reset_active_engine():
 
 @pytest.fixture
 def engine():
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     return IntelligenceGraphEngine(graph)
 
 

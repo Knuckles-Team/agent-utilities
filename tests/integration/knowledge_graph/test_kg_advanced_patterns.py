@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.backends import set_active_backend
@@ -23,7 +23,7 @@ def clear_global_state():
 
 @pytest.fixture
 def memory_engine():
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     # Populate with some base nodes
     graph.add_node("entity:agent_a", name="Agent A", type="Agent")
     graph.add_node("entity:tool_x", name="Tool X", type="Tool")
@@ -45,7 +45,7 @@ def memory_engine():
 
 
 def test_inference_engine_fallback(memory_engine):
-    """Test topological inference in NetworkX fallback mode."""
+    """Test topological inference in graph compute fallback mode."""
     inf_engine = memory_engine.inference_engine
 
     # Run inference

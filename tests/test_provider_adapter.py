@@ -12,11 +12,11 @@ from agent_utilities.prompting.provider_adapter import (
 
 @pytest.fixture
 def mock_engine():
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     class _E:
         def __init__(self):
-            self.graph = nx.MultiDiGraph()
+            self.graph = GraphComputeEngine(backend_type="rust")
             self.backend = None
 
     return _E()

@@ -17,10 +17,12 @@ from .distributed_coordinator import DistributedCoordinator
 from .durable_execution import DurableExecutionManager
 from .manager import Orchestrator
 from .prediction_linkage import PredictionLinkageLayer
+from .protocol import OrchestratorProtocol
 from .recovery_daemon import RecoveryDaemon
 
 __all__ = [
     # Core orchestration
+    "OrchestratorProtocol",
     "run_agent",
     "Orchestrator",
     "DurableExecutionManager",

@@ -133,7 +133,7 @@ class DocumentDeletionPipeline:
         """
         chunks = []
         if self.knowledge_graph.graph.has_node(ontological_identifier):
-            for _, chunk_id, edge_data in self.knowledge_graph.graph.edges(
+            for _, chunk_id, edge_data in self.knowledge_graph.graph.out_edges(
                 ontological_identifier, data=True
             ):
                 if edge_data.get("relationship_type") == "HAS_CHUNK":

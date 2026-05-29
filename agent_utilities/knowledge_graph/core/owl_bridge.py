@@ -8,12 +8,13 @@ enriches the LPG with OWL-inferred facts.
 """
 
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import networkx as nx
+    # Rust-native graph compute — using GraphComputeEngine
 
     from ..backends.base import GraphBackend
     from ..backends.owl.base import OWLBackend
@@ -382,7 +383,7 @@ class OWLBridge:
     The bridge performs a deterministic three-step cycle:
 
     1. **Promote** — Export stable, high-confidence nodes and edges from
-       the in-memory NetworkX graph to the OWL backend as individuals and
+       the in-memory graph compute engine to the OWL backend as individuals and
        property assertions.
 
     2. **Reason** — Run OWL DL reasoning (HermiT/Stardog) to discover
@@ -395,7 +396,7 @@ class OWLBridge:
 
     def __init__(
         self,
-        graph: nx.MultiDiGraph,
+        graph: Any,
         owl_backend: OWLBackend,
         backend: GraphBackend | None = None,
         importance_threshold: float = 0.1,
@@ -655,28 +656,77 @@ class OWLBridge:
     def _sync_inferred_to_backend(
         self, inferences: list[dict[str, Any]], count: int
     ) -> None:
-        """Attempt to write inferred edges to the graph backend (Cypher)."""
+        """Attempt to write inferred edges to the graph backend (Cypher) asynchronously via batches."""
         try:
+            # We initialize the queue and background task here to ensure they run on the correct event loop
+            if not hasattr(self, "_mutation_queue"):
+                self._mutation_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+                self._mutation_task = asyncio.create_task(self._mutation_worker())
+
             for inference in inferences[:count]:
                 subject = inference.get("subject", "")
                 predicate = inference.get("predicate", "")
                 obj = inference.get("object", "")
 
+                if not subject or not predicate or not obj:
+                    continue
+
                 subject_match = self._find_node_by_owl_id(subject) or subject
                 obj_match = self._find_node_by_owl_id(obj) or obj
 
+                # Put onto background queue for async batching
+                self._mutation_queue.put_nowait(
+                    {"src": subject_match, "tgt": obj_match, "pred": predicate}
+                )
+        except Exception as e:
+            logger.debug("Backend sync queuing failed: %s", e)
+
+    async def _mutation_worker(self) -> None:
+        """Background worker that batches mutations and flushes to the backend."""
+        batch: list[dict[str, Any]] = []
+        last_flush = asyncio.get_event_loop().time()
+
+        while True:
+            try:
+                # Wait up to 2 seconds for a mutation
+                timeout = max(0.1, 2.0 - (asyncio.get_event_loop().time() - last_flush))
+                mutation = await asyncio.wait_for(
+                    self._mutation_queue.get(), timeout=timeout
+                )
+                batch.append(mutation)
+            except TimeoutError:
+                pass
+            except asyncio.CancelledError:
+                break
+
+            now = asyncio.get_event_loop().time()
+            if batch and (len(batch) >= 100 or (now - last_flush) >= 2.0):
+                await self._flush_batch(batch)
+                batch.clear()
+                last_flush = now
+
+    async def _flush_batch(self, batch: list[dict[str, Any]]) -> None:
+        """Flush a batch of mutations to the backend."""
+        if not self.backend:
+            return
+
+        try:
+            # For JenaFuseki, ideally we would do a single large SPARQL UPDATE,
+            # but if the backend is generic, we use execute_batch.
+            if hasattr(self.backend, "execute_batch"):
                 query = (
                     "MATCH (a {id: $src}), (b {id: $tgt}) "
                     "MERGE (a)-[r:INFERRED_RELATION {type: $pred}]->(b) "
                     "SET r.inferred = true, r.inferred_from = 'owl_reasoner'"
                 )
-                if self.backend:
-                    self.backend.execute(
-                        query,
-                        {"src": subject_match, "tgt": obj_match, "pred": predicate},
-                    )
+                # If backend has async execution, we could await it, but execute_batch is sync in SparqlAdapter
+                # We offload the blocking execute_batch to a thread pool
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None, self.backend.execute_batch, query, batch
+                )
         except Exception as e:
-            logger.debug("Backend sync for inferred facts failed: %s", e)
+            logger.debug("Background batch flush failed: %s", e)
 
     def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against the OWL backend or rdflib materialization.
@@ -806,7 +856,7 @@ class OWLBridge:
         """Best-effort SPARQL fallback using the in-memory LPG.
 
         Handles basic ``SELECT ?s ?p ?o WHERE { ?s ?p ?o }`` patterns
-        by scanning the NetworkX graph. More complex queries return an
+        by scanning the graph compute engine. More complex queries return an
         informative error.
         """
         # Very basic pattern matching for simple triple patterns

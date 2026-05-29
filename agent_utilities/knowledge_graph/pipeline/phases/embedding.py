@@ -84,7 +84,7 @@ async def execute_embedding(
     if not ctx.config.enable_embeddings:
         return {"status": "skipped", "reason": "embeddings disabled"}
 
-    graph = ctx.nx_graph
+    graph = ctx.graph
     embeddings_generated = 0
     errors = 0
 

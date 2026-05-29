@@ -1013,7 +1013,7 @@ exercises the no-engine path, the happy path, and any error branches.
 """
 
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 from pydantic_ai import RunContext
 
@@ -1026,7 +1026,7 @@ def _mock_ctx(with_engine: bool = True) -> MagicMock:
     deps = MagicMock(spec=AgentDeps)
     if with_engine:
         engine = MagicMock()
-        engine.graph = nx.MultiDiGraph()
+        engine.graph = GraphComputeEngine(backend_type="rust")
         engine.backend = MagicMock()
         deps.knowledge_engine = engine
     else:
@@ -1295,7 +1295,7 @@ async def test_link_knowledge_nodes_success() -> None:
 
 @pytest.mark.asyncio
 async def test_link_knowledge_nodes_no_backend() -> None:
-    """Link succeeds on NetworkX even when backend is None."""
+    """Link succeeds on graph compute even when backend is None."""
     ctx = _mock_ctx()
     ctx.deps.knowledge_engine.graph.add_node("a")
     ctx.deps.knowledge_engine.graph.add_node("b")
@@ -1626,13 +1626,10 @@ def test_knowledge_tools_export_list() -> None:
 
 
 def test_get_kb_engine_no_registry_engine() -> None:
-    """_get_kb_engine with no engine in context creates fresh KBIngestionEngine."""
+    """_get_kb_engine with no engine in context raises RuntimeError."""
     ctx = _mock_ctx(with_engine=False)
-    with patch(
-        "agent_utilities.knowledge_graph.kb.ingestion.KBIngestionEngine"
-    ) as MockEngine:
+    with pytest.raises(RuntimeError, match="Knowledge Graph not available"):
         kt._get_kb_engine(ctx)
-        MockEngine.assert_called_once()
 
 
 def test_get_kb_engine_with_engine() -> None:

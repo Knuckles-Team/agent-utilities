@@ -31,8 +31,7 @@ import time
 import typing
 from typing import Any, Literal
 
-import networkx as nx
-
+# Rust-native graph compute — using GraphComputeEngine
 from ...models.knowledge_graph import (
     EvolutionCandidateNode,
     RegistryEdgeType,
@@ -74,7 +73,7 @@ class XIngestionBridge:
     """Bridges X tool output → UniversalKnowledgeClassifier → Knowledge Graph.
 
     Args:
-        graph: The NetworkX MultiDiGraph instance (shared with KG engine).
+        graph: The GraphComputeEngine instance (shared with KG engine).
         backend: Optional graph backend for persistence.
         classifier: Optional pre-configured classifier instance.
         auto_evolve_threshold: Evolution potential score above which
@@ -83,7 +82,7 @@ class XIngestionBridge:
 
     def __init__(
         self,
-        graph: nx.MultiDiGraph,
+        graph: Any,
         backend: GraphBackend | None = None,
         classifier: UniversalKnowledgeClassifier | None = None,
         auto_evolve_threshold: float = 0.6,

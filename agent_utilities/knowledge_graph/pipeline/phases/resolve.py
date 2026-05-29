@@ -132,7 +132,7 @@ async def execute_resolve(
     repo A imports from repo B, the edge is created with a ``cross_repo=True``
     attribute for provenance tracking.
     """
-    graph = ctx.nx_graph
+    graph = ctx.graph
 
     # Map of file path to node ID for exact matching
     path_map: dict[str, str] = {}

@@ -88,7 +88,7 @@ class MemoryRetriever:
                 data = results[0].get("sm", results[0])
                 return self.ogm._deserialize(data, MemoryRetrieverNode)
 
-        # NetworkX fallback
+        # graph compute fallback
         if SELF_MODEL_ANCHOR in self.engine.graph:
             for succ in self.engine.graph.successors(SELF_MODEL_ANCHOR):
                 edge_data = self.engine.graph.get_edge_data(SELF_MODEL_ANCHOR, succ)
@@ -187,7 +187,7 @@ class MemoryRetriever:
                 "MATCH (a {id: $aid})-[r:CURRENT_SELF_MODEL]->() DELETE r",
                 {"aid": SELF_MODEL_ANCHOR},
             )
-        # Remove from NetworkX
+        # Remove from graph compute
         edges_to_remove = []
         if SELF_MODEL_ANCHOR in self.engine.graph:
             for succ in self.engine.graph.successors(SELF_MODEL_ANCHOR):

@@ -179,7 +179,7 @@ class InfrastructureEngineMixin(_Base):
                 timestamp=ts,
             )
 
-            # Save Host to the networkx graph
+            # Save Host to the graph compute engine
             self.graph.add_node(node.id, **node.model_dump())
 
             # If backend is persistent, dual write

@@ -18,7 +18,7 @@ Targets pure-logic / mocked-engine paths for:
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ async def test_team_create_team_with_engine() -> None:
     cap = TeamCapability()
     ctx = MagicMock()
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     engine.graph.add_node("a1")
     engine.graph.add_node("a2")
     ctx.deps = MagicMock(graph_engine=engine)
@@ -86,7 +86,7 @@ async def test_team_add_task_with_engine_and_team() -> None:
     cap = TeamCapability(team_id="team_1")
     ctx = MagicMock()
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     engine.graph.add_node("team_1")
     engine.graph.add_node("agent_x")
     ctx.deps = MagicMock(graph_engine=engine, agent_id="orch")
@@ -210,7 +210,7 @@ async def test_context_warner_at_critical_threshold() -> None:
     usage = MagicMock(total_tokens=95)
     ctx.usage = usage
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     ctx.deps = MagicMock(graph_engine=engine)
     req = MagicMock(parts=[])
     await w.before_model_run(ctx, req)
@@ -306,7 +306,7 @@ async def test_hooks_before_tool_with_graph_engine() -> None:
     cap = HooksCapability(auto_graph_trace=True)
     ctx = MagicMock()
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     ctx.deps = MagicMock(graph_engine=engine, episode_id="ep1")
     call = MagicMock(tool_name="t", tool_call_id="id1")
     tool_def = MagicMock()

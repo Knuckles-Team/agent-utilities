@@ -11,7 +11,7 @@ async def execute_reference(
     ctx: PipelineContext, deps: dict[str, PhaseResult]
 ) -> dict[str, Any]:
     """Resolve call graph references."""
-    graph = ctx.nx_graph
+    graph = ctx.graph
 
     # Map of symbol name to node ID
     symbol_map = {}

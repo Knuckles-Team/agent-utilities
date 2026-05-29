@@ -199,6 +199,55 @@ class A2AClient:
 
         return f"BFT Error: Consensus failed (max agreement {consensus_ratio * 100:.1f}% < {threshold * 100:.1f}%)"
 
+    async def execute_multisig_mutation(
+        self, urls: list[str], query: str, signatures: list[str], threshold: int
+    ) -> Any:
+        """CONCEPT:OS-5.5 — Multi-sig Cryptographic Mutation.
+        Executes a mutating task on remote peers, requiring valid cryptographic signatures
+        from multiple authorized departments before the mutation is committed.
+
+        Args:
+            urls: List of peer A2A URLs.
+            query: The mutating task query.
+            signatures: List of cryptographic signatures from authorizing agents.
+            threshold: Minimum number of signatures required.
+
+        Returns:
+            The execution result or error message if authorization fails.
+        """
+        import asyncio
+
+        if len(signatures) < threshold:
+            logger.warning(
+                "Multi-sig mutation rejected: %d/%d signatures",
+                len(signatures),
+                threshold,
+            )
+            return f"Authorization Error: Insufficient signatures ({len(signatures)} < {threshold})"
+
+        # Serialize signatures into the query context for the remote peers to verify
+        sig_context = "\\n## AUTHORIZATION\\nMulti-sig Threshold Met:\\n" + "\\n".join(
+            f"- {s}" for s in signatures
+        )
+        auth_query = f"{query}\\n{sig_context}"
+
+        # Execute across peers
+        tasks = [self.execute_task(url, auth_query) for url in urls]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        valid_results = [
+            r
+            for r in results
+            if not isinstance(r, Exception) and not str(r).startswith("Error:")
+        ]
+
+        if not valid_results:
+            return (
+                "Multi-sig Execution Error: All peers failed to execute the mutation."
+            )
+
+        return valid_results[0]  # Return the first successful mutation confirmation
+
 
 # --- Registry Utilities (Graph-Native Fallbacks) ---
 

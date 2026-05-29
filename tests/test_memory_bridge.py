@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 
@@ -35,7 +35,7 @@ def engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
 
     # Seed with test data
     g.add_node(

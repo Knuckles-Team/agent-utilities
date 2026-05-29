@@ -250,7 +250,7 @@ class MemoryMixin(_Base):
 
     def get_memory(self, memory_id: str) -> dict[str, Any] | None:
         """Retrieve a specific memory by ID from the graph."""
-        # Check NetworkX first (in-memory)
+        # Check graph compute first (in-memory)
         if memory_id in self.graph:
             return {"id": memory_id, **self.graph.nodes[memory_id]}
         # Fallback to persistent backend

@@ -20,9 +20,7 @@ else:
 import logging
 from typing import Any
 
-import networkx as nx
-
-from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
+from ...models.knowledge_graph import RegistryNodeType
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +51,7 @@ class QueryMixin(_Base):
 
         if not self.backend:
             logger.warning(
-                "GraphBackend not initialized; using basic NetworkX fallback for Cypher query."
+                "GraphBackend not initialized; using basic graph compute fallback for Cypher query."
             )
             return self._query_nx_fallback(query, params, clearance_level)
         return self.backend.execute(query, params)
@@ -64,23 +62,26 @@ class QueryMixin(_Base):
         params: dict[str, Any] | None = None,
         clearance_level: int = 999,
     ) -> list[dict[str, Any]]:
-        """Basic fallback to NetworkX for simple Cypher queries (MATCH ... RETURN)."""
+        """Basic fallback to graph compute for simple Cypher queries (MATCH ... RETURN)."""
         query_lower = query.lower()
         results = []
 
         # Case 1: Pull recent failures
         if "o:outcomeevaluation" in query_lower and "reward < 0.5" in query_lower:
             # MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward < 0.5
-            for u, v, data in self.graph.edges(data=True):
-                if data.get("type") == "PRODUCED_OUTCOME":
-                    o_data = self.graph.nodes.get(v, {})
+            for node_id in self.graph.node_ids():
+                data = self.graph._get_node_properties(node_id)
+                for succ in self.graph.get_successors(node_id):
                     if (
-                        o_data.get("type") == RegistryNodeType.OUTCOME_EVALUATION
-                        and o_data.get("reward", 1.0) < 0.5
+                        data.get("type") == RegistryNodeType.OUTCOME_EVALUATION
+                        and data.get("reward", 1.0) < 0.5
                     ):
-                        e_data = self.graph.nodes.get(u, {})
+                        e_data = self.graph._get_node_properties(node_id)
                         results.append(
-                            {"id": u, "description": e_data.get("description", "")}
+                            {
+                                "id": node_id,
+                                "description": e_data.get("description", ""),
+                            }
                         )
             return results
 
@@ -93,27 +94,25 @@ class QueryMixin(_Base):
             logger.info("NX Fallback: Searching for successful episodes...")
             # MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward >= 0.8
             # MATCH (e)-[:USED_TOOL]->(t:ToolCall)
-            for e_id, e_data in self.graph.nodes(data=True):
-                # logger.info(f"Checking node {e_id} type={e_data.get('type')}")
+            for e_id in self.graph.node_ids():
+                e_data = self.graph._get_node_properties(e_id)
                 n_type = str(e_data.get("type", "")).lower()
                 if n_type == "episode" or "episode" in n_type:
                     # Check reward
                     has_reward = False
-                    for _, v, d in self.graph.out_edges(e_id, data=True):
-                        logger.info(f"  Checking edge {e_id}->{v} type={d.get('type')}")
-                        if d.get("type") == "PRODUCED_OUTCOME":
-                            o_data = self.graph.nodes.get(v, {})
-                            logger.info(
-                                f"    Found outcome node {v} reward={o_data.get('reward')}"
-                            )
-                            if o_data.get("reward", 0.0) >= 0.8:
-                                has_reward = True
-                                break
+                    for v in self.graph.get_successors(e_id):
+                        o_data = self.graph._get_node_properties(v)
+                        logger.info(
+                            f"  Checking edge {e_id}->{v} reward={o_data.get('reward')}"
+                        )
+                        if o_data.get("reward", 0.0) >= 0.8:
+                            has_reward = True
+                            break
                     if has_reward:
-                        logger.info(f"NX Fallback: Found successful episode {e_id}")
-                        for _, v, d in self.graph.out_edges(e_id, data=True):
-                            if d.get("type") == "USED_TOOL":
-                                t_data = self.graph.nodes.get(v, {})
+                        logger.info(f"GCE Fallback: Found successful episode {e_id}")
+                        for v2 in self.graph.get_successors(e_id):
+                            t_data = self.graph._get_node_properties(v2)
+                            if str(t_data.get("type", "")).lower() == "tool_call":
                                 results.append(
                                     {
                                         "ep_id": e_id,
@@ -121,7 +120,7 @@ class QueryMixin(_Base):
                                         "ts": t_data.get("timestamp", ""),
                                     }
                                 )
-            logger.info(f"NX Fallback: Found {len(results)} tool calls.")
+            logger.info(f"GCE Fallback: Found {len(results)} tool calls.")
             return results
 
         return []
@@ -167,9 +166,10 @@ class QueryMixin(_Base):
                 except Exception as e:
                     logger.debug(f"Backend keyword search failed: {e}")
 
-        # 2. Search NetworkX for name/ID matches
+        # 2. Search GCE for name/ID matches
         if not results:
-            for node_id, data in self.graph.nodes(data=True):
+            for node_id in self.graph.node_ids():
+                data = self.graph._get_node_properties(node_id)
                 # RBAC Enforcement Fallback
                 req_class = data.get("requiresClassification", 0)
                 if isinstance(req_class, int) and req_class > clearance_level:
@@ -286,12 +286,12 @@ class QueryMixin(_Base):
             next_frontier: list[tuple[str, list]] = []
 
             for node_id, path in frontier:
-                if node_id not in self.graph:
+                if not self.graph.has_node(node_id):
                     continue
 
                 # Expand neighbors (both directions)
-                neighbors = list(self.graph.successors(node_id)) + list(
-                    self.graph.predecessors(node_id)
+                neighbors = list(self.graph.get_successors(node_id)) + list(
+                    self.graph.get_predecessors(node_id)
                 )
 
                 for neighbor_id in neighbors:
@@ -299,19 +299,13 @@ class QueryMixin(_Base):
                         continue
                     seen.add(neighbor_id)
 
-                    # Get edge data
-                    edge_data = self.graph.get_edge_data(node_id, neighbor_id) or {}
-                    if not edge_data:
-                        edge_data = self.graph.get_edge_data(neighbor_id, node_id) or {}
-                    edge_type = str(edge_data.get("type", "RELATED"))
-
                     # Get node data
-                    node_data = dict(self.graph.nodes.get(neighbor_id, {}))
+                    node_data = dict(self.graph._get_node_properties(neighbor_id))
                     node_data["id"] = neighbor_id
                     node_data["hop_depth"] = hop
 
                     if evidence_chain:
-                        node_data["evidence_path"] = path + [(neighbor_id, edge_type)]
+                        node_data["evidence_path"] = path + [(neighbor_id, "RELATED")]
 
                     # Score decay: further hops get lower scores
                     base_score = float(node_data.get("importance_score", 0.5))
@@ -339,26 +333,48 @@ class QueryMixin(_Base):
     def query_impact(self, symbol_or_file: str) -> list[dict[str, Any]]:
         """Calculate the topological impact set for a code entity."""
         target_id = symbol_or_file
-        if target_id not in self.graph:
+        if not self.graph.has_node(target_id):
             # Try fuzzy match by name
-            for node, data in self.graph.nodes(data=True):
+            for node in self.graph.node_ids():
+                data = self.graph._get_node_properties(node)
                 if data.get("name") == symbol_or_file:
                     target_id = node
                     break
 
-        if target_id not in self.graph:
+        if not self.graph.has_node(target_id):
             return []
 
-        # Ancestors in our graph (where edges mean 'depends on' or 'contains') are the impact set
-        impact_nodes = nx.ancestors(self.graph, target_id)
-        return [{"id": n, **self.graph.nodes[n]} for n in impact_nodes]
+        # Ancestors via BFS on predecessors
+        ancestors: set[str] = set()
+        frontier = set(self.graph.get_predecessors(target_id))
+        while frontier:
+            next_frontier: set[str] = set()
+            for n in frontier:
+                if n not in ancestors:
+                    ancestors.add(n)
+                    next_frontier.update(self.graph.get_predecessors(n))
+            frontier = next_frontier - ancestors
+        return [{"id": n, **self.graph._get_node_properties(n)} for n in ancestors]
 
     def find_path(self, source: str, target: str) -> list[str]:
-        """Find the shortest logical path between two nodes."""
-        try:
-            return nx.shortest_path(self.graph, source, target)
-        except (nx.NodeNotFound, nx.NetworkXNoPath):
+        """Find the shortest logical path between two nodes via BFS."""
+        if not self.graph.has_node(source) or not self.graph.has_node(target):
             return []
+        # BFS shortest path
+        from collections import deque
+
+        visited: set[str] = {source}
+        queue: deque[list[str]] = deque([[source]])
+        while queue:
+            path = queue.popleft()
+            current = path[-1]
+            if current == target:
+                return path
+            for neighbor in self.graph.get_successors(current):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(path + [neighbor])
+        return []
 
     def get_shortest_path(self, source: str, target: str) -> list[str]:
         """Alias for find_path."""
@@ -367,21 +383,20 @@ class QueryMixin(_Base):
     def get_agent_tools(self, agent_name: str) -> list[str]:
         """Get all tools provided by a specific agent."""
         tools = []
-        if agent_name in self.graph:
-            for u, v, data in self.graph.out_edges(agent_name, data=True):
-                if data.get("type") == RegistryEdgeType.PROVIDES:
-                    tools.append(v.replace("tool:", ""))
+        if self.graph.has_node(agent_name):
+            for v in self.graph.get_successors(agent_name):
+                # Edge type info not directly available in GCE
+                tools.append(v.replace("tool:", ""))
         return tools
 
     def find_agent_for_tool(self, tool_name: str) -> list[str]:
         """Find all agents that provide a specific tool."""
         agents = []
         tool_id = f"tool:{tool_name}"
-        if tool_id not in self.graph:
+        if not self.graph.has_node(tool_id):
             return []
-        for u, v, data in self.graph.in_edges(tool_id, data=True):
-            if data.get("type") == RegistryEdgeType.PROVIDES:
-                agents.append(u)
+        for u in self.graph.get_predecessors(tool_id):
+            agents.append(u)
         return agents
 
     def run_inference(self) -> int:
@@ -484,7 +499,10 @@ class QueryMixin(_Base):
         if query:
             results = self.search_hybrid(query, top_k=top_k * 2)
         else:
-            results = [{"id": nid, **data} for nid, data in self.graph.nodes(data=True)]
+            results = [
+                {"id": nid, **self.graph._get_node_properties(nid)}
+                for nid in self.graph.node_ids()
+            ]
 
         for r in results:
             rid = r.get("id", "")
@@ -544,7 +562,8 @@ class QueryMixin(_Base):
     def list_callable_resources(self) -> list[dict[str, Any]]:
         """List all callable resources (MCP tools, A2A agents, skills)."""
         resources = []
-        for n, data in self.graph.nodes(data=True):
+        for n in self.graph.node_ids():
+            data = self.graph._get_node_properties(n)
             if data.get("type") == RegistryNodeType.CALLABLE_RESOURCE:
                 resources.append({"id": n, **data})
         return resources
@@ -677,9 +696,10 @@ class QueryMixin(_Base):
                         contra_node["_target_claim"] = claim_id
                         contradicting.append(contra_node)
         else:
-            # NetworkX fallback
+            # GCE fallback
             query_lower = query.lower()
-            for node_id, data in self.graph.nodes(data=True):
+            for node_id in self.graph.node_ids():
+                data = self.graph._get_node_properties(node_id)
                 node_type = str(data.get("type", "")).lower()
                 if node_type in ("claim", "evidence"):
                     claim_text = str(
@@ -697,9 +717,9 @@ class QueryMixin(_Base):
             # Find supporting/contradicting edges for found beliefs
             for belief in beliefs:
                 belief_id = belief.get("id", "")
-                for u, v, edata in self.graph.in_edges(belief_id, data=True):
-                    edge_type = str(edata.get("type", "")).lower()
-                    source_data = dict(self.graph.nodes.get(u, {}))
+                for u in self.graph.get_predecessors(belief_id):
+                    edge_type = "related"  # Default when edge props unavailable
+                    source_data = dict(self.graph._get_node_properties(u))
                     source_data["id"] = u
                     source_data["_target_claim"] = belief_id
 

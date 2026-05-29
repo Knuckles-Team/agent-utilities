@@ -45,7 +45,7 @@ async def execute_knowledge_base(
         from ...kb.ingestion import KBIngestionEngine
 
         engine = KBIngestionEngine(
-            graph=ctx.nx_graph,
+            graph=ctx.graph,
             backend=ctx.backend,
             chunk_size=ctx.config.kb_chunk_size,
         )

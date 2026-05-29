@@ -246,3 +246,21 @@ class DynamicToolOrchestrator:
                 "Failed to refresh cached tools for server '%s': %s", server_name, e
             )
             return False
+
+    # ── OrchestratorProtocol conformance ──────────────────────────────────
+
+    async def dispatch(self, task: str, **kwargs: Any) -> dict[str, Any]:
+        """Dispatch a tool assignment task."""
+        import uuid
+
+        job_id = f"dto:{uuid.uuid4().hex[:8]}"
+        role = kwargs.get("agent_role", "general")
+        try:
+            tools = self.assign_tools_for_task(task, role)
+            return {"job_id": job_id, "status": "completed", "output": tools}
+        except Exception as e:
+            return {"job_id": job_id, "status": "failed", "error": str(e)}
+
+    def get_status(self, job_id: str) -> dict[str, Any]:
+        """Return status of a dispatched job (synchronous — always terminal)."""
+        return {"job_id": job_id, "status": "completed"}

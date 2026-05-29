@@ -12,7 +12,7 @@ from agent_utilities.security.browser_auth import (
     BaseBrowserAuthManager,
     generate_pkce,
 )
-from agent_utilities.security.secrets_client import InMemoryBackend, SecretsClient
+from agent_utilities.security.secrets_client import InEpistemicGraphBackend, SecretsClient
 
 
 class TestBaseBrowserAuthManager:
@@ -20,9 +20,9 @@ class TestBaseBrowserAuthManager:
 
     @pytest.fixture
     def mock_secrets_client(self):
-        """Create an InMemoryBackend SecretsClient for testing."""
+        """Create an InEpistemicGraphBackend SecretsClient for testing."""
         client = MagicMock(spec=SecretsClient)
-        client.backend = MagicMock(spec=InMemoryBackend)
+        client.backend = MagicMock(spec=InEpistemicGraphBackend)
 
         storage: dict[str, str] = {}
 

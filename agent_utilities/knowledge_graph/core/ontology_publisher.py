@@ -44,7 +44,7 @@ class OntologyPublisher:
         publisher.push_to_stardog(rdf_graph, endpoint="http://stardog:5820")
 
         # Push to Fuseki
-        publisher.push_to_fuseki(rdf_graph, endpoint="http://fuseki:3030")
+        publisher.push_to_jena_fuseki(rdf_graph, endpoint="http://jena_fuseki:3030")
     """
 
     def export_ontology(
@@ -185,7 +185,7 @@ class OntologyPublisher:
             logger.error("Stardog push failed: %s", e)
             return {"status": "error", "error": str(e)}
 
-    def push_to_fuseki(
+    def push_to_jena_fuseki(
         self,
         rdf_graph: Any,
         endpoint: str | None = None,

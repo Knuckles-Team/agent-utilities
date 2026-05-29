@@ -5,7 +5,7 @@ from __future__ import annotations
 
 Integrates event-sourcing with the unified IntelligenceGraphEngine and KGMapper.
 Events are represented as standard EventNode instances, making them fully
-compatible with LadybugDB, Neo4j, PostgreSQL, and memory-only NetworkX fallbacks.
+compatible with LadybugDB, Neo4j, PostgreSQL, and memory-only graph compute fallbacks.
 
 Ontological Synergy:
     - Stores event traces as standard 'Event' classes in the OWL ontology.
@@ -77,7 +77,7 @@ class EventLedger:
         """Idempotently append a new event to the ledger.
 
         Ontologically persists the event to the active database (Neo4j,
-        Ladybug, PostgreSQL, or NetworkX) and links it chronologically
+        Ladybug, PostgreSQL, or GraphComputeEngine) and links it chronologically
         via 'was_derived_from' and 'occurred_during' edges.
 
         Args:

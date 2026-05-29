@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 0.22.2*
+*Version: 0.23.0*
 
 ## Table of Contents
 
@@ -65,9 +65,9 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 ## Key Features
 
 - **[Multi-Domain Expert System](docs/guides/features.md#comprehensive-feature-list)**: Scale across finance, medical, and scientific domains using Vectorized Topological Memory and specialized MCP tools.
-- **[Unified Intelligence Graph](docs/guides/features.md#comprehensive-feature-list)**: A topological pipeline combining in-memory NetworkX analysis with persistent Cypher (LadybugDB/Neo4j/Falkor) backends.
+- **[Unified Intelligence Graph](docs/guides/features.md#comprehensive-feature-list)**: A topological pipeline combining native Rust in-memory processing (`EpistemicGraphBackend`) with persistent Cypher (LadybugDB/Neo4j) and OWL (Apache Jena Fuseki) backends.
 - **[Centralized Sessions & Goals (API-First Gateway)](docs/centralized_kg_coordination.md#7-centralized-sessions--autonomous-goal-coordination)**: A highly-resilient, centralized REST API gateway running on Port `8100` that handles background goal loops, durable turns, and user session reply orchestration.
-- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.6-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` providing fast AST parsing, VF2 subgraph matching, and a Reactive State Ledger designed to scale seamlessly up to 100,000,000 concurrent agents.
+- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.6-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` running over high-speed Unix Sockets, providing fast AST parsing, VF2 subgraph matching, and a Redpanda-backed Reactive State Ledger designed to scale seamlessly up to 100,000,000 concurrent agents.
 - **[Spec-Driven Development (SDD)](docs/guides/features.md#spec-driven-development-sdd-lifecycle)**: High-fidelity orchestration that decomposes goals into structured specs, implementation plans, and parallel tasks.
 - **[Emergent Architecture](docs/guides/features.md#emergent-architecture-conceptkg-20-through-conceptorch-12)**: Dynamic AgentCapability auto-activation, TeamConfig coalition promotion, and evolutionary skill refinement via self-models.
 - **[Agent OS & Safety](docs/guides/features.md#human-in-the-loop--tool-safety)**: Built-in Universal Tool Guards, structural vulnerability scanning, and transparent process lifecycle management.

@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-import networkx as nx
+# Rust-native graph compute — using GraphComputeEngine
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
@@ -783,7 +783,7 @@ class TopologicalScanner:
     def __init__(
         self,
         analogy_engine: TopologicalAnalogyEngine,
-        known_risk_topologies: list[nx.MultiDiGraph],
+        known_risk_topologies: list[Any],
     ):
         """Initializes the topological scanner.
 

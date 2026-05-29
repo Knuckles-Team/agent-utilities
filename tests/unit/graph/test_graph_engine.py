@@ -1,6 +1,6 @@
 """CONCEPT:ORCH-1.0"""
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import (
@@ -18,14 +18,16 @@ def test_cosine_similarity():
 
 
 @pytest.fixture
-def engine(monkeypatch):
+def engine(monkeypatch, request):
     # Isolate from any active backend singleton set by earlier tests
     # so IntelligenceGraphEngine.__init__ does not pick up a polluted backend.
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.core.engine.get_active_backend",
         lambda: None,
     )
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    for node in g.node_ids():
+        g.remove_node(node)
     return IntelligenceGraphEngine(graph=g)
 
 
@@ -57,7 +59,7 @@ def test_query_impact(engine):
 
     impact = engine.query_impact("C")
     # A and B are ancestors of C if edges go A->B->C
-    # nx.ancestors(G, "C") returns {"A", "B"}
+    # engine.get_predecessors(G, "C") returns {"A", "B"}
     assert len(impact) == 2
     ids = [n["id"] for n in impact]
     assert "A" in ids

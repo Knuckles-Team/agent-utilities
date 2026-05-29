@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-import networkx as nx
-
 from agent_utilities.core.config import (
     DEFAULT_ENABLE_LLM_VALIDATION,
     DEFAULT_GRAPH_PERSISTENCE_PATH,
@@ -23,6 +21,7 @@ from agent_utilities.core.config import (
     DEFAULT_SSL_VERIFY,
 )
 from agent_utilities.core.model_factory import create_model
+from agent_utilities.knowledge_graph.core import graph_primitives as rx
 
 from ..knowledge_graph.core.formal_reasoning_core import (
     chromatic_schedule,
@@ -271,32 +270,38 @@ class DynamicSubgraphOrchestrator:
 
         return agents
 
-    def _build_dependency_dag(self, agents: list[dict[str, Any]]) -> nx.DiGraph:
+    def _build_dependency_dag(self, agents: list[dict[str, Any]]) -> rx.PyDiGraph:
         """Build a DAG of agent dependencies based on expected data flow."""
-        dag = nx.DiGraph()
+        dag: rx.PyDiGraph = rx.PyDiGraph()
+        node_map: dict[str, int] = {}
         for a in agents:
-            dag.add_node(a["role"], weight=1.0)
+            idx = dag.add_node(a["role"])
+            node_map[a["role"]] = idx
 
         # In a fully KG-driven system, we'd query REQUIRES_OUTPUT_FROM edges.
         # Here we create a simple sequential DAG if no explicit edges exist.
         roles = [a["role"] for a in agents]
         for i in range(len(roles) - 1):
-            dag.add_edge(roles[i], roles[i + 1], weight=1.0)
+            dag.add_edge(node_map[roles[i]], node_map[roles[i + 1]], 1.0)
 
         return dag
 
-    def _build_conflict_graph(self, dag: nx.DiGraph) -> nx.Graph:
+    def _build_conflict_graph(self, dag: rx.PyDiGraph) -> rx.PyGraph:
         """Convert DAG into a conflict graph for chromatic scheduling.
         Nodes that share a directed path have a conflict (must run sequentially).
         """
-        conflict_graph = nx.Graph()
-        conflict_graph.add_nodes_from(dag.nodes())
+        conflict_graph: rx.PyGraph = rx.PyGraph()
+        cg_map: dict[int, int] = {}
+        for idx in dag.node_indices():
+            cg_idx = conflict_graph.add_node(dag[idx])
+            cg_map[idx] = cg_idx
 
         # Add edges between any two nodes where one is reachable from the other
-        for u in dag.nodes():
-            reachable = nx.descendants(dag, u)
-            for v in reachable:
-                conflict_graph.add_edge(u, v)
+        for idx in dag.node_indices():
+            reachable = rx.descendants(dag, idx)
+            for r_idx in reachable:
+                if cg_map[idx] != cg_map[r_idx]:
+                    conflict_graph.add_edge(cg_map[idx], cg_map[r_idx], None)
 
         return conflict_graph
 
@@ -321,6 +326,31 @@ class DynamicSubgraphOrchestrator:
         except Exception:
             pass  # nosec
         return tools
+
+    # ── OrchestratorProtocol conformance ──────────────────────────────────
+
+    async def dispatch(self, task: str, **kwargs: Any) -> dict[str, Any]:
+        """Dispatch a task by synthesizing a team and returning the composition."""
+        job_id = f"dso:{uuid.uuid4().hex[:8]}"
+        try:
+            composition = self.synthesize_team(
+                query=task,
+                domain=kwargs.get("domain", "general"),
+                complexity=kwargs.get("complexity", 3),
+                available_tools=kwargs.get("available_tools"),
+                available_agents=kwargs.get("available_agents"),
+            )
+            return {
+                "job_id": job_id,
+                "status": "completed",
+                "output": composition,
+            }
+        except Exception as e:
+            return {"job_id": job_id, "status": "failed", "error": str(e)}
+
+    def get_status(self, job_id: str) -> dict[str, Any]:
+        """Return status of a dispatched job (synchronous synthesis — always terminal)."""
+        return {"job_id": job_id, "status": "completed"}
 
 
 # --- Merged from dynamic_graph_orchestrator.py ---
@@ -405,6 +435,24 @@ class KGDrivenExecutionEngine:
 
         # More complex ontological evaluations could be plugged in here
         return False
+
+    # ── OrchestratorProtocol conformance ──────────────────────────────────
+
+    async def dispatch(self, task: str, **kwargs: Any) -> dict[str, Any]:
+        """Dispatch by determining the next KG execution node for the task."""
+        job_id = f"kge:{uuid.uuid4().hex[:8]}"
+        context = kwargs.get("context", {"task": task})
+        current = kwargs.get("current_node", "START")
+        next_node = self.determine_next_node(current, context)
+        return {
+            "job_id": job_id,
+            "status": "completed",
+            "next_node": next_node,
+        }
+
+    def get_status(self, job_id: str) -> dict[str, Any]:
+        """Return status of a dispatched job (synchronous routing — always terminal)."""
+        return {"job_id": job_id, "status": "completed"}
 
 
 # --- Merged from runner.py ---

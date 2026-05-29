@@ -10,7 +10,7 @@ import os
 import shutil
 import tempfile
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend
@@ -29,7 +29,7 @@ def temp_db():
 
 @pytest.fixture
 def engine(temp_db):
-    nx_graph = nx.MultiDiGraph()
+    nx_graph = GraphComputeEngine(backend_type="rust")
     backend = LadybugBackend(temp_db)
     backend.create_schema()
     eng = IntelligenceGraphEngine(nx_graph, backend=backend)
@@ -421,7 +421,7 @@ class TestMaintenance:
 
 
 class TestGraphAlgorithms:
-    """Test NetworkX-powered analysis on the graph."""
+    """Test graph compute analysis on the graph."""
 
     def test_impact_analysis(self, engine):
         engine.graph.add_node("mod:auth", type="module", name="auth")

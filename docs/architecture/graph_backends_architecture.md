@@ -2,7 +2,8 @@
 
 The Knowledge Graph engine supports multiple backend implementations through a
 unified `GraphBackend` abstract interface. All backends provide the same core
-capabilities: Cypher query execution, vector search, and node/edge CRUD.
+capabilities: Cypher query execution, vector search, node/edge CRUD, and
+optional SPARQL support.
 
 ## Architecture Overview
 
@@ -13,7 +14,10 @@ graph TB
         C["KG-2.0: add_node()"] --> B
         D["KG-2.0: link_nodes()"] --> B
         E["KG-2.3: search_hybrid()"] --> F["KG-2.3: backend.semantic_search()"]
-        G["KG-2.0: load_subgraph()"] --> H["NetworkX\n(Tier 2 Compute)"]
+        G["KG-2.0: load_subgraph()"] --> H["Rust GraphComputeEngine\n(Tier 2 Compute)"]
+        QR["KG-2.20: QueryRouter"] --> B
+        QR --> H
+        QR --> F
     end
 
     B --> I{"KG-2.0: Backend Type?"}
@@ -38,25 +42,31 @@ graph TB
         F --> Q["KG-2.3: ParadeDB BM25\n(Lexical Search)"]
     end
 
+    subgraph "SPARQL Backends"
+        I -->|jena_fuseki| S1["Jena Fuseki / EpistemicGraph Compute In-Memory\n(pyjena_fuseki)"]
+        I -->|fuseki| S2["Apache Fuseki\n(HTTP SPARQL)"]
+    end
+
     subgraph "Memory (Testing)"
-        I -->|memory| R["NetworkX\nIn-Memory"]
+        I -->|memory| R["GraphComputeEngine\nIn-Memory"]
     end
 ```
 
 ## Backend Comparison
 
-| Capability | LadybugDB | Neo4j | FalkorDB | PostgreSQL + pgGraph | Memory |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **Status** | Production | Production | Production | **Production** | Testing |
-| Cypher Support | Native | Native | Native | Transpiled | Basic |
-| Vector Search (HNSW) | ✅ | ✅ | ✅ | ✅ pgvector | ✅ NumPy |
-| BM25 Lexical Search | — | — | — | ✅ ParadeDB | — |
-| Graph Traversal | Cypher | Cypher | Cypher | ✅ pgGraph CSR | NetworkX |
-| Connection Pooling | — | ✅ | — | ✅ psycopg_pool | — |
-| ACID Transactions | SQLite WAL | ✅ | — | ✅ | — |
-| Multi-Agent Concurrent | File Lock | ✅ | ✅ | ✅ | — |
-| Persistence | File | Server | Redis | Server | None |
-| Zero Config | ✅ | — | — | — | ✅ |
+| Capability | LadybugDB | Neo4j | FalkorDB | PostgreSQL + pgGraph | Jena Fuseki / EpistemicGraph Compute | Fuseki | Memory |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Status** | Production | Production | Production | **Production** | Production | Production | Testing |
+| Cypher Support | Native | Native | Native | Transpiled | Transpiled | Transpiled | Basic |
+| SPARQL Support | — | — | — | — | ✅ Native | ✅ Native | — |
+| Vector Search (HNSW) | ✅ | ✅ | ✅ | ✅ pgvector | ✅ Brute-force | ✅ Brute-force | ✅ Brute-force |
+| BM25 Lexical Search | — | — | — | ✅ ParadeDB | — | ✅ (Jena) | — |
+| Graph Traversal | Cypher | Cypher | Cypher | ✅ pgGraph CSR | SPARQL | SPARQL | Rust Engine |
+| Connection Pooling | — | ✅ | — | ✅ psycopg_pool | — | ✅ httpx | — |
+| ACID Transactions | SQLite WAL | ✅ | — | ✅ | — | ✅ TDB2 | — |
+| Multi-Agent Concurrent | File Lock | ✅ | ✅ | ✅ | — | ✅ | — |
+| Persistence | File | Server | Redis | Server | Optional | Server | None |
+| Zero Config | ✅ | — | — | — | ✅ | — | ✅ |
 
 ## PostgreSQL Backend Deep Dive
 
@@ -118,7 +128,7 @@ search requires pgvector.
 
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `ladybug` | Backend type: `memory`, `ladybug`, `neo4j`, `falkordb`, `postgresql` |
+| `GRAPH_BACKEND` | `ladybug` | Backend type: `memory`, `ladybug`, `neo4j`, `falkordb`, `postgresql`, `jena_fuseki`, `fuseki` |
 | `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for LadybugDB |
 | `GRAPH_DB_URI` | — | Connection URI for Neo4j or PostgreSQL |
 | `GRAPH_DB_HOST` | `localhost` | Host for FalkorDB |
@@ -129,6 +139,9 @@ search requires pgvector.
 | `GRAPH_POOL_MIN` | `2` | PostgreSQL pool minimum connections |
 | `GRAPH_POOL_MAX` | `10` | PostgreSQL pool maximum connections |
 | `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pgGraph table registration |
+| `OXIGRAPH_PERSISTENCE_PATH` | — | On-disk storage path for Jena Fuseki / EpistemicGraph Compute |
+| `GRAPH_FUSEKI_URL` | `http://localhost:3030` | Apache Fuseki server URL |
+| `GRAPH_FUSEKI_DATASET` | `agent_kg` | Fuseki dataset name |
 
 ### Quick Start: PostgreSQL
 
@@ -149,6 +162,7 @@ graph-os
 1. Inherit from `GraphBackend` in `backends/base.py`
 2. Implement all abstract methods: `execute()`, `execute_batch()`, `create_schema()`,
    `add_embedding()`, `semantic_search()`, `prune()`, `close()`
-3. Register in the `create_backend()` factory in `backends/__init__.py`
-4. Add optional dependency group to `pyproject.toml`
-5. Add integration tests
+3. Optionally override `supports_sparql` and `execute_sparql()` for SPARQL support
+4. Register in the `create_backend()` factory in `backends/__init__.py`
+5. Add optional dependency group to `pyproject.toml`
+6. Add integration tests

@@ -5,7 +5,7 @@ from __future__ import annotations
 """Coverage push for agent_utilities.knowledge_graph.pipeline.phases.*.
 
 Targets each phase's ``execute_fn`` via a mocked PipelineContext with a
-pre-seeded NetworkX graph.  Backend / external services are replaced with
+pre-seeded graph compute engine.  Backend / external services are replaced with
 MagicMock to avoid any I/O.
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
@@ -33,13 +33,18 @@ def _fake_backend() -> MagicMock:
 
 def _make_ctx(
     workspace_path: str = "/tmp/ws",
-    graph: nx.MultiDiGraph | None = None,
+    graph: GraphComputeEngine | None = None,
     backend: Any | None = None,
     **config_kwargs: Any,
 ) -> PipelineContext:
     """Build a PipelineContext with a given graph and backend."""
     cfg = PipelineConfig(workspace_path=workspace_path, **config_kwargs)
-    g = graph or nx.MultiDiGraph()
+    if graph is None:
+        g = GraphComputeEngine(backend_type="rust")
+        if g._client is not None:
+            g._client.clear()
+    else:
+        g = graph
     ctx = PipelineContext(config=cfg, nx_graph=g, backend=backend)
     return ctx
 
@@ -68,7 +73,7 @@ async def test_centrality_with_nodes() -> None:
         execute_centrality,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("a", type="file")
     g.add_node("b", type="file")
     g.add_edge("a", "b")
@@ -86,8 +91,8 @@ async def test_centrality_exception_branch(monkeypatch: pytest.MonkeyPatch) -> N
     def raise_pagerank(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("pagerank failed")
 
-    monkeypatch.setattr(centrality.nx, "pagerank", raise_pagerank)
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    monkeypatch.setattr(g, "pagerank", raise_pagerank)
     g.add_node("a")
     ctx = _make_ctx(graph=g)
     result = await centrality.execute_centrality(ctx, {})
@@ -118,7 +123,7 @@ async def test_communities_with_graph() -> None:
         execute_communities,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("a")
     g.add_node("b")
     g.add_edge("a", "b")
@@ -135,8 +140,8 @@ async def test_communities_louvain_fails(monkeypatch: pytest.MonkeyPatch) -> Non
     def raise_louvain(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("louvain failed")
 
-    monkeypatch.setattr(communities.nx.community, "louvain_communities", raise_louvain)
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    monkeypatch.setattr(g, "community_detection", raise_louvain)
     g.add_node("a")
     ctx = _make_ctx(graph=g)
     result = await communities.execute_communities(ctx, {})
@@ -167,7 +172,7 @@ async def test_mro_symbol_class_relationship() -> None:
         execute_mro,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "Parent",
         type="symbol",
@@ -195,7 +200,7 @@ async def test_mro_class_type_without_subtype() -> None:
         execute_mro,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("Parent", type="Class", name="Parent", args=[])
     g.add_node("Child", type="Class", name="Child", args=["Parent"])
     ctx = _make_ctx(graph=g)
@@ -210,7 +215,7 @@ async def test_mro_unknown_base_is_skipped() -> None:
         execute_mro,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "Child",
         type="symbol",
@@ -247,7 +252,7 @@ async def test_reference_resolves_calls() -> None:
         execute_reference,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("caller", type="symbol", name="caller")
     g.add_node("target", type="symbol", name="do_thing")
     g.add_edge(
@@ -268,7 +273,7 @@ async def test_reference_method_call_dot_notation() -> None:
         execute_reference,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("caller", type="Function", name="caller")
     g.add_node("method_target", type="Method", name="my_method")
     g.add_edge(
@@ -289,7 +294,7 @@ async def test_reference_unresolvable_skipped() -> None:
         execute_reference,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("caller", type="symbol", name="caller")
     g.add_edge("caller", "nowhere", type="calls_raw", raw="does_not_exist")
     ctx = _make_ctx(graph=g)
@@ -365,7 +370,7 @@ async def test_memory_create_backend_none_path(
 
 
 @pytest.mark.asyncio
-async def test_memory_backend_execute_raises(
+async def test_epistemic_graph_backend_execute_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Backend execute raising -> failed status."""
@@ -488,7 +493,7 @@ async def test_resolve_absolute_import_match() -> None:
         execute_resolve,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "src",
         type="file",
@@ -519,7 +524,7 @@ async def test_resolve_relative_import() -> None:
         execute_resolve,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "src",
         type="file",
@@ -618,7 +623,9 @@ async def test_sync_happy_path() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    if g._client:
+        g._client.clear()
     g.add_node("n1", type="tool", name="t1")
     g.add_node("n2", type="agent", name="a1")
     g.add_edge("n1", "n2", type="uses")
@@ -636,7 +643,9 @@ async def test_sync_unknown_type_fallback() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    if g._client:
+        g._client.clear()
     g.add_node("n1", type="some_custom_type", name="x")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
@@ -651,7 +660,9 @@ async def test_sync_node_without_type_skipped() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    if g._client:
+        g._client.clear()
     g.add_node("n1")  # No type attr
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
@@ -667,7 +678,9 @@ async def test_sync_edge_type_filtered_to_alnum() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    if g._client:
+        g._client.clear()
     g.add_node("n1", type="tool", name="t")
     g.add_node("n2", type="tool", name="t2")
     g.add_edge("n1", "n2", type="has-child!@#")
@@ -684,7 +697,9 @@ async def test_sync_edge_type_all_filtered_empty_skipped() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    if g._client:
+        g._client.clear()
     g.add_node("n1", type="tool", name="t")
     g.add_node("n2", type="tool", name="t2")
     g.add_edge("n1", "n2", type="!@#$%")  # All non-alnum
@@ -708,7 +723,7 @@ async def test_sync_node_execute_raises() -> None:
         raise RuntimeError("db error")
 
     backend.execute_batch.side_effect = boom
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("n1", type="tool", name="t")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
@@ -874,7 +889,7 @@ async def test_embedding_no_candidate_nodes() -> None:
         execute_embedding,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     # Nodes without any text fields
     g.add_node("n1")
     g.add_node("n2", name="a")  # Too short
@@ -891,7 +906,7 @@ async def test_embedding_already_embedded_nodes_skipped() -> None:
         execute_embedding,
     )
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "n1",
         name="already embedded",
@@ -914,7 +929,7 @@ async def test_embedding_with_http_success(
 
     monkeypatch.setattr(embedding, "_generate_embedding_batch", fake_batch)
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "n1",
         name="long enough name string for embedding",
@@ -938,7 +953,7 @@ async def test_embedding_http_fails_fallback_used(
         return [[0.4, 0.5] for _ in texts]
 
     monkeypatch.setattr(embedding, "_generate_embedding_llamaindex", fake_llama)
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "n1",
         name="long enough name string for embedding",
@@ -958,7 +973,7 @@ async def test_embedding_both_fail_error_count(
 
     monkeypatch.setattr(embedding, "_generate_embedding_batch", lambda t: None)
     monkeypatch.setattr(embedding, "_generate_embedding_llamaindex", lambda t: None)
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "n1",
         name="long enough name string for embedding",
@@ -980,7 +995,7 @@ async def test_embedding_with_content_field(
         return [[0.1] for _ in texts]
 
     monkeypatch.setattr(embedding, "_generate_embedding_batch", fake_batch)
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("n1", content="this is long enough content text")
     ctx = _make_ctx(graph=g)
     result = await embedding.execute_embedding(ctx, {})

@@ -66,3 +66,49 @@ def cleanup_build_artifacts():
     # Clean up the temporary test DB directory
     if os.path.isdir(_test_db_dir):
         shutil.rmtree(_test_db_dir, ignore_errors=True)
+
+
+import subprocess
+import time
+import socket
+
+@pytest.fixture(scope="session", autouse=True)
+def start_epistemic_graph_server():
+    import os
+    if os.environ.get("AGENT_UTILITIES_TESTING") == "true":
+        # Check if epistemic-graph is built, if not build it
+        rust_dir = os.path.join(os.path.dirname(__file__), "../../epistemic-graph")
+        rust_dir = os.path.abspath(rust_dir)
+        socket_path = "/tmp/test_epistemic_graph.sock"
+
+        if os.path.exists(socket_path):
+            os.remove(socket_path)
+
+        print("Starting epistemic-graph-server...")
+        # Build first
+        subprocess.run(["cargo", "build"], cwd=rust_dir, check=False)
+
+        # Start server
+        process = subprocess.Popen(
+            ["cargo", "run", "--bin", "epistemic-graph-server", "--", "--socket-path", socket_path],
+            cwd=rust_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        # Wait for socket to be ready
+        for _ in range(30):
+            if os.path.exists(socket_path):
+                break
+            time.sleep(0.5)
+
+        # Set environment variable so the client connects to this socket
+        os.environ["GRAPH_SERVICE_SOCKET"] = socket_path
+
+        yield process
+
+        # Cleanup
+        process.terminate()
+        process.wait()
+        if os.path.exists(socket_path):
+            os.remove(socket_path)

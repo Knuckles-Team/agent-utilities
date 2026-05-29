@@ -4,7 +4,7 @@
 import logging
 import time
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from ...models.knowledge_graph import PipelineConfig, RegistryGraphMetadata
 from ..backends.base import GraphBackend
@@ -20,7 +20,7 @@ class IntelligencePipeline:
 
     def __init__(self, config: PipelineConfig, backend: GraphBackend | None = None):
         self.config = config
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine()
         self.metadata = RegistryGraphMetadata()
         self.backend = backend
 
@@ -33,7 +33,7 @@ class IntelligencePipeline:
         logger.info("Starting Unified Intelligence Pipeline...")
 
         ctx = PipelineContext(
-            config=self.config, nx_graph=self.graph, backend=self.backend
+            config=self.config, graph=self.graph, backend=self.backend
         )
         ctx.metadata["ingestion_timestamp"] = run_start_timestamp
 
@@ -52,7 +52,7 @@ class IntelligencePipeline:
             results = await runner.run(ctx)
 
             # Update metadata from results
-            self.metadata.node_count = self.graph.number_of_nodes()
+            self.metadata.node_count = len(self.graph.node_ids())
             self.metadata.edge_count = self.graph.number_of_edges()
 
             if "registry" in results and results["registry"].success:

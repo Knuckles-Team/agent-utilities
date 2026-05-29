@@ -496,6 +496,33 @@ class PermissionsKernel:
         logger.info("Synced %d nodes to KG", synced)
         return synced
 
+    def apply_multisig_mutation(
+        self, signatures: list[str], threshold: int, mutation_type: str, query: str
+    ) -> str:
+        """Apply a mutation to the graph using zero-trust consensus signatures."""
+        if len(signatures) < threshold:
+            raise ValueError(
+                f"Insufficient signatures: {len(signatures)} < {threshold}"
+            )
+
+        if (
+            self.engine
+            and hasattr(self.engine.graph, "_client")
+            and self.engine.graph._client
+        ):
+            try:
+                return self.engine.graph._client.apply_multisig_mutation(
+                    signatures=signatures,
+                    threshold=threshold,
+                    mutation_type=mutation_type,
+                    query=query,
+                )
+            except Exception as e:
+                logger.error(f"Multi-sig mutation failed in Rust backend: {e}")
+                raise
+
+        return "Rust backend unavailable for multi-sig mutation."
+
     # ── Private Helpers ────────────────────────────────────────────────
 
     def _sign(self, payload: str) -> str:
@@ -561,5 +588,21 @@ class PermissionsKernel:
                     node_id,
                     type=RegistryEdgeType.HAS_IDENTITY,
                 )
+
+            # Push to epistemic-graph backend for Zero-Trust Consensus
+            if hasattr(self.engine.graph, "_client") and self.engine.graph._client:
+                try:
+                    self.engine.graph._client.register_identity(
+                        agent_id=identity.agent_id,
+                        role=str(
+                            identity.role
+                        ).title(),  # To match AgentRole enum in Rust which is titlecase eg Manager
+                        teams=[],
+                        signature=identity.signature,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to register identity with Rust backend: {e}"
+                    )
         except Exception as e:
             logger.debug("Failed to persist identity %s: %s", identity.agent_id, e)

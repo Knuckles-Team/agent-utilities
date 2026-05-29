@@ -150,9 +150,9 @@ class TestRLMOWLHelpers:
     async def test_kg_bulk_export_returns_nodes(self):
         from unittest.mock import MagicMock
 
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        graph = nx.MultiDiGraph()
+        graph = GraphComputeEngine(backend_type="rust")
         graph.add_node("m1", type="memory", name="Test Memory 1")
         graph.add_node("m2", type="memory", name="Test Memory 2")
         graph.add_node("t1", type="tool", name="Test Tool")
@@ -171,9 +171,9 @@ class TestRLMOWLHelpers:
     async def test_kg_bulk_export_wildcard(self):
         from unittest.mock import MagicMock
 
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        graph = nx.MultiDiGraph()
+        graph = GraphComputeEngine(backend_type="rust")
         graph.add_node("m1", type="memory", name="Test")
         graph.add_node("t1", type="tool", name="Tool")
 
@@ -190,9 +190,9 @@ class TestRLMOWLHelpers:
     async def test_kg_bulk_export_limit(self):
         from unittest.mock import MagicMock
 
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        graph = nx.MultiDiGraph()
+        graph = GraphComputeEngine(backend_type="rust")
         for i in range(100):
             graph.add_node(f"m{i}", type="memory", name=f"Memory {i}")
 

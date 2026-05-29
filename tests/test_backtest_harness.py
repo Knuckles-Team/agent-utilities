@@ -186,9 +186,9 @@ class TestBacktestKGNodes:
         assert RegistryEdgeType.COMPARED_TO_BENCHMARK == "compared_to_benchmark"
 
     def test_backtest_graph(self):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
 
         from agent_utilities.models.knowledge_graph import StrategyNode
 

@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -207,7 +207,7 @@ async def test_graph_checkpoint_store_save_no_backend() -> None:
 
     engine = MagicMock()
     engine.backend = None
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     store = GraphCheckpointStore(engine)
     cp = Checkpoint(id="cp1", label="l", turn=1, messages=[], metadata={})
     await store.save(cp)
@@ -225,7 +225,7 @@ async def test_graph_checkpoint_store_save_with_backend() -> None:
     engine = MagicMock()
     engine.backend = MagicMock()
     engine.backend.upsert_node = AsyncMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     store = GraphCheckpointStore(engine)
     cp = Checkpoint(
         id="cp1", label="l", turn=1, messages=[], metadata={"episode_id": "ep1"}
@@ -259,7 +259,7 @@ async def test_graph_checkpoint_store_get_not_found() -> None:
 
     engine = MagicMock()
     engine.backend = None
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     store = GraphCheckpointStore(engine)
     assert await store.get("missing") is None
 
@@ -276,7 +276,7 @@ async def test_graph_checkpoint_store_get_with_backend() -> None:
     engine.backend = MagicMock()
     source = Checkpoint(id="cp1", label="l", turn=1, messages=[])
     engine.backend.get_node = AsyncMock(return_value={"message_data": source.to_json()})
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     store = GraphCheckpointStore(engine)
     cp = await store.get("cp1")
     assert cp is not None
@@ -361,7 +361,7 @@ async def test_eviction_above_threshold_with_engine() -> None:
     evict = ToolOutputEviction(threshold_chars=50, store_in_graph=True)
     ctx = MagicMock()
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     engine.backend = None
     ctx.deps.graph_engine = engine
     call = MagicMock(tool_name="my_tool", tool_call_id="id1")
@@ -555,7 +555,7 @@ async def test_stuck_loop_with_graph_engine() -> None:
     s = StuckLoopDetection(max_repeated=2, action="warn")
     ctx = MagicMock()
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     engine.backend = MagicMock()
     engine.backend.upsert_node = AsyncMock()
     ctx.deps = MagicMock(graph_engine=engine)

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 Non-blocking, tiered validation for the Unified Intelligence Graph.
 Inspired by Understand-Anything's ``graph-reviewer`` agent, adapted for
-agent-utilities' runtime KG with NetworkX + Cypher backends.
+agent-utilities' runtime KG with graph compute + Cypher backends.
 
 Validation Tiers:
     - **Tier 1 (Auto-fix)**: Silently correct recoverable issues:
@@ -432,7 +432,7 @@ class GraphValidator:
                     )
                 )
 
-        # 2b. Duplicate node ID detection (shouldn't happen with NetworkX,
+        # 2b. Duplicate node ID detection (shouldn't happen with GraphComputeEngine,
         # but can happen if data has conflicting entries)
         seen_ids: dict[str, int] = {}
         for node_id in graph.nodes():
@@ -576,33 +576,36 @@ class GraphValidator:
 
         # 4b. Graph connectivity check (warn if completely disconnected)
         if graph.number_of_nodes() > 1:
-            undirected = graph.to_undirected()
-            components = list(
-                undirected.subgraph(c)
-                for c in sorted(
-                    __import__("networkx").connected_components(undirected),
-                    key=len,
-                    reverse=True,
-                )
-            )
-            if len(components) > 1:
-                # Not fatal, but if the largest component is < 50% of nodes
-                # it suggests a broken graph
-                largest_pct = len(components[0]) / graph.number_of_nodes()
-                if largest_pct < 0.5:
-                    report.tier4_fatal.append(
-                        ValidationIssue(
-                            tier=4,
-                            category="fragmented_graph",
-                            node_id=None,
-                            edge_key=None,
-                            message=(
-                                f"Graph is fragmented into {len(components)} "
-                                f"components; largest is only {largest_pct:.0%} "
-                                f"of total nodes"
-                            ),
+            # Use GraphComputeEngine's connected_components (Rust-native)
+            try:
+                components = self.engine.graph_compute.connected_components()
+            except Exception:
+                # Fallback: try the graph object directly
+                try:
+                    components = graph.connected_components()
+                except Exception:
+                    components = []
+
+            if components:
+                components_sorted = sorted(components, key=len, reverse=True)
+                if len(components_sorted) > 1:
+                    # Not fatal, but if the largest component is < 50% of nodes
+                    # it suggests a broken graph
+                    largest_pct = len(components_sorted[0]) / graph.number_of_nodes()
+                    if largest_pct < 0.5:
+                        report.tier4_fatal.append(
+                            ValidationIssue(
+                                tier=4,
+                                category="fragmented_graph",
+                                node_id=None,
+                                edge_key=None,
+                                message=(
+                                    f"Graph is fragmented into {len(components_sorted)} "
+                                    f"components; largest is only {largest_pct:.0%} "
+                                    f"of total nodes"
+                                ),
+                            )
                         )
-                    )
 
 
 class GraphValidationFatalError(Exception):

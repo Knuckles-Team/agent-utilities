@@ -236,7 +236,7 @@ class EvalHarness:
         """Persist evaluation results as an EvalNode in the KG.
 
         Args:
-            graph: A NetworkX graph instance.
+            graph: A graph compute engine instance.
             aggregated: The aggregated evaluation result.
             run_id: Optional run identifier for traceability.
 

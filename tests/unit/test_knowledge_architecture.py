@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -22,9 +22,9 @@ import pytest
 
 
 @pytest.fixture
-def sample_graph() -> nx.MultiDiGraph:
+def sample_graph() -> GraphComputeEngine:
     """Create a sample KG graph with typed nodes and edges."""
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
 
     # Add nodes with types
     g.add_node("agent_1", type="agent", name="TestAgent", description="A test agent")
@@ -136,7 +136,7 @@ class TestSPARQL:
         """Graceful handling of empty graph."""
         from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
 
-        empty_graph = nx.MultiDiGraph()
+        empty_graph = GraphComputeEngine(backend_type="rust")
         bridge = OWLBridge(graph=empty_graph, owl_backend=mock_owl_backend)
 
         results = bridge.query_sparql("SELECT ?s WHERE { ?s a au:Agent }")
@@ -263,7 +263,7 @@ class TestArchitectureDecisionRecords:
             context="Need a graph database that supports Cypher",
             decision="Use LadybugDB (Kuzu-based)",
             rationale="Native Cypher support, embedded, no external service",
-            alternatives=["Neo4j", "FalkorDB", "SQLite+NetworkX"],
+            alternatives=["Neo4j", "FalkorDB", "SQLite+GraphComputeEngine"],
             consequences=["No native SPARQL", "WAL corruption risk"],
             authority="user",
             pillar="KG",

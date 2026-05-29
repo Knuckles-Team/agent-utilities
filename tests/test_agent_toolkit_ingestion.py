@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 # -- Test fixtures paths (real configs from agent-packages) ---
@@ -53,7 +53,7 @@ def _create_engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph, backend=None)
     return engine
 

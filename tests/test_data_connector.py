@@ -191,9 +191,9 @@ class TestDataConnectorKGNodes:
         assert RegistryEdgeType.FALLS_BACK_TO == "falls_back_to"
 
     def test_fallback_chain_graph(self):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         for name, priority in [("yahoo", 0), ("polygon", 1), ("alpha", 2)]:
             node = DataConnectorNode(id=f"dc:{name}", name=name, priority=priority)
             g.add_node(node.id, **node.model_dump())
@@ -202,5 +202,6 @@ class TestDataConnectorKGNodes:
         g.add_edge("dc:polygon", "dc:alpha", type=RegistryEdgeType.FALLS_BACK_TO)
 
         # Verify transitive fallback chain
-        path = nx.shortest_path(g, "dc:yahoo", "dc:alpha")
+        path = g.get_shortest_path("dc:yahoo", "dc:alpha")
+        assert path is not None
         assert len(path) == 3

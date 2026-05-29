@@ -247,21 +247,38 @@ class KnowledgeDeduplicator:
         all_nodes: set[str],
         pairs: list[tuple[str, str, float]],
     ) -> list[list[str]]:
-        """Louvain community detection for large similarity graphs."""
+        """Community detection for large similarity graphs via graph primitives."""
         try:
-            import networkx as nx
-            from networkx.algorithms.community import louvain_communities
+            from agent_utilities.knowledge_graph.core import graph_primitives as rx
 
-            G = nx.Graph()
-            G.add_nodes_from(all_nodes)
+            G = rx.PyGraph()
+            node_map: dict[str, int] = {}
+            for node in all_nodes:
+                idx = G.add_node(node)
+                node_map[node] = idx
             for id_a, id_b, sim in pairs:
-                G.add_edge(id_a, id_b, weight=sim)
+                G.add_edge(node_map[id_a], node_map[id_b], sim)
 
-            communities = louvain_communities(G, weight="weight")
+            # Use connected components as community proxy
+            visited: set[int] = set()
+            components: list[list[int]] = []
+            for start in G.node_indices():
+                if start in visited:
+                    continue
+                comp: list[int] = []
+                stack = [start]
+                while stack:
+                    n = stack.pop()
+                    if n in visited:
+                        continue
+                    visited.add(n)
+                    comp.append(n)
+                    stack.extend(nb for nb in G.neighbors(n) if nb not in visited)
+                components.append(comp)
 
             clusters: list[list[str]] = []
-            for community in communities:
-                members = list(community)
+            for component in components:
+                members = [G[idx] for idx in component]
                 if len(members) > self.max_cluster_size:
                     for i in range(0, len(members), self.max_cluster_size):
                         sub = members[i : i + self.max_cluster_size]
@@ -272,8 +289,8 @@ class KnowledgeDeduplicator:
 
             return clusters
 
-        except ImportError:
-            logger.warning("networkx Louvain not available, falling back to BFS")
+        except Exception:
+            logger.warning("Graph primitives clustering failed, falling back to BFS")
             return self._cluster_bfs(adjacency, all_nodes)
 
     def merge_cluster(

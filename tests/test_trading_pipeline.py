@@ -182,9 +182,9 @@ class TestTradingPipelineIntegration:
     """Test the full trading pipeline graph: Strategy → Signal → Order → Position → Portfolio."""
 
     def test_full_pipeline_graph(self):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
 
         strat = StrategyNode(id="strat:mom", name="Momentum", strategy_type="momentum")
         signal = TradingSignalNode(
@@ -214,15 +214,16 @@ class TestTradingPipelineIntegration:
         assert g.number_of_edges() == 5
 
         # Verify traversal: Strategy → Signal → Order → Position → Portfolio
-        path = nx.shortest_path(g, strat.id, port.id)
+        path = g.get_shortest_path(strat.id, port.id)
+        assert path is not None
         assert len(path) == 5
         assert path[0] == strat.id
         assert path[-1] == port.id
 
     def test_strategy_backtest_link(self):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         strat = StrategyNode(id="strat:v1", name="V1")
         bt = BacktestRunNode(id="bt:001", name="Backtest V1", strategy_id="strat:v1")
         g.add_node(strat.id, **strat.model_dump())

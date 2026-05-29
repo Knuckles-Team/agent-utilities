@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.pipeline.phases.centrality import (
@@ -16,8 +16,12 @@ from agent_utilities.knowledge_graph.pipeline.types import PipelineContext
 
 @pytest.fixture
 def mock_pipeline_ctx():
+    import sys
+    sys.modules["repository_manager"] = MagicMock()
+    sys.modules["repository_manager.repository_manager"] = MagicMock()
+
     ctx = MagicMock(spec=PipelineContext)
-    ctx.nx_graph = nx.DiGraph()
+    ctx.graph = GraphComputeEngine(backend_type="rust")
     ctx.backend = MagicMock()
     ctx.config = MagicMock()
     return ctx
@@ -26,13 +30,16 @@ def mock_pipeline_ctx():
 @pytest.mark.asyncio
 async def test_execute_centrality(mock_pipeline_ctx):
     # Add some nodes and edges
-    mock_pipeline_ctx.nx_graph.add_edge("A", "B")
-    mock_pipeline_ctx.nx_graph.add_edge("B", "C")
+    mock_pipeline_ctx.graph.add_edge("A", "B")
+    mock_pipeline_ctx.graph.add_edge("B", "C")
 
     result = await execute_centrality(mock_pipeline_ctx, {})
 
     assert result["centrality_calculated"] is True
-    assert "centrality" in mock_pipeline_ctx.nx_graph.nodes["A"]
+    # The rust graph backend doesn't support direct node property access via .nodes["A"] like NetworkX
+    # It returns nodes through graph._get_node_properties("A") or via get_nodes()
+    props = mock_pipeline_ctx.graph._get_node_properties("A")
+    assert "centrality" in props
     assert result["top_node"] is not None
 
 

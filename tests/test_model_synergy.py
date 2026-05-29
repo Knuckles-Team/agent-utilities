@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from agent_utilities.models.knowledge_graph import (
     SelfModelNode,  # type: ignore[attr-defined]
@@ -55,7 +55,7 @@ class TestSelfModelNodeSynergies:
 class TestSelfModelSynergyTracking:
     def _engine(self):
         e = MagicMock()
-        e.graph = nx.MultiDiGraph()
+        e.graph = GraphComputeEngine(backend_type="rust")
         e.backend = None
         return e
 
@@ -118,7 +118,7 @@ class TestSelfModelSynergyTracking:
 class TestGetBestSynergies:
     def _engine(self):
         e = MagicMock()
-        e.graph = nx.MultiDiGraph()
+        e.graph = GraphComputeEngine(backend_type="rust")
         e.backend = None
         return e
 
@@ -171,7 +171,7 @@ class TestExplainSelfSynergies:
         from agent_utilities.knowledge_graph.self_model import SelfModel
 
         e = MagicMock()
-        e.graph = nx.MultiDiGraph()
+        e.graph = GraphComputeEngine(backend_type="rust")
         e.backend = None
         sm = SelfModel(e)
         initial = sm.get_or_create()
@@ -183,7 +183,7 @@ class TestExplainSelfSynergies:
         from agent_utilities.knowledge_graph.self_model import SelfModel
 
         e = MagicMock()
-        e.graph = nx.MultiDiGraph()
+        e.graph = GraphComputeEngine(backend_type="rust")
         e.backend = None
         sm = SelfModel(e)
         sm.get_or_create()

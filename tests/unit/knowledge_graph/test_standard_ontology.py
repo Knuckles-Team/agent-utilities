@@ -548,12 +548,12 @@ def test_owl_bridge_promotes_standard_edge_types() -> None:
 
 def test_standard_inference_skos_broader_transitivity() -> None:
     """SKOS broader transitivity rule produces expected NX inference."""
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("concept:a", type="concept", name="A")
     g.add_node("concept:b", type="concept", name="B")
     g.add_node("concept:c", type="concept", name="C")
@@ -570,12 +570,12 @@ def test_standard_inference_skos_broader_transitivity() -> None:
 
 def test_standard_inference_prov_derivation_transitivity() -> None:
     """PROV-O was_derived_from transitivity rule works."""
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("doc:a", type="document", name="A")
     g.add_node("doc:b", type="document", name="B")
     g.add_node("doc:c", type="document", name="C")
@@ -592,12 +592,12 @@ def test_standard_inference_prov_derivation_transitivity() -> None:
 
 def test_standard_inference_temporal_phase_containment() -> None:
     """Temporal phase containment rule works."""
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("event:1", type="event", name="E1")
     g.add_node("phase:q2", type="phase", name="Q2")
     g.add_node("phase:2026", type="phase", name="2026")

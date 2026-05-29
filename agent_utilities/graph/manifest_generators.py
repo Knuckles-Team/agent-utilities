@@ -438,10 +438,31 @@ def manifest_for_enterprise(
             "Wellness",
         ]
 
+    # Define inter-department DAG dependencies
+    dept_deps = {
+        "Engineering": ["Product", "Research"],
+        "QA": ["Engineering"],
+        "Compliance": ["QA", "Finance", "Operations"],
+        "Finance": ["Engineering", "Product"],
+        "Operations": ["Engineering"],
+    }
+
+    dept_agents: dict[str, list[str]] = {}
+
     # Generate department manifests and merge
     for dept in departments:
         dept_manifest = manifest_from_department(dept, task, engine)
+        dept_agents[dept] = [a.agent_id for a in dept_manifest.agents]
         all_agents.extend(dept_manifest.agents)
+
+    # Apply inter-department DAG edges
+    for agent in all_agents:
+        if agent.department in dept_deps:
+            for dep_dept in dept_deps[agent.department]:
+                if dep_dept in dept_agents:
+                    if not agent.depends_on:
+                        agent.depends_on = []
+                    agent.depends_on.extend(dept_agents[dep_dept])
 
     return ExecutionManifest(
         name=f"Enterprise: {task[:40]}",

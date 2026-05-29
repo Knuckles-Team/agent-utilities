@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.adaptation.experience_alignment import (
@@ -24,7 +24,7 @@ from agent_utilities.models.knowledge_graph import ExperienceNode
 
 @pytest.fixture
 def mock_engine():
-    graph = nx.DiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph)
     engine.backend = MagicMock()
     return engine

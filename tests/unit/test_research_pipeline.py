@@ -11,7 +11,7 @@ Validates:
 
 from unittest.mock import MagicMock
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.automation.research_pipeline import (
@@ -123,7 +123,7 @@ class TestPaperIngestion:
     """Test paper ingestion methods."""
 
     def setup_method(self):
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.engine = MagicMock()
         self.engine.graph = self.graph
         self.engine.backend = None
@@ -174,7 +174,7 @@ class TestPipelineExecution:
     """Test full pipeline execution."""
 
     def setup_method(self):
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.engine = MagicMock()
         self.engine.graph = self.graph
         self.engine.backend = None
@@ -303,7 +303,7 @@ class TestWatchlists:
         assert watchlists == []
 
     def test_load_watchlists_from_kg(self):
-        graph = nx.MultiDiGraph()
+        graph = GraphComputeEngine(backend_type="rust")
         graph.add_node(
             "policy:wl1",
             type="policy",

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.graph.models import (
@@ -12,6 +12,11 @@ from agent_utilities.graph.models import (
 )
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
+
+@pytest.fixture(autouse=True)
+def mock_epistemic_graph_client():
+    with patch("epistemic_graph.client.SyncEpistemicGraphClient") as mock_client:
+        yield mock_client
 
 
 @pytest.mark.asyncio
@@ -52,7 +57,7 @@ async def test_kb_model_validation():
 async def test_pruning_with_permanent_flag():
     """Test that is_permanent flag protects nodes from pruning."""
     mock_backend = MagicMock()
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
     maintainer = GraphMaintainer(engine=engine)
 
@@ -81,7 +86,7 @@ async def test_concept_merging():
         None,  # For the delete query
     ]
 
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
     maintainer = GraphMaintainer(engine=engine)
 
@@ -101,7 +106,7 @@ async def test_concept_merging():
 async def test_cross_domain_emergence():
     """Test that topics are linked via shared concepts or similarity."""
     mock_backend = MagicMock()
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
     maintainer = GraphMaintainer(engine=engine)
 

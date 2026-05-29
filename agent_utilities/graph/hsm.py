@@ -195,14 +195,17 @@ async def run_orthogonal_regions(
 
     # Run all regions concurrently
     tasks = [run_region(q, i) for i, q in enumerate(queries)]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    from .gather import gather_with_resilience
+
+    results = await gather_with_resilience(tasks, label="orthogonal_regions")
 
     merged = {}
 
     for result in results:
         if isinstance(result, tuple):
             merged[result[0]] = result[1]
-        elif isinstance(result, Exception):
+        elif isinstance(result, BaseException):
             merged[f"error_{id(result)}"] = str(result)
 
     emit_graph_event(

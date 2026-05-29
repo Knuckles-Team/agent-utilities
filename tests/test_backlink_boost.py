@@ -9,7 +9,7 @@ CONCEPT:KG-2.2
 import math
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from agent_utilities.models.schema_pack import (
     BacklinkBoostStrategy,
@@ -20,7 +20,7 @@ from agent_utilities.models.schema_pack import (
 
 def _make_engine():
     engine = MagicMock()
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("hub", type="concept")
     g.add_node("leaf", type="fact")
     g.add_node("isolated", type="event")

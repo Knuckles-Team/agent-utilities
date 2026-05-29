@@ -32,7 +32,7 @@ async def execute_validate(
 
     # Build a temporary engine wrapper around the pipeline's graph
     engine = IntelligenceGraphEngine(
-        graph=ctx.nx_graph,
+        graph=ctx.graph,
         backend=ctx.backend,
     )
 

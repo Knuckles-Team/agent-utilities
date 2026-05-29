@@ -39,7 +39,7 @@ Security is implemented natively at the query layer. Cryptographic ABAC middlewa
 When new information is encountered, **OWL-Driven Semantic Subsumption** automatically computes embedding similarities against OWL class prototypes, injecting the new concept into the correct lineage. **Inductive Knowledge Hypergraphs** vectorize relationship intersections via `EncPI` (Positional Interaction Encodings), enabling the graph to perform zero-shot generalization over entirely novel runtime topologies.
 
 ### Rust-Compiled Epistemic Reasoning Backend (CONCEPT:KG-2.6)
-The core OWL reasoning engine has transitioned to using a high-performance **Rust-Compiled Epistemic Backend** (`OxigraphDatalogBackend`) as the framework-wide default. By leveraging `epistemic-graph` via PyO3 FFI and under-the-hood `pyoxigraph` serialization, the backend completely bypasses the legacy Java Virtual Machine (JVM) overhead of `owlready2`.
+The core OWL reasoning engine has transitioned to using a high-performance **Rust-Compiled Epistemic Backend** (`Jena Fuseki / EpistemicGraph ComputeDatalogBackend`) as the framework-wide default. By leveraging `epistemic-graph` via Unix Sockets and under-the-hood `pyjena_fuseki` serialization, the backend completely bypasses the legacy Java Virtual Machine (JVM) overhead of `owlready2`.
 
 It performs high-performance, compiled Datalog forward-chaining reasoning directly in Rust with standard OWL structural inference rules:
 - **Subclass Transitivity**: Propagates hierarchical node typing down class inheritance lineages.

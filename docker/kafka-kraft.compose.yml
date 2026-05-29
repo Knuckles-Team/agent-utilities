@@ -1,0 +1,137 @@
+# Apache Kafka (KRaft mode) — Docker Compose
+#
+# CONCEPT:KG-2.19 — Event Backbone Infrastructure
+#
+# KRaft-mode Kafka (no Zookeeper dependency). Pre-configured with
+# agent-utilities standard topics and sensible retention policies.
+#
+# Usage:
+#   docker compose -f docker/kafka-kraft.compose.yml up -d
+#
+# Environment:
+#   KAFKA_CLUSTER_ID: Unique cluster ID (auto-generated if not set)
+#   KAFKA_LISTENERS: Override listener configuration
+#
+# Standard Topics (auto-created):
+#   kg.mutations  — Graph CRUD events (7d retention, compacted)
+#   kg.tasks      — Task queue events (3d retention)
+#   kg.staging    — Staged graph payloads (1d retention)
+#   kg.telemetry  — Agent telemetry (1d retention)
+#   kg.evolution  — Self-improvement events (7d retention, compacted)
+
+services:
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: agent-utilities-kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      # KRaft configuration (no Zookeeper)
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+      # Listener configuration
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+
+      # Cluster configuration
+      CLUSTER_ID: "${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}"
+
+      # Log/retention defaults
+      KAFKA_LOG_DIRS: "/var/kafka-logs"
+      KAFKA_NUM_PARTITIONS: "3"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_MIN_INSYNC_REPLICAS: "1"
+
+      # Auto topic creation (disabled — we create explicitly)
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+      # Performance tuning
+      KAFKA_LOG_RETENTION_HOURS: "168"  # 7 days default
+      KAFKA_LOG_SEGMENT_BYTES: "1073741824"  # 1GB segments
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: "300000"  # 5 min
+      KAFKA_MESSAGE_MAX_BYTES: "10485760"  # 10MB max message
+
+    volumes:
+      - kafka-data:/var/kafka-logs
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Topic initialization sidecar
+  kafka-init:
+    image: apache/kafka:3.8.0
+    container_name: agent-utilities-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Creating agent-utilities Kafka topics..."
+
+        # kg.mutations — compacted, 7d retention
+        /opt/kafka/bin/kafka-topics.sh --create \
+          --bootstrap-server kafka:9092 \
+          --topic kg.mutations \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config cleanup.policy=compact,delete \
+          --config retention.ms=604800000 \
+          --config min.compaction.lag.ms=3600000 \
+          --if-not-exists
+
+        # kg.tasks — 3d retention
+        /opt/kafka/bin/kafka-topics.sh --create \
+          --bootstrap-server kafka:9092 \
+          --topic kg.tasks \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config retention.ms=259200000 \
+          --if-not-exists
+
+        # kg.staging — 1d retention
+        /opt/kafka/bin/kafka-topics.sh --create \
+          --bootstrap-server kafka:9092 \
+          --topic kg.staging \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config retention.ms=86400000 \
+          --if-not-exists
+
+        # kg.telemetry — 1d retention
+        /opt/kafka/bin/kafka-topics.sh --create \
+          --bootstrap-server kafka:9092 \
+          --topic kg.telemetry \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config retention.ms=86400000 \
+          --if-not-exists
+
+        # kg.evolution — compacted, 7d retention
+        /opt/kafka/bin/kafka-topics.sh --create \
+          --bootstrap-server kafka:9092 \
+          --topic kg.evolution \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config cleanup.policy=compact,delete \
+          --config retention.ms=604800000 \
+          --if-not-exists
+
+        echo "All topics created successfully."
+        /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092
+    restart: "no"
+
+volumes:
+  kafka-data:
+    driver: local

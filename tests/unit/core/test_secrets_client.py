@@ -3,7 +3,7 @@
 CONCEPT:OS-5.1 — Secrets & Authentication
 
 Covers:
-- InMemoryBackend: encryption round-trip, isolation, CRUD
+- InEpistemicGraphBackend: encryption round-trip, isolation, CRUD
 - SQLiteBackend: persistence, encryption, key auto-generation
 - SecretsClient: env fallback, URI resolution, typed retrieval
 - Factory: backend selection from config
@@ -15,7 +15,7 @@ from unittest import mock
 import pytest
 
 from agent_utilities.security.secrets_client import (
-    InMemoryBackend,
+    InEpistemicGraphBackend,
     SecretsClient,
     SecretsConfig,
     SQLiteBackend,
@@ -26,39 +26,39 @@ from agent_utilities.security.secrets_client import (
 
 
 # ---------------------------------------------------------------------------
-# InMemoryBackend
+# InEpistemicGraphBackend
 # ---------------------------------------------------------------------------
 
 
-class TestInMemoryBackend:
+class TestInEpistemicGraphBackend:
     """Tests for the Fernet-encrypted in-memory backend."""
 
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_set_and_get(self):
-        backend = InMemoryBackend()
+        backend = InEpistemicGraphBackend()
         backend.set("my/key", "super-secret")
         assert backend.get("my/key") == "super-secret"
 
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_get_nonexistent_returns_none(self):
-        backend = InMemoryBackend()
+        backend = InEpistemicGraphBackend()
         assert backend.get("does-not-exist") is None
 
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_delete(self):
-        backend = InMemoryBackend()
+        backend = InEpistemicGraphBackend()
         backend.set("ephemeral", "data")
         assert backend.delete("ephemeral") is True
         assert backend.get("ephemeral") is None
 
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_delete_nonexistent_returns_false(self):
-        backend = InMemoryBackend()
+        backend = InEpistemicGraphBackend()
         assert backend.delete("nope") is False
 
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_list_keys(self):
-        backend = InMemoryBackend()
+        backend = InEpistemicGraphBackend()
         backend.set("b_key", "1")
         backend.set("a_key", "2")
         assert backend.list_keys() == ["a_key", "b_key"]
@@ -66,7 +66,7 @@ class TestInMemoryBackend:
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_values_are_encrypted_at_rest(self):
         """Stored values should not be plaintext."""
-        backend = InMemoryBackend()
+        backend = InEpistemicGraphBackend()
         backend.set("test", "plaintext-value")
         raw = backend._store["test"]
         assert raw != b"plaintext-value"
@@ -74,9 +74,9 @@ class TestInMemoryBackend:
 
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_isolation_between_instances(self):
-        """Two InMemoryBackend instances share nothing."""
-        b1 = InMemoryBackend()
-        b2 = InMemoryBackend()
+        """Two InEpistemicGraphBackend instances share nothing."""
+        b1 = InEpistemicGraphBackend()
+        b2 = InEpistemicGraphBackend()
         b1.set("shared_key", "from_b1")
         assert b2.get("shared_key") is None
 
@@ -243,13 +243,13 @@ class TestSecretsFactory:
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_default_inmemory(self):
         client = create_secrets_client()
-        assert isinstance(client.backend, InMemoryBackend)
+        assert isinstance(client.backend, InEpistemicGraphBackend)
 
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_explicit_inmemory(self):
         config = SecretsConfig(backend="inmemory")
         client = create_secrets_client(config)
-        assert isinstance(client.backend, InMemoryBackend)
+        assert isinstance(client.backend, InEpistemicGraphBackend)
 
     @pytest.mark.concept("CONCEPT:OS-5.1")
     def test_sqlite_backend(self, tmp_path):

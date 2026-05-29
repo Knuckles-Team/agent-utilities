@@ -25,9 +25,9 @@ class FakeEngine:  # type: ignore
     """Minimal mock engine for variant pool tests."""
 
     def __init__(self, backend=None):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = backend
 
     def _upsert_node(self, label, node_id, props):
@@ -140,7 +140,7 @@ class TestFitnessEvaluation:
         fitness = pool.evaluate_fitness("nonexistent")
         assert fitness == 0.0
 
-    def test_fitness_from_networkx(self):
+    def test_fitness_from_graph(self):
         engine = FakeEngine()  # type: ignore
         pool = VariantPool(engine)  # type: ignore
 

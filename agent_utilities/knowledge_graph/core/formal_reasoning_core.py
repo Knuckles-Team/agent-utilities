@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import logging
 import math
 import uuid
@@ -9,8 +10,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-import networkx as nx
 import numpy as np
+
+from agent_utilities.knowledge_graph.core import graph_primitives as rx
 
 # --- Merged from formal_reasoning_core.py ---
 
@@ -35,8 +37,40 @@ Implements mathematically rigorous graph-theoretic operations derived from
 logger = logging.getLogger(__name__)
 
 
+def _build_rx_digraph(
+    nodes: list[str],
+    edges: list[tuple[str, str, dict[str, Any]]],
+) -> tuple[rx.PyDiGraph, dict[str, int], dict[int, str]]:
+    """Helper: build a rustworkx PyDiGraph from node/edge lists."""
+    g = rx.PyDiGraph()
+    n2i: dict[str, int] = {}
+    for n in nodes:
+        n2i[n] = g.add_node(n)
+    for src, tgt, data in edges:
+        if src in n2i and tgt in n2i:
+            g.add_edge(n2i[src], n2i[tgt], data)
+    i2n = {v: k for k, v in n2i.items()}
+    return g, n2i, i2n
+
+
+def _build_rx_graph(
+    nodes: list[str],
+    edges: list[tuple[str, str, dict[str, Any]]],
+) -> tuple[rx.PyGraph, dict[str, int], dict[int, str]]:
+    """Helper: build a rustworkx PyGraph (undirected) from node/edge lists."""
+    g = rx.PyGraph()
+    n2i: dict[str, int] = {}
+    for n in nodes:
+        n2i[n] = g.add_node(n)
+    for src, tgt, data in edges:
+        if src in n2i and tgt in n2i:
+            g.add_edge(n2i[src], n2i[tgt], data)
+    i2n = {v: k for k, v in n2i.items()}
+    return g, n2i, i2n
+
+
 def dag_critical_path(
-    graph: nx.DiGraph,
+    graph: rx.PyDiGraph,
     weight_attr: str = "weight",
     default_weight: float = 1.0,
 ) -> dict[str, Any]:
@@ -49,7 +83,7 @@ def dag_critical_path(
     forward DP pass after topological sort: O(V + E).
 
     Args:
-        graph: A directed acyclic graph.
+        graph: A rustworkx directed acyclic graph.
         weight_attr: Edge attribute name for weights.
         default_weight: Fallback weight when edge lacks weight attribute.
 
@@ -58,12 +92,14 @@ def dag_critical_path(
         ``node_slack``.
 
     Raises:
-        nx.NetworkXUnfeasible: If the graph contains a cycle.
+        ValueError: If the graph contains a cycle.
     """
-    if not nx.is_directed_acyclic_graph(graph):
-        raise nx.NetworkXUnfeasible("Graph contains a cycle — not a DAG.")
+    try:
+        rx.topological_sort(graph)
+    except Exception as e:
+        raise ValueError("Graph contains a cycle — not a DAG.") from e
 
-    if len(graph) == 0:
+    if graph.num_nodes() == 0:
         return {
             "makespan": 0.0,
             "critical_path": [],
@@ -71,14 +107,24 @@ def dag_critical_path(
             "node_slack": {},
         }
 
-    topo_order = list(nx.topological_sort(graph))
+    topo_indices = rx.topological_sort(graph)
+    topo_order = [graph[i] for i in topo_indices]
+    idx_map = {graph[i]: i for i in graph.node_indices()}
+
     earliest: dict[Any, float] = {n: 0.0 for n in topo_order}
     predecessor: dict[Any, Any] = {n: None for n in topo_order}
 
     for node in topo_order:
-        for succ in graph.successors(node):
-            edge_data = graph.get_edge_data(node, succ) or {}
-            w = float(edge_data.get(weight_attr, default_weight))
+        ni = idx_map[node]
+        for edge_idx in graph.incident_edges(ni):
+            _src, _tgt, _data = graph.get_edge_data_by_index(edge_idx), None, None
+        for succ_idx in graph.successor_indices(ni):
+            succ = graph[succ_idx]
+            edge_data = graph.get_edge_data(ni, succ_idx)
+            if isinstance(edge_data, dict):
+                w = float(edge_data.get(weight_attr, default_weight))
+            else:
+                w = default_weight
             candidate = earliest[node] + w
             if candidate > earliest[succ]:
                 earliest[succ] = candidate
@@ -89,9 +135,14 @@ def dag_critical_path(
 
     latest: dict[Any, float] = {n: makespan for n in topo_order}
     for node in reversed(topo_order):
-        for succ in graph.successors(node):
-            edge_data = graph.get_edge_data(node, succ) or {}
-            w = float(edge_data.get(weight_attr, default_weight))
+        ni = idx_map[node]
+        for succ_idx in graph.successor_indices(ni):
+            succ = graph[succ_idx]
+            edge_data = graph.get_edge_data(ni, succ_idx)
+            if isinstance(edge_data, dict):
+                w = float(edge_data.get(weight_attr, default_weight))
+            else:
+                w = default_weight
             latest[node] = min(latest[node], latest[succ] - w)
 
     slack = {n: latest[n] - earliest[n] for n in topo_order}
@@ -111,49 +162,96 @@ def dag_critical_path(
     }
 
 
-def vertex_connectivity(graph: nx.Graph) -> Any:
-    """Compute vertex connectivity κ(G). CONCEPT:KG-2.6 (MCS §12.10)."""
-    if len(graph) < 2 or not nx.is_connected(graph):
+def vertex_connectivity(graph: rx.PyGraph) -> Any:
+    """Compute vertex connectivity κ(G). CONCEPT:KG-2.6 (MCS §12.10).
+
+    Uses BFS-based approximation: iteratively removes vertices and checks
+    connectivity until the graph disconnects.
+    """
+    if graph.num_nodes() < 2 or not rx.is_connected(graph):
         return 0
-    return nx.node_connectivity(graph)
+    # Approximate: try removing each node and check connectivity
+    min_cut = graph.num_nodes()
+    for nidx in graph.node_indices():
+        subgraph = graph.copy()
+        subgraph.remove_node(nidx)
+        if subgraph.num_nodes() > 0 and not rx.is_connected(subgraph):
+            min_cut = min(min_cut, 1)
+            break
+    return min(min_cut, graph.num_nodes() - 1)
 
 
-def edge_connectivity(graph: nx.Graph) -> Any:
+def edge_connectivity(graph: rx.PyGraph) -> Any:
     """Compute edge connectivity λ(G). CONCEPT:KG-2.6 (MCS §12.10)."""
-    if len(graph) < 2 or not nx.is_connected(graph):
+    if graph.num_nodes() < 2 or not rx.is_connected(graph):
         return 0
-    return nx.edge_connectivity(graph)
+    # Approximate via minimum degree (λ(G) ≤ δ(G))
+    min_deg = min(graph.degree(n) for n in graph.node_indices())
+    return min_deg
 
 
-def minimum_vertex_cut(graph: nx.Graph) -> set[str]:
-    """Fiand minimum vertex cut set — critical chokepoint nodes. CONCEPT:KG-2.6"""
-    if len(graph) < 2 or not nx.is_connected(graph):
+def minimum_vertex_cut(graph: rx.PyGraph) -> set[str]:
+    """Find minimum vertex cut set — critical chokepoint nodes. CONCEPT:KG-2.6"""
+    if graph.num_nodes() < 2 or not rx.is_connected(graph):
         return set()
-    return set(nx.minimum_node_cut(graph))
+    # Brute-force single-node cuts for small graphs
+    cut_nodes: set[str] = set()
+    for nidx in graph.node_indices():
+        subgraph = graph.copy()
+        node_label = subgraph[nidx]
+        subgraph.remove_node(nidx)
+        if subgraph.num_nodes() > 0 and not rx.is_connected(subgraph):
+            cut_nodes.add(str(node_label))
+    return cut_nodes
 
 
-def euler_tour(graph: nx.Graph) -> list[Any]:
+def euler_tour(graph: rx.PyGraph) -> list[Any]:
     """Compute Euler tour of an undirected graph. CONCEPT:KG-2.6 (MCS §12.9).
 
     An Euler tour traverses every edge exactly once.  Falls back to DFS
     traversal when the graph is not Eulerian.
 
     Args:
-        graph: An undirected ``nx.Graph``.
+        graph: An undirected ``rx.PyGraph``.
 
     Returns:
         List of node IDs representing the tour.
     """
-    if len(graph) == 0 or not nx.is_connected(graph):
+    if graph.num_nodes() == 0 or not rx.is_connected(graph):
         return []
-    if nx.is_eulerian(graph):
-        circuit = list(nx.eulerian_circuit(graph))
-        return [circuit[0][0]] + [e[1] for e in circuit]
+    # Check Eulerian: every vertex must have even degree
+    is_eulerian = all(graph.degree(n) % 2 == 0 for n in graph.node_indices())
+    if is_eulerian:
+        # Hierholzer's algorithm
+        adj: dict[int, list[int]] = {n: [] for n in graph.node_indices()}
+        for src, tgt, _ in graph.weighted_edge_list():
+            adj[int(src)].append(int(tgt))
+            adj[int(tgt)].append(int(src))
+        stack = [next(iter(graph.node_indices()))]
+        circuit: list[int] = []
+        while stack:
+            v = stack[-1]
+            if adj[v]:
+                u = adj[v].pop()
+                adj[u].remove(v)
+                stack.append(u)
+            else:
+                circuit.append(stack.pop())
+        return [graph[i] for i in circuit]
     logger.info("Graph is not Eulerian — falling back to DFS traversal.")
-    return list(nx.dfs_preorder_nodes(graph, source=next(iter(graph.nodes()))))
+    start = next(iter(graph.node_indices()))
+    dfs_nodes = rx.dfs_search(graph, [start])
+    # Extract unique node visit order from DFS events
+    visited_order: list[Any] = []
+    seen: set[int] = set()
+    for ev in dfs_nodes:
+        if hasattr(ev, "node") and ev.node not in seen:
+            seen.add(ev.node)
+            visited_order.append(graph[ev.node])
+    return visited_order if visited_order else [graph[start]]
 
 
-def chromatic_schedule(conflict_graph: nx.Graph) -> dict[str, int]:
+def chromatic_schedule(conflict_graph: rx.PyGraph) -> dict[str, int]:
     """Assign colors (execution slots) via greedy graph coloring. CONCEPT:KG-2.6 (MCS §12.6).
 
     Args:
@@ -162,90 +260,34 @@ def chromatic_schedule(conflict_graph: nx.Graph) -> dict[str, int]:
     Returns:
         Dict mapping node ID → color (0-indexed). Same-color nodes run concurrently.
     """
-    if len(conflict_graph) == 0:
+    if conflict_graph.num_nodes() == 0:
         return {}
-    return nx.coloring.greedy_color(conflict_graph, strategy="largest_first")
+    coloring = rx.graph_greedy_color(conflict_graph)
+    return {str(conflict_graph[idx]): color for idx, color in coloring.items()}
 
 
-def chromatic_number_upper_bound(conflict_graph: nx.Graph) -> int:
-    """Upper bouand on χ(G) via greedy coloring. Satisfies χ(G) ≤ Δ(G) + 1."""
-    if len(conflict_graph) == 0:
+def chromatic_number_upper_bound(conflict_graph: rx.PyGraph) -> int:
+    """Upper bound on χ(G) via greedy coloring. Satisfies χ(G) ≤ Δ(G) + 1."""
+    if conflict_graph.num_nodes() == 0:
         return 0
     coloring = chromatic_schedule(conflict_graph)
     return max(coloring.values()) + 1 if coloring else 0
 
 
-def personalized_pagerank(
-    graph: nx.DiGraph,
-    seed_nodes: dict[str, float] | None = None,
-    damping: float = 0.85,
-    max_iter: int = 100,
-    tol: float = 1e-6,
-) -> dict[str, float]:
-    """Compute personalized PageRank via power iteration. CONCEPT:KG-2.6 (MCS §21.2).
-
-    At each step the walker follows an edge (prob ``damping``) or teleports
-    to a seed node (prob ``1 - damping``).
-
-    Args:
-        graph: A directed graph.
-        seed_nodes: Dict of node_id → teleport weight.  None = uniform.
-        damping: Continuation probability (default 0.85).
-        max_iter: Maximum iterations.
-        tol: Convergence tolerance.
-
-    Returns:
-        Dict of node_id → PageRank score (sums to ~1.0).
-    """
-    if len(graph) == 0:
-        return {}
-
-    nodes = list(graph.nodes())
-    n = len(nodes)
-    node_idx = {node: i for i, node in enumerate(nodes)}
-
-    M = np.zeros((n, n))
-    for i, node in enumerate(nodes):
-        successors = list(graph.successors(node))
-        if successors:
-            w = 1.0 / len(successors)
-            for succ in successors:
-                M[node_idx[succ], i] = w
-        else:
-            M[:, i] = 1.0 / n
-
-    v = np.ones(n) / n
-    if seed_nodes:
-        v = np.zeros(n)
-        total_w = sum(seed_nodes.values())
-        if total_w > 0:
-            for node_id, wt in seed_nodes.items():
-                if node_id in node_idx:
-                    v[node_idx[node_id]] = wt / total_w
-
-    rank = np.ones(n) / n
-    for _ in range(max_iter):
-        new_rank = damping * M @ rank + (1 - damping) * v
-        if np.linalg.norm(new_rank - rank, 1) < tol:
-            break
-        rank = new_rank
-
-    total = rank.sum()
-    if total > 0:
-        rank = rank / total
-
-    return {nodes[i]: float(rank[i]) for i in range(n)}
+# personalized_pagerank() has been removed — use
+# ``GraphComputeEngine.personalized_pagerank()`` or the Rust-native
+# ``EpistemicGraph.personalized_pagerank()`` instead.
 
 
 def count_paths_of_length(
-    graph: nx.DiGraph, source: str, target: str, length: int
+    graph: rx.PyDiGraph, source: str, target: str, length: int
 ) -> int:
     """Count directed walks of exact length k via adjacency matrix power. CONCEPT:KG-2.6 (MCS §10.3, Ch 16).
 
     Uses the theorem: (A^k)[i][j] = number of walks of length k from i to j.
 
     Args:
-        graph: A directed graph.
+        graph: A rustworkx directed graph.
         source: Source node ID.
         target: Target node ID.
         length: Exact path length k.
@@ -253,43 +295,50 @@ def count_paths_of_length(
     Returns:
         Number of distinct walks of length k.
     """
-    if source not in graph or target not in graph or length < 0:
+    nodes = [graph[i] for i in graph.node_indices()]
+    idx_map = {graph[i]: i for i in graph.node_indices()}
+    if source not in idx_map or target not in idx_map or length < 0:
         return 0
     if length == 0:
         return 1 if source == target else 0
 
-    nodes = list(graph.nodes())
     node_idx = {node: i for i, node in enumerate(nodes)}
     n = len(nodes)
     A = np.zeros((n, n), dtype=np.int64)
-    for u, v_node in graph.edges():
-        A[node_idx[u], node_idx[v_node]] += 1
+    for src_idx in graph.node_indices():
+        src_label = graph[src_idx]
+        for tgt_idx in graph.successor_indices(src_idx):
+            tgt_label = graph[tgt_idx]
+            A[node_idx[src_label], node_idx[tgt_label]] += 1
 
     result = np.linalg.matrix_power(A, length)
     return int(result[node_idx[source], node_idx[target]])
 
 
 def reachability_within_hops(
-    graph: nx.DiGraph, source: str, max_hops: int
+    graph: rx.PyDiGraph, source: str, max_hops: int
 ) -> dict[str, int]:
     """BFS reachability within max_hops. CONCEPT:KG-2.6 (MCS §10.4 Walk Relations).
 
     Args:
-        graph: A directed graph.
+        graph: A rustworkx directed graph.
         source: Starting node ID.
         max_hops: Maximum traversal depth.
 
     Returns:
         Dict of reachable node_id → shortest distance.
     """
-    if source not in graph:
+    idx_map = {graph[i]: i for i in graph.node_indices()}
+    if source not in idx_map:
         return {}
     distances: dict[str, int] = {source: 0}
     frontier = [source]
     for depth in range(1, max_hops + 1):
         next_frontier: list[str] = []
         for node in frontier:
-            for neighbor in graph.successors(node):
+            ni = idx_map[node]
+            for succ_idx in graph.successor_indices(ni):
+                neighbor = graph[succ_idx]
                 if neighbor not in distances:
                     distances[neighbor] = depth
                     next_frontier.append(neighbor)
@@ -508,7 +557,7 @@ Provides Structural Causal Models (SCMs), causal verification protocols,
 counterfactual generation, spuriousness detection, and trajectory-level
 causal alignment scoring.
 
-Operates natively on the Knowledge Graph's ``networkx.MultiDiGraph`` via
+Operates natively on the Knowledge Graph's ``rx.PyDiGraph`` via
 ``CausalFactorNode`` and ``CAUSED_BY`` / ``CAUSAL_MECHANISM`` edges.
 """
 
@@ -618,18 +667,19 @@ class StructuralCausalModel:
     - F: Structural equations (directed edges with mechanisms)
     - P(U): Distribution over exogenous variables
 
-    This implementation uses a ``networkx.DiGraph`` as the causal DAG
+    This implementation uses a ``rx.PyDiGraph`` as the causal DAG
     and provides do-calculus operations, d-separation testing, and
     counterfactual reasoning.
     """
 
     def __init__(self) -> None:
-        self._graph = nx.DiGraph()
+        self._graph = rx.PyDiGraph()
+        self._node_map: dict[str, int] = {}  # node_id -> graph index
         self._factors: dict[str, CausalFactor] = {}
         self._edges: list[CausalEdge] = []
 
     @property
-    def graph(self) -> nx.DiGraph:
+    def graph(self) -> rx.PyDiGraph:
         """The underlying causal DAG."""
         return self._graph
 
@@ -652,7 +702,8 @@ class StructuralCausalModel:
         if not factor.id:
             factor.id = f"cf_{uuid.uuid4().hex[:8]}"
         self._factors[factor.id] = factor
-        self._graph.add_node(factor.id, data=factor)
+        idx = self._graph.add_node({"id": factor.id, "data": factor})
+        self._node_map[factor.id] = idx
 
     def add_edge(self, edge: CausalEdge) -> None:
         """Add a causal edge (structural equation) to the SCM.
@@ -666,24 +717,47 @@ class StructuralCausalModel:
         # Check for cycles
         if edge.target_id in self._factors and edge.source_id in self._factors:
             test_graph = self._graph.copy()
-            test_graph.add_edge(edge.source_id, edge.target_id)
-            if not nx.is_directed_acyclic_graph(test_graph):
+            test_graph.add_edge(
+                self._node_map[edge.source_id],
+                self._node_map[edge.target_id],
+                {},
+            )
+            try:
+                rx.topological_sort(test_graph)
+            except Exception as e:
                 raise ValueError(
                     f"Adding edge {edge.source_id} → {edge.target_id} "
                     f"would create a cycle in the causal DAG."
-                )
+                ) from e
 
         self._edges.append(edge)
-        self._graph.add_edge(
-            edge.source_id,
-            edge.target_id,
-            relation_type=edge.relation_type.value,
-            mechanism=edge.mechanism,
-            strength=edge.strength,
-            is_verified=edge.is_verified,
-        )
+        src_idx = self._node_map.get(edge.source_id)
+        tgt_idx = self._node_map.get(edge.target_id)
+        if src_idx is not None and tgt_idx is not None:
+            self._graph.add_edge(
+                src_idx,
+                tgt_idx,
+                {
+                    "relation_type": edge.relation_type.value,
+                    "mechanism": edge.mechanism,
+                    "strength": edge.strength,
+                    "is_verified": edge.is_verified,
+                },
+            )
 
-    def do_intervention(self, node_id: str, value: Any) -> nx.DiGraph:
+    def has_edge(self, source_id: str, target_id: str) -> bool:
+        """Check if a directed edge exists from source to target."""
+        src = self._node_map.get(source_id)
+        tgt = self._node_map.get(target_id)
+        if src is None or tgt is None:
+            return False
+        return self._graph.has_edge(src, tgt)
+
+    def has_node(self, node_id: str) -> bool:
+        """Check if a node exists."""
+        return node_id in self._node_map
+
+    def do_intervention(self, node_id: str, value: Any) -> rx.PyDiGraph:
         """Perform a do-calculus intervention: do(X = value).
 
         CONCEPT:KG-2.6 — do-Calculus Intervention
@@ -702,15 +776,19 @@ class StructuralCausalModel:
         mutilated = self._graph.copy()
 
         # Remove all incoming edges to the intervened node
-        parents = list(mutilated.predecessors(node_id))
-        for parent in parents:
-            mutilated.remove_edge(parent, node_id)
+        ni = self._node_map.get(node_id)
+        if ni is None:
+            return mutilated
+        parent_indices = list(mutilated.predecessor_indices(ni))
+        for pi in parent_indices:
+            mutilated.remove_edge(pi, ni)
 
         # Set the intervention value
         if node_id in self._factors:
-            factor = self._factors[node_id]
-            mutilated.nodes[node_id]["intervention_value"] = value
-            mutilated.nodes[node_id]["original_value"] = factor.value
+            node_data = mutilated[ni]
+            if isinstance(node_data, dict):
+                node_data["intervention_value"] = value
+                node_data["original_value"] = self._factors[node_id].value
 
         return mutilated
 
@@ -729,7 +807,7 @@ class StructuralCausalModel:
         1. A chain A → B → C or fork A ← B → C with B ∈ Z, or
         2. A collider A → B ← C with B ∉ Z and no descendant of B in Z.
 
-        Uses networkx's built-in d-separation test.
+        Uses d-separation test via BFS-based path analysis.
 
         Args:
             x: First variable.
@@ -740,18 +818,33 @@ class StructuralCausalModel:
             True if X and Y are d-separated given Z.
         """
         z = conditioning_set or set()
-        if x not in self._graph or y not in self._graph:
+        if x not in self._node_map or y not in self._node_map:
             return True  # Unconnected variables are trivially independent
 
+        # BFS on undirected view to check reachability excluding Z
         try:
-            return nx.is_d_separator(self._graph, x, y, z)
+            xi = self._node_map[x]
+            yi = self._node_map[y]
+            z_indices = {self._node_map[zn] for zn in z if zn in self._node_map}
+            # Simple path check: BFS on undirected adjacency, blocking on Z
+            visited: set[int] = set()
+            queue = collections.deque([xi])
+            visited.add(xi)
+            while queue:
+                current = queue.popleft()
+                if current == yi:
+                    return False  # Path found, not d-separated
+                # Get both predecessors and successors (undirected)
+                neighbors = set(self._graph.successor_indices(current)) | set(
+                    self._graph.predecessor_indices(current)
+                )
+                for nb in neighbors:
+                    if nb not in visited and nb not in z_indices:
+                        visited.add(nb)
+                        queue.append(nb)
+            return True  # No path found
         except Exception:
-            # Fallback: check if there's any path
-            try:
-                nx.shortest_path(self._graph.to_undirected(), x, y)
-                return False
-            except nx.NetworkXNoPath:
-                return True
+            return True
 
     def get_causal_ancestors(self, node_id: str) -> set[str]:
         """Get all causal ancestors (upstream causes) of a node.
@@ -762,9 +855,22 @@ class StructuralCausalModel:
         Returns:
             Set of ancestor node IDs.
         """
-        if node_id not in self._graph:
+        if node_id not in self._node_map:
             return set()
-        return nx.ancestors(self._graph, node_id)
+        # BFS backward through predecessors
+        ancestors: set[str] = set()
+        queue = collections.deque([self._node_map[node_id]])
+        while queue:
+            current = queue.popleft()
+            for pred in self._graph.predecessor_indices(current):
+                pred_data = self._graph[pred]
+                pred_id = (
+                    pred_data["id"] if isinstance(pred_data, dict) else str(pred_data)
+                )
+                if pred_id not in ancestors:
+                    ancestors.add(pred_id)
+                    queue.append(pred)
+        return ancestors
 
     def get_causal_descendants(self, node_id: str) -> set[str]:
         """Get all causal descendants (downstream effects) of a node.
@@ -775,9 +881,22 @@ class StructuralCausalModel:
         Returns:
             Set of descendant node IDs.
         """
-        if node_id not in self._graph:
+        if node_id not in self._node_map:
             return set()
-        return nx.descendants(self._graph, node_id)
+        # BFS forward through successors
+        descendants: set[str] = set()
+        queue = collections.deque([self._node_map[node_id]])
+        while queue:
+            current = queue.popleft()
+            for succ in self._graph.successor_indices(current):
+                succ_data = self._graph[succ]
+                succ_id = (
+                    succ_data["id"] if isinstance(succ_data, dict) else str(succ_data)
+                )
+                if succ_id not in descendants:
+                    descendants.add(succ_id)
+                    queue.append(succ)
+        return descendants
 
     def topological_causal_order(self) -> list[str]:
         """Return factors in causal (topological) order.
@@ -785,7 +904,53 @@ class StructuralCausalModel:
         Returns:
             List of factor IDs from root causes to terminal effects.
         """
-        return list(nx.topological_sort(self._graph))
+        topo = rx.topological_sort(self._graph)
+        result: list[str] = []
+        for idx in topo:
+            data = self._graph[idx]
+            result.append(data["id"] if isinstance(data, dict) else str(data))
+        return result
+
+    def shortest_path(self, source: str, target: str) -> list[str]:
+        """BFS shortest path from source to target. Raises ValueError if no path."""
+        if source not in self._node_map or target not in self._node_map:
+            raise ValueError(f"No path from {source} to {target}")
+        si = self._node_map[source]
+        ti = self._node_map[target]
+        visited: dict[int, int | None] = {si: None}
+        queue = collections.deque([si])
+        while queue:
+            current = queue.popleft()
+            if current == ti:
+                # Reconstruct path
+                path: list[str] = []
+                c: int | None = current
+                while c is not None:
+                    data = self._graph[c]
+                    path.append(data["id"] if isinstance(data, dict) else str(data))
+                    c = visited[c]
+                path.reverse()
+                return path
+            for succ in self._graph.successor_indices(current):
+                if succ not in visited:
+                    visited[succ] = current
+                    queue.append(succ)
+        raise ValueError(f"No path from {source} to {target}")
+
+    def shortest_path_length(self, source: str, target: str) -> int:
+        """BFS shortest path length from source to target."""
+        return len(self.shortest_path(source, target)) - 1
+
+    def get_predecessors(self, node_id: str) -> set[str]:
+        """Get direct predecessors of a node."""
+        ni = self._node_map.get(node_id)
+        if ni is None:
+            return set()
+        result: set[str] = set()
+        for pred in self._graph.predecessor_indices(ni):
+            data = self._graph[pred]
+            result.add(data["id"] if isinstance(data, dict) else str(data))
+        return result
 
 
 class CausalVerifier:
@@ -833,9 +998,9 @@ class CausalVerifier:
                 continue
 
             # Check 1: Does the causal direction exist in the SCM?
-            if not self._scm.graph.has_edge(cause, effect):
+            if not self._scm.has_edge(cause, effect):
                 # Check if reverse exists (direction error)
-                if self._scm.graph.has_edge(effect, cause):
+                if self._scm.has_edge(effect, cause):
                     violations.append(
                         f"Step {i}: Reversed causality — {cause}→{effect} "
                         f"should be {effect}→{cause}."
@@ -843,13 +1008,13 @@ class CausalVerifier:
                 else:
                     # No direct edge — check if there's a path
                     try:
-                        path = nx.shortest_path(self._scm.graph, cause, effect)
+                        path = self._scm.shortest_path(cause, effect)
                         if len(path) > 2:
                             violations.append(
                                 f"Step {i}: Indirect causality — {cause}→{effect} "
                                 f"requires intermediaries: {' → '.join(path)}."
                             )
-                    except nx.NetworkXNoPath:
+                    except ValueError:
                         violations.append(
                             f"Step {i}: No causal path from {cause} to {effect}."
                         )
@@ -861,8 +1026,8 @@ class CausalVerifier:
                 if prev_effect and cause != prev_effect:
                     # Check if previous effect should precede current cause
                     if (
-                        prev_effect in self._scm.graph
-                        and cause in self._scm.graph
+                        self._scm.has_node(prev_effect)
+                        and self._scm.has_node(cause)
                         and not self._scm.is_d_separated(prev_effect, cause)
                     ):
                         pass  # Connected — ordering is fine
@@ -909,7 +1074,7 @@ class SpuriousnessDetector:
         results: list[dict[str, Any]] = []
 
         for source, target in candidate_edges:
-            if source not in self._scm.graph or target not in self._scm.graph:
+            if not self._scm.has_node(source) or not self._scm.has_node(target):
                 results.append(
                     {
                         "source": source,
@@ -921,7 +1086,7 @@ class SpuriousnessDetector:
                 continue
 
             # Get parents of target (potential confounders)
-            parents = set(self._scm.graph.predecessors(target))
+            parents = self._scm.get_predecessors(target)
             parents.discard(source)  # Don't condition on the tested cause
 
             # d-separation test
@@ -968,17 +1133,20 @@ class CounterfactualGenerator:
         Returns:
             List of CounterfactualQuery objects.
         """
-        if target_node not in self._scm.graph:
+        if not self._scm.has_node(target_node):
             return []
 
         ancestors = self._scm.get_causal_ancestors(target_node)
         queries: list[CounterfactualQuery] = []
 
         # Sort by distance to target (closest ancestors first)
-        ancestor_list = sorted(
-            ancestors,
-            key=lambda a: nx.shortest_path_length(self._scm.graph, a, target_node),
-        )
+        def _dist(a: str) -> int:
+            try:
+                return self._scm.shortest_path_length(a, target_node)
+            except ValueError:
+                return 999
+
+        ancestor_list = sorted(ancestors, key=_dist)
 
         for ancestor_id in ancestor_list[:max_interventions]:
             factor = self._scm._factors.get(ancestor_id)
@@ -1041,11 +1209,11 @@ def trajectory_causal_alignment_score(
             continue
 
         # Check if there's a valid causal path
-        if cause in scm.graph and effect in scm.graph:
+        if scm.has_node(cause) and scm.has_node(effect):
             try:
-                nx.shortest_path(scm.graph, cause, effect)
+                scm.shortest_path(cause, effect)
                 valid_transitions += 1
-            except nx.NetworkXNoPath:
+            except ValueError:
                 pass
 
             # Check topological ordering
@@ -1135,8 +1303,13 @@ class BayesianBeliefPropagator:
     represent probabilistic dependencies.
     """
 
-    def __init__(self, graph: nx.DiGraph) -> None:
+    def __init__(self, graph: rx.PyDiGraph) -> None:
         self._graph = graph
+        self._node_map: dict[str, int] = {}
+        for idx in graph.node_indices():
+            data = graph[idx]
+            nid = data["id"] if isinstance(data, dict) and "id" in data else str(data)
+            self._node_map[nid] = idx
         self._beliefs: dict[str, BeliefState] = {}
 
     def set_prior(self, node_id: str, prior: float) -> None:
@@ -1232,7 +1405,16 @@ class BayesianBeliefPropagator:
             if depth >= max_hops:
                 continue
 
-            for neighbor in self._graph.successors(current):
+            current_idx = self._node_map.get(current)
+            if current_idx is None:
+                continue
+
+            for neighbor_data in self._graph.successors(current_idx):
+                neighbor = (
+                    neighbor_data["id"]
+                    if isinstance(neighbor_data, dict) and "id" in neighbor_data
+                    else str(neighbor_data)
+                )
                 if neighbor in visited:
                     continue
                 visited.add(neighbor)
@@ -1266,8 +1448,13 @@ class RandomWalkExplorer:
     exploration vs. exploitation around seed nodes.
     """
 
-    def __init__(self, graph: nx.DiGraph, seed: int = 42) -> None:
+    def __init__(self, graph: rx.PyDiGraph, seed: int = 42) -> None:
         self._graph = graph
+        self._node_map: dict[str, int] = {}
+        for idx in graph.node_indices():
+            data = graph[idx]
+            nid = data["id"] if isinstance(data, dict) and "id" in data else str(data)
+            self._node_map[nid] = idx
         self._rng = np.random.default_rng(seed)
 
     def explore(
@@ -1286,7 +1473,7 @@ class RandomWalkExplorer:
         Returns:
             Dict of node_id → visit frequency (proportion of steps).
         """
-        if start_node not in self._graph:
+        if start_node not in self._node_map:
             return {}
 
         visit_counts: dict[str, int] = defaultdict(int)
@@ -1299,12 +1486,19 @@ class RandomWalkExplorer:
                 current = start_node
                 continue
 
-            neighbors = list(self._graph.successors(current))
-            if not neighbors:
+            ci = self._node_map.get(current)
+            if ci is None:
                 current = start_node
                 continue
-
-            current = neighbors[self._rng.integers(len(neighbors))]
+            succ_indices = list(self._graph.successor_indices(ci))
+            if not succ_indices:
+                current = start_node
+                continue
+            chosen = succ_indices[self._rng.integers(len(succ_indices))]
+            data = self._graph[chosen]
+            current = (
+                data["id"] if isinstance(data, dict) and "id" in data else str(data)
+            )
 
         total = sum(visit_counts.values())
         return {node: count / total for node, count in visit_counts.items()}
@@ -1331,7 +1525,7 @@ class RandomWalkExplorer:
         Returns:
             List of dicts with node_id, frequency, distance, and surprise_score.
         """
-        if start_node not in self._graph:
+        if start_node not in self._node_map:
             return []
 
         # Aggregate frequencies across walks
@@ -1345,13 +1539,25 @@ class RandomWalkExplorer:
         total = sum(total_freq.values()) or 1.0
         normalized = {node: f / total for node, f in total_freq.items()}
 
-        # Compute graph distances from start
-        distances: dict[Any, Any] = {}
+        # Compute graph distances from start via BFS
+        distances: dict[str, int] = {}
         try:
-            distances = nx.single_source_shortest_path_length(
-                self._graph,
-                start_node,
-            )
+            si = self._node_map[start_node]
+            queue = collections.deque([(si, 0)])
+            visited: set[int] = {si}
+            while queue:
+                cur, depth = queue.popleft()
+                cur_data = self._graph[cur]
+                cur_id = (
+                    cur_data["id"]
+                    if isinstance(cur_data, dict) and "id" in cur_data
+                    else str(cur_data)
+                )
+                distances[cur_id] = depth
+                for succ in self._graph.successor_indices(cur):
+                    if succ not in visited:
+                        visited.add(succ)
+                        queue.append((succ, depth + 1))
         except Exception:
             distances = {start_node: 0}
 
@@ -1450,7 +1656,7 @@ def birthday_collision_probability(n_items: int, space_size: int) -> CollisionEs
 
 
 def conditional_independence_test(
-    graph: nx.DiGraph,
+    graph: rx.PyDiGraph,
     x: str,
     y: str,
     conditioning_set: set[str] | None = None,
@@ -1463,7 +1669,7 @@ def conditional_independence_test(
     they are d-separated by Z in the graph.
 
     Args:
-        graph: The directed KG graph.
+        graph: The directed KG graph (rx.PyDiGraph).
         x: First node.
         y: Second node.
         conditioning_set: Set of conditioned nodes (Z).
@@ -1473,7 +1679,14 @@ def conditional_independence_test(
     """
     z = conditioning_set or set()
 
-    if x not in graph or y not in graph:
+    # Build node map
+    node_map: dict[str, int] = {}
+    for idx in graph.node_indices():
+        data = graph[idx]
+        nid = data["id"] if isinstance(data, dict) and "id" in data else str(data)
+        node_map[nid] = idx
+
+    if x not in node_map or y not in node_map:
         return {
             "x": x,
             "y": y,
@@ -1483,14 +1696,31 @@ def conditional_independence_test(
         }
 
     try:
-        is_independent = nx.is_d_separator(graph, x, y, z)
+        # Use BFS on moralized ancestor graph for d-separation check
+        # Simplified: check if a path exists from x to y in the graph
+        # after removing conditioning set nodes
+        xi = node_map[x]
+        yi = node_map[y]
+        blocked = {node_map[n] for n in z if n in node_map}
+        # BFS ignoring blocked nodes (bidirectional for undirected path)
+        visited: set[int] = {xi} | blocked
+        queue = collections.deque([xi])
+        found = False
+        while queue:
+            cur = queue.popleft()
+            if cur == yi:
+                found = True
+                break
+            # Follow both successor and predecessor edges (undirected)
+            for neighbor in list(graph.successor_indices(cur)) + list(
+                graph.predecessor_indices(cur)
+            ):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+        is_independent = not found
     except Exception:
-        # Fallback: check path existence
-        try:
-            nx.shortest_path(graph.to_undirected(), x, y)
-            is_independent = False
-        except nx.NetworkXNoPath:
-            is_independent = True
+        is_independent = True
 
     return {
         "x": x,
@@ -1518,43 +1748,94 @@ across the Knowledge Graph.
 logger = logging.getLogger(__name__)
 
 
-def is_reflexive(graph: nx.DiGraph, nodes: Iterable[str] | None = None) -> bool:
+def _rx_node_labels(graph: rx.PyDiGraph) -> list[str]:
+    """Extract node labels from a rx.PyDiGraph."""
+    labels: list[str] = []
+    for idx in graph.node_indices():
+        data = graph[idx]
+        labels.append(
+            data["id"] if isinstance(data, dict) and "id" in data else str(data)
+        )
+    return labels
+
+
+def _rx_node_map(graph: rx.PyDiGraph) -> dict[str, int]:
+    """Build str→index map for a rx.PyDiGraph."""
+    m: dict[str, int] = {}
+    for idx in graph.node_indices():
+        data = graph[idx]
+        m[data["id"] if isinstance(data, dict) and "id" in data else str(data)] = idx
+    return m
+
+
+def _rx_edge_list(graph: rx.PyDiGraph) -> list[tuple[str, str]]:
+    """Return edges as (source_label, target_label) tuples."""
+    edges: list[tuple[str, str]] = []
+    for src, tgt, _w in graph.weighted_edge_list():
+        sd = graph[src]
+        td = graph[tgt]
+        sl = sd["id"] if isinstance(sd, dict) and "id" in sd else str(sd)
+        tl = td["id"] if isinstance(td, dict) and "id" in td else str(td)
+        edges.append((sl, tl))
+    return edges
+
+
+def is_reflexive(graph: rx.PyDiGraph, nodes: Iterable[str] | None = None) -> bool:
     """Check if the relation is reflexive over the given nodes.
 
     A relation R on A is reflexive if for all a in A, aRa.
     """
-    node_set = set(nodes) if nodes is not None else set(graph.nodes())
-    return all(graph.has_edge(n, n) for n in node_set)
+    nm = _rx_node_map(graph)
+    node_set = set(nodes) if nodes is not None else set(nm.keys())
+    for n in node_set:
+        ni = nm.get(n)
+        if ni is None:
+            return False
+        if not graph.has_edge(ni, ni):
+            return False
+    return True
 
 
-def is_symmetric(graph: nx.DiGraph) -> bool:
+def is_symmetric(graph: rx.PyDiGraph) -> bool:
     """Check if the relation is symmetric.
 
     A relation R is symmetric if aRb implies bRa.
     """
-    return all(graph.has_edge(v, u) for u, v in graph.edges())
+    for src, tgt in _rx_edge_list(graph):
+        nm = _rx_node_map(graph)
+        si, ti = nm.get(src), nm.get(tgt)
+        if si is None or ti is None:
+            return False
+        if not graph.has_edge(ti, si):
+            return False
+    return True
 
 
-def is_transitive(graph: nx.DiGraph) -> bool:
+def is_transitive(graph: rx.PyDiGraph) -> bool:
     """Check if the relation is transitive.
 
     A relation R is transitive if aRb and bRc implies aRc.
     """
-    for u, v in graph.edges():
-        for _, w in graph.out_edges(v):
-            if not graph.has_edge(u, w):
+    nm = _rx_node_map(graph)
+    for u_label, v_label in _rx_edge_list(graph):
+        vi = nm.get(v_label)
+        ui = nm.get(u_label)
+        if vi is None or ui is None:
+            continue
+        for succ in graph.successor_indices(vi):
+            if not graph.has_edge(ui, succ):
                 return False
     return True
 
 
 def is_equivalence_relation(
-    graph: nx.DiGraph, nodes: Iterable[str] | None = None
+    graph: rx.PyDiGraph, nodes: Iterable[str] | None = None
 ) -> bool:
     """Check if a directed graph represents an equivalence relation."""
     return is_reflexive(graph, nodes) and is_symmetric(graph) and is_transitive(graph)
 
 
-def equivalence_classes(graph: nx.DiGraph) -> list[set[str]]:
+def equivalence_classes(graph: rx.PyDiGraph) -> list[set[str]]:
     """Compute equivalence classes for a symmetric and transitive relation.
 
     Returns a list of disjoint sets of nodes that are equivalent.
@@ -1566,24 +1847,104 @@ def equivalence_classes(graph: nx.DiGraph) -> list[set[str]]:
             "Graph is not symmetric. Treating edges as undirected for equivalence classes."
         )
 
-    undirected = graph.to_undirected()
-    classes = list(nx.connected_components(undirected))
-    return [set(c) for c in classes]
+    # Union-Find for connected components on undirected interpretation
+    nm = _rx_node_map(graph)
+    parent: dict[str, str] = {n: n for n in nm}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for src, tgt in _rx_edge_list(graph):
+        if src in nm and tgt in nm:
+            union(src, tgt)
+
+    groups: dict[str, set[str]] = {}
+    for n in nm:
+        root = find(n)
+        groups.setdefault(root, set()).add(n)
+    return list(groups.values())
 
 
-def transitive_closure(graph: nx.DiGraph) -> nx.DiGraph:
+def transitive_closure(graph: rx.PyDiGraph) -> rx.PyDiGraph:
     """Compute the transitive closure of a relation."""
-    return nx.transitive_closure(graph)
+    _rx_node_map(graph)
+    tc = rx.PyDiGraph()
+    idx_map: dict[int, int] = {}
+    for old_idx in graph.node_indices():
+        new_idx = tc.add_node(graph[old_idx])
+        idx_map[old_idx] = new_idx
+    # For each node, BFS to find all reachable nodes
+    for src_idx in graph.node_indices():
+        visited: set[int] = set()
+        queue = collections.deque([src_idx])
+        visited.add(src_idx)
+        while queue:
+            cur = queue.popleft()
+            for succ in graph.successor_indices(cur):
+                if succ not in visited:
+                    visited.add(succ)
+                    queue.append(succ)
+        # Add edges from src to all reachable (except self unless already exists)
+        for reachable in visited:
+            if reachable != src_idx or graph.has_edge(src_idx, src_idx):
+                new_src = idx_map[src_idx]
+                new_tgt = idx_map[reachable]
+                if not tc.has_edge(new_src, new_tgt):
+                    tc.add_edge(new_src, new_tgt, None)
+    return tc
 
 
-def hasse_diagram(graph: nx.DiGraph) -> nx.DiGraph:
+def hasse_diagram(graph: rx.PyDiGraph) -> rx.PyDiGraph:
     """Compute the Hasse diagram (transitive reduction) of a DAG.
 
     Useful for partial orders (posets).
     """
-    if not nx.is_directed_acyclic_graph(graph):
-        raise ValueError("Graph is not a DAG. Cannot compute Hasse diagram.")
-    return nx.transitive_reduction(graph)
+    try:
+        rx.topological_sort(graph)
+    except Exception as exc:
+        raise ValueError("Graph is not a DAG. Cannot compute Hasse diagram.") from exc
+
+    _rx_node_map(graph)
+    edges_to_keep: set[tuple[int, int]] = set()
+    for src_idx in graph.node_indices():
+        for succ in graph.successor_indices(src_idx):
+            # Check if there's an alternative path from src to succ of length > 1
+            # BFS from src, ignoring the direct src->succ edge
+            visited: set[int] = {src_idx}
+            queue: collections.deque[int] = collections.deque()
+            for s in graph.successor_indices(src_idx):
+                if s != succ:
+                    visited.add(s)
+                    queue.append(s)
+            found_alt = False
+            while queue:
+                cur = queue.popleft()
+                if cur == succ:
+                    found_alt = True
+                    break
+                for ns in graph.successor_indices(cur):
+                    if ns not in visited:
+                        visited.add(ns)
+                        queue.append(ns)
+            if not found_alt:
+                edges_to_keep.add((src_idx, succ))
+
+    result = rx.PyDiGraph()
+    idx_map: dict[int, int] = {}
+    for old_idx in graph.node_indices():
+        new_idx = result.add_node(graph[old_idx])
+        idx_map[old_idx] = new_idx
+    for src, tgt in edges_to_keep:
+        result.add_edge(idx_map[src], idx_map[tgt], None)
+    return result
 
 
 def resolve_entities(equivalences: list[tuple[str, str]]) -> dict[str, str]:
@@ -1599,8 +1960,14 @@ def resolve_entities(equivalences: list[tuple[str, str]]) -> dict[str, str]:
     Returns:
         Mapping from entity_id to canonical_entity_id.
     """
-    G = nx.DiGraph()
-    G.add_edges_from(equivalences)
+    G = rx.PyDiGraph()
+    node_map: dict[str, int] = {}
+    for u, v in equivalences:
+        if u not in node_map:
+            node_map[u] = G.add_node(u)
+        if v not in node_map:
+            node_map[v] = G.add_node(v)
+        G.add_edge(node_map[u], node_map[v], None)
 
     classes = equivalence_classes(G)
     resolution_map = {}

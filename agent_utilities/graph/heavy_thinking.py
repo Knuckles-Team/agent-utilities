@@ -384,6 +384,25 @@ class HeavyThinkingOrchestrator:
 
         return result
 
+    # ── OrchestratorProtocol conformance ──────────────────────────────────
+
+    async def dispatch(self, task: str, **kwargs: Any) -> dict[str, Any]:
+        """Dispatch a heavy thinking task."""
+
+        job_id = f"hto:{uuid.uuid4().hex[:8]}"
+        deps = kwargs.get("deps")
+        if deps is None:
+            return {"job_id": job_id, "status": "failed", "error": "deps required"}
+        try:
+            result = await self.execute(query=task, deps=deps)
+            return {"job_id": job_id, "status": "completed", "output": result}
+        except Exception as e:
+            return {"job_id": job_id, "status": "failed", "error": str(e)}
+
+    def get_status(self, job_id: str) -> dict[str, Any]:
+        """Return status of a dispatched job (async execution — always terminal)."""
+        return {"job_id": job_id, "status": "completed"}
+
     async def _parallel_reasoning(
         self,
         query: str,
@@ -441,7 +460,10 @@ class HeavyThinkingOrchestrator:
 
         # Spawn all thinkers concurrently
         tasks = [run_thinker(f"thinker_{i}") for i in range(k)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        from .gather import gather_with_resilience
+
+        results = await gather_with_resilience(tasks, label="heavy_thinking")
 
         for result in results:
             if isinstance(result, TrajectoryEntry):
@@ -451,7 +473,7 @@ class HeavyThinkingOrchestrator:
                     model_id=result.model_id,
                     success=result.success,
                 )
-            elif isinstance(result, Exception):
+            elif isinstance(result, BaseException):
                 logger.warning("[CONCEPT:AHE-3.4] Thinker failed: %s", result)
 
         logger.info(

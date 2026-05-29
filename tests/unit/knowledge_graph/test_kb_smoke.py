@@ -18,7 +18,7 @@ markdown, which is what these tests assert.
 from collections.abc import Iterator
 from pathlib import Path
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 pytestmark = pytest.mark.integration
@@ -33,7 +33,7 @@ pytestmark = pytest.mark.integration
 def engine_with_tmp_db(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> Iterator[tuple[nx.MultiDiGraph, object]]:
+) -> Iterator[tuple[GraphComputeEngine, object]]:
     """Build an ``IntelligenceGraphEngine`` on a tempfile-backed LadybugDB.
 
     Yields a ``(graph, engine)`` tuple and resets the engine singleton on
@@ -47,7 +47,7 @@ def engine_with_tmp_db(
     monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path))
 
     backend = create_backend(backend_type="ladybug", db_path=str(db_path))
-    graph: nx.MultiDiGraph = nx.MultiDiGraph()
+    graph: GraphComputeEngine = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph, backend=backend)
 
     yield graph, engine
@@ -64,7 +64,7 @@ def engine_with_tmp_db(
 
 @pytest.fixture
 def kb_engine(
-    engine_with_tmp_db: tuple[nx.MultiDiGraph, object],
+    engine_with_tmp_db: tuple[GraphComputeEngine, object],
 ) -> object:
     """Fresh ``KBIngestionEngine`` sharing the graph from ``engine_with_tmp_db``."""
     from agent_utilities.knowledge_graph.kb.ingestion import KBIngestionEngine
@@ -96,7 +96,7 @@ def tmp_doc_dir(tmp_path: Path) -> Path:
 @pytest.mark.asyncio
 async def test_kb_ingest_small_directory(
     kb_engine: object,
-    engine_with_tmp_db: tuple[nx.MultiDiGraph, object],
+    engine_with_tmp_db: tuple[GraphComputeEngine, object],
     tmp_doc_dir: Path,
 ) -> None:
     """``ingest_directory`` creates at least one Article node in the graph."""

@@ -90,7 +90,7 @@ async def execute_workspace_sync(
         # Let's check KBIngestionEngine signature if possible.
         # For now, I'll use the pattern from knowledge_base.py.
         kb_engine = KBIngestionEngine(
-            graph=ctx.nx_graph,
+            graph=ctx.graph,
             backend=ctx.backend,
         )
 

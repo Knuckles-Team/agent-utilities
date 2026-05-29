@@ -45,7 +45,7 @@ import uuid
 from enum import IntEnum
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -197,6 +197,8 @@ class AgentProcess(BaseModel):
     preempted_at: float | None = None
     inference_budget: InferenceBudget = Field(default_factory=InferenceBudget)
 
+    _running_event: asyncio.Event = PrivateAttr(default_factory=asyncio.Event)
+
 
 class CognitiveScheduler:
     """Priority-aware preemptive scheduler for agent processes.
@@ -319,6 +321,7 @@ class CognitiveScheduler:
 
             if running_count < self.max_concurrent:
                 proc.state = ProcessState.RUNNING
+                proc._running_event.set()
                 logger.info(
                     "Scheduler: %s → RUNNING (priority=%d, agent=%s, centrality=%.2f, quota=%d)",
                     proc.id,
@@ -342,6 +345,12 @@ class CognitiveScheduler:
         # Persist to KG if available
         self._persist_process(proc)
         return proc
+
+    async def wait_for_running(self, process_id: str) -> None:
+        """Block until the process is in RUNNING state."""
+        proc = self._processes.get(process_id)
+        if proc:
+            await proc._running_event.wait()
 
     async def complete(self, process_id: str) -> None:
         """Mark a process as completed and schedule the next waiting process.
@@ -411,6 +420,7 @@ class CognitiveScheduler:
                 return None
 
             proc.state = ProcessState.PAUSED
+            proc._running_event.clear()
             proc.preempted_at = time.time()
 
             # Generate checkpoint ID
@@ -453,6 +463,7 @@ class CognitiveScheduler:
 
             if running_count < self.max_concurrent:
                 proc.state = ProcessState.RUNNING
+                proc._running_event.set()
                 logger.info(
                     "Scheduler: RESUME %s → RUNNING (checkpoint=%s)",
                     proc.id,
@@ -717,6 +728,7 @@ class CognitiveScheduler:
                 return None
 
             proc.state = ProcessState.RUNNING
+            proc._running_event.set()
             logger.info(
                 "Scheduler: %s → RUNNING (from queue, agent=%s)",
                 proc.id,

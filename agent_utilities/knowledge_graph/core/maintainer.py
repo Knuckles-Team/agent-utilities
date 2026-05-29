@@ -146,14 +146,11 @@ class GraphMaintainer:
         return summarized
 
     def update_importance_scores(self) -> int:
-        """Update importance scores using NetworkX centrality (PageRank)."""
-        import networkx as nx
-
-        # Note: In a production system, we would rebuild the NX graph from the backend first
+        """Update importance scores using Rust-native PageRank centrality."""
         try:
-            scores = nx.pagerank(self.engine.graph)
+            scores = self.engine.graph.pagerank()
             updated = 0
-            for node_id, score in scores.items():
+            for node_id, score in scores:
                 if self.engine.backend:
                     self.engine.backend.execute(
                         "MATCH (n {id: $id}) SET n.importance_score = $score",

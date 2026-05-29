@@ -4,7 +4,7 @@
 
 from typing import Any
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -42,7 +42,7 @@ class MockBackend(GraphBackend):
 
 
 def test_ingest_external_batch():
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph)
     engine.backend = MockBackend()
 
@@ -90,7 +90,7 @@ def test_ingest_external_batch():
 
 def test_ingest_external_batch_fallback():
     # If backend is None, it should fall back to NetworkX loop
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph)
     engine.backend = None
 

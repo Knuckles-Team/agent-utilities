@@ -27,8 +27,11 @@ from .startup_context import (
     StartupPayload,
     build_startup_payload,
 )
+from .unified_memory import MemoryLifecycleManager
 
 __all__ = [
+    # Memory Lifecycle Manager (KG-2.1)
+    "MemoryLifecycleManager",
     # Consolidation (KG-2.4)
     "ConsolidationEngine",
     "ConsolidationProposal",

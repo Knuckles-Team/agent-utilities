@@ -15,7 +15,7 @@ import logging
 import os
 from pathlib import Path
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.core.config import config
@@ -35,13 +35,13 @@ logger = logging.getLogger(__name__)
 def engine(tmp_path_factory):
     """Create a test IntelligenceGraphEngine in memory-only mode.
 
-    Uses NetworkX (no LadybugDB backend) for workflow tests since the
+    Uses GraphComputeEngine (no LadybugDB backend) for workflow tests since the
     test schema doesn't need persistent storage.
     """
     from agent_utilities.core.paths import ensure_dirs
 
     ensure_dirs()
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     return IntelligenceGraphEngine(graph=graph, backend=None)
 
 

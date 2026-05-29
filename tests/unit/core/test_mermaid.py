@@ -1,6 +1,6 @@
 """CONCEPT:OS-5.1"""
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from agent_utilities.knowledge_graph.core.engine import (
     FocusedSubgraph,
@@ -161,7 +161,7 @@ def test_codemap_artifact_to_mermaid():
 
 
 def test_kg_mermaid_generation():
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     graph.add_node("agent1", type="agent", name="Agent 1")
     graph.add_node("mem1", type="memory", description="Some memory")
     graph.add_edge("agent1", "mem1", type="CREATED")

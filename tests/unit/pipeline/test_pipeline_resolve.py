@@ -5,7 +5,7 @@ from __future__ import annotations
 """Coverage push for agent_utilities.knowledge_graph.pipeline.phases.*.
 
 Targets each phase's ``execute_fn`` via a mocked PipelineContext with a
-pre-seeded NetworkX graph.  Backend / external services are replaced with
+pre-seeded graph compute engine.  Backend / external services are replaced with
 MagicMock to avoid any I/O.
 """
 
@@ -13,7 +13,7 @@ MagicMock to avoid any I/O.
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
@@ -32,14 +32,25 @@ def _fake_backend() -> MagicMock:
 
 def _make_ctx(
     workspace_path: str = "/tmp/ws",
-    graph: nx.MultiDiGraph | None = None,
+    graph: GraphComputeEngine | None = None,
     backend: Any | None = None,
     **config_kwargs: Any,
 ) -> PipelineContext:
+    import uuid
     """Build a PipelineContext with a given graph and backend."""
     cfg = PipelineConfig(workspace_path=workspace_path, **config_kwargs)
-    g = graph or nx.MultiDiGraph()
-    ctx = PipelineContext(config=cfg, nx_graph=g, backend=backend)
+    if graph is None:
+        name = f"test_{uuid.uuid4().hex[:8]}"
+        g = GraphComputeEngine(backend_type="rust", graph_name=name)
+        if g._client:
+            try:
+                g._client.create_graph(name)
+            except Exception:
+                pass
+            g._client.clear()
+    else:
+        g = graph
+    ctx = PipelineContext(config=cfg, graph=g, backend=backend)
     return ctx
 
 
@@ -67,7 +78,7 @@ async def test_resolve_absolute_import_match() -> None:
         execute_resolve,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node(
         "src",
         type="file",
@@ -98,7 +109,7 @@ async def test_resolve_relative_import() -> None:
         execute_resolve,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node(
         "src",
         type="file",
@@ -197,7 +208,7 @@ async def test_sync_happy_path() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("n1", type="tool", name="t1")
     g.add_node("n2", type="agent", name="a1")
     g.add_edge("n1", "n2", type="uses")
@@ -215,7 +226,7 @@ async def test_sync_unknown_type_fallback() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("n1", type="some_custom_type", name="x")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
@@ -230,7 +241,7 @@ async def test_sync_node_without_type_skipped() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("n1")  # No type attr
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
@@ -246,7 +257,7 @@ async def test_sync_edge_type_filtered_to_alnum() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("n1", type="tool", name="t")
     g.add_node("n2", type="tool", name="t2")
     g.add_edge("n1", "n2", type="has-child!@#")
@@ -263,7 +274,7 @@ async def test_sync_edge_type_all_filtered_empty_skipped() -> None:
     )
 
     backend = _fake_backend()
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("n1", type="tool", name="t")
     g.add_node("n2", type="tool", name="t2")
     g.add_edge("n1", "n2", type="!@#$%")  # All non-alnum
@@ -287,7 +298,7 @@ async def test_sync_node_execute_raises() -> None:
         raise RuntimeError("db error")
 
     backend.execute_batch.side_effect = boom
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("n1", type="tool", name="t")
     ctx = _make_ctx(graph=g, backend=backend)
     result = await execute_sync(ctx, {})
@@ -453,7 +464,7 @@ async def test_embedding_no_candidate_nodes() -> None:
         execute_embedding,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     # Nodes without any text fields
     g.add_node("n1")
     g.add_node("n2", name="a")  # Too short
@@ -470,7 +481,7 @@ async def test_embedding_already_embedded_nodes_skipped() -> None:
         execute_embedding,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node(
         "n1",
         name="already embedded",
@@ -493,7 +504,7 @@ async def test_embedding_with_http_success(
 
     monkeypatch.setattr(embedding, "_generate_embedding_batch", fake_batch)
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node(
         "n1",
         name="long enough name string for embedding",
@@ -517,7 +528,7 @@ async def test_embedding_http_fails_fallback_used(
         return [[0.4, 0.5] for _ in texts]
 
     monkeypatch.setattr(embedding, "_generate_embedding_llamaindex", fake_llama)
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node(
         "n1",
         name="long enough name string for embedding",
@@ -537,7 +548,7 @@ async def test_embedding_both_fail_error_count(
 
     monkeypatch.setattr(embedding, "_generate_embedding_batch", lambda t: None)
     monkeypatch.setattr(embedding, "_generate_embedding_llamaindex", lambda t: None)
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node(
         "n1",
         name="long enough name string for embedding",
@@ -559,7 +570,7 @@ async def test_embedding_with_content_field(
         return [[0.1] for _ in texts]
 
     monkeypatch.setattr(embedding, "_generate_embedding_batch", fake_batch)
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("n1", content="this is long enough content text")
     ctx = _make_ctx(graph=g)
     result = await embedding.execute_embedding(ctx, {})

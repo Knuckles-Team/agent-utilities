@@ -60,7 +60,7 @@ async def execute_owl_reasoning(
 
     # Create bridge and run cycle
     bridge = OWLBridge(
-        graph=ctx.nx_graph,
+        graph=ctx.graph,
         owl_backend=owl_backend,
         backend=ctx.backend,
         importance_threshold=ctx.config.owl_promotion_importance_threshold,

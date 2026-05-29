@@ -90,9 +90,9 @@ async def test_owl_query_error_handling():
 @pytest.mark.asyncio
 async def test_kg_bulk_export_filters_by_type():
     """Verify kg_bulk_export returns only matching node types."""
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     graph.add_node("mem_1", type="memory", name="Note 1", importance=0.8)
     graph.add_node("mem_2", type="memory", name="Note 2", importance=0.5)
     graph.add_node("tool_1", type="tool", name="search", importance=0.9)
@@ -120,9 +120,9 @@ async def test_kg_bulk_export_filters_by_type():
 @pytest.mark.asyncio
 async def test_kg_bulk_export_respects_limit():
     """Verify kg_bulk_export respects the limit parameter."""
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     for i in range(50):
         graph.add_node(f"mem_{i}", type="memory", name=f"Memory {i}")
 

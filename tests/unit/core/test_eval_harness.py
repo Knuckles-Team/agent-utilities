@@ -10,7 +10,7 @@ Concept: eval-tracing
 
 import json
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.tools.eval_harness import (
@@ -104,7 +104,7 @@ def test_eval_harness_persists_to_graph() -> None:
     harness.register(LengthScorer(min_length=1))
 
     result = harness.evaluate("q", "hello")
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     node_id = harness.persist_to_graph(graph, result, run_id="test_run")
 
     assert node_id in graph

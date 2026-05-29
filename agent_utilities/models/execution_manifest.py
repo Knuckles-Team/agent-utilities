@@ -149,6 +149,45 @@ class ExecutionManifest(BaseModel):
         """Whether any agent has explicit DAG dependencies."""
         return any(a.depends_on for a in self.agents)
 
+    @classmethod
+    def from_graph_plan(
+        cls, plan: Any, name: str = "", query: str = ""
+    ) -> ExecutionManifest:
+        """Convert a ``GraphPlan`` into an ``ExecutionManifest``.
+
+        CONCEPT:ORCH-1.25 — GraphPlan → Manifest Bridge
+
+        Enables ``WorkflowRunner`` and ``SkillCompiler`` outputs to flow
+        directly into ``ParallelEngine`` without re-planning.
+
+        Args:
+            plan: A ``GraphPlan`` instance (from models.graph).
+            name: Human-readable workflow name.
+            query: Original user query, if any.
+
+        Returns:
+            An ``ExecutionManifest`` ready for ``ParallelEngine.execute()``.
+        """
+        agents = []
+        for step in plan.steps:
+            agents.append(
+                AgentSpec(
+                    agent_id=step.node_id,
+                    task_template=step.refined_subtask or f"Execute: {step.node_id}",
+                    depends_on=step.depends_on or [],
+                    timeout=getattr(step, "timeout", None),
+                )
+            )
+        return cls(
+            agents=agents,
+            name=name,
+            query=query,
+            source="graph_plan",
+            metadata=plan.metadata
+            if hasattr(plan, "metadata") and plan.metadata
+            else {},
+        )
+
 
 # ── Execution Results ───────────────────────────────────────────────
 

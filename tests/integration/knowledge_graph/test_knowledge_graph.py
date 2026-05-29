@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -16,7 +16,7 @@ from agent_utilities.models.knowledge_graph import (
 
 @pytest.fixture
 def mock_graph():
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     # Add an agent
     graph.add_node(
         "TestBot",
@@ -94,7 +94,7 @@ def test_intelligence_shortest_path(mock_graph):
 
 @pytest.mark.asyncio
 async def test_memory_operations():
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph)
 
     # Add

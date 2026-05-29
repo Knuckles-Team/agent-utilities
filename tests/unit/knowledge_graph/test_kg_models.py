@@ -42,9 +42,11 @@ from agent_utilities.models.knowledge_graph import (
     RegistryEdge,
     RegistryEdgeType,
     RegistryNodeType,
+    RelationshipNode,
     RoleNode,
     SystemNode,
 )
+from agent_utilities.graph.models import Relationship
 from agent_utilities.models.schema_definition import SCHEMA
 
 # ---------------------------------------------------------------------------
@@ -62,6 +64,62 @@ NEW_NODE_ENUMS: tuple[RegistryNodeType, ...] = (
     RegistryNodeType.BELIEF,
     RegistryNodeType.HYPOTHESIS,
     RegistryNodeType.PRINCIPLE,
+    RegistryNodeType.RELATIONSHIP,
+    RegistryNodeType.CONTINUANT,
+    RegistryNodeType.OCCURRENT,
+    RegistryNodeType.SPATIAL_REGION,
+    RegistryNodeType.TEMPORAL_REGION,
+    RegistryNodeType.BOUNDARY,
+    RegistryNodeType.QUANTITY_VALUE,
+    RegistryNodeType.UNIT_OF_MEASURE,
+    RegistryNodeType.PRODUCT,
+    RegistryNodeType.OFFER,
+    RegistryNodeType.PROVENANCE_ACTIVITY,
+    RegistryNodeType.PROVENANCE_AGENT,
+    RegistryNodeType.GENE,
+    RegistryNodeType.DISEASE,
+    RegistryNodeType.DRUG,
+    RegistryNodeType.ANATOMY,
+    RegistryNodeType.CLINICAL_TRIAL,
+    RegistryNodeType.MEDICAL_OBSERVATION,
+    RegistryNodeType.BANK_ACCOUNT,
+    RegistryNodeType.EQUITY,
+    RegistryNodeType.DERIVATIVE,
+    RegistryNodeType.CORPORATE_ACTION,
+    RegistryNodeType.LOAN,
+    RegistryNodeType.MARKET_INDEX,
+    RegistryNodeType.SENSOR,
+    RegistryNodeType.ACTUATOR,
+    RegistryNodeType.IOT_DEVICE,
+    RegistryNodeType.MANUFACTURING_PLANT,
+    RegistryNodeType.MATERIAL_ASSET,
+    RegistryNodeType.MAINTENANCE_LOG,
+    RegistryNodeType.LEGAL_CONTRACT,
+    RegistryNodeType.JURISDICTION,
+    RegistryNodeType.LEGISLATION,
+    RegistryNodeType.COURT_RULING,
+    RegistryNodeType.THREAT_ACTOR,
+    RegistryNodeType.CULTURAL_ARTIFACT,
+    RegistryNodeType.MUSEUM_EXHIBIT,
+    RegistryNodeType.MUSICAL_WORK,
+    RegistryNodeType.PUBLICATION_RECORD,
+    RegistryNodeType.HISTORICAL_EVENT,
+    RegistryNodeType.BUSINESS_DIVISION,
+    RegistryNodeType.COST_CENTER,
+    RegistryNodeType.BOARD_OF_DIRECTORS,
+    RegistryNodeType.COMMITTEE,
+    RegistryNodeType.EMPLOYEE,
+    RegistryNodeType.CONTRACTOR,
+    RegistryNodeType.VIRTUAL_WORKER,
+    RegistryNodeType.PAY_GRADE,
+    RegistryNodeType.PERFORMANCE_REVIEW,
+    RegistryNodeType.TRAINING_MODULE,
+    RegistryNodeType.AUTHORITY_DELEGATION,
+    RegistryNodeType.COMPLIANCE_AUDIT,
+    RegistryNodeType.RESOURCE_QUOTA,
+    RegistryNodeType.ALL_HANDS_MEETING,
+    RegistryNodeType.EXECUTIVE_MEMO,
+    RegistryNodeType.TOWN_HALL,
 )
 
 NEW_EDGE_ENUMS: tuple[RegistryEdgeType, ...] = (
@@ -85,6 +143,32 @@ NEW_EDGE_ENUMS: tuple[RegistryEdgeType, ...] = (
     RegistryEdgeType.SUPERSEDES_BY,
     RegistryEdgeType.BELONGS_TO_ORGANIZATION,
     RegistryEdgeType.EMPLOYS,
+    RegistryEdgeType.HAS_PARENT,
+    RegistryEdgeType.HAS_CHILD,
+    RegistryEdgeType.HAS_ANCESTOR,
+    RegistryEdgeType.HAS_DESCENDANT,
+    RegistryEdgeType.HAS_SIBLING,
+    RegistryEdgeType.COUPLE,
+    RegistryEdgeType.SPOUSE,
+    RegistryEdgeType.COLLEAGUE_OF,
+    RegistryEdgeType.MENTOR_OF,
+    RegistryEdgeType.FRIEND_OF,
+    RegistryEdgeType.KNOWS,
+    RegistryEdgeType.HAS_QUANTITY,
+    RegistryEdgeType.MEASURED_IN,
+    RegistryEdgeType.DERIVES_FROM,
+    RegistryEdgeType.REPORTS_TO,
+    RegistryEdgeType.DELEGATES_AUTHORITY_TO,
+    RegistryEdgeType.MONITORS_COMPLIANCE_OF,
+    RegistryEdgeType.CONSUMES_BUDGET_OF,
+    RegistryEdgeType.ALLOCATED_TO_COST_CENTER,
+    RegistryEdgeType.MANAGES,
+    RegistryEdgeType.COLLABORATES_WITH,
+    RegistryEdgeType.HAS_JURISDICTION_OVER,
+    RegistryEdgeType.GOVERNS,
+    RegistryEdgeType.MANUFACTURES,
+    RegistryEdgeType.TREATS_DISEASE,
+    RegistryEdgeType.PRESCRIBES_DRUG,
 )
 
 ISO_TS = "2026-01-01T00:00:00Z"
@@ -325,6 +409,41 @@ def test_principle_node_happy_path() -> None:
     assert n.review_cadence_days == 180
 
 
+def test_relationship_node_happy_path() -> None:
+    n = RelationshipNode(
+        id="rel:1",
+        name="Parent-Child Relation",
+        relationship_type="has_parent",
+        entity1_id="person:alice",
+        entity2_id="person:bob",
+        facts=[{"event": "birth", "year": 2026}],
+    )
+    assert n.type is RegistryNodeType.RELATIONSHIP
+    assert n.relationship_type == "has_parent"
+    assert n.entity1_id == "person:alice"
+    assert n.entity2_id == "person:bob"
+    assert len(n.facts) == 1
+    assert n.facts[0]["year"] == 2026
+
+
+def test_relationship_graph_node_happy_path() -> None:
+    r = Relationship(
+        id="rel:2",
+        relationship_id="rel-2",
+        relationship_type="mentor_of",
+        entity1_id="person:alice",
+        entity2_id="person:charlie",
+        facts=[{"subject": "Rust FFI"}],
+    )
+    assert "Relationship" in r.labels
+    assert r.relationship_id == "rel-2"
+    assert r.relationship_type == "mentor_of"
+    assert r.entity1_id == "person:alice"
+    assert r.entity2_id == "person:charlie"
+    assert len(r.facts) == 1
+    assert r.facts[0]["subject"] == "Rust FFI"
+
+
 # ---------------------------------------------------------------------------
 # Literal / enum rejection
 # ---------------------------------------------------------------------------
@@ -558,6 +677,13 @@ def sample_nodes() -> dict[type, object]:
         PrincipleNode: PrincipleNode(
             id="prin:a", name="A", principle_id="a", statement="x"
         ),
+        RelationshipNode: RelationshipNode(
+            id="rel:a",
+            name="A",
+            relationship_type="friend_of",
+            entity1_id="person:x",
+            entity2_id="person:y",
+        ),
     }
 
 
@@ -574,6 +700,7 @@ def sample_nodes() -> dict[type, object]:
         BeliefNode,
         HypothesisNode,
         PrincipleNode,
+        RelationshipNode,
     ],
 )
 def test_node_json_round_trip(cls: type, sample_nodes: dict[type, object]) -> None:
@@ -600,6 +727,7 @@ def test_node_json_round_trip(cls: type, sample_nodes: dict[type, object]) -> No
         BeliefNode,
         HypothesisNode,
         PrincipleNode,
+        RelationshipNode,
     ],
 )
 def test_node_dict_round_trip(cls: type, sample_nodes: dict[type, object]) -> None:
@@ -725,6 +853,7 @@ def test_every_new_node_has_table_definition() -> None:
         "Belief",
         "Hypothesis",
         "Principle",
+        "Relationship",
     ):
         assert expected in table_names, (
             f"TableDefinition missing for node label {expected!r}"
@@ -755,6 +884,17 @@ def test_every_new_edge_has_rel_definition() -> None:
         "SUPERSEDES_BY",
         "BELONGS_TO_ORGANIZATION",
         "EMPLOYS",
+        "HAS_PARENT",
+        "HAS_CHILD",
+        "HAS_ANCESTOR",
+        "HAS_DESCENDANT",
+        "HAS_SIBLING",
+        "COUPLE",
+        "SPOUSE",
+        "COLLEAGUE_OF",
+        "MENTOR_OF",
+        "FRIEND_OF",
+        "KNOWS",
     ):
         assert expected in rel_types, (
             f"RelDefinition missing for edge type {expected!r}"
@@ -788,6 +928,7 @@ def test_new_table_definitions_include_registry_node_columns() -> None:
         "Belief",
         "Hypothesis",
         "Principle",
+        "Relationship",
     }
     for tbl in SCHEMA.nodes:
         if tbl.name in new_node_names:
@@ -838,38 +979,38 @@ def test_edge_json_round_trip() -> None:
 
 
 def test_retrieve_place_view_stub_returns_empty_list() -> None:
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
 
-    eng = IntelligenceGraphEngine(nx.MultiDiGraph())
+    eng = IntelligenceGraphEngine(GraphComputeEngine())
     result = eng.retrieve_place_view("meeting", top_k=5)
     assert result == []
 
 
 def test_retrieve_epistemic_view_stub_has_expected_shape() -> None:
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
 
-    eng = IntelligenceGraphEngine(nx.MultiDiGraph())
+    eng = IntelligenceGraphEngine(GraphComputeEngine())
     result = eng.retrieve_epistemic_view("database X", top_k=5)
     assert set(result.keys()) == {"beliefs", "supporting", "contradicting"}
     assert result["beliefs"] == []
 
 
 def test_retrieve_orthogonal_context_includes_v2_views_when_requested() -> None:
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
 
-    eng = IntelligenceGraphEngine(nx.MultiDiGraph())
+    eng = IntelligenceGraphEngine(GraphComputeEngine())
     ctx = eng.retrieve_orthogonal_context(
         "what broke during the migration?",
         views=["place", "epistemic"],
@@ -885,13 +1026,13 @@ def test_retrieve_orthogonal_context_default_keeps_v1_contract() -> None:
 
     so existing callers don't break. (§6 backward-compat invariant.)
     """
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
 
-    eng = IntelligenceGraphEngine(nx.MultiDiGraph())
+    eng = IntelligenceGraphEngine(GraphComputeEngine())
     ctx = eng.retrieve_orthogonal_context("any query")
     assert set(ctx["views"].keys()) == {
         "semantic",

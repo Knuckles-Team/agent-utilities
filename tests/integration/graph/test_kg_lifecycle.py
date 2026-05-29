@@ -8,7 +8,7 @@ Integration tests for KG lifecycle management:
 - DocumentDeletionPipeline + QueryMixin parity
 """
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -20,7 +20,7 @@ from agent_utilities.models.schema_definition import SCHEMA
 @pytest.fixture
 def engine():
     """Create a lightweight IntelligenceGraphEngine for testing."""
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     return IntelligenceGraphEngine(graph=graph)
 
 
@@ -75,7 +75,7 @@ def test_archimate_business_process_in_schema():
 # ── Gap 3: Soft-Delete Convergence ──
 
 
-def test_archived_node_excluded_from_networkx_search(engine):
+def test_archived_node_excluded_from_graph_search(engine):
     """Nodes with status=ARCHIVED must be excluded from keyword search."""
     # Add an active node
     engine.graph.add_node(
@@ -122,7 +122,7 @@ def test_archived_node_visible_via_direct_graph_query(engine):
 @pytest.mark.asyncio
 async def test_soft_delete_pipeline_uses_archived_status():
     """DocumentDeletionPipeline._soft_delete must set status=ARCHIVED, not is_deleted."""
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph)
     engine.graph.add_node("doc-001", name="TestDoc", content="test", status="ACTIVE")
 
@@ -144,7 +144,7 @@ async def test_soft_delete_pipeline_uses_archived_status():
 @pytest.mark.asyncio
 async def test_restore_document_resets_to_active():
     """Restoring a soft-deleted document must set status=ACTIVE."""
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph)
     engine.graph.add_node(
         "doc-002",
@@ -172,7 +172,7 @@ async def test_restore_document_resets_to_active():
 @pytest.mark.asyncio
 async def test_document_update_rejects_archived():
     """DocumentUpdatePipeline must reject updates to ARCHIVED documents."""
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph)
     engine.graph.add_node("doc-003", name="Archived", content="old", status="ARCHIVED")
 

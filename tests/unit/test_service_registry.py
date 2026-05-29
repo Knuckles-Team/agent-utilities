@@ -76,12 +76,12 @@ class TestServiceRegistry:
         assert r1 is r2
 
     def test_register_with_kg(self):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
         from agent_utilities.graph.service_registry import ServiceRegistry
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         engine = IntelligenceGraphEngine(g, backend=None)
         registry = ServiceRegistry()
         registry.initialize()

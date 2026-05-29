@@ -1,6 +1,6 @@
 """CONCEPT:KG-2.0"""
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -9,7 +9,7 @@ from agent_utilities.models.codemap import CodemapArtifact
 
 @pytest.fixture
 def sample_graph():
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     # Add nodes with metadata
     g.add_node("file1.py", type="file", name="file1.py", centrality=0.9)
     g.add_node("func1", type="function", name="func1", file="file1.py", centrality=0.8)

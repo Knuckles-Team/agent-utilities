@@ -24,8 +24,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-import networkx as nx
-
 from ...models.knowledge_graph import (
     PromptNode,
     RegistryEdgeType,
@@ -90,46 +88,31 @@ class RegistryMixin(_Base):
         logger.info(f"Hybrid search found {len(search_results)} candidates")
 
         # 2. Build initial node set
-        seed_ids = [r["id"] for r in search_results]
-        subgraph = self.graph.subgraph(seed_ids).copy()
-        logger.info(f"Initial subgraph has {len(subgraph)} nodes")
+        seed_ids = {r["id"] for r in search_results if self.graph.has_node(r["id"])}
+        logger.info(f"Initial subgraph has {len(seed_ids)} nodes")
 
         # 3. Expand to include neighbors with high centrality
-        # In MultiDiGraph, neighbors() returns successors. We might want both.
-        for node_id in list(subgraph.nodes):
-            logger.info(f"Expanding node: {node_id}")
-            if self.graph.nodes[node_id].get("centrality", 0) >= min_centrality:
-                # Add successors and predecessors
-                for successor in self.graph.successors(node_id):
-                    if successor not in subgraph:
-                        subgraph.add_node(successor, **self.graph.nodes[successor])
-                    subgraph.add_edge(
-                        node_id,
-                        successor,
-                        **self.graph.get_edge_data(node_id, successor)[0],
-                    )
-
-                for predecessor in self.graph.predecessors(node_id):
-                    if predecessor not in subgraph:
-                        subgraph.add_node(predecessor, **self.graph.nodes[predecessor])
-                    subgraph.add_edge(
-                        predecessor,
-                        node_id,
-                        **self.graph.get_edge_data(predecessor, node_id)[0],
-                    )
+        expanded_ids = set(seed_ids)
+        for node_id in list(seed_ids):
+            props = self.graph._get_node_properties(node_id)
+            if props.get("centrality", 0) >= min_centrality:
+                for successor in self.graph.get_successors(node_id):
+                    expanded_ids.add(successor)
+                for predecessor in self.graph.get_predecessors(node_id):
+                    expanded_ids.add(predecessor)
 
         # 4. Prune if still too large using PageRank
-        if len(subgraph) > max_nodes:
-            centrality = nx.pagerank(nx.DiGraph(subgraph), alpha=0.85)
-            top_nodes = sorted(centrality, key=lambda x: centrality[x], reverse=True)[
-                :max_nodes
-            ]
-            subgraph = subgraph.subgraph(top_nodes).copy()
+        if len(expanded_ids) > max_nodes:
+            all_pr = dict(self.graph.pagerank())
+            scored = [(nid, all_pr.get(nid, 0.0)) for nid in expanded_ids]
+            scored.sort(key=lambda x: x[1], reverse=True)
+            expanded_ids = {nid for nid, _ in scored[:max_nodes]}
 
         # 5. Convert to clean list of dicts
         nodes = []
         edges = []
-        for node_id, data in subgraph.nodes(data=True):
+        for node_id in expanded_ids:
+            data = self.graph._get_node_properties(node_id)
             nodes.append(
                 {
                     "id": node_id,
@@ -141,15 +124,16 @@ class RegistryMixin(_Base):
                 }
             )
 
-        for u, v, key, edata in subgraph.edges(data=True, keys=True):
-            edges.append(
-                {
-                    "source": u,
-                    "target": v,
-                    "type": edata.get("type", "calls"),
-                    "weight": edata.get("weight", 1.0),
-                }
-            )
+        for src, tgt in self.graph._get_all_edges():
+            if src in expanded_ids and tgt in expanded_ids:
+                edges.append(
+                    {
+                        "source": src,
+                        "target": tgt,
+                        "type": "calls",
+                        "weight": 1.0,
+                    }
+                )
 
         summary = f"Subgraph for '{query}' with {len(nodes)} nodes focused on relevant execution paths."
 
@@ -163,8 +147,9 @@ class RegistryMixin(_Base):
     async def get_codemap_by_id(self, codemap_id: str) -> Any | None:
         """Retrieve a codemap artifact by its ID."""
         # Check in-memory first if we store them there
-        if f"codemap:{codemap_id}" in self.graph:
-            data = self.graph.nodes[f"codemap:{codemap_id}"]
+        cm_node_id = f"codemap:{codemap_id}"
+        if self.graph.has_node(cm_node_id):
+            data = self.graph._get_node_properties(cm_node_id)
             from ...models.codemap import CodemapArtifact
 
             return CodemapArtifact.model_validate(data)
@@ -213,7 +198,7 @@ class RegistryMixin(_Base):
         data = artifact.model_dump()
 
         # Add to in-memory graph
-        self.graph.add_node(node_id, **data)
+        self.graph.add_node(node_id, data)
 
         # Persist to backend
         if self.backend:
@@ -252,7 +237,8 @@ class RegistryMixin(_Base):
                 }
 
         # In-memory fallback within graph
-        for nid, data in self.graph.nodes(data=True):
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
             if str(data.get("type", "")).lower() == "system_prompt":
                 return {"id": nid, **data}
 
@@ -283,7 +269,7 @@ class RegistryMixin(_Base):
             timestamp=ts,
         )
 
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, node.model_dump())
         if self.backend:
             data = self._serialize_node(node, label="SystemPrompt")
             self._upsert_node("SystemPrompt", node.id, data)
@@ -305,8 +291,8 @@ class RegistryMixin(_Base):
         updates = {k: v for k, v in identity.items() if k != "id" and v is not None}
         updates["timestamp"] = ts
 
-        if node_id in self.graph:
-            self.graph.nodes[node_id].update(updates)
+        if self.graph.has_node(node_id):
+            self.graph._get_node_properties(node_id).update(updates)
         if self.backend:
             set_clause = self._get_set_clause(updates, alias="n", label="SystemPrompt")
             query = f"MATCH (n:SystemPrompt {{id: $id}}){set_clause}"
@@ -346,7 +332,8 @@ class RegistryMixin(_Base):
             return results
 
         # In-memory
-        for nid, data in self.graph.nodes(data=True):
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
             if str(data.get("type", "")).lower() == "prompt":
                 results.append({"id": nid, **data})
         return results
@@ -373,8 +360,8 @@ class RegistryMixin(_Base):
                     "timestamp": row.get("p.timestamp", ""),
                     "json_blueprint": row.get("p.json_blueprint", {}),
                 }
-        if prompt_id in self.graph:
-            return {"id": prompt_id, **self.graph.nodes[prompt_id]}
+        if self.graph.has_node(prompt_id):
+            return {"id": prompt_id, **self.graph._get_node_properties(prompt_id)}
         return None
 
     def add_prompt(
@@ -396,7 +383,7 @@ class RegistryMixin(_Base):
             timestamp=ts,
         )
 
-        self.graph.add_node(node.id, **node.model_dump())
+        self.graph.add_node(node.id, node.model_dump())
         if self.backend:
             data = self._serialize_node(node, label="Prompt")
             data["author"] = author
@@ -442,8 +429,8 @@ class RegistryMixin(_Base):
             timestamp=ts,
         )
 
-        self.graph.add_node(node.id, **node.model_dump())
-        self.graph.add_edge(new_id, prompt_id, type=RegistryEdgeType.SUPERSEDES)
+        self.graph.add_node(node.id, node.model_dump())
+        self.graph.add_edge(new_id, prompt_id, {"type": RegistryEdgeType.SUPERSEDES})
 
         if self.backend:
             data = self._serialize_node(node, label="Prompt")
@@ -512,15 +499,16 @@ class RegistryMixin(_Base):
         visited = set()
         while current and current not in visited and len(versions) < limit:
             visited.add(current)
-            if current in self.graph:
-                data = dict(self.graph.nodes[current])
+            if self.graph.has_node(current):
+                data = dict(self.graph._get_node_properties(current))
                 versions.append({"id": current, **data})
-            # Follow SUPERSEDES edges
-            for _, target, edata in self.graph.out_edges(current, data=True):
-                if edata.get("type") == RegistryEdgeType.SUPERSEDES:
-                    current = target
-                    break
-            else:
+            # Follow SUPERSEDES edges via successors
+            found_next = False
+            for successor in self.graph.get_successors(current):
+                found_next = True
+                current = successor
+                break
+            if not found_next:
                 break
         return versions
 
@@ -570,7 +558,8 @@ class RegistryMixin(_Base):
                 )
 
         # Also check in-memory graph for Skill-type nodes
-        for nid, data in self.graph.nodes(data=True):
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
             n_type = str(data.get("type", "")).lower()
             r_type = str(data.get("resource_type", "")).lower()
             if n_type == "skill" or r_type == "agent_skill":
@@ -613,7 +602,8 @@ class RegistryMixin(_Base):
                 )
 
         # Also check Server->PROVIDES->CallableResource
-        for nid, data in self.graph.nodes(data=True):
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
             r_type = str(data.get("resource_type", "")).lower()
             if r_type == "mcp_tool":
                 if not any(r["id"] == nid for r in results):
@@ -664,8 +654,8 @@ class RegistryMixin(_Base):
                 }
 
         # In-memory
-        if resource_id in self.graph:
-            data = self.graph.nodes[resource_id]
+        if self.graph.has_node(resource_id):
+            data = self.graph._get_node_properties(resource_id)
             current = data.get("enabled", True)
             new_state = not current
             data["enabled"] = new_state
@@ -741,15 +731,16 @@ class RegistryMixin(_Base):
             # Simple heuristic for subgraph if query provided
             results = self.search_hybrid(query, top_k=max_nodes)
             node_ids = [r["id"] for r in results]
-            subgraph = self.graph.subgraph(node_ids).copy()
+            # Subgraph built from node_ids - no NX subgraph needed
         else:
             # Just take the first N nodes
-            node_ids = list(self.graph.nodes)[:max_nodes]
-            subgraph = self.graph.subgraph(node_ids).copy()
+            node_ids = self.graph.node_ids()[:max_nodes]
+            # Subgraph built from node_ids - no NX subgraph needed
 
         builder = FlowchartBuilder(title=title)
 
-        for n, data in subgraph.nodes(data=True):
+        for n in node_ids:
+            data = self.graph._get_node_properties(n)
             n_type = data.get("type", "unknown")
             shape = "box"
             if n_type == "episode":
@@ -766,7 +757,9 @@ class RegistryMixin(_Base):
                 css_class=n_type.lower(),
             )
 
-        for u, v, data in subgraph.edges(data=True):
+        for u, v in self.graph._get_all_edges():
+            if u in set(node_ids) and v in set(node_ids):
+                data = {}
             builder.add_edge(u, v, label=data.get("type", ""))
 
         # Add some default styling for KG types
@@ -824,7 +817,8 @@ class RegistryMixin(_Base):
                     logger.debug(f"Failed to parse TeamConfig: {e}")
 
         # Also check in-memory
-        for nid, data in self.graph.nodes(data=True):
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
             if str(data.get("type", "")).lower() == "team_config":
                 try:
                     node = TeamConfigNode.model_validate({"id": nid, **data})
@@ -867,8 +861,8 @@ class RegistryMixin(_Base):
 
         # Extract coalition metadata
         coalition_data: dict[str, Any] = {}
-        if coalition_id in self.graph:
-            coalition_data = dict(self.graph.nodes[coalition_id])
+        if self.graph.has_node(coalition_id):
+            coalition_data = dict(self.graph._get_node_properties(coalition_id))
         elif self.backend:
             rows = self.backend.execute(
                 "MATCH (sc {id: $id}) RETURN sc",
@@ -891,7 +885,7 @@ class RegistryMixin(_Base):
         )
 
         # Persist to graph
-        self.graph.add_node(tc_id, **node.model_dump())
+        self.graph.add_node(tc_id, node.model_dump())
         if self.backend:
             clean_data = self._serialize_node(node, label="TeamConfig")
             self._upsert_node("TeamConfig", tc_id, clean_data)
@@ -900,7 +894,9 @@ class RegistryMixin(_Base):
         self.graph.add_edge(
             tc_id,
             coalition_id,
-            type=RegistryEdgeType.REUSED_TEAM,
+            {
+                "type": RegistryEdgeType.REUSED_TEAM,
+            },
         )
         if self.backend:
             self.backend.execute(
@@ -940,8 +936,8 @@ class RegistryMixin(_Base):
         """
         alpha = 0.3
 
-        if team_config_id in self.graph:
-            data = self.graph.nodes[team_config_id]
+        if self.graph.has_node(team_config_id):
+            data = self.graph._get_node_properties(team_config_id)
             old_rate = data.get("success_rate", 0.5)
             new_rate = alpha * reward + (1 - alpha) * old_rate
             data["success_rate"] = new_rate
@@ -957,9 +953,11 @@ class RegistryMixin(_Base):
                     "rate": alpha * reward
                     + (1 - alpha)
                     * (
-                        self.graph.nodes.get(team_config_id, {}).get(
-                            "success_rate", 0.5
-                        )
+                        (
+                            self.graph._get_node_properties(team_config_id)
+                            if self.graph.has_node(team_config_id)
+                            else {}
+                        ).get("success_rate", 0.5)
                     ),
                 },
             )
@@ -986,7 +984,9 @@ class RegistryMixin(_Base):
         self.graph.add_edge(
             agent_id,
             prompt_id,
-            type=RegistryEdgeType.USES_PROMPT,
+            {
+                "type": RegistryEdgeType.USES_PROMPT,
+            },
         )
         if self.backend:
             self.backend.execute(
@@ -1048,7 +1048,7 @@ class RegistryMixin(_Base):
             "importance_score": 0.5,
         }
 
-        self.graph.add_node(function_id, **node_data)
+        self.graph.add_node(function_id, node_data)
 
         if self.backend:
             set_clause = self._get_set_clause(
@@ -1077,7 +1077,7 @@ class RegistryMixin(_Base):
         Returns:
             True if found and removed, False otherwise.
         """
-        if function_id in self.graph:
+        if self.graph.has_node(function_id):
             self.graph.remove_node(function_id)
             if self.backend:
                 self.backend.execute(
@@ -1110,7 +1110,8 @@ class RegistryMixin(_Base):
         """
         functions: list[dict[str, Any]] = []
 
-        for nid, data in self.graph.nodes(data=True):
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
             if str(data.get("type", "")).lower() != "callable_resource":
                 continue
 
@@ -1173,7 +1174,8 @@ class RegistryMixin(_Base):
                 logger.debug("Backend team export failed: %s", e)
 
         # Fallback: NX graph
-        for nid, data in self.graph.nodes(data=True):
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
             if nid == team_id and data.get("type") == "team_config":
                 return {
                     "version": "1.0",
@@ -1222,7 +1224,7 @@ class RegistryMixin(_Base):
                 logger.debug("Backend team import failed: %s", e)
 
         # Fallback: store in NX
-        self.graph.add_node(new_id, **config)
+        self.graph.add_node(new_id, config)
         logger.info(
             "[CONCEPT:ORCH-1.1] Imported team config '%s' to NX graph",
             new_id,
@@ -1266,7 +1268,8 @@ class RegistryMixin(_Base):
                 pass  # nosec
 
         # Also include NX graph entries
-        for nid, data in self.graph.nodes(data=True):
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
             if data.get("type") == "team_config":
                 rate = data.get("success_rate", 0)
                 if rate >= min_success_rate:
@@ -1351,7 +1354,8 @@ class RegistryMixin(_Base):
                 logger.debug("AgentTemplate scan failed: %s", e)
 
         # Also include NX graph entries
-        for nid, data in self.graph.nodes(data=True):
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
             if data.get("type") == "agent_template":
                 if not any(t.get("id") == nid for t in templates):
                     templates.append(
@@ -1409,8 +1413,8 @@ class RegistryMixin(_Base):
             "timestamp": timestamp,
         }
 
-        # Upsert to NX graph
-        self.graph.add_node(node_id, **node_data)
+        # Upsert to graph
+        self.graph.add_node(node_id, node_data)
 
         # Upsert to backend if available
         if hasattr(self, "_upsert_node"):
@@ -1425,8 +1429,7 @@ class RegistryMixin(_Base):
             self.graph.add_edge(
                 node_id,
                 prompt_id,
-                type=RegistryEdgeType.USES_PROMPT.value,
-                weight=1.0,
+                {"type": RegistryEdgeType.USES_PROMPT.value, "weight": 1.0},
             )
 
         # Wire REQUIRES_TOOLSET edges
@@ -1434,15 +1437,16 @@ class RegistryMixin(_Base):
             self.graph.add_edge(
                 node_id,
                 tool_id,
-                type=RegistryEdgeType.REQUIRES_TOOLSET.value,
-                weight=1.0,
+                {"type": RegistryEdgeType.REQUIRES_TOOLSET.value, "weight": 1.0},
             )
 
         # Wire COMPATIBLE_WITH_MODEL if specified
         model_pref = template.get("model_preference", "")
         if model_pref:
             # Store as a property edge (model is a string, not a node)
-            self.graph.nodes[node_id]["model_preference"] = model_pref
+            self.graph._get_node_properties(node_id).update(
+                {"model_preference": model_pref}
+            )
 
         logger.info(
             "[CONCEPT:ORCH-1.4] Created AgentTemplate '%s' (role=%s)",
@@ -1471,11 +1475,15 @@ class RegistryMixin(_Base):
         if not template_ids or len(template_ids) < 2:
             return edges
 
-        # Check NX graph
+        # Check graph edges
         for src_id in template_ids:
             for tgt_id in template_ids:
-                if src_id != tgt_id and self.graph.has_edge(src_id, tgt_id):
-                    edge_data = self.graph.edges[src_id, tgt_id]
+                if (
+                    src_id != tgt_id
+                    and src_id in self.graph.node_ids()
+                    and tgt_id in self.graph.get_successors(src_id)
+                ):
+                    edge_data: dict[str, Any] = {}
                     if edge_data.get("type") in (
                         "depends_on",
                         RegistryEdgeType.DEPENDS_ON.value,

@@ -206,7 +206,7 @@ class VariantPool:
                 )
                 return fitness
 
-        # NetworkX fallback: traverse locally
+        # graph compute fallback: traverse locally
         if variant_id not in self.engine.graph:
             return 0.0
 
@@ -256,7 +256,7 @@ class VariantPool:
                     }
                 )
         else:
-            # NetworkX fallback
+            # graph compute fallback
             if base_id not in self.engine.graph:
                 return variants
             for succ in self.engine.graph.predecessors(base_id):

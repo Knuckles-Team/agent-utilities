@@ -120,7 +120,7 @@ class AHEMixin(_Base):
                 {"eid": episode_id, "oid": eval_id},
             )
 
-        # Link in NetworkX as well
+        # Link in graph compute as well
         # Note: we don't know the label in NX nodes reliably without checking 'type' property
         if episode_id in self.graph:
             self.graph.add_edge(episode_id, eval_id, type="PRODUCED_OUTCOME")

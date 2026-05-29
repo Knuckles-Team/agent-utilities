@@ -8,7 +8,7 @@ Validates:
     - ``link_prompt_to_agent()`` edge creation
 """
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -24,7 +24,7 @@ from agent_utilities.models.knowledge_graph import (
 @pytest.fixture()
 def engine():
     """Create a minimal in-memory IntelligenceGraphEngine for testing."""
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     e = IntelligenceGraphEngine(graph=g, db_path=":memory:")
     IntelligenceGraphEngine.set_active(e)
     return e

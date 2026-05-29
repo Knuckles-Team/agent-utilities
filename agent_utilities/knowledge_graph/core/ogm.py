@@ -122,7 +122,7 @@ class KGMapper:
         - ``@kg_label`` decorator for custom label overrides
         - Bidirectional: ``upsert()`` (Pydantic → KG), ``load()`` (KG → Pydantic)
         - Change watchers for event-driven invalidation
-        - NetworkX + backend dual-write for consistency
+        - graph compute + backend dual-write for consistency
 
     Args:
         engine: The ``IntelligenceGraphEngine`` instance to operate on.
@@ -199,7 +199,7 @@ class KGMapper:
     # ── CRUD Operations ───────────────────────────────────────────────
 
     def upsert(self, node: RegistryNode) -> str:
-        """Persist a Pydantic node to both NetworkX and the KG backend.
+        """Persist a Pydantic node to both graph compute and the KG backend.
 
         If the node already exists (by ``id``), it is updated in-place.
 
@@ -212,7 +212,7 @@ class KGMapper:
         label = self._get_label(node)
         props = self._serialize(node, label)
 
-        # 1. NetworkX layer
+        # 1. Graph compute layer
         self.engine.graph.add_node(node.id, **node.model_dump())
 
         # 2. Backend layer (if available)
@@ -242,7 +242,7 @@ class KGMapper:
         """
         edge_props = {"type": edge_type, **(properties or {})}
 
-        # NetworkX
+        # Graph compute engine
         self.engine.graph.add_edge(source_id, target_id, **edge_props)
 
         # Backend
@@ -274,7 +274,7 @@ class KGMapper:
     def load(self, node_id: str, model_cls: type[T]) -> T | None:
         """Load a node from the KG and hydrate it as a typed Pydantic model.
 
-        Attempts backend first, falls back to NetworkX.
+        Attempts backend first, falls back to graph compute.
 
         Args:
             node_id: The unique ID of the node to load.
@@ -294,7 +294,7 @@ class KGMapper:
                 data = results[0].get("n", results[0])
                 return self._deserialize(data, model_cls)
 
-        # Fallback to NetworkX
+        # Fallback to graph compute
         if node_id in self.engine.graph:
             data = dict(self.engine.graph.nodes[node_id])
             return self._deserialize(data, model_cls)
@@ -333,7 +333,7 @@ class KGMapper:
                 except Exception as e:
                     logger.debug("OGM load_by_label skip: %s", e)
         else:
-            # NetworkX fallback
+            # graph compute fallback
             type_val = model_cls.model_fields["type"].default
             if isinstance(type_val, RegistryNodeType):
                 type_val = type_val.value
@@ -349,7 +349,7 @@ class KGMapper:
         return results
 
     def delete(self, node_id: str) -> bool:
-        """Remove a node from both NetworkX and the KG backend.
+        """Remove a node from both graph compute and the KG backend.
 
         Args:
             node_id: The ID of the node to remove.
@@ -359,7 +359,7 @@ class KGMapper:
         """
         found = False
 
-        # NetworkX
+        # Graph compute engine
         if node_id in self.engine.graph:
             self.engine.graph.remove_node(node_id)
             found = True

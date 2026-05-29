@@ -420,23 +420,20 @@ async def fetch_epistemic_context() -> str:
     # 3. KG-based context from IntelligenceGraphEngine (CONCEPT:KG-2.3)
     kg_context = ""
     try:
-        import networkx as nx
-
         from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
-        if engine.graph and engine.graph.number_of_nodes() > 0:
-            # Sample top nodes by degree centrality for awareness
-            nodes_by_degree = sorted(
-                engine.graph.degree(), key=lambda x: x[1], reverse=True
-            )
-            kg_entries = []
-            for node_id, degree in nodes_by_degree[:5]:
-                data = engine.graph.nodes.get(node_id, {})
-                name = data.get("name", node_id)
-                desc = str(data.get("description", ""))[:120]
-                kg_entries.append(f"- {name} (degree={degree}): {desc}")
-            kg_context = "\n".join(kg_entries)
+        engine = IntelligenceGraphEngine.get_active()
+        if engine and engine.graph:
+            # Sample top nodes for awareness
+            all_ids = engine.graph.node_ids()
+            if all_ids:
+                kg_entries = []
+                for node_id in all_ids[:5]:
+                    data = engine.graph._get_node_properties(node_id)
+                    name = data.get("name", node_id)
+                    desc = str(data.get("description", ""))[:120]
+                    kg_entries.append(f"- {name}: {desc}")
+                kg_context = "\n".join(kg_entries)
     except Exception as e:
         logger.debug("KG context unavailable: %s", e)
 
@@ -570,9 +567,10 @@ async def memory_selection_step(
         words = re.findall(r"\b[a-z0-9_]{4,}\b", ctx.state.query.lower())
         seen_mem_ids = set()
         for word in words:
-            for node_id, data in ctx.deps.knowledge_engine.graph.nodes(data=True):
+            for node_id in ctx.deps.knowledge_engine.graph.node_ids():
                 if node_id in seen_mem_ids:
                     continue
+                data = ctx.deps.knowledge_engine.graph._get_node_properties(node_id)
                 if data.get("type") == "memory" and (
                     word in data.get("description", "").lower()
                     or word in data.get("name", "").lower()
@@ -720,7 +718,6 @@ async def memory_selection_step(
 
 # === From lats.py ===
 
-import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
@@ -757,7 +754,9 @@ class LATSPlanner:
             prompt = f"Generate a unique candidate plan for: {query}\nCandidate {i + 1}: Focus on a different approach."
             tasks.append(self.agent.run(prompt, deps=self.deps))
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        from .gather import gather_with_resilience
+
+        results = await gather_with_resilience(tasks, label="mcts_simulation")
 
         # CONCEPT:AHE-3.4: Memory-Aware Test-Time Scaling
         # Distill memory from parallel scaling trajectories before evaluation

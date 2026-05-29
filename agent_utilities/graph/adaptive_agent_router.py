@@ -659,21 +659,38 @@ class TopologicalRoutingPolicy(RoutingPolicy):
             return
 
         try:
-            import networkx as nx
+            from agent_utilities.knowledge_graph.core import graph_primitives as rx
 
-            # Load agent subgraph for centrality computation
-            if hasattr(self.engine, "load_for_centrality"):
-                subgraph = self.engine.load_for_centrality(["agent", "tool", "skill"])
-            else:
-                subgraph = self.engine.graph
+            # Build a graph from the engine's node/edge data
+            rg = rx.PyDiGraph()
+            idx_map: dict[str, int] = {}
 
-            if subgraph and subgraph.number_of_nodes() > 0:
-                # Convert MultiDiGraph to DiGraph for PageRank
-                di = nx.DiGraph(subgraph)
-                centrality = nx.pagerank(di, alpha=0.85, max_iter=50)
-                self._centrality_cache = {
-                    str(k): float(v) for k, v in centrality.items()
-                }
+            # Get all node IDs from the engine
+            try:
+                all_ids = self.engine.graph.node_ids()
+            except Exception:
+                all_ids = []
+
+            for nid in all_ids:
+                idx_map[nid] = rg.add_node(nid)
+
+            # Rebuild edges from successor relationships
+            for nid in all_ids:
+                try:
+                    successors = self.engine.graph.get_successors(nid)
+                except Exception:
+                    successors = []
+                for succ in successors:
+                    if succ in idx_map:
+                        rg.add_edge(idx_map[nid], idx_map[succ], None)
+
+            if rg.num_nodes() > 0:
+                # Use epistemic-graph native PageRank via the engine
+                try:
+                    pr = self.engine.graph.pagerank()
+                    self._centrality_cache = {nid: score for nid, score in pr}
+                except Exception:
+                    self._centrality_cache = {}
         except Exception as e:
             logger.debug("Centrality computation failed: %s", e)
 
@@ -685,13 +702,17 @@ class TopologicalRoutingPolicy(RoutingPolicy):
         try:
             success_count = 0
             total_count = 0
-            for _, data in self.engine.graph.nodes(data=True):
+            # Use GCE-native node iteration
+            for nid in self.engine.graph.node_ids():
+                props = self.engine.graph._get_node_properties(nid)
+                if not props:
+                    continue
                 if (
-                    data.get("type") == "subagent_pattern_decision"
-                    and data.get("pattern") == candidate.primitive.value
+                    props.get("type") == "subagent_pattern_decision"
+                    and props.get("pattern") == candidate.primitive.value
                 ):
                     total_count += 1
-                    if data.get("outcome_success") is True:
+                    if props.get("outcome_success") is True:
                         success_count += 1
 
             if total_count >= 3:

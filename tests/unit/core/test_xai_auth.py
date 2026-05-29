@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent_utilities.security.browser_auth import generate_pkce
-from agent_utilities.security.secrets_client import InMemoryBackend, SecretsClient
+from agent_utilities.security.secrets_client import InEpistemicGraphBackend, SecretsClient
 from agent_utilities.security.xai_auth import (
     XaiAuthManager,
     validate_xai_oauth_endpoint,
@@ -21,10 +21,10 @@ class TestXaiAuthManager:
 
     @pytest.fixture
     def mock_secrets_client(self):
-        """Create an InMemoryBackend SecretsClient for testing."""
+        """Create an InEpistemicGraphBackend SecretsClient for testing."""
         client = MagicMock(spec=SecretsClient)
         # Mock backend type to prevent sqlite redirection
-        client.backend = MagicMock(spec=InMemoryBackend)
+        client.backend = MagicMock(spec=InEpistemicGraphBackend)
 
         # Simple in-memory storage dict
         storage: dict[str, str] = {}

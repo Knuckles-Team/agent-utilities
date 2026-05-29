@@ -19,9 +19,9 @@ class FakeEngine:  # type: ignore
     """Minimal mock engine for self-model tests."""
 
     def __init__(self):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = None
 
     def _upsert_node(self, label, node_id, props):

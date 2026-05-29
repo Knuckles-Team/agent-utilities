@@ -54,6 +54,7 @@ _TYPE_TO_TABLE = {
     "server": "Server",
     "observation": "Observation",
     "action": "Action",
+    "relationship": "Relationship",
 }
 
 
@@ -72,7 +73,7 @@ async def execute_sync(
         db = create_backend(db_path=db_path)
     if db is None:
         return {"status": "skipped", "reason": "graph backend not available"}
-    graph = ctx.nx_graph
+    graph = ctx.graph
 
     nodes_synced = 0
     edges_synced = 0
