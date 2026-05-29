@@ -99,7 +99,7 @@ class GraphGovernanceAgent:
         # 3. Trigger Semantic Consolidation
         # Call the ConsolidationEngine if available (from Phase 2)
         try:
-            from agent_utilities.knowledge_graph.core.maintainer import (
+            from agent_utilities.knowledge_graph.core.maintainer import (  # noqa: F401
                 GraphMaintainer,
             )
 

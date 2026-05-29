@@ -37,7 +37,7 @@ Both the legacy Graph workflows and the new background daemon tasks (like Consol
 When `agent_utilities` starts via `app.py`, the `FastAPI` lifespan boots a singleton `IntelligenceGraphEngine`. This engine establishes a pool of connections (UDS/TCP) to the persistent backends and the transient `epistemic-graph` service.
 
 By injecting this exact `engine` into the `GraphGovernanceAgent` at startup, the governance daemon:
-1. Re-uses the exact same network pools, reducing socket pressure.
+1. Reuses the exact same network pools, reducing socket pressure.
 2. Sees identical state as the standard agent workloads.
 3. Automatically respects the Zero-Trust policies enforced within the engine's `SyncEpistemicGraphClient`.
 
