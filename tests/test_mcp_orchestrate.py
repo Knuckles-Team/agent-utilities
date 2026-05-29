@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -15,7 +15,7 @@ from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 def _create_engine():
     """Create a minimal IntelligenceGraphEngine for testing."""
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(graph=graph, backend=None)
     return engine
 

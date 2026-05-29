@@ -3,7 +3,7 @@
 CONCEPT:AHE-3.0 — Spec-Driven Development
 """
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.graph.client import create_or_merge_node
@@ -45,7 +45,7 @@ def test_process_flow_model_validation():
 @pytest.mark.asyncio
 async def test_create_or_merge_node_idempotency():
     """Test that create_or_merge_node adds nodes to the graph."""
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     mock_backend = MagicMock()
     engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
     IntelligenceGraphEngine.set_active(engine)
@@ -75,7 +75,7 @@ async def test_process_step_sequence():
         id="step:exec", name="Execute", step_id="step:exec", step_type="tool_call"
     )
 
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     mock_backend = MagicMock()
     engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
     IntelligenceGraphEngine.set_active(engine)
@@ -95,7 +95,7 @@ from unittest.mock import MagicMock, patch
 
 def test_engine_policy_discovery():
     """Test that the engine can discover policies via Cypher."""
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     mock_backend = MagicMock()
     # Mocking Cypher return for Policy
     mock_backend.execute.return_value = [
@@ -118,7 +118,7 @@ def test_engine_policy_discovery():
 
 def test_engine_process_discovery():
     """Test that the engine can discover process flows via Cypher."""
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     mock_backend = MagicMock()
     mock_backend.execute.return_value = [
         {"f": {"name": "Feature Flow", "goal": "Implement feature", "id": "flow:01"}}
@@ -136,7 +136,7 @@ async def test_maintenance_model_validation(caplog):
     """Test the automated model validation routine in maintenance."""
     from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     mock_backend = MagicMock()
     # Return a node missing required fields
     mock_backend.execute.return_value = [{"n": {"id": "bad_pol", "name": "Invalid"}}]

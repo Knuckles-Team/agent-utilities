@@ -19,7 +19,7 @@ async def execute_memory(
     if not ctx.config.persist_to_ladybug:
         return {"status": "skipped", "reason": "persistence disabled"}
 
-    graph = ctx.nx_graph
+    graph = ctx.graph
     start_time = time.time()
 
     try:

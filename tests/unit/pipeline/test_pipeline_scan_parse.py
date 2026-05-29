@@ -5,7 +5,7 @@ from __future__ import annotations
 """Coverage push for agent_utilities.knowledge_graph.pipeline.phases.*.
 
 Targets each phase's ``execute_fn`` via a mocked PipelineContext with a
-pre-seeded NetworkX graph.  Backend / external services are replaced with
+pre-seeded graph compute engine.  Backend / external services are replaced with
 MagicMock to avoid any I/O.
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
@@ -33,14 +33,25 @@ def _fake_backend() -> MagicMock:
 
 def _make_ctx(
     workspace_path: str = "/tmp/ws",
-    graph: nx.MultiDiGraph | None = None,
+    graph: GraphComputeEngine | None = None,
     backend: Any | None = None,
     **config_kwargs: Any,
 ) -> PipelineContext:
+    import uuid
     """Build a PipelineContext with a given graph and backend."""
     cfg = PipelineConfig(workspace_path=workspace_path, **config_kwargs)
-    g = graph or nx.MultiDiGraph()
-    ctx = PipelineContext(config=cfg, nx_graph=g, backend=backend)
+    if graph is None:
+        name = f"test_{uuid.uuid4().hex[:8]}"
+        g = GraphComputeEngine(backend_type="rust", graph_name=name)
+        if g._client:
+            try:
+                g._client.create_graph(name)
+            except Exception:
+                pass
+            g._client.clear()
+    else:
+        g = graph
+    ctx = PipelineContext(config=cfg, graph=g, backend=backend)
     return ctx
 
 
@@ -68,7 +79,7 @@ async def test_centrality_with_nodes() -> None:
         execute_centrality,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("a", type="file")
     g.add_node("b", type="file")
     g.add_edge("a", "b")
@@ -86,8 +97,8 @@ async def test_centrality_exception_branch(monkeypatch: pytest.MonkeyPatch) -> N
     def raise_pagerank(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("pagerank failed")
 
-    monkeypatch.setattr(centrality.nx, "pagerank", raise_pagerank)
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
+    monkeypatch.setattr(g, "pagerank", raise_pagerank)
     g.add_node("a")
     ctx = _make_ctx(graph=g)
     result = await centrality.execute_centrality(ctx, {})
@@ -118,7 +129,7 @@ async def test_communities_with_graph() -> None:
         execute_communities,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("a")
     g.add_node("b")
     g.add_edge("a", "b")
@@ -135,8 +146,8 @@ async def test_communities_louvain_fails(monkeypatch: pytest.MonkeyPatch) -> Non
     def raise_louvain(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("louvain failed")
 
-    monkeypatch.setattr(communities.nx.community, "louvain_communities", raise_louvain)
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
+    monkeypatch.setattr(g, "community_detection", raise_louvain)
     g.add_node("a")
     ctx = _make_ctx(graph=g)
     result = await communities.execute_communities(ctx, {})
@@ -167,7 +178,7 @@ async def test_mro_symbol_class_relationship() -> None:
         execute_mro,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node(
         "Parent",
         type="symbol",
@@ -195,7 +206,7 @@ async def test_mro_class_type_without_subtype() -> None:
         execute_mro,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("Parent", type="Class", name="Parent", args=[])
     g.add_node("Child", type="Class", name="Child", args=["Parent"])
     ctx = _make_ctx(graph=g)
@@ -210,7 +221,7 @@ async def test_mro_unknown_base_is_skipped() -> None:
         execute_mro,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node(
         "Child",
         type="symbol",
@@ -247,7 +258,7 @@ async def test_reference_resolves_calls() -> None:
         execute_reference,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("caller", type="symbol", name="caller")
     g.add_node("target", type="symbol", name="do_thing")
     g.add_edge(
@@ -268,7 +279,7 @@ async def test_reference_method_call_dot_notation() -> None:
         execute_reference,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("caller", type="Function", name="caller")
     g.add_node("method_target", type="Method", name="my_method")
     g.add_edge(
@@ -289,7 +300,7 @@ async def test_reference_unresolvable_skipped() -> None:
         execute_reference,
     )
 
-    g = nx.MultiDiGraph()
+    import uuid; name = f"test_{uuid.uuid4().hex[:8]}"; g = GraphComputeEngine(backend_type="rust", graph_name=name); g._client and (getattr(g._client, "create_graph", lambda x: None)(name), g._client.clear())
     g.add_node("caller", type="symbol", name="caller")
     g.add_edge("caller", "nowhere", type="calls_raw", raw="does_not_exist")
     ctx = _make_ctx(graph=g)
@@ -365,7 +376,7 @@ async def test_memory_create_backend_none_path(
 
 
 @pytest.mark.asyncio
-async def test_memory_backend_execute_raises(
+async def test_epistemic_graph_backend_execute_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Backend execute raising -> failed status."""

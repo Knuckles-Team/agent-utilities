@@ -17,7 +17,7 @@ Covers:
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.kb.extractor import KBExtractor
@@ -94,8 +94,8 @@ def sample_skill_graph(tmp_path) -> Path:
 
 
 @pytest.fixture
-def nx_graph() -> nx.MultiDiGraph:
-    return nx.MultiDiGraph()
+def nx_graph() -> GraphComputeEngine:
+    return GraphComputeEngine(backend_type="rust")
 
 
 @pytest.fixture

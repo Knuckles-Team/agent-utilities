@@ -1,7 +1,5 @@
 from typing import Any
 
-import networkx as nx
-
 from ..types import (
     PhaseResult,
     PipelineContext,
@@ -12,25 +10,23 @@ from ..types import (
 async def execute_communities(
     ctx: PipelineContext, deps: dict[str, PhaseResult]
 ) -> dict[str, Any]:
-    """Detect communities in the graph using the Louvain algorithm."""
-    graph = ctx.nx_graph
-    if graph.number_of_nodes() == 0:
+    """Detect communities in the graph using the Rust-native engine."""
+    graph = ctx.graph
+    if graph.node_count() == 0:
         return {"communities": 0}
 
-    # Convert MultiDiGraph to Graph for community detection
-    undirected = graph.to_undirected()
-
     try:
-        # Use Louvain (nx 3.0 has community.louvain_communities)
-        communities = nx.community.louvain_communities(undirected)
+        communities = graph.community_detection()
 
         for i, community in enumerate(communities):
-            for node in community:
-                graph.nodes[node]["community"] = i
+            for node_id in community:
+                props = graph._get_node_properties(node_id)
+                props["community"] = i
+                graph.add_node(node_id, props)
 
         return {"communities": len(communities)}
     except Exception:
-        # Fallback if louvain fails
+        # Fallback if community detection fails
         return {"communities": 0}
 
 

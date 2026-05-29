@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 
 from agent_utilities.security.secrets_client import (
-    InMemoryBackend,
+    InEpistemicGraphBackend,
     SecretsClient,
     SecretsConfig,
     create_secrets_client,
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 def get_secrets_client_persistent() -> SecretsClient:
     """Resolve SecretsClient, defaulting to persistent SQLite if InMemory backend is configured."""
     client = create_secrets_client()
-    if isinstance(client.backend, InMemoryBackend):
+    if isinstance(client.backend, InEpistemicGraphBackend):
         config = SecretsConfig(
             backend="sqlite",
             sqlite_path=os.path.expanduser("~/.agent-utilities/secrets.db"),

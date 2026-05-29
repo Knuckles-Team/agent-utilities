@@ -12,13 +12,33 @@ logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
-    """
-    Manages multi-agent tasks, dispatching them to the KG engine,
+    """Manages multi-agent tasks, dispatching them to the KG engine,
     and tracking their lifecycle and consensus state.
+
+    Satisfies ``OrchestratorProtocol`` via structural typing.
     """
 
     def __init__(self, engine: Any):
         self.engine = engine
+
+    # ── OrchestratorProtocol conformance ──────────────────────────
+
+    async def dispatch(self, task: str, **kwargs: Any) -> dict[str, Any]:
+        """Unified dispatch entry point (OrchestratorProtocol).
+
+        Args:
+            task: Task description.
+            **kwargs: Optional ``dependencies`` list.
+
+        Returns:
+            Dict with ``job_id`` and ``status``.
+        """
+        job_id = await self.dispatch_task(task, kwargs.get("dependencies"))
+        return {"job_id": job_id, "status": "pending"}
+
+    def get_status(self, job_id: str) -> dict[str, Any]:
+        """Query task status (OrchestratorProtocol)."""
+        return self.get_task_status(job_id)
 
     async def dispatch_task(
         self, task_description: str, dependencies: list[str] | None = None

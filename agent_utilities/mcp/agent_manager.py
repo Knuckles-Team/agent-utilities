@@ -566,7 +566,6 @@ async def sync_mcp_agents(
         )
 
         # 2. Ingest into Knowledge Graph
-        import networkx as nx
 
         from agent_utilities.core.workspace import get_agent_workspace
         from agent_utilities.knowledge_graph.core.engine import (
@@ -585,9 +584,7 @@ async def sync_mcp_agents(
                 logger.info(
                     f"No active engine, creating new IntelligenceGraphEngine with db_path: {db_path}"
                 )
-                engine = IntelligenceGraphEngine(
-                    graph=nx.MultiDiGraph(), db_path=db_path
-                )
+                engine = IntelligenceGraphEngine(db_path=db_path)
                 is_local_engine = True
 
             backend = engine.backend

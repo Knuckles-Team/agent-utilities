@@ -10,7 +10,7 @@ Concept: memory-consolidation
 
 from typing import cast
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -26,10 +26,10 @@ from agent_utilities.knowledge_graph.memory.consolidation import (
 
 
 class FakeEngine:
-    """Minimal engine stub with an in-memory NetworkX graph."""
+    """Minimal engine stub with an in-memory graph compute engine."""
 
     def __init__(self) -> None:
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
 
 
 def _populate_episodes(engine: FakeEngine, count: int = 6, reward: float = 0.9) -> None:

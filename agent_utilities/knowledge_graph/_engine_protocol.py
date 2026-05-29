@@ -10,9 +10,8 @@ to each mixin.  At runtime this is never imported, avoiding circularity.
 
 from typing import Any, Protocol
 
-import networkx as nx
-
 from .backends.base import GraphBackend
+from .core.graph_compute import GraphComputeEngine
 
 
 class _EngineProtocol(Protocol):
@@ -22,7 +21,7 @@ class _EngineProtocol(Protocol):
     reference this protocol so mypy understands the available attributes.
     """
 
-    graph: nx.MultiDiGraph
+    graph: GraphComputeEngine
     backend: GraphBackend | None
 
     def _serialize_node(self, node: Any, label: str | None = None) -> dict[str, Any]:

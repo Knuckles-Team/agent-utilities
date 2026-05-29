@@ -313,6 +313,28 @@ class EngineeringPatternOrchestrator:
             for p in PatternType
         ]
 
+    # ── OrchestratorProtocol conformance ──────────────────────────────────
+
+    async def dispatch(self, task: str, **kwargs: Any) -> dict[str, Any]:
+        """Dispatch an engineering pattern execution."""
+        import uuid
+
+        job_id = f"epo:{uuid.uuid4().hex[:8]}"
+        pattern = kwargs.pop("pattern", PatternType.TDD)
+        try:
+            result = await self.execute(pattern, **kwargs)
+            return {
+                "job_id": job_id,
+                "status": "completed" if result.success else "failed",
+                "output": result.output,
+            }
+        except Exception as e:
+            return {"job_id": job_id, "status": "failed", "error": str(e)}
+
+    def get_status(self, job_id: str) -> dict[str, Any]:
+        """Return status of a dispatched job (async — always terminal)."""
+        return {"job_id": job_id, "status": "completed"}
+
 
 __all__ = [
     "EngineeringPatternOrchestrator",

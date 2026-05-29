@@ -35,9 +35,9 @@ class FakeEngine:
     """Minimal mock engine for OGM tests."""
 
     def __init__(self, backend=None):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = backend
 
     def _upsert_node(self, label, node_id, props):
@@ -77,7 +77,7 @@ class TestResolveLabel:
 
 
 class TestKGMapperUpsert:
-    def test_upsert_adds_to_networkx(self):
+    def test_upsert_adds_to_graph(self):
         engine = FakeEngine()
         mapper = KGMapper(engine)
 
@@ -127,7 +127,7 @@ class TestKGMapperUpsert:
 
 
 class TestKGMapperLoad:
-    def test_load_from_networkx(self):
+    def test_load_from_graph(self):
         engine = FakeEngine()
         mapper = KGMapper(engine)
 
@@ -154,7 +154,7 @@ class TestKGMapperLoad:
 
 
 class TestKGMapperDelete:
-    def test_delete_from_networkx(self):
+    def test_delete_from_graph(self):
         engine = FakeEngine()
         mapper = KGMapper(engine)
 
@@ -175,7 +175,7 @@ class TestKGMapperDelete:
 
 
 class TestKGMapperEdge:
-    def test_upsert_edge_adds_to_networkx(self):
+    def test_upsert_edge_adds_to_graph(self):
         engine = FakeEngine()
         mapper = KGMapper(engine)
 

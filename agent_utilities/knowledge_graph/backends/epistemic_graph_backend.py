@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Pure In-Memory Graph Backend (CONCEPT:OS-5.0).
 
-Zero-dependency, zero-disk backend using only NetworkX.
+Zero-dependency, zero-disk backend using GraphComputeEngine (Rust/epistemic-graph).
 Ideal for testing, edge devices, ephemeral containers,
 and as the default lightweight backend.
 
@@ -15,19 +15,18 @@ import json
 import logging
 from typing import Any
 
-import networkx as nx
-
 from .base import GraphBackend
 
 logger = logging.getLogger(__name__)
 
 
-class MemoryBackend(GraphBackend):
-    """Pure in-memory graph backend using NetworkX.
+class EpistemicGraphBackend(GraphBackend):
+    """Pure in-memory graph backend using GraphComputeEngine (Rust-native).
 
     This is the lightest-weight backend: zero disk, zero external
-    dependencies. All data lives in process memory and is lost on
-    shutdown unless explicitly saved via ``save_to_json()``.
+    dependencies beyond the compiled graph engine. All data lives in
+    process memory and is lost on shutdown unless explicitly saved
+    via ``save_to_json()``.
 
     Use cases:
         - Unit testing (fast, deterministic)
@@ -37,14 +36,18 @@ class MemoryBackend(GraphBackend):
     """
 
     def __init__(self) -> None:
-        self._graph: nx.MultiDiGraph = nx.MultiDiGraph()
+        from ..core.graph_compute import GraphComputeEngine
+
+        self._graph = GraphComputeEngine(backend_type="rust")
         self._embeddings: dict[str, list[float]] = {}
         self._node_counter = 0
-        logger.info("MemoryBackend initialized (pure in-memory)")
+        logger.info(
+            "EpistemicGraphBackend initialized (GraphComputeEngine, pure in-memory)"
+        )
 
     @property
-    def graph(self) -> nx.MultiDiGraph:
-        """Direct access to the underlying NetworkX graph."""
+    def graph(self) -> Any:
+        """Direct access to the underlying GraphComputeEngine."""
         return self._graph
 
     # --- GraphBackend ABC Implementation ---
@@ -55,7 +58,7 @@ class MemoryBackend(GraphBackend):
         """Execute a query against the in-memory graph.
 
         For the memory backend, queries are simple key lookups
-        or NetworkX graph operations rather than Cypher.
+        or graph operations rather than Cypher.
         Supports basic patterns:
           - MATCH (n {id: $id}) → node lookup
           - MATCH (n:Label) → label filter
@@ -66,7 +69,7 @@ class MemoryBackend(GraphBackend):
         if "id" in params:
             node_id = params["id"]
             if self._graph.has_node(node_id):
-                data = dict(self._graph.nodes[node_id])
+                data = self._graph._get_node_properties(node_id)
                 data["id"] = node_id
                 return [data]
             return []
@@ -75,7 +78,8 @@ class MemoryBackend(GraphBackend):
         if "label" in params:
             label = params["label"]
             results = []
-            for nid, data in self._graph.nodes(data=True):
+            for nid in self._graph._get_all_nodes():
+                data = self._graph._get_node_properties(nid)
                 if data.get("label") == label:
                     entry = dict(data)
                     entry["id"] = nid
@@ -84,7 +88,8 @@ class MemoryBackend(GraphBackend):
 
         # Return all nodes
         results = []
-        for nid, data in self._graph.nodes(data=True):
+        for nid in self._graph._get_all_nodes():
+            data = self._graph._get_node_properties(nid)
             entry = dict(data)
             entry["id"] = nid
             results.append(entry)
@@ -135,7 +140,7 @@ class MemoryBackend(GraphBackend):
         results = []
         for node_id, score in scores[:n_results]:
             if self._graph.has_node(node_id):
-                data = dict(self._graph.nodes[node_id])
+                data = self._graph._get_node_properties(node_id)
                 data["id"] = node_id
                 data["_similarity"] = score
                 results.append(data)
@@ -145,7 +150,8 @@ class MemoryBackend(GraphBackend):
     def prune(self, criteria: dict[str, Any]) -> None:
         """Prune nodes matching criteria."""
         to_remove = []
-        for nid, data in self._graph.nodes(data=True):
+        for nid in self._graph._get_all_nodes():
+            data = self._graph._get_node_properties(nid)
             match = all(data.get(k) == v for k, v in criteria.items())
             if match:
                 to_remove.append(nid)
@@ -157,8 +163,10 @@ class MemoryBackend(GraphBackend):
         logger.info("Pruned %d nodes", len(to_remove))
 
     def close(self) -> None:
-        """Clear the in-memory graph."""
-        self._graph.clear()
+        """Reset the in-memory graph."""
+        from ..core.graph_compute import GraphComputeEngine
+
+        self._graph = GraphComputeEngine(backend_type="rust")
         self._embeddings.clear()
 
     # --- Extended API ---
@@ -171,8 +179,8 @@ class MemoryBackend(GraphBackend):
         """Return graph statistics."""
         return {
             "backend": "memory",
-            "nodes": self._graph.number_of_nodes(),
-            "edges": self._graph.number_of_edges(),
+            "nodes": self._graph.node_count(),
+            "edges": self._graph.edge_count(),
             "embeddings": len(self._embeddings),
         }
 
@@ -180,7 +188,8 @@ class MemoryBackend(GraphBackend):
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
         """Add a node to the graph."""
-        self._graph.add_node(node_id, label=label, **properties)
+        props = {"label": label, **properties}
+        self._graph.add_node(node_id, props)
         self._node_counter += 1
 
     def add_edge(
@@ -191,13 +200,15 @@ class MemoryBackend(GraphBackend):
         **properties: Any,
     ) -> None:
         """Add an edge between two nodes."""
-        self._graph.add_edge(source, target, rel_type=rel_type, **properties)
+        props = {"rel_type": rel_type, **properties}
+        self._graph.add_edge(source, target, props)
 
     # --- Persistence ---
 
     def save_to_json(self, path: str) -> None:
         """Serialize the graph to a JSON file."""
-        data = nx.node_link_data(self._graph)
+        graph_json = self._graph.to_json()
+        data = json.loads(graph_json)
         data["_embeddings"] = {k: v for k, v in self._embeddings.items()}
         with open(path, "w") as f:
             json.dump(data, f, indent=2, default=str)
@@ -209,11 +220,11 @@ class MemoryBackend(GraphBackend):
             data = json.load(f)
 
         embeddings = data.pop("_embeddings", {})
-        self._graph = nx.node_link_graph(data)
+        self._graph.from_json(json.dumps(data))
         self._embeddings = embeddings
         logger.info(
             "Graph loaded from %s (%d nodes, %d edges)",
             path,
-            self._graph.number_of_nodes(),
-            self._graph.number_of_edges(),
+            self._graph.node_count(),
+            self._graph.edge_count(),
         )

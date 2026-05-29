@@ -1,7 +1,5 @@
 from typing import Any
 
-import networkx as nx
-
 from ..types import (
     PhaseResult,
     PipelineContext,
@@ -12,21 +10,28 @@ from ..types import (
 async def execute_centrality(
     ctx: PipelineContext, deps: dict[str, PhaseResult]
 ) -> dict[str, Any]:
-    """Calculate PageRank centrality for all nodes."""
-    graph = ctx.nx_graph
-    if graph.number_of_nodes() == 0:
+    """Calculate PageRank centrality for all nodes via Rust-native engine."""
+    graph = ctx.graph
+    if graph.node_count() == 0:
         return {"centrality_calculated": False}
 
     try:
-        # PageRank works on Directed graphs
-        pagerank = nx.pagerank(graph)
+        pagerank_results = graph.pagerank()
 
-        for node, score in pagerank.items():
-            graph.nodes[node]["centrality"] = score
+        # Update node properties with centrality scores
+        best_node = None
+        best_score = -1.0
+        for node_id, score in pagerank_results:
+            props = graph._get_node_properties(node_id)
+            props["centrality"] = score
+            graph.add_node(node_id, props)
+            if score > best_score:
+                best_score = score
+                best_node = node_id
 
         return {
             "centrality_calculated": True,
-            "top_node": max(pagerank, key=pagerank.get) if pagerank else None,
+            "top_node": best_node,
         }
     except Exception as e:
         print(f"DEBUG: pagerank failed: {e}")

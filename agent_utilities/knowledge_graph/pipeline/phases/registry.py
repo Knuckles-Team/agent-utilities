@@ -23,7 +23,7 @@ async def execute_registry(
 
     # Load from the Knowledge Graph backend
     registry = get_discovery_registry()
-    graph = ctx.nx_graph
+    graph = ctx.graph
 
     # Add Agent Nodes
     for agent in registry.agents:

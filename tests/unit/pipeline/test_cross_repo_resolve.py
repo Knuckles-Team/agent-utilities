@@ -8,7 +8,7 @@ Concept: cross-repo-symbols
 """
 
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.pipeline.phases.resolve import (
@@ -23,7 +23,7 @@ from agent_utilities.knowledge_graph.pipeline.types import PipelineContext
 # ---------------------------------------------------------------------------
 
 
-def _make_ctx(graph: nx.MultiDiGraph) -> PipelineContext:
+def _make_ctx(graph: GraphComputeEngine) -> PipelineContext:
     """Create a minimal PipelineContext wrapping a graph."""
     from agent_utilities.models.knowledge_graph import PipelineConfig
 
@@ -42,7 +42,7 @@ def _make_ctx(graph: nx.MultiDiGraph) -> PipelineContext:
 @pytest.mark.asyncio
 async def test_resolve_cross_repo_import() -> None:
     """File in repo A imports from repo B → edge created with cross_repo=True."""
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     # Repo A file
     g.add_node(
         "file_a",
@@ -81,7 +81,7 @@ async def test_resolve_cross_repo_import() -> None:
 @pytest.mark.asyncio
 async def test_resolve_package_level_import() -> None:
     """import agent_utilities.server → resolves to the correct file node."""
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "src",
         type="file",
@@ -112,7 +112,7 @@ async def test_resolve_package_level_import() -> None:
 @pytest.mark.asyncio
 async def test_cross_repo_edge_has_provenance() -> None:
     """Resolved cross-repo edges should have cross_repo=True attribute."""
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node("a", type="file", name="a.py", file_path="/w/r1/a.py", repo_origin="r1")
     g.add_node(
         "b", type="file", name="utils.py", file_path="/w/r2/utils.py", repo_origin="r2"
@@ -140,7 +140,7 @@ def test_resolve_ignores_stdlib() -> None:
 @pytest.mark.concept("cross-repo-symbols")
 def test_build_package_map() -> None:
     """_build_package_map should create dotted paths from file paths."""
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     g.add_node(
         "n1",
         type="file",

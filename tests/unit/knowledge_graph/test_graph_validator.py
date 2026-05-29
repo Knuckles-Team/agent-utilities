@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for CONCEPT:KG-2.3 — Graph Integrity Validator."""
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.security.graph_validator import (
@@ -13,11 +13,13 @@ from agent_utilities.knowledge_graph.security.graph_validator import (
 
 @pytest.fixture
 def mock_engine():
-    """Create a minimal mock engine with a NetworkX graph."""
+    """Create a minimal mock engine with a graph compute engine."""
 
     class MockEngine:
         def __init__(self):
-            self.graph = nx.MultiDiGraph()
+            self.graph = GraphComputeEngine(backend_type="rust")
+            if self.graph._client:
+                self.graph._client.clear()
 
     return MockEngine()
 

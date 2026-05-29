@@ -93,10 +93,13 @@ class BehaviorDispatcher:
                 tasks.append(loop.run_in_executor(None, wrapped))
 
         if tasks:
-            # Execute concurrently and capture exceptions gracefully to avoid halting other behaviors
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            from ..gather import gather_with_resilience
+
+            results = await gather_with_resilience(
+                tasks, label=f"behavior:{event_type}"
+            )
             for res, func in zip(results, listeners, strict=False):
-                if isinstance(res, Exception):
+                if isinstance(res, BaseException):
                     logger.error(
                         "[BehaviorDispatcher] Error executing listener '%s' on event '%s': %s",
                         func.__name__,

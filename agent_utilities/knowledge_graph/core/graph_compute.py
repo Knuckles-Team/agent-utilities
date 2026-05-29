@@ -1,184 +1,235 @@
 # CONCEPT:KG-2.2 - High-Performance Graph Compute Engine
 # CONCEPT:ORCH-1.29 - Compiled Orchestration Kernel
+# CONCEPT:KG-2.19 - Tokio Service Layer (Tokio-first)
 
 import json
 import logging
+import os
+from collections.abc import Mapping
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class GraphComputeEngine:
-    """Unified graph compute abstraction supporting Rust (epistemic-graph), rustworkx, and NetworkX backends.
+    """Graph compute engine backed by the epistemic-graph Tokio service.
 
-    Bridges local-first performance with robust production fallback pathways.
+    All graph operations route through the Tokio service layer via UDS/TCP.
+    The service must be running before this engine is instantiated.
+    Falls back to PyO3 in-process mode only if the service is unavailable
+    and ``GRAPH_COMPUTE_FALLBACK=embedded`` is set.
     """
 
-    def __init__(self, backend_type: str = "rust"):
-        self.backend_type = backend_type.lower()
-        self._rust_graph = None
-        self._rx_graph = None
-        self._nx_graph = None
-        self._rx_node_map: dict[str, Any] = {}
-        self._ledger: list[str] = []
+    def __init__(self, graph_name: str = "__bus__", **kwargs: Any) -> None:
+        from epistemic_graph.client import SyncEpistemicGraphClient
 
-        self._init_backend()
+        self._graph: Any = None
+        self.graph: dict[str, Any] = {}
+        self._client: SyncEpistemicGraphClient | None = None
+        self._mode: str = "embedded"
 
-    def _init_backend(self) -> None:
-        """Dynamically select and initialize the fastest available backend."""
-        if self.backend_type in ("epistemic_graph", "rust"):
+        try:
+            self._client = SyncEpistemicGraphClient.connect(graph_name=graph_name)
+        except Exception:
+            logger.info(
+                "epistemic-graph Tokio service not running. Attempting to auto-start daemon..."
+            )
+            import subprocess
+            import sys
+            import time
+            from pathlib import Path
+
             try:
-                import epistemic_graph
-
-                self._rust_graph = epistemic_graph.EpistemicGraph()
-                self.backend_type = "rust"
-                logger.info(
-                    "Initialized high-performance Rust EpistemicGraph compute backend."
+                server_path = str(
+                    Path(sys.executable).parent / "epistemic-graph-server"
                 )
-                return
-            except ImportError:
-                logger.warning(
-                    "epistemic_graph not available. Falling back to rustworkx or NetworkX."
+                subprocess.Popen(
+                    [server_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
                 )
-                self.backend_type = "rustworkx"
+                time.sleep(1.0)
+                self._client = SyncEpistemicGraphClient.connect(graph_name=graph_name)
+            except Exception as retry_e:
+                raise ConnectionError(
+                    f"Cannot connect to epistemic-graph Tokio service after auto-start: {retry_e}. "
+                    "Ensure the epistemic-graph-server daemon is running."
+                ) from retry_e
 
-        if self.backend_type in ("rustworkx", "rx"):
+        self._graph = self._client  # Alias for backward compat.
+        self._mode = "service"
+        logger.info(
+            "Connected to epistemic-graph Tokio service (graph: %s).",
+            graph_name,
+        )
+        # Bridging local events to the rust service when kafka isn't running
+        if (
+            os.environ.get("KAFKA_BOOTSTRAP_SERVERS") is None
+            or os.environ.get("KAFKA_BOOTSTRAP_SERVERS") == ""
+        ):
+            self._start_event_bridge()
+
+    def _start_event_bridge(self) -> None:
+        """Starts a background bridge to forward local EventBus events to the Rust service."""
+        import asyncio
+        import threading
+
+        from agent_utilities.knowledge_graph.core.event_backend import get_event_backend
+
+        def bridge_worker() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            eb = get_event_backend()
+
+            async def handle_mutation(topic: str, payload: dict) -> None:
+                if "event_type" in payload and "query" in payload:
+                    try:
+                        if self._client:
+                            self._client.apply_mutation(
+                                payload["event_type"], payload["query"]
+                            )
+                    except Exception as exc:
+                        logger.error(
+                            "Failed to forward mutation to epistemic-graph: %s", exc
+                        )
+
+            async def run_subscriber() -> None:
+                await eb.subscribe("kg.mutations", "epistemic-bridge", handle_mutation)
+                # Keep loop alive to process events
+                while True:
+                    await asyncio.sleep(3600)
+
             try:
-                import rustworkx as rx
+                loop.run_until_complete(run_subscriber())
+            except Exception as e:
+                logger.error("Event bridge worker failed: %s", e)
 
-                self._rx_graph = rx.PyDiGraph()
-                self.backend_type = "rustworkx"
-                logger.info("Initialized rustworkx high-performance compute backend.")
-                return
-            except ImportError:
-                logger.warning("rustworkx not available. Falling back to NetworkX.")
-                self.backend_type = "networkx"
+        t = threading.Thread(
+            target=bridge_worker, daemon=True, name="EventBridgeWorker"
+        )
+        t.start()
+        logger.info("Started Local-First EventBus bridge to epistemic-graph")
 
-        # Default NetworkX fallback
-        import networkx as nx
+    # ── Node CRUD ────────────────────────────────────────────────────────
 
-        self._nx_graph = nx.MultiDiGraph()
-        self.backend_type = "networkx"
-        logger.info("Initialized standard NetworkX compute backend.")
+    def add_node(self, node_id: str, properties: Any = None, **kwargs: Any) -> None:
+        """Add a node with properties to the graph.
 
-    def add_node(self, node_id: str, properties: dict[str, Any]) -> None:
-        """Add a node with properties to the active graph compute instance."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            self._rust_graph.add_node(node_id, json.dumps(properties))
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            if node_id not in self._rx_node_map:
-                idx = self._rx_graph.add_node((node_id, properties))
-                self._rx_node_map[node_id] = idx
-            self._ledger.append(f"ADD_NODE|{node_id}|{json.dumps(properties)}")
-        elif self._nx_graph is not None:
-            self._nx_graph.add_node(node_id, **properties)
-            self._ledger.append(f"ADD_NODE|{node_id}|{json.dumps(properties)}")
+        Supports both explicit dict and NX-style kwargs::
+
+            engine.add_node("n1", {"type": "Agent"})
+            engine.add_node("n1", type="Agent", name="foo")
+        """
+
+        def clean_props(d: Mapping[str, Any]) -> dict[str, Any]:
+            import datetime
+
+            from pydantic import BaseModel
+
+            def serialize(val: Any) -> Any:
+                if hasattr(val, "model_dump"):
+                    try:
+                        return val.model_dump(mode="json")
+                    except Exception:
+                        pass
+                if isinstance(val, BaseModel):
+                    return val.model_dump(mode="json")
+                if isinstance(val, dict):
+                    return {k: serialize(v) for k, v in val.items()}
+                if isinstance(val, list | tuple | set):
+                    return [serialize(v) for v in val]
+                if isinstance(val, datetime.datetime):
+                    return val.isoformat()
+                return val
+
+            return {k: serialize(v) for k, v in d.items()}
+
+        props = dict(properties or {})
+        props.update(kwargs)
+        props = clean_props(props)
+        self._graph.add_node(node_id, props)
 
     def add_edge(
-        self, source_id: str, target_id: str, properties: dict[str, Any]
+        self,
+        source_id: str,
+        target_id: str,
+        properties: Any = None,
+        **kwargs: Any,
     ) -> None:
-        """Add a directed edge between two nodes with properties."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            try:
-                self._rust_graph.add_edge(source_id, target_id, json.dumps(properties))
-            except Exception:
-                # Ensure nodes exist
-                self._rust_graph.add_node(source_id, "{}")
-                self._rust_graph.add_node(target_id, "{}")
-                self._rust_graph.add_edge(source_id, target_id, json.dumps(properties))
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            if source_id not in self._rx_node_map:
-                self.add_node(source_id, {})
-            if target_id not in self._rx_node_map:
-                self.add_node(target_id, {})
-            u = self._rx_node_map[source_id]
-            v = self._rx_node_map[target_id]
-            self._rx_graph.add_edge(u, v, properties)
-            self._ledger.append(
-                f"ADD_EDGE|{source_id}|{target_id}|{json.dumps(properties)}"
-            )
-        elif self._nx_graph is not None:
-            self._nx_graph.add_edge(source_id, target_id, **properties)
-            self._ledger.append(
-                f"ADD_EDGE|{source_id}|{target_id}|{json.dumps(properties)}"
-            )
+        """Add a directed edge between two nodes with properties.
+
+        Supports both explicit dict and NX-style kwargs::
+
+            engine.add_edge("a", "b", {"type": "DEPENDS_ON"})
+            engine.add_edge("a", "b", type="DEPENDS_ON")
+        """
+
+        def clean_props(d: dict[str, Any]) -> dict[str, Any]:
+            import datetime
+
+            from pydantic import BaseModel
+
+            def serialize(val: Any) -> Any:
+                if hasattr(val, "model_dump"):
+                    try:
+                        return val.model_dump(mode="json")
+                    except Exception:
+                        pass
+                if isinstance(val, BaseModel):
+                    return val.model_dump(mode="json")
+                if isinstance(val, dict):
+                    return {k: serialize(v) for k, v in val.items()}
+                if isinstance(val, list | tuple | set):
+                    return [serialize(v) for v in val]
+                if isinstance(val, datetime.datetime):
+                    return val.isoformat()
+                return val
+
+            return {k: serialize(v) for k, v in d.items()}
+
+        props = dict(properties or {})
+        props.update(kwargs)
+        props = clean_props(props)
+
+        if self.has_edge(source_id, target_id):
+            self.remove_edge(source_id, target_id)
+
+        try:
+            self._graph.add_edge(source_id, target_id, props)
+        except Exception:
+            # Ensure nodes exist without overwriting their existing properties
+            if not self.has_node(source_id):
+                self._graph.add_node(source_id, {})
+            if not self.has_node(target_id):
+                self._graph.add_node(target_id, {})
+            self._graph.add_edge(source_id, target_id, props)
 
     def remove_node(self, node_id: str) -> None:
         """Remove a node and all of its associated edges."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            self._rust_graph.remove_node(node_id)
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            if node_id in self._rx_node_map:
-                idx = self._rx_node_map.pop(node_id)
-                self._rx_graph.remove_node(idx)
-            self._ledger.append(f"REMOVE_NODE|{node_id}")
-        elif self._nx_graph is not None:
-            if self._nx_graph.has_node(node_id):
-                self._nx_graph.remove_node(node_id)
-            self._ledger.append(f"REMOVE_NODE|{node_id}")
+        self._graph.remove_node(node_id)
 
-    def remove_edge(self, source_id: str, target_id: str) -> None:
+    def remove_edge(self, source_id: str, target_id: str, key: Any = None) -> None:
         """Remove a directed edge between source and target."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            self._rust_graph.remove_edge(source_id, target_id)
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            if source_id in self._rx_node_map and target_id in self._rx_node_map:
-                u = self._rx_node_map[source_id]
-                v = self._rx_node_map[target_id]
-                for edge_idx in self._rx_graph.edge_indices():
-                    endpoints = self._rx_graph.get_edge_endpoints_by_index(edge_idx)
-                    if endpoints == (u, v):
-                        self._rx_graph.remove_edge_from_index(edge_idx)
-                        break
-            self._ledger.append(f"REMOVE_EDGE|{source_id}|{target_id}")
-        elif self._nx_graph is not None:
-            if self._nx_graph.has_edge(source_id, target_id):
-                self._nx_graph.remove_edge(source_id, target_id)
-            self._ledger.append(f"REMOVE_EDGE|{source_id}|{target_id}")
+        self._graph.remove_edge(source_id, target_id)
 
     def has_node(self, node_id: str) -> bool:
-        """Check if node_id exists in the active graph compute backend."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return self._rust_graph.has_node(node_id)
-        elif self.backend_type == "rustworkx":
-            return node_id in self._rx_node_map
-        elif self._nx_graph is not None:
-            return self._nx_graph.has_node(node_id)
-        return False
+        """Check if node_id exists in the graph."""
+        return self._graph.has_node(node_id)
 
     def has_edge(self, source_id: str, target_id: str) -> bool:
         """Check if a directed edge exists between source and target."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return self._rust_graph.has_edge(source_id, target_id)
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            if source_id in self._rx_node_map and target_id in self._rx_node_map:
-                u = self._rx_node_map[source_id]
-                v = self._rx_node_map[target_id]
-                return self._rx_graph.has_edge(u, v)
-            return False
-        elif self._nx_graph is not None:
-            return self._nx_graph.has_edge(source_id, target_id)
-        return False
+        return self._graph.has_edge(source_id, target_id)
 
     def node_count(self) -> int:
         """Return the number of nodes in the graph."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return self._rust_graph.node_count()
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            return len(self._rx_graph.nodes())
-        elif self._nx_graph is not None:
-            return self._nx_graph.number_of_nodes()
-        return 0
+        return self._graph.node_count()
 
     def edge_count(self) -> int:
         """Return the number of edges in the graph."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return self._rust_graph.edge_count()
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            return len(self._rx_graph.edges())
-        elif self._nx_graph is not None:
-            return self._nx_graph.number_of_edges()
-        return 0
+        return self._graph.edge_count()
+
+    # ── Graph Algorithms ─────────────────────────────────────────────────
 
     def topological_sort(self) -> list[str]:
         """Perform topological sort across the graph.
@@ -186,82 +237,18 @@ class GraphComputeEngine:
         Raises:
             ValueError: If the graph contains dependency cycles.
         """
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            try:
-                return self._rust_graph.topological_sort()
-            except Exception as e:
-                raise ValueError("Graph contains cycles") from e
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            import rustworkx as rx
-
-            try:
-                indices = rx.topological_sort(self._rx_graph)
-                return [str(self._rx_graph[idx][0]) for idx in indices]
-            except rx.DAGHasCycle as e:
-                raise ValueError("Graph contains cycles") from e
-        elif self._nx_graph is not None:
-            import networkx as nx
-
-            try:
-                return [str(node) for node in nx.topological_sort(self._nx_graph)]
-            except nx.NetworkXUnfeasible as e:
-                raise ValueError("Graph contains cycles") from e
-        return []
+        try:
+            return self._graph.topological_sort()
+        except Exception as e:
+            raise ValueError("Graph contains cycles") from e
 
     def find_cycle(self) -> list[str] | None:
         """Detect and return any cycles found within the graph."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return self._rust_graph.find_cycle()
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            import rustworkx as rx
-
-            cycle = rx.digraph_find_cycle(self._rx_graph)
-            if cycle:
-                nodes = []
-                for u, _, _ in cycle:
-                    nodes.append(str(self._rx_graph[u][0]))
-                if cycle:
-                    nodes.append(str(self._rx_graph[cycle[-1][1]][0]))
-                return nodes
-            return None
-        elif self._nx_graph is not None:
-            import networkx as nx
-
-            try:
-                cycle = nx.find_cycle(self._nx_graph, orientation="original")
-                nodes = [edge[0] for edge in cycle]
-                if cycle:
-                    nodes.append(cycle[-1][1])
-                return [str(n) for n in nodes]
-            except nx.NetworkXNoCycle:
-                return None
-        return None
+        return self._graph.find_cycle()
 
     def get_shortest_path(self, source_id: str, target_id: str) -> list[str] | None:
         """Get the shortest path between source and target nodes."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return self._rust_graph.get_shortest_path(source_id, target_id)
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            import rustworkx as rx
-
-            if source_id in self._rx_node_map and target_id in self._rx_node_map:
-                u = self._rx_node_map[source_id]
-                v = self._rx_node_map[target_id]
-                try:
-                    path_indices = rx.dijkstra_shortest_paths(self._rx_graph, u, v)
-                    if v in path_indices:
-                        return [str(self._rx_graph[idx][0]) for idx in path_indices[v]]
-                except Exception:
-                    pass
-            return None
-        elif self._nx_graph is not None:
-            import networkx as nx
-
-            try:
-                return nx.shortest_path(self._nx_graph, source_id, target_id)
-            except (nx.NetworkXNoPath, nx.NodeNotFound):
-                return None
-        return None
+        return self._graph.get_shortest_path(source_id, target_id)
 
     @staticmethod
     def _bfs_collect(
@@ -299,212 +286,29 @@ class GraphComputeEngine:
 
         Returns a list of dicts: [{'id': str, 'type': str, 'depth': int}]
         """
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            nodes = self._rust_graph.get_blast_radius(node_id, max_depth)
-            res = []
-            for i, nid in enumerate(nodes, start=1):
-                res.append({"id": nid, "type": "Node", "depth": min(i, max_depth)})
-            return res
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            if node_id not in self._rx_node_map:
-                return []
-            start_idx = self._rx_node_map[node_id]
-
-            def rx_neighbors(idx: Any) -> Any:
-                return self._rx_graph.neighbors(idx)
-
-            def rx_info(idx: Any) -> dict[str, Any]:
-                node_val = self._rx_graph[idx]
-                return {
-                    "id": node_val[0],
-                    "type": node_val[1].get("type", "Node")
-                    if isinstance(node_val[1], dict)
-                    else "Node",
-                }
-
-            return self._bfs_collect(start_idx, max_depth, rx_neighbors, rx_info)
-        elif self._nx_graph is not None:
-            if not self._nx_graph.has_node(node_id):
-                return []
-
-            def nx_neighbors(nid: str) -> Any:
-                return self._nx_graph.neighbors(nid)
-
-            def nx_info(nid: str) -> dict[str, Any]:
-                return {
-                    "id": nid,
-                    "type": self._nx_graph.nodes[nid].get("type", "Node"),
-                }
-
-            return self._bfs_collect(node_id, max_depth, nx_neighbors, nx_info)
-        return []
+        nodes = self._graph.get_blast_radius(node_id, max_depth)
+        res = []
+        for i, nid in enumerate(nodes, start=1):
+            res.append({"id": nid, "type": "Node", "depth": min(i, max_depth)})
+        return res
 
     def parse_repository(self, root_path: str) -> None:
-        """Parse repository AST natively using the active compute engine backend."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            self._rust_graph.parse_repository(root_path)
-        else:
-            # Pure-Python fallback directory AST parser
-            import os
-
-            ignore_dirs = {
-                ".git",
-                "node_modules",
-                "venv",
-                ".venv",
-                "__pycache__",
-                "build",
-                "dist",
-                "target",
-            }
-            for root, dirs, files_list in os.walk(root_path):
-                dirs[:] = [d for d in dirs if d not in ignore_dirs]
-                for f in files_list:
-                    if f.endswith((".py", ".js", ".ts")):
-                        file_path = os.path.relpath(os.path.join(root, f), root_path)
-                        self.add_node(file_path, {"type": "file", "path": file_path})
-                        full_p = os.path.join(root, f)
-                        try:
-                            with open(full_p, encoding="utf-8") as file_obj:
-                                for idx, line in enumerate(file_obj, start=1):
-                                    trimmed = line.strip()
-                                    if trimmed.startswith("class "):
-                                        parts = trimmed.split()
-                                        if len(parts) > 1:
-                                            name = (
-                                                parts[1]
-                                                .split("(")[0]
-                                                .split(":")[0]
-                                                .strip()
-                                            )
-                                            if name:
-                                                node_id = f"{file_path}::{name}"
-                                                self.add_node(
-                                                    node_id,
-                                                    {
-                                                        "type": "class",
-                                                        "file": file_path,
-                                                        "line": idx,
-                                                    },
-                                                )
-                                                self.add_edge(
-                                                    file_path,
-                                                    node_id,
-                                                    {"relationship": "contains"},
-                                                )
-                                    elif trimmed.startswith("def "):
-                                        parts = trimmed.split()
-                                        if len(parts) > 1:
-                                            name = (
-                                                parts[1]
-                                                .split("(")[0]
-                                                .split(":")[0]
-                                                .strip()
-                                            )
-                                            if name:
-                                                node_id = f"{file_path}::{name}"
-                                                self.add_node(
-                                                    node_id,
-                                                    {
-                                                        "type": "function",
-                                                        "file": file_path,
-                                                        "line": idx,
-                                                    },
-                                                )
-                                                self.add_edge(
-                                                    file_path,
-                                                    node_id,
-                                                    {"relationship": "contains"},
-                                                )
-                                    elif trimmed.startswith("function "):
-                                        parts = trimmed.split()
-                                        if len(parts) > 1:
-                                            name = parts[1].split("(")[0].strip()
-                                            if name:
-                                                node_id = f"{file_path}::{name}"
-                                                self.add_node(
-                                                    node_id,
-                                                    {
-                                                        "type": "function",
-                                                        "file": file_path,
-                                                        "line": idx,
-                                                    },
-                                                )
-                                                self.add_edge(
-                                                    file_path,
-                                                    node_id,
-                                                    {"relationship": "contains"},
-                                                )
-                        except Exception:
-                            pass
+        """Parse repository AST natively using the Rust backend."""
+        self._graph.parse_repository(root_path)
 
     def vf2_subgraph_match(self, pattern: "GraphComputeEngine") -> list[dict[str, str]]:
         """Find all subgraph isomorphism matches from pattern to target graph."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return self._rust_graph.vf2_subgraph_match(pattern._rust_graph)
+        return self._graph.vf2_subgraph_match(pattern._graph)
 
-        # Universal pure-Python backtracking isomorphic solver
-        matches: list[dict[str, str]] = []
-        pattern_nodes = list(pattern._get_all_nodes())
-        if not pattern_nodes:
-            return matches
-
-        current_mapping: dict[str, str] = {}
-        mapped_targets = set()
-
-        def backtrack(idx):
-            if idx == len(pattern_nodes):
-                matches.append(current_mapping.copy())
-                return
-            u = pattern_nodes[idx]
-            for v in self._get_all_nodes():
-                if v in mapped_targets:
-                    continue
-                u_props = pattern._get_node_properties(u)
-                v_props = self._get_node_properties(v)
-                match = True
-                for k, val in u_props.items():
-                    if v_props.get(k) != val:
-                        match = False
-                        break
-                if not match:
-                    continue
-
-                edges_compatible = True
-                for src, tgt in pattern._get_all_edges():
-                    if src == u:
-                        mapped_tgt = current_mapping.get(tgt)
-                        if mapped_tgt is not None and not self.has_edge(v, mapped_tgt):
-                            edges_compatible = False
-                            break
-                    if tgt == u:
-                        mapped_src = current_mapping.get(src)
-                        if mapped_src is not None and not self.has_edge(mapped_src, v):
-                            edges_compatible = False
-                            break
-
-                if edges_compatible:
-                    current_mapping[u] = v
-                    mapped_targets.add(v)
-                    backtrack(idx + 1)
-                    current_mapping.pop(u)
-                    mapped_targets.remove(v)
-
-        backtrack(0)
-        return matches
+    # ── Ledger Operations ────────────────────────────────────────────────
 
     def get_ledger(self) -> list[str]:
         """Retrieve the mutation transaction ledger log."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return self._rust_graph.get_ledger()
-        return self._ledger
+        return self._graph.get_ledger()
 
     def clear_ledger(self) -> None:
         """Clear the mutation transaction ledger log."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            self._rust_graph.clear_ledger()
-        else:
-            self._ledger.clear()
+        self._graph.clear_ledger()
 
     @staticmethod
     def _parse_ledger_entry(tx: str) -> tuple[str, list[str]]:
@@ -519,101 +323,382 @@ class GraphComputeEngine:
 
     def apply_ledger(self, transactions: list[str]) -> None:
         """Replay mutations from a transaction ledger log."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            self._rust_graph.apply_ledger(transactions)
-        else:
-            for tx in transactions:
-                op, args = self._parse_ledger_entry(tx)
-                if op == "ADD_NODE" and len(args) >= 2:
-                    try:
-                        self.add_node(args[0], json.loads(args[1]))
-                    except Exception:
-                        self.add_node(args[0], {})
-                elif op == "ADD_EDGE" and len(args) >= 3:
-                    try:
-                        self.add_edge(args[0], args[1], json.loads(args[2]))
-                    except Exception:
-                        self.add_edge(args[0], args[1], {})
-                elif op == "REMOVE_NODE" and len(args) >= 1:
-                    self.remove_node(args[0])
-                elif op == "REMOVE_EDGE" and len(args) >= 2:
-                    self.remove_edge(args[0], args[1])
+        self._graph.apply_ledger(transactions)
+
+    # ── Serialization ────────────────────────────────────────────────────
 
     def to_json(self) -> str:
         """Serialize graph to JSON string representation."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return self._rust_graph.to_json()
-
-        # Serialization fallback
-        data: dict[str, list[Any]] = {"nodes": [], "edges": []}
-        for node_id in self._get_all_nodes():
-            data["nodes"].append(
-                (node_id, json.dumps(self._get_node_properties(node_id)))
-            )
-        for src, tgt in self._get_all_edges():
-            data["edges"].append((src, tgt, json.dumps({})))
-        return json.dumps(data)
+        return self._graph.to_json()
 
     def from_json(self, json_str: str) -> None:
         """Deserialize graph from JSON string representation."""
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            self._rust_graph.from_json(json_str)
-        else:
-            try:
-                data = json.loads(json_str)
-                for node_id, props_str in data.get("nodes", []):
-                    try:
-                        self.add_node(node_id, json.loads(props_str))
-                    except Exception:
-                        self.add_node(node_id, {})
-                for src, tgt, props_str in data.get("edges", []):
-                    try:
-                        self.add_edge(src, tgt, json.loads(props_str))
-                    except Exception:
-                        self.add_edge(src, tgt, {})
-            except Exception:
-                pass
+        self._graph.from_json(json_str)
+
+    # ── Internal Helpers ─────────────────────────────────────────────────
 
     def _get_all_nodes(self) -> list[str]:
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return [nid for nid, _ in self._rust_graph.get_nodes()]
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            return list(self._rx_node_map.keys())
-        elif self._nx_graph is not None:
-            return list(self._nx_graph.nodes)
-        return []
+        return [nid for nid, _ in self._graph.get_nodes()]
 
     def _get_node_properties(self, node_id: str) -> dict[str, Any]:
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            props_str = self._rust_graph.get_node_properties(node_id)
-            if props_str is not None:
-                try:
-                    return json.loads(props_str)
-                except Exception:
-                    return {}
-            return {}
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            idx = self._rx_node_map.get(node_id)
-            if idx is not None:
-                node_data = self._rx_graph[idx]
-                return node_data[1] if len(node_data) > 1 else {}
-            return {}
-        elif self._nx_graph is not None:
-            if self._nx_graph.has_node(node_id):
-                return dict(self._nx_graph.nodes[node_id])
-            return {}
+        props_str = self._graph.get_node_properties(node_id)
+        if props_str:
+            try:
+                parsed = json.loads(props_str)
+                if isinstance(parsed, str):
+                    parsed = json.loads(parsed)
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                return {}
         return {}
 
     def _get_all_edges(self) -> list[tuple[str, str]]:
-        if self.backend_type == "rust" and self._rust_graph is not None:
-            return [(src, tgt) for src, tgt, _ in self._rust_graph.get_edges()]
-        elif self.backend_type == "rustworkx" and self._rx_graph is not None:
-            res = []
-            for u, v, _ in self._rx_graph.weighted_edge_list():
-                u_id = self._rx_graph[u][0]
-                v_id = self._rx_graph[v][0]
-                res.append((u_id, v_id))
-            return res
-        elif self._nx_graph is not None:
-            return [(u, v) for u, v, *_ in self._nx_graph.edges]
-        return []
+        return [(src, tgt) for src, tgt, _ in self._graph.get_edges()]
+
+    # ── Rust-native API wrappers ─────────────────────────────────────────
+
+    def in_degree(self, node_id: str) -> int:
+        """Return the in-degree of a node."""
+        try:
+            return self._graph.in_degree(node_id)
+        except Exception:
+            return 0
+
+    def out_degree(self, node_id: str) -> int:
+        """Return the out-degree of a node."""
+        try:
+            return self._graph.out_degree(node_id)
+        except Exception:
+            return 0
+
+    def get_predecessors(self, node_id: str) -> list[str]:
+        """Return predecessor node IDs."""
+        try:
+            return self._graph.get_predecessors(node_id)
+        except Exception:
+            return []
+
+    def get_successors(self, node_id: str) -> list[str]:
+        """Return successor node IDs."""
+        try:
+            return self._graph.get_successors(node_id)
+        except Exception:
+            return []
+
+    def get_neighbors(self, node_id: str) -> list[str]:
+        """Return all neighbor node IDs (predecessors + successors, deduplicated)."""
+        try:
+            return self._graph.get_neighbors(node_id)
+        except Exception:
+            return []
+
+    def node_ids(self) -> list[str]:
+        """Return all node IDs in the graph."""
+        return self._graph.node_ids()
+
+    def degree_centrality_all(self) -> list[tuple[str, float]]:
+        """Compute degree centrality for all nodes."""
+        return self._graph.degree_centrality_all()
+
+    def pagerank(
+        self, damping: float = 0.85, iterations: int = 100
+    ) -> list[tuple[str, float]]:
+        """Compute PageRank scores for all nodes."""
+        return self._graph.pagerank(damping, iterations)
+
+    def connected_components(self) -> list[list[str]]:
+        """Return weakly connected components as lists of node IDs."""
+        return self._graph.connected_components()
+
+    def community_detection(self, resolution: float = 1.0) -> list[list[str]]:
+        """Detect communities using label propagation.
+
+        Args:
+            resolution: Resolution parameter for community granularity.
+        """
+        return self._graph.community_detection(resolution)
+
+    def betweenness_centrality(self) -> list[tuple[str, float]]:
+        """Compute betweenness centrality via Brandes' algorithm."""
+        return self._graph.compute_betweenness_centrality()
+
+    def graph_coloring(self) -> list[tuple[str, int]]:
+        """Greedy graph coloring — assigns colors so no adjacent nodes share a color."""
+        return self._graph.graph_coloring()
+
+    def compute_similarity_edges(
+        self, threshold: float = 0.8
+    ) -> list[tuple[str, str, float]]:
+        """Compute similarity edges between nodes with embeddings."""
+        return self._graph.compute_similarity_edges(threshold)
+
+    def prune_by_lifecycle(
+        self, max_age_secs: int = 0, min_score: float = 0.0
+    ) -> dict[str, Any]:
+        """Lifecycle-aware pruning: remove nodes past max_age or below min_score."""
+        result_json = self._graph.prune_by_lifecycle(max_age_secs, min_score)
+        return json.loads(result_json)
+
+    def get_context_view(self, agent_id: str, max_tokens: int = 8000) -> dict[str, Any]:
+        """Get an optimized context view for an agent within a token budget."""
+        result_json = self._graph.get_context_view(agent_id, max_tokens)
+        return json.loads(result_json)
+
+    def batch_update(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+        """Batch update: apply multiple operations in a single FFI crossing."""
+        result_json = self._graph.batch_update(operations)
+        return json.loads(result_json)
+
+    def metrics(self) -> dict[str, Any]:
+        """Runtime metrics for monitoring and observability."""
+        result_json = self._graph.metrics()
+        return json.loads(result_json)
+
+    def personalized_pagerank(
+        self,
+        seed_nodes: dict[str, float] | None = None,
+        damping: float = 0.85,
+        iterations: int = 100,
+    ) -> dict[str, float]:
+        """Personalized PageRank with seed teleport nodes."""
+        seeds = list((seed_nodes or {}).items())
+        result = self._graph.personalized_pagerank(seeds, damping, iterations)
+        return dict(result)
+
+    # ── Compatibility shims ──────────────────────────────────────────────
+    # These bridge legacy code that still uses NX-style property access
+    # (e.g. graph.nodes[id], graph.edges, node_id in graph) to the
+    # Rust-native API.  All hot paths route to Rust; these are thin wrappers.
+
+    @property
+    def nodes(self) -> "_NodeView":
+        """NX-compatible node view.  Supports iteration, ``in``, and ``[id]``."""
+        return _NodeView(self)
+
+    @property
+    def edges(self) -> "_EdgeView":
+        """NX-compatible edge view.  Supports iteration and ``data=True``."""
+        return _EdgeView(self)
+
+    def number_of_nodes(self) -> int:
+        """Alias for ``node_count()``."""
+        return self.node_count()
+
+    def number_of_edges(self) -> int:
+        """Alias for ``edge_count()``."""
+        return self.edge_count()
+
+    def degree(self, node_id: str) -> int:
+        """Total degree (in + out) of *node_id*."""
+        return self.in_degree(node_id) + self.out_degree(node_id)
+
+    def successors(self, node_id: str) -> list[str]:
+        """Return successors of *node_id*."""
+        return self.get_successors(node_id)
+
+    def predecessors(self, node_id: str) -> list[str]:
+        """Return predecessors of *node_id*."""
+        return self.get_predecessors(node_id)
+
+    def neighbors(self, node_id: str) -> list[str]:
+        """Return neighbors (successors + predecessors) of *node_id*."""
+        return self.get_neighbors(node_id)
+
+    def get_edge_data(self, source_id: str, target_id: str, default: Any = None) -> Any:
+        """NX-compatible edge data lookup."""
+        props = self._get_edge_properties(source_id, target_id)
+        if not props:
+            return default if not self.has_edge(source_id, target_id) else {0: {}}
+
+        class MultiDiGraphCompatDict(dict):
+            def __init__(self, p: dict[str, Any]):
+                super().__init__({0: p})
+                self._props = p
+
+            def __getitem__(self, key: Any) -> Any:
+                if key == 0:
+                    return self._props
+                return self._props[key]
+
+            def get(self, key: Any, default_val: Any = None) -> Any:
+                if key == 0:
+                    return self._props
+                return self._props.get(key, default_val)
+
+        return MultiDiGraphCompatDict(props)
+
+    def out_edges(self, node_id: str, data: bool = False) -> list:
+        """Return outgoing edges from *node_id*.
+
+        When *data* is True, returns ``(src, tgt, props)`` triples.
+        """
+        succs = self.get_successors(node_id)
+        if data:
+            return [(node_id, s, self._get_edge_properties(node_id, s)) for s in succs]
+        return [(node_id, s) for s in succs]
+
+    def _get_edge_properties(self, source_id: str, target_id: str) -> dict[str, Any]:
+        """Retrieve edge properties between two nodes."""
+        props_list = self._graph.get_edge_properties(source_id, target_id)
+        if props_list:
+            try:
+                parsed = json.loads(props_list[0])
+                if isinstance(parsed, str):
+                    parsed = json.loads(parsed)
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    def __contains__(self, node_id: str) -> bool:
+        """Support ``node_id in engine`` syntax."""
+        return self.has_node(node_id)
+
+    def __getitem__(self, node_id: str) -> dict[str, Any]:
+        """Support ``engine[node_id]`` to get node properties."""
+        return self._get_node_properties(node_id)
+
+
+class _NodePropertiesProxy(dict):
+    def __init__(
+        self, engine: GraphComputeEngine, node_id: str, properties: dict[str, Any]
+    ):
+        super().__init__(properties)
+        self._engine = engine
+        self._node_id = node_id
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        super().__setitem__(key, value)
+        self._engine.add_node(self._node_id, properties=dict(self))
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(key)
+        self._engine.add_node(self._node_id, properties=dict(self))
+
+    def update(self, *args, **kwargs) -> None:
+        super().update(*args, **kwargs)
+        self._engine.add_node(self._node_id, properties=dict(self))
+
+
+class _EdgePropertiesProxy(dict):
+    def __init__(
+        self,
+        engine: GraphComputeEngine,
+        source_id: str,
+        target_id: str,
+        properties: dict[str, Any],
+    ):
+        super().__init__(properties)
+        self._engine = engine
+        self._source_id = source_id
+        self._target_id = target_id
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        super().__setitem__(key, value)
+        self._engine.add_edge(self._source_id, self._target_id, properties=dict(self))
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(key)
+        self._engine.add_edge(self._source_id, self._target_id, properties=dict(self))
+
+    def update(self, *args, **kwargs) -> None:
+        super().update(*args, **kwargs)
+        self._engine.add_edge(self._source_id, self._target_id, properties=dict(self))
+
+
+class _NodeView:
+    """Lightweight proxy providing NX-style ``graph.nodes`` access."""
+
+    __slots__ = ("_engine",)
+
+    def __init__(self, engine: GraphComputeEngine) -> None:
+        self._engine = engine
+
+    def __iter__(self):
+        return iter(self._engine.node_ids())
+
+    def __len__(self) -> int:
+        return self._engine.node_count()
+
+    def __contains__(self, node_id: str) -> bool:
+        return self._engine.has_node(node_id)
+
+    def __getitem__(self, node_id: str) -> dict[str, Any]:
+        props = self._engine._get_node_properties(node_id)
+        return _NodePropertiesProxy(self._engine, node_id, props)
+
+    def get(self, node_id: str, default: Any = None) -> Any:
+        """Support ``graph.nodes.get(id, default)`` pattern."""
+        if self._engine.has_node(node_id):
+            props = self._engine._get_node_properties(node_id)
+            return _NodePropertiesProxy(self._engine, node_id, props)
+        return default
+
+    def __call__(self, data: bool = False):
+        """Support ``graph.nodes(data=True)`` iteration."""
+        if data:
+            return [
+                (
+                    nid,
+                    _NodePropertiesProxy(
+                        self._engine, nid, self._engine._get_node_properties(nid)
+                    ),
+                )
+                for nid in self._engine.node_ids()
+            ]
+        return self._engine.node_ids()
+
+
+class _EdgeView:
+    """Lightweight proxy providing NX-style ``graph.edges`` access."""
+
+    __slots__ = ("_engine",)
+
+    def __init__(self, engine: GraphComputeEngine) -> None:
+        self._engine = engine
+
+    def __iter__(self):
+        return iter(self._engine._get_all_edges())
+
+    def __len__(self) -> int:
+        return self._engine.edge_count()
+
+    def __call__(
+        self, data: bool = False, keys: bool = False, default: Any = None, **kwargs: Any
+    ):
+        """Support ``graph.edges(data=True, keys=True)`` iteration."""
+        result: list[Any] = []
+        for src, tgt in self._engine._get_all_edges():
+            props = self._engine._get_edge_properties(src, tgt)
+            proxy = _EdgePropertiesProxy(self._engine, src, tgt, props)
+            if data and keys:
+                result.append((src, tgt, 0, proxy))
+            elif data:
+                result.append((src, tgt, proxy))
+            elif keys:
+                result.append((src, tgt, 0))
+            else:
+                result.append((src, tgt))
+        return result
+
+    def __getitem__(self, key: Any) -> Any:
+        """Support edge properties lookup by tuple key."""
+        if not isinstance(key, tuple) or len(key) < 2:
+            raise KeyError(key)
+        src, tgt = key[0], key[1]
+        props = self._engine._get_edge_properties(src, tgt)
+        if props is None:
+            raise KeyError(key)
+
+        proxy = _EdgePropertiesProxy(self._engine, src, tgt, props)
+        if len(key) >= 3:
+            return proxy
+
+        class MultiDiGraphCompatEdgeDict(dict):
+            def __getitem__(self, k):
+                return proxy
+
+            def get(self, k, default=None):
+                return proxy
+
+        return MultiDiGraphCompatEdgeDict({0: proxy})

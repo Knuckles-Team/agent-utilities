@@ -5,7 +5,7 @@ import pytest
 import typing
 from pathlib import Path
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.models.knowledge_graph import HostNode, RegistryNodeType
 from agent_utilities.models.domains.infrastructure import (
@@ -69,7 +69,7 @@ def test_infrastructure_pydantic_models():
 
 def _create_engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
-    graph = nx.MultiDiGraph()
+    graph = GraphComputeEngine(backend_type="rust")
     return IntelligenceGraphEngine(graph=graph, backend=None)
 
 

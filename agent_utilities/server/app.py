@@ -331,7 +331,44 @@ def build_agent_app(
                     logger.warning(f"A2A startup sync failed: {e}")
 
             processor_task = asyncio.create_task(background_processor(_agent_instance))
-            shutdown_event = anyio.Event()
+
+            # CONCEPT:OS-5.9 Boot ConsolidationEngine daemon
+            async def run_consolidation_daemon():
+                import asyncio
+
+                from agent_utilities.ecosystem.governance_agent import (
+                    GraphGovernanceAgent,
+                )
+                from agent_utilities.knowledge_graph.core.engine import (
+                    IntelligenceGraphEngine,
+                )
+                from agent_utilities.knowledge_graph.memory.consolidation import (
+                    ConsolidationEngine,
+                )
+
+                engine = IntelligenceGraphEngine()
+                consolidation = ConsolidationEngine(engine=engine)
+
+                # Boot Phase 5 Daemon using the SAME engine
+                gov_agent = GraphGovernanceAgent(
+                    engine=engine, workspace=workspace or "."
+                )
+                asyncio.create_task(gov_agent.start())
+
+                while True:
+                    try:
+                        # Wait 10 seconds before first run to let system boot
+                        await asyncio.sleep(10)
+                        consolidation.run(dry_run=False)
+                        await asyncio.sleep(600)  # Run every 10 minutes
+                    except asyncio.CancelledError:
+                        break
+                    except Exception as ce:
+                        logger.error("ConsolidationEngine error: %s", ce)
+                        await asyncio.sleep(60)
+
+            consolidation_task = asyncio.create_task(run_consolidation_daemon())
+
             shutdown_event = anyio.Event()
 
             try:
@@ -348,8 +385,10 @@ def build_agent_app(
                 shutdown_event.set()
             finally:
                 processor_task.cancel()
+                consolidation_task.cancel()
                 try:
                     await processor_task
+                    await consolidation_task
                 except asyncio.CancelledError:
                     pass
 

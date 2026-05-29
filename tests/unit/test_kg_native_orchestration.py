@@ -11,7 +11,7 @@ Tests cover all 7 gaps:
   7. Shareable Team Compositions
 """
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 # --- Gap 1: Team Composer ---
@@ -122,7 +122,7 @@ class TestStateCheckpointer:
         from agent_utilities.graph.state_checkpoint import StateCheckpointer
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         engine = IntelligenceGraphEngine(g, backend=None)
         cp = StateCheckpointer(engine=engine)
         state = self._make_mock_state()
@@ -133,7 +133,7 @@ class TestStateCheckpointer:
         from agent_utilities.graph.state_checkpoint import StateCheckpointer
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         engine = IntelligenceGraphEngine(g, backend=None)
         cp = StateCheckpointer(engine=engine)
         state = self._make_mock_state()
@@ -291,7 +291,7 @@ class TestTopologicalRoutingPolicy:
         )
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         g.add_node("gpt-4", type="agent", name="GPT-4")
         g.add_node("tool1", type="tool", name="search")
         g.add_edge("gpt-4", "tool1", type="provides")
@@ -390,7 +390,7 @@ class TestShareableTeamConfigs:
     def test_export_from_nx(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         g.add_node(
             "tc:test",
             type="team_config",
@@ -408,7 +408,7 @@ class TestShareableTeamConfigs:
     def test_import_to_nx(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         engine = IntelligenceGraphEngine(g, backend=None)
         bundle = {
             "version": "1.0",
@@ -423,14 +423,14 @@ class TestShareableTeamConfigs:
     def test_export_missing_returns_none(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         engine = IntelligenceGraphEngine(g, backend=None)
         assert engine.export_team_config("nonexistent") is None
 
     def test_list_team_configs(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         g.add_node(
             "tc:a",
             type="team_config",
@@ -568,7 +568,7 @@ class TestEndToEndOrchestration:
         from agent_utilities.graph.team_composer import KGTeamComposer
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
         engine = IntelligenceGraphEngine(g, backend=None)
         composer = KGTeamComposer(engine=engine)
         composer.compose_team("Analyze data", complexity=3)

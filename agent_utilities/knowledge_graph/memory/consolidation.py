@@ -100,9 +100,9 @@ class EpisodeToPreferenceRule:
     follow-up (``rule2_decisions_to_principle``) covers the
     ``PrincipleNode`` proposal path.
 
-    The detector operates off the in-memory NetworkX graph so it does not
+    The detector operates off the in-memory GraphComputeEngine (Rust-native) so it does not
     require a live backend connection; that makes it safe to run in tests
-    with a pure ``nx.MultiDiGraph`` engine.
+    with a pure GraphComputeEngine.
     """
 
     name: str = "episode_to_preference"

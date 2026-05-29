@@ -591,11 +591,11 @@ class TestMemoryCacheKGPersistence:
 
     def test_to_kg_nodes_creates_trajectory_nodes(self):
         """to_kg_nodes should create TrajectoryNode instances in the graph."""
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
+        engine = IntelligenceGraphEngine(graph=GraphComputeEngine(backend_type="rust"))
         cache = MemoryCache.from_query("What is 2+2?")
         cache.add_trajectory("t1", "The answer is \\boxed{4}", model_id="gpt-4")
         cache.add_trajectory("t2", "2+2 = 4. **Answer**: 4", model_id="claude")
@@ -609,11 +609,11 @@ class TestMemoryCacheKGPersistence:
 
     def test_to_kg_nodes_creates_query_anchor(self):
         """Should create a query anchor node."""
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
+        engine = IntelligenceGraphEngine(graph=GraphComputeEngine(backend_type="rust"))
         cache = MemoryCache.from_query("test query")
         cache.add_trajectory("t1", "answer")
 
@@ -625,11 +625,11 @@ class TestMemoryCacheKGPersistence:
 
     def test_to_kg_nodes_includes_enc_pi(self):
         """Trajectory nodes should include EncPI metadata."""
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph())
+        engine = IntelligenceGraphEngine(graph=GraphComputeEngine(backend_type="rust"))
         cache = MemoryCache.from_query("test")
         cache.add_trajectory("t1", "answer 1")
         cache.add_trajectory("t2", "answer 2")

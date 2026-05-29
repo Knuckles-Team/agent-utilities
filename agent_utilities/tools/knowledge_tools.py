@@ -211,10 +211,10 @@ async def link_knowledge_nodes(
     if not engine:
         return "Knowledge Graph not available."
 
-    if source_id not in engine.graph or target_id not in engine.graph:
+    if not engine.graph.has_node(source_id) or not engine.graph.has_node(target_id):
         return f"Error: One or both node IDs ({source_id}, {target_id}) not found in graph."
 
-    engine.graph.add_edge(source_id, target_id, type=relationship)
+    engine.graph.add_edge(source_id, target_id, {"type": relationship})
 
     if engine.backend:
         engine.backend.execute(
@@ -277,7 +277,8 @@ async def sync_feature_to_memory(ctx: RunContext[AgentDeps], feature_id: str) ->
     # Check if memory already exists to update or create
     mem_name = f"SDD Feature Memory: {feature_id}"
     existing_mem_id = None
-    for node_id, data in engine.graph.nodes(data=True):
+    for node_id in engine.graph.node_ids():
+        data = engine.graph._get_node_properties(node_id)
         if data.get("type") == "memory" and data.get("name") == mem_name:
             existing_mem_id = node_id
             break
@@ -517,14 +518,12 @@ def _get_kb_engine(ctx: RunContext[AgentDeps]):
     from ..knowledge_graph.kb.ingestion import KBIngestionEngine
 
     engine = get_knowledge_engine(ctx)
-    graph = engine.graph if engine else None
-    backend = engine.backend if engine else None
-
-    import networkx as nx
+    if not engine:
+        raise RuntimeError("Knowledge Graph not available.")
 
     return KBIngestionEngine(
-        graph=graph or nx.MultiDiGraph(),
-        backend=backend,
+        graph=engine.graph,
+        backend=engine.backend,
     )
 
 
@@ -708,11 +707,10 @@ async def get_kb_article(
         if not engine:
             return "Knowledge engine not available."
 
-        graph = engine.graph
-        if article_id not in graph.nodes:
+        if not engine.graph.has_node(article_id):
             return f"Article not found: {article_id}"
 
-        data = graph.nodes[article_id]
+        data = engine.graph._get_node_properties(article_id)
         title = data.get("name", article_id)
         summary = data.get("description", "")
         content = data.get("content", "")
@@ -878,11 +876,10 @@ async def export_knowledge_base(
         if not engine:
             return "Knowledge engine not available."
 
-        graph = engine.graph
-        if kb_id not in graph.nodes:
+        if not engine.graph.has_node(kb_id):
             return f"KB not found: {kb_id}"
 
-        kb_data = graph.nodes[kb_id]
+        kb_data = engine.graph._get_node_properties(kb_id)
         kb_name = kb_data.get("name", kb_id)
         out_path = Path(output_dir)
         out_path.mkdir(parents=True, exist_ok=True)
@@ -892,14 +889,15 @@ async def export_knowledge_base(
         articles_exported = 0
         index_lines = [f"# {kb_name} Knowledge Base\n\n"]
 
-        for n in graph.predecessors(kb_id):
-            node_data = graph.nodes[n]
+        # Find articles linked to this KB via incoming edges
+        for n in engine.graph.get_neighbors(kb_id):
+            node_data = engine.graph._get_node_properties(n)
             if node_data.get("type") != RegistryNodeType.ARTICLE:
                 continue
 
-            title = node_data.get("name", n)
+            title = node_data.get("name", n) or n
             summary = node_data.get("description", "")
-            content = node_data.get("content", summary)
+            content = node_data.get("content", summary) or ""
             tags = node_data.get("tags", [])
 
             # Build Obsidian-compatible frontmatter
@@ -913,11 +911,11 @@ async def export_knowledge_base(
             )
 
             # Sanitize filename
-            safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title)[
-                :80
-            ]
+            safe_name = "".join(
+                c if c.isalnum() or c in "-_ " else "_" for c in str(title)
+            )[:80]
             file_path = out_path / f"{safe_name}.md"
-            file_path.write_text(frontmatter + content, encoding="utf-8")
+            file_path.write_text(frontmatter + str(content), encoding="utf-8")
             articles_exported += 1
             index_lines.append(f"- [[{safe_name}]]: {summary[:100]}")
 

@@ -20,7 +20,7 @@ Covers:
 """
 
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 from pydantic import ValidationError
 
@@ -33,7 +33,7 @@ from agent_utilities.knowledge_graph.memory.consolidation import (
 
 
 def _make_episode(
-    g: nx.MultiDiGraph,
+    g: GraphComputeEngine,
     episode_id: str,
     tool_name: str,
     reward: float,
@@ -52,7 +52,9 @@ def _make_episode(
 
 @pytest.fixture
 def synthetic_engine() -> IntelligenceGraphEngine:
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    if g._client:
+        g._client.clear()
     # 5 successful terraform episodes
     for i in range(5):
         _make_episode(g, f"ep:tf-{i}", "terraform", reward=0.9)
@@ -179,7 +181,9 @@ def test_rule_skips_below_threshold(
 
 
 def test_rule_ignores_failed_episodes() -> None:
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    if g._client:
+        g._client.clear()
     # 5 failed terraform episodes — no proposal should emerge
     for i in range(5):
         _make_episode(g, f"ep:fail-{i}", "terraform", reward=0.1)
@@ -268,14 +272,18 @@ def test_engine_dedup_by_signature() -> None:
     p2.signature = p2.compute_signature()
     assert p1.signature == p2.signature
 
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    if g._client:
+        g._client.clear()
     ce = ConsolidationEngine(IntelligenceGraphEngine(g))
     deduped = ce.dedup_by_signature([p1, p2])
     assert len(deduped) == 1
 
 
 def test_engine_empty_graph_yields_no_proposals() -> None:
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
+    if g._client:
+        g._client.clear()
     ce = ConsolidationEngine(IntelligenceGraphEngine(g))
     ce.register(EpisodeToPreferenceRule(min_evidence_count=5))
     assert ce.run(dry_run=True) == []

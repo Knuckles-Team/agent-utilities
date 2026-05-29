@@ -7,7 +7,7 @@ CONCEPT:AHE-3.4 (EWC++)
 
 from typing import Any
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.topological_partition import (
@@ -24,7 +24,7 @@ from agent_utilities.knowledge_graph.memory.ewc import (
 
 
 class MockEngine:
-    def __init__(self, nx_graph: nx.Graph):
+    def __init__(self, nx_graph: Any):
         self._nx_graph = nx_graph
         self.upserted_nodes: list[Any] = []
         self.upserted_edges: list[Any] = []
@@ -43,13 +43,13 @@ def test_detect_communities():
     CONCEPT:KG-2.5
     """
     # Create a graph with two distinct cliques connected by a single edge
-    G = nx.Graph()
-    G.add_edges_from([(1, 2), (2, 3), (1, 3)])  # Clique 1
-    G.add_edges_from([(4, 5), (5, 6), (4, 6)])  # Clique 2
-    G.add_edge(3, 4)  # Bridge
-
-    for u, v in G.edges():
-        G[u][v]["weight"] = 1.0
+    from agent_utilities.knowledge_graph.core.graph_primitives import PyGraph
+    G = PyGraph()
+    n = {}
+    for i in range(1, 7):
+        n[i] = G.add_node(i)
+    for u, v in [(1, 2), (2, 3), (1, 3), (4, 5), (5, 6), (4, 6), (3, 4)]:
+        G.add_edge(n[u], n[v], {"weight": 1.0})
 
     communities = detect_communities(G)
     assert len(communities) == 2
@@ -70,12 +70,13 @@ def test_persist_stable_communities():
 
     CONCEPT:KG-2.5
     """
-    G = nx.Graph()
-    G.add_edges_from([(1, 2), (2, 3), (1, 3)])
-    G.add_edges_from([(4, 5), (5, 6), (4, 6)])
-    G.add_edge(3, 4)
-    for u, v in G.edges():
-        G[u][v]["weight"] = 1.0
+    from agent_utilities.knowledge_graph.core.graph_primitives import PyGraph
+    G = PyGraph()
+    n = {}
+    for i in range(1, 7):
+        n[i] = G.add_node(i)
+    for u, v in [(1, 2), (2, 3), (1, 3), (4, 5), (5, 6), (4, 6), (3, 4)]:
+        G.add_edge(n[u], n[v], {"weight": 1.0})
 
     engine = MockEngine(G)
     count = persist_stable_communities(engine)

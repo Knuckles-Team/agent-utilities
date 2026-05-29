@@ -61,9 +61,12 @@ graph TD
         KG212["<b>KG-2.12: Time-Series Graph</b>"]
         KG213["<b>KG-2.13: External Graph Federation</b>"]
         KG215["<b>KG-2.15: Transaction Proxy</b>"]
-        KG216["<b>KG-2.16: Rustworkx Engine</b>"]
+        KG216["<b>KG-2.16: Rust-Native Compute</b>"]
         KG217["<b>KG-2.17: Rust Epistemic Backend</b>"]
         KG218["<b>KG-2.18: High-Performance Quant FFI</b>"]
+        KG219["<b>KG-2.19: Event Backbone</b>"]
+        KG220["<b>KG-2.20: Query Router</b>"]
+        KG221["<b>KG-2.21: Working Set Manager</b>"]
     end
 
     %% Pillar 3: Agentic Harness Engineering
@@ -128,6 +131,9 @@ graph TD
     KG216 --> KG20
     KG217 --> KG20
     KG218 --> KG20
+    KG219 --> KG20
+    KG220 --> KG20
+    KG221 --> KG216
     AHE31 --> KG20
     AHE33 --> ORCH12
     AHE34 --> ECO42
@@ -195,9 +201,12 @@ graph TD
 | KG-2.11 | Vectorized Retrieval | Semantic retrieval and vectorized indexing |
 | KG-2.12 | Time-Series Graph | Time-Series databases and time-series query caching |
 | KG-2.15 | Transaction Proxy | Centralized gateway and transactional persistence layer |
-| KG-2.16 | Rustworkx Engine 🔬 | Rustworkx-backed high-performance graph topological analysis |
+| KG-2.16 | Rust-Native Compute Engine | Rust-native `GraphComputeEngine` with full NX-API superset, zero NetworkX dependency |
 | KG-2.17 | Rust-Compiled Epistemic Reasoning Backend 🔬 | High-performance compiled Datalog forward-chaining reasoning backend via PyO3 FFI |
 | KG-2.18 | High-Performance Quant FFI Engine 🔬 | Vectorized finance math, rolling metric windows, and order book tick simulation |
+| KG-2.19 | Event Backbone | Protocol-based pub/sub with MemoryEventBackend (default) and RedpandaEventBackend (distributed) |
+| KG-2.20 | Query Router | Cost-based query planner routing to L1 Rust / L2 Cache / L3 Persistent / L4 Vector tiers |
+| KG-2.21 | Working Set Manager | LRU-evicting subgraph cache for L1 Rust engine with 50K node cap |
 
 ### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.16)
 

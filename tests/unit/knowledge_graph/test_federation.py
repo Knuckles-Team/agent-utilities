@@ -6,7 +6,7 @@ CONCEPT:KG-2.1 — External Graph Federation
 
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -15,7 +15,7 @@ from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 @pytest.fixture
 def graph_engine():
     """Fixture to create an in-memory graph engine."""
-    g = nx.MultiDiGraph()
+    g = GraphComputeEngine(backend_type="rust")
     # In-memory engine without a persistent backend
     engine = IntelligenceGraphEngine(graph=g, backend=None)
     return engine

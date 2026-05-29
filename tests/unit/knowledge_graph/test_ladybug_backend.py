@@ -132,7 +132,7 @@ def test_ladybug_backend_get_lock(temp_db_dir):
 
 
 def test_ladybug_backend_escaped_properties(temp_db_dir):
-    import networkx as nx
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -140,7 +140,7 @@ def test_ladybug_backend_escaped_properties(temp_db_dir):
     mock_backend = MagicMock()
     mock_backend.__class__.__name__ = "LadybugBackend"
 
-    engine = IntelligenceGraphEngine(nx.MultiDiGraph(), backend=mock_backend)
+    engine = IntelligenceGraphEngine(GraphComputeEngine(backend_type="rust"), backend=mock_backend)
     mock_backend.reset_mock()
 
     # 1. Test upsert node with reserved keyword property

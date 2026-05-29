@@ -7,7 +7,7 @@ CONCEPT:OS-5.1 — Secrets & Authentication
 
 Provides encrypted secrets storage with three pluggable backends:
 
-- **InMemoryBackend** (default): Fernet-encrypted dict, zero-config, lost on restart.
+- **InEpistemicGraphBackend** (default): Fernet-encrypted dict, zero-config, lost on restart.
 - **SQLiteBackend**: Persistent encrypted storage using standard sqlite3 + Fernet.
 - **VaultBackend**: HashiCorp Vault integration via ``hvac`` (optional dependency).
 
@@ -154,7 +154,7 @@ class SecretsBackend(abc.ABC):
 # ---------------------------------------------------------------------------
 
 
-class InMemoryBackend(SecretsBackend):
+class InEpistemicGraphBackend(SecretsBackend):
     """Fernet-encrypted in-memory backend.
 
     Secrets are encrypted at rest in a Python dict and lost on process exit.
@@ -597,7 +597,7 @@ class SecretsClient:
     """
 
     def __init__(self, backend: SecretsBackend | None = None) -> None:
-        self._backend = backend or InMemoryBackend()
+        self._backend = backend or InEpistemicGraphBackend()
 
     @property
     def backend(self) -> SecretsBackend:
@@ -743,7 +743,7 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
             k8s_sa_token_path=config.vault_k8s_sa_token_path,
         )
     else:
-        backend = InMemoryBackend(master_key=master_key_bytes)
+        backend = InEpistemicGraphBackend(master_key=master_key_bytes)
 
     logger.info("SecretsClient initialised with '%s' backend.", config.backend)
     return SecretsClient(backend=backend)

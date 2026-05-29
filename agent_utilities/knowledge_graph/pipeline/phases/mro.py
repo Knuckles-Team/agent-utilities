@@ -11,7 +11,7 @@ async def execute_mro(
     ctx: PipelineContext, deps: dict[str, PhaseResult]
 ) -> dict[str, Any]:
     """Resolve class inheritance hierarchies."""
-    graph = ctx.nx_graph
+    graph = ctx.graph
 
     # Map of class name to node ID
     class_map = {}

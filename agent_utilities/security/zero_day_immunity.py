@@ -48,7 +48,7 @@ class ZeroDayImmunity:
     def _parse_to_subgraph(self, prompt: str, request_structure: dict[str, Any]) -> Any:
         """Convert a text prompt and payload into a structural graph."""
         # Stub: Uses dependency parsing or AST-like transformation
-        # to convert the request into a NetworkX subgraph.
+        # to convert the request into a graph compute subgraph.
         return {
             "nodes": ["user_input", "override_command"],
             "edges": [("user_input", "override_command")],

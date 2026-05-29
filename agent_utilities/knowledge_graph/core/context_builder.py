@@ -2,23 +2,27 @@
 
 import logging
 
-import networkx as nx
+from ..core.graph_compute import GraphComputeEngine
 
 logger = logging.getLogger(__name__)
 
 
-def get_owl_context(node_id: str, graph: nx.MultiDiGraph) -> str:
+def get_owl_context(node_id: str, graph: GraphComputeEngine) -> str:
     """Extracts OWL inferred facts for a node."""
 
-    if node_id not in graph:
+    if not graph.has_node(node_id):
         return ""
 
     inferred_facts = []
-    # Look at outgoing edges
-    for _, tgt, data in graph.out_edges(node_id, data=True):
-        if data.get("inferred", False):
-            edge_type = data.get("type", "related_to")
-            inferred_facts.append(f"{edge_type}: {tgt}")
+    # Look at outgoing edges (successors)
+    for tgt in graph.get_successors(node_id):
+        # Check if the edge has inferred properties
+        edge_data = graph.get_edge_data(node_id, tgt)
+        if edge_data:
+            props = edge_data.get(0) or edge_data
+            if props.get("inferred", False):
+                edge_type = props.get("type", "related_to")
+                inferred_facts.append(f"{edge_type}: {tgt}")
 
     if inferred_facts:
         return "OWL Inferred Facts: " + " | ".join(inferred_facts)
@@ -27,12 +31,12 @@ def get_owl_context(node_id: str, graph: nx.MultiDiGraph) -> str:
 
 def get_hierarchical_context(
     node_id: str,
-    graph: nx.MultiDiGraph,
+    graph: GraphComputeEngine,
     max_depth: int = 2,
     max_relations_per_level: int = 5,
 ) -> str:
     """Extracts multi-hop parents and children up to max_depth."""
-    if node_id not in graph:
+    if not graph.has_node(node_id):
         return ""
 
     context_parts = []
@@ -45,18 +49,18 @@ def get_hierarchical_context(
     current_children = [node_id]
 
     for level in range(1, max_depth + 1):
-        # Gather next level parents (incoming edges)
+        # Gather next level parents (incoming edges = predecessors)
         next_parents = []
         for n in current_parents:
-            for src, _ in graph.in_edges(n):
+            for src in graph.get_predecessors(n):
                 if src not in visited_parents:
                     visited_parents.add(src)
                     next_parents.append(src)
 
-        # Gather next level children (outgoing edges)
+        # Gather next level children (outgoing edges = successors)
         next_children = []
         for n in current_children:
-            for _, tgt in graph.out_edges(n):
+            for tgt in graph.get_successors(n):
                 if tgt not in visited_children:
                     visited_children.add(tgt)
                     next_children.append(tgt)
@@ -92,14 +96,14 @@ def get_hierarchical_context(
 
 
 def build_contextual_description(
-    node_id: str, graph: nx.MultiDiGraph, base_description: str
+    node_id: str, graph: GraphComputeEngine, base_description: str
 ) -> str:
     """
     Builds a rich contextual description by appending topological and ontological data.
 
     Args:
         node_id: The ID of the node.
-        graph: The in-memory MultiDiGraph.
+        graph: The GraphComputeEngine instance.
         base_description: The original text description of the node.
 
     Returns:

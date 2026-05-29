@@ -33,12 +33,12 @@ import json
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-import networkx as nx
 from pydantic_ai import Agent
 
 from agent_utilities.core.config import config
+from agent_utilities.knowledge_graph.core import graph_primitives as rx
 
 from ..models.execution_manifest import (
     AgentExecutionResult,
@@ -174,17 +174,33 @@ class ParallelEngine:
         except Exception as vis_err:
             logger.warning("Failed to generate workflow Mermaid diagram: %s", vis_err)
 
-        # 3. Select coordination protocol
+        # 3. Select and apply coordination protocol
         protocol = self.coordination.select_protocol(
             agent_count=resolved.agent_count,
             execution_mode=resolved.execution_mode,
         )
 
+        # Apply protocol to establish consensus/voting mechanics
+        agent_ids = [a.agent_id for a in resolved.agents]
+        coordination_result = self.coordination.apply_protocol(
+            protocol=protocol,
+            agent_ids=agent_ids,
+            task=resolved.query,
+            task_type=resolved.metadata.get("task_type", "general"),
+        )
+        self.coordination.log_coordination_trace(coordination_result)
+
         # 4. Execute waves with backpressure
         concurrency = resolved.max_concurrency
         if concurrency is None:
             concurrency = getattr(config, "max_parallel_agents", 60) or 60
-        semaphore = asyncio.Semaphore(int(concurrency))
+
+        from ..core.cognitive_scheduler import CognitiveScheduler
+
+        scheduler = CognitiveScheduler(
+            max_concurrent=int(concurrency), engine=self.engine
+        )
+
         wave_results: list[WaveResult] = []
 
         for wave_idx, wave_agents in enumerate(waves):
@@ -196,7 +212,7 @@ class ParallelEngine:
             )
 
             wave_result = await self._execute_wave(
-                wave_agents, wave_idx, semaphore, resolved, graph_deps, wave_results
+                wave_agents, wave_idx, scheduler, resolved, graph_deps, wave_results
             )
             wave_results.append(wave_result)
 
@@ -360,21 +376,26 @@ class ParallelEngine:
                 waves.append(expanded[i : i + batch_size])
             return waves
 
-        # Build DAG from depends_on edges
-        dag = nx.DiGraph()
+        # Build DAG from depends_on edges using graph primitives
+        dag = rx.PyDiGraph()
         agent_map: dict[str, AgentSpec] = {}
+        node_indices: dict[str, int] = {}
+
+        valid_ids = {a.agent_id for a in expanded}
+        for agent in expanded:
+            idx = dag.add_node(agent.agent_id)
+            node_indices[agent.agent_id] = idx
+            agent_map[agent.agent_id] = agent
 
         for agent in expanded:
-            dag.add_node(agent.agent_id)
-            agent_map[agent.agent_id] = agent
             for dep in agent.depends_on:
-                if dep in {a.agent_id for a in expanded}:
-                    dag.add_edge(dep, agent.agent_id)
+                if dep in valid_ids:
+                    dag.add_edge(node_indices[dep], node_indices[agent.agent_id], None)
 
         # Group by topological generation (parallel levels)
         try:
-            generations = list(nx.topological_generations(dag))
-        except nx.NetworkXUnfeasible:
+            generations = rx.topological_generations(dag)
+        except Exception:
             logger.warning(
                 "[CONCEPT:ORCH-1.25] Dependency cycle detected — falling back "
                 "to sequential execution"
@@ -388,7 +409,9 @@ class ParallelEngine:
         batch_size = int(b_size)
 
         for generation in generations:
-            gen_agents = [agent_map[nid] for nid in generation if nid in agent_map]
+            gen_agents = [
+                agent_map[dag[nidx]] for nidx in generation if dag[nidx] in agent_map
+            ]
             # Sub-batch within a generation if it exceeds batch_size
             for i in range(0, len(gen_agents), batch_size):
                 topological_waves.append(gen_agents[i : i + batch_size])
@@ -425,7 +448,7 @@ class ParallelEngine:
         self,
         agents: list[AgentSpec],
         wave_idx: int,
-        semaphore: asyncio.Semaphore,
+        scheduler: Any,
         manifest: ExecutionManifest,
         graph_deps: GraphDeps | None,
         wave_results: list[WaveResult],
@@ -456,10 +479,22 @@ class ParallelEngine:
                     error=f"Circuit breaker open for {agent.agent_id}",
                 )
 
-            async with semaphore:
-                return await self._execute_agent(
-                    agent, manifest, graph_deps, wave_results
+            proc = await scheduler.submit(
+                agent_id=agent.agent_id,
+                task=agent.task_template or manifest.query,
+            )
+
+            await scheduler.wait_for_running(proc.id)
+
+            try:
+                res = await self._execute_agent(
+                    agent, manifest, graph_deps, wave_results, proc
                 )
+                await scheduler.complete(proc.id)
+                return res
+            except Exception as e:
+                await scheduler.fail(proc.id, str(e))
+                raise e
 
         tasks = [_run_one(a) for a in agents]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -495,6 +530,7 @@ class ParallelEngine:
         manifest: ExecutionManifest,
         graph_deps: GraphDeps | None,
         wave_results: list[WaveResult],
+        proc: Any = None,
     ) -> AgentExecutionResult:
         """Execute a single agent invocation with full capability wiring.
 
@@ -550,6 +586,27 @@ class ParallelEngine:
 
         if manifest.context:
             task = f"{task}\n\nContext:\n{manifest.context}"
+
+        # CONCEPT:OS-5.9 Context Paging
+        if proc and hasattr(proc, "checkpoint_id") and proc.checkpoint_id:
+            logger.info(
+                "Paging context from checkpoint %s for agent %s",
+                proc.checkpoint_id,
+                agent.agent_id,
+            )
+            try:
+                from ..capabilities.checkpointing import GraphCheckpointStore
+
+                store = GraphCheckpointStore(engine=self.engine)
+                ckpt_data = store.get(proc.checkpoint_id)
+                if ckpt_data:
+                    task = f"{task}\n\n## RESUMED CONTEXT (Paged from KG)\n{ckpt_data}"
+            except Exception as e:
+                logger.warning(
+                    "Failed to page context from checkpoint %s: %s",
+                    proc.checkpoint_id,
+                    e,
+                )
 
         # Determine model
         model_id = agent.model_id

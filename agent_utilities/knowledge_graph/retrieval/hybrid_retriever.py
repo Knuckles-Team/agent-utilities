@@ -179,9 +179,9 @@ class HybridRetriever:
         Returns:
             Multiplicative boost factor (>= 1.0).
         """
-        if node_id not in self.engine.graph:
+        if not self.engine.graph.has_node(node_id):
             return 1.0
-        in_degree = self.engine.graph.in_degree(node_id)
+        in_degree = len(self.engine.graph.get_predecessors(node_id))
         return 1.0 + self._boost_factor * math.log1p(in_degree)
 
     def _compute_query_weight(self, query: str) -> float:
@@ -347,7 +347,7 @@ class HybridRetriever:
                 logger.warning(f"Vector search failed, falling back to keyword: {e}")
                 base_nodes = self.engine._search_keyword(query, top_k=context_window)
         else:
-            # Fallback to basic NetworkX/keyword search
+            # Fallback to keyword search
             base_nodes = self.engine._search_keyword(query, top_k=context_window)
 
         # 2. Graph Traversal (Multi-hop context assembly)
@@ -383,25 +383,36 @@ class HybridRetriever:
 
                 assembled_subgraph.extend(context_nodes)
             else:
-                # NetworkX fallback
+                # GraphComputeEngine BFS fallback
                 try:
-                    import networkx as nx
-
-                    if node_id in self.engine.graph:
-                        neighborhood = nx.ego_graph(
-                            self.engine.graph, node_id, radius=multi_hop_depth
-                        )
-                        for n, data in neighborhood.nodes(data=True):
-                            if n not in visited:
-                                visited.add(n)
-                                d = dict(data)
-                                d["id"] = n
-                                # Apply backlink boost during context assembly (CONCEPT:KG-2.2)
+                    if self.engine.graph.has_node(node_id):
+                        # BFS traversal up to multi_hop_depth
+                        all_discovered = [node_id]
+                        frontier = {node_id}
+                        for _depth in range(multi_hop_depth):
+                            next_frontier: set[str] = set()
+                            for nid in frontier:
+                                for s in self.engine.graph.get_successors(nid):
+                                    if s not in visited and s not in all_discovered:
+                                        next_frontier.add(s)
+                                for p in self.engine.graph.get_predecessors(nid):
+                                    if p not in visited and p not in all_discovered:
+                                        next_frontier.add(p)
+                            frontier = next_frontier
+                            for f_node in sorted(frontier):
+                                if f_node not in all_discovered:
+                                    all_discovered.append(f_node)
+                        # Collect all discovered nodes
+                        for nid in all_discovered:
+                            if nid not in visited:
+                                visited.add(nid)
+                                d = dict(self.engine.graph._get_node_properties(nid))
+                                d["id"] = nid
                                 if self._boost_strategy == "context_only":
-                                    d["_context_boost"] = self._backlink_boost(n)
+                                    d["_context_boost"] = self._backlink_boost(nid)
                                 assembled_subgraph.append(d)
                 except Exception as e:
-                    logger.debug(f"NX fallback traversal failed: {e}")
+                    logger.debug(f"Graph traversal fallback failed: {e}")
                     if node_id not in visited:
                         visited.add(node_id)
                         assembled_subgraph.append(node)
@@ -496,7 +507,7 @@ class HybridRetriever:
                     "Return a JSON list of strings."
                 ),
             )
-            result = agent.run_sync(query)
+            result: Any = agent.run_sync(query)
             # Parse JSON list from result.data
             try:
                 import re

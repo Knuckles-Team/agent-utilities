@@ -10,9 +10,12 @@ discovery of adaptive_agent_router and their tools.
 
 
 from enum import StrEnum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+if TYPE_CHECKING:
+    from .graph import GraphPlan
 
 
 class RegistryNodeType(StrEnum):
@@ -315,6 +318,77 @@ class RegistryNodeType(StrEnum):
     # Company Infrastructure (CONCEPT:ECO-4.3, CONCEPT:ECO-4.04)
     COMPANY_SOFTWARE = "company_software"
     DEPLOYMENT_BLUEPRINT = "deployment_blueprint"
+    # Foundational & Core (BFO/QUDT/Schema.org)
+    CONTINUANT = "continuant"
+    OCCURRENT = "occurrent"
+    SPATIAL_REGION = "spatial_region"
+    TEMPORAL_REGION = "temporal_region"
+    BOUNDARY = "boundary"
+    QUANTITY_VALUE = "quantity_value"
+    UNIT_OF_MEASURE = "unit_of_measure"
+    PRODUCT = "product"
+    OFFER = "offer"
+    PROVENANCE_ACTIVITY = "provenance_activity"
+    PROVENANCE_AGENT = "provenance_agent"
+
+    # Domain: Life Sciences / Healthcare
+    GENE = "gene"
+    DISEASE = "disease"
+    DRUG = "drug"
+    ANATOMY = "anatomy"
+    CLINICAL_TRIAL = "clinical_trial"
+    MEDICAL_OBSERVATION = "medical_observation"
+
+    # Domain: Finance / Commerce
+    BANK_ACCOUNT = "bank_account"
+    EQUITY = "equity"
+    DERIVATIVE = "derivative"
+    CORPORATE_ACTION = "corporate_action"
+    LOAN = "loan"
+    MARKET_INDEX = "market_index"
+
+    # Domain: Engineering & IoT
+    SENSOR = "sensor"
+    ACTUATOR = "actuator"
+    IOT_DEVICE = "iot_device"
+    MANUFACTURING_PLANT = "manufacturing_plant"
+    MATERIAL_ASSET = "material_asset"
+    MAINTENANCE_LOG = "maintenance_log"
+
+    # Domain: Governance & Law
+    LEGAL_CONTRACT = "legal_contract"
+    JURISDICTION = "jurisdiction"
+    LEGISLATION = "legislation"
+    COURT_RULING = "court_ruling"
+    THREAT_ACTOR = "threat_actor"
+
+    # Domain: Media & Humanities
+    CULTURAL_ARTIFACT = "cultural_artifact"
+    MUSEUM_EXHIBIT = "museum_exhibit"
+    MUSICAL_WORK = "musical_work"
+    PUBLICATION_RECORD = "publication_record"
+    HISTORICAL_EVENT = "historical_event"
+
+    # Mega Company Brain (100M Scale Humans + Agents)
+    BUSINESS_DIVISION = "business_division"
+    COST_CENTER = "cost_center"
+    BOARD_OF_DIRECTORS = "board_of_directors"
+    COMMITTEE = "committee"
+    EMPLOYEE = "employee"
+    CONTRACTOR = "contractor"
+    VIRTUAL_WORKER = "virtual_worker"
+    PAY_GRADE = "pay_grade"
+    PERFORMANCE_REVIEW = "performance_review"
+    TRAINING_MODULE = "training_module"
+    AUTHORITY_DELEGATION = "authority_delegation"
+    COMPLIANCE_AUDIT = "compliance_audit"
+    RESOURCE_QUOTA = "resource_quota"
+    ALL_HANDS_MEETING = "all_hands_meeting"
+    EXECUTIVE_MEMO = "executive_memo"
+    TOWN_HALL = "town_hall"
+
+    # Generalized Relationship Ontology
+    RELATIONSHIP = "relationship"
 
 
 class RegistryEdgeType(StrEnum):
@@ -685,6 +759,35 @@ class RegistryEdgeType(StrEnum):
     DEPLOYED_ON = "deployed_on"
     MANAGED_BY_AGENT = "managed_by_agent"
     DEPLOYS_SOFTWARE = "deploys_software"
+    # Interpersonal & Inter-Entity Relationships
+    HAS_PARENT = "has_parent"
+    HAS_CHILD = "has_child"
+    HAS_ANCESTOR = "has_ancestor"
+    HAS_DESCENDANT = "has_descendant"
+    HAS_SIBLING = "has_sibling"
+    COUPLE = "couple"
+    SPOUSE = "spouse"
+    COLLEAGUE_OF = "colleague_of"
+    MENTOR_OF = "mentor_of"
+    FRIEND_OF = "friend_of"
+    KNOWS = "knows"
+
+    # Worldview & Company Brain Edges
+    HAS_QUANTITY = "has_quantity"
+    MEASURED_IN = "measured_in"
+    DERIVES_FROM = "derives_from"
+    REPORTS_TO = "reports_to"
+    DELEGATES_AUTHORITY_TO = "delegates_authority_to"
+    MONITORS_COMPLIANCE_OF = "monitors_compliance_of"
+    CONSUMES_BUDGET_OF = "consumes_budget_of"
+    ALLOCATED_TO_COST_CENTER = "allocated_to_cost_center"
+    MANAGES = "manages"
+    COLLABORATES_WITH = "collaborates_with"
+    HAS_JURISDICTION_OVER = "has_jurisdiction_over"
+    GOVERNS = "governs"
+    MANUFACTURES = "manufactures"
+    TREATS_DISEASE = "treats_disease"
+    PRESCRIBES_DRUG = "prescribes_drug"
 
 
 class RegistryNode(BaseModel):
@@ -927,7 +1030,7 @@ class PipelineConfig(BaseModel):
         default_factory=lambda: __import__("os").getenv("ENABLE_KG_OWL", "true").lower()
         in ("true", "1", "yes")
     )
-    owl_backend: str = "oxigraph"
+    owl_backend: str = "owlready2"
     owl_ontology_path: str | None = None
     owl_promotion_importance_threshold: float = 0.1
     owl_promotion_recency_days: int = 7
@@ -1156,6 +1259,16 @@ class PersonNode(RegistryNode):
     person_id: str
     expertise: list[str] = Field(default_factory=list)
     affiliation: str | None = None
+
+
+class RelationshipNode(RegistryNode):
+    """First-class reified interpersonal or inter-entity relationships."""
+
+    type: RegistryNodeType = RegistryNodeType.RELATIONSHIP
+    relationship_type: str
+    entity1_id: str
+    entity2_id: str
+    facts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CapabilityNode(RegistryNode):
@@ -2882,6 +2995,73 @@ class TeamComposition(BaseModel):
         "(protocol_id, protocol_type, name, quality_score, converged). "
         "Research: 2605.03310v1",
     )
+
+    def to_graph_plan(self) -> GraphPlan:
+        """Convert this TeamComposition to a GraphPlan for unified execution.
+
+        CONCEPT:ORCH-1.0 — Workflow Model Alignment
+
+        Bridges the ``TeamComposition`` and ``GraphPlan`` models so
+        callers can enter the unified workflow pipeline regardless of
+        whether the execution plan came from KG team composition or
+        direct planning.
+
+        Mapping:
+            - Each specialist dict → ``ExecutionStep``
+            - ``agent_id`` → ``node_id``
+            - ``role`` → ``refined_subtask``
+            - Parallel groups → ``is_parallel`` + ``depends_on``
+
+        Returns:
+            A ``GraphPlan`` suitable for ``ParallelEngine`` execution.
+        """
+        from .graph import ExecutionStep, GraphPlan
+
+        # Build a set of roles in parallel groups for fast lookup
+        parallel_roles: set[str] = set()
+        for group in self.parallel_groups:
+            parallel_roles.update(group)
+
+        steps: list[ExecutionStep] = []
+        prev_role: str | None = None
+
+        for agent_cfg in self.adaptive_agent_router:
+            role = agent_cfg.get("role", "")
+            agent_id = agent_cfg.get("agent_id", role)
+            model_id = agent_cfg.get("model_id", "")
+
+            # Determine dependencies based on execution mode
+            depends: list[str] = []
+            if self.execution_mode == "sequential" and prev_role is not None:
+                depends = [prev_role]
+            elif self.execution_mode == "fan_in":
+                # Fan-in: all previous steps feed into this one
+                depends = [s.node_id for s in steps]
+
+            step = ExecutionStep(
+                node_id=str(agent_id),
+                refined_subtask=f"[{role}] {agent_cfg.get('system_prompt', '')}".strip(),
+                is_parallel=role in parallel_roles,
+                depends_on=depends,
+                input_data={
+                    "model_id": model_id,
+                    "tools": agent_cfg.get("tools", []),
+                    "role": role,
+                },
+            )
+            steps.append(step)
+            prev_role = agent_id
+
+        return GraphPlan(
+            steps=steps,
+            metadata={
+                "source": "team_composition",
+                "team_id": self.team_id,
+                "execution_mode": self.execution_mode,
+                "confidence": self.confidence,
+                "topology_template_id": self.topology_template_id,
+            },
+        )
 
 
 # --- Agent OS Architecture Nodes (CONCEPT:OS-5.2) ---

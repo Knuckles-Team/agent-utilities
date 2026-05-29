@@ -220,6 +220,9 @@ class GraphState:
     session_id: str = ""
     """Unique session identifier for checkpoint resumption."""
 
+    parent_session_id: str | None = None
+    """CONCEPT:ORCH-1.4 — Session ID of the parent graph if this state was forked."""
+
     pinned_model_id: str | None = None
     """CONCEPT:OS-5.0 — Topological Session Persistence.
     The primary model ID pinned to this session for multi-turn conversational consistency.
@@ -478,3 +481,32 @@ class GraphState:
                 except Exception as e:
                     logger.warning(f"Could not load {filename}: {e}")
         return loaded
+
+    def fork_state(self, new_session_id: str | None = None) -> GraphState:
+        """CONCEPT:ORCH-1.4 — State Forking for Speculative Execution.
+
+        Creates a deep copy of the current state, branching execution into
+        an alternate timeline. Useful for debate nodes or speculative execution.
+
+        Args:
+            new_session_id: Optional forced session ID for the fork.
+
+        Returns:
+            A new GraphState instance.
+        """
+        import copy
+        import uuid
+
+        forked_id = new_session_id or f"fork:{uuid.uuid4().hex[:8]}"
+
+        fork = copy.deepcopy(self)
+        fork.parent_session_id = self.session_id
+        fork.session_id = forked_id
+
+        # Record the provenance
+        fork.signal_board.setdefault("state_fork", []).append(
+            f"Forked from parent {self.session_id} to {forked_id}"
+        )
+        logger.info("Forked graph state: %s -> %s", self.session_id, forked_id)
+
+        return fork

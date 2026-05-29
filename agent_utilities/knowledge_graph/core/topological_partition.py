@@ -1,15 +1,13 @@
 """Topological Mincut Partitioning and Community Detection.
 
 CONCEPT:KG-2.5 — Mincut Partitioning
-This module uses NetworkX Louvain community detection to dynamically
+This module uses GraphComputeEngine community detection to dynamically
 partition the Knowledge Graph into emergent topological communities.
 Stable communities are persisted back to the backend.
 """
 
 import logging
 from typing import Any
-
-import networkx as nx
 
 from agent_utilities.models.knowledge_graph import (
     CommunityNode,
@@ -20,35 +18,69 @@ from agent_utilities.models.knowledge_graph import (
 logger = logging.getLogger(__name__)
 
 
-def detect_communities(graph: nx.Graph) -> list[set[str]]:
-    """Detect emergent communities in a NetworkX graph using Louvain method.
+def detect_communities(graph: Any) -> list[set[str]]:
+    """Detect emergent communities using GraphComputeEngine.
 
     CONCEPT:KG-2.5
 
     Args:
-        graph: The undirected NetworkX graph to partition.
+        graph: The GraphComputeEngine or compatible graph object.
 
     Returns:
         A list of sets, where each set contains the node IDs belonging
         to a specific community.
     """
-    if len(graph) == 0:
-        return []
-
-    try:
-        # Use louvain communities to detect emergent clusters
-        communities = nx.community.louvain_communities(graph, weight="weight")
-        return [set(c) for c in communities if len(c) > 1]
-    except Exception as e:
-        logger.warning(
-            f"Louvain community detection failed: {e}. Falling back to Label Propagation."
-        )
+    # Try GCE native community detection first
+    if hasattr(graph, "community_detection"):
         try:
-            communities = nx.community.label_propagation_communities(graph)
-            return [set(c) for c in communities if len(c) > 1]
-        except Exception as fallback_e:
-            logger.error(f"Label Propagation fallback failed: {fallback_e}")
-            return []
+            communities_raw = graph.community_detection()
+            # Group by community label
+            clusters: dict[int, set[str]] = {}
+            for node_id, label in communities_raw:
+                clusters.setdefault(label, set()).add(node_id)
+            return [c for c in clusters.values() if len(c) > 1]
+        except Exception as e:
+            logger.warning(f"GCE community detection failed: {e}")
+
+    # Graph primitives fallback
+    try:
+        from agent_utilities.knowledge_graph.core import graph_primitives as rx
+
+        G = rx.PyGraph()
+        node_map: dict[str, int] = {}
+
+        if hasattr(graph, "node_ids"):
+            for node_id in graph.node_ids():
+                idx = G.add_node(node_id)
+                node_map[node_id] = idx
+            for src, tgt in graph._get_all_edges():
+                if src in node_map and tgt in node_map:
+                    G.add_edge(node_map[src], node_map[tgt], 1.0)
+
+        # Use connected components as community approximation
+        if rx.is_connected(G):
+            return [{G[idx] for idx in G.node_indices()}] if G.num_nodes() > 1 else []
+        # Find connected components manually
+        visited: set[int] = set()
+        components: list[set[str]] = []
+        for start in G.node_indices():
+            if start in visited:
+                continue
+            comp: set[str] = set()
+            stack = [start]
+            while stack:
+                n = stack.pop()
+                if n in visited:
+                    continue
+                visited.add(n)
+                comp.add(G[n])
+                stack.extend(nb for nb in G.neighbors(n) if nb not in visited)
+            if len(comp) > 1:
+                components.append(comp)
+        return components
+    except Exception as e:
+        logger.error(f"Community detection fallback failed: {e}")
+        return []
 
 
 def persist_stable_communities(engine: Any) -> int:
@@ -67,26 +99,13 @@ def persist_stable_communities(engine: Any) -> int:
     """
     logger.info("Starting topological partitioning of knowledge base...")
 
-    # 1. Fetch current networkx graph (assume engine.get_networkx_graph() or similar exists)
-    try:
-        if hasattr(engine, "get_networkx_snapshot"):
-            nx_graph = engine.get_networkx_snapshot()
-        elif hasattr(engine, "_nx_graph"):
-            nx_graph = engine._nx_graph
-        else:
-            logger.warning("Engine does not support NetworkX snapshotting.")
-            return 0
-    except Exception as e:
-        logger.warning(f"Could not retrieve NetworkX snapshot: {e}")
+    # Use the engine's graph (GraphComputeEngine) directly
+    if not hasattr(engine, "graph"):
+        logger.warning("Engine does not expose a graph attribute.")
         return 0
 
-    if not isinstance(nx_graph, nx.Graph):
-        # Ensure it's undirected for Louvain
-        undirected_graph = nx_graph.to_undirected()
-    else:
-        undirected_graph = nx_graph
-
-    communities = detect_communities(undirected_graph)
+    graph = engine.graph
+    communities = detect_communities(graph)
     persisted_count = 0
 
     for i, comm in enumerate(communities):
@@ -96,11 +115,14 @@ def persist_stable_communities(engine: Any) -> int:
 
         comm_id = f"community_cluster_{i}"
 
-        # Calculate naive coherence (just ratio of internal edges to possible internal edges)
-        subgraph = undirected_graph.subgraph(comm)
-        actual_edges = subgraph.number_of_edges()
+        # Calculate naive coherence from edge density
+        internal_edges = 0
+        if hasattr(graph, "_get_all_edges"):
+            for src, tgt in graph._get_all_edges():
+                if src in comm and tgt in comm:
+                    internal_edges += 1
         possible_edges = len(comm) * (len(comm) - 1) / 2
-        coherence = (actual_edges / possible_edges) if possible_edges > 0 else 1.0
+        coherence = (internal_edges / possible_edges) if possible_edges > 0 else 1.0
 
         community_node = CommunityNode(
             id=comm_id,

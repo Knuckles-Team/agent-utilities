@@ -10,13 +10,14 @@ Architecture (Two-Tier Graph Engine):
     - **Tier 1 (Source of Truth)**: A persistent Cypher-capable backend
       (LadybugDB/Neo4j/PostgreSQL) handles all CRUD, schema enforcement,
       vector indexing, and filtered queries.
-    - **Tier 2 (Compute Scratchpad)**: NetworkX is loaded on-demand via
-      ``load_subgraph()`` for graph algorithms (PageRank, VF2, spectral
-      clustering, causal reasoning) that databases cannot perform natively.
+    - **Tier 2 (Compute Scratchpad)**: GraphComputeEngine (Rust-native) is
+      loaded on-demand via ``load_subgraph()`` for graph algorithms (PageRank,
+      VF2, spectral clustering, causal reasoning) that databases cannot
+      perform natively.
 
     When no persistent backend is available (``GRAPH_BACKEND=memory``),
-    the engine falls back to using ``self.graph`` (NetworkX) as both
-    storage and compute — suitable for testing and small graphs only.
+    the engine falls back to using ``self.graph`` (GraphComputeEngine) as
+    both storage and compute — suitable for testing and small graphs only.
 
 The engine is composed of focused mixins for maintainability:
 - ``engine_query.py``: Query, search, and retrieval methods.
@@ -31,8 +32,6 @@ import logging
 import math
 from enum import Enum
 from typing import Any
-
-import networkx as nx
 
 from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
@@ -50,6 +49,7 @@ from .engine_mcp_discovery import MCPDiscoveryMixin
 from .engine_memory import MemoryMixin
 from .engine_registry import FocusedSubgraph, RegistryMixin
 from .engine_tasks import TaskManagerMixin
+from .graph_compute import GraphComputeEngine
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +94,9 @@ class IntelligenceGraphEngine(
 
     Tiered Architecture:
         - Writes go to the persistent backend (Tier 1) when available.
-        - ``self.graph`` (NetworkX) is the fallback when no backend exists,
-          AND the compute scratchpad for graph algorithms via ``load_subgraph()``.
+        - ``self.graph`` (GraphComputeEngine, Rust-native) is the fallback
+          when no backend exists, AND the compute scratchpad for graph
+          algorithms via ``load_subgraph()``.
         - Dual-writes are avoided to prevent OOM at enterprise scale (100K+ nodes).
     """
 
@@ -103,12 +104,15 @@ class IntelligenceGraphEngine(
 
     def __init__(
         self,
-        graph: nx.MultiDiGraph,
+        graph: GraphComputeEngine | None = None,
         backend: GraphBackend | None = None,
         db_path: str | None = None,
         external_ontologies: list[str] | None = None,
     ):
-        self.graph = graph
+        if graph is not None:
+            self.graph = graph
+        else:
+            self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = None
 
         # Use provided backend, or check for an active one, or create one from factory
@@ -123,10 +127,8 @@ class IntelligenceGraphEngine(
             else:
                 self.backend = None
 
-        # Initialize compiled / optimized Graph Compute Engine (Rust/rustworkx/NetworkX)
+        # Initialize compiled / optimized Graph Compute Engine (Rust/epistemic-graph)
         from agent_utilities.core.config import config
-
-        from .graph_compute import GraphComputeEngine
 
         compute_backend = getattr(config, "graph_compute_backend", "epistemic_graph")
         self.graph_compute = GraphComputeEngine(backend_type=compute_backend)
@@ -207,6 +209,19 @@ class IntelligenceGraphEngine(
     def _is_memory_only(self) -> bool:
         """True when no persistent backend exists (NX is both storage and compute)."""
         return self.backend is None
+
+    @property
+    def memory(self):
+        """Lazy-initialized MemoryLifecycleManager for the full memory lifecycle.
+
+        Provides a single ergonomic entry point for:
+          startup → active context → compaction → consolidation → retrieval
+        """
+        if not hasattr(self, "_memory_manager"):
+            from ..memory.unified_memory import MemoryLifecycleManager
+
+            self._memory_manager = MemoryLifecycleManager(engine=self)
+        return self._memory_manager
 
     @classmethod
     def get_active(cls) -> IntelligenceGraphEngine | None:
@@ -416,9 +431,10 @@ class IntelligenceGraphEngine(
             params = {"sid": source_id, "tid": target_id}
             params.update(props)
             self.backend.execute(query, params)
-        elif source_id in self.graph and target_id in self.graph:
-            # Tier 2 fallback: NX only (memory-only mode or ephemeral)
-            self.graph.add_edge(source_id, target_id, type=rel_type, **props)
+        elif self.graph.has_node(source_id) and self.graph.has_node(target_id):
+            # Tier 2 fallback: compute engine (memory-only mode or ephemeral)
+            edge_props = {"type": rel_type, **props}
+            self.graph.add_edge(source_id, target_id, edge_props)
 
     def resolve_and_link(
         self,
@@ -456,8 +472,9 @@ class IntelligenceGraphEngine(
             res = self.backend.execute(q, params)
             return len(res) > 0
 
-        # Fallback to O(N) NetworkX memory scan (memory-only mode)
-        for node_id, data in self.graph.nodes(data=True):
+        # Fallback to O(N) memory scan (memory-only mode)
+        for node_id in self.graph.node_ids():
+            data = self.graph._get_node_properties(node_id)
             name = str(data.get("name", "")).lower()
             if not name:
                 continue
@@ -511,7 +528,7 @@ class IntelligenceGraphEngine(
         """Retrieve the blast radius (dependencies) from a starting node.
 
         Uses the high-performance GraphComputeEngine with compiled Rust and
-        rustworkx backends for fast traversals.
+        epistemic-graph backend for fast traversals.
         """
         if self.backend:
             # Cypher-powered query: handles millions of nodes directly in the database
@@ -536,23 +553,20 @@ class IntelligenceGraphEngine(
                 )
 
         # Fallback/Memory-only: ensure compute engine is hydrated from local graph
-        if (
-            not self.graph_compute.has_node(node_id)
-            and self.graph.number_of_nodes() > 0
-        ):
-            for nid, data in self.graph.nodes(data=True):
-                self.graph_compute.add_node(nid, data)
-            for u, v, data in self.graph.edges(data=True):
-                self.graph_compute.add_edge(u, v, data)
+        if not self.graph_compute.has_node(node_id) and self.graph.node_count() > 0:
+            for nid in self.graph.node_ids():
+                self.graph_compute.add_node(nid, self.graph._get_node_properties(nid))
+            for src, tgt in self.graph._get_all_edges():
+                self.graph_compute.add_edge(src, tgt, {})
 
         return self.graph_compute.get_blast_radius(node_id, depth)
 
-    # --- Tier 2: Compute Scratchpad (NetworkX on-demand loading) ---
+    # --- Tier 2: Compute Scratchpad (Rust-native on-demand loading) ---
 
     def load_subgraph(
         self, query: str, params: dict[str, Any] | None = None
-    ) -> nx.MultiDiGraph:
-        """Dynamically load a specialized subgraph from the persistent backend into NetworkX.
+    ) -> GraphComputeEngine:
+        """Dynamically load a specialized subgraph from the persistent backend.
 
         This is the formal gateway from Tier 1 (persistent storage) to Tier 2
         (compute scratchpad). It prevents OOM bottlenecks by loading ONLY the
@@ -563,27 +577,28 @@ class IntelligenceGraphEngine(
         When no backend exists (memory-only mode), returns the full local graph.
         """
         if not self.backend:
-            return self.graph  # Memory-only mode: NX IS the store
+            return self.graph  # Memory-only mode: GraphComputeEngine IS the store
 
-        subgraph = nx.MultiDiGraph()
+        subgraph = GraphComputeEngine(backend_type="rust")
         results = self.backend.execute(query, params or {})
         for row in results:
             n = row.get("n")
             if n and isinstance(n, dict) and "id" in n:
-                subgraph.add_node(n["id"], **n)
+                props = {k: v for k, v in n.items() if k != "id"}
+                subgraph.add_node(n["id"], props)
 
             # Simple relationship extraction
             r = row.get("r")
             if r and isinstance(r, dict) and "source" in r and "target" in r:
                 subgraph.add_edge(
-                    r["source"], r["target"], type=r.get("type", "UNKNOWN")
+                    r["source"], r["target"], {"type": r.get("type", "UNKNOWN")}
                 )
 
         return subgraph
 
     def load_for_centrality(
         self, node_types: list[str] | None = None
-    ) -> nx.MultiDiGraph:
+    ) -> GraphComputeEngine:
         """Load a focused subgraph for centrality/PageRank computation.
 
         Args:
@@ -600,7 +615,7 @@ class IntelligenceGraphEngine(
             {"types": node_types},
         )
 
-    def load_for_impact_analysis(self, target_id: str) -> nx.MultiDiGraph:
+    def load_for_impact_analysis(self, target_id: str) -> GraphComputeEngine:
         """Load neighbors within 3 hops of target for impact analysis."""
         if not self.backend:
             return self.graph
@@ -776,7 +791,7 @@ class IntelligenceGraphEngine(
                 )
             except Exception as e:
                 logger.warning(f"Backend delete_node failed: {e}")
-        elif node_id in self.graph:
+        elif self.graph.has_node(node_id):
             self.graph.remove_node(node_id)
 
     def remove_node(self, node_id: str, ephemeral: bool = False) -> None:
@@ -794,7 +809,7 @@ class IntelligenceGraphEngine(
 
         Tiered write path:
         - If backend exists and not ephemeral: writes to backend ONLY (source of truth).
-        - If ephemeral or no backend: writes to NX (compute scratchpad / memory-only mode).
+        - If ephemeral or no backend: writes to compute engine (memory-only mode).
         """
         # Always update graph_compute cache in real-time
         try:
@@ -816,14 +831,7 @@ class IntelligenceGraphEngine(
             except Exception as e:
                 logger.warning(f"Backend delete_edge failed: {e}")
         elif self.graph.has_edge(source_id, target_id):
-            # Find and remove matching edges in MultiDiGraph
-            edges_to_remove = []
-            for u, v, key, data in self.graph.edges(keys=True, data=True):
-                if u == source_id and v == target_id:
-                    if not rel_type or data.get("type", "").upper() == rel_type.upper():
-                        edges_to_remove.append((u, v, key))
-            for u, v, key in edges_to_remove:
-                self.graph.remove_edge(u, v, key)
+            self.graph.remove_edge(source_id, target_id)
 
 
 # Alias for backward compatibility

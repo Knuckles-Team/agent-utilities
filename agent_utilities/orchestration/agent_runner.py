@@ -76,6 +76,36 @@ async def run_agent(
     # Step 1: Resolve engine
     engine = engine or _get_or_create_engine()
 
+    if agent_name.lower() == "enterprise":
+        from agent_utilities.graph.manifest_generators import manifest_for_enterprise
+        from agent_utilities.graph.parallel_engine import ParallelEngine
+
+        logger.info(
+            "[ORCH-1.27] Executing full Enterprise Autonomous Company orchestration"
+        )
+        manifest = manifest_for_enterprise(task, engine)
+        pe = ParallelEngine(engine=engine)
+
+        try:
+            pe_result = await pe.execute(manifest)
+            duration_ms = (time.monotonic() - start_time) * 1000
+            _record_execution_trace(
+                engine,
+                run_id,
+                "enterprise",
+                task,
+                status="completed",
+                duration_ms=duration_ms,
+                result_preview=str(pe_result)[:500],
+            )
+            return str(pe_result)
+        except Exception as e:
+            logger.error("[ORCH-1.27] Enterprise execution failed: %s", e)
+            _record_execution_trace(
+                engine, run_id, "enterprise", task, status="failed", error=str(e)
+            )
+            return f"Enterprise execution failed: {e}"
+
     # Step 1b: Check if agent_name maps to a native ServiceRegistry capability (e.g. trading_swarm)
     try:
         import inspect
@@ -218,15 +248,12 @@ def _get_or_create_engine() -> IntelligenceGraphEngine:
         return IntelligenceGraphEngine._ACTIVE_ENGINE
 
     # Create from environment
-    import networkx as nx
-
     from agent_utilities.knowledge_graph.backends import create_backend
 
-    graph = nx.MultiDiGraph()
     db_path = os.environ.get("GRAPH_PERSISTENCE_PATH", "")
     backend = create_backend(db_path=db_path) if db_path else None
 
-    engine = IntelligenceGraphEngine(graph=graph, backend=backend, db_path=db_path)
+    engine = IntelligenceGraphEngine(backend=backend, db_path=db_path)
     return engine
 
 

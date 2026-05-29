@@ -21,7 +21,7 @@ Covers:
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -396,7 +396,7 @@ async def test_list_team_tasks_empty() -> None:
     from agent_utilities.tools.team_tools import list_team_tasks
 
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     ctx = MagicMock()
     ctx.deps.graph_engine = engine
     result = await list_team_tasks(ctx)
@@ -409,7 +409,7 @@ async def test_list_team_tasks_with_tasks() -> None:
     from agent_utilities.tools.team_tools import list_team_tasks
 
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     engine.graph.add_node(
         "task1",
         type="task",
@@ -470,7 +470,7 @@ async def test_set_output_style_from_kb() -> None:
     from agent_utilities.tools.style_tools import set_output_style
 
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     engine.graph.add_node(
         "art:1",
         type="article",
@@ -505,7 +505,7 @@ async def test_list_output_styles_with_kb() -> None:
     from agent_utilities.tools.style_tools import list_output_styles
 
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     engine.graph.add_node(
         "art:1",
         type="article",

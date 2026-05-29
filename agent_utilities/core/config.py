@@ -378,9 +378,26 @@ class AgentConfig(BaseSettings):
     kafka_bootstrap_servers: str | None = Field(
         default=None, alias="KAFKA_BOOTSTRAP_SERVERS"
     )
-    graph_compute_backend: str = Field(
-        default="networkx", alias="GRAPH_COMPUTE_BACKEND"
+    graph_compute_backend: str = Field(default="rust", alias="GRAPH_COMPUTE_BACKEND")
+    graph_service_socket: str | None = Field(default=None, alias="GRAPH_SERVICE_SOCKET")
+    """Path to the epistemic-graph Tokio service UDS socket. Defaults to
+    $XDG_RUNTIME_DIR/epistemic-graph.sock."""
+    graph_service_tcp_addr: str | None = Field(
+        default=None, alias="GRAPH_SERVICE_TCP_ADDR"
     )
+    """TCP address for the epistemic-graph service (e.g., 0.0.0.0:9100)."""
+    graph_service_auth_secret: str | None = Field(
+        default=None, alias="GRAPH_SERVICE_AUTH_SECRET"
+    )
+    """HMAC-SHA256 shared secret for service authentication."""
+    graph_service_checkpoint_secs: int = Field(
+        default=300, alias="GRAPH_SERVICE_CHECKPOINT_SECS"
+    )
+    """Auto-checkpoint interval for the Tokio service (0 = disabled)."""
+    graph_service_persist_on_shutdown: bool = Field(
+        default=True, alias="GRAPH_SERVICE_PERSIST_ON_SHUTDOWN"
+    )
+    """Serialize all graphs to disk on service shutdown."""
     graph_persistence_path: str = Field(
         default=DEFAULT_DB_PATH, alias="GRAPH_PERSISTENCE_PATH"
     )
@@ -408,6 +425,11 @@ class AgentConfig(BaseSettings):
     """When True, AG-UI and ACP adapters bypass the LLM tool-call hop
     and invoke graph execution directly.  Set to False to restore the
     legacy agent -> run_graph_flow -> graph pipeline."""
+
+    sparql_endpoints: list[str] = Field(
+        default=["https://query.wikidata.org/sparql"], alias="SPARQL_ENDPOINTS"
+    )
+    """List of external SPARQL endpoints to federate (CONCEPT:KG-2.20)."""
 
     secrets_backend: str = Field(default="inmemory", alias="SECRETS_BACKEND")
     """Secrets storage backend: 'inmemory' (default), 'sqlite', or 'vault'."""

@@ -10,11 +10,11 @@ Architecture (Tiered Graph Engine):
     - **Tier 1 (Source of Truth)**: A persistent Cypher-capable backend
       (LadybugDB/Neo4j/PostgreSQL) handles all CRUD, schema enforcement,
       vector indexing, and Cypher queries.
-    - **Tier 2 (Compute Scratchpad)**: NetworkX is loaded on-demand via
+    - **Tier 2 (Compute Scratchpad)**: GraphComputeEngine is loaded on-demand via
       ``load_subgraph()`` for graph algorithms (PageRank, VF2, spectral
       clustering) that databases cannot perform natively.
 
-    The ``memory`` backend (pure NetworkX) is available for testing/CI
+    The ``memory`` backend (pure in-memory) is available for testing/CI
     where no persistence or Cypher support is needed.
 
 Environment Variables:
@@ -39,11 +39,12 @@ _ACTIVE_BACKEND: Any = None
 
 __all__ = [
     "GraphBackend",
-    "MemoryBackend",
+    "EpistemicGraphBackend",
     "LadybugBackend",
     "FalkorDBBackend",
     "Neo4jBackend",
     "PostgreSQLBackend",
+    "JenaFusekiBackend",
     "LADYBUG_AVAILABLE",
     "create_backend",
     "get_active_backend",
@@ -66,10 +67,10 @@ def __getattr__(name: str):
         if name == "LadybugBackend":
             return LadybugBackend
         return LADYBUG_AVAILABLE
-    if name == "MemoryBackend":
-        from .memory_backend import MemoryBackend
+    if name == "EpistemicGraphBackend":
+        from .epistemic_graph_backend import EpistemicGraphBackend
 
-        return MemoryBackend
+        return EpistemicGraphBackend
     if name == "Neo4jBackend":
         from .neo4j_backend import Neo4jBackend
 
@@ -78,6 +79,10 @@ def __getattr__(name: str):
         from .postgresql_backend import PostgreSQLBackend
 
         return PostgreSQLBackend
+    if name == "JenaFusekiBackend":
+        from .sparql.jena_fuseki_backend import JenaFusekiBackend
+
+        return JenaFusekiBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -137,9 +142,9 @@ def create_backend(
     backend: GraphBackend | None = None
 
     if backend_type == "memory":
-        from .memory_backend import MemoryBackend
+        from .epistemic_graph_backend import EpistemicGraphBackend
 
-        backend = MemoryBackend()
+        backend = EpistemicGraphBackend()
 
     elif backend_type == "ladybug":
         from .ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
@@ -205,10 +210,45 @@ def create_backend(
             pggraph_schema=pggraph_schema,
         )
 
+    elif backend_type == "jena_fuseki":
+        from .sparql.jena_fuseki_backend import JenaFusekiBackend
+
+        resolved_url = (
+            kwargs.get("jena_fuseki_url")
+            or os.environ.get("GRAPH_FUSEKI_URL")
+            or "http://localhost:3030"
+        )
+        resolved_dataset = (
+            kwargs.get("dataset")
+            or os.environ.get("GRAPH_FUSEKI_DATASET")
+            or "agent_kg"
+        )
+        resolved_jena_fuseki_user = kwargs.get("username") or os.environ.get(
+            "GRAPH_FUSEKI_USER"
+        )
+        resolved_jena_fuseki_password = kwargs.get("password") or os.environ.get(
+            "GRAPH_FUSEKI_PASSWORD"
+        )
+        backend = JenaFusekiBackend(
+            jena_fuseki_url=resolved_url,
+            dataset=resolved_dataset,
+            username=resolved_jena_fuseki_user,
+            password=resolved_jena_fuseki_password,
+        )
+
+    elif backend_type == "stardog":
+        # Stardog is primarily an OWLBackend; wrap it for GraphBackend compatibility
+        logger.info(
+            "Stardog backend requested — use OWL backend factory for full "
+            "reasoning support: create_owl_backend('stardog')"
+        )
+        return None
+
     else:
         logger.error(
             f"Unknown graph backend type: '{backend_type}'. "
-            f"Supported: memory, ladybug, falkordb, neo4j, postgresql"
+            f"Supported: memory, ladybug, falkordb, neo4j, postgresql, "
+            f"jena_fuseki"
         )
         return None
 

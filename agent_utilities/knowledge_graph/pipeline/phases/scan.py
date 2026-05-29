@@ -43,7 +43,8 @@ def classify_domain(repo_name: str) -> str:
             "blockify",
             "ruvector",
             "context",
-            "networkx",
+            "rustworkx",
+            "epistemic",
         )
     ):
         return "memory-rag-kg"
@@ -220,7 +221,7 @@ async def execute_scan(ctx: PipelineContext, deps: dict[str, PhaseResult]) -> li
                         if repo_name:
                             metadata["repo_name"] = repo_name
 
-                    ctx.nx_graph.add_node(
+                    ctx.graph.add_node(
                         node_id,
                         type="file",
                         name=f_name,

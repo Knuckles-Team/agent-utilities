@@ -203,11 +203,11 @@ class TestDocumentCleanup:
     @pytest.mark.asyncio
     async def test_cleanup_orphan_graph_nodes(self):
         """Test cleaning up orphan graph nodes."""
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        # Use actual NetworkX graph for this test
+        # Use actual graph compute engine for this test
         knowledge_graph = MagicMock()
-        knowledge_graph.graph = nx.MultiDiGraph()
+        knowledge_graph.graph = GraphComputeEngine(backend_type="rust")
 
         # Add some orphan chunk nodes to the graph
         # Use proper unified ID format

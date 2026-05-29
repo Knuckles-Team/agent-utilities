@@ -15,7 +15,7 @@ import logging
 import time
 from pathlib import Path
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from ...models.knowledge_base import (
     KBArchiveResult,
@@ -62,7 +62,7 @@ class KBIngestionEngine:
     """Orchestrates KB document parsing, LLM extraction, and graph ingestion.
 
     Usage:
-        engine = KBIngestionEngine(graph=nx_graph, backend=backend)
+        engine = KBIngestionEngine(graph=graph_engine, backend=backend)
         await engine.ingest_skill_graph("/path/to/pydantic-ai-docs")
         await engine.ingest_directory("/path/to/papers", kb_name="research")
         await engine.ingest_url("https://example.com/article", kb_name="web")
@@ -70,7 +70,7 @@ class KBIngestionEngine:
 
     def __init__(
         self,
-        graph: nx.MultiDiGraph,
+        graph: GraphComputeEngine,
         backend: GraphBackend | None = None,
         extractor: KBExtractor | None = None,
         chunk_size: int = 1024,

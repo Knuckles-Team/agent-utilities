@@ -1,6 +1,6 @@
 """CONCEPT:KG-2.5"""
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.analogy_engine import TopologicalAnalogyEngine
@@ -10,7 +10,7 @@ from agent_utilities.security.threat_defense_engine import TopologicalScanner
 
 @pytest.fixture
 def analogy_engine():
-    G = nx.MultiDiGraph()
+    G = GraphComputeEngine(backend_type="rust")
     # Add a vulnerable-looking node to the main graph
     node_data = RegistryNode(
         id="exec_node",
@@ -25,7 +25,7 @@ def analogy_engine():
 
 @pytest.fixture
 def known_risk_topologies():
-    risk_G = nx.MultiDiGraph()
+    risk_G = GraphComputeEngine(backend_type="rust")
     risk_G.graph["metadata"] = {
         "vulnerability_type": "untrusted_data_flow",
         "severity": "high",

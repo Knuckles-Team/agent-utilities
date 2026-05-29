@@ -58,7 +58,7 @@ async def execute_parse(
     )
 
     files = deps["scan"].output
-    graph = ctx.nx_graph
+    graph = ctx.graph
 
     symbols_extracted = 0
     for file_path in files:

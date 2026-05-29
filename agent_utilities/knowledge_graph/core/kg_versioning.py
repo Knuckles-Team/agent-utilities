@@ -277,7 +277,7 @@ class KGVersionEngine:
         """Replay the current graph state into a GraphComputeEngine.
 
         Materialises the versioned KG state into the high-performance compute
-        layer (Rust, rustworkx, or NetworkX) so that centrality, blast-radius,
+        layer (Rust, epistemic-graph, or GraphComputeEngine) so that centrality, blast-radius,
         and rolling-stats operations can run against the latest committed data.
 
         Args:

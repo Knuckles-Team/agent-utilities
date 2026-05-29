@@ -7,7 +7,7 @@ import tempfile
 import traceback
 from typing import Any
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from ..graph.client import get_graph_client
 from ..graph.state import GraphDeps
@@ -70,7 +70,7 @@ class RLMEnvironment:
         # The global namespace for the REPL
         self.globals_dict = {
             "__builtins__": __builtins__,
-            "nx": nx,
+            "GraphComputeEngine": GraphComputeEngine,
             "context": self.vars["context"],
             "depth": self.vars["depth"],
             "rlm_query": self.rlm_query,
@@ -176,7 +176,8 @@ class RLMEnvironment:
             nodes = []
             graph = engine.graph
             count = 0
-            for node_id, data in graph.nodes(data=True):
+            for node_id in graph.node_ids():
+                data = graph._get_node_properties(node_id)
                 if data.get("type") == node_type or node_type == "*":
                     nodes.append({"id": node_id, **data})
                     count += 1
@@ -312,7 +313,7 @@ class RLMEnvironment:
             for k, v in self.globals_dict.items():
                 if k not in [
                     "__builtins__",
-                    "nx",
+                    "GraphComputeEngine",
                     "rlm_query",
                     "run_parallel_sub_calls",
                     "magma_view",
@@ -558,7 +559,7 @@ class RLMEnvironment:
                         )
                         try:
                             engine.graph.add_node(
-                                trace_node.id, **trace_node.model_dump()
+                                trace_node.id, **(trace_node.model_dump())
                             )
                         except Exception as e:
                             logger.warning(f"Failed to store RLM trajectory: {e}")

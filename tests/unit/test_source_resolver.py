@@ -11,7 +11,7 @@ Validates:
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.source_resolver import (
@@ -76,7 +76,7 @@ class TestKGSourceResolverWithEngine:
     """Test resolution with a mocked KG engine."""
 
     def setup_method(self):
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.engine = MagicMock()
         self.engine.graph = self.graph
         self.engine.hybrid_retriever = None

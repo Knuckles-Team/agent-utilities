@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ class FakeRunContext:
 
 class FakeGraphEngine:
     def __init__(self) -> None:
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
 
 
 # ---------------------------------------------------------------------------

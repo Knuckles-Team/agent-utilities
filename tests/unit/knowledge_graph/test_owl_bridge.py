@@ -6,7 +6,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 pytest.importorskip("owlready2")
 
@@ -29,7 +29,7 @@ def ontology_path():
 @pytest.fixture
 def mock_engine():
     engine = MagicMock()
-    engine.graph = nx.MultiDiGraph()
+    engine.graph = GraphComputeEngine(backend_type="rust")
     engine.backend = None
     return engine
 

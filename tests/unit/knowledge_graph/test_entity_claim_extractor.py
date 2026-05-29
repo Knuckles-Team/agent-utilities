@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Tests for CONCEPT:KG-2.2 — Entity-Claim Extraction and MAGMA Epistemic View."""
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
@@ -108,7 +108,7 @@ class TestEntityClaimExtractor:
 
         class MockEngine:
             def __init__(self):
-                self.graph = nx.MultiDiGraph()
+                self.graph = GraphComputeEngine(backend_type="rust")
                 self.backend = None
 
             def _serialize_node(self, node, label=""):

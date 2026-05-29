@@ -5,7 +5,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.pipeline.phases.owl_reasoning import (
@@ -18,7 +18,7 @@ from agent_utilities.models.knowledge_graph import PipelineConfig
 async def test_owl_reasoning_phase_execution():
     # Setup context and config
     context = MagicMock()
-    context.graph = nx.MultiDiGraph()
+    context.graph = GraphComputeEngine(backend_type="rust")
     context.engine = MagicMock()
     context.config = PipelineConfig(workspace_path=".", enable_owl_reasoning=True)
 

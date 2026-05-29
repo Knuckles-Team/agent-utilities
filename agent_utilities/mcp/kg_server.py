@@ -92,7 +92,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
 
 def get_existing_disabled(engine, node_id: str) -> bool:
     try:
-        # 1. Try NetworkX cache first
+        # 1. Try in-memory graph cache first
         if hasattr(engine, "graph_compute") and hasattr(engine.graph_compute, "graph"):
             if node_id in engine.graph_compute.graph:
                 return engine.graph_compute.graph.nodes[node_id].get("disabled", False)
@@ -219,7 +219,7 @@ def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
             engine.query_cypher(
                 f"MATCH (n) WHERE n.id = '{node_id}' SET n.disabled = {str(not enabled).lower()}"
             )
-            # Also update NetworkX cache if active
+            # Also update in-memory graph cache if active
             if (
                 hasattr(engine, "graph_compute")
                 and engine.graph_compute
@@ -1399,8 +1399,6 @@ _WORKSPACE_PATH = os.environ.get("WORKSPACE_PATH", os.getcwd())
 
 def _get_engine():
     """Lazily initialize and return the IntelligenceGraphEngine singleton."""
-    import networkx as nx
-
     from agent_utilities.core.paths import ensure_dirs, kg_db_path
     from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -1415,8 +1413,7 @@ def _get_engine():
     logger.info("KG MCP Server using database: %s", db_path)
     backend_type = os.environ.get("GRAPH_BACKEND")
     backend = create_backend(backend_type=backend_type, db_path=db_path)
-    graph = nx.MultiDiGraph()
-    engine = IntelligenceGraphEngine(graph=graph, backend=backend)
+    engine = IntelligenceGraphEngine(backend=backend)
     return engine
 
 

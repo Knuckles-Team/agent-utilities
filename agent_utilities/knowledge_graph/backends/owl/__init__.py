@@ -21,21 +21,11 @@ import os
 
 from .base import OWLBackend
 
-try:
-    from .oxigraph_datalog_backend import OxigraphDatalogBackend
-except ImportError:
-
-    class OxigraphDatalogBackendFallback:
-        pass
-
-    OxigraphDatalogBackend = OxigraphDatalogBackendFallback  # type: ignore[misc,assignment]
-
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "OWLBackend",
     "create_owl_backend",
-    "OxigraphDatalogBackend",
 ]
 
 
@@ -57,20 +47,8 @@ def create_owl_backend(
         ValueError: If the requested backend type is unknown.
     """
     backend_type = (
-        (backend_type or os.environ.get("OWL_BACKEND") or "oxigraph").lower().strip()
+        (backend_type or os.environ.get("OWL_BACKEND") or "owlready2").lower().strip()
     )
-
-    if backend_type == "oxigraph":
-        try:
-            from .oxigraph_datalog_backend import OxigraphDatalogBackend
-
-            return OxigraphDatalogBackend(**kwargs)
-        except ImportError as e:
-            logger.warning(
-                f"Failed to load high-performance OxigraphDatalogBackend: {e}. "
-                "Falling back to legacy owlready2/JVM backend."
-            )
-            backend_type = "owlready2"
 
     if backend_type == "owlready2":
         from .owlready2_backend import Owlready2Backend
@@ -84,5 +62,5 @@ def create_owl_backend(
 
     else:
         raise ValueError(
-            f"Unknown OWL backend type: '{backend_type}'. Supported: oxigraph, owlready2, stardog"
+            f"Unknown OWL backend type: '{backend_type}'. Supported: owlready2, stardog"
         )

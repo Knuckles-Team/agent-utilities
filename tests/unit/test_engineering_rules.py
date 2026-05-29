@@ -371,9 +371,9 @@ class MockEngine:
     """Minimal mock for IntelligenceGraphEngine."""
 
     def __init__(self):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = None
         self.hybrid_retriever = MockHybridRetriever()
 

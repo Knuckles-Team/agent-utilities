@@ -1,6 +1,6 @@
 """CONCEPT:KG-2.5"""
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.analogy_engine import TopologicalAnalogyEngine
@@ -9,7 +9,13 @@ from agent_utilities.models.knowledge_graph import RegistryNode, RegistryNodeTyp
 
 @pytest.fixture
 def base_graph():
-    G = nx.MultiDiGraph()
+    G = GraphComputeEngine(backend_type="rust", graph_name="test_analogy_base")
+    if G._client:
+        try:
+            G._client.create_graph("test_analogy_base")
+        except Exception:
+            pass
+        G._client.clear()
 
     # A small subgraph pattern (e.g. A -> B)
     node_a = RegistryNode(
@@ -45,7 +51,14 @@ def test_find_analogous_subgraphs(base_graph):
     engine = TopologicalAnalogyEngine(base_graph)
 
     # Create a target subgraph that is structurally isomorphic and semantically similar
-    target_G = nx.MultiDiGraph()
+    target_G = GraphComputeEngine(backend_type="rust", graph_name="test_analogy_target_1")
+    if target_G._client:
+        try:
+            target_G._client.create_graph("test_analogy_target_1")
+        except Exception:
+            pass
+        target_G._client.clear()
+
     target_a = RegistryNode(
         id="target_A",
         name="Target A",
@@ -75,7 +88,13 @@ def test_no_matches_due_to_semantic_difference(base_graph):
     engine = TopologicalAnalogyEngine(base_graph)
 
     # Create target subgraph that is structurally isomorphic but semantically different
-    target_G = nx.MultiDiGraph()
+    target_G = GraphComputeEngine(backend_type="rust", graph_name="test_analogy_target_2")
+    if target_G._client:
+        try:
+            target_G._client.create_graph("test_analogy_target_2")
+        except Exception:
+            pass
+        target_G._client.clear()
     target_a = RegistryNode(
         id="target_A",
         name="Target A",

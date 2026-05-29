@@ -234,7 +234,7 @@ class WorkflowStore:
         return self._load_workflow_nx(name)
 
     def _load_workflow_nx(self, name: str) -> GraphPlan | None:
-        """Load workflow from NetworkX graph (memory-only mode).
+        """Load workflow from graph compute engine (memory-only mode).
 
         CONCEPT:ORCH-1.22 — NX Fallback
         """
@@ -253,7 +253,7 @@ class WorkflowStore:
 
         # Find connected WorkflowStep nodes via HAS_STEP edges
         step_nodes: list[tuple[int, str, dict[str, Any]]] = []
-        for _, target, edge_data in graph.edges(wid, data=True):
+        for _, target, edge_data in graph.out_edges(wid, data=True):
             if edge_data.get("type") == "HAS_STEP":
                 target_data = graph.nodes[target]
                 step_order = edge_data.get("step_order", 0)

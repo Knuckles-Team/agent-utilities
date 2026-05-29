@@ -31,8 +31,6 @@ logger = logging.getLogger(__name__)
 
 def _get_engine():
     """Lazily initialize the IntelligenceGraphEngine singleton."""
-    import networkx as nx
-
     from agent_utilities.core.paths import ensure_dirs, kg_db_path
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -49,8 +47,7 @@ def _get_engine():
     except Exception:
         backend = None
 
-    graph = nx.MultiDiGraph()
-    return IntelligenceGraphEngine(graph=graph, backend=backend)
+    return IntelligenceGraphEngine(backend=backend)
 
 
 def cmd_context(args: argparse.Namespace) -> None:

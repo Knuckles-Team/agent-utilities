@@ -111,14 +111,12 @@ def _fetch_registry_from_kg() -> MCPAgentRegistryModel:
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine:
-        import networkx as nx
-
         from agent_utilities.core.paths import kg_db_path
         from agent_utilities.core.workspace import get_agent_workspace
 
         ws = get_agent_workspace()
         db_path = str(kg_db_path(ws))
-        engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), db_path=db_path)
+        engine = IntelligenceGraphEngine(db_path=db_path)
 
     if not engine or not engine.backend:
         return MCPAgentRegistryModel()

@@ -300,9 +300,9 @@ class IngestionMixin(_Base):
         """
         if not self.backend:
             logger.warning(
-                "Backend not available for batch ingestion. Falling back to slow NetworkX loop."
+                "Backend not available for batch ingestion. Falling back to slow graph compute loop."
             )
-            # NetworkX loop fallback
+            # graph compute loop fallback
             for e in entities:
                 eid = e.get("id")
                 if eid:

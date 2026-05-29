@@ -131,3 +131,14 @@ class Person(GraphNode):
     name: str
     expertise: list[str] = Field(default_factory=list)
     affiliation: str | None = None
+
+
+class Relationship(GraphNode):
+    """First-class reified interpersonal or inter-entity relationships."""
+
+    labels: list[str] = Field(default_factory=lambda: ["Relationship"])
+    relationship_id: str
+    relationship_type: str
+    entity1_id: str
+    entity2_id: str
+    facts: list[dict[str, Any]] = Field(default_factory=list)

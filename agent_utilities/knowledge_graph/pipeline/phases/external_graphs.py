@@ -28,20 +28,20 @@ async def execute_external_graphs(
     # Register SPARQL endpoints
     for endpoint in ctx.config.external_sparql_endpoints:
         node_id = f"sparql_{uuid.uuid5(uuid.NAMESPACE_URL, endpoint).hex}"
-        if not ctx.nx_graph.has_node(node_id):
+        if not ctx.graph.has_node(node_id):
             node = ExternalGraphReferenceNode(
                 id=node_id,
                 name=f"SPARQL Endpoint: {endpoint}",
                 endpoint_url=endpoint,
                 graph_type="sparql",
             )
-            ctx.nx_graph.add_node(node_id, **node.model_dump())
+            ctx.graph.add_node(node_id, **node.model_dump())
             nodes_added += 1
 
     # Register LPG endpoints
     for name, endpoint in ctx.config.external_lpg_endpoints.items():
         node_id = f"lpg_{uuid.uuid5(uuid.NAMESPACE_URL, endpoint).hex}"
-        if not ctx.nx_graph.has_node(node_id):
+        if not ctx.graph.has_node(node_id):
             node = ExternalGraphReferenceNode(
                 id=node_id,
                 name=f"LPG Endpoint: {name}",
@@ -49,7 +49,7 @@ async def execute_external_graphs(
                 graph_type="lpg",
                 properties={"lpg_name": name},
             )
-            ctx.nx_graph.add_node(node_id, **node.model_dump())
+            ctx.graph.add_node(node_id, **node.model_dump())
             nodes_added += 1
 
     return {

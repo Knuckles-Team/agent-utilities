@@ -101,9 +101,9 @@ class TestRiskPropagationGraph:
     """Test transitive risk propagation via graph traversal."""
 
     def test_risk_chain(self):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
 
         # Create entities with risk assessments
         ra_a = RiskAssessmentNode(
@@ -132,13 +132,14 @@ class TestRiskPropagationGraph:
         assert g.number_of_edges() == 3
 
         # Verify traversal from assessment to mitigation
-        path = nx.shortest_path(g, ra_a.id, rm.id)
+        path = g.get_shortest_path(ra_a.id, rm.id)
+        assert path is not None
         assert len(path) == 3
 
     def test_multi_factor_assessment(self):
-        import networkx as nx
+        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-        g = nx.MultiDiGraph()
+        g = GraphComputeEngine(backend_type="rust")
 
         ra = RiskAssessmentNode(
             id="ra:port", name="Portfolio Risk", overall_risk_score=0.65

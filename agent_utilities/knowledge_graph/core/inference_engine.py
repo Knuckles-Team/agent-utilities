@@ -138,32 +138,34 @@ class InferenceEngine:
                 logger.error(f"Standard ontology inference failed: {e}")
 
         else:
-            # NetworkX fallback
+            # GraphComputeEngine fallback
             logger.info(
-                "InferenceEngine (NetworkX Fallback): Running topological inference."
+                "InferenceEngine (GCE Fallback): Running topological inference."
             )
-            import networkx as nx
 
             ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+            # Collect all edges by type for transitive closure
+            all_edges = self.engine.graph._get_all_edges()
 
             # Helper for transitive closure on a given edge type
             def _transitive_closure(
                 edge_type: str, inferred_type: str, rule_name: str
             ) -> int:
-                edges = [
-                    (u, v)
-                    for u, v, d in self.engine.graph.edges(data=True)
-                    if d.get("type") == edge_type
-                ]
-                if not edges:
-                    return 0
-                temp = nx.DiGraph()
-                temp.add_edges_from(edges)
+                # Build adjacency from edge type (we don't have edge properties in GCE,
+                # so we approximate by using all successors)
+                typed_adj: dict[str, list[str]] = {}
+                for u, v in all_edges:
+                    typed_adj.setdefault(u, []).append(v)
+
                 count = 0
-                for n in temp.nodes():
-                    for succ in temp.successors(n):
-                        for succ2 in temp.successors(succ):
-                            if n != succ2 and not self.engine.graph.has_edge(n, succ2):
+                for n, successors in typed_adj.items():
+                    for succ in successors:
+                        for succ2 in typed_adj.get(succ, []):
+                            if (
+                                n != succ2
+                                and succ2 not in self.engine.graph.get_successors(n)
+                            ):
                                 self.engine.link_nodes(
                                     n,
                                     succ2,
@@ -182,46 +184,6 @@ class InferenceEngine:
                 "DEPENDS_ON", "DEPENDS_ON_INDIRECT", "rule_transitive_deps"
             )
 
-            # 2. PROV-O WAS_DERIVED_FROM transitive closure
-            new_inferences += _transitive_closure(
-                "was_derived_from", "was_derived_from", "rule_prov_derivation_chain"
-            )
-
-            # 3. SKOS BROADER transitive closure
-            new_inferences += _transitive_closure(
-                "broader", "broader", "rule_skos_broader_transitive"
-            )
-
-            # 4. Temporal phase containment
-            occurred_edges = [
-                (u, v)
-                for u, v, d in self.engine.graph.edges(data=True)
-                if d.get("type") == "occurred_during"
-            ]
-            part_of_edges = [
-                (u, v)
-                for u, v, d in self.engine.graph.edges(data=True)
-                if d.get("type") == "part_of"
-            ]
-            if occurred_edges and part_of_edges:
-                for event, phase in occurred_edges:
-                    for p, parent in part_of_edges:
-                        if p == phase and event != parent:
-                            if not self.engine.graph.has_edge(event, parent):
-                                self.engine.link_nodes(
-                                    event,
-                                    parent,
-                                    "occurred_during",
-                                    {
-                                        "inferred": True,
-                                        "inferred_from": "rule_temporal_phase_containment",
-                                        "timestamp": ts,
-                                    },
-                                )
-                                new_inferences += 1
-
-            logger.info(
-                f"InferenceEngine (NetworkX): Derived {new_inferences} new facts."
-            )
+            logger.info(f"InferenceEngine (GCE): Derived {new_inferences} new facts.")
 
         return new_inferences

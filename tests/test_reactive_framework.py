@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.graph.reactive import (
@@ -30,7 +30,7 @@ class MockEngine:
     _instance = None
 
     def __init__(self):
-        self.graph = nx.MultiDiGraph()
+        self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = None
 
     def _upsert_node(self, label: str, node_id: str, props: dict):

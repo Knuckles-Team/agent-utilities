@@ -13,7 +13,7 @@ import json
 import subprocess
 import asyncio
 from unittest.mock import MagicMock, patch
-import networkx as nx
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.backends import create_backend, get_active_backend, set_active_backend
@@ -152,7 +152,7 @@ class TestMultiBackendIntegration:
             backend.create_schema()
 
             # 4. Initialize graph engine
-            nx_graph = nx.MultiDiGraph()
+            nx_graph = GraphComputeEngine(backend_type="rust")
             engine = IntelligenceGraphEngine(nx_graph, backend=backend)
 
             # Set the engine active correctly using class variable

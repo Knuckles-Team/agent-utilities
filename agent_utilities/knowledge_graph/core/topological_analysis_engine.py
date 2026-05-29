@@ -18,7 +18,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import networkx as nx
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +48,10 @@ class TopologicalAnalysisEngine:
         report = engine.analyze_blast_radius("MyClass", project_root="/path")
 
     Args:
-        graph: The NetworkX MultiDiGraph knowledge graph.
+        graph: The GraphComputeEngine knowledge graph.
     """
 
-    def __init__(self, graph: nx.MultiDiGraph | None = None) -> None:
+    def __init__(self, graph: Any | None = None) -> None:
         self._graph = graph
         self._community_detector: Any = None
         self._analogy_engine: Any = None
@@ -99,7 +99,7 @@ class TopologicalAnalysisEngine:
         EncPI embeddings for deep structural/semantic analogy matching.
 
         Args:
-            target_subgraph: A NetworkX MultiDiGraph query subgraph.
+            target_subgraph: A GraphComputeEngine query subgraph.
             threshold: Semantic similarity threshold (0.0–1.0).
 
         Returns:

@@ -119,7 +119,6 @@ async def ingest_prompts_to_graph():
     discovery mechanism. Only ``*.json`` blueprints under
     ``agent_utilities/prompts/`` are ingested.
     """
-    import networkx as nx
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.models.knowledge_graph import PromptNode
@@ -130,7 +129,7 @@ async def ingest_prompts_to_graph():
         engine = IntelligenceGraphEngine.get_active()
         if not engine:
             db_path = str(workspace / "knowledge_graph.db")
-            engine = IntelligenceGraphEngine(graph=nx.MultiDiGraph(), db_path=db_path)
+            engine = IntelligenceGraphEngine(db_path=db_path)
 
         if engine.backend:
             engine.backend.create_schema()
