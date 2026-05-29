@@ -352,7 +352,7 @@ class TestTraceBackend:
     """Test trace backend creation and file backend."""
 
     def test_create_file_backend(self):
-        backend = create_trace_backend(backend_type="file", trace_dir="/tmp")
+        backend = create_trace_backend(backend_type="file", trace_dir=".tmp")
         assert isinstance(backend, FileTraceBackend)
 
     @pytest.mark.asyncio

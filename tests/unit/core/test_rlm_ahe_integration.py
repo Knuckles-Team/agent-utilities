@@ -108,7 +108,7 @@ class TestEvolveAgentRLMIntegration:
         from agent_utilities.harness.evidence_corpus import EvidenceCorpus
         from agent_utilities.harness.evolve_agent import EvolveAgent
 
-        agent = EvolveAgent(workspace_path="/tmp/test")
+        agent = EvolveAgent(workspace_path=".tmp/test")
 
         # Create large evidence corpus
         evidence = EvidenceCorpus(
@@ -146,7 +146,7 @@ class TestEvolveAgentRLMIntegration:
         from agent_utilities.harness.evidence_corpus import EvidenceCorpus
         from agent_utilities.harness.evolve_agent import EvolveAgent
 
-        agent = EvolveAgent(workspace_path="/tmp/test")
+        agent = EvolveAgent(workspace_path=".tmp/test")
 
         evidence = EvidenceCorpus(
             round_id="small_round",

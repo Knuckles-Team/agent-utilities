@@ -408,7 +408,7 @@ class ResearchPipelineRunner:
                     abstract=abstract,
                     authors=authors,
                     url=source_url,
-                    source="pipeline",
+                    source="arxiv",
                 )
                 if pdf_path:
                     result = await bridge.ingest_paper(paper_obj, pdf_path=pdf_path)

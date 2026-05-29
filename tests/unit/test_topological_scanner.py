@@ -8,9 +8,12 @@ from agent_utilities.models.knowledge_graph import RegistryNode, RegistryNodeTyp
 from agent_utilities.security.threat_defense_engine import TopologicalScanner
 
 
+import uuid
+
 @pytest.fixture
 def analogy_engine():
-    G = GraphComputeEngine(backend_type="rust")
+    graph_name = f"test_analogy_{uuid.uuid4().hex}"
+    G = GraphComputeEngine(graph_name=graph_name, backend_type="rust")
     # Add a vulnerable-looking node to the main graph
     node_data = RegistryNode(
         id="exec_node",
@@ -25,7 +28,8 @@ def analogy_engine():
 
 @pytest.fixture
 def known_risk_topologies():
-    risk_G = GraphComputeEngine(backend_type="rust")
+    graph_name = f"test_risk_{uuid.uuid4().hex}"
+    risk_G = GraphComputeEngine(graph_name=graph_name, backend_type="rust")
     risk_G.graph["metadata"] = {
         "vulnerability_type": "untrusted_data_flow",
         "severity": "high",

@@ -20,7 +20,7 @@ from agent_utilities.tools.sdd_tools import (
 @pytest.fixture
 def mock_ctx():
     deps = MagicMock(spec=AgentDeps)
-    deps.workspace_path = "/tmp/workspace"
+    deps.workspace_path = ".tmp/workspace"
     ctx = MagicMock(spec=RunContext)
     ctx.deps = deps
     return ctx

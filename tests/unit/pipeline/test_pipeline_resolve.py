@@ -31,7 +31,7 @@ def _fake_backend() -> MagicMock:
 
 
 def _make_ctx(
-    workspace_path: str = "/tmp/ws",
+    workspace_path: str = ".tmp/ws",
     graph: GraphComputeEngine | None = None,
     backend: Any | None = None,
     **config_kwargs: Any,

@@ -195,7 +195,7 @@ def test_task_submit_and_list(engine):
         pytest.skip("Requires a persistent backend for task operations")
 
     job_id = engine.submit_task(
-        target_path="/tmp/test_repo",
+        target_path=".tmp/test_repo",
         is_codebase=True,
         provenance={"source": "test"},
     )

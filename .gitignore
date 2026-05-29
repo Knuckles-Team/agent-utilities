@@ -230,3 +230,5 @@ knowledge_graph.db.lock
 
 # Registry graph database (runtime-generated)
 registry_graph.db
+.pytest_tmp/
+.test_epistemic_graph.*

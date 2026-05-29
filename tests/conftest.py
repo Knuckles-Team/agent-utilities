@@ -11,7 +11,9 @@ os.environ.setdefault("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "False")
 import shutil
 import tempfile
 
-_test_db_dir = tempfile.mkdtemp(prefix="agent_utilities_test_db_")
+_pytest_tmp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".pytest_tmp")
+os.makedirs(_pytest_tmp_dir, exist_ok=True)
+_test_db_dir = tempfile.mkdtemp(prefix="agent_utilities_test_db_", dir=_pytest_tmp_dir)
 os.environ["GRAPH_DB_PATH"] = os.path.join(_test_db_dir, "test_knowledge_graph.db")
 
 
@@ -71,6 +73,54 @@ def cleanup_build_artifacts():
 import subprocess
 import time
 import socket
+import uuid
+
+
+@pytest.fixture(autouse=True)
+def isolate_graph_compute_engine(monkeypatch):
+    """Give each test a unique graph namespace to prevent cross-test state leakage.
+
+    Monkeypatches GraphComputeEngine.__init__ so every instantiation within a
+    test gets a unique graph_name derived from a UUID.  Tests that explicitly
+    pass a graph_name kwarg keep their own name; others get the per-test unique
+    name.  After the test completes, all graphs created are cleared and deleted
+    to free server-side memory.
+    """
+    from agent_utilities.knowledge_graph.core import graph_compute
+
+    _original_init = graph_compute.GraphComputeEngine.__init__
+    _test_graph_name = f"test_{uuid.uuid4().hex[:12]}"
+    _created_engines: list = []
+    _created_graph_names: set = set()
+
+    def _isolated_init(self, graph_name: str = "__bus__", **kwargs):
+        # Use the fixture's unique name when the caller uses the default __bus__
+        effective_name = _test_graph_name if graph_name == "__bus__" else graph_name
+        _created_graph_names.add(effective_name)
+        _original_init(self, graph_name=effective_name, **kwargs)
+        _created_engines.append(self)
+
+    monkeypatch.setattr(graph_compute.GraphComputeEngine, "__init__", _isolated_init)
+
+    yield _test_graph_name
+
+    # Teardown: clear and delete all test graphs
+    for engine in _created_engines:
+        try:
+            if hasattr(engine, "_client") and engine._client:
+                engine._client.clear()
+        except Exception:
+            pass
+    # Delete all created graphs from the server
+    for engine in _created_engines:
+        for gn in _created_graph_names:
+            try:
+                if hasattr(engine, "_client") and engine._client:
+                    engine._client.delete_graph(gn)
+            except Exception:
+                pass
+        break  # Only need one client for deletion
+
 
 @pytest.fixture(scope="session", autouse=True)
 def start_epistemic_graph_server():
@@ -79,7 +129,8 @@ def start_epistemic_graph_server():
         # Check if epistemic-graph is built, if not build it
         rust_dir = os.path.join(os.path.dirname(__file__), "../../epistemic-graph")
         rust_dir = os.path.abspath(rust_dir)
-        socket_path = "/tmp/test_epistemic_graph.sock"
+        socket_path = os.path.join(os.path.dirname(__file__), ".test_epistemic_graph.sock")
+        socket_path = os.path.abspath(socket_path)
 
         if os.path.exists(socket_path):
             os.remove(socket_path)
@@ -88,12 +139,13 @@ def start_epistemic_graph_server():
         # Build first
         subprocess.run(["cargo", "build"], cwd=rust_dir, check=False)
 
+        log_file = open(os.path.join(tempfile.gettempdir(), ".test_epistemic_graph.log"), "w")
         # Start server
         process = subprocess.Popen(
             ["cargo", "run", "--bin", "epistemic-graph-server", "--", "--socket-path", socket_path],
             cwd=rust_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stdout=log_file,
+            stderr=log_file
         )
 
         # Wait for socket to be ready
@@ -112,3 +164,5 @@ def start_epistemic_graph_server():
         process.wait()
         if os.path.exists(socket_path):
             os.remove(socket_path)
+    else:
+        yield None

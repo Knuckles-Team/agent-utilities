@@ -574,7 +574,7 @@ class TestKBPipelinePhase:
 
         ctx = PipelineContext(
             config=PipelineConfig(
-                workspace_path="/tmp",
+                workspace_path=".tmp",
                 enable_knowledge_base=False,
             )
         )
@@ -592,7 +592,7 @@ class TestKBPipelinePhase:
 
         ctx = PipelineContext(
             config=PipelineConfig(
-                workspace_path="/tmp",
+                workspace_path=".tmp",
                 enable_knowledge_base=True,
                 kb_auto_ingest_skill_graphs=False,
             )

@@ -292,7 +292,9 @@ class RegistryMixin(_Base):
         updates["timestamp"] = ts
 
         if self.graph.has_node(node_id):
-            self.graph._get_node_properties(node_id).update(updates)
+            props = self.graph._get_node_properties(node_id)
+            props.update(updates)
+            self.graph.add_node(node_id, props)
         if self.backend:
             set_clause = self._get_set_clause(updates, alias="n", label="SystemPrompt")
             query = f"MATCH (n:SystemPrompt {{id: $id}}){set_clause}"
@@ -659,6 +661,7 @@ class RegistryMixin(_Base):
             current = data.get("enabled", True)
             new_state = not current
             data["enabled"] = new_state
+            self.graph.add_node(resource_id, data)
             return {
                 "id": resource_id,
                 "name": data.get("name", ""),
@@ -759,8 +762,7 @@ class RegistryMixin(_Base):
 
         for u, v in self.graph._get_all_edges():
             if u in set(node_ids) and v in set(node_ids):
-                data = {}
-            builder.add_edge(u, v, label=data.get("type", ""))
+                builder.add_edge(u, v, label="")
 
         # Add some default styling for KG types
         builder.lines.append(

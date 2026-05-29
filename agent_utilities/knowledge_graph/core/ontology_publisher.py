@@ -38,7 +38,7 @@ class OntologyPublisher:
 
         publisher = OntologyPublisher()
         # Export locally
-        publisher.export_ontology(rdf_graph, "/tmp/ontology.ttl")
+        publisher.export_ontology(rdf_graph, ".tmp/ontology.ttl")
 
         # Push to Stardog
         publisher.push_to_stardog(rdf_graph, endpoint="http://stardog:5820")

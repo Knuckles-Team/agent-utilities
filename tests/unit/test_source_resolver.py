@@ -37,7 +37,7 @@ class TestResolvedSource:
             source_id="article:scholarx:2406-12345",
             name="Test Paper",
             source_type="research",
-            file_path="/tmp/test.md",
+            file_path=".tmp/test.md",
             relevance_score=4.5,
             authors=["Alice", "Bob"],
             domains=["orchestration", "memory"],
@@ -76,7 +76,9 @@ class TestKGSourceResolverWithEngine:
     """Test resolution with a mocked KG engine."""
 
     def setup_method(self):
-        self.graph = GraphComputeEngine(backend_type="rust")
+        import uuid
+        graph_name = f"test_graph_{uuid.uuid4().hex}"
+        self.graph = GraphComputeEngine(backend_type="rust", graph_name=graph_name)
         self.engine = MagicMock()
         self.engine.graph = self.graph
         self.engine.hybrid_retriever = None

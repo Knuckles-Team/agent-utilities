@@ -26,7 +26,7 @@ from agent_utilities.patterns.walkthroughs import generate_linear_walkthrough
 @pytest.fixture
 def mock_deps():
     deps = MagicMock(spec=AgentDeps)
-    deps.workspace_path = Path("/tmp/fake_workspace")
+    deps.workspace_path = Path(".tmp/fake_workspace")
     deps.graph_event_queue = MagicMock()
     deps.knowledge_engine = MagicMock()
     return deps
@@ -96,7 +96,7 @@ async def test_run_manual_test_cycle(mock_dispatch, mock_deps):
 @patch("agent_utilities.patterns.walkthroughs.dispatch_subagent")
 async def test_generate_linear_walkthrough(mock_dispatch, mock_deps):
     mock_dispatch.return_value = "# Walkthrough\nStep 1..."
-    result = await generate_linear_walkthrough("/tmp/path", mock_deps)
+    result = await generate_linear_walkthrough(".tmp/path", mock_deps)
     assert "# Walkthrough" in result
 
 

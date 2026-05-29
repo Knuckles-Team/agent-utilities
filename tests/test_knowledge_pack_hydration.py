@@ -56,7 +56,7 @@ async def test_hydrate_bundle(sample_bundle):
         patch("requests.get") as mock_get,
         patch("tempfile.NamedTemporaryFile") as mock_tempfile,
     ):
-        mock_tempfile.return_value.__enter__.return_value.name = "/tmp/fake.pdf"
+        mock_tempfile.return_value.__enter__.return_value.name = ".tmp/fake.pdf"
         mock_get.return_value.content = b"fake pdf bytes"
         mock_get.return_value.raise_for_status = MagicMock()
 

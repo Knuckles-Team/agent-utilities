@@ -26,6 +26,7 @@ from agent_utilities.knowledge_graph.memory.ewc import (
 class MockEngine:
     def __init__(self, nx_graph: Any):
         self._nx_graph = nx_graph
+        self.graph = nx_graph
         self.upserted_nodes: list[Any] = []
         self.upserted_edges: list[Any] = []
 

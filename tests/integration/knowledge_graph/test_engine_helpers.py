@@ -25,7 +25,9 @@ def _reset_active_engine():
 
 @pytest.fixture
 def engine():
-    graph = GraphComputeEngine(backend_type="rust")
+    import uuid
+    unique_name = f"test_graph_{uuid.uuid4().hex}"
+    graph = GraphComputeEngine(graph_name=unique_name, backend_type="rust")
     return IntelligenceGraphEngine(graph)
 
 

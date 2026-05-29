@@ -3,6 +3,7 @@
 CONCEPT:KG-2.6 — Implementation Plan & Tasks versioning and KG lineage.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from agent_utilities.sdd.watcher import (
@@ -186,15 +187,19 @@ def test_run_watcher_scan(tmp_path):
 
 
 def test_get_workspace_path(tmp_path):
-    # Test fallback to cwd or parents
-    with patch.dict("os.environ", {}, clear=True):
-        with patch("os.getcwd", return_value=str(tmp_path)):
-            # By default no pyproject.toml, so returns tmp_path
-            assert get_workspace_path() == tmp_path
+    # Use an isolated dir that won't have pyproject.toml/.git/.specify in any parent
+    import tempfile
 
-            # Create pyproject.toml
-            (tmp_path / "pyproject.toml").write_text("")
-            assert get_workspace_path() == tmp_path
+    with tempfile.TemporaryDirectory(dir="/tmp") as isolated_dir:
+        isolated = Path(isolated_dir)
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("agent_utilities.sdd.watcher.os.getcwd", return_value=str(isolated)):
+                # No pyproject.toml, .git, or .specify in /tmp ancestors → returns cwd
+                assert get_workspace_path() == isolated
+
+                # Create pyproject.toml and verify it's found
+                (isolated / "pyproject.toml").write_text("")
+                assert get_workspace_path() == isolated
 
 
 def test_process_skill_file(tmp_path):

@@ -48,8 +48,8 @@ def test_initialize_graph_from_workspace(
     mock_registry.return_value.agents = []
     mock_load_mcp.return_value = []
     mock_client.return_value = MagicMock()
-    mock_ws.return_value = Path("/tmp/agent_test_workspace")
-    mock_resolve.return_value = Path("/tmp/mcp_config.json")
+    mock_ws.return_value = Path(".tmp/agent_test_workspace")
+    mock_resolve.return_value = Path(".tmp/mcp_config.json")
     mock_should_sync.return_value = True
 
     # Mock GraphBuilder and its methods
