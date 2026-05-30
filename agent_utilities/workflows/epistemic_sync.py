@@ -24,6 +24,11 @@ class EpistemicSyncWorkflow:
         self.ingestor = FederatedSparqlIngestor(
             endpoints=self.config.sparql_endpoints, engine=self.engine
         )
+        from agent_utilities.knowledge_graph.backends.ladybug_backend import (
+            LadybugBackend,
+        )
+
+        self.backend = LadybugBackend()
 
     async def run_sync_cycle(self) -> None:
         """Executes a single synchronization cycle against external authoritative graphs."""
@@ -37,6 +42,13 @@ class EpistemicSyncWorkflow:
             logger.info(
                 f"Ingested {ingested_count} external entities into local schema mapping."
             )
+
+            # Flush local AST mutations to LadybugDB
+            flushed_count = self.engine.flush_ledger_to_backend(self.backend)
+            if flushed_count > 0:
+                logger.info(
+                    f"Flushed {flushed_count} AST mutations from epistemic-graph to LadybugDB."
+                )
 
             # 2. In future iterations, temporal drift and importance_score
             # will be evaluated here to flag 'knowledge_gap' nodes if

@@ -1,6 +1,7 @@
 """Tests for CONCEPT:ORCH-1.3 — Subagent Lifecycle Patterns."""
 
 import pytest
+from pydantic import ValidationError
 
 from agent_utilities.graph.subagent_patterns import (
     PatternComplexity,
@@ -215,7 +216,7 @@ class TestDecisionModel:
         assert data["confidence"] == 0.85
 
     def test_confidence_bounds(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             SubagentPatternDecision(
                 pattern=SubagentPattern.INLINE_TOOL,
                 task_complexity=PatternComplexity.SIMPLE,

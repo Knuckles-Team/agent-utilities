@@ -2,9 +2,6 @@
 
 import json
 
-import pytest
-from pathlib import Path
-
 from agent_utilities.gateway.config import ConfigManager
 from agent_utilities.gateway.models import (
     DashboardLayout,

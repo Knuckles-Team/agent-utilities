@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 import pytest
+from pydantic import ValidationError
 
 from agent_utilities.models.knowledge_graph import (
     BacktestRunNode,
@@ -41,9 +42,9 @@ class TestTradingSignalNode:
         assert node.price_at_signal == 420.50
 
     def test_confidence_bounds(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             TradingSignalNode(id="sig:bad", name="Bad", confidence=1.5)
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             TradingSignalNode(id="sig:bad2", name="Bad", confidence=-0.1)
 
     def test_serialization(self):
@@ -182,7 +183,9 @@ class TestTradingPipelineIntegration:
     """Test the full trading pipeline graph: Strategy → Signal → Order → Position → Portfolio."""
 
     def test_full_pipeline_graph(self):
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         g = GraphComputeEngine(backend_type="rust")
 
@@ -221,7 +224,9 @@ class TestTradingPipelineIntegration:
         assert path[-1] == port.id
 
     def test_strategy_backtest_link(self):
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         g = GraphComputeEngine(backend_type="rust")
         strat = StrategyNode(id="strat:v1", name="V1")

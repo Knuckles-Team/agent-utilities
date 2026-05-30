@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 import pytest
+from pydantic import ValidationError
 
 from agent_utilities.models.knowledge_graph import (
     RegistryEdgeType,
@@ -35,7 +36,7 @@ class TestRiskAssessmentNode:
         assert node.risk_level == "high"
 
     def test_score_bounds(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             RiskAssessmentNode(id="ra:bad", name="Bad", overall_risk_score=1.5)
 
     def test_serialization(self):
@@ -69,7 +70,7 @@ class TestRiskFactorNode:
         assert node.mitigation_status == "partial"
 
     def test_bounds(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             RiskFactorNode(id="rf:bad", name="Bad", severity=2.0)
 
 
@@ -101,7 +102,9 @@ class TestRiskPropagationGraph:
     """Test transitive risk propagation via graph traversal."""
 
     def test_risk_chain(self):
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         g = GraphComputeEngine(backend_type="rust")
 
@@ -137,7 +140,9 @@ class TestRiskPropagationGraph:
         assert len(path) == 3
 
     def test_multi_factor_assessment(self):
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         g = GraphComputeEngine(backend_type="rust")
 

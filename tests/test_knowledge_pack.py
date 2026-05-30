@@ -57,11 +57,10 @@ def test_export_import(tmp_path):
     assert len(loaded_json.nodes) == 1
 
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
 def test_seeding_idempotency():
-    engine = IntelligenceGraphEngine(graph=GraphComputeEngine(backend_type="rust"), db_path=":memory:")
+    engine = IntelligenceGraphEngine(db_path=":memory:")
 
     bundle = KnowledgePackBundle(
         name="test-pack",

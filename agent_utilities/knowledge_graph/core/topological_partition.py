@@ -83,7 +83,9 @@ def detect_communities(graph: Any) -> list[set[str]]:
                         continue
                     vis.add(node)
                     comp.add(graph_obj[node])
-                    stack.extend(nb for nb in graph_obj.neighbors(node) if nb not in vis)
+                    stack.extend(
+                        nb for nb in graph_obj.neighbors(node) if nb not in vis
+                    )
                 if len(comp) > 1:
                     comps.append(comp)
             return comps

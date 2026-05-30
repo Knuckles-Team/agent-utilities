@@ -15,11 +15,11 @@ import logging
 import os
 from pathlib import Path
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.core.config import config
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.observability.custom_observability import (
     get_otel_status_summary,
     setup_otel,
@@ -41,8 +41,8 @@ def engine(tmp_path_factory):
     from agent_utilities.core.paths import ensure_dirs
 
     ensure_dirs()
-    graph = GraphComputeEngine(backend_type="rust")
-    return IntelligenceGraphEngine(graph=graph, backend=None)
+    GraphComputeEngine(backend_type="rust")
+    return IntelligenceGraphEngine(db_path=":memory:")
 
 
 @pytest.fixture(scope="module")
@@ -200,16 +200,16 @@ class TestMermaidCapture:
         plan = GraphPlan(
             steps=[
                 ExecutionStep(
-                    node_id="researcher",
+                    id="researcher",
                     refined_subtask="Search for papers",
                 ),
                 ExecutionStep(
-                    node_id="summarizer",
+                    id="summarizer",
                     refined_subtask="Summarize findings",
                     depends_on=["researcher"],
                 ),
                 ExecutionStep(
-                    node_id="presenter",
+                    id="presenter",
                     refined_subtask="Create presentation",
                     depends_on=["summarizer"],
                 ),
@@ -251,11 +251,11 @@ class TestWorkflowStore:
         plan = GraphPlan(
             steps=[
                 ExecutionStep(
-                    node_id="researcher",
+                    id="researcher",
                     refined_subtask="Search for papers on transformers",
                 ),
                 ExecutionStep(
-                    node_id="summarizer",
+                    id="summarizer",
                     refined_subtask="Summarize top 3 papers",
                     depends_on=["researcher"],
                 ),
@@ -274,8 +274,8 @@ class TestWorkflowStore:
         loaded = store.load_workflow("test_research_pipeline")
         assert loaded is not None
         assert len(loaded.steps) == 2
-        assert loaded.steps[0].node_id == "researcher"
-        assert loaded.steps[1].node_id == "summarizer"
+        assert loaded.steps[0].id == "researcher"
+        assert loaded.steps[1].id == "summarizer"
 
     def test_list_workflows(self, engine):
         """CONCEPT:ORCH-1.22 — List all stored workflows."""
@@ -340,7 +340,7 @@ class TestWorkflowCompiler:
 
         assert len(plan.steps) >= 2
         # At least one step should be marked parallel
-        parallel_steps = [s for s in plan.steps if s.is_parallel]
+        parallel_steps = [s for s in plan.steps if s.parallel]
         # Note: parallel detection is heuristic, may not always fire
         logger.info(
             "Parallel steps detected: %d / %d",

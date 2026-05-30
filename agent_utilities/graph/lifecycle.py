@@ -54,7 +54,7 @@ def _emit_node_lifecycle(eq, node_name: str, event: str, **kwargs):
         **kwargs: Additional metadata (e.g. next_node, duration_ms).
 
     """
-    emit_graph_event(eq, event, node_id=node_name, **kwargs)
+    emit_graph_event(eq, event, id=node_name, **kwargs)
 
 
 async def usage_guard_step(

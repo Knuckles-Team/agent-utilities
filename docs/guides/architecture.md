@@ -322,7 +322,7 @@ With the recent modularization, `agent-utilities` has been restructured to clean
 | `agent/` | Bootstrapping and configuring agent ecosystems from `workspace.yml` and CLI. | `factory.py`, `registry_builder.py` |
 | `protocols/` | Interface adapters connecting outer HTTP/RPC boundaries to inner graphs. | `acp_adapter.py`, `a2a.py`, `agui_emitter.py` |
 | `graph/` | The core Pydantic-Graph routing and orchestration machinery. | `runner.py`, `unified.py`, `steps.py`, `executor.py` |
-| `mcp/` | Specific wrappers for `fastmcp` to normalize tool discovery and error handling. | `utilities.py`, `manager.py` |
+| `mcp/` | Specific wrappers for `fastmcp` to normalize tool discovery and error handling. | `utilities.py`, `agent_manager.py` |
 | `security/` | Centralized identity verification, JWT validation, and API authentication. | `auth.py`, `cors.py` |
 | `prompts/` | Version-controlled JSON schema blueprints that replace unstructured text prompts. | `*.json` |
 | `knowledge_graph/`| The unified semantic and structural memory backbone linking NetworkX and Cypher. | `engine.py`, `maintainer.py`, `hybrid_retriever.py` |

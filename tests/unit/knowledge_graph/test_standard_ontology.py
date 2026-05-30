@@ -548,9 +548,8 @@ def test_owl_bridge_promotes_standard_edge_types() -> None:
 
 def test_standard_inference_skos_broader_transitivity() -> None:
     """SKOS broader transitivity rule produces expected NX inference."""
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
     from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
     g = GraphComputeEngine(backend_type="rust")
@@ -560,7 +559,7 @@ def test_standard_inference_skos_broader_transitivity() -> None:
     g.add_edge("concept:a", "concept:b", type="broader")
     g.add_edge("concept:b", "concept:c", type="broader")
 
-    engine = IntelligenceGraphEngine(g)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     inf = InferenceEngine(engine)
     result = inf.run_inference()
 
@@ -570,9 +569,8 @@ def test_standard_inference_skos_broader_transitivity() -> None:
 
 def test_standard_inference_prov_derivation_transitivity() -> None:
     """PROV-O was_derived_from transitivity rule works."""
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
     from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
     g = GraphComputeEngine(backend_type="rust")
@@ -582,7 +580,7 @@ def test_standard_inference_prov_derivation_transitivity() -> None:
     g.add_edge("doc:a", "doc:b", type="was_derived_from")
     g.add_edge("doc:b", "doc:c", type="was_derived_from")
 
-    engine = IntelligenceGraphEngine(g)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     inf = InferenceEngine(engine)
     result = inf.run_inference()
 
@@ -592,9 +590,8 @@ def test_standard_inference_prov_derivation_transitivity() -> None:
 
 def test_standard_inference_temporal_phase_containment() -> None:
     """Temporal phase containment rule works."""
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
     from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
 
     g = GraphComputeEngine(backend_type="rust")
@@ -604,7 +601,7 @@ def test_standard_inference_temporal_phase_containment() -> None:
     g.add_edge("event:1", "phase:q2", type="occurred_during")
     g.add_edge("phase:q2", "phase:2026", type="part_of")
 
-    engine = IntelligenceGraphEngine(g)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     inf = InferenceEngine(engine)
     result = inf.run_inference()
 

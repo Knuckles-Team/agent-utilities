@@ -44,7 +44,7 @@ async def ingest_message_to_kg(
 
     Args:
         event: The inbound messaging event.
-        knowledge_engine: The ``RegistryGraphEngine`` instance. If None,
+        knowledge_engine: The ``IntelligenceGraphEngine`` instance. If None,
             attempts to load from the default workspace.
         agent_id: Agent identifier for provenance tracking.
 
@@ -128,7 +128,7 @@ async def ingest_outbound_to_kg(
 
     Args:
         message: The outbound ``Message`` being sent.
-        knowledge_engine: The ``RegistryGraphEngine`` instance.
+        knowledge_engine: The ``IntelligenceGraphEngine`` instance.
         agent_id: Agent identifier for provenance.
 
     Returns:
@@ -184,16 +184,16 @@ async def ingest_outbound_to_kg(
 
 
 def _get_default_engine() -> Any | None:
-    """Attempt to load the default RegistryGraphEngine from workspace.
+    """Attempt to load the default IntelligenceGraphEngine from workspace.
 
     CONCEPT:ECO-4.0
 
     Returns:
-        RegistryGraphEngine instance or None.
+        IntelligenceGraphEngine instance or None.
     """
     try:
         from agent_utilities.core.paths import data_dir
-        from agent_utilities.knowledge_graph.core.engine import RegistryGraphEngine
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
         from agent_utilities.knowledge_graph.pipeline import RegistryPipeline
         from agent_utilities.models.knowledge_graph import PipelineConfig
 
@@ -207,7 +207,9 @@ def _get_default_engine() -> Any | None:
             ladybug_path=str(registry_db),
         )
         pipeline = RegistryPipeline(config)
-        return RegistryGraphEngine(pipeline.graph, db_path=config.ladybug_path)
+        return IntelligenceGraphEngine(
+            graph=pipeline.graph, db_path=config.ladybug_path
+        )
     except ImportError:
         return None
     except Exception as e:

@@ -9,6 +9,7 @@ enriches the LPG with OWL-inferred facts.
 
 
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -451,7 +452,114 @@ class OWLBridge:
         return stats
 
     def _lightweight_reasoning(self) -> list[dict[str, Any]]:
-        """Lightweight RDFS+ reasoning on the in-memory graph.
+        """Lightweight RDFS+ reasoning — Rust-first with Python fallback.
+
+        CONCEPT:KG-2.23 — Rust-Accelerated Reasoning
+
+        Attempts to use the Rust Datalog engine (epistemic-graph) for
+        transitive/symmetric/domain-range/property-chain inference.
+        Falls back to Python networkx implementation if the Rust engine
+        is unavailable.
+        """
+        try:
+            return self._rust_reasoning()
+        except Exception:
+            logger.debug("Rust reasoning unavailable, falling back to Python RDFS+")
+            return self._python_reasoning()
+
+    def _rust_reasoning(self) -> list[dict[str, Any]]:
+        """Execute reasoning via the Rust Datalog engine.
+
+        Uses epistemic-graph's compiled transitive/symmetric inference,
+        domain/range rules, and property chain composition.
+        """
+        try:
+            from epistemic_graph import EpistemicGraph
+        except ImportError as exc:
+            raise RuntimeError("epistemic-graph not available") from exc
+
+        # Build a temporary Rust graph from the current in-memory networkx graph
+        eg = EpistemicGraph()
+        for node_id, attrs in self.graph.nodes(data=True):
+            eg.add_node(str(node_id), json.dumps(attrs))
+        for u, v, data in self.graph.edges(data=True):
+            try:
+                eg.add_edge(str(u), str(v), json.dumps(data))
+            except Exception:
+                pass  # Skip edges whose endpoints aren't in the graph
+
+        # Transitive properties
+        transitive_props = [
+            "part_of",
+            "depends_on",
+            "broader",
+            "narrower",
+            "inherits_from",
+        ]
+        # Symmetric properties
+        symmetric_props = [
+            "related_concept",
+            "exact_match",
+            "close_match",
+            "broad_match",
+        ]
+
+        # Run compiled Datalog reasoning
+        inferred = eg.infer_transitive(transitive_props, symmetric_props)
+
+        # Domain/range inference rules
+        domain_rules = [
+            ("authored_by", "Agent"),
+            ("executed_by", "Agent"),
+            ("created_by", "Agent"),
+        ]
+        range_rules = [
+            ("authored_by", "Artifact"),
+            ("produces", "Artifact"),
+        ]
+        dr_inferred = eg.infer_domain_range(domain_rules, range_rules)
+
+        # Property chain composition
+        chains = [
+            ("part_of", "part_of", "part_of"),  # transitivity
+            ("depends_on", "part_of", "depends_on"),  # dependency propagation
+        ]
+        chain_inferred = eg.infer_property_chains(chains)
+
+        # Convert Rust results to standard inference dicts
+        inferences: list[dict[str, Any]] = []
+        for fact in inferred:
+            inferences.append(
+                {
+                    "subject": fact.get("subject", ""),
+                    "predicate": fact.get("predicate", ""),
+                    "object": fact.get("object", ""),
+                    "inference_type": fact.get("inference_type", "rust_datalog"),
+                }
+            )
+        for fact in dr_inferred:
+            inferences.append(
+                {
+                    "subject": fact.get("subject", ""),
+                    "predicate": "rdf:type",
+                    "object": fact.get("type", ""),
+                    "inference_type": "domain_range_inference",
+                }
+            )
+        for fact in chain_inferred:
+            inferences.append(
+                {
+                    "subject": fact.get("subject", ""),
+                    "predicate": fact.get("predicate", ""),
+                    "object": fact.get("object", ""),
+                    "inference_type": "property_chain",
+                }
+            )
+
+        return inferences
+
+    def _python_reasoning(self) -> list[dict[str, Any]]:
+        """Python fallback — RDFS+ reasoning on the in-memory networkx graph.
 
         Performs simple transitive closure (e.g. part_of, depends_on) and
         symmetric closures (e.g. related_concept) without calling the heavy DL reasoner.

@@ -1,14 +1,13 @@
 #!/usr/bin/python
 """Unit tests for KG version branching, semantic compaction, and ontological guardrails."""
 
-import pytest
-from unittest.mock import MagicMock, patch, ANY
 from typing import Any
+from unittest.mock import ANY, MagicMock
+
+import pytest
 
 from agent_utilities.knowledge_graph.core.kg_versioning import (
     KGVersionEngine,
-    KGTransaction,
-    KGCommit,
     SpeculativeGraphBrancher,
 )
 from agent_utilities.knowledge_graph.memory.memory_compaction import SemanticCompactor
@@ -23,9 +22,7 @@ def test_speculative_graph_brancher():
             "node1": {"name": "Node 1", "type": "Test"},
             "node2": {"name": "Node 2", "type": "Test"},
         },
-        "edges": [
-            ("node1", "node2", "RELATED_TO")
-        ],
+        "edges": [("node1", "node2", "RELATED_TO")],
     }
 
     brancher = SpeculativeGraphBrancher(main_engine, main_state)
@@ -101,12 +98,9 @@ def test_semantic_compactor():
             "compacted_count": 3,
             "total_tokens": 350,
             "agent_id": "agent-123",
-        }
+        },
     )
-    mock_engine.backend.execute.assert_any_call(
-        ANY,
-        {"pid": "process:1"}
-    )
+    mock_engine.backend.execute.assert_any_call(ANY, {"pid": "process:1"})
 
 
 def test_ontological_guardrails_no_targets():
@@ -127,7 +121,14 @@ def test_ontological_guardrails_kg_integration():
     # Mock a networkx-like graph with a SecurityPolicyNode
     mock_graph = MagicMock()
     mock_graph.nodes.return_value = [
-        ("policy1", {"type": "SecurityPolicyNode", "target": "restricted_dir", "name": "Restricted Directory Policy"})
+        (
+            "policy1",
+            {
+                "type": "SecurityPolicyNode",
+                "target": "restricted_dir",
+                "name": "Restricted Directory Policy",
+            },
+        )
     ]
     mock_engine.graph = mock_graph
 
@@ -135,7 +136,7 @@ def test_ontological_guardrails_kg_integration():
     res = check_ontological_guardrails(
         "write_file",
         {"directory": "/home/user/restricted_dir/file.txt"},
-        engine=mock_engine
+        engine=mock_engine,
     )
     assert res is True
 
@@ -143,6 +144,6 @@ def test_ontological_guardrails_kg_integration():
     res_no_match = check_ontological_guardrails(
         "write_file",
         {"directory": "/home/user/allowed_dir/file.txt"},
-        engine=mock_engine
+        engine=mock_engine,
     )
     assert res_no_match is False

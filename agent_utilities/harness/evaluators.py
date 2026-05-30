@@ -47,7 +47,7 @@ async def capture_feedback(
         await backend.add_to_dataset(
             dataset_name=dataset_name,
             trace_id=trace_id,
-            input_data=input_data,
+            description=input_data,
             expected_output=expected_output,
         )
 
@@ -112,6 +112,6 @@ async def evaluate_llm_as_judge(
     llm_rationale = "The response is generally helpful and matches criteria."
 
     await capture_feedback(
-        trace_id, score_name, llm_score, comment=llm_rationale, input_data=input_text
+        trace_id, score_name, llm_score, comment=llm_rationale, description=input_text
     )
     return llm_score

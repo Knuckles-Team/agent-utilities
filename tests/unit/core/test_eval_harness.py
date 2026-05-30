@@ -10,9 +10,9 @@ Concept: eval-tracing
 
 import json
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.tools.eval_harness import (
     EvalHarness,
     JsonSchemaScorer,

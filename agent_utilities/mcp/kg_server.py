@@ -594,7 +594,7 @@ async def graph_write_node_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool(
             "graph_write",
             action="add_node",
-            node_id=body.get("node_id", ""),
+            id=body.get("node_id", ""),
             node_type=body.get("node_type", ""),
             properties=_to_json_str(body.get("properties", {})),
         )
@@ -606,7 +606,7 @@ async def graph_write_node_endpoint(request: Request) -> JSONResponse:
 async def graph_write_delete_node_endpoint(request: Request) -> JSONResponse:
     try:
         node_id = request.path_params.get("node_id", "")
-        res = await _execute_tool("graph_write", action="delete_node", node_id=node_id)
+        res = await _execute_tool("graph_write", action="delete_node", id=node_id)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
@@ -978,7 +978,7 @@ async def graph_analyze_blast_radius_endpoint(request: Request) -> JSONResponse:
         node_id = request.query_params.get("node_id", "")
         depth = int(request.query_params.get("depth", "2"))
         res = await _execute_tool(
-            "graph_analyze", action="blast_radius", node_id=node_id, depth=depth
+            "graph_analyze", action="blast_radius", id=node_id, depth=depth
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
@@ -2376,17 +2376,16 @@ def _build_server():
 
             elif action == "execute_workflow":
                 try:
-                    from agent_utilities.workflows.runner import WorkflowRunner
+                    from agent_utilities.orchestration import AgentOrchestrationEngine
 
-                    runner = WorkflowRunner(max_steps_per_agent=max_steps)
+                    runner = AgentOrchestrationEngine()
                     name = agent_name or task
                     input_task = task if (agent_name and task != agent_name) else None
-                    wf_result = await runner.execute_by_name(
-                        workflow_name=name,
-                        engine=engine,
-                        task=input_task,  # type: ignore[call-arg]
+                    wf_result = await runner.execute_workflow(
+                        workflow_id=name,
+                        task=input_task,
                     )
-                    return json.dumps(wf_result.to_dict(), default=str)
+                    return json.dumps(wf_result, default=str)
                 except ValueError as exc:
                     return f"Workflow not found: {exc}"
                 except Exception as exc:
@@ -2396,20 +2395,18 @@ def _build_server():
                 try:
                     import asyncio
 
-                    from agent_utilities.workflows.runner import WorkflowRunner
+                    from agent_utilities.orchestration import AgentOrchestrationEngine
 
-                    runner = WorkflowRunner(max_steps_per_agent=max_steps)
+                    runner = AgentOrchestrationEngine()
                     name = agent_name or task
                     input_task = task if (agent_name and task != agent_name) else None
                     session_id = f"wf-{uuid.uuid4().hex[:8]}"
 
                     # Start execution as background task
                     asyncio.create_task(
-                        runner.execute_by_name(
-                            workflow_name=name,
-                            engine=engine,
-                            trace_session=session_id,
-                            task=input_task,  # type: ignore[call-arg]
+                        runner.execute_workflow(
+                            workflow_id=name,
+                            task=input_task,
                         )
                     )
                     return (

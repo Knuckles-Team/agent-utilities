@@ -1,7 +1,9 @@
 """CONCEPT:ORCH-1.29 WASM Micro-Agent execution tests."""
 
 import pytest
+
 from agent_utilities.core.wasm_runner import WasmAgentRunner, safe_eval_math
+
 
 def test_safe_eval_math():
     """Test that safe_eval_math safely parses mathematical expressions."""
@@ -28,6 +30,7 @@ def test_safe_eval_math():
     with pytest.raises(ValueError, match="Malicious or unsupported expression"):
         safe_eval_math("eval('1+1')", {})
 
+
 def test_wasm_runner_fallback_emulation():
     """Test that the WASM runner executes correctly in emulation/fallback mode."""
     runner = WasmAgentRunner()
@@ -46,6 +49,7 @@ def test_wasm_runner_fallback_emulation():
     assert "Processed:" in result["output"]
     assert "test_agent_1" in result["output"]
 
+
 def test_wasm_runner_calculate_fees():
     """Test the Wasm runner fee calculation emulator fallback."""
     runner = WasmAgentRunner()
@@ -55,7 +59,7 @@ def test_wasm_runner_calculate_fees():
         "base_fee": 150.0,
         "state_fee": 50.0,
         "expedited": True,
-        "formula": "base_fee + state_fee + expedited_fee + 10"
+        "formula": "base_fee + state_fee + expedited_fee + 10",
     }
 
     result = runner.execute(payload)
@@ -67,6 +71,7 @@ def test_wasm_runner_calculate_fees():
     assert result["expedited_fee"] == 100.0
     assert result["total_fee"] == 310.0
 
+
 def test_wasm_runner_draft_calculations():
     """Test the Wasm runner draft calculations emulator fallback."""
     runner = WasmAgentRunner()
@@ -74,7 +79,7 @@ def test_wasm_runner_draft_calculations():
     payload = {
         "action": "draft_calculations",
         "authorized_shares": 10000,
-        "par_value": 0.01
+        "par_value": 0.01,
     }
 
     result = runner.execute(payload)
@@ -85,6 +90,7 @@ def test_wasm_runner_draft_calculations():
     assert result["par_value"] == 0.01
     assert result["total_capital"] == 100.0
 
+
 def test_wasm_runner_expand_template():
     """Test the Wasm runner template expander emulator fallback."""
     runner = WasmAgentRunner()
@@ -92,10 +98,7 @@ def test_wasm_runner_expand_template():
     payload = {
         "action": "expand_template",
         "template": "Hello {{ name }}, welcome to {{ state }}!",
-        "variables": {
-            "name": "Jane",
-            "state": "Texas"
-        }
+        "variables": {"name": "Jane", "state": "Texas"},
     }
 
     result = runner.execute(payload)
@@ -103,6 +106,7 @@ def test_wasm_runner_expand_template():
     assert result["emulated"] is True
     assert result["action"] == "expand_template"
     assert result["expanded"] == "Hello Jane, welcome to Texas!"
+
 
 def test_wasm_runner_empty_payload():
     """Test the runner handling an empty payload in emulation mode."""

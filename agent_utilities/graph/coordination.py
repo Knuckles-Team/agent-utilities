@@ -9,7 +9,7 @@ Key insight from the paper: *"Coordination in LLM-based multi-agent
 systems should be treated as an explicit architectural layer"* rather
 than being implicit in agent-to-agent communication. This module
 implements that principle by providing pluggable coordination protocols
-that sit between the ``DynamicSubgraphOrchestrator`` and the actual
+that sit between the ``AgentOrchestrationEngine`` and the actual
 graph execution.
 
 Architecture:
@@ -180,7 +180,7 @@ class CoordinationLayer:
 
     CONCEPT:ORCH-1.3 — Research: 2605.03310v1
 
-    Sits between ``DynamicSubgraphOrchestrator.synthesize_team()`` and
+    Sits between ``AgentOrchestrationEngine.synthesize_team()`` and
     graph execution. Selects the optimal coordination protocol based
     on task type, agent count, and historical success rates from the KG.
 

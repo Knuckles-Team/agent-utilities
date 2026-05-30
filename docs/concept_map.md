@@ -22,7 +22,7 @@ Every concept has 1:1:1 traceability across:
 
 | ID | Canonical Name | Code Modules | Tests | Doc Page |
 |----|---------------|:---:|:---:|---|
-| `ORCH-1.0` | Intelligence Graph Core | 14 | 16 | [Pillar Summary](pillars/1_graph_orchestration.md) |
+| `ORCH-1.0` | Unified Orchestration Engine | 14 | 16 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.1` | HTN Planning Pipeline | 25 | 11 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.2` | Specialist Routing & Discovery | 28 | 14 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.3` | Execution Safety & State | 11 | 2 | [ORCH-1.3](pillars/1_graph_orchestration/ORCH-1.3-Execution_Safety_And_State.md) |
@@ -37,7 +37,7 @@ Every concept has 1:1:1 traceability across:
 | `ORCH-1.28` | Reactive Event Sourcing | 3 | 1 | [ORCH-1.28](pillars/1_graph_orchestration/ORCH-1.28-Reactive_Event_Sourcing.md) |
 | `ORCH-1.29` | WASM Micro-Agent Execution | 1 | 1 | [OS-5.6](pillars/5_agent_os_infrastructure/OS-5.6-Massive_Scale_Architecture.md) |
 
-Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/routing.py`, `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `graph/dynamic_graph_orchestrator.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, `graph/parallel_engine.py`, `graph/manifest_generators.py`, `models/execution_manifest.py`, `graph/reactive/ledger.py`, `graph/reactive/dispatcher.py`, `core/wasm_runner.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
+Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/routing.py`, `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, `graph/parallel_engine.py`, `graph/manifest_generators.py`, `models/execution_manifest.py`, `graph/reactive/ledger.py`, `graph/reactive/dispatcher.py`, `core/wasm_runner.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
 
 ---
 
@@ -63,11 +63,12 @@ Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/ro
 | `KG-2.15` | Centralized Epistemic Gateway & Transaction Proxy | 3 | 3 | [KG-2.15](centralized_kg_coordination.md) |
 | `KG-2.16` | Compiled Rust (epistemic-graph) & Rustworkx Compute Engine 🔬 | 1 | 1 | [OS-5.6](pillars/5_agent_os_infrastructure/OS-5.6-Massive_Scale_Architecture.md) |
 | `KG-2.17` | Rust-Compiled Epistemic Reasoning Backend 🔬 | 1 | 1 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
-| `KG-2.18` | High-Performance Quant FFI Engine 🔬 | 1 | 1 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.18` | High-Performance Quant Epistemic-Graph Engine 🔬 | 1 | 1 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
 | `KG-2.19` | Speculative Graph Brancher 🔬 | 1 | 1 | [KG-2.19](pillars/2_epistemic_knowledge_graph/KG-2.19-Speculative_Graph_Brancher.md) |
 | `KG-2.20` | Semantic Compactor & Refactorer 🔬 | 1 | 1 | [KG-2.20](pillars/2_epistemic_knowledge_graph/KG-2.20-Semantic_Compactor_And_Refactorer.md) |
+| `KG-3.0` | Ingestion Engine | 1 | 24 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
 
-Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/graph_compute.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/consolidation.py`, `knowledge_graph/memory/memory_materializer.py`, `knowledge_graph/memory/observer.py`, `knowledge_graph/memory/reflector.py`, `knowledge_graph/memory/startup_context.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`, `mcp/kg_server.py`, `mcp/kg_coordinator.py`, `knowledge_graph/backends/ladybug_backend.py`, 🔬 `knowledge_graph/core/ar_graph.py`, 🔬 `knowledge_graph/core/time_series_graph.py`
+Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/graph_compute.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/consolidation.py`, `knowledge_graph/memory/memory_materializer.py`, `knowledge_graph/memory/observer.py`, `knowledge_graph/memory/reflector.py`, `knowledge_graph/memory/startup_context.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `knowledge_graph/ingestion/engine.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`, `mcp/kg_server.py`, `mcp/kg_coordinator.py`, `knowledge_graph/backends/ladybug_backend.py`, 🔬 `knowledge_graph/core/ar_graph.py`, 🔬 `knowledge_graph/core/time_series_graph.py`
 
 ---
 

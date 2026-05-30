@@ -1010,8 +1010,10 @@ class PipelineConfig(BaseModel):
     incremental: bool = True
     # Knowledge Base settings
     enable_knowledge_base: bool = Field(
-        default_factory=lambda: __import__("os").getenv("ENABLE_KG_KB", "true").lower()
-        in ("true", "1", "yes")
+        default_factory=lambda: (
+            __import__("os").getenv("ENABLE_KG_KB", "true").lower()
+            in ("true", "1", "yes")
+        )
     )
     kb_auto_ingest_skill_graphs: bool = False  # On-demand by default
     kb_chunk_size: int = 1024
@@ -1019,16 +1021,18 @@ class PipelineConfig(BaseModel):
     kb_archive_age_days: int = 180
     kb_archive_importance_threshold: float = 0.3
     enable_workspace_sync: bool = Field(
-        default_factory=lambda: __import__("os")
-        .getenv("ENABLE_KG_WORKSPACE_SYNC", "true")
-        .lower()
-        in ("true", "1", "yes")
+        default_factory=lambda: (
+            __import__("os").getenv("ENABLE_KG_WORKSPACE_SYNC", "true").lower()
+            in ("true", "1", "yes")
+        )
     )
     kb_auto_ingest_cloned_repos: bool = True
     # OWL Reasoning settings
     enable_owl_reasoning: bool = Field(
-        default_factory=lambda: __import__("os").getenv("ENABLE_KG_OWL", "true").lower()
-        in ("true", "1", "yes")
+        default_factory=lambda: (
+            __import__("os").getenv("ENABLE_KG_OWL", "true").lower()
+            in ("true", "1", "yes")
+        )
     )
     owl_backend: str = "owlready2"
     owl_ontology_path: str | None = None
@@ -1036,10 +1040,10 @@ class PipelineConfig(BaseModel):
     owl_promotion_recency_days: int = 7
     # External Graph Endpoints settings
     enable_external_graphs: bool = Field(
-        default_factory=lambda: __import__("os")
-        .getenv("ENABLE_KG_EXTERNAL_GRAPHS", "true")
-        .lower()
-        in ("true", "1", "yes")
+        default_factory=lambda: (
+            __import__("os").getenv("ENABLE_KG_EXTERNAL_GRAPHS", "true").lower()
+            in ("true", "1", "yes")
+        )
     )
     external_sparql_endpoints: list[str] = Field(default_factory=list)
     external_lpg_endpoints: dict[str, str] = Field(default_factory=dict)
@@ -3036,14 +3040,14 @@ class TeamComposition(BaseModel):
                 depends = [prev_role]
             elif self.execution_mode == "fan_in":
                 # Fan-in: all previous steps feed into this one
-                depends = [s.node_id for s in steps]
+                depends = [s.id for s in steps]
 
             step = ExecutionStep(
-                node_id=str(agent_id),
+                id=str(agent_id),
                 refined_subtask=f"[{role}] {agent_cfg.get('system_prompt', '')}".strip(),
-                is_parallel=role in parallel_roles,
+                parallel=role in parallel_roles,
                 depends_on=depends,
-                input_data={
+                description={
                     "model_id": model_id,
                     "tools": agent_cfg.get("tools", []),
                     "role": role,

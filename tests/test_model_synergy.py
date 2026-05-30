@@ -6,7 +6,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
 from agent_utilities.models.knowledge_graph import (
     SelfModelNode,  # type: ignore[attr-defined]
 )

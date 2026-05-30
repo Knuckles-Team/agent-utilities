@@ -267,7 +267,7 @@ async def create_planner_handler(
     4. Sends the response back through the originating backend
 
     Args:
-        knowledge_engine: Optional ``RegistryGraphEngine`` for KG queries.
+        knowledge_engine: Optional ``IntelligenceGraphEngine`` for KG queries.
             If not provided, attempts to load from the default workspace.
 
     Returns:

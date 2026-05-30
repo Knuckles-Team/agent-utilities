@@ -15,9 +15,9 @@ import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from agent_utilities.orchestration import ParallelEngine
 
 from agent_utilities.capabilities.checkpointing import FileCheckpointStore
-from agent_utilities.graph.parallel_engine import ParallelEngine
 from agent_utilities.models.execution_manifest import (
     AgentSpec,
     ExecutionManifest,
@@ -48,15 +48,15 @@ Compile final PDF reports for the executives.
     assert len(plan.steps) == 3
 
     # Step 1
-    assert plan.steps[0].node_id == "research-agent"
+    assert plan.steps[0].id == "research-agent"
     assert len(plan.steps[0].depends_on) == 0
 
     # Step 2
-    assert plan.steps[1].node_id == "auditor-agent"
+    assert plan.steps[1].id == "auditor-agent"
     assert plan.steps[1].depends_on == ["research-agent"]
 
     # Step 3
-    assert plan.steps[2].node_id == "reporting-agent"
+    assert plan.steps[2].id == "reporting-agent"
     assert set(plan.steps[2].depends_on) == {"researcher", "auditor-agent"}
 
 

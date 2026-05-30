@@ -1,17 +1,19 @@
 import pytest
-from starlette.testclient import TestClient
 from starlette.applications import Starlette
+from starlette.testclient import TestClient
+
 from agent_utilities.core.sessions import (
-    get_all_sessions,
-    get_session_details,
-    delete_session,
-    submit_session_reply,
+    cancel_goal,
     cancel_session_run,
     create_goal,
-    list_goals,
+    delete_session,
+    get_all_sessions,
     get_goal_iterations,
-    cancel_goal,
+    get_session_details,
+    list_goals,
+    submit_session_reply,
 )
+
 
 @pytest.fixture
 def client():
@@ -19,13 +21,16 @@ def client():
     app.add_route("/sessions", get_all_sessions, methods=["GET"])
     app.add_route("/sessions/{session_id}", get_session_details, methods=["GET"])
     app.add_route("/sessions/{session_id}", delete_session, methods=["DELETE"])
-    app.add_route("/sessions/{session_id}/reply", submit_session_reply, methods=["POST"])
+    app.add_route(
+        "/sessions/{session_id}/reply", submit_session_reply, methods=["POST"]
+    )
     app.add_route("/sessions/{session_id}/cancel", cancel_session_run, methods=["POST"])
     app.add_route("/goals", create_goal, methods=["POST"])
     app.add_route("/goals", list_goals, methods=["GET"])
     app.add_route("/goals/{goal_id}/iterations", get_goal_iterations, methods=["GET"])
     app.add_route("/goals/{goal_id}/cancel", cancel_goal, methods=["POST"])
     return TestClient(app)
+
 
 def test_sessions_and_goals_flow(client):
     # 1. Retrieve sessions list
@@ -34,7 +39,9 @@ def test_sessions_and_goals_flow(client):
     assert isinstance(resp.json(), list)
 
     # 2. Launch a mock autonomous goal
-    resp = client.post("/goals", json={"objective": "Test autonomous pipeline execution"})
+    resp = client.post(
+        "/goals", json={"objective": "Test autonomous pipeline execution"}
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "success"
@@ -63,7 +70,9 @@ def test_sessions_and_goals_flow(client):
     assert sess_data["id"] == session_id
 
     # 6. Submit reply to session
-    resp = client.post(f"/sessions/{session_id}/reply", json={"content": "Continue execution"})
+    resp = client.post(
+        f"/sessions/{session_id}/reply", json={"content": "Continue execution"}
+    )
     assert resp.status_code == 200
     assert resp.json()["status"] == "success"
 

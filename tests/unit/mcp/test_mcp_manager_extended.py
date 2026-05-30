@@ -1008,15 +1008,15 @@ async def test_extract_server_uses_id_when_name_missing() -> None:
 
 """Coverage push for agent_utilities.tools.knowledge_tools.
 
-Targets all CRUD operations with a mocked RegistryGraphEngine.  Each tool
+Targets all CRUD operations with a mocked IntelligenceGraphEngine.  Each tool
 exercises the no-engine path, the happy path, and any error branches.
 """
 
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 from pydantic_ai import RunContext
 
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models import AgentDeps
 from agent_utilities.tools import knowledge_tools as kt
 

@@ -76,13 +76,14 @@ class TestServiceRegistry:
         assert r1 is r2
 
     def test_register_with_kg(self):
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
         from agent_utilities.graph.service_registry import ServiceRegistry
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
-        g = GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(g, backend=None)
+        GraphComputeEngine(backend_type="rust")
+        engine = IntelligenceGraphEngine(db_path=":memory:")
         registry = ServiceRegistry()
         registry.initialize()
         # No backend = register_with_kg will gracefully skip (backend=None)

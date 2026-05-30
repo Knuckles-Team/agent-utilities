@@ -261,9 +261,9 @@ class TestBudgetEnforcement:
         )
         # Should only show 3 features
         feature_lines = [
-            l
-            for l in result.split("\n")
-            if l.strip().startswith(("a", "b", "c", "d", "e", "f", "g"))
+            line
+            for line in result.split("\n")
+            if line.strip().startswith(("a", "b", "c", "d", "e", "f", "g"))
         ]
         assert len(feature_lines) <= 3
 

@@ -10,7 +10,6 @@ import math
 from unittest.mock import MagicMock, patch
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
 from agent_utilities.models.schema_pack import (
     BacklinkBoostStrategy,
     SchemaPack,

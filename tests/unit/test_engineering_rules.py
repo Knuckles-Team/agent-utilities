@@ -371,7 +371,9 @@ class MockEngine:
     """Minimal mock for IntelligenceGraphEngine."""
 
     def __init__(self):
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = None

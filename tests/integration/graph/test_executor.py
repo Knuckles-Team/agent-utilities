@@ -89,7 +89,7 @@ async def test_get_domain_tools_basic(mock_deps):
 @pytest.mark.asyncio
 async def test_execute_specialized_step_subagent_target(mock_deps):
     state = GraphState(query="test query")
-    state.plan = GraphPlan(steps=[ExecutionStep(node_id="specialist")])
+    state.plan = GraphPlan(steps=[ExecutionStep(id="specialist")])
     ctx = MagicMock()
     ctx.state = state
     ctx.deps = mock_deps

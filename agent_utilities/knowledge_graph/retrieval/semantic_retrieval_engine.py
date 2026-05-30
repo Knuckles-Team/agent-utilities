@@ -325,12 +325,12 @@ class KGNativeRetrievalRetriever:
         Returns:
             Number of clusters created.
         """
-        nodes_with_embeddings = [n for n in nodes if n.embedding]
+        nodes_with_embeddings = [n for n in nodes if n.embedding is not None]
         if len(nodes_with_embeddings) < 2:
             logger.debug("Not enough nodes with embeddings for clustering")
             return 0
 
-        vectors = [n.embedding for n in nodes_with_embeddings]
+        vectors = [n.embedding for n in nodes_with_embeddings if n.embedding is not None]
         clusters = self._spectral_nav.cluster(vectors, domain=domain)
 
         # Convert to KG nodes

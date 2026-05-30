@@ -150,7 +150,9 @@ class TestRLMOWLHelpers:
     async def test_kg_bulk_export_returns_nodes(self):
         from unittest.mock import MagicMock
 
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         graph = GraphComputeEngine(backend_type="rust")
         graph.add_node("m1", type="memory", name="Test Memory 1")
@@ -171,7 +173,9 @@ class TestRLMOWLHelpers:
     async def test_kg_bulk_export_wildcard(self):
         from unittest.mock import MagicMock
 
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         graph = GraphComputeEngine(backend_type="rust")
         graph.add_node("m1", type="memory", name="Test")
@@ -190,7 +194,9 @@ class TestRLMOWLHelpers:
     async def test_kg_bulk_export_limit(self):
         from unittest.mock import MagicMock
 
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         graph = GraphComputeEngine(backend_type="rust")
         for i in range(100):

@@ -9,7 +9,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent_utilities.security.browser_auth import generate_pkce
-from agent_utilities.security.secrets_client import InEpistemicGraphBackend, SecretsClient
+from agent_utilities.security.secrets_client import (
+    InEpistemicGraphBackend,
+    SecretsClient,
+)
 from agent_utilities.security.xai_auth import (
     XaiAuthManager,
     validate_xai_oauth_endpoint,

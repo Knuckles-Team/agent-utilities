@@ -140,7 +140,7 @@ async def test_execute_domain_logic_approval_required():
 @pytest.mark.asyncio
 async def test_execute_specialized_step():
     state = GraphState(query="test")
-    state.plan = GraphPlan(steps=[ExecutionStep(node_id="qa")])
+    state.plan = GraphPlan(steps=[ExecutionStep(id="qa")])
     deps = GraphDeps(
         tag_prompts={},
         tag_env_vars={},

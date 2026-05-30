@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import time
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.graph.reactive import (
@@ -17,6 +16,7 @@ from agent_utilities.graph.reactive import (
     reactive_behavior,
 )
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.knowledge_graph import EventNode
 from agent_utilities.observability.token_tracker import (
     TokenUsageRecord,
@@ -25,8 +25,10 @@ from agent_utilities.observability.token_tracker import (
 
 # ── Mock Engine & Context setup ──────────────────────────────────────
 
+
 class MockEngine:
     """Minimal mock engine satisfying active engine references."""
+
     _instance = None
 
     def __init__(self):
@@ -56,6 +58,7 @@ def mock_engine_singleton(monkeypatch):
 
 # ── EventLedger Tests ────────────────────────────────────────────────
 
+
 class TestEventLedger:
     def test_append_event_persists_and_links(self, mock_engine_singleton):
         ledger = EventLedger(engine=mock_engine_singleton)
@@ -64,7 +67,7 @@ class TestEventLedger:
         # 1. Append first event
         evt1 = ledger.append_event(
             run_id=run_id,
-            node_id="agent_alpha",
+            id="agent_alpha",
             event_type="task.proposed",
             payload={"task": "do research"},
             severity="info",
@@ -83,7 +86,7 @@ class TestEventLedger:
         # 2. Append second event to check chronological linkage
         evt2 = ledger.append_event(
             run_id=run_id,
-            node_id="agent_alpha",
+            id="agent_alpha",
             event_type="task.completed",
             payload={"status": "success"},
             severity="info",
@@ -91,15 +94,17 @@ class TestEventLedger:
 
         # Verify WAS_DERIVED_FROM edge linking event 2 to event 1
         assert mock_engine_singleton.graph.has_edge(evt2.id, evt1.id)
-        edge_data_lineage = mock_engine_singleton.graph.get_edge_data(evt2.id, evt1.id)[0]
+        edge_data_lineage = mock_engine_singleton.graph.get_edge_data(evt2.id, evt1.id)[
+            0
+        ]
         assert edge_data_lineage["type"] == "WAS_DERIVED_FROM"
 
     def test_get_run_events_sorted(self, mock_engine_singleton):
         ledger = EventLedger(engine=mock_engine_singleton)
         run_id = "run:test:2"
 
-        evt1 = ledger.append_event(run_id=run_id, node_id="a", event_type="step.1")
-        evt2 = ledger.append_event(run_id=run_id, node_id="a", event_type="step.2")
+        evt1 = ledger.append_event(run_id=run_id, id="a", event_type="step.1")
+        evt2 = ledger.append_event(run_id=run_id, id="a", event_type="step.2")
 
         events = ledger.get_run_events(run_id)
         assert len(events) == 2
@@ -110,9 +115,9 @@ class TestEventLedger:
         ledger = EventLedger(engine=mock_engine_singleton)
         run_id = "run:test:3"
 
-        evt1 = ledger.append_event(run_id=run_id, node_id="a", event_type="init")
-        evt2 = ledger.append_event(run_id=run_id, node_id="a", event_type="middle")
-        ledger.append_event(run_id=run_id, node_id="a", event_type="end")
+        evt1 = ledger.append_event(run_id=run_id, id="a", event_type="init")
+        evt2 = ledger.append_event(run_id=run_id, id="a", event_type="middle")
+        ledger.append_event(run_id=run_id, id="a", event_type="end")
 
         # Fork execution up to 'middle' event
         forked = ledger.fork_run(run_id, evt2.id)
@@ -122,6 +127,7 @@ class TestEventLedger:
 
 
 # ── BehaviorDispatcher Tests ──────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 class TestBehaviorDispatcher:
@@ -160,6 +166,7 @@ class TestBehaviorDispatcher:
 
 
 # ── BudgetGuard Tests ──────────────────────────────────────────────────
+
 
 class TestBudgetGuard:
     def test_time_limit_breached(self, mock_engine_singleton):
@@ -220,7 +227,7 @@ class TestBudgetGuard:
         guard = BudgetGuard(
             max_cost_usd=0.01,
             token_tracker=tracker,
-            prompt_cost_per_token=0.001,   # $1.00 per 1000 tokens
+            prompt_cost_per_token=0.001,  # $1.00 per 1000 tokens
             response_cost_per_token=0.005,  # $5.00 per 1000 tokens
         )
 
@@ -228,8 +235,8 @@ class TestBudgetGuard:
         rec = TokenUsageRecord(
             agent_name="agent_heavy",
             session_id=run_id,
-            prompt_tokens=5,     # Cost = 5 * 0.001 = $0.005
-            response_tokens=2,   # Cost = 2 * 0.005 = $0.010 (Total = $0.015 > $0.010 limit)
+            prompt_tokens=5,  # Cost = 5 * 0.001 = $0.005
+            response_tokens=2,  # Cost = 2 * 0.005 = $0.010 (Total = $0.015 > $0.010 limit)
         )
         tracker.record(rec)
 

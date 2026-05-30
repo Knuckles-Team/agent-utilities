@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.graph.models import (
@@ -11,7 +10,9 @@ from agent_utilities.graph.models import (
     Source,
 )
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
+
 
 @pytest.fixture(autouse=True)
 def mock_epistemic_graph_client():
@@ -30,7 +31,7 @@ async def test_kb_model_validation():
         doi="10.1234/nature.2026",
         authors=["Alice", "Bob"],
     )
-    assert src.node_id == "src:1"
+    assert src.id == "src:1"
     assert "Source" in src.labels
 
     # Concept
@@ -57,8 +58,8 @@ async def test_kb_model_validation():
 async def test_pruning_with_permanent_flag():
     """Test that is_permanent flag protects nodes from pruning."""
     mock_backend = MagicMock()
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
+    GraphComputeEngine(backend_type="rust")
+    engine = IntelligenceGraphEngine(backend=mock_backend)
     maintainer = GraphMaintainer(engine=engine)
 
     # Mock execute for pruning query
@@ -86,8 +87,8 @@ async def test_concept_merging():
         None,  # For the delete query
     ]
 
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
+    GraphComputeEngine(backend_type="rust")
+    engine = IntelligenceGraphEngine(backend=mock_backend)
     maintainer = GraphMaintainer(engine=engine)
 
     with patch(
@@ -106,8 +107,8 @@ async def test_concept_merging():
 async def test_cross_domain_emergence():
     """Test that topics are linked via shared concepts or similarity."""
     mock_backend = MagicMock()
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph, backend=mock_backend)
+    GraphComputeEngine(backend_type="rust")
+    engine = IntelligenceGraphEngine(backend=mock_backend)
     maintainer = GraphMaintainer(engine=engine)
 
     # This tests the link_topics_to_policies_and_processes logic (extended for general topics)

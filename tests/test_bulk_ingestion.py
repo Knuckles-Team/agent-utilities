@@ -4,8 +4,6 @@
 
 from typing import Any
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -42,9 +40,8 @@ class MockBackend(GraphBackend):
 
 
 def test_ingest_external_batch():
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph)
-    engine.backend = MockBackend()
+    mock_backend = MockBackend()
+    engine = IntelligenceGraphEngine(backend=mock_backend)
 
     entities = [
         {
@@ -72,7 +69,6 @@ def test_ingest_external_batch():
     assert result["backend"] is True
 
     # Verify the backend received the UNWIND batch execution
-    mock_backend = engine.backend
     assert len(mock_backend.batches) == 2
 
     node_query, node_params = mock_backend.batches[0]
@@ -86,28 +82,3 @@ def test_ingest_external_batch():
     assert "MERGE (s)-[r:EXTERNAL_LINK {type: row.type}]->(t)" in rel_query
     assert len(rel_params) == 1
     assert rel_params[0]["source"] == "user:1"
-
-
-def test_ingest_external_batch_fallback():
-    # If backend is None, it should fall back to NetworkX loop
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph)
-    engine.backend = None
-
-    entities = [
-        {
-            "id": "user:1",
-            "name": "Alice",
-            "type": "Employee",
-            "department": "Engineering",
-        }
-    ]
-
-    result = engine.ingest_external_batch("active_directory", entities)
-
-    assert result["status"] == "success"
-    assert result["backend"] is False
-
-    # Check NetworkX mirror
-    assert "user:1" in engine.graph.nodes
-    assert engine.graph.nodes["user:1"]["name"] == "Alice"

@@ -163,7 +163,7 @@ class DebateEngine:
         node_id = f"Debate_{session.session_id}_{session.context.ticker}"
 
         self.engine.add_node(
-            node_id=node_id,
+            id=node_id,
             node_type="DebateSession",
             ticker=session.context.ticker,
             decision=session.final_decision,
@@ -172,7 +172,7 @@ class DebateEngine:
 
         if session.risk_assessment:
             self.engine.add_node(
-                node_id=f"{node_id}_Risk",
+                id=f"{node_id}_Risk",
                 node_type="RiskAssessment",
                 approved=session.risk_assessment.approved,
                 reasoning=session.risk_assessment.reasoning,

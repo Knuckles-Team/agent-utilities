@@ -120,7 +120,6 @@ def __getattr__(name):
         "register_on_enter_hook",
         "register_on_exit_hook",
         "run_graph",
-        "run_graph_stream",
         "run_orthogonal_regions",
         "validate_graph",
     ]:
@@ -134,7 +133,6 @@ def __getattr__(name):
             register_on_enter_hook,
             register_on_exit_hook,
             run_graph,
-            run_graph_stream,
             run_orthogonal_regions,
             validate_graph,
         )

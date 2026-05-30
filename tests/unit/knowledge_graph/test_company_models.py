@@ -8,6 +8,7 @@ and OWL ontology alignment.
 """
 
 import pytest
+from pydantic import ValidationError
 
 from agent_utilities.models.company import (
     KPI,
@@ -177,7 +178,7 @@ class TestAgentDepartment:
         assert dept.prompt_agent == "hr_operations_coordinator"
 
     def test_automation_level_bounds(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             AgentDepartment(
                 id="bad",
                 name="Bad Dept",

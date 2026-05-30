@@ -3,8 +3,6 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from agent_utilities import mcp_utilities
 from agent_utilities.mcp.kg_coordinator import KGCoordinator
 
@@ -65,8 +63,13 @@ def test_kg_coordinator_cleanup_rogue(mock_process, mock_net_conns):
 @patch("agent_utilities.mcp.kg_coordinator.KGCoordinator.is_server_healthy")
 @patch("agent_utilities.mcp.kg_coordinator.KGCoordinator.cleanup_rogue_instances")
 @patch("time.sleep")
-def test_kg_coordinator_spawn_server(mock_sleep, mock_cleanup, mock_healthy, mock_popen):
-    mock_healthy.side_effect = [False, True]  # first check unhealthy, second check healthy
+def test_kg_coordinator_spawn_server(
+    mock_sleep, mock_cleanup, mock_healthy, mock_popen
+):
+    mock_healthy.side_effect = [
+        False,
+        True,
+    ]  # first check unhealthy, second check healthy
 
     success = KGCoordinator.spawn_server("127.0.0.1", 8100)
 
@@ -87,7 +90,7 @@ def test_load_config_intercepts_kg(mock_get_client, mock_load_mcp):
             "agent-utilities-kg": {
                 "command": "uv",
                 "args": ["run", "python", "-m", "agent_utilities.mcp.kg_server"],
-            }
+            },
         }
     }
 

@@ -78,7 +78,7 @@ async def test_verifier_step_success(mock_deps):
     """Test verifier_step succeeds when validation score is high."""
     state = GraphState(query="test query")
     state.results_registry["node1"] = "execution result"
-    state.plan = GraphPlan(steps=[ExecutionStep(node_id="node1", is_parallel=False)])
+    state.plan = GraphPlan(steps=[ExecutionStep(id="node1", parallel=False)])
 
     ctx = MagicMock()
     ctx.state = state
@@ -115,7 +115,7 @@ async def test_verifier_step_retry(mock_deps):
     """Test verifier_step triggers re-planning when validation score is very low."""
     state = GraphState(query="test query")
     state.results_registry["node1"] = "poor result"
-    state.plan = GraphPlan(steps=[ExecutionStep(node_id="node1", is_parallel=False)])
+    state.plan = GraphPlan(steps=[ExecutionStep(id="node1", parallel=False)])
 
     ctx = MagicMock()
     ctx.state = state
@@ -152,8 +152,8 @@ async def test_dispatcher_step_sequential(mock_deps):
     state = GraphState(query="test")
     state.plan = GraphPlan(
         steps=[
-            ExecutionStep(node_id="expert1", is_parallel=False),
-            ExecutionStep(node_id="verifier", is_parallel=False),
+            ExecutionStep(id="expert1", parallel=False),
+            ExecutionStep(id="verifier", parallel=False),
         ]
     )
     state.step_cursor = 0
@@ -167,7 +167,7 @@ async def test_dispatcher_step_sequential(mock_deps):
     res = await dispatcher_step(ctx)
     assert res == "parallel_batch_processor"
     assert state.pending_batch is not None
-    assert state.pending_batch.tasks[0].node_id == "expert1"
+    assert state.pending_batch.tasks[0].id == "expert1"
     assert state.step_cursor == 1
 
 
@@ -177,9 +177,9 @@ async def test_dispatcher_step_parallel(mock_deps):
     state = GraphState(query="test")
     state.plan = GraphPlan(
         steps=[
-            ExecutionStep(node_id="expert1", is_parallel=True),
-            ExecutionStep(node_id="expert2", is_parallel=True),
-            ExecutionStep(node_id="verifier", is_parallel=False),
+            ExecutionStep(id="expert1", parallel=True),
+            ExecutionStep(id="expert2", parallel=True),
+            ExecutionStep(id="verifier", parallel=False),
         ]
     )
     state.step_cursor = 0
@@ -194,7 +194,7 @@ async def test_dispatcher_step_parallel(mock_deps):
     assert res == "parallel_batch_processor"
     assert state.pending_batch is not None
     assert len(state.pending_batch.tasks) == 2
-    assert state.pending_batch.tasks[0].node_id == "expert1"
-    assert state.pending_batch.tasks[1].node_id == "expert2"
+    assert state.pending_batch.tasks[0].id == "expert1"
+    assert state.pending_batch.tasks[1].id == "expert2"
     assert state.step_cursor == 2
     assert state.pending_parallel_count == 2

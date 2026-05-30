@@ -1,17 +1,19 @@
 """CONCEPT:ECO-4.0"""
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
 @pytest.fixture
 def graph_engine():
     backend = LadybugBackend(db_path=":memory:")
     backend.create_schema()
-    engine = IntelligenceGraphEngine(graph=GraphComputeEngine(backend_type="rust"), backend=backend)
+    engine = IntelligenceGraphEngine(
+        graph=GraphComputeEngine(backend_type="rust"), backend=backend
+    )
     yield engine
     backend.close()
 

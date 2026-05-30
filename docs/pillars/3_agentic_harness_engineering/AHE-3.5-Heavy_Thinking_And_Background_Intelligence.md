@@ -4,7 +4,7 @@
 Two-stage parallel-then-deliberate reasoning pipeline with tiered complexity gating, trajectory pruning/shuffling, iterative refinement, and KG-native trajectory persistence (CONCEPT:AHE-3.4).
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/heavy_thinking.py``
+- **Source Code**: ``agent_utilities/graph/manifest_generators.py``
 - **Pillar**: AHE
 
 ## Documentation Coverage

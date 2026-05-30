@@ -3,8 +3,9 @@
 CONCEPT:KG-2.18
 """
 
-import pytest
 import epistemic_graph.quant as eq
+import pytest
+
 
 def test_quant_moving_averages_and_variance():
     """Verify that moving_average, exponential_moving_average, and rolling_variance calculate correctly."""
@@ -56,7 +57,9 @@ def test_quant_orderbook_matching_simulation():
     # 1. Simulate a buy order (crosses ask price)
     # A market buy order at 101.5 for 5 units should match the ask at 101.0
     # Remaining ask at 101.0 should be 5 units.
-    updated_bids, updated_asks, trades = eq.simulate_order_matching(bids, asks, 101.5, 5.0, True)
+    updated_bids, updated_asks, trades = eq.simulate_order_matching(
+        bids, asks, 101.5, 5.0, True
+    )
 
     # We expect 1 trade of 5.0 units at 101.0
     assert len(trades) == 1
@@ -72,7 +75,9 @@ def test_quant_orderbook_matching_simulation():
     # 2. Simulate a sell order (crosses bid price)
     # A market sell order at 98.5 for 12 units should consume 10 units at 99.0 and leave 2 units unmatched
     # Remaining bids: buy 5 at 98.0 (since the sell limit was 98.5, it won't cross 98.0)
-    updated_bids2, updated_asks2, trades2 = eq.simulate_order_matching(bids, asks, 98.5, 12.0, False)
+    updated_bids2, updated_asks2, trades2 = eq.simulate_order_matching(
+        bids, asks, 98.5, 12.0, False
+    )
 
     # We expect 1 trade of 10.0 units at 99.0
     assert len(trades2) == 1

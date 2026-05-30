@@ -63,8 +63,8 @@ def manifest_from_planner(
     for step in plan.steps:
         agents.append(
             AgentSpec(
-                agent_id=step.node_id,
-                role=step.node_id,
+                agent_id=step.id,
+                role=step.id,
                 task_template=step.refined_subtask or query,
                 depends_on=step.depends_on,
                 timeout=step.timeout if step.timeout != 3600.0 else None,
@@ -161,8 +161,8 @@ def manifest_from_workflow(
     for step in workflow.steps:
         agents.append(
             AgentSpec(
-                agent_id=step.node_id,
-                role=step.node_id,
+                agent_id=step.id,
+                role=step.id,
                 task_template=step.refined_subtask or query,
                 depends_on=step.depends_on,
             )
@@ -175,77 +175,6 @@ def manifest_from_workflow(
         execution_mode="wave",
         source="workflow",
         metadata=workflow.metadata,
-    )
-
-
-# ── From Heavy Thinking ────────────────────────────────────────────
-
-
-def manifest_from_heavy_thinking(
-    query: str,
-    k: int = 4,
-    context: str = "",
-) -> ExecutionManifest:
-    """Generate manifest for heavy thinking parallel reasoning.
-
-    CONCEPT:ORCH-1.25 — Parallel Engine
-    CONCEPT:AHE-3.4 — Heavy Thinking & Background Intelligence
-
-    Creates K parallel thinker agents + 1 deliberator agent with
-    ``depends_on=[all thinkers]``. This replaces the standalone
-    ``HeavyThinkingOrchestrator`` with a manifest-native approach.
-
-    Args:
-        query: The query to reason about.
-        k: Number of parallel thinker agents (default 4).
-        context: Optional shared context.
-
-    Returns:
-        An ``ExecutionManifest`` with K+1 agents (thinkers + deliberator).
-    """
-    thinker_ids = [f"thinker_{i}" for i in range(k)]
-
-    thinkers = [
-        AgentSpec(
-            agent_id=tid,
-            role="independent_thinker",
-            system_prompt=(
-                "You are an independent reasoning agent. Think through this "
-                "problem carefully and provide your best answer. Show your "
-                "complete reasoning process. End with a clear final answer."
-            ),
-            task_template=query,
-        )
-        for tid in thinker_ids
-    ]
-
-    deliberator = AgentSpec(
-        agent_id="deliberator",
-        role="deliberation_agent",
-        system_prompt=(
-            "You are a deliberation agent performing sequential analysis.\n\n"
-            "You have received multiple independent reasoning trajectories "
-            "for the same query. Your task:\n"
-            "1. Identify areas of AGREEMENT across trajectories\n"
-            "2. Identify areas of DISAGREEMENT and analyze why\n"
-            "3. Apply critical thinking to determine the CORRECT answer\n"
-            "4. Synthesize a final consensus answer with confidence score\n\n"
-            "Do NOT simply vote — reason deeply about WHY trajectories "
-            "agree or disagree and which reasoning chains are sound."
-        ),
-        task_template=query,
-        depends_on=thinker_ids,
-    )
-
-    return ExecutionManifest(
-        name=f"HeavyThinking(k={k}): {query[:40]}",
-        agents=[*thinkers, deliberator],
-        query=query,
-        context=context,
-        execution_mode="wave",
-        synthesis=SynthesisSpec(strategy="flat"),
-        source="heavy_thinking",
-        metadata={"k": k, "pattern": "parallel-then-deliberate"},
     )
 
 

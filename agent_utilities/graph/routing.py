@@ -255,7 +255,7 @@ async def router_step(
                             f"(success_rate={team.success_rate:.0%}, usage={team.usage_count})"
                         )
                         steps = [
-                            ExecutionStep(node_id=sid, input_data=ctx.state.query)
+                            ExecutionStep(id=sid, description=ctx.state.query)
                             for sid in team.specialist_ids
                         ]
                         plan = GraphPlan(
@@ -302,8 +302,8 @@ async def router_step(
                     # Convert KG result into a standard GraphPlan for the dispatcher
                     steps = [
                         ExecutionStep(
-                            node_id=cfg["agent_id"],
-                            input_data=ctx.state.query,
+                            id=cfg["agent_id"],
+                            description=ctx.state.query,
                         )
                         for cfg in kg_result.specialist_configs.values()
                     ]
@@ -500,7 +500,7 @@ async def router_step(
             f"into discrete batches. Emit multiple parallel ExecutionSteps assigned to an "
             f"extraction specialist (e.g., 'researcher' or 'web_researcher'), each targeting "
             f"a specific partition of the data in its 'refined_subtask' (e.g., 'Extract rows "
-            f"for entities A-D'). Set 'is_parallel=True' and configure 'access_list' to "
+            f"for entities A-D'). Set 'parallel=True' and configure 'access_list' to "
             f"share the shared workboard context if necessary.\n\n"
             f"### FAILURE CONTEXT\n{failure_context}\n\n"
             f"{discovery_context}"
@@ -731,13 +731,11 @@ async def router_step(
             steps = []
             for spec in available:
                 if spec.lower() in raw_text.lower():
-                    steps.append(
-                        ExecutionStep(node_id=spec, input_data=ctx.state.query)
-                    )
+                    steps.append(ExecutionStep(id=spec, description=ctx.state.query))
 
             if steps:
                 logger.info(
-                    f"Router Fallback: Extracted {len(steps)} steps from text: {[s.node_id for s in steps]}"
+                    f"Router Fallback: Extracted {len(steps)} steps from text: {[s.id for s in steps]}"
                 )
                 ctx.state.plan = GraphPlan(
                     steps=steps,
@@ -911,15 +909,11 @@ async def dispatcher_step(
         and hasattr(ctx.state.plan, "steps")
         and len(ctx.state.plan.steps) > 1
     ):
-        research = [s for s in ctx.state.plan.steps if s.node_id in _RESEARCH_NODES]
-        execution = [
-            s for s in ctx.state.plan.steps if s.node_id not in _RESEARCH_NODES
-        ]
+        research = [s for s in ctx.state.plan.steps if s.id in _RESEARCH_NODES]
+        execution = [s for s in ctx.state.plan.steps if s.id not in _RESEARCH_NODES]
         if research and execution:
             reordered = research + execution
-            if [s.node_id for s in reordered] != [
-                s.node_id for s in ctx.state.plan.steps
-            ]:
+            if [s.id for s in reordered] != [s.id for s in ctx.state.plan.steps]:
                 logger.info(
                     f"Dispatcher: Reordered plan — {len(research)} research step(s) "
                     f"moved before {len(execution)} execution step(s)."
@@ -931,7 +925,7 @@ async def dispatcher_step(
             ctx.deps.event_queue,
             "plan_created",
             steps=[
-                {"node_id": s.node_id, "is_parallel": s.is_parallel}
+                {"node_id": s.id, "is_parallel": s.parallel}
                 for s in ctx.state.plan.steps
             ],
             step_count=len(ctx.state.plan.steps),
@@ -986,24 +980,24 @@ async def dispatcher_step(
     }
 
     # Check if this is the start of a parallel batch
-    if not current_step.is_parallel:
+    if not current_step.parallel:
         ctx.state.step_cursor += 1
         ctx.state.pending_parallel_count = 1
 
         # If it's a meta-node, return the ID string directly
-        if current_step.node_id in meta_nodes:
-            logger.info(f"Dispatcher: Routing to meta-node: {current_step.node_id}")
-            return current_step.node_id
+        if current_step.id in meta_nodes:
+            logger.info(f"Dispatcher: Routing to meta-node: {current_step.id}")
+            return current_step.id
 
         logger.info(
-            f"Dispatcher: Dispatching sequential expert task: {current_step.node_id}"
+            f"Dispatcher: Dispatching sequential expert task: {current_step.id}"
         )
         emit_graph_event(
             ctx.deps.event_queue,
             "step_dispatched",
-            node_id=current_step.node_id,
+            id=current_step.id,
             step_index=ctx.state.step_cursor - 1,
-            is_parallel=False,
+            parallel=False,
         )
 
         # CONCEPT:ORCH-1.0 — Stigmergy Signal Board injection
@@ -1017,7 +1011,7 @@ async def dispatcher_step(
             emit_graph_event(
                 ctx.deps.event_queue,
                 "signal_board_context",
-                node_id=current_step.node_id,
+                id=current_step.id,
                 signals=dict(ctx.state.signal_board),
                 summary=signal_summary[:500],
             )
@@ -1037,7 +1031,7 @@ async def dispatcher_step(
     batch = []
     while (
         ctx.state.step_cursor < len(ctx.state.plan.steps)
-        and ctx.state.plan.steps[ctx.state.step_cursor].is_parallel
+        and ctx.state.plan.steps[ctx.state.step_cursor].parallel
     ):
         batch.append(ctx.state.plan.steps[ctx.state.step_cursor])
         ctx.state.step_cursor += 1
@@ -1049,7 +1043,7 @@ async def dispatcher_step(
     emit_graph_event(
         ctx.deps.event_queue,
         "batch_dispatched",
-        nodes=[s.node_id for s in batch],
+        nodes=[s.id for s in batch],
         batch_size=len(batch),
     )
 
@@ -1102,7 +1096,7 @@ async def expert_executor_step(
 
     """
     step = ctx.inputs
-    node_id = step.node_id
+    node_id = step.id
 
     # Reset local retries for this new expert node
     ctx.state.current_node_retries = 0
@@ -1153,7 +1147,7 @@ async def expert_executor_step(
                 branch_name,
                 {
                     "node_id": node_id,
-                    "input_data": step.input_data,
+                    "input_data": step.description,
                     "results_registry": dict(ctx.state.results_registry),
                 },
             )
@@ -1179,7 +1173,7 @@ async def expert_executor_step(
                 await verifier_step(cast(Any, ctx))
             elif node_id == "mcp_server":
                 domain = ""
-                input_data = step.input_data
+                input_data = step.description
                 if isinstance(input_data, dict):
                     domain = input_data.get("domain", "")
                 await _execute_domain_logic(cast(Any, ctx), domain)
@@ -1240,7 +1234,7 @@ async def expert_executor_step(
                 )
 
                 async with dynamic_agent.run_stream(
-                    f"Task context: {step.input_data}"
+                    f"Task context: {step.description}"
                 ) as stream:
                     res = await asyncio.wait_for(
                         stream.get_output(), timeout=ctx.deps.verifier_timeout
@@ -1258,7 +1252,7 @@ async def expert_executor_step(
                 branch_name,
                 {
                     "node_id": node_id,
-                    "input_data": step.input_data,
+                    "input_data": step.description,
                     "output": node_result,
                     "results_registry": dict(ctx.state.results_registry),
                 },
@@ -1379,7 +1373,7 @@ async def mcp_server_step(
     emit_graph_event(
         ctx.deps.event_queue,
         "node_start",
-        node_id="mcp_server_execution",
+        id="mcp_server_execution",
         server=server_name,
     )
 
@@ -1474,7 +1468,7 @@ async def mcp_server_step(
         emit_graph_event(
             ctx.deps.event_queue,
             event_type="node_complete",
-            node_id="mcp_server_execution",
+            id="mcp_server_execution",
             server=server_name,
             result=str(ctx.state.results.get(server_name, ""))[:500],
         )

@@ -11,7 +11,6 @@ Validates:
 
 from unittest.mock import MagicMock
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.automation.research_pipeline import (
@@ -22,6 +21,7 @@ from agent_utilities.automation.research_pipeline import (
     PipelineReport,
     ResearchPipelineRunner,
 )
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
 @pytest.mark.concept("KG-2.11")

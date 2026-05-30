@@ -17,9 +17,9 @@ Covers:
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.kb.extractor import KBExtractor
 from agent_utilities.knowledge_graph.kb.ingestion import (
     KBIngestionEngine,

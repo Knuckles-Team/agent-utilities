@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # ---------------------------------------------------------------------------
 # Helpers

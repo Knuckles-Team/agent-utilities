@@ -191,7 +191,9 @@ class TestDataConnectorKGNodes:
         assert RegistryEdgeType.FALLS_BACK_TO == "falls_back_to"
 
     def test_fallback_chain_graph(self):
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         g = GraphComputeEngine(backend_type="rust")
         for name, priority in [("yahoo", 0), ("polygon", 1), ("alpha", 2)]:

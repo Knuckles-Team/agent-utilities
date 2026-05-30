@@ -635,8 +635,8 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                     if isinstance(self, IntelligenceGraphEngine):
                         self.add_node(
-                            node_type="EvolutionCycle",
                             node_id=cycle_id,
+                            node_type="EvolutionCycle",
                             properties={
                                 "triggered_by": "daemon",
                                 "topics_scanned": topic_count,
@@ -662,7 +662,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                     def _run_telemetry():
                         try:
-                            from agent_utilities.workflows.runner import WorkflowRunner
+                            from agent_utilities.orchestration import WorkflowRunner
 
                             runner = WorkflowRunner()
                             asyncio.run(

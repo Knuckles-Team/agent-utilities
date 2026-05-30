@@ -80,11 +80,11 @@ async def researcher_step(
     # If the dispatcher sent a specific question, use it as the prompt
     step_input = ctx.inputs
     research_query = ctx.state.query
-    if isinstance(step_input, ExecutionStep) and step_input.input_data:
-        if isinstance(step_input.input_data, dict):
-            research_query = step_input.input_data.get("question", research_query)
-        elif isinstance(step_input.input_data, str):
-            research_query = step_input.input_data
+    if isinstance(step_input, ExecutionStep) and step_input.description:
+        if isinstance(step_input.description, dict):
+            research_query = step_input.description.get("question", research_query)
+        elif isinstance(step_input.description, str):
+            research_query = step_input.description
 
     # Intelligent Researcher Sub-Agents (for internal reasoning)
     researcher_prompt = load_specialized_prompts("researcher")
@@ -216,7 +216,7 @@ async def planner_step(
             f"If the query requests extracting a large table of data across many entities "
             f"(e.g., 'Web2WideSearch'), decompose the extraction into discrete batches. Emit "
             f"multiple parallel ExecutionSteps assigned to an extraction specialist, each targeting "
-            f"a specific partition of the data in its 'refined_subtask'. Set 'is_parallel=True' "
+            f"a specific partition of the data in its 'refined_subtask'. Set 'parallel=True' "
             f"and configure 'access_list' to share the shared workboard context.\n\n"
             f"### MULTI-LEVEL ABSTRACTION LAYERING (CONCEPT:ORCH-1.3)\n"
             f"Do not attempt to plan every micro-step. Instead, emit coarse, high-level steps "
@@ -238,42 +238,8 @@ async def planner_step(
     rlm_config = RLMConfig()
 
     try:
-        # CONCEPT:AHE-3.4 — Heavy Thinking activation gate
-        # When the complexity estimator determines the query warrants
-        # deep multi-trajectory reasoning, use the Heavy Thinking pipeline
-        # instead of standard LATS or single-shot planning.
-        use_heavy_thinking = getattr(ctx.state, "use_heavy_thinking", False)
-        if not use_heavy_thinking and ctx.state.verification_attempts > 2:
-            # Auto-escalate to heavy thinking after multiple failures
-            try:
-                from .heavy_thinking import ComplexityEstimator
-
-                complexity = ComplexityEstimator.estimate(ctx.state.query)
-                if complexity >= 0.6:
-                    use_heavy_thinking = True
-                    logger.info(
-                        "Planner: Auto-escalating to Heavy Thinking "
-                        "(complexity=%.2f, attempts=%d)",
-                        complexity,
-                        ctx.state.verification_attempts,
-                    )
-            except Exception as e:
-                logger.debug("Complexity estimation failed: %s", e)
-
-        if use_heavy_thinking:
-            logger.info("Planner: Running in Heavy Thinking (CONCEPT:AHE-3.4) mode.")
-            from .heavy_thinking import HeavyThinkingPlanner as HTP
-
-            ht_planner = HTP(
-                context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{unified_context}",
-                deps=ctx.deps,
-                model=ctx.deps.agent_model,
-            )
-            ctx.state.plan = await ht_planner.search(ctx.state.query)
         # CONCEPT:ORCH-1.1 — LATS implementation fallback for complex failures
-        elif (
-            getattr(ctx.state, "use_lats", False) or ctx.state.verification_attempts > 1
-        ):
+        if getattr(ctx.state, "use_lats", False) or ctx.state.verification_attempts > 1:
             logger.info("Planner: Running in LATS (Language Agent Tree Search) mode.")
             lats_env = LATSPlanner(
                 context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{unified_context}",
@@ -355,13 +321,11 @@ async def planner_step(
             steps = []
             for spec in available:
                 if spec.lower() in raw_text.lower():
-                    steps.append(
-                        ExecutionStep(node_id=spec, input_data=ctx.state.query)
-                    )
+                    steps.append(ExecutionStep(id=spec, description=ctx.state.query))
 
             if steps:
                 logger.info(
-                    f"Planner Fallback: Extracted {len(steps)} steps from text: {[s.node_id for s in steps]}"
+                    f"Planner Fallback: Extracted {len(steps)} steps from text: {[s.id for s in steps]}"
                 )
                 ctx.state.plan = GraphPlan(
                     steps=steps,
@@ -966,13 +930,30 @@ async def execute_recursive_graph(
     )
 
     # Import here to avoid circular dependency
-    from .dynamic_graph_orchestrator import run_graph
+    from .builder import create_master_graph
 
-    result = await run_graph(  # type: ignore[call-arg]
+    # Reconstruct config from deps and recursive context
+    config = {
+        "tag_prompts": deps.tag_prompts,
+        "tag_env_vars": deps.tag_env_vars,
+        "mcp_toolsets": deps.mcp_toolsets,
+        "mcp_url": getattr(deps, "mcp_url", ""),
+        "mcp_config": getattr(deps, "mcp_config", ""),
+        "nodes": getattr(deps, "nodes", {}),
+        "sub_agents": getattr(deps, "sub_agents", {}),
+        "provider": getattr(deps, "provider", "openai"),
+        "exploration_notes": parent_context_notes,
+        "recursion_depth": context.recursion_depth,
+    }
+
+    graph = create_master_graph(config=config)
+
+    from agent_utilities.orchestration.engine import AgentOrchestrationEngine
+
+    result = await AgentOrchestrationEngine().execute_graph(
+        graph=graph,
+        config=config,
         query=refined_query,
-        deps=deps,
-        exploration_notes=parent_context_notes,
-        recursion_depth=context.recursion_depth,
     )
 
     # Extract result text

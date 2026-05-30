@@ -1,6 +1,5 @@
 """CONCEPT:KG-2.4"""
 
-from agent_utilities.knowledge_graph.core.graph_primitives import PyDiGraph
 from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     equivalence_classes,
     hasse_diagram,
@@ -10,6 +9,7 @@ from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     is_transitive,
     resolve_entities,
 )
+from agent_utilities.knowledge_graph.core.graph_primitives import PyDiGraph
 
 
 def test_is_reflexive():

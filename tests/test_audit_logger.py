@@ -229,8 +229,10 @@ class TestActionConstants:
 # PII Log Redaction & Audit Scrubbing Tests
 # ---------------------------------------------------------------------------
 
-from agent_utilities.observability.audit_logger import PiiRedactionFilter
 import logging
+
+from agent_utilities.observability.audit_logger import PiiRedactionFilter
+
 
 class TestPiiLogRedaction:
     def test_pii_redaction_filter(self):
@@ -249,17 +251,14 @@ class TestPiiLogRedaction:
 
     def test_audit_logger_pii_scrubbing(self, audit_logger):
         # Sensitive details with SSN and EIN
-        details = {
-            "ein": "12-3456789",
-            "metadata": {"ssn": "111-22-3333"}
-        }
+        details = {"ein": "12-3456789", "metadata": {"ssn": "111-22-3333"}}
         record = audit_logger.log(
-            actor="user-123-45-6789", # PII in actor
+            actor="user-123-45-6789",  # PII in actor
             action="agent.create",
             resource_type="agent",
-            resource_id="agent-99-9999999", # PII in resource_id
+            resource_id="agent-99-9999999",  # PII in resource_id
             details=details,
-            session_id="session-111-22-3333", # PII in session_id
+            session_id="session-111-22-3333",  # PII in session_id
         )
 
         assert record is not None

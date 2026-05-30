@@ -223,9 +223,9 @@ class WorkflowDistillationHook:
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         steps_md = []
         for i, step in enumerate(plan.steps):
-            steps_md.append(f"### Step {i + 1}: {step.node_id}")
+            steps_md.append(f"### Step {i + 1}: {step.id}")
             steps_md.append(
-                step.refined_subtask or step.input_data or "No task description."
+                step.refined_subtask or step.description or "No task description."
             )
             steps_md.append("")
 
@@ -301,7 +301,7 @@ def _compute_pattern_key(plan: GraphPlan) -> str:
     parts = []
     for step in plan.steps:
         dep_str = ",".join(sorted(step.depends_on)) if step.depends_on else "_"
-        parts.append(f"{step.node_id}:{dep_str}")
+        parts.append(f"{step.id}:{dep_str}")
     return "|".join(parts)
 
 

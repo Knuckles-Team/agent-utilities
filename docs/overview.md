@@ -203,7 +203,7 @@ graph TD
 | KG-2.15 | Transaction Proxy | Centralized gateway and transactional persistence layer |
 | KG-2.16 | Rust-Native Compute Engine | Rust-native `GraphComputeEngine` with full NX-API superset, zero NetworkX dependency |
 | KG-2.17 | Rust-Compiled Epistemic Reasoning Backend 🔬 | High-performance compiled Datalog forward-chaining reasoning backend via PyO3 FFI |
-| KG-2.18 | High-Performance Quant FFI Engine 🔬 | Vectorized finance math, rolling metric windows, and order book tick simulation |
+| KG-2.18 | High-Performance Quant Epistemic-Graph Engine 🔬 | Native-compiled quantitative metrics computation, portfolio optimization, regime detection, and order matching simulation engine (replacing Python `numpy`/`scipy`). |
 | KG-2.19 | Event Backbone | Protocol-based pub/sub with MemoryEventBackend (default) and RedpandaEventBackend (distributed) |
 | KG-2.20 | Query Router | Cost-based query planner routing to L1 Rust / L2 Cache / L3 Persistent / L4 Vector tiers |
 | KG-2.21 | Working Set Manager | LRU-evicting subgraph cache for L1 Rust engine with 50K node cap |
@@ -258,7 +258,7 @@ graph TD
 | OS-5.3 | Guardrails & Safety | Tool guard, rate limiting, content filtering |
 | OS-5.4 | Telemetry & Observability | OTEL, token tracking, audit logging |
 | OS-5.5 | Budget Guardrails | Reactive token/cost tracking, preemption thresholds, and homeostatic model downgrades |
-| OS-5.6 | Massive Scale | Pluggable distributed queues, epistemic-graph Rust FFI, and wasmtime sandbox integration |
+| OS-5.6 | Massive Scale | Pluggable distributed queues, epistemic-graph Rust UDS RPC, and wasmtime sandbox integration |
 
 ### Gateway Service Dashboard (GW-1.0)
 

@@ -1,11 +1,10 @@
 """CONCEPT:OS-5.1"""
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
 from agent_utilities.knowledge_graph.core.engine import (
     FocusedSubgraph,
     IntelligenceGraphEngine,
 )
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.codemap import CodemapArtifact, CodemapEdge, CodemapNode
 from agent_utilities.models.graph import ExecutionStep, GraphPlan
 from agent_utilities.models.sdd import ImplementationPlan, Task, Tasks, TaskStatus
@@ -72,9 +71,9 @@ def test_er_diagram_builder():
 def test_graph_plan_to_mermaid():
     plan = GraphPlan(
         steps=[
-            ExecutionStep(node_id="step1", status="completed"),
-            ExecutionStep(node_id="step2", depends_on=["step1"], status="in_progress"),
-            ExecutionStep(node_id="step3", depends_on=["step1"], is_parallel=True),
+            ExecutionStep(id="step1", status="completed"),
+            ExecutionStep(id="step2", depends_on=["step1"], status="in_progress"),
+            ExecutionStep(id="step3", depends_on=["step1"], parallel=True),
         ]
     )
     mermaid = plan.to_mermaid()
@@ -166,7 +165,7 @@ def test_kg_mermaid_generation():
     graph.add_node("mem1", type="memory", description="Some memory")
     graph.add_edge("agent1", "mem1", type="CREATED")
 
-    engine = IntelligenceGraphEngine(graph=graph)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     mermaid = engine.generate_mermaid_graph()
 
     # Account for sanitization
@@ -256,7 +255,7 @@ def test_get_graph_mermaid():
 def test_graph_plan_to_mermaid_failure():
     plan = GraphPlan(
         steps=[
-            ExecutionStep(node_id="fail_node", status="failed"),
+            ExecutionStep(id="fail_node", status="failed"),
         ]
     )
     mermaid = plan.to_mermaid()
@@ -315,8 +314,8 @@ def test_codemap_artifact_to_mermaid_extended():
 def test_graph_plan_to_acp_entries():
     plan = GraphPlan(
         steps=[
-            ExecutionStep(node_id="step1", input_data="data1", status="completed"),
-            ExecutionStep(node_id="step2", is_parallel=True, status="pending"),
+            ExecutionStep(id="step1", description="data1", status="completed"),
+            ExecutionStep(id="step2", parallel=True, status="pending"),
         ]
     )
     entries = plan.to_acp_plan_entries()

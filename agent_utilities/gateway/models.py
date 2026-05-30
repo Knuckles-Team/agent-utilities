@@ -10,13 +10,13 @@ but with full Pydantic typing.
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class ServiceCategory(str, Enum):
+class ServiceCategory(StrEnum):
     """Categories for grouping services on the dashboard."""
 
     INFRASTRUCTURE = "Infrastructure"

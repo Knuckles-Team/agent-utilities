@@ -23,9 +23,8 @@ class GraphComputeEngine:
     def __init__(self, graph_name: str = "__bus__", **kwargs: Any) -> None:
         from epistemic_graph.client import SyncEpistemicGraphClient
 
-        self._graph: Any = None
         self.graph: dict[str, Any] = {}
-        self._client: SyncEpistemicGraphClient | None = None
+        self._client: SyncEpistemicGraphClient
         self._mode: str = "embedded"
 
         try:
@@ -57,7 +56,6 @@ class GraphComputeEngine:
                     "Ensure the epistemic-graph-server daemon is running."
                 ) from retry_e
 
-        self._graph = self._client  # Alias for backward compat.
         self._mode = "service"
         logger.info(
             "Connected to epistemic-graph Tokio service (graph: %s).",
@@ -68,7 +66,7 @@ class GraphComputeEngine:
             if self._client:
                 # Try to create the graph so tests and dynamic instances don't fail
                 # if the graph doesn't exist in the Rust backend yet.
-                self._client.create_graph(graph_name)
+                self._client.tenants.create(graph_name)
         except Exception:
             # Graph may already exist — that's fine.
             pass
@@ -158,7 +156,7 @@ class GraphComputeEngine:
         props = dict(properties or {})
         props.update(kwargs)
         props = clean_props(props)
-        self._graph.add_node(node_id, props)
+        self._client.nodes.add(node_id, props)
 
     def add_edge(
         self,
@@ -206,38 +204,38 @@ class GraphComputeEngine:
             self.remove_edge(source_id, target_id)
 
         try:
-            self._graph.add_edge(source_id, target_id, props)
+            self._client.edges.add(source_id, target_id, props)
         except Exception:
             # Ensure nodes exist without overwriting their existing properties
             if not self.has_node(source_id):
-                self._graph.add_node(source_id, {})
+                self._client.nodes.add(source_id, {})
             if not self.has_node(target_id):
-                self._graph.add_node(target_id, {})
-            self._graph.add_edge(source_id, target_id, props)
+                self._client.nodes.add(target_id, {})
+            self._client.edges.add(source_id, target_id, props)
 
     def remove_node(self, node_id: str) -> None:
         """Remove a node and all of its associated edges."""
-        self._graph.remove_node(node_id)
+        self._client.nodes.remove(node_id)
 
     def remove_edge(self, source_id: str, target_id: str, key: Any = None) -> None:
         """Remove a directed edge between source and target."""
-        self._graph.remove_edge(source_id, target_id)
+        self._client.edges.remove(source_id, target_id)
 
     def has_node(self, node_id: str) -> bool:
         """Check if node_id exists in the graph."""
-        return self._graph.has_node(node_id)
+        return self._client.nodes.has(node_id)
 
     def has_edge(self, source_id: str, target_id: str) -> bool:
         """Check if a directed edge exists between source and target."""
-        return self._graph.has_edge(source_id, target_id)
+        return self._client.edges.has(source_id, target_id)
 
     def node_count(self) -> int:
         """Return the number of nodes in the graph."""
-        return self._graph.node_count()
+        return self._client.nodes.count()
 
     def edge_count(self) -> int:
         """Return the number of edges in the graph."""
-        return self._graph.edge_count()
+        return self._client.edges.count()
 
     # ── Graph Algorithms ─────────────────────────────────────────────────
 
@@ -248,17 +246,17 @@ class GraphComputeEngine:
             ValueError: If the graph contains dependency cycles.
         """
         try:
-            return self._graph.topological_sort()
+            return self._client.graph.topological_sort()
         except Exception as e:
             raise ValueError("Graph contains cycles") from e
 
     def find_cycle(self) -> list[str] | None:
         """Detect and return any cycles found within the graph."""
-        return self._graph.find_cycle()
+        return self._client.graph.find_cycle()
 
     def get_shortest_path(self, source_id: str, target_id: str) -> list[str] | None:
         """Get the shortest path between source and target nodes."""
-        return self._graph.get_shortest_path(source_id, target_id)
+        return self._client.graph.shortest_path(source_id, target_id)
 
     @staticmethod
     def _bfs_collect(
@@ -296,7 +294,7 @@ class GraphComputeEngine:
 
         Returns a list of dicts: [{'id': str, 'type': str, 'depth': int}]
         """
-        nodes = self._graph.get_blast_radius(node_id, max_depth)
+        nodes = self._client.graph.blast_radius(node_id, max_depth)
         res = []
         for i, nid in enumerate(nodes, start=1):
             res.append({"id": nid, "type": "Node", "depth": min(i, max_depth)})
@@ -304,21 +302,21 @@ class GraphComputeEngine:
 
     def parse_repository(self, root_path: str) -> None:
         """Parse repository AST natively using the Rust backend."""
-        self._graph.parse_repository(root_path)
+        self._client.graph.parse_repository(root_path)
 
     def vf2_subgraph_match(self, pattern: "GraphComputeEngine") -> list[dict[str, str]]:
         """Find all subgraph isomorphism matches from pattern to target graph."""
-        return self._graph.vf2_subgraph_match(pattern._graph)
+        return self._client.graph.vf2_subgraph_match(pattern._client)
 
     # ── Ledger Operations ────────────────────────────────────────────────
 
     def get_ledger(self) -> list[str]:
         """Retrieve the mutation transaction ledger log."""
-        return self._graph.get_ledger()
+        return self._client.ledger.get()
 
     def clear_ledger(self) -> None:
         """Clear the mutation transaction ledger log."""
-        self._graph.clear_ledger()
+        self._client.ledger.clear()
 
     @staticmethod
     def _parse_ledger_entry(tx: str) -> tuple[str, list[str]]:
@@ -333,25 +331,124 @@ class GraphComputeEngine:
 
     def apply_ledger(self, transactions: list[str]) -> None:
         """Replay mutations from a transaction ledger log."""
-        self._graph.apply_ledger(transactions)
+        self._client.ledger.apply(transactions)
+
+    def flush_ledger_to_backend(self, backend: Any) -> int:
+        """Flush the epistemic-graph mutation ledger to a persistent backend.
+
+        Args:
+            backend: A GraphBackend instance (e.g., LadybugBackend)
+
+        Returns:
+            int: The number of transactions flushed.
+        """
+        txs = self.get_ledger()
+        if not txs:
+            return 0
+
+        count = 0
+        for tx in txs:
+            op, args = self._parse_ledger_entry(tx)
+            if op == "AddNode" and len(args) >= 2:
+                node_id = args[0]
+                props_str = args[1]
+                try:
+                    props = json.loads(props_str)
+                except Exception:
+                    props = {}
+
+                node_type = props.get("type", props.get("node_type", "Entity"))
+                if node_type == "SYMBOL":
+                    symbol_type = props.get("symbol_type", "Unknown")
+                    file_path = props.get("file_path", "")
+                    ast_hash = props.get("ast_hash", "")
+                    name = props.get("name", node_id)
+                    metadata_str = json.dumps(props)
+
+                    query = (
+                        "MERGE (n:Symbol {id: $id}) "
+                        "SET n.type = 'SYMBOL', n.name = $name, "
+                        "n.symbol_type = $sym_type, n.file_path = $fp, "
+                        "n.ast_hash = $ast_hash, n.metadata = $meta"
+                    )
+                    try:
+                        backend.execute_write(
+                            query,
+                            parameters={
+                                "id": node_id,
+                                "name": name,
+                                "sym_type": symbol_type,
+                                "fp": file_path,
+                                "ast_hash": ast_hash,
+                                "meta": metadata_str,
+                            },
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to sync Symbol node {node_id}: {e}")
+                else:
+                    # Generic node fallback
+                    query = f"MERGE (n:{node_type} {{id: $id}}) SET n.metadata = $meta"
+                    try:
+                        backend.execute_write(
+                            query,
+                            parameters={
+                                "id": node_id,
+                                "meta": props_str,
+                            },
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to sync Node {node_id}: {e}")
+                count += 1
+            elif op == "AddEdge" and len(args) >= 3:
+                src = args[0]
+                tgt = args[1]
+                props_str = args[2]
+                try:
+                    props = json.loads(props_str)
+                except Exception:
+                    props = {}
+
+                edge_type = props.get("type") or props.get("edge_type") or "RELATED_TO"
+                # Sanitize edge type for cypher
+                edge_type = edge_type.replace(" ", "_").upper()
+                query = (
+                    f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) "
+                    f"MERGE (a)-[r:{edge_type}]->(b) "
+                    "SET r.metadata = $meta"
+                )
+                try:
+                    backend.execute_write(
+                        query,
+                        parameters={
+                            "src": src,
+                            "tgt": tgt,
+                            "meta": props_str,
+                        },
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to sync Edge {src}->{tgt}: {e}")
+                count += 1
+
+        self.clear_ledger()
+        return count
 
     # ── Serialization ────────────────────────────────────────────────────
 
     def to_json(self) -> str:
         """Serialize graph to JSON string representation."""
-        return self._graph.to_json()
+        return self._client.lifecycle.to_json()
 
     def from_json(self, json_str: str) -> None:
         """Deserialize graph from JSON string representation."""
-        self._graph.from_json(json_str)
+        self._client.lifecycle.from_json(json_str)
 
     # ── Internal Helpers ─────────────────────────────────────────────────
 
     def _get_all_nodes(self) -> list[str]:
-        return [nid for nid, _ in self._graph.get_nodes()]
+        return [nid for nid, _ in self._client.nodes.list()]
 
     def _get_node_properties(self, node_id: str) -> dict[str, Any]:
-        props_str = self._graph.get_node_properties(node_id)
+        props_str = self._client.nodes.properties(node_id)
         if props_str:
             try:
                 parsed = json.loads(props_str)
@@ -363,105 +460,115 @@ class GraphComputeEngine:
         return {}
 
     def _get_all_edges(self) -> list[tuple[str, str]]:
-        return [(src, tgt) for src, tgt, _ in self._graph.get_edges()]
+        return [(src, tgt) for src, tgt, _ in self._client.edges.list()]
 
     # ── Rust-native API wrappers ─────────────────────────────────────────
 
     def in_degree(self, node_id: str) -> int:
         """Return the in-degree of a node."""
         try:
-            return self._graph.in_degree(node_id)
+            return self._client.nodes.in_degree(node_id)
         except Exception:
             return 0
 
     def out_degree(self, node_id: str) -> int:
         """Return the out-degree of a node."""
         try:
-            return self._graph.out_degree(node_id)
+            return self._client.nodes.out_degree(node_id)
         except Exception:
             return 0
 
     def get_predecessors(self, node_id: str) -> list[str]:
         """Return predecessor node IDs."""
         try:
-            return self._graph.get_predecessors(node_id)
+            return self._client.nodes.predecessors(node_id)
         except Exception:
             return []
 
     def get_successors(self, node_id: str) -> list[str]:
         """Return successor node IDs."""
         try:
-            return self._graph.get_successors(node_id)
+            return self._client.nodes.successors(node_id)
         except Exception:
             return []
 
     def get_neighbors(self, node_id: str) -> list[str]:
         """Return all neighbor node IDs (predecessors + successors, deduplicated)."""
         try:
-            return self._graph.get_neighbors(node_id)
+            return self._client.nodes.neighbors(node_id)
         except Exception:
             return []
 
     def node_ids(self) -> list[str]:
         """Return all node IDs in the graph."""
-        return self._graph.node_ids()
+        return self._client.nodes.ids()
 
     def degree_centrality_all(self) -> list[tuple[str, float]]:
         """Compute degree centrality for all nodes."""
-        return self._graph.degree_centrality_all()
+        return self._client.analytics.degree_centrality_all()
 
     def pagerank(
         self, damping: float = 0.85, iterations: int = 100
     ) -> list[tuple[str, float]]:
         """Compute PageRank scores for all nodes."""
-        return self._graph.pagerank(damping, iterations)
+        return self._client.analytics.pagerank(damping, iterations)
 
     def connected_components(self) -> list[list[str]]:
         """Return weakly connected components as lists of node IDs."""
-        return self._graph.connected_components()
+        return self._client.graph.connected_components()
+
+    def strongly_connected_components(self) -> list[list[str]]:
+        """Return strongly connected components via Tarjan's algorithm.
+
+        CONCEPT:KG-2.16 — Tarjan's SCC via Tokio service (GIL-free).
+        """
+        return self._client.graph.strongly_connected_components()
+
+    def minimum_spanning_tree(self) -> list[tuple[str, str, float]]:
+        """Return the minimum spanning tree as (source, target, weight) edges.
+
+        CONCEPT:KG-2.16 — Kruskal's MST via Tokio service (GIL-free).
+        """
+        return self._client.graph.minimum_spanning_tree()
 
     def community_detection(self, resolution: float = 1.0) -> list[list[str]]:
-        """Detect communities using label propagation.
-
-        Args:
-            resolution: Resolution parameter for community granularity.
-        """
-        return self._graph.community_detection(resolution)
+        """Detect communities using label propagation."""
+        return self._client.graph.community_detection(resolution)
 
     def betweenness_centrality(self) -> list[tuple[str, float]]:
         """Compute betweenness centrality via Brandes' algorithm."""
-        return self._graph.compute_betweenness_centrality()
+        return self._client.analytics.betweenness_centrality()
 
     def graph_coloring(self) -> list[tuple[str, int]]:
         """Greedy graph coloring — assigns colors so no adjacent nodes share a color."""
-        return self._graph.graph_coloring()
+        return self._client.graph.graph_coloring()
 
     def compute_similarity_edges(
         self, threshold: float = 0.8
     ) -> list[tuple[str, str, float]]:
         """Compute similarity edges between nodes with embeddings."""
-        return self._graph.compute_similarity_edges(threshold)
+        return self._client.graph.compute_similarity_edges(threshold)
 
     def prune_by_lifecycle(
         self, max_age_secs: int = 0, min_score: float = 0.0
     ) -> dict[str, Any]:
         """Lifecycle-aware pruning: remove nodes past max_age or below min_score."""
-        result_json = self._graph.prune_by_lifecycle(max_age_secs, min_score)
+        result_json = self._client.lifecycle.prune(max_age_secs, min_score)
         return json.loads(result_json)
 
     def get_context_view(self, agent_id: str, max_tokens: int = 8000) -> dict[str, Any]:
         """Get an optimized context view for an agent within a token budget."""
-        result_json = self._graph.get_context_view(agent_id, max_tokens)
+        result_json = self._client.lifecycle.get_context_view(agent_id, max_tokens)
         return json.loads(result_json)
 
     def batch_update(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
-        """Batch update: apply multiple operations in a single FFI crossing."""
-        result_json = self._graph.batch_update(operations)
+        """Batch update: apply multiple operations in a single service call."""
+        result_json = self._client.lifecycle.batch_update(operations)
         return json.loads(result_json)
 
     def metrics(self) -> dict[str, Any]:
         """Runtime metrics for monitoring and observability."""
-        result_json = self._graph.metrics()
+        result_json = self._client.lifecycle.metrics()
         return json.loads(result_json)
 
     def personalized_pagerank(
@@ -472,13 +579,37 @@ class GraphComputeEngine:
     ) -> dict[str, float]:
         """Personalized PageRank with seed teleport nodes."""
         seeds = list((seed_nodes or {}).items())
-        result = self._graph.personalized_pagerank(seeds, damping, iterations)
+        result = self._client.analytics.personalized_pagerank(
+            seeds, damping, iterations
+        )
         return dict(result)
 
-    # ── Compatibility shims ──────────────────────────────────────────────
-    # These bridge legacy code that still uses NX-style property access
-    # (e.g. graph.nodes[id], graph.edges, node_id in graph) to the
-    # Rust-native API.  All hot paths route to Rust; these are thin wrappers.
+    # ── Batch Operations ─────────────────────────────────────────────────
+
+    def bulk_mutate(self, operations: list[dict[str, Any]]) -> Any:
+        """Send a batch of mutations in a single service call.
+
+        Each operation dict should have a ``method`` key and any required
+        parameters.  Example::
+
+            engine.bulk_mutate([
+                {"method": "AddNode", "node_id": "A", "properties_json": "{}"},
+                {"method": "AddEdge", "source_id": "A", "target_id": "B", ...},
+            ])
+        """
+        return self._client.lifecycle.batch_update(operations)
+
+    def evict_lru(self, max_nodes: int = 50_000) -> int:
+        """Evict oldest nodes to enforce an in-memory cap.
+
+        Returns the number of evicted nodes.
+        """
+        return self._client.lifecycle.evict_lru(max_nodes)
+
+    # ── Graph Traversal API ──────────────────────────────────────────────
+    # These provide the standard graph traversal interface used across
+    # the codebase (owl_bridge, graph_validator, memory_retriever, etc).
+    # All hot paths route to the Rust Tokio service; these are thin wrappers.
 
     @property
     def nodes(self) -> "_NodeView":
@@ -559,7 +690,7 @@ class GraphComputeEngine:
 
     def _get_edge_properties(self, source_id: str, target_id: str) -> dict[str, Any]:
         """Retrieve edge properties between two nodes."""
-        props_list = self._graph.get_edge_properties(source_id, target_id)
+        props_list = self._client.edges.properties(source_id, target_id)
         if props_list:
             try:
                 parsed = json.loads(props_list[0])

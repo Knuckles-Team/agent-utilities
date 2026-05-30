@@ -11,9 +11,9 @@ Validates:
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.source_resolver import (
     DEFAULT_RESOLVE_DIR,
     KGSourceResolver,
@@ -77,6 +77,7 @@ class TestKGSourceResolverWithEngine:
 
     def setup_method(self):
         import uuid
+
         graph_name = f"test_graph_{uuid.uuid4().hex}"
         self.graph = GraphComputeEngine(backend_type="rust", graph_name=graph_name)
         self.engine = MagicMock()

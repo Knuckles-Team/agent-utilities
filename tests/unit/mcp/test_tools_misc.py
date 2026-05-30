@@ -21,8 +21,9 @@ Covers:
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # ---------------------------------------------------------------------------
 # tool_guard

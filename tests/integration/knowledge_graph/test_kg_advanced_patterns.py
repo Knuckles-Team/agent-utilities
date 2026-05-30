@@ -2,11 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.backends import set_active_backend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRetriever
 
@@ -40,7 +40,7 @@ def memory_engine():
     graph.add_edge("entity:module_1", "entity:module_2", type="DEPENDS_ON")
     graph.add_edge("entity:module_2", "entity:module_3", type="DEPENDS_ON")
 
-    engine = IntelligenceGraphEngine(graph=graph)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     return engine
 
 

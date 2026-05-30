@@ -78,7 +78,7 @@ async def run_agent(
 
     if agent_name.lower() == "enterprise":
         from agent_utilities.graph.manifest_generators import manifest_for_enterprise
-        from agent_utilities.graph.parallel_engine import ParallelEngine
+        from agent_utilities.orchestration import ParallelEngine
 
         logger.info(
             "[ORCH-1.27] Executing full Enterprise Autonomous Company orchestration"
@@ -571,7 +571,7 @@ async def _execute_graph(
     the A2A agent and the main server.
     """
     from agent_utilities.graph.builder import create_graph_agent
-    from agent_utilities.graph.dynamic_graph_orchestrator import run_graph
+    from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 
     # Build graph from config
     graph, full_config = create_graph_agent(
@@ -593,7 +593,7 @@ async def _execute_graph(
     )
 
     # Execute the graph
-    result = await run_graph(
+    result = await AgentOrchestrationEngine().execute_graph(
         graph=graph,
         config=full_config,
         query=query,

@@ -1,9 +1,10 @@
 #!/usr/bin/python
 """Tests for CONCEPT:KG-2.2 — Entity-Claim Extraction and MAGMA Epistemic View."""
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+from pydantic import ValidationError
 
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
     EntityClaimExtractor,
     extract_deterministic,
@@ -90,7 +91,7 @@ class TestClaimNode:
 
     def test_confidence_clamping(self):
         """Confidence should be bounded [0.0, 1.0]."""
-        with pytest.raises(Exception):  # Pydantic validation
+        with pytest.raises(ValidationError):  # Pydantic validation
             ClaimNode(
                 id="claim:bad",
                 name="Bad",

@@ -34,7 +34,7 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **Test-Time Scaling**: The system achieves zero-shot generalization by spawning parallel agent rollouts and selecting the optimal path via dynamic subgraph convergence and evolutionary aggregation.
 
 ## Key Concepts Leveraged
-- **ORCH-1.0**: Dynamic Subgraph Orchestrator
+- **ORCH-1.0**: Unified Orchestration Engine
 - **ORCH-1.1**: Agentic Planning Engine (Planning)
 - **ORCH-1.2**: Agentic Planning Engine (Routing)
 - **ORCH-1.3**: Execution Budgets & State Safety

@@ -245,7 +245,7 @@ class ConfigStalenessAuditor:
             results = self.engine.query_cypher(
                 "MATCH (s) WHERE s.node_type = 'skill' "
                 "OPTIONAL MATCH (s)<-[:USED_SKILL]-(e) "
-                "RETURN s.node_id as id, s.name as name, count(e) as uses "
+                "RETURN s.id as id, s.name as name, count(e) as uses "
                 "ORDER BY uses ASC"
             )
             for row in results:

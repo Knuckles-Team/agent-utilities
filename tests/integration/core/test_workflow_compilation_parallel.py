@@ -8,7 +8,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from agent_utilities.graph.parallel_engine import ParallelEngine
+from agent_utilities.orchestration import ParallelEngine
+
 from agent_utilities.models.execution_manifest import (
     AgentSpec,
     ExecutionManifest,
@@ -41,7 +42,7 @@ def test_deploy_observability_stack_compilation():
     assert len(plan.steps) == 5
 
     # Assert node IDs
-    node_ids = [step.node_id for step in plan.steps]
+    node_ids = [step.id for step in plan.steps]
     assert "prometheus-setup" in node_ids
     assert "grafana-setup" in node_ids
     assert "loki-setup" in node_ids
@@ -49,7 +50,7 @@ def test_deploy_observability_stack_compilation():
     assert "kg-persistence" in node_ids
 
     # Assert step dependencies
-    step_dict = {step.node_id: step for step in plan.steps}
+    step_dict = {step.id: step for step in plan.steps}
     assert step_dict["prometheus-setup"].depends_on == []
     assert step_dict["grafana-setup"].depends_on == []
     assert step_dict["loki-setup"].depends_on == []
@@ -85,7 +86,7 @@ def test_alpha_factor_mining_compilation():
     assert len(plan.steps) == 5
 
     # Assert node IDs
-    node_ids = [step.node_id for step in plan.steps]
+    node_ids = [step.id for step in plan.steps]
     assert "technical-alpha" in node_ids
     assert "fundamental-alpha" in node_ids
     assert "sentiment-alpha" in node_ids
@@ -93,7 +94,7 @@ def test_alpha_factor_mining_compilation():
     assert "kg-persistence" in node_ids
 
     # Assert step dependencies
-    step_dict = {step.node_id: step for step in plan.steps}
+    step_dict = {step.id: step for step in plan.steps}
     assert step_dict["technical-alpha"].depends_on == []
     assert step_dict["fundamental-alpha"].depends_on == []
     assert step_dict["sentiment-alpha"].depends_on == []
@@ -123,7 +124,7 @@ def test_sdd_full_lifecycle_compilation():
     assert len(plan.steps) == 6
 
     # Assert node IDs
-    node_ids = [step.node_id for step in plan.steps]
+    node_ids = [step.id for step in plan.steps]
     assert "spec-generator" in node_ids
     assert "python-backend-engineer" in node_ids
     assert "typescript-frontend-developer" in node_ids
@@ -132,7 +133,7 @@ def test_sdd_full_lifecycle_compilation():
     assert "kg-persistence" in node_ids
 
     # Assert step dependencies
-    step_dict = {step.node_id: step for step in plan.steps}
+    step_dict = {step.id: step for step in plan.steps}
     assert step_dict["spec-generator"].depends_on == []
     assert step_dict["python-backend-engineer"].depends_on == ["spec-generator"]
     assert step_dict["typescript-frontend-developer"].depends_on == ["spec-generator"]
@@ -165,8 +166,8 @@ def test_parallel_engine_wave_scheduling_for_workflows():
 
     agents = [
         AgentSpec(
-            agent_id=step.node_id,
-            role=step.node_id,
+            agent_id=step.id,
+            role=step.id,
             task_template=step.refined_subtask or "",
             depends_on=step.depends_on,
         )
@@ -201,8 +202,8 @@ def test_parallel_engine_wave_scheduling_for_workflows():
 
     sdd_agents = [
         AgentSpec(
-            agent_id=step.node_id,
-            role=step.node_id,
+            agent_id=step.id,
+            role=step.id,
             task_template=step.refined_subtask or "",
             depends_on=step.depends_on,
         )
@@ -276,8 +277,8 @@ def test_all_library_workflows_compilation():
         # 3. Schedule waves via ParallelEngine
         agents = [
             AgentSpec(
-                agent_id=step.node_id,
-                role=step.node_id,
+                agent_id=step.id,
+                role=step.id,
                 task_template=step.refined_subtask or "",
                 depends_on=step.depends_on,
             )

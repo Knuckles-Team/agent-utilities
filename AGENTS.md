@@ -19,8 +19,9 @@ graph TD
     Agent --> MCP[graph-os MCP Server]
 
     subgraph Knowledge Graph [KG-2.0 Epistemic Graph]
-        MCP --> Core[Intelligence Graph Engine]
-        Core --> Quant[KG-2.6 Quant Domain]
+        MCP --> Core[Unified Orchestration Engine]
+        Core --> EpistemicGraph[Rust epistemic-graph daemon]
+        EpistemicGraph --> Quant[KG-2.6 Quant Domain]
         Quant --> Debate[Debate Engine]
         Quant --> Fusion[Signal Fusion]
         Quant --> Market[Market Data Bridge]
@@ -59,8 +60,12 @@ pre-commit run --all-files
 # agent-utilities-kg
 agent_utilities.mcp.kg_server:main
 
+# Run the native compute backend daemon
+cargo run -p epistemic-graph
+
 ## Project Structure Quick Reference
 - MCP Entry Point → `kg_server.py`
+- Native Compute Engine → `epistemic-graph` (Rust)
 - Agent Entry Point → `agent.py`
 - Source Code → `agent_utilities/`
 - Skills → `skills/` (if exists)
@@ -3346,7 +3351,7 @@ agent_utilities.mcp.kg_server:main
 │   │   ├── first_run_tests.py
 │   │   ├── interactive_explanations.py
 │   │   ├── manager.py
-│   │   ├── manual_test.py
+│   │   ├── manual_test_tool.py
 │   │   ├── manual_testing.py
 │   │   ├── prioritization.py
 │   │   ├── prompt_chain.py

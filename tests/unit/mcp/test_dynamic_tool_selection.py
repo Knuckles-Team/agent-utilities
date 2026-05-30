@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
+from agent_utilities.tools.dynamic_tool_orchestrator import DynamicToolOrchestrator
 
 from agent_utilities.mcp.server_factory import create_mcp_server
-from agent_utilities.tools.dynamic_tool_orchestrator import DynamicToolOrchestrator
 
 
 class DummyComponent:
@@ -17,6 +18,7 @@ class DummyComponent:
 # ---------------------------------------------------------------------------
 # DynamicToolOrchestrator Tests
 # ---------------------------------------------------------------------------
+
 
 def test_assign_tools_for_task_no_backend() -> None:
     """If backend is None, returns empty list."""
@@ -32,8 +34,16 @@ def test_assign_tools_for_task_success() -> None:
     mock_backend = MagicMock()
     mock_engine.backend = mock_backend
     mock_backend.execute.return_value = [
-        {"tool_name": "docker_ps", "tool_desc": "List containers", "schema": '{"type": "object"}'},
-        {"tool_name": "docker_run", "tool_desc": "Run container", "schema": '{"type": "object"}'},
+        {
+            "tool_name": "docker_ps",
+            "tool_desc": "List containers",
+            "schema": '{"type": "object"}',
+        },
+        {
+            "tool_name": "docker_run",
+            "tool_desc": "Run container",
+            "schema": '{"type": "object"}',
+        },
     ]
 
     orchestrator = DynamicToolOrchestrator(mock_engine)
@@ -73,7 +83,7 @@ def test_resolve_mcp_tools_success() -> None:
     mock_engine.backend = mock_backend
     mock_backend.execute.side_effect = [
         [{"name": "add_rewrite"}, {"name": "delete_rewrite"}],
-        []
+        [],
     ]
 
     orchestrator = DynamicToolOrchestrator(mock_engine)
@@ -92,7 +102,7 @@ def test_resolve_mcp_tools_fallback() -> None:
     mock_backend.execute.side_effect = [
         [],
         [{"name": "all_tool_1"}, {"name": "all_tool_2"}],
-        []
+        [],
     ]
 
     orchestrator = DynamicToolOrchestrator(mock_engine)
@@ -120,8 +130,15 @@ async def test_refresh_cached_tools_success() -> None:
     mock_engine.backend = mock_backend
 
     mock_backend.execute.side_effect = [
-        [{"command": "python", "args": '["-m", "mcp"]', "env": '{"KEY": "val"}', "source_config": "config.json"}],
-        [] # update server statement
+        [
+            {
+                "command": "python",
+                "args": '["-m", "mcp"]',
+                "env": '{"KEY": "val"}',
+                "source_config": "config.json",
+            }
+        ],
+        [],  # update server statement
     ]
 
     mock_engine.discover_mcp_tools = AsyncMock(return_value=["tool_1", "tool_2"])
@@ -140,14 +157,18 @@ async def test_refresh_cached_tools_success() -> None:
 # DynamicVisibilityTransform / create_mcp_server Tests
 # ---------------------------------------------------------------------------
 
+
 def test_dynamic_visibility_transform_env_filtering() -> None:
     """Test DynamicVisibilityTransform filters components based on environment variables."""
-    with patch.dict(os.environ, {
-        "MCP_ENABLED_TAGS": "docker,git",
-        "MCP_DISABLED_TAGS": "unstable",
-        "MCP_ENABLED_TOOLS": "docker_ps,git_commit",
-        "MCP_DISABLED_TOOLS": "git_push",
-    }):
+    with patch.dict(
+        os.environ,
+        {
+            "MCP_ENABLED_TAGS": "docker,git",
+            "MCP_DISABLED_TAGS": "unstable",
+            "MCP_ENABLED_TOOLS": "docker_ps,git_commit",
+            "MCP_DISABLED_TOOLS": "git_push",
+        },
+    ):
         # Mock create_mcp_server args and transform execution
         args, mcp, _ = create_mcp_server("Test Server", command_args=[])
         transform = mcp._transforms[0]
@@ -174,7 +195,12 @@ def test_dynamic_visibility_transform_cli_override() -> None:
     """Test DynamicVisibilityTransform filters components based on CLI arguments."""
     args, mcp, _ = create_mcp_server(
         "Test Server",
-        command_args=["--tools", "docker_ps,git_commit", "--disabled-tools", "git_push"]
+        command_args=[
+            "--tools",
+            "docker_ps,git_commit",
+            "--disabled-tools",
+            "git_push",
+        ],
     )
     transform = mcp._transforms[0]
 
@@ -195,7 +221,9 @@ def test_dynamic_visibility_transform_cli_override() -> None:
 
 
 @patch("fastmcp.server.dependencies.get_http_request")
-def test_dynamic_visibility_transform_http_request_query_params(mock_get_request) -> None:
+def test_dynamic_visibility_transform_http_request_query_params(
+    mock_get_request,
+) -> None:
     """Test DynamicVisibilityTransform parses and filters based on HTTP request query parameters."""
     mock_request = MagicMock()
     mock_q_params = MagicMock()
@@ -272,7 +300,9 @@ def test_dynamic_visibility_transform_http_request_headers(mock_get_request) -> 
 
 @patch("fastmcp.server.dependencies.get_http_request")
 @patch("agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine.get_active")
-def test_dynamic_visibility_transform_kg_filtering(mock_get_active, mock_get_request) -> None:
+def test_dynamic_visibility_transform_kg_filtering(
+    mock_get_active, mock_get_request
+) -> None:
     """Test DynamicVisibilityTransform resolves matching tools from the KG using active query filter."""
     mock_request = MagicMock()
     mock_q_params = MagicMock()

@@ -3,6 +3,7 @@
 This package provides a modular entrypoint for graph orchestration
 """
 
+from ..orchestration.engine import AgentOrchestrationEngine
 from .builder import (
     build_tag_env_map,
     # Builder
@@ -21,26 +22,12 @@ from .config_helpers import (
     load_specialized_prompts,
     save_mcp_config,
 )
-from .dynamic_graph_orchestrator import (
-    # Runner
-    run_graph,
-    run_graph_iter,
-    run_graph_stream,
-    validate_graph,
-)
 from .executor import agent_matches_node_id, get_step_descriptions
 from .graph_models import (
     # Models
     DomainChoice,
     MultiDomainChoice,
     ValidationResult,
-)
-from .heavy_thinking import (
-    # CONCEPT:AHE-3.4 — Heavy Thinking Orchestration
-    ComplexityEstimator,
-    HeavyThinkingConfig,
-    HeavyThinkingOrchestrator,
-    HeavyThinkingPlanner,
 )
 from .horizon_curriculum import (
     # CONCEPT:AHE-3.4 — Horizon-Aware Task Curriculum
@@ -74,25 +61,14 @@ from .manifest_generators import (
     # CONCEPT:ORCH-1.25 — Manifest Generators
     manifest_for_enterprise,
     manifest_from_department,
-    manifest_from_heavy_thinking,
     manifest_from_planner,
     manifest_from_preset,
     manifest_from_teamconfig,
     manifest_from_workflow,
 )
-from .memory_cache import (
-    MemoryCache,
-    TrajectoryEntry,
-    TrajectoryPruner,
-    TrajectoryShuffler,
-)
 from .mermaid import (
     # Mermaid
     get_graph_mermaid,
-)
-from .parallel_engine import (
-    # CONCEPT:ORCH-1.25 — Parallel Engine
-    ParallelEngine,
 )
 from .protocol_agnostic_execution import (
     ACPEventHandler,
@@ -167,11 +143,7 @@ __all__ = [
     "create_master_graph",
     "initialize_graph_from_workspace",
     "build_tag_env_map",
-    # Runner
-    "run_graph",
-    "run_graph_iter",
-    "run_graph_stream",
-    "validate_graph",
+    "AgentOrchestrationEngine",
     # Unified execution
     "execute_graph",
     "execute_graph_iter",
@@ -181,15 +153,6 @@ __all__ = [
     "ACPEventHandler",
     # Mermaid
     "get_graph_mermaid",
-    # CONCEPT:AHE-3.4 — Heavy Thinking Orchestration
-    "HeavyThinkingOrchestrator",
-    "HeavyThinkingConfig",
-    "HeavyThinkingPlanner",
-    "ComplexityEstimator",
-    "MemoryCache",
-    "TrajectoryEntry",
-    "TrajectoryPruner",
-    "TrajectoryShuffler",
     # CONCEPT:AHE-3.4 — Horizon-Aware Task Curriculum
     "HorizonCurriculum",
     "HorizonStageConfig",
@@ -208,12 +171,9 @@ __all__ = [
     "build_pydantic_graph_from_kg",
     "KGGraphResult",
     "KGMaterializedStep",
-    # CONCEPT:ORCH-1.25 — Parallel Engine
-    "ParallelEngine",
     "manifest_from_planner",
     "manifest_from_teamconfig",
     "manifest_from_workflow",
-    "manifest_from_heavy_thinking",
     "manifest_from_preset",
     "manifest_from_department",
     "manifest_for_enterprise",

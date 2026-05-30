@@ -335,13 +335,14 @@ async def stream_endpoint(request: Request) -> Response:
     _initialized_mcp_toolsets = getattr(request.app.state, "mcp_toolsets", [])
 
     if graph_bundle:
-        from ...graph_orchestration import run_graph_stream
+        from ...orchestration.engine import AgentOrchestrationEngine
 
         graph, config = graph_bundle
 
         async def graph_stream_with_lock():
             try:
-                async for chunk in run_graph_stream(
+                engine = AgentOrchestrationEngine()
+                async for chunk in engine.stream_graph(
                     graph,
                     config,
                     query,

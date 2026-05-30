@@ -7,16 +7,16 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
 def _create_engine():
     """Create a minimal IntelligenceGraphEngine for testing."""
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph, backend=None)
+    GraphComputeEngine(backend_type="rust")
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     return engine
 
 

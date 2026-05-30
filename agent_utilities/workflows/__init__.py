@@ -24,9 +24,14 @@ External consumers (other agents, UIs, CI) can:
     - Create new ones via ``graph_orchestrate(action='compile_workflow')``
 """
 
+from typing import Any
+
+from agent_utilities.orchestration import WorkflowRunner
+
 from .distillation_hook import WorkflowDistillationHook
-from .runner import WorkflowResult, WorkflowRunner
 from .skill_compiler import SkillCompiler
+
+WorkflowResult = dict[str, Any]
 
 __all__ = [
     "SkillCompiler",

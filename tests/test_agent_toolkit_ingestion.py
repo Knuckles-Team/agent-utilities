@@ -17,8 +17,9 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # -- Test fixtures paths (real configs from agent-packages) ---
 AGENTS_DIR = Path(__file__).resolve().parents[1] / ".." / "agents"
@@ -53,8 +54,8 @@ def _create_engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph, backend=None)
+    GraphComputeEngine(backend_type="rust")
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     return engine
 
 

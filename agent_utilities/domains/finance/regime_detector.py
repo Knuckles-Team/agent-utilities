@@ -1,12 +1,11 @@
 """
 Regime Detector — CONCEPT:KG-2.6
-Detects market regimes (Bull, Bear, Sideways, High Volatility) using HMMs.
+Detects market regimes (Bull, Bear, Sideways, High Volatility) using heuristics.
 Inspired by qlib's regime-aware model switching.
 """
 
 import logging
-
-import numpy as np
+import math
 
 try:
     import pandas as pd
@@ -29,14 +28,14 @@ class RegimeDetector:
     def detect_regime(self, df: "pd.DataFrame", ticker: str = "") -> str:
         """
         Simple heuristic-based regime detection.
-        In a full implementation, this would use hmmlearn.GaussianHMM.
+        In a full implementation, this would use hmmlearn.GaussianHMM or RPC to Rust.
         """
         if df.empty or len(df) < 50:
             return "unknown"
 
         # Calculate 50-day moving average and volatility
         returns = df["Close"].pct_change().dropna()
-        volatility = returns.rolling(window=20).std().iloc[-1] * np.sqrt(252)
+        volatility = returns.rolling(window=20).std().iloc[-1] * math.sqrt(252)
 
         sma_50 = df["Close"].rolling(window=50).mean().iloc[-1]
         current_price = df["Close"].iloc[-1]
@@ -63,7 +62,7 @@ class RegimeDetector:
         assert self.engine is not None
         node_id = f"Regime_{ticker}"
         self.engine.add_node(
-            node_id=node_id,
+            id=node_id,
             node_type="MarketRegime",
             ticker=ticker,
             regime_type=regime,

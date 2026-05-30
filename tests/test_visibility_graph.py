@@ -17,18 +17,18 @@ class TestAccessListModel:
 
     def test_access_list_default_empty(self):
         """access_list defaults to an empty list."""
-        step = ExecutionStep(node_id="researcher")
+        step = ExecutionStep(id="researcher")
         assert step.access_list == []
 
     def test_access_list_set_all(self):
         """access_list can be set to ['all']."""
-        step = ExecutionStep(node_id="python_programmer", access_list=["all"])
+        step = ExecutionStep(id="python_programmer", access_list=["all"])
         assert step.access_list == ["all"]
 
     def test_access_list_specific_nodes(self):
         """access_list with specific node IDs."""
         step = ExecutionStep(
-            node_id="synthesizer",
+            id="synthesizer",
             access_list=["researcher", "architect"],
         )
         assert "researcher" in step.access_list
@@ -38,7 +38,7 @@ class TestAccessListModel:
     def test_access_list_serialization(self):
         """access_list round-trips through JSON."""
         step = ExecutionStep(
-            node_id="verifier",
+            id="verifier",
             access_list=["researcher", "python_programmer"],
         )
         data = step.model_dump()
@@ -58,13 +58,13 @@ class TestAccessListModel:
         """GraphPlan with mixed access_list configurations."""
         plan = GraphPlan(
             steps=[
-                ExecutionStep(node_id="researcher"),  # No access list
+                ExecutionStep(id="researcher"),  # No access list
                 ExecutionStep(
-                    node_id="python_programmer",
+                    id="python_programmer",
                     access_list=["researcher"],
                 ),
                 ExecutionStep(
-                    node_id="verifier",
+                    id="verifier",
                     access_list=["all"],
                 ),
             ]
@@ -79,13 +79,13 @@ class TestResolveAccessContext:
 
     def test_empty_access_list_returns_empty(self):
         """Empty access_list → no context."""
-        step = ExecutionStep(node_id="test", access_list=[])
+        step = ExecutionStep(id="test", access_list=[])
         result = _resolve_access_context(step, {"researcher": "some data"})
         assert result == ""
 
     def test_all_access_returns_full_registry(self):
         """['all'] → full registry contents."""
-        step = ExecutionStep(node_id="test", access_list=["all"])
+        step = ExecutionStep(id="test", access_list=["all"])
         registry = {
             "researcher": "Found 3 APIs",
             "architect": "Designed microservice layout",
@@ -98,14 +98,14 @@ class TestResolveAccessContext:
 
     def test_all_access_empty_registry(self):
         """['all'] with empty registry → empty string."""
-        step = ExecutionStep(node_id="test", access_list=["all"])
+        step = ExecutionStep(id="test", access_list=["all"])
         result = _resolve_access_context(step, {})
         assert result == ""
 
     def test_specific_node_filters_correctly(self):
         """Specific node IDs filter to only matching results."""
         step = ExecutionStep(
-            node_id="test",
+            id="test",
             access_list=["researcher"],
         )
         registry = {
@@ -121,7 +121,7 @@ class TestResolveAccessContext:
     def test_multiple_specific_nodes(self):
         """Multiple specific node IDs include all matching results."""
         step = ExecutionStep(
-            node_id="test",
+            id="test",
             access_list=["researcher", "architect"],
         )
         registry = {
@@ -137,7 +137,7 @@ class TestResolveAccessContext:
     def test_non_matching_node_returns_empty(self):
         """Node IDs with no match → empty string."""
         step = ExecutionStep(
-            node_id="test",
+            id="test",
             access_list=["nonexistent_specialist"],
         )
         registry = {"researcher_0": "data"}
@@ -147,7 +147,7 @@ class TestResolveAccessContext:
     def test_case_insensitive_matching(self):
         """Access list matching is case-insensitive."""
         step = ExecutionStep(
-            node_id="test",
+            id="test",
             access_list=["Researcher"],
         )
         registry = {"researcher_0": "findings"}
@@ -157,7 +157,7 @@ class TestResolveAccessContext:
     def test_partial_key_matching(self):
         """Access list matches partial keys (e.g., 'researcher' matches 'researcher_0')."""
         step = ExecutionStep(
-            node_id="test",
+            id="test",
             access_list=["researcher"],
         )
         registry = {
@@ -170,7 +170,7 @@ class TestResolveAccessContext:
 
     def test_context_format(self):
         """Verify the output format includes proper headers."""
-        step = ExecutionStep(node_id="test", access_list=["all"])
+        step = ExecutionStep(id="test", access_list=["all"])
         registry = {"researcher_0": "data"}
         result = _resolve_access_context(step, registry)
         assert "### Prior result from" in result

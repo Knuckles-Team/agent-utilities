@@ -172,8 +172,8 @@ class ExecutionManifest(BaseModel):
         for step in plan.steps:
             agents.append(
                 AgentSpec(
-                    agent_id=step.node_id,
-                    task_template=step.refined_subtask or f"Execute: {step.node_id}",
+                    agent_id=step.id,
+                    task_template=step.refined_subtask or f"Execute: {step.id}",
                     depends_on=step.depends_on or [],
                     timeout=getattr(step, "timeout", None),
                 )

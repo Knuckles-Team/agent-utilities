@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Knowledge Graph Subpackage.
 
-This subpackage implements Unified Graph Intelligence for the agent OS,
+This subpackage implements Graph Intelligence for the agent OS,
 combining agent registries, tools, codebase structure, and long-term memory.
 """
 
@@ -31,19 +31,12 @@ def __getattr__(name: str):
         }
         return mapping_models[name]
 
-    if name in ("IntelligenceGraphEngine", "RegistryGraphEngine"):
+    if name == "IntelligenceGraphEngine":
         from .core.engine import (
             IntelligenceGraphEngine as ige,
         )
-        from .core.engine import (
-            RegistryGraphEngine as rge,
-        )
 
-        mapping_engines: dict[str, Any] = {
-            "IntelligenceGraphEngine": ige,
-            "RegistryGraphEngine": rge,
-        }
-        return mapping_engines[name]
+        return ige
 
     if name in ("IntelligencePipeline", "RegistryPipeline"):
         from .pipeline import (
@@ -70,5 +63,4 @@ __all__ = [
     "IntelligencePipeline",
     "RegistryPipeline",
     "IntelligenceGraphEngine",
-    "RegistryGraphEngine",
 ]

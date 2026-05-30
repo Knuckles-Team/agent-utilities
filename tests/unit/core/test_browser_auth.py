@@ -12,7 +12,10 @@ from agent_utilities.security.browser_auth import (
     BaseBrowserAuthManager,
     generate_pkce,
 )
-from agent_utilities.security.secrets_client import InEpistemicGraphBackend, SecretsClient
+from agent_utilities.security.secrets_client import (
+    InEpistemicGraphBackend,
+    SecretsClient,
+)
 
 
 class TestBaseBrowserAuthManager:

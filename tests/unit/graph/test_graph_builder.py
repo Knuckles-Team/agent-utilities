@@ -19,7 +19,7 @@ def test_build_tag_env_map():
 @patch("agent_utilities.graph.builder.ingest_prompts_to_graph")
 @patch("agent_utilities.graph.builder.get_agent_workspace")
 @patch("agent_utilities.graph.builder.RegistryPipeline")
-@patch("agent_utilities.graph.builder.RegistryGraphEngine")
+@patch("agent_utilities.graph.builder.IntelligenceGraphEngine")
 @patch("agent_utilities.graph.builder.PipelineConfig")
 @patch("ladybug.Connection")
 @patch("ladybug.Database")

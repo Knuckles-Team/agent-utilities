@@ -6,18 +6,18 @@ CONCEPT:KG-2.1 — External Graph Federation
 
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
 @pytest.fixture
 def graph_engine():
     """Fixture to create an in-memory graph engine."""
-    g = GraphComputeEngine(backend_type="rust")
+    GraphComputeEngine(backend_type="rust")
     # In-memory engine without a persistent backend
-    engine = IntelligenceGraphEngine(graph=g, backend=None)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     return engine
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.hydration import HydrationManager
@@ -15,7 +16,10 @@ def mock_engine():
     return engine
 
 
-@patch.dict(os.environ, {"GITLAB_TOKEN": "test-gitlab-token", "GITLAB_URL": "https://gitlab.example.com"})
+@patch.dict(
+    os.environ,
+    {"GITLAB_TOKEN": "test-gitlab-token", "GITLAB_URL": "https://gitlab.example.com"},
+)
 def test_hydrate_gitlab(mock_engine):
     mock_gitlab_api_class = MagicMock()
     mock_client = MagicMock()
@@ -73,7 +77,10 @@ def test_hydrate_gitlab(mock_engine):
         assert relationships[0]["type"] == "depends_on"  # OWL Native
 
 
-@patch.dict(os.environ, {"LEANIX_URL": "https://leanix.example.com", "LEANIX_TOKEN": "test-leanix-token"})
+@patch.dict(
+    os.environ,
+    {"LEANIX_URL": "https://leanix.example.com", "LEANIX_TOKEN": "test-leanix-token"},
+)
 def test_hydrate_leanix(mock_engine):
     mock_leanix_gql_class = MagicMock()
     mock_client = MagicMock()
@@ -117,7 +124,10 @@ def test_hydrate_leanix(mock_engine):
         assert args[1][0]["name"] == "Enterprise Core ERP"
 
 
-@patch.dict(os.environ, {"TWENTY_URL": "https://twenty.example.com", "TWENTY_TOKEN": "test-twenty-token"})
+@patch.dict(
+    os.environ,
+    {"TWENTY_URL": "https://twenty.example.com", "TWENTY_TOKEN": "test-twenty-token"},
+)
 def test_hydrate_twenty(mock_engine):
     mock_twenty_api_class = MagicMock()
     mock_client = MagicMock()
@@ -127,10 +137,22 @@ def test_hydrate_twenty(mock_engine):
         {"id": "comp-1", "name": "Google", "domain": "google.com", "employees": 150000}
     ]
     mock_client.get_people.return_value = [
-        {"id": "person-1", "firstName": "Sundar", "lastName": "Pichai", "email": "sundar@google.com", "companyId": "comp-1"}
+        {
+            "id": "person-1",
+            "firstName": "Sundar",
+            "lastName": "Pichai",
+            "email": "sundar@google.com",
+            "companyId": "comp-1",
+        }
     ]
     mock_client.get_opportunities.return_value = [
-        {"id": "opp-1", "name": "Cloud Deal", "amount": 10000000, "stage": "Negotiation", "companyId": "comp-1"}
+        {
+            "id": "opp-1",
+            "name": "Cloud Deal",
+            "amount": 10000000,
+            "stage": "Negotiation",
+            "companyId": "comp-1",
+        }
     ]
 
     modules = {
@@ -154,14 +176,21 @@ def test_hydrate_twenty(mock_engine):
         relationships = args[2]
 
         assert entities[0]["type"] == "organization"  # OWL Native
-        assert entities[1]["type"] == "person"        # OWL Native
-        assert entities[2]["type"] == "opportunity"   # OWL Native
+        assert entities[1]["type"] == "person"  # OWL Native
+        assert entities[2]["type"] == "opportunity"  # OWL Native
 
-        assert relationships[0]["type"] == "works_at"   # OWL Native
-        assert relationships[1]["type"] == "related_to" # OWL Native
+        assert relationships[0]["type"] == "works_at"  # OWL Native
+        assert relationships[1]["type"] == "related_to"  # OWL Native
 
 
-@patch.dict(os.environ, {"SERVICENOW_URL": "https://servicenow.example.com", "SERVICENOW_USER": "admin", "SERVICENOW_PASSWORD": "password"})
+@patch.dict(
+    os.environ,
+    {
+        "SERVICENOW_URL": "https://servicenow.example.com",
+        "SERVICENOW_USER": "admin",
+        "SERVICENOW_PASSWORD": "password",
+    },
+)
 def test_hydrate_servicenow(mock_engine):
     mock_servicenow_api_class = MagicMock()
     mock_client = MagicMock()
@@ -169,7 +198,11 @@ def test_hydrate_servicenow(mock_engine):
 
     mock_response = MagicMock()
     mock_response.result = [
-        {"sys_id": "sys-id-appl-99", "name": "GeniusBot Portal", "display_value": "GeniusBot Portal"}
+        {
+            "sys_id": "sys-id-appl-99",
+            "name": "GeniusBot Portal",
+            "display_value": "GeniusBot Portal",
+        }
     ]
     mock_client.get_cmdb_instances.return_value = mock_response
 
@@ -193,7 +226,14 @@ def test_hydrate_servicenow(mock_engine):
         assert args[1][0]["type"] == "platform_service"  # OWL Native
 
 
-@patch.dict(os.environ, {"JIRA_URL": "https://jira.example.com", "JIRA_TOKEN": "jira-tok", "JIRA_PROJECT_KEYS": "PROJ"})
+@patch.dict(
+    os.environ,
+    {
+        "JIRA_URL": "https://jira.example.com",
+        "JIRA_TOKEN": "jira-tok",
+        "JIRA_PROJECT_KEYS": "PROJ",
+    },
+)
 def test_hydrate_jira(mock_engine):
     mock_jira_class = MagicMock()
     mock_client = MagicMock()
@@ -208,7 +248,7 @@ def test_hydrate_jira(mock_engine):
                     "status": {"name": "In Progress"},
                     "priority": {"name": "High"},
                     "assignee": {"accountId": "user-abc", "displayName": "Alice Smith"},
-                }
+                },
             }
         ]
     }
@@ -228,7 +268,14 @@ def test_hydrate_jira(mock_engine):
         assert res["relations_hydrated"] == 1
 
 
-@patch.dict(os.environ, {"PLANE_URL": "https://plane.example.com", "PLANE_TOKEN": "plane-tok", "PLANE_PROJECT_IDS": "proj-1"})
+@patch.dict(
+    os.environ,
+    {
+        "PLANE_URL": "https://plane.example.com",
+        "PLANE_TOKEN": "plane-tok",
+        "PLANE_PROJECT_IDS": "proj-1",
+    },
+)
 def test_hydrate_plane(mock_engine):
     mock_plane_class = MagicMock()
     mock_client = MagicMock()
@@ -260,15 +307,22 @@ def test_hydrate_plane(mock_engine):
         assert res["relations_hydrated"] == 1
 
 
-@patch.dict(os.environ, {"PORTAINER_URL": "https://portainer.example.com", "PORTAINER_TOKEN": "port-tok"})
+@patch.dict(
+    os.environ,
+    {"PORTAINER_URL": "https://portainer.example.com", "PORTAINER_TOKEN": "port-tok"},
+)
 def test_hydrate_portainer(mock_engine):
     mock_portainer_class = MagicMock()
     mock_client = MagicMock()
     mock_portainer_class.return_value = mock_client
 
     mock_client.get_stacks.return_value = [{"Id": 1, "Name": "web-stack"}]
-    mock_client.get_endpoints.return_value = [{"Id": 2, "Name": "host-prod", "URL": "tcp://1.2.3.4"}]
-    mock_client.get_endpoint_containers.return_value = [{"Id": "abcdef123456", "Names": ["/web-app-container"], "State": "running"}]
+    mock_client.get_endpoints.return_value = [
+        {"Id": 2, "Name": "host-prod", "URL": "tcp://1.2.3.4"}
+    ]
+    mock_client.get_endpoint_containers.return_value = [
+        {"Id": "abcdef123456", "Names": ["/web-app-container"], "State": "running"}
+    ]
 
     modules = {
         "portainer_agent": MagicMock(),
@@ -291,7 +345,9 @@ def test_hydrate_uptime_kuma(mock_engine):
     mock_client = MagicMock()
     mock_kuma_class.return_value = mock_client
 
-    mock_client.get_monitors.return_value = [{"id": 12, "name": "Google DNS", "url": "https://8.8.8.8"}]
+    mock_client.get_monitors.return_value = [
+        {"id": 12, "name": "Google DNS", "url": "https://8.8.8.8"}
+    ]
 
     modules = {
         "uptime_kuma_agent": MagicMock(),
@@ -317,7 +373,13 @@ def test_hydrate_lgtm(mock_engine):
     assert res["relations_hydrated"] == 1
 
 
-@patch.dict(os.environ, {"KEYCLOAK_URL": "https://keycloak.example.com", "KEYCLOAK_ADMIN_PASSWORD": "admin"})
+@patch.dict(
+    os.environ,
+    {
+        "KEYCLOAK_URL": "https://keycloak.example.com",
+        "KEYCLOAK_ADMIN_PASSWORD": "admin",
+    },
+)
 def test_hydrate_keycloak(mock_engine):
     mock_kc_class = MagicMock()
     modules = {
@@ -344,7 +406,10 @@ def test_hydrate_openbao(mock_engine):
     assert res["nodes_hydrated"] == 1
 
 
-@patch.dict(os.environ, {"NEXTCLOUD_URL": "https://nc.example.com", "NEXTCLOUD_PASSWORD": "pass"})
+@patch.dict(
+    os.environ,
+    {"NEXTCLOUD_URL": "https://nc.example.com", "NEXTCLOUD_PASSWORD": "pass"},
+)
 def test_hydrate_nextcloud(mock_engine):
     mock_nc_class = MagicMock()
     modules = {
@@ -361,7 +426,9 @@ def test_hydrate_nextcloud(mock_engine):
         assert res["nodes_hydrated"] == 2
 
 
-@patch.dict(os.environ, {"LISTMONK_URL": "https://list.example.com", "LISTMONK_TOKEN": "tok"})
+@patch.dict(
+    os.environ, {"LISTMONK_URL": "https://list.example.com", "LISTMONK_TOKEN": "tok"}
+)
 def test_hydrate_listmonk(mock_engine):
     manager = HydrationManager()
     res = manager.hydrate_source(mock_engine, "listmonk")
@@ -375,7 +442,9 @@ def mock_mm_client():
     return MagicMock()
 
 
-@patch.dict(os.environ, {"MATTERMOST_URL": "https://mm.example.com", "MATTERMOST_TOKEN": "tok"})
+@patch.dict(
+    os.environ, {"MATTERMOST_URL": "https://mm.example.com", "MATTERMOST_TOKEN": "tok"}
+)
 def test_hydrate_mattermost(mock_engine):
     mock_mm_class = MagicMock()
     modules = {
@@ -392,7 +461,10 @@ def test_hydrate_mattermost(mock_engine):
         assert res["nodes_hydrated"] == 1
 
 
-@patch.dict(os.environ, {"TECHNITIUM_URL": "https://dns.example.com", "TECHNITIUM_TOKEN": "dns-tok"})
+@patch.dict(
+    os.environ,
+    {"TECHNITIUM_URL": "https://dns.example.com", "TECHNITIUM_TOKEN": "dns-tok"},
+)
 def test_hydrate_technitium_dns(mock_engine):
     mock_dns_class = MagicMock()
     modules = {
@@ -478,7 +550,9 @@ def test_hydrate_postiz(mock_engine):
     assert res["relations_hydrated"] == 1
 
 
-@patch.dict(os.environ, {"LANGFUSE_PUBLIC_KEY": "pk-123", "LANGFUSE_SECRET_KEY": "sk-123"})
+@patch.dict(
+    os.environ, {"LANGFUSE_PUBLIC_KEY": "pk-123", "LANGFUSE_SECRET_KEY": "sk-123"}
+)
 def test_hydrate_langfuse(mock_engine):
     mock_lf_class = MagicMock()
     modules = {

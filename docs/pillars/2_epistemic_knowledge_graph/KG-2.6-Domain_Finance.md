@@ -23,7 +23,7 @@ FIBO-aligned KG primitives for the full trading lifecycle: Signal → Order → 
 # Quantitative Frameworks (CONCEPT:KG-2.6)
 
 ## Overview
-Advanced quantitative logic for automated trading systems:
+Advanced quantitative logic for automated trading systems, now offloaded to the **Rust `epistemic-graph` compute engine** for high-performance, stateless execution.
 - **AlphaCombinationEngine**: 11-step regression methodology for statistically independent signal weighting (Information Ratio optimization).
 - **EmpiricalKellyOptimizer**: Uncertainty-adjusted position sizing using Monte Carlo simulations.
 - **FractionalKellyOptimizer**: Position sizing scaling factor for high-variance environments.
@@ -34,6 +34,7 @@ Advanced quantitative logic for automated trading systems:
 ## Implementation Details
 - **Source Code**: ``agent_utilities/domains/finance/signal_fusion.py``, ``agent_utilities/domains/finance/portfolio_optimizer.py``, ``agent_utilities/domains/finance/microstructure.py``, ``agent_utilities/domains/finance/cross_market_arb.py``
 - **Pillar**: KG
+- **Architecture Note**: The Python layer acts as a lightweight orchestrator and thin proxy. All heavy numerical lifting (MVO, Risk Parity, Black-Litterman, HMM regime detection) is delegated to the `epistemic-graph-server` via Unix Domain Socket (UDS) RPC. Python dependencies like `numpy` and `scipy` have been strictly purged from the `agent-utilities` ecosystem to maintain a minimal surface area.
 
 # Risk Scoring Ontology (CONCEPT:KG-2.6)
 

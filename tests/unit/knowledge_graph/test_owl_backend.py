@@ -4,6 +4,7 @@
 """Unit tests for Owlready2Backend."""
 
 import pytest
+
 pytest.importorskip("owlready2")
 
 from pathlib import Path

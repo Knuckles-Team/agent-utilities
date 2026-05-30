@@ -23,26 +23,18 @@ The engine is composed of focused mixins for maintainability:
 - ``engine_query.py``: Query, search, and retrieval methods.
 - ``engine_memory.py``: Memory CRUD operations.
 - ``engine_ingestion.py``: Episode, MCP, A2A, and skill ingestion.
-- ``engine_ahe.py``: AHE self-improvement cycle methods.
 - ``engine_registry.py``: Identity, prompt, resource, and codemap management.
 """
 
 import json
 import logging
 import math
-from enum import Enum
+import os
+from enum import Enum, StrEnum
 from typing import Any
 
 from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
-
-# Import mixins
-from ..orchestration.engine_ahe import AHEMixin
-from ..orchestration.engine_enterprise import EnterpriseEngineMixin
-from ..orchestration.engine_federation import FederationMixin
-from ..orchestration.engine_finance import FinanceEngineMixin
-from ..orchestration.engine_infra import InfrastructureEngineMixin
-from ..orchestration.engine_ml_rlm import MachineLearningEngineMixin
 from ..orchestration.engine_query import QueryMixin
 from .engine_ingestion import IngestionMixin
 from .engine_mcp_discovery import MCPDiscoveryMixin
@@ -55,7 +47,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "IntelligenceGraphEngine",
-    "RegistryGraphEngine",
     "FocusedSubgraph",
     "cosine_similarity",
 ]
@@ -73,18 +64,24 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     return dot_product / (magnitude1 * magnitude2)
 
 
+class RoutingStrategy(StrEnum):
+    """Controls how queries are routed between the persistent backend and the
+    Rust compute engine.
+
+    Set via ``GRAPH_ROUTING_STRATEGY`` environment variable.
+    """
+
+    BACKEND = "backend"  # All ops → LadybugDB only
+    COMPUTE = "compute"  # All ops → Rust only (testing/ephemeral)
+    HYBRID = "hybrid"  # Writes → backend-first, reads → compute-first
+
+
 class IntelligenceGraphEngine(
     QueryMixin,
     MemoryMixin,
     IngestionMixin,
     MCPDiscoveryMixin,
-    AHEMixin,
     RegistryMixin,
-    FederationMixin,
-    EnterpriseEngineMixin,
-    FinanceEngineMixin,
-    MachineLearningEngineMixin,
-    InfrastructureEngineMixin,
     TaskManagerMixin,
 ):
     """Engine for querying the unified intelligence graph (Agents, Tools, Code, Memory).
@@ -104,17 +101,11 @@ class IntelligenceGraphEngine(
 
     def __init__(
         self,
-        graph: GraphComputeEngine | None = None,
         backend: GraphBackend | None = None,
         db_path: str | None = None,
         external_ontologies: list[str] | None = None,
+        graph: Any = None,
     ):
-        if graph is not None:
-            self.graph = graph
-        else:
-            self.graph = GraphComputeEngine(backend_type="rust")
-        self.backend = None
-
         # Use provided backend, or check for an active one, or create one from factory
         if backend is not None:
             self.backend = backend
@@ -125,13 +116,26 @@ class IntelligenceGraphEngine(
             elif db_path:
                 self.backend = create_backend(db_path=db_path)
             else:
-                self.backend = None
+                raise RuntimeError(
+                    "A persistent graph backend is required. Memory-only mode is no longer supported."
+                )
 
         # Initialize compiled / optimized Graph Compute Engine (Rust/epistemic-graph)
-        from agent_utilities.core.config import config
+        self.graph_compute = (
+            graph
+            if graph is not None
+            else GraphComputeEngine(backend_type="epistemic_graph")
+        )
+        self.graph = self.graph_compute
 
-        compute_backend = getattr(config, "graph_compute_backend", "epistemic_graph")
-        self.graph_compute = GraphComputeEngine(backend_type=compute_backend)
+        strategy_str = os.getenv("GRAPH_ROUTING_STRATEGY", "hybrid").lower()
+        try:
+            self.routing_strategy = RoutingStrategy(strategy_str)
+        except ValueError:
+            logger.warning(
+                "Unknown GRAPH_ROUTING_STRATEGY=%r, defaulting to hybrid", strategy_str
+            )
+            self.routing_strategy = RoutingStrategy.HYBRID
 
         super().__init__()
 
@@ -143,8 +147,6 @@ class IntelligenceGraphEngine(
                     "MATCH (t:Task {status: 'pending'}) RETURN count(t) as c"
                 )
                 if pending and pending[0]["c"] > 0:
-                    import os
-
                     # Avoid auto-starting during unit tests to prevent thread deadlocks
                     if os.getenv("AGENT_UTILITIES_TESTING", "false").lower() != "true":
                         self.start_task_workers()
@@ -162,15 +164,6 @@ class IntelligenceGraphEngine(
 
         self.hybrid_retriever = HybridRetriever(self)
         self.inference_engine = InferenceEngine(self)
-
-        # Register external ontologies provided during initialization
-        if external_ontologies:
-            for ext in external_ontologies:
-                # Basic parsing if formatted as URI|Endpoint
-                parts = ext.split("|", 1)
-                uri = parts[0].strip()
-                endpoint = parts[1].strip() if len(parts) > 1 else None
-                self.register_external_ontology(uri, endpoint)
 
         # CONCEPT:ORCH-1.4 — Auto-register service registry
         self._services_registered = False
@@ -208,7 +201,7 @@ class IntelligenceGraphEngine(
     @property
     def _is_memory_only(self) -> bool:
         """True when no persistent backend exists (NX is both storage and compute)."""
-        return self.backend is None
+        return False
 
     @property
     def memory(self):
@@ -374,9 +367,10 @@ class IntelligenceGraphEngine(
     ):
         """Create a relationship between two nodes in the graph.
 
-        Tiered write path:
-        - If backend exists and not ephemeral: writes to backend ONLY (source of truth).
-        - If ephemeral or no backend: writes to NX (compute scratchpad / memory-only mode).
+        Write ordering: backend-first, then graph_compute.
+        This prevents sync drift — the persistent layer is always the
+        canonical state. The compute scratchpad is updated afterward
+        as a real-time cache.
         """
         if rel_type:
             rel_type = rel_type.upper()
@@ -392,11 +386,8 @@ class IntelligenceGraphEngine(
 
             props["valid_from"] = datetime.now(UTC).isoformat()
 
-        # Always update graph_compute cache in real-time
-        self.graph_compute.add_edge(source_id, target_id, {"type": rel_type, **props})
-
         if self.backend and not ephemeral:
-            # Tier 1: Backend is source of truth
+            # Tier 1: Backend is source of truth — write here FIRST
             set_clause = self._get_set_clause(props, alias="r")
 
             is_postgres = self.backend.__class__.__name__ == "PostgreSQLBackend"
@@ -431,10 +422,9 @@ class IntelligenceGraphEngine(
             params = {"sid": source_id, "tid": target_id}
             params.update(props)
             self.backend.execute(query, params)
-        elif self.graph.has_node(source_id) and self.graph.has_node(target_id):
-            # Tier 2 fallback: compute engine (memory-only mode or ephemeral)
-            edge_props = {"type": rel_type, **props}
-            self.graph.add_edge(source_id, target_id, edge_props)
+
+        # Tier 2: Update graph_compute cache after backend succeeds
+        self.graph_compute.add_edge(source_id, target_id, {"type": rel_type, **props})
 
     def resolve_and_link(
         self,
@@ -450,8 +440,6 @@ class IntelligenceGraphEngine(
         string matching before linking them. If backend is present, this is pushed
         down to Cypher to avoid O(N) memory scans on large enterprise graphs.
         """
-        source_id = None
-        target_id = None
 
         if self.backend and not ephemeral:
             # Push-down resolution to backend via CONTAINS to avoid O(N) memory scan
@@ -472,25 +460,6 @@ class IntelligenceGraphEngine(
             res = self.backend.execute(q, params)
             return len(res) > 0
 
-        # Fallback to O(N) memory scan (memory-only mode)
-        for node_id in self.graph.node_ids():
-            data = self.graph._get_node_properties(node_id)
-            name = str(data.get("name", "")).lower()
-            if not name:
-                continue
-            if source_name.lower() in name or name in source_name.lower():
-                source_id = node_id
-            if target_name.lower() in name or name in target_name.lower():
-                target_id = node_id
-
-            if source_id and target_id:
-                break
-
-        if source_id and target_id:
-            self.link_nodes(
-                source_id, target_id, rel_type, properties, ephemeral=ephemeral
-            )
-            return True
         return False
 
     def add_node(
@@ -505,24 +474,19 @@ class IntelligenceGraphEngine(
         This is a convenience method for code that doesn't have a typed
         Pydantic model (e.g. council verdicts, ad-hoc decision nodes).
 
-        Tiered write path:
-        - If backend exists and not ephemeral: writes to backend ONLY (source of truth).
-        - If ephemeral or no backend: writes to NX (compute scratchpad / memory-only mode).
+        Write ordering: backend-first, then graph_compute.
         """
         node_type = self._normalize_label(node_type)
         props = properties or {}
         props["type"] = node_type
 
-        # Always update graph_compute cache in real-time
-        self.graph_compute.add_node(node_id, props)
-
         if self.backend and not ephemeral:
-            # Tier 1: Backend is source of truth
+            # Tier 1: Backend is source of truth — write here FIRST
             data = {"id": node_id, **props}
             self._upsert_node(node_type, node_id, data)
-        else:
-            # Tier 2 fallback: NX only (memory-only mode or ephemeral)
-            self.graph.add_node(node_id, **props)
+
+        # Tier 2: Update graph_compute cache after backend succeeds
+        self.graph_compute.add_node(node_id, props)
 
     def get_blast_radius(self, node_id: str, depth: int) -> list[dict[str, Any]]:
         """Retrieve the blast radius (dependencies) from a starting node.
@@ -552,13 +516,6 @@ class IntelligenceGraphEngine(
                     f"Cypher blast radius query failed: {e}. Falling back to compute engine."
                 )
 
-        # Fallback/Memory-only: ensure compute engine is hydrated from local graph
-        if not self.graph_compute.has_node(node_id) and self.graph.node_count() > 0:
-            for nid in self.graph.node_ids():
-                self.graph_compute.add_node(nid, self.graph._get_node_properties(nid))
-            for src, tgt in self.graph._get_all_edges():
-                self.graph_compute.add_edge(src, tgt, {})
-
         return self.graph_compute.get_blast_radius(node_id, depth)
 
     # --- Tier 2: Compute Scratchpad (Rust-native on-demand loading) ---
@@ -577,7 +534,7 @@ class IntelligenceGraphEngine(
         When no backend exists (memory-only mode), returns the full local graph.
         """
         if not self.backend:
-            return self.graph  # Memory-only mode: GraphComputeEngine IS the store
+            raise RuntimeError("Backend required for load_subgraph")
 
         subgraph = GraphComputeEngine(backend_type="rust")
         results = self.backend.execute(query, params or {})
@@ -605,11 +562,7 @@ class IntelligenceGraphEngine(
             node_types: Optional filter by node types. If None, loads all nodes.
         """
         if not self.backend or not node_types:
-            return (
-                self.graph
-                if not self.backend
-                else self.load_subgraph("MATCH (n)-[r]->(m) RETURN n, r, m")
-            )
+            return self.load_subgraph("MATCH (n)-[r]->(m) RETURN n, r, m")
         return self.load_subgraph(
             "MATCH (n)-[r]->(m) WHERE n.type IN $types OR m.type IN $types RETURN n, r, m",
             {"types": node_types},
@@ -618,7 +571,7 @@ class IntelligenceGraphEngine(
     def load_for_impact_analysis(self, target_id: str) -> GraphComputeEngine:
         """Load neighbors within 3 hops of target for impact analysis."""
         if not self.backend:
-            return self.graph
+            raise RuntimeError("Backend required for load_for_impact_analysis")
         return self.load_subgraph(
             "MATCH path = (n)-[*1..3]-(t {id: $target}) "
             "UNWIND nodes(path) AS n UNWIND relationships(path) AS r "
@@ -773,16 +726,8 @@ class IntelligenceGraphEngine(
     def delete_node(self, node_id: str, ephemeral: bool = False) -> None:
         """Remove a node and its associated relationships from the graph.
 
-        Tiered write path:
-        - If backend exists and not ephemeral: writes to backend ONLY (source of truth).
-        - If ephemeral or no backend: writes to NX (compute scratchpad / memory-only mode).
+        Write ordering: backend-first, then graph_compute.
         """
-        # Always update graph_compute cache in real-time
-        try:
-            self.graph_compute.remove_node(node_id)
-        except Exception as e:
-            logger.debug(f"graph_compute remove_node failed or node not found: {e}")
-
         if self.backend and not ephemeral:
             try:
                 self.backend.execute(
@@ -791,11 +736,15 @@ class IntelligenceGraphEngine(
                 )
             except Exception as e:
                 logger.warning(f"Backend delete_node failed: {e}")
-        elif self.graph.has_node(node_id):
-            self.graph.remove_node(node_id)
+
+        # Tier 2: Update graph_compute cache after backend succeeds
+        try:
+            self.graph_compute.remove_node(node_id)
+        except Exception as e:
+            logger.debug(f"graph_compute remove_node failed or node not found: {e}")
 
     def remove_node(self, node_id: str, ephemeral: bool = False) -> None:
-        """Alias for delete_node to support backward compatibility."""
+        """Remove a node — delegates to delete_node."""
         self.delete_node(node_id, ephemeral)
 
     def delete_edge(
@@ -807,16 +756,8 @@ class IntelligenceGraphEngine(
     ) -> None:
         """Remove a relationship between two nodes in the graph.
 
-        Tiered write path:
-        - If backend exists and not ephemeral: writes to backend ONLY (source of truth).
-        - If ephemeral or no backend: writes to compute engine (memory-only mode).
+        Write ordering: backend-first, then graph_compute.
         """
-        # Always update graph_compute cache in real-time
-        try:
-            self.graph_compute.remove_edge(source_id, target_id)
-        except Exception as e:
-            logger.debug(f"graph_compute remove_edge failed or edge not found: {e}")
-
         if self.backend and not ephemeral:
             try:
                 if rel_type:
@@ -830,9 +771,167 @@ class IntelligenceGraphEngine(
                 self.backend.execute(query, {"sid": source_id, "tid": target_id})
             except Exception as e:
                 logger.warning(f"Backend delete_edge failed: {e}")
-        elif self.graph.has_edge(source_id, target_id):
-            self.graph.remove_edge(source_id, target_id)
 
+        # Tier 2: Update graph_compute cache after backend succeeds
+        try:
+            self.graph_compute.remove_edge(source_id, target_id)
+        except Exception as e:
+            logger.debug(f"graph_compute remove_edge failed or edge not found: {e}")
 
-# Alias for backward compatibility
-RegistryGraphEngine = IntelligenceGraphEngine
+    # ── Startup Hydration & Sync ───────────────────────────────────────
+
+    def hydrate_compute_engine(self, limit: int = 50000) -> int:
+        """Rebuild the Rust compute engine state from the persistent backend.
+
+        CONCEPT:KG-2.16 — On startup (or after a Rust service restart), the
+        in-memory graph is empty. This method queries the backend for all
+        nodes and edges, then replays them into the compute engine via
+        ``batch_update()`` to restore full state parity.
+
+        Args:
+            limit: Maximum number of nodes to hydrate (safety cap).
+
+        Returns:
+            Total number of operations replayed.
+        """
+        if not self.backend:
+            logger.warning("No backend available for hydration")
+            return 0
+
+        ops: list[dict[str, Any]] = []
+
+        # 1. Hydrate nodes
+        try:
+            node_results = self.backend.execute(
+                f"MATCH (n) RETURN n.id as id, labels(n)[0] as lbl LIMIT {limit}",
+                {},
+            )
+            for row in node_results:
+                node_id = row.get("id")
+                if node_id:
+                    ops.append(
+                        {
+                            "op": "add_node",
+                            "node_id": node_id,
+                            "properties_json": json.dumps(
+                                {"type": row.get("lbl", "Node")}
+                            ),
+                        }
+                    )
+        except Exception as e:
+            logger.warning(f"Node hydration query failed: {e}")
+
+        # 2. Hydrate edges
+        try:
+            edge_results = self.backend.execute(
+                f"MATCH (s)-[r]->(t) RETURN s.id as sid, t.id as tid, type(r) as rel LIMIT {limit}",
+                {},
+            )
+            for row in edge_results:
+                sid = row.get("sid")
+                tid = row.get("tid")
+                if sid and tid:
+                    ops.append(
+                        {
+                            "op": "add_edge",
+                            "source_id": sid,
+                            "target_id": tid,
+                            "properties_json": json.dumps(
+                                {"type": row.get("rel", "RELATED_TO")}
+                            ),
+                        }
+                    )
+        except Exception as e:
+            logger.warning(f"Edge hydration query failed: {e}")
+
+        if not ops:
+            logger.info("No data to hydrate")
+            return 0
+
+        # 3. Replay via batch_update for efficiency
+        try:
+            self.graph_compute.batch_update(ops)
+            logger.info(f"Hydrated compute engine with {len(ops)} operations")
+        except Exception as e:
+            logger.error(f"Batch hydration failed: {e}")
+            return 0
+
+        return len(ops)
+
+    def sync_embeddings(
+        self,
+        direction: str = "backend_to_rust",
+        limit: int = 10000,
+    ) -> int:
+        """Synchronize vector embeddings between LadybugDB and Rust SemanticStore.
+
+        CONCEPT:KG-2.16 — Bidirectional sync to ensure both the persistent
+        VECTOR index (LadybugDB) and the in-memory SemanticStore (Rust) have
+        the same embeddings.
+
+        Args:
+            direction: ``backend_to_rust`` or ``rust_to_backend``.
+            limit: Maximum embeddings to sync per call.
+
+        Returns:
+            Number of embeddings synced.
+        """
+        if not self.backend:
+            logger.warning("No backend available for embedding sync")
+            return 0
+
+        count = 0
+
+        if direction == "backend_to_rust":
+            # Pull embeddings from LadybugDB and push to Rust
+            try:
+                results = self.backend.execute(
+                    f"MATCH (n) WHERE n.embedding IS NOT NULL "
+                    f"RETURN n.id as id, n.embedding as emb LIMIT {limit}",
+                    {},
+                )
+                for row in results:
+                    node_id = row.get("id")
+                    embedding = row.get("emb")
+                    if node_id and embedding and isinstance(embedding, list):
+                        try:
+                            self.graph_compute.add_node(
+                                node_id,
+                                {"embedding": [float(x) for x in embedding]},
+                            )
+                            count += 1
+                        except Exception as e:
+                            logger.debug(f"Failed to push embedding for {node_id}: {e}")
+            except Exception as e:
+                logger.warning(f"Backend embedding query failed: {e}")
+
+        elif direction == "rust_to_backend":
+            # Pull from Rust ledger and push to LadybugDB
+            # The Rust side stores embeddings in SemanticStore, accessible via
+            # the ledger — any AddEmbedding operations are logged there.
+            try:
+                ledger = self.graph_compute.get_ledger()
+                for entry_str in ledger:
+                    try:
+                        entry = json.loads(entry_str)
+                        if entry.get("op") == "add_embedding":
+                            node_id = entry.get("node_id")
+                            embedding = entry.get("embedding")
+                            if node_id and embedding:
+                                self.backend.execute(
+                                    "MATCH (n {id: $id}) SET n.embedding = $emb",
+                                    {"id": node_id, "emb": embedding},
+                                )
+                                count += 1
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+            except Exception as e:
+                logger.warning(f"Rust→backend embedding sync failed: {e}")
+        else:
+            raise ValueError(
+                f"Invalid direction '{direction}'. "
+                "Use 'backend_to_rust' or 'rust_to_backend'."
+            )
+
+        logger.info(f"Synced {count} embeddings ({direction})")
+        return count

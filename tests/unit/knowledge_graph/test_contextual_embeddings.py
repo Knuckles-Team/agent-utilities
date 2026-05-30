@@ -1,6 +1,5 @@
 """CONCEPT:KG-2.1"""
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.context_builder import (
@@ -8,6 +7,7 @@ from agent_utilities.knowledge_graph.core.context_builder import (
     get_hierarchical_context,
     get_owl_context,
 )
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
 @pytest.mark.timeout(5)

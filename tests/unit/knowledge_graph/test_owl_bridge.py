@@ -6,8 +6,10 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
 pytest.importorskip("owlready2")
 
 from agent_utilities.knowledge_graph.backends.owl.owlready2_backend import (

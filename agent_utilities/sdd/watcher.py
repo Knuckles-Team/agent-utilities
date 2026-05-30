@@ -670,7 +670,7 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
             if k not in ["name", "description"]:
                 props[k] = str(v)
 
-        engine.add_node(node_id=node_id, node_type="Skill", properties=props)
+        engine.add_node(node_id, node_type="Skill", properties=props)
 
         query_project = (
             "MATCH (proj:Project) WHERE proj.name = 'current' "

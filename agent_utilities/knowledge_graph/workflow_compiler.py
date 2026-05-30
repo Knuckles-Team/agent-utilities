@@ -190,9 +190,9 @@ class WorkflowCompiler:
                 depends_on = [prev_agent]
 
             step = ExecutionStep(
-                node_id=agent_id,
+                id=agent_id,
                 refined_subtask=step_text,
-                is_parallel=is_parallel,
+                parallel=is_parallel,
                 depends_on=depends_on,
                 access_list=depends_on if depends_on else [],
                 timeout=120.0,
@@ -212,7 +212,7 @@ class WorkflowCompiler:
         logger.info(
             "[ORCH-1.23] Compiled workflow: %d steps, agents=%s",
             len(matched_steps),
-            [s.node_id for s in matched_steps],
+            [s.id for s in matched_steps],
         )
         return plan
 

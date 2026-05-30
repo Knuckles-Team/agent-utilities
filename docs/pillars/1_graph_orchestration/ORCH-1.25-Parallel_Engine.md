@@ -2,7 +2,7 @@
 
 > **Status**: Active
 > **Pillar**: 1 — Graph Orchestration Engine (ORCH)
-> **Replaces**: `DynamicSubgraphOrchestrator`, `HeavyThinkingOrchestrator`, `SubagentPatternRouter`, `CoordinationLayer` (standalone), `RLMEnvironment.run_parallel_sub_calls()`, `WorkflowRunner` wave execution
+> **Replaces**: `GraphOrchestrator`, `HeavyThinkingOrchestrator`, `SubagentPatternRouter`, `CoordinationLayer` (standalone), `RLMEnvironment.run_parallel_sub_calls()`, `WorkflowRunner` wave execution
 
 ---
 
@@ -335,7 +335,7 @@ graph TD
 |---|---|
 | ORCH-1.1 (HTN Planning) | Planner generates `GraphPlan` → `manifest_from_planner()` |
 | ORCH-1.3 (Coordination) | `CoordinationLayer` is a subcomponent of `ParallelEngine` |
-| ORCH-1.4 (Dynamic Subgraph) | `DynamicSubgraphOrchestrator.synthesize_team()` generates teams → `manifest_from_teamconfig()` |
+| ORCH-1.4 (Dynamic Subgraph) | `GraphOrchestrator.synthesize_team()` generates teams → `manifest_from_teamconfig()` |
 | ORCH-1.26 (Synthesis) | Output synthesis strategies used by `ParallelEngine._synthesize()` |
 | ORCH-1.27 (Departments) | OWL-materialized departments → `manifest_from_department()` |
 | AHE-3.5 (Heavy Thinking) | K-parallel reasoning → `manifest_from_heavy_thinking()` |

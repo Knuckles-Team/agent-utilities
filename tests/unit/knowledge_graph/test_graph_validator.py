@@ -1,9 +1,9 @@
 #!/usr/bin/python
 """Tests for CONCEPT:KG-2.3 — Graph Integrity Validator."""
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.security.graph_validator import (
     EDGE_TYPE_ALIASES,
     NODE_TYPE_ALIASES,

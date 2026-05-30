@@ -50,7 +50,7 @@ class FederationMixin:
         # what external ontologies are currently mapped.
         node_id = f"OntologyReference_{hash(uri)}"
         self.add_node(  # type: ignore[attr-defined]
-            node_id=node_id,
+            id=node_id,
             node_type="ExternalGraphReference",
             properties={
                 "externalUri": uri,
@@ -85,7 +85,7 @@ class FederationMixin:
         stub_id = f"ExternalEntity_{platform}_{external_id}"
 
         self.add_node(  # type: ignore[attr-defined]
-            node_id=stub_id,
+            id=stub_id,
             node_type="ExternalEntity",
             properties={
                 "externalSystemId": external_id,

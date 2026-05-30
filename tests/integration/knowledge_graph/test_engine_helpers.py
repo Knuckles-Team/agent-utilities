@@ -6,10 +6,10 @@ CONCEPT:KG-2.0 — Granular Resource Queries
 CONCEPT:KG-2.0 — Workspace Reload
 """
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.knowledge_graph import (
     RegistryEdgeType,
 )
@@ -26,9 +26,10 @@ def _reset_active_engine():
 @pytest.fixture
 def engine():
     import uuid
+
     unique_name = f"test_graph_{uuid.uuid4().hex}"
-    graph = GraphComputeEngine(graph_name=unique_name, backend_type="rust")
-    return IntelligenceGraphEngine(graph)
+    GraphComputeEngine(graph_name=unique_name, backend_type="rust")
+    return IntelligenceGraphEngine(db_path=":memory:")
 
 
 # ─────────────────────────────────────────────────────────────────────

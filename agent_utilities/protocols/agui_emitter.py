@@ -27,7 +27,7 @@ class AGUIGraphEmitter:
     """Translates graph execution events to AG-UI wire format.
 
     This emitter converts the structured event dictionaries yielded by
-    :func:`~agent_utilities.graph.dynamic_graph_orchestrator.run_graph_iter` into byte-encoded
+    :func:`~agent_utilities.orchestration.graph_orchestrator.run_graph_iter` into byte-encoded
     AG-UI wire format lines suitable for ``StreamingResponse``.
 
     The AG-UI protocol uses specific line prefixes:

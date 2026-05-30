@@ -76,7 +76,7 @@ Both pipelines share the same downstream tools: `comparative-analysis`,
 - **Tool:** `x_search` with `grok-4.3` model
 - **Signal types:** Trending AI/ML discussions, framework announcements, quantitative analysis threads
 - **Auto-ingest:** `browse_x_post(url, auto_ingest=True)` pipes through classifier
-- **Article handling:** Long-form X Articles fetched via browser → `KBIngestionEngine`
+- **Article handling:** Long-form X Articles fetched via browser → `IngestionEngine` (`ContentType.DOCUMENT`)
 
 ### ScholarX (via scholarx-mcp)
 
@@ -134,7 +134,7 @@ All configuration is managed via XDG-compliant paths:
 ## Related Components
 
 - [x-assistant.md](./x-assistant.md) — X search/browse tools and social ingestion
-- [knowledge-graph.md](./knowledge-graph.md) — KB ingestion engine, distillation
+- [knowledge-graph.md](./knowledge-graph.md) — Ingestion engine, distillation
 - [agent-utilities-evolution SKILL](../../../../skills/universal-skills/universal_skills/research/agent-utilities-evolution/SKILL.md) — Pull-based research scanner
 - [comparative-analysis SKILL](../../../../skills/universal-skills/universal_skills/analysis/comparative-analysis/SKILL.md) — Feature extraction
 - [ontology_social.ttl](../../../agent_utilities/knowledge_graph/ontology_social.ttl) — OWL schema for social content

@@ -4,8 +4,8 @@
 
 from unittest.mock import Mock
 
-from agent_utilities.graph.dynamic_graph_orchestrator import DynamicSubgraphOrchestrator
 from agent_utilities.models.knowledge_graph import TeamComposition
+from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 
 
 def test_dynamic_subgraph_synthesize_team():
@@ -45,7 +45,7 @@ def test_dynamic_subgraph_synthesize_team():
         [{"tool_name": "write_report"}],
     ]
 
-    orchestrator = DynamicSubgraphOrchestrator(engine=mock_engine)
+    orchestrator = AgentOrchestrationEngine(engine=mock_engine)
     team = orchestrator.synthesize_team(query="Research and write a report on AI")
 
     assert isinstance(team, TeamComposition)
@@ -75,7 +75,7 @@ def test_dynamic_subgraph_with_delegated_authority():
         [{"tool_name": "read_ledger"}],
     ]
 
-    orchestrator = DynamicSubgraphOrchestrator(engine=mock_engine)
+    orchestrator = AgentOrchestrationEngine(engine=mock_engine)
     team = orchestrator.synthesize_team(
         query="Audit the Q3 ledger",
         domain="finance",
