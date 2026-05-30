@@ -35,15 +35,15 @@ def sample_plan() -> GraphPlan:
     return GraphPlan(
         steps=[
             ExecutionStep(
-                node_id="agent-a",
+                id="agent-a",
                 refined_subtask="Step 1",
-                is_parallel=False,
+                parallel=False,
                 depends_on=[],
             ),
             ExecutionStep(
-                node_id="agent-b",
+                id="agent-b",
                 refined_subtask="Step 2",
-                is_parallel=False,
+                parallel=False,
                 depends_on=["agent-a"],
             ),
         ],
@@ -57,9 +57,9 @@ def trivial_plan() -> GraphPlan:
     return GraphPlan(
         steps=[
             ExecutionStep(
-                node_id="agent-a",
+                id="agent-a",
                 refined_subtask="Only step",
-                is_parallel=False,
+                parallel=False,
                 depends_on=[],
             ),
         ],
@@ -90,10 +90,10 @@ Do step 2 task.
 """
         plan = SkillCompiler.compile_from_text("test-skill", markdown)
         assert len(plan.steps) == 2
-        assert plan.steps[0].node_id == "agent-a"
+        assert plan.steps[0].id == "agent-a"
         assert plan.steps[0].refined_subtask is not None
         assert "Do step 1 task" in plan.steps[0].refined_subtask
-        assert plan.steps[1].node_id == "agent-b"
+        assert plan.steps[1].id == "agent-b"
         assert plan.steps[1].refined_subtask is not None
         assert "Do step 2 task" in plan.steps[1].refined_subtask
         assert plan.steps[1].depends_on == ["agent-a"]
@@ -103,7 +103,7 @@ Do step 2 task.
         markdown = "Just do this task."
         plan = SkillCompiler.compile_from_text("test-skill", markdown)
         assert len(plan.steps) == 1
-        assert plan.steps[0].node_id == "executor"
+        assert plan.steps[0].id == "executor"
         assert plan.steps[0].refined_subtask == "Just do this task."
 
     def test_load_team_config_missing(self) -> None:
@@ -166,8 +166,8 @@ Some post-execution steps.
         # Parse it into a GraphPlan
         plan = SkillCompiler.compile_from_text("test-lossless-skill", original_markdown)
         assert len(plan.steps) == 2
-        assert plan.steps[0].node_id == "agent-a"
-        assert plan.steps[1].node_id == "agent-b"
+        assert plan.steps[0].id == "agent-a"
+        assert plan.steps[1].id == "agent-b"
 
         # Programmatically mutate the steps
         plan.steps[0].refined_subtask = "Gather updated details."
@@ -202,7 +202,7 @@ Some post-execution steps.
             plan = GraphPlan(
                 steps=[
                     ExecutionStep(
-                        node_id="new-agent",
+                        id="new-agent",
                         refined_subtask="New step task",
                         depends_on=[],
                     )
@@ -286,14 +286,14 @@ class TestDistillationHook:
         """Different topologies should produce different keys."""
         plan_a = GraphPlan(
             steps=[
-                ExecutionStep(node_id="x", refined_subtask="t", depends_on=[]),
-                ExecutionStep(node_id="y", refined_subtask="t", depends_on=["x"]),
+                ExecutionStep(id="x", refined_subtask="t", depends_on=[]),
+                ExecutionStep(id="y", refined_subtask="t", depends_on=["x"]),
             ]
         )
         plan_b = GraphPlan(
             steps=[
-                ExecutionStep(node_id="x", refined_subtask="t", depends_on=[]),
-                ExecutionStep(node_id="z", refined_subtask="t", depends_on=["x"]),
+                ExecutionStep(id="x", refined_subtask="t", depends_on=[]),
+                ExecutionStep(id="z", refined_subtask="t", depends_on=["x"]),
             ]
         )
         assert _compute_pattern_key(plan_a) != _compute_pattern_key(plan_b)

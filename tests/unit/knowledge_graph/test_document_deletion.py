@@ -203,7 +203,9 @@ class TestDocumentCleanup:
     @pytest.mark.asyncio
     async def test_cleanup_orphan_graph_nodes(self):
         """Test cleaning up orphan graph nodes."""
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         # Use actual graph compute engine for this test
         knowledge_graph = MagicMock()

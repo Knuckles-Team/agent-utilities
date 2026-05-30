@@ -1,6 +1,5 @@
 """Tests for agent_utilities.gateway.aggregator — migrated from service-dashboard-core."""
 
-import asyncio
 
 import pytest
 

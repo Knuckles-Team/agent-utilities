@@ -15,10 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities.graph.dynamic_graph_orchestrator import (
-    _build_state_snapshot,
-    run_graph_iter,
-)
+from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 from agent_utilities.graph.state import GraphState
 
 
@@ -36,7 +33,7 @@ class TestBuildStateSnapshot:
             session_id="sess-123",
         )
         state.results_registry = {"step_1": "ok"}
-        snapshot = _build_state_snapshot(state)
+        snapshot = AgentOrchestrationEngine._build_state_snapshot(state)
 
         assert snapshot["routed_domain"] == "git_operations"
         assert snapshot["mode"] == "ask"
@@ -49,7 +46,7 @@ class TestBuildStateSnapshot:
 
     def test_snapshot_returns_dict(self):
         state = GraphState(query="test")
-        snapshot = _build_state_snapshot(state)
+        snapshot = AgentOrchestrationEngine._build_state_snapshot(state)
         assert isinstance(snapshot, dict)
         # Should be serializable
         import json
@@ -59,7 +56,7 @@ class TestBuildStateSnapshot:
     def test_snapshot_copies_node_history(self):
         """Snapshot should copy the list, not reference it."""
         state = GraphState(query="test", node_history=["a", "b"])
-        snapshot = _build_state_snapshot(state)
+        snapshot = AgentOrchestrationEngine._build_state_snapshot(state)
         state.node_history.append("c")
         assert snapshot["node_history"] == ["a", "b"]
 
@@ -75,7 +72,7 @@ class _FakeGraphTask:
     """Simulates a GraphTask for testing."""
 
     def __init__(self, node_id: str, task_id: str = "task:0"):
-        self.node_id = node_id
+        self.id = node_id
         self.task_id = task_id
 
 
@@ -128,13 +125,13 @@ async def test_run_graph_iter_yields_node_transitions():
     events = []
     with (
         patch(
-            "agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry"
+            "agent_utilities.orchestration.graph_orchestrator.load_node_agents_registry"
         ) as mock_registry,
         patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
-        async for event in run_graph_iter(
+        async for event in AgentOrchestrationEngine().iter_graph(
             graph=graph,
             config={},
             query="test query",
@@ -164,13 +161,13 @@ async def test_run_graph_iter_state_snapshots():
     events = []
     with (
         patch(
-            "agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry"
+            "agent_utilities.orchestration.graph_orchestrator.load_node_agents_registry"
         ) as mock_registry,
         patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
-        async for event in run_graph_iter(
+        async for event in AgentOrchestrationEngine().iter_graph(
             graph=graph, config={}, query="test", run_id="s"
         ):
             events.append(event)
@@ -195,11 +192,11 @@ async def test_run_graph_iter_handles_error():
 
     events = []
     with patch(
-        "agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry"
+        "agent_utilities.orchestration.graph_orchestrator.load_node_agents_registry"
     ) as mock_registry:
         mock_registry.return_value = MagicMock(agents=[])
 
-        async for event in run_graph_iter(
+        async for event in AgentOrchestrationEngine().iter_graph(
             graph=graph, config={}, query="test", run_id="err"
         ):
             events.append(event)
@@ -249,13 +246,13 @@ async def test_run_graph_iter_drains_sideband():
     events = []
     with (
         patch(
-            "agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry"
+            "agent_utilities.orchestration.graph_orchestrator.load_node_agents_registry"
         ) as mock_registry,
         patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
-        async for event in run_graph_iter(
+        async for event in AgentOrchestrationEngine().iter_graph(
             graph=graph, config={}, query="test", run_id="sb"
         ):
             events.append(event)

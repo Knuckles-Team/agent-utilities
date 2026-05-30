@@ -77,12 +77,12 @@ from .steps import (
 )
 
 try:
-    from ..knowledge_graph.core.engine import RegistryGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
     from ..knowledge_graph.pipeline import RegistryPipeline
     from ..models.knowledge_graph import PipelineConfig
 except ImportError:
     # These might be missing if the extra is not installed, but we want them at top level for patching
-    RegistryGraphEngine = None  # type: ignore
+    IntelligenceGraphEngine = None  # type: ignore
     PipelineConfig = None  # type: ignore
     RegistryPipeline = None  # type: ignore
 from agent_utilities.agent.registry_builder import ingest_prompts_to_graph
@@ -410,7 +410,7 @@ def create_agent(
 
     knowledge_engine = None
     try:
-        if not all([RegistryGraphEngine, PipelineConfig, RegistryPipeline]):
+        if not all([IntelligenceGraphEngine, PipelineConfig, RegistryPipeline]):
             raise ImportError("Registry Graph dependencies missing")
 
         if DEFAULT_VALIDATION_MODE:
@@ -449,8 +449,8 @@ def create_agent(
                 try:
                     logger.info("Running RegistryPipeline sync...")
                     asyncio.run(reg_pipeline.run())
-                    knowledge_engine = RegistryGraphEngine(
-                        reg_pipeline.graph, db_path=reg_config.ladybug_path
+                    knowledge_engine = IntelligenceGraphEngine(
+                        graph=reg_pipeline.graph, db_path=reg_config.ladybug_path
                     )
                 except Exception as e:
                     logger.debug(f"Knowledge engine initialization failed: {e}")
@@ -604,7 +604,7 @@ def create_agent(
 
     # 1. Parallel Batch Route (using the state-based caching pattern)
     _dispatcher_route.branches.append(
-        g.match(Literal["parallel_batch_processor"]).to(_parallel_batch_processor)
+        g.match(Literal["parallel_batch_processor"]).to(_parallel_batch_processor)  # type: ignore[arg-type]
     )
 
     # 2. Sequential/Expert Routes (Literal matching on string return value)
@@ -623,16 +623,16 @@ def create_agent(
         ("process_executor", _process_executor),
     ]
     for nid, node in _sequential_routes:
-        _dispatcher_route.branches.append(g.match(Literal[nid]).to(node))
+        _dispatcher_route.branches.append(g.match(Literal[nid]).to(node))  # type: ignore[arg-type]
 
     # Explicit dispatcher routing if returned (e.g. by verifier)
-    _dispatcher_route.branches.append(g.match(Literal["dispatcher"]).to(_dispatcher))
-    _dispatcher_route.branches.append(g.match(Literal["error"]).to(_error))
-    _dispatcher_route.branches.append(g.match(Literal["error_recovery"]).to(_error))
+    _dispatcher_route.branches.append(g.match(Literal["dispatcher"]).to(_dispatcher))  # type: ignore[arg-type]
+    _dispatcher_route.branches.append(g.match(Literal["error"]).to(_error))  # type: ignore[arg-type]
+    _dispatcher_route.branches.append(g.match(Literal["error_recovery"]).to(_error))  # type: ignore[arg-type]
 
     # Skill/Agent Nodes
     for nid, node in expert_nodes.items():
-        _dispatcher_route.branches.append(g.match(Literal[nid]).to(node))
+        _dispatcher_route.branches.append(g.match(Literal[nid]).to(node))  # type: ignore[arg-type]
 
     # 3. Termination Route (returns None)
     _dispatcher_route.branches.append(g.match(type(None)).to(g.end_node))
@@ -640,38 +640,38 @@ def create_agent(
     # Joiner Routes
     _research_joiner_route = g.decision(node_id="research_joiner_route")
     _research_joiner_route.branches.append(
-        g.match(Literal["dispatcher"]).to(_dispatcher)
+        g.match(Literal["dispatcher"]).to(_dispatcher)  # type: ignore[arg-type]
     )
     _research_joiner_route.branches.append(g.match(type(None)).to(g.end_node))
 
     _execution_joiner_route = g.decision(node_id="execution_joiner_route")
     _execution_joiner_route.branches.append(
-        g.match(Literal["dispatcher"]).to(_dispatcher)
+        g.match(Literal["dispatcher"]).to(_dispatcher)  # type: ignore[arg-type]
     )
-    _execution_joiner_route.branches.append(g.match(Literal["verifier"]).to(_verifier))
+    _execution_joiner_route.branches.append(g.match(Literal["verifier"]).to(_verifier))  # type: ignore[arg-type]
     _execution_joiner_route.branches.append(g.match(type(None)).to(g.end_node))
 
     _memory_selection_route = g.decision(node_id="memory_selection_route")
     _memory_selection_route.branches.append(
-        g.match(Literal["dispatcher"]).to(_dispatcher)
+        g.match(Literal["dispatcher"]).to(_dispatcher)  # type: ignore[arg-type]
     )
     _memory_selection_route.branches.append(
-        g.match(Literal["researcher"]).to(_researcher)
+        g.match(Literal["researcher"]).to(_researcher)  # type: ignore[arg-type]
     )
 
     _verifier_route = g.decision(node_id="verifier_route")
-    _verifier_route.branches.append(g.match(Literal["synthesizer"]).to(_synthesizer))
-    _verifier_route.branches.append(g.match(Literal["dispatcher"]).to(_dispatcher))
-    _verifier_route.branches.append(g.match(Literal["planner"]).to(_planner))
+    _verifier_route.branches.append(g.match(Literal["synthesizer"]).to(_synthesizer))  # type: ignore[arg-type]
+    _verifier_route.branches.append(g.match(Literal["dispatcher"]).to(_dispatcher))  # type: ignore[arg-type]
+    _verifier_route.branches.append(g.match(Literal["planner"]).to(_planner))  # type: ignore[arg-type]
 
     _execution_joiner_route = g.decision(node_id="execution_joiner_route")
     _execution_joiner_route.branches.append(
-        g.match(Literal["dispatcher"]).to(_dispatcher)
+        g.match(Literal["dispatcher"]).to(_dispatcher)  # type: ignore[arg-type]
     )
-    _execution_joiner_route.branches.append(g.match(Literal["router_step"]).to(_router))
-    _execution_joiner_route.branches.append(g.match(Literal["router"]).to(_router))
+    _execution_joiner_route.branches.append(g.match(Literal["router_step"]).to(_router))  # type: ignore[arg-type]
+    _execution_joiner_route.branches.append(g.match(Literal["router"]).to(_router))  # type: ignore[arg-type]
     _execution_joiner_route.branches.append(
-        g.match(Literal["wide_search_joiner"]).to(_wide_search_joiner)
+        g.match(Literal["wide_search_joiner"]).to(_wide_search_joiner)  # type: ignore[arg-type]
     )
     _execution_joiner_route.branches.append(g.match(type(None)).to(g.end_node))
 

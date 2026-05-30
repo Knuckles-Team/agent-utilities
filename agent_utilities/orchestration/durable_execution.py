@@ -30,7 +30,7 @@ class DurableExecutionManager:
         SET d.state = $state,
             d.status = $status,
             d.updated_at = $updated_at
-        RETURN d.node_id
+        RETURN d.id
         """
         params = {
             "session_id": self.session_id,
@@ -48,7 +48,7 @@ class DurableExecutionManager:
         """
         query = """
         MATCH (d:DurableExecutionNode {session_id: $session_id, status: 'PENDING'})
-        RETURN d.node_id as node_id, d.state as state
+        RETURN d.id as node_id, d.state as state
         ORDER BY d.updated_at DESC LIMIT 1
         """
         records = self.db.execute(query, {"session_id": self.session_id})

@@ -1,8 +1,8 @@
 """CONCEPT:OS-5.0"""
 
-import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
 import pytest
 
 from agent_utilities.core import paths
@@ -71,7 +71,6 @@ def test_kg_db_path_resolution(monkeypatch):
         # Should resolve to standard XDG data directory structure
         db_path = paths.kg_db_path()
         assert db_path == tmp_path / "data" / "kg" / "knowledge_graph.db"
-
 
 
 @pytest.mark.concept("CONCEPT:OS-5.0")

@@ -154,16 +154,18 @@ class WorkflowStore:
         for i, step in enumerate(plan.steps):
             step_id = f"{workflow_id}:step:{i}"
             step_props: dict[str, Any] = {
-                "node_id": step.node_id,
+                "node_id": step.id,
                 "step_order": i,
-                "is_parallel": step.is_parallel,
+                "is_parallel": step.parallel,
                 "timeout": step.timeout,
                 "status": "pending",
             }
             if step.refined_subtask:
                 step_props["refined_subtask"] = step.refined_subtask
-            if step.input_data:
-                step_props["input_data_json"] = json.dumps(step.input_data, default=str)
+            if step.description:
+                step_props["input_data_json"] = json.dumps(
+                    step.description, default=str
+                )
             if step.depends_on:
                 step_props["depends_on_json"] = json.dumps(step.depends_on)
             if step.access_list:
@@ -180,7 +182,7 @@ class WorkflowStore:
             )
 
             # Link step → previous step (sequential dependency)
-            if prev_step_id and not step.is_parallel:
+            if prev_step_id and not step.parallel:
                 self.engine.link_nodes(
                     prev_step_id,
                     step_id,
@@ -194,7 +196,7 @@ class WorkflowStore:
                     tool_rows = self.engine.backend.execute(
                         "MATCH (r:CallableResource) WHERE r.name = $node_id "
                         "RETURN r.id AS rid",
-                        {"node_id": step.node_id},
+                        {"node_id": step.id},
                     )
                     for row in tool_rows:
                         rid = row.get("rid")
@@ -285,10 +287,10 @@ class WorkflowStore:
                     input_data = data["input_data_json"]
 
             step = ExecutionStep(
-                node_id=data.get("node_id", "unknown"),
+                id=data.get("node_id", "unknown"),
                 refined_subtask=data.get("refined_subtask"),
-                input_data=input_data,
-                is_parallel=bool(data.get("is_parallel", False)),
+                description=input_data,
+                parallel=bool(data.get("is_parallel", False)),
                 timeout=float(data.get("timeout", 120.0)),
                 depends_on=depends_on,
                 access_list=access_list,
@@ -332,8 +334,8 @@ class WorkflowStore:
         # Fetch steps ordered by position
         step_rows = self.engine.backend.execute(
             "MATCH (w:WorkflowDefinition {id: $wid})-[r:HAS_STEP]->(s:WorkflowStep) "
-            "RETURN s.node_id AS node_id, s.refined_subtask AS refined_subtask, "
-            "s.input_data_json AS input_data, s.is_parallel AS is_parallel, "
+            "RETURN s.id AS node_id, s.refined_subtask AS refined_subtask, "
+            "s.input_data_json AS input_data, s.parallel AS is_parallel, "
             "s.timeout AS timeout, s.depends_on_json AS depends_on, "
             "s.access_list_json AS access_list, r.step_order AS step_order "
             "ORDER BY r.step_order",
@@ -364,10 +366,10 @@ class WorkflowStore:
                     pass
 
             step = ExecutionStep(
-                node_id=row.get("node_id", "unknown"),
+                id=row.get("node_id", "unknown"),
                 refined_subtask=row.get("refined_subtask"),
-                input_data=input_data,
-                is_parallel=bool(row.get("is_parallel", False)),
+                description=input_data,
+                parallel=bool(row.get("is_parallel", False)),
                 timeout=float(row.get("timeout", 120.0)),
                 depends_on=depends_on,
                 access_list=access_list,

@@ -10,28 +10,34 @@ spawns specialized sub-agents dynamically.
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from ..graph.dynamic_graph_orchestrator import DynamicSubgraphOrchestrator
+from ..orchestration.engine import AgentOrchestrationEngine
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+    pass
 
 logger = logging.getLogger(__name__)
 
 
-class BackgroundContextSpawner:
-    """Spawns sub-agents based on KG context shifts.
+class BackgroundAgentSpawner:
+    """Manages the spawning, execution, and wait logic for background subagents.
 
-    CONCEPT:AHE-3.4
+    Integrates with the `IntelligenceGraphEngine` to persist decisions and outcomes,
+    and relies on the `AgentOrchestrationEngine` for actual execution.
     """
 
-    def __init__(self, engine: IntelligenceGraphEngine, poll_interval_sec: int = 60):
+    def __init__(self, engine: Any):
+        """Initialize the background spawner.
+
+        Args:
+            engine: An IntelligenceGraphEngine instance.
+        """
         self.engine = engine
-        self.poll_interval_sec = poll_interval_sec
+        self.orchestrator = AgentOrchestrationEngine(engine=self.engine)
+        self.poll_interval_sec = 60
         self._running = False
         self._task: asyncio.Task | None = None
-        self.orchestrator = DynamicSubgraphOrchestrator(engine=self.engine)
 
     def start(self):
         """Start the background spawner loop."""

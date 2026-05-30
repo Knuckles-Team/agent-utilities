@@ -30,7 +30,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
-from .dynamic_graph_orchestrator import DynamicSubgraphOrchestrator
+from ..orchestration.engine import AgentOrchestrationEngine
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -89,7 +89,7 @@ class KGTeamComposer:
             return proven
 
         # Step 2: Dynamically synthesize the topology using ORCH-1.19
-        orchestrator = DynamicSubgraphOrchestrator(engine=self.engine)
+        orchestrator = AgentOrchestrationEngine(engine=self.engine)
         composition = orchestrator.synthesize_team(
             query=query,
             domain=domain,

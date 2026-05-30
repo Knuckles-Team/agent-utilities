@@ -30,6 +30,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from agent_utilities.graph.models import Relationship
 from agent_utilities.models.knowledge_graph import (
     BeliefNode,
     DecisionNode,
@@ -46,7 +47,6 @@ from agent_utilities.models.knowledge_graph import (
     RoleNode,
     SystemNode,
 )
-from agent_utilities.graph.models import Relationship
 from agent_utilities.models.schema_definition import SCHEMA
 
 # ---------------------------------------------------------------------------
@@ -979,38 +979,35 @@ def test_edge_json_round_trip() -> None:
 
 
 def test_retrieve_place_view_stub_returns_empty_list() -> None:
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    eng = IntelligenceGraphEngine(GraphComputeEngine())
+    eng = IntelligenceGraphEngine(graph=GraphComputeEngine())
     result = eng.retrieve_place_view("meeting", top_k=5)
     assert result == []
 
 
 def test_retrieve_epistemic_view_stub_has_expected_shape() -> None:
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    eng = IntelligenceGraphEngine(GraphComputeEngine())
+    eng = IntelligenceGraphEngine(graph=GraphComputeEngine())
     result = eng.retrieve_epistemic_view("database X", top_k=5)
     assert set(result.keys()) == {"beliefs", "supporting", "contradicting"}
     assert result["beliefs"] == []
 
 
 def test_retrieve_orthogonal_context_includes_v2_views_when_requested() -> None:
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    eng = IntelligenceGraphEngine(GraphComputeEngine())
+    eng = IntelligenceGraphEngine(graph=GraphComputeEngine())
     ctx = eng.retrieve_orthogonal_context(
         "what broke during the migration?",
         views=["place", "epistemic"],
@@ -1026,13 +1023,12 @@ def test_retrieve_orthogonal_context_default_keeps_v1_contract() -> None:
 
     so existing callers don't break. (§6 backward-compat invariant.)
     """
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    eng = IntelligenceGraphEngine(GraphComputeEngine())
+    eng = IntelligenceGraphEngine(graph=GraphComputeEngine())
     ctx = eng.retrieve_orthogonal_context("any query")
     assert set(ctx["views"].keys()) == {
         "semantic",

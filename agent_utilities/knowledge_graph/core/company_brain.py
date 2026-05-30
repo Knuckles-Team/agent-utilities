@@ -69,7 +69,7 @@ class GraphConcurrencyManager:
         gcm.track_node("customer:001")
         # Attempt a CAS mutation
         result = gcm.compare_and_swap(
-            node_id="customer:001",
+            id="customer:001",
             expected_version=1,
             actor_id="agent:risk-analyzer",
             actor_type=ActorType.AI_AGENT,
@@ -316,7 +316,7 @@ class ConflictResolver:
             source_system="crm", data_domain="customer", authority_level=0.95
         ))
         conflict = cr.detect_conflict(
-            node_id="customer:001", field_name="risk_level",
+            id="customer:001", field_name="risk_level",
             value_a="low", actor_a="agent:risk-v1",
             value_b="high", actor_b="analyst:jane",
             actor_b_type=ActorType.HUMAN,

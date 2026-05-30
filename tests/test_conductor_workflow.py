@@ -16,13 +16,13 @@ class TestRefinedSubtaskModel:
 
     def test_refined_subtask_default_none(self):
         """refined_subtask defaults to None when not specified."""
-        step = ExecutionStep(node_id="researcher")
+        step = ExecutionStep(id="researcher")
         assert step.refined_subtask is None
 
     def test_refined_subtask_set(self):
         """refined_subtask can be set to a string."""
         step = ExecutionStep(
-            node_id="python_programmer",
+            id="python_programmer",
             refined_subtask="Implement JWT auth middleware for the FastAPI app",
         )
         assert (
@@ -32,7 +32,7 @@ class TestRefinedSubtaskModel:
     def test_refined_subtask_serialization(self):
         """refined_subtask round-trips through JSON serialization."""
         step = ExecutionStep(
-            node_id="researcher",
+            id="researcher",
             refined_subtask="Find all REST API frameworks with built-in auth",
         )
         data = step.model_dump()
@@ -48,12 +48,12 @@ class TestRefinedSubtaskModel:
         plan = GraphPlan(
             steps=[
                 ExecutionStep(
-                    node_id="researcher",
+                    id="researcher",
                     refined_subtask="Survey authentication patterns in Python web frameworks",
                 ),
                 ExecutionStep(
-                    node_id="python_programmer",
-                    input_data="write the code",
+                    id="python_programmer",
+                    description="write the code",
                 ),
             ]
         )
@@ -65,9 +65,9 @@ class TestRefinedSubtaskModel:
         plan = GraphPlan(
             steps=[
                 ExecutionStep(
-                    node_id="researcher",
+                    id="researcher",
                     refined_subtask="Find auth patterns",
-                    input_data="research auth",
+                    description="research auth",
                 ),
             ]
         )
@@ -86,17 +86,17 @@ class TestRefinedSubtaskModel:
     def test_refined_subtask_coexists_with_input_data(self):
         """Both refined_subtask and input_data can be set."""
         step = ExecutionStep(
-            node_id="python_programmer",
-            input_data={"question": "implement auth"},
+            id="python_programmer",
+            description={"question": "implement auth"},
             refined_subtask="Build JWT middleware with RS256 signing",
         )
-        assert step.input_data is not None
+        assert step.description is not None
         assert step.refined_subtask is not None
 
     def test_refined_subtask_empty_string(self):
         """Empty string refined_subtask is valid but falsy."""
         step = ExecutionStep(
-            node_id="researcher",
+            id="researcher",
             refined_subtask="",
         )
         assert step.refined_subtask == ""
@@ -107,7 +107,7 @@ class TestRefinedSubtaskModel:
         """Long refined subtasks are preserved."""
         long_task = "x" * 5000
         step = ExecutionStep(
-            node_id="researcher",
+            id="researcher",
             refined_subtask=long_task,
         )
         assert len(step.refined_subtask) == 5000  # type: ignore[arg-type]
@@ -128,7 +128,7 @@ class TestRefinedSubtaskModel:
         plan = GraphPlan(
             steps=[
                 ExecutionStep(
-                    node_id="researcher",
+                    id="researcher",
                     refined_subtask="Research auth patterns",
                 ),
             ]

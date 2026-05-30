@@ -7,7 +7,6 @@ CONCEPT:AHE-3.4 (EWC++)
 
 from typing import Any
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.topological_partition import (
@@ -45,6 +44,7 @@ def test_detect_communities():
     """
     # Create a graph with two distinct cliques connected by a single edge
     from agent_utilities.knowledge_graph.core.graph_primitives import PyGraph
+
     G = PyGraph()
     n = {}
     for i in range(1, 7):
@@ -72,6 +72,7 @@ def test_persist_stable_communities():
     CONCEPT:KG-2.5
     """
     from agent_utilities.knowledge_graph.core.graph_primitives import PyGraph
+
     G = PyGraph()
     n = {}
     for i in range(1, 7):
@@ -98,7 +99,7 @@ def test_drift_tracker():
 
     report = check_knowledge_drift("node_1", history, current, drift_threshold=0.15)
 
-    assert report.node_id == "node_1"
+    assert report.id == "node_1"
     assert report.has_drifted is True
     assert report.cosine_shift == 1.0  # Cosine distance between [1,0,0] and [0,1,0]
     assert report.coefficient_of_variation > 0.0

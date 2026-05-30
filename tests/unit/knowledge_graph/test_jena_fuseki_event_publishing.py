@@ -1,8 +1,16 @@
-import pytest
 import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
-from agent_utilities.knowledge_graph.backends.sparql.jena_fuseki_backend import JenaFusekiBackend
-from agent_utilities.knowledge_graph.core.event_backend import EventBackend, TOPIC_MUTATIONS
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from agent_utilities.knowledge_graph.backends.sparql.jena_fuseki_backend import (
+    JenaFusekiBackend,
+)
+from agent_utilities.knowledge_graph.core.event_backend import (
+    TOPIC_MUTATIONS,
+    EventBackend,
+)
+
 
 @pytest.mark.asyncio
 async def test_jena_fuseki_publishes_event_on_update():
@@ -17,7 +25,7 @@ async def test_jena_fuseki_publishes_event_on_update():
     backend = JenaFusekiBackend(
         jena_fuseki_url="http://localhost:3030",
         dataset="test",
-        event_backend=event_backend_mock
+        event_backend=event_backend_mock,
     )
 
     with patch.object(backend._client, "post", return_value=mock_resp):
@@ -34,6 +42,7 @@ async def test_jena_fuseki_publishes_event_on_update():
         assert args[1]["event_type"] == "TRIPLE_INSERT"
         assert args[1]["query"] == "INSERT DATA { <A> <B> <C> }"
 
+
 @pytest.mark.asyncio
 async def test_jena_fuseki_publishes_delete_event():
     event_backend_mock = MagicMock(spec=EventBackend)
@@ -45,7 +54,7 @@ async def test_jena_fuseki_publishes_delete_event():
     backend = JenaFusekiBackend(
         jena_fuseki_url="http://localhost:3030",
         dataset="test",
-        event_backend=event_backend_mock
+        event_backend=event_backend_mock,
     )
 
     with patch.object(backend._client, "post", return_value=mock_resp):

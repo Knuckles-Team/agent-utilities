@@ -1,9 +1,7 @@
 """Tests for agent_utilities.gateway.registry — migrated from service-dashboard-core."""
 
-import pytest
 
 from agent_utilities.gateway.registry import Registry, get_registry
-from agent_utilities.gateway.models import ServiceCategory
 
 
 def test_registry_singleton():

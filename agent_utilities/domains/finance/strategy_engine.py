@@ -43,7 +43,7 @@ class StrategyEngine:
         strategy_id = f"Strat_{name.replace(' ', '_')}"
 
         self.engine.add_node(
-            node_id=strategy_id,
+            id=strategy_id,
             node_type="TradingStrategy",
             name=name,
             version="1.0.0",
@@ -60,7 +60,7 @@ class StrategyEngine:
         # Link backtest to strategy
         bt_id = f"BT_{strategy_id}_{hash(str(metrics.sharpe))}"
         self.engine.add_node(
-            node_id=bt_id,
+            id=bt_id,
             node_type="BacktestResult",
             sharpe=metrics.sharpe,
             max_drawdown=metrics.max_drawdown,

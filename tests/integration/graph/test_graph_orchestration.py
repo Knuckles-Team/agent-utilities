@@ -11,8 +11,8 @@ from agent_utilities.graph import (
     create_graph_agent,
     get_discovery_registry,
     get_graph_mermaid,
-    validate_graph,
 )
+from agent_utilities.orchestration import AgentOrchestrationEngine
 
 
 def test_graph_builds_with_tags():
@@ -39,7 +39,7 @@ def test_registry_has_specialists():
 def test_graph_validation_reports_topology():
     tag_prompts = {"alpha": "Alpha domain", "beta": "Beta domain"}
     graph, config = create_graph_agent(tag_prompts, mcp_url=None, mcp_config=None)
-    result = validate_graph(graph, config)
+    result = AgentOrchestrationEngine.validate_graph(graph, config)
 
     assert result["domain_count"] == 2
     assert "alpha" in result["domain_tags"]

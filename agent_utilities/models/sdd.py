@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TaskStatus(StrEnum):
@@ -31,19 +31,59 @@ class Spec(BaseModel):
 
 
 class Task(BaseModel):
-    id: str
-    title: str
-    description: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = ""
+    title: str = ""
+    description: Any = ""
+    input_data: Any | None = Field(default=None)
     file_paths: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
     parallel: bool = False
-    status: TaskStatus = TaskStatus.PENDING
+    status: str = "pending"
     assigned_to: str | None = None
     result: str | None = None
     git_commit: str | None = None
     subtasks: list["Task"] = Field(default_factory=list)
     """CONCEPT:ORCH-1.1 — HTN subtasks allowing recursive goal decomposition."""
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    # Unified fields from ExecutionStep
+    refined_subtask: str | None = None
+    timeout: float = 3600.0
+    access_list: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_aliases(cls, data: dict[str, Any] | Any) -> dict[str, Any] | Any:
+        if isinstance(data, dict):
+            if "node_id" in data and "id" not in data:
+                data["id"] = data["node_id"]
+            if "id" in data and "node_id" not in data:
+                data["node_id"] = data["id"]
+
+            if "is_parallel" in data and "parallel" not in data:
+                data["parallel"] = data["is_parallel"]
+            if "parallel" in data and "is_parallel" not in data:
+                data["is_parallel"] = data["parallel"]
+
+        return data
+
+    @property
+    def node_id(self) -> str:
+        return self.id
+
+    @node_id.setter
+    def node_id(self, val: str) -> None:
+        self.id = val
+
+    @property
+    def is_parallel(self) -> bool:
+        return self.parallel
+
+    @is_parallel.setter
+    def is_parallel(self, val: bool) -> None:
+        self.parallel = val
 
 
 class Tasks(BaseModel):

@@ -115,7 +115,10 @@ def test_ladybug_backend_get_lock(temp_db_dir):
         backend.db_path = db_path
         combined_lock = backend._get_lock()
         from filelock import FileLock
-        from agent_utilities.knowledge_graph.backends.ladybug_backend import CombinedLock
+
+        from agent_utilities.knowledge_graph.backends.ladybug_backend import (
+            CombinedLock,
+        )
 
         assert isinstance(combined_lock, CombinedLock)
         assert isinstance(combined_lock.file_lock, FileLock)
@@ -132,15 +135,16 @@ def test_ladybug_backend_get_lock(temp_db_dir):
 
 
 def test_ladybug_backend_escaped_properties(temp_db_dir):
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     # Mock LadybugBackend and initialize IntelligenceGraphEngine
     mock_backend = MagicMock()
     mock_backend.__class__.__name__ = "LadybugBackend"
 
-    engine = IntelligenceGraphEngine(GraphComputeEngine(backend_type="rust"), backend=mock_backend)
+    engine = IntelligenceGraphEngine(
+        graph=GraphComputeEngine(backend_type="rust"), backend=mock_backend
+    )
     mock_backend.reset_mock()
 
     # 1. Test upsert node with reserved keyword property

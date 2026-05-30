@@ -438,16 +438,16 @@ def get_infrastructure_mapping() -> dict[SubagentPattern, dict[str, Any]]:
             "requires": [],
         },
         SubagentPattern.FAN_OUT: {
-            "module": "agent_utilities.graph.dynamic_graph_orchestrator",
-            "class": "DynamicSubgraphOrchestrator",
-            "description": "Parallel dispatch with DynamicSubgraphOrchestrator",
-            "requires": ["dynamic_graph_orchestrator"],
+            "module": "agent_utilities.orchestration.graph_orchestrator",
+            "class": "AgentOrchestrationEngine",
+            "description": "Parallel dispatch with AgentOrchestrationEngine",
+            "requires": ["graph_orchestrator"],
         },
         SubagentPattern.AGENT_POOL: {
-            "module": "agent_utilities.graph.dynamic_graph_orchestrator",
-            "class": "DynamicSubgraphOrchestrator",
+            "module": "agent_utilities.orchestration.graph_orchestrator",
+            "class": "AgentOrchestrationEngine",
             "description": "Persistent advisory pool mapped to dynamic subgraphs",
-            "requires": ["dynamic_graph_orchestrator"],
+            "requires": ["graph_orchestrator"],
         },
         SubagentPattern.TEAMS: {
             "module": "agent_utilities.knowledge_graph.engine_query",

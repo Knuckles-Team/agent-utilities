@@ -176,7 +176,7 @@ def test_log_graph_trace_all_metadata_keys(caplog: pytest.LogCaptureFixture) -> 
             0.0,
             agent="router",
             expert="planner",
-            node_id="n1",
+            id="n1",
             domain="code",
             server="srv",
             count=3,
@@ -187,7 +187,7 @@ def test_log_graph_trace_all_metadata_keys(caplog: pytest.LogCaptureFixture) -> 
         )
     assert "agent=router" in caplog.text
     assert "expert=planner" in caplog.text
-    assert "node_id=n1" in caplog.text
+    assert "id=n1" in caplog.text
     assert "[EXECUTION]" in caplog.text
 
 

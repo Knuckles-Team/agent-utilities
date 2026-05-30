@@ -13,8 +13,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fixtures

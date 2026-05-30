@@ -11,11 +11,10 @@ Tests cover all 7 cockpit integration layers:
   7. High-Performance Visual Finance Cockpit & Position Sizing (CONCEPT:GBOT-6.6)
 """
 
-import json
 import pytest
 
-
 # --- Mock Classes simulating PySide6 / Qt components for unit testing ---
+
 
 class MockQObject:
     def __init__(self):
@@ -72,7 +71,9 @@ class MockTerminalSandbox:
         forbidden = ["; rm -rf", "&& rm -rf", "| sh", "nc -e"]
         for pattern in forbidden:
             if pattern in command_str:
-                raise PermissionError(f"Security Alert: Command injection detected: {command_str}")
+                raise PermissionError(
+                    f"Security Alert: Command injection detected: {command_str}"
+                )
 
         self.history.append(command_str)
         return f"stdout for: {command_str}"
@@ -88,14 +89,16 @@ class MockApprovalGate:
         self.pending_approvals[task_id] = {
             "tool": tool_name,
             "diff": diff_str,
-            "decision": None
+            "decision": None,
         }
         return task_id
 
     def submit_decision(self, task_id, approved=True, comment=""):
         if task_id not in self.pending_approvals:
             raise KeyError("Task ID not found")
-        self.pending_approvals[task_id]["decision"] = "approved" if approved else "denied"
+        self.pending_approvals[task_id]["decision"] = (
+            "approved" if approved else "denied"
+        )
         self.pending_approvals[task_id]["comment"] = comment
         return True
 
@@ -158,6 +161,7 @@ class MockFinanceCockpit:
 
 # --- Pytest Suites verifying Cockpit concepts ---
 
+
 class TestGeniusBotSubsystems:
     """Standardized test suite validating the premium GeniusBot desktop subsystems."""
 
@@ -168,7 +172,9 @@ class TestGeniusBotSubsystems:
         assert orchestrator.stylesheet_theme == "glassmorphic-slate"
 
         notified = []
-        orchestrator.connect_signal("thread_spawned", lambda agent: notified.append(agent))
+        orchestrator.connect_signal(
+            "thread_spawned", lambda agent: notified.append(agent)
+        )
         success = orchestrator.spawn_agent_bridge_thread("agent:emerald_trader")
 
         assert success is True
@@ -181,13 +187,17 @@ class TestGeniusBotSubsystems:
         spec = {
             "name": "Emerald Exchange Cockpit",
             "permissions": ["websocket", "trading"],
-            "entry_point": "geniusbot.plugins.finance"
+            "entry_point": "geniusbot.plugins.finance",
         }
         assert matrix.register_plugin_tab("emerald_finance", spec) is True
         assert "emerald_finance" in matrix.tabs
         assert matrix.tabs["emerald_finance"]["name"] == "Emerald Exchange Cockpit"
 
-        layout = {"split": "vertical", "left": "emerald_finance", "right": "embedded_terminal"}
+        layout = {
+            "split": "vertical",
+            "left": "emerald_finance",
+            "right": "embedded_terminal",
+        }
         assert matrix.update_layout(layout) is True
         assert matrix.layouts["left"] == "emerald_finance"
 
@@ -216,7 +226,12 @@ class TestGeniusBotSubsystems:
         assert gate.pending_approvals[task_id]["decision"] is None
 
         # Submit positive decision
-        assert gate.submit_decision("task-123", approved=True, comment="Code change looks safe") is True
+        assert (
+            gate.submit_decision(
+                "task-123", approved=True, comment="Code change looks safe"
+            )
+            is True
+        )
         assert gate.pending_approvals[task_id]["decision"] == "approved"
         assert gate.pending_approvals[task_id]["comment"] == "Code change looks safe"
 
@@ -226,11 +241,11 @@ class TestGeniusBotSubsystems:
         vcb = {
             "nodes": {
                 "node_1": {"type": "concept", "utility": 0.8},
-                "node_2": {"type": "agent", "utility": 0.95}
+                "node_2": {"type": "agent", "utility": 0.95},
             },
             "edges": [
                 {"source": "node_1", "target": "node_2", "type": "associated_with"}
-            ]
+            ],
         }
         loaded_count = memory.load_context_block(vcb)
         assert loaded_count == 2
@@ -248,7 +263,12 @@ class TestGeniusBotSubsystems:
         assert daemon.start_daemon() is True
         assert daemon.daemon_status == "running"
 
-        assert daemon.dispatch_notification("Quant Trade Filled", "Bought 10 BTC at Emerald Exchange") is True
+        assert (
+            daemon.dispatch_notification(
+                "Quant Trade Filled", "Bought 10 BTC at Emerald Exchange"
+            )
+            is True
+        )
         assert len(daemon.notifications) == 1
         assert daemon.notifications[0]["title"] == "Quant Trade Filled"
 
@@ -258,8 +278,12 @@ class TestGeniusBotSubsystems:
         assert cockpit.max_buffer_size == 1000
 
         # Stream mock ticks
-        cockpit.stream_trade_tick({"timestamp": 1716580000, "price": 67250.0, "volume": 0.45})
-        cockpit.stream_trade_tick({"timestamp": 1716580005, "price": 67255.5, "volume": 0.12})
+        cockpit.stream_trade_tick(
+            {"timestamp": 1716580000, "price": 67250.0, "volume": 0.45}
+        )
+        cockpit.stream_trade_tick(
+            {"timestamp": 1716580005, "price": 67255.5, "volume": 0.12}
+        )
         assert len(cockpit.tick_buffer) == 2
 
         # Verify Kelly Sizing calculator algorithm

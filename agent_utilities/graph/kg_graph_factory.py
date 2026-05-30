@@ -379,7 +379,7 @@ def _resolve_templates_from_kg(
                 "at.model_preference AS model_preference, "
                 "at.execution_tier AS execution_tier, "
                 "at.step_order AS step_order, "
-                "at.is_parallel AS is_parallel, "
+                "at.parallel AS is_parallel, "
                 "at.max_retries AS max_retries, "
                 "at.description AS descriptionription "
                 "ORDER BY at.step_order ASC "

@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_utilities.graph import dynamic_graph_orchestrator as runner
 from agent_utilities.models import GraphResponse
+from agent_utilities.orchestration import AgentOrchestrationEngine as runner
 
 
 @pytest.fixture
@@ -27,13 +27,9 @@ async def test_run_graph_basic(mock_graph):
     deps.event_queue = None
     config = {"deps": deps}
 
-    with patch(
-        "agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry"
-    ) as mock_reg:
-        mock_reg.return_value.agents = []
-        response = await runner.run_graph(
-            mock_graph, config, query="hello", streamdown=False
-        )
+    response = await runner().execute_graph(
+        mock_graph, config, query="hello"
+    )
 
     assert response["status"] == "completed"
     assert response["results"]["output"] == "final answer"
@@ -49,13 +45,9 @@ async def test_run_graph_exception(mock_graph):
     deps.tag_prompts = {}
     config = {"deps": deps}
 
-    with patch(
-        "agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry"
-    ) as mock_reg:
-        mock_reg.return_value.agents = []
-        response = await runner.run_graph(
-            mock_graph, config, query="hello", streamdown=False
-        )
+    response = await runner().execute_graph(
+        mock_graph, config, query="hello"
+    )
 
     assert response["status"] == "error"
     assert "test error" in response["error"]
@@ -105,17 +97,17 @@ async def test_run_graph_stream_basic(mock_graph):
 
     with (
         patch(
-            "agent_utilities.graph.dynamic_graph_orchestrator.load_node_agents_registry"
+            "agent_utilities.orchestration.engine.load_node_agents_registry"
         ) as mock_reg,
         patch(
-            "agent_utilities.graph.dynamic_graph_orchestrator.create_model"
+            "agent_utilities.orchestration.engine.create_model"
         ) as mock_model,
     ):
         mock_reg.return_value.agents = []
         mock_model.return_value = MagicMock()
 
         # We need to test run_graph_stream generator
-        stream = runner.run_graph_stream(mock_graph, config, query="hello")
+        stream = runner().stream_graph(mock_graph, config, query="hello")
 
         results = []
         async for chunk in stream:

@@ -312,6 +312,22 @@ SCHEMA = GraphSchemaDefinition(
             },
         ),
         TableDefinition(
+            name="Symbol",
+            columns={
+                "id": "STRING PRIMARY KEY",
+                "type": "STRING",
+                "name": "STRING",
+                "symbol_type": "STRING",
+                "file_path": "STRING",
+                "ast_hash": "STRING",
+                "embedding": EMBEDDING_TYPE,
+                "importance_score": "FLOAT",
+                "timestamp": "STRING",
+                "metadata": "STRING",
+                "is_permanent": "BOOLEAN",
+            },
+        ),
+        TableDefinition(
             name="Memory",
             columns={
                 "id": "STRING PRIMARY KEY",

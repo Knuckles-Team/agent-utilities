@@ -18,8 +18,9 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
 @pytest.fixture()
@@ -129,7 +130,7 @@ def engine():
         id="thread_1",
     )
 
-    engine = IntelligenceGraphEngine(graph=g)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     yield engine
     IntelligenceGraphEngine._ACTIVE_ENGINE = None
 

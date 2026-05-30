@@ -3,6 +3,7 @@ Verifies the optimized graph functions using the Tokio-based epistemic-graph dae
 """
 
 import uuid
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
@@ -19,6 +20,7 @@ def engine():
             pass
         g._client.clear()
     return g
+
 
 def test_rust_graph_compute_nodes_and_edges(engine):
     """Verify that the optimized Tokio-based epistemic_graph service can build and manage nodes and edges."""
@@ -54,6 +56,7 @@ def test_rust_graph_compute_nodes_and_edges(engine):
     engine.remove_node("C")
     assert not engine.has_node("C")
 
+
 def test_rust_topological_sort_and_cycles(engine):
     """Verify topological sorting and cycle detection on the optimized Tokio-based epistemic_graph service."""
 
@@ -83,6 +86,7 @@ def test_rust_topological_sort_and_cycles(engine):
     with pytest.raises(ValueError, match="Graph contains cycles"):
         engine.topological_sort()
 
+
 def test_rust_shortest_path(engine):
     """Verify shortest path computations on the optimized Tokio-based epistemic_graph service."""
 
@@ -100,6 +104,7 @@ def test_rust_shortest_path(engine):
     # Path for unconnected elements
     engine.add_node("W", {})
     assert engine.get_shortest_path("X", "W") is None
+
 
 def test_rust_blast_radius(engine):
     """Verify blast radius computation on the optimized Tokio-based epistemic_graph service."""
@@ -128,7 +133,8 @@ def test_rust_repository_ast_parsing(engine, tmp_path):
     engine.parse_repository(str(tmp_path))
 
     # Verify classes and functions found
-    from typing import cast, Any
+    from typing import Any, cast
+
     assert engine._graph is not None
     nodes = [nid for nid, _ in cast(Any, engine._graph).get_nodes()]
     assert any("MyAgent" in n for n in nodes)
@@ -138,6 +144,7 @@ def test_rust_repository_ast_parsing(engine, tmp_path):
 def test_rust_vf2_subgraph_matching(engine):
     """Verify subgraph isomorphism matching natively on the optimized Tokio-based epistemic_graph service."""
     import uuid
+
     engine.add_node("A", {"type": "class"})
     engine.add_node("B", {"type": "function"})
     engine.add_node("C", {"type": "function"})
@@ -169,6 +176,7 @@ def test_rust_vf2_subgraph_matching(engine):
 def test_rust_reactive_state_ledger(engine):
     """Verify reactive state ledger serialization/deserialization and apply/replay."""
     import uuid
+
     engine.add_node("A", {"label": "Alpha"})
     engine.add_node("B", {"label": "Beta"})
     engine.add_edge("A", "B", {"weight": 1.0})

@@ -22,7 +22,7 @@ async def run_manual_test(
 
     Uses a specialized subagent to execute verification steps (curl, shell, etc.).
     """
-    from ..patterns.manual_test import run_agentic_manual_test
+    from ..patterns.manual_test_tool import run_agentic_manual_test
 
     return await run_agentic_manual_test(
         verification_goal=verification_goal, deps=ctx.deps, context=context

@@ -2,10 +2,10 @@
 
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.pipeline import IntelligencePipeline
 from agent_utilities.models.knowledge_graph import (
     PipelineConfig,
@@ -70,7 +70,7 @@ async def test_intelligence_pipeline_mock(tmp_path):
 
 @pytest.mark.asyncio
 async def test_intelligence_engine_queries(mock_graph):
-    engine = IntelligenceGraphEngine(mock_graph)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
 
     # Test tool to agent mapping
     agents = engine.find_agent_for_tool("search")
@@ -87,7 +87,7 @@ def test_intelligence_shortest_path(mock_graph):
     )
     mock_graph.add_edge("tool:search", "T2", type=RegistryEdgeType.DEPENDS_ON)
 
-    engine = IntelligenceGraphEngine(mock_graph)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     path = engine.get_shortest_path("TestBot", "T2")
     assert path == ["TestBot", "tool:search", "T2"]
 
@@ -95,7 +95,7 @@ def test_intelligence_shortest_path(mock_graph):
 @pytest.mark.asyncio
 async def test_memory_operations():
     graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
 
     # Add
     content = "User prefers dark mode"

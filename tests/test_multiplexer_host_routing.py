@@ -1,7 +1,13 @@
-import pytest
 import asyncio
-from pathlib import Path
-from agent_utilities.mcp.multiplexer import get_server_prefix, clean_tool_name, MCPMultiplexer
+
+import pytest
+
+from agent_utilities.mcp.multiplexer import (
+    MCPMultiplexer,
+    clean_tool_name,
+    get_server_prefix,
+)
+
 
 def test_get_server_prefix_hosts():
     # Test standard systems-manager hosts
@@ -20,18 +26,22 @@ def test_get_server_prefix_hosts():
     # Test fallback
     assert get_server_prefix("some-random-mcp-server") == "some"
 
+
 def test_clean_tool_name_prefixing():
     # Verify that clean_tool_name applies prefixes correctly without collisions and within length budgets
     prefix = get_server_prefix("systems-manager-mcp-r510")
     assert prefix == "sys_r510"
 
-    cleaned = clean_tool_name(prefix, "systems-manager-mcp-r510", "systems_manager_mcp_run_command")
+    cleaned = clean_tool_name(
+        prefix, "systems-manager-mcp-r510", "systems_manager_mcp_run_command"
+    )
     # Prefix (sys_r510) + "__" + stripped tool name (run_command)
     assert cleaned == "sys_r510__run_command"
 
 
 def test_multiplexer_tool_filtering():
     import fnmatch
+
     # Mocking the filtering logic of multiplexer
     tools = [
         "cm_image_operations",
@@ -74,13 +84,17 @@ def test_multiplexer_tool_filtering():
                 continue
         filtered_2.append(t)
 
-    assert filtered_2 == ["cm_image_operations", "cm_volume_operations", "trace_port_namespace"]
+    assert filtered_2 == [
+        "cm_image_operations",
+        "cm_volume_operations",
+        "trace_port_namespace",
+    ]
 
 
 @pytest.mark.asyncio
 async def test_multiplexer_start_children_aggregation():
-    from unittest.mock import AsyncMock, MagicMock, patch
     import json
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     config = {
         "mcpServers": {
@@ -88,13 +102,13 @@ async def test_multiplexer_start_children_aggregation():
                 "command": "python",
                 "args": ["-m", "healthy"],
                 "timeout": 1.0,
-                "enabledTools": ["*"]
+                "enabledTools": ["*"],
             },
             "failing-server": {
                 "command": "python",
                 "args": ["-m", "failing"],
-                "timeout": 1.0
-            }
+                "timeout": 1.0,
+            },
         }
     }
 
@@ -126,19 +140,15 @@ async def test_multiplexer_start_children_aggregation():
 @pytest.mark.asyncio
 async def test_multiplexer_start_child_timeout():
     from unittest.mock import AsyncMock, MagicMock, patch
-    import json
 
     # Configure a server with a timeout
-    cfg = {
-        "command": "python",
-        "args": ["-m", "slow"],
-        "timeout": 0.05
-    }
+    cfg = {"command": "python", "args": ["-m", "slow"], "timeout": 0.05}
 
     multiplexer = MCPMultiplexer(MagicMock())
 
     # Mock stdio_client to simulate a long connection/handshake delay
     import contextlib
+
     @contextlib.asynccontextmanager
     async def slow_connect(*args, **kwargs):
         try:
@@ -147,7 +157,9 @@ async def test_multiplexer_start_child_timeout():
         except asyncio.CancelledError:
             raise
 
-    with patch("agent_utilities.mcp.multiplexer.stdio_client", side_effect=slow_connect):
+    with patch(
+        "agent_utilities.mcp.multiplexer.stdio_client", side_effect=slow_connect
+    ):
         result = await multiplexer._start_child("slow-server", cfg)
 
     assert result is None

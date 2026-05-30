@@ -14,7 +14,6 @@ try:
     )
     from agent_utilities.domains.finance.features import (
         StationaryFeatureEngineer,
-        check_stationarity,
     )
     from agent_utilities.domains.finance.models import TradingLSTM, prepare_sequences
 

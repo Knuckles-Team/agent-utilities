@@ -20,11 +20,11 @@ Covers:
 """
 
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 from pydantic import ValidationError
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.memory.consolidation import (
     ConsolidationEngine,
     ConsolidationProposal,
@@ -63,7 +63,7 @@ def synthetic_engine() -> IntelligenceGraphEngine:
         _make_episode(g, f"ep:ansible-{i}", "ansible", reward=0.95)
     # 1 failed terraform episode — must be ignored
     _make_episode(g, "ep:tf-fail", "terraform", reward=0.2)
-    return IntelligenceGraphEngine(g)
+    return IntelligenceGraphEngine(db_path=":memory:")
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ def test_rule_ignores_failed_episodes() -> None:
     # 5 failed terraform episodes — no proposal should emerge
     for i in range(5):
         _make_episode(g, f"ep:fail-{i}", "terraform", reward=0.1)
-    eng = IntelligenceGraphEngine(g)
+    eng = IntelligenceGraphEngine(db_path=":memory:")
     rule = EpisodeToPreferenceRule(min_evidence_count=5)
     proposals = rule.detect(eng)
     assert proposals == []
@@ -275,7 +275,7 @@ def test_engine_dedup_by_signature() -> None:
     g = GraphComputeEngine(backend_type="rust")
     if g._client:
         g._client.clear()
-    ce = ConsolidationEngine(IntelligenceGraphEngine(g))
+    ce = ConsolidationEngine(IntelligenceGraphEngine(db_path=":memory:"))
     deduped = ce.dedup_by_signature([p1, p2])
     assert len(deduped) == 1
 
@@ -284,6 +284,6 @@ def test_engine_empty_graph_yields_no_proposals() -> None:
     g = GraphComputeEngine(backend_type="rust")
     if g._client:
         g._client.clear()
-    ce = ConsolidationEngine(IntelligenceGraphEngine(g))
+    ce = ConsolidationEngine(IntelligenceGraphEngine(db_path=":memory:"))
     ce.register(EpisodeToPreferenceRule(min_evidence_count=5))
     assert ce.run(dry_run=True) == []

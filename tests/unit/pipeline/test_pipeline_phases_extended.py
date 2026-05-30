@@ -14,10 +14,10 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.pipeline.types import (
     PipelineContext,
 )

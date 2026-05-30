@@ -23,7 +23,7 @@ try:
 except ImportError:
     from pydantic_graph.beta import StepContext
 
-from agent_utilities.agent.factory import create_agent
+
 from agent_utilities.tools.tool_filtering import filter_tools_by_tag
 
 from ..models import (
@@ -38,8 +38,8 @@ from .config_helpers import (
     load_node_agents_registry,
     load_specialized_prompts,
 )
-from .dynamic_graph_orchestrator import run_graph
 from .hsm import check_specialist_preconditions, on_enter_specialist, on_exit_specialist
+from .protocol_agnostic_execution import execute_graph
 from .state import GraphDeps, GraphState
 
 logger = logging.getLogger(__name__)
@@ -626,7 +626,7 @@ async def _execute_dynamic_mcp_agent(
         target_server=agent_info.mcp_server or "unknown",
         domain_tag=agent_info.name,
         expected_tools=total_tools,
-        node_id=getattr(ctx, "node_id", "unknown"),
+        id=getattr(ctx, "node_id", "unknown"),
     )
 
     # CONCEPT:ORCH-1.2 — Capability Auto-Activation
@@ -835,11 +835,11 @@ async def _execute_dynamic_mcp_agent(
                 agent_info.name,
                 sub_query[:100],
             )
-        elif isinstance(step_input, ExecutionStep) and step_input.input_data:
-            if isinstance(step_input.input_data, dict):
-                sub_query = step_input.input_data.get("question", sub_query)
-            elif isinstance(step_input.input_data, str):
-                sub_query = step_input.input_data
+        elif isinstance(step_input, ExecutionStep) and step_input.description:
+            if isinstance(step_input.description, dict):
+                sub_query = step_input.description.get("question", sub_query)
+            elif isinstance(step_input.description, str):
+                sub_query = step_input.description
 
         # Execute with Per-Node Timeout and Retries
         node_timeout = 120.0
@@ -1188,11 +1188,11 @@ async def _execute_agent_package_logic(
         # Use the expert's specific question or the original query
         sub_query = ctx.state.query
         step_input = ctx.inputs
-        if isinstance(step_input, ExecutionStep) and step_input.input_data:
-            if isinstance(step_input.input_data, dict):
-                sub_query = step_input.input_data.get("question", sub_query)
-            elif isinstance(step_input.input_data, str):
-                sub_query = step_input.input_data
+        if isinstance(step_input, ExecutionStep) and step_input.description:
+            if isinstance(step_input.description, dict):
+                sub_query = step_input.description.get("question", sub_query)
+            elif isinstance(step_input.description, str):
+                sub_query = step_input.description
 
         res_content = await client.execute_task(peer_url, sub_query)
         result_str = str(res_content)
@@ -1548,6 +1548,7 @@ async def _execute_domain_logic(
             try:
                 target = sub_agent_target
                 if isinstance(target, dict) and "tags" in target:
+                    from agent_utilities.agent.factory import create_agent
                     target, _ = create_agent(
                         name=domain,
                         system_prompt=target.get(
@@ -1567,7 +1568,7 @@ async def _execute_domain_logic(
 
                 if isinstance(target, tuple) and len(target) == 2:
                     sub_graph, sub_config = target
-                    res = await run_graph(
+                    res = await execute_graph(
                         graph=sub_graph,
                         config=sub_config,
                         query=ctx.state.query,
@@ -1607,6 +1608,7 @@ async def _execute_domain_logic(
             if ctx.state.validation_feedback:
                 query = f"{query}\n\n[SELF-CORRECTION FEEDBACK]: {ctx.state.validation_feedback}"
 
+            from agent_utilities.agent.factory import create_agent
             sub_agent, _ = create_agent(
                 provider=deps.provider,
                 model_id=deps.agent_model,

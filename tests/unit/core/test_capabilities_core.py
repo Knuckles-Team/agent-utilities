@@ -19,8 +19,9 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # ---------------------------------------------------------------------------
 # Checkpoint & CheckpointStore implementations

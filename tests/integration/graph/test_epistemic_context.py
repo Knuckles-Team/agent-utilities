@@ -53,9 +53,7 @@ def test_emit_node_lifecycle():
     eq: asyncio.Queue = asyncio.Queue()
     with patch("agent_utilities.graph.lifecycle.emit_graph_event") as mock_emit:
         _emit_node_lifecycle(eq, "node1", "node_start", extra="data")
-        mock_emit.assert_called_once_with(
-            eq, "node_start", node_id="node1", extra="data"
-        )
+        mock_emit.assert_called_once_with(eq, "node_start", id="node1", extra="data")
 
 
 @pytest.mark.asyncio

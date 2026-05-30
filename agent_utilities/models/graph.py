@@ -25,44 +25,13 @@ class GraphResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class ExecutionStep(BaseModel):
-    node_id: str = Field(description="The ID of the functional step to execute")
-    input_data: Any | None = Field(
-        default=None, description="Input data passed to the step"
-    )
-    refined_subtask: str | None = Field(
-        default=None,
-        description=(
-            "CONCEPT:ORCH-1.1 — A focused natural-language instruction crafted "
-            "by the router/planner for this specific specialist. When present, "
-            "the executor uses this instead of the raw user query as the "
-            "specialist's primary task description. Inspired by the RL "
-            "Conductor's per-step subtask specification (Nielsen et al., ICLR 2026)."
-        ),
-    )
-    is_parallel: bool = Field(
-        default=False, description="Whether this step starts a parallel batch"
-    )
-    status: str = Field(default="pending", description="Current execution status")
-    timeout: float = Field(default=3600.0, description="Per-node timeout in seconds")
-    depends_on: list[str] = Field(
-        default_factory=list, description="Node IDs that must complete before this step"
-    )
-    access_list: list[str] = Field(
-        default_factory=list,
-        description=(
-            "CONCEPT:ORCH-1.3 — Execution Visibility Graph. Controls which prior "
-            "step results are injected into this specialist's context. An empty "
-            "list means no prior results are shared. Use ['all'] to inject the "
-            "entire results_registry. Specific step node_ids (e.g., ['researcher', "
-            "'architect']) inject only those results. Inspired by the RL Conductor's "
-            "access_list per workflow step (Nielsen et al., ICLR 2026)."
-        ),
-    )
+from agent_utilities.models.sdd import Task
+
+ExecutionStep = Task
 
 
 class ParallelBatch(BaseModel):
-    tasks: list[ExecutionStep] = Field(default_factory=list)
+    tasks: list[Task] = Field(default_factory=list)
 
 
 class GraphPlan(BaseModel):
@@ -81,12 +50,12 @@ class GraphPlan(BaseModel):
             entries.append(
                 {
                     "content": (
-                        f"{step.node_id}: {step.input_data}"
-                        if step.input_data
-                        else step.node_id
+                        f"{step.id}: {step.description}"
+                        if step.description
+                        else step.id
                     ),
-                    "status": _STATUS_MAP.get(step.status, "pending"),
-                    "priority": "high" if not step.is_parallel else "medium",
+                    "status": _STATUS_MAP.get(str(step.status), "pending"),
+                    "priority": "high" if not step.parallel else "medium",
                 }
             )
         return entries
@@ -99,26 +68,27 @@ class GraphPlan(BaseModel):
 
         # Add nodes
         for step in self.steps:
-            shape = "box" if not step.is_parallel else "round"
+            shape = "box" if not step.parallel else "round"
             # Highlight by status
             css_class = None
-            if step.status == "completed":
+            status_str = str(step.status)
+            if status_str == "completed":
                 css_class = "success"
-            elif step.status == "failed":
+            elif status_str == "failed":
                 css_class = "error"
-            elif step.status == "in_progress":
+            elif status_str == "in_progress":
                 css_class = "active"
 
             builder.add_node(
-                step.node_id,
-                label=f"{step.node_id}\n{step.input_data or ''}",
+                step.id,
+                label=f"{step.id}\n{step.description or ''}",
                 shape=shape,
                 css_class=css_class,
             )
 
             # Add dependencies
             for dep in step.depends_on:
-                builder.add_edge(dep, step.node_id)
+                builder.add_edge(dep, step.id)
 
         # Add styling
         builder.lines.append(

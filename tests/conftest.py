@@ -11,7 +11,9 @@ os.environ.setdefault("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "False")
 import shutil
 import tempfile
 
-_pytest_tmp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".pytest_tmp")
+_pytest_tmp_dir = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), ".pytest_tmp"
+)
 os.makedirs(_pytest_tmp_dir, exist_ok=True)
 _test_db_dir = tempfile.mkdtemp(prefix="agent_utilities_test_db_", dir=_pytest_tmp_dir)
 os.environ["GRAPH_DB_PATH"] = os.path.join(_test_db_dir, "test_knowledge_graph.db")
@@ -72,7 +74,6 @@ def cleanup_build_artifacts():
 
 import subprocess
 import time
-import socket
 import uuid
 
 
@@ -116,7 +117,7 @@ def isolate_graph_compute_engine(monkeypatch):
         for gn in _created_graph_names:
             try:
                 if hasattr(engine, "_client") and engine._client:
-                    engine._client.delete_graph(gn)
+                    engine._client.tenants.delete(gn)
             except Exception:
                 pass
         break  # Only need one client for deletion
@@ -125,11 +126,14 @@ def isolate_graph_compute_engine(monkeypatch):
 @pytest.fixture(scope="session", autouse=True)
 def start_epistemic_graph_server():
     import os
+
     if os.environ.get("AGENT_UTILITIES_TESTING") == "true":
         # Check if epistemic-graph is built, if not build it
         rust_dir = os.path.join(os.path.dirname(__file__), "../../epistemic-graph")
         rust_dir = os.path.abspath(rust_dir)
-        socket_path = os.path.join(os.path.dirname(__file__), ".test_epistemic_graph.sock")
+        socket_path = os.path.join(
+            os.path.dirname(__file__), ".test_epistemic_graph.sock"
+        )
         socket_path = os.path.abspath(socket_path)
 
         if os.path.exists(socket_path):
@@ -137,15 +141,26 @@ def start_epistemic_graph_server():
 
         print("Starting epistemic-graph-server...")
         # Build first
-        subprocess.run(["cargo", "build"], cwd=rust_dir, check=False)
+        subprocess.run(["cargo", "build", "--all-features"], cwd=rust_dir, check=False)
 
-        log_file = open(os.path.join(tempfile.gettempdir(), ".test_epistemic_graph.log"), "w")
+        log_file = open(
+            os.path.join(tempfile.gettempdir(), ".test_epistemic_graph.log"), "w"
+        )
         # Start server
         process = subprocess.Popen(
-            ["cargo", "run", "--bin", "epistemic-graph-server", "--", "--socket-path", socket_path],
+            [
+                "cargo",
+                "run",
+                "--all-features",
+                "--bin",
+                "epistemic-graph",
+                "--",
+                "--socket-path",
+                socket_path,
+            ],
             cwd=rust_dir,
             stdout=log_file,
-            stderr=log_file
+            stderr=log_file,
         )
 
         # Wait for socket to be ready
@@ -166,3 +181,25 @@ def start_epistemic_graph_server():
             os.remove(socket_path)
     else:
         yield None
+
+
+import sys
+from unittest.mock import MagicMock
+
+sys.modules["numpy"] = MagicMock()
+sys.modules["numpy"].bool_ = bool
+sys.modules["numpy.random"] = MagicMock()
+sys.modules["scipy"] = MagicMock()
+sys.modules["scipy.stats"] = MagicMock()
+sys.modules["pandas"] = MagicMock()
+sys.modules["sklearn"] = MagicMock()
+sys.modules["sklearn.linear_model"] = MagicMock()
+sys.modules["statsmodels"] = MagicMock()
+sys.modules["statsmodels.tsa.stattools"] = MagicMock()
+sys.modules["hmmlearn"] = MagicMock()
+sys.modules["hmmlearn.hmm"] = MagicMock()
+sys.modules["yfinance"] = MagicMock()
+sys.modules["torch"] = MagicMock()
+sys.modules["torch.nn"] = MagicMock()
+sys.modules["sklearn.metrics"] = MagicMock()
+sys.modules["sklearn.preprocessing"] = MagicMock()

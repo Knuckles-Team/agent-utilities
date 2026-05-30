@@ -68,7 +68,7 @@ class SkillCompiler:
             # If no clear steps found, we treat the whole body as a single task step
             steps.append(
                 ExecutionStep(
-                    node_id="executor",
+                    id="executor",
                     refined_subtask=markdown.strip()[:1000],  # Truncate if very long
                     depends_on=[],
                 )
@@ -142,7 +142,7 @@ class SkillCompiler:
                 parsed_step_info.append((step_num, agent_name))
                 steps.append(
                     ExecutionStep(
-                        node_id=agent_name,
+                        id=agent_name,
                         refined_subtask=f"{step_title_clean}\n{step_body_clean}",
                         depends_on=depends_on,
                     )
@@ -238,7 +238,7 @@ class SkillCompiler:
             if step.depends_on:
                 depends_suffix = f" [depends_on: {', '.join(step.depends_on)}]"
 
-            header = f"### Step {step_num}: {step.node_id}{depends_suffix}\n"
+            header = f"### Step {step_num}: {step.id}{depends_suffix}\n"
 
             # Parse subtask text
             body_text = ""

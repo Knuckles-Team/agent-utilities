@@ -25,7 +25,9 @@ class FakeEngine:  # type: ignore
     """Minimal mock engine for variant pool tests."""
 
     def __init__(self, backend=None):
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = backend

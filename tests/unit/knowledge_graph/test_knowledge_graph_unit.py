@@ -1,9 +1,9 @@
 """CONCEPT:KG-2.0"""
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.codemap import CodemapArtifact
 
 
@@ -24,7 +24,7 @@ def sample_graph():
 
 @pytest.mark.asyncio
 async def test_extract_focused_subgraph(sample_graph):
-    engine = IntelligenceGraphEngine(sample_graph)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
 
     # Search for "func1"
     subgraph = await engine.extract_focused_subgraph(query="func1", max_nodes=10)
@@ -38,7 +38,7 @@ async def test_extract_focused_subgraph(sample_graph):
 
 @pytest.mark.asyncio
 async def test_codemap_persistence(sample_graph):
-    engine = IntelligenceGraphEngine(sample_graph)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
 
     artifact = CodemapArtifact(
         id="test-codemap", prompt="test prompt", mode="fast", hierarchy=[]
@@ -56,7 +56,7 @@ async def test_codemap_persistence(sample_graph):
 
 @pytest.mark.asyncio
 async def test_hybrid_search(sample_graph):
-    engine = IntelligenceGraphEngine(sample_graph)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     results = engine.search_hybrid("file1")
     assert len(results) > 0
     assert results[0]["id"] == "file1.py"

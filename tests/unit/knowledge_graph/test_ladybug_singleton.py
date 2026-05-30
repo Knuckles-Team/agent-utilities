@@ -4,15 +4,15 @@
 CONCEPT:KG-2.0
 """
 
-import os
 import threading
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from agent_utilities.knowledge_graph.backends.ladybug_backend import (
-    LadybugBackend,
     _ACTIVE_DATABASES,
     _ACTIVE_LOCKS,
+    LadybugBackend,
 )
 
 
@@ -32,13 +32,15 @@ def test_ladybug_backend_singleton_sharing():
 
     mock_conn_instance = MagicMock()
 
-    with patch("ladybug.Database", side_effect=lambda *args, **kwargs: MagicMock()) as mock_db_class, \
-         patch("ladybug.Connection", return_value=mock_conn_instance):
-
+    with (
+        patch(
+            "ladybug.Database", side_effect=lambda *args, **kwargs: MagicMock()
+        ) as mock_db_class,
+        patch("ladybug.Connection", return_value=mock_conn_instance),
+    ):
         # Instantiate first backend
         backend1 = LadybugBackend(db_path)
         backend1._ensure_connection()
-        db1 = backend1.db
 
         # Instantiate second backend pointing to the exact same path
         backend2 = LadybugBackend(db_path)
@@ -78,8 +80,10 @@ def test_ladybug_backend_concurrent_initialization():
     mock_db_instance = MagicMock()
     mock_conn_instance = MagicMock()
 
-    with patch("ladybug.Database", return_value=mock_db_instance) as mock_db_class, \
-         patch("ladybug.Connection", return_value=mock_conn_instance):
+    with (
+        patch("ladybug.Database", return_value=mock_db_instance) as mock_db_class,
+        patch("ladybug.Connection", return_value=mock_conn_instance),
+    ):
 
         def worker():
             try:
@@ -115,9 +119,12 @@ def test_ladybug_backend_self_healing_recreates_database():
     mock_db_instance_2 = MagicMock()
     mock_conn_instance = MagicMock()
 
-    with patch("ladybug.Database", side_effect=[mock_db_instance_1, mock_db_instance_2]) as mock_db_class, \
-         patch("ladybug.Connection", return_value=mock_conn_instance):
-
+    with (
+        patch(
+            "ladybug.Database", side_effect=[mock_db_instance_1, mock_db_instance_2]
+        ) as mock_db_class,
+        patch("ladybug.Connection", return_value=mock_conn_instance),
+    ):
         backend = LadybugBackend(db_path)
         backend._ensure_connection()
         assert backend.db is mock_db_instance_1

@@ -545,7 +545,7 @@ async def synthesizer_step(
             f"Execution {ctx.state.session_id or 'unknown'} "
             f"({datetime.now().isoformat()})\n"
             f"- Query: {ctx.state.query[:200]}\n"
-            f"- Plan: {[s.node_id for s in ctx.state.plan.steps]}\n"
+            f"- Plan: {[s.id for s in ctx.state.plan.steps]}\n"
             f"- Results: {list(ctx.state.results_registry.keys())}\n"
             f"- Failures: {ctx.state.error or 'none'}\n"
             f"- Tokens: {ctx.state.session_usage.total_tokens}\n"

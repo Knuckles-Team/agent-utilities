@@ -136,7 +136,6 @@ agent_utilities/
 │   └── evolve_agent.py      # Prompt evolution loop
 │
 ├── mcp/                     # MCP Orchestration
-│   ├── manager.py           # Subprocess management
 │   └── utilities.py         # MCP tool extraction
 │
 ├── tools/                   # Agent Tools

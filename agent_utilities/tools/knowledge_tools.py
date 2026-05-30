@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from pydantic_ai import RunContext
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.core.engine import RegistryGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 from agent_utilities.harness.tracing import trace
 
@@ -32,7 +32,9 @@ from .versioning import tool_version
 logger = logging.getLogger(__name__)
 
 
-def get_knowledge_engine(ctx: RunContext[AgentDeps]) -> "RegistryGraphEngine | None":
+def get_knowledge_engine(
+    ctx: RunContext[AgentDeps],
+) -> "IntelligenceGraphEngine | None":
     """Helper to retrieve the knowledge engine from the context/deps."""
     return getattr(ctx.deps, "knowledge_engine", None)
 

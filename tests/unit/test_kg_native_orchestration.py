@@ -11,8 +11,9 @@ Tests cover all 7 gaps:
   7. Shareable Team Compositions
 """
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # --- Gap 1: Team Composer ---
 
@@ -122,8 +123,8 @@ class TestStateCheckpointer:
         from agent_utilities.graph.state_checkpoint import StateCheckpointer
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(g, backend=None)
+        GraphComputeEngine(backend_type="rust")
+        engine = IntelligenceGraphEngine(db_path=":memory:")
         cp = StateCheckpointer(engine=engine)
         state = self._make_mock_state()
         ckpt_id = cp.checkpoint(state, session_id="nx-sess")
@@ -133,8 +134,8 @@ class TestStateCheckpointer:
         from agent_utilities.graph.state_checkpoint import StateCheckpointer
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(g, backend=None)
+        GraphComputeEngine(backend_type="rust")
+        engine = IntelligenceGraphEngine(db_path=":memory:")
         cp = StateCheckpointer(engine=engine)
         state = self._make_mock_state()
         cp.checkpoint(state, session_id="restore-test")
@@ -295,7 +296,7 @@ class TestTopologicalRoutingPolicy:
         g.add_node("gpt-4", type="agent", name="GPT-4")
         g.add_node("tool1", type="tool", name="search")
         g.add_edge("gpt-4", "tool1", type="provides")
-        engine = IntelligenceGraphEngine(g, backend=None)
+        engine = IntelligenceGraphEngine(db_path=":memory:")
         policy = TopologicalRoutingPolicy(engine=engine)
         candidates = [
             RoutingCandidate(model_id="gpt-4", confidence=0.8),
@@ -399,7 +400,7 @@ class TestShareableTeamConfigs:
             usage_count=5,
             origin="local",
         )
-        engine = IntelligenceGraphEngine(g, backend=None)
+        engine = IntelligenceGraphEngine(db_path=":memory:")
         bundle = engine.export_team_config("tc:test")
         assert bundle is not None
         assert bundle["version"] == "1.0"
@@ -408,8 +409,8 @@ class TestShareableTeamConfigs:
     def test_import_to_nx(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(g, backend=None)
+        GraphComputeEngine(backend_type="rust")
+        engine = IntelligenceGraphEngine(db_path=":memory:")
         bundle = {
             "version": "1.0",
             "type": "team_config",
@@ -423,8 +424,8 @@ class TestShareableTeamConfigs:
     def test_export_missing_returns_none(self):
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(g, backend=None)
+        GraphComputeEngine(backend_type="rust")
+        engine = IntelligenceGraphEngine(db_path=":memory:")
         assert engine.export_team_config("nonexistent") is None
 
     def test_list_team_configs(self):
@@ -447,7 +448,7 @@ class TestShareableTeamConfigs:
             usage_count=1,
             origin="local",
         )
-        engine = IntelligenceGraphEngine(g, backend=None)
+        engine = IntelligenceGraphEngine(db_path=":memory:")
         all_configs = engine.list_team_configs()
         assert len(all_configs) == 2
         high_rate = engine.list_team_configs(min_success_rate=0.7)
@@ -568,8 +569,8 @@ class TestEndToEndOrchestration:
         from agent_utilities.graph.team_composer import KGTeamComposer
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        g = GraphComputeEngine(backend_type="rust")
-        engine = IntelligenceGraphEngine(g, backend=None)
+        GraphComputeEngine(backend_type="rust")
+        engine = IntelligenceGraphEngine(db_path=":memory:")
         composer = KGTeamComposer(engine=engine)
         composer.compose_team("Analyze data", complexity=3)
 

@@ -46,7 +46,7 @@ def _x_research_plan() -> GraphPlan:
     return GraphPlan(
         steps=[
             ExecutionStep(
-                node_id="x-search-agent",
+                id="x-search-agent",
                 refined_subtask=(
                     "Search X (formerly Twitter) using x_search for the given "
                     "topic query, or browse a specific post URL using "
@@ -54,11 +54,11 @@ def _x_research_plan() -> GraphPlan:
                     "author metadata, engagement statistics, and any article "
                     "content. Target/Query: {{task}}"
                 ),
-                is_parallel=False,
+                parallel=False,
                 timeout=180,
             ),
             ExecutionStep(
-                node_id="graph-os",
+                id="graph-os",
                 refined_subtask=(
                     "Classify and ingest each X search result into the "
                     "Knowledge Graph. For each result:\n"
@@ -70,7 +70,7 @@ def _x_research_plan() -> GraphPlan:
                     "6. For X Articles, fetch full content and ingest as Article"
                 ),
                 depends_on=["x-search-agent"],
-                is_parallel=False,
+                parallel=False,
                 timeout=120,
             ),
         ],
@@ -100,7 +100,7 @@ def _knowledge_assimilation_plan() -> GraphPlan:
     return GraphPlan(
         steps=[
             ExecutionStep(
-                node_id="scout",
+                id="scout",
                 refined_subtask=(
                     "Discover content from multiple sources in parallel:\n"
                     "1. X Search: Use x_search for trending AI/ML/agent topics\n"
@@ -111,11 +111,11 @@ def _knowledge_assimilation_plan() -> GraphPlan:
                     "4. KG Memory: Query pending EvolutionCandidate nodes\n"
                     "Target: {{task}}"
                 ),
-                is_parallel=False,
+                parallel=False,
                 timeout=300,
             ),
             ExecutionStep(
-                node_id="classifier",
+                id="classifier",
                 refined_subtask=(
                     "Score each discovered item using the "
                     "UniversalKnowledgeClassifier:\n"
@@ -127,11 +127,11 @@ def _knowledge_assimilation_plan() -> GraphPlan:
                     "ingest_and_evolve"
                 ),
                 depends_on=["scout"],
-                is_parallel=False,
+                parallel=False,
                 timeout=180,
             ),
             ExecutionStep(
-                node_id="ingester",
+                id="ingester",
                 refined_subtask=(
                     "Ingest high-value and evolution-candidate content into "
                     "the Knowledge Graph:\n"
@@ -142,11 +142,11 @@ def _knowledge_assimilation_plan() -> GraphPlan:
                     "4. Link to extracted concepts via ABOUT edges"
                 ),
                 depends_on=["classifier"],
-                is_parallel=False,
+                parallel=False,
                 timeout=300,
             ),
             ExecutionStep(
-                node_id="analyst",
+                id="analyst",
                 refined_subtask=(
                     "Run comparative analysis on evolution candidates:\n"
                     "1. Use graph_analyze relevance_sweep against agent-utilities\n"
@@ -154,11 +154,11 @@ def _knowledge_assimilation_plan() -> GraphPlan:
                     "3. Update EvolutionCandidate status to 'analyzed'"
                 ),
                 depends_on=["ingester"],
-                is_parallel=False,
+                parallel=False,
                 timeout=300,
             ),
             ExecutionStep(
-                node_id="planner",
+                id="planner",
                 refined_subtask=(
                     "Generate SDD implementation plans for actionable gaps:\n"
                     "1. Include constitution-mandated artifacts\n"
@@ -167,7 +167,7 @@ def _knowledge_assimilation_plan() -> GraphPlan:
                     "4. Log EvolutionCycle node in KG"
                 ),
                 depends_on=["analyst"],
-                is_parallel=False,
+                parallel=False,
                 timeout=120,
             ),
         ],
@@ -193,7 +193,7 @@ def _self_evolution_v2_plan() -> GraphPlan:
     return GraphPlan(
         steps=[
             ExecutionStep(
-                node_id="graph-os",
+                id="graph-os",
                 refined_subtask=(
                     "Query the KG for pending EvolutionCandidate nodes:\n"
                     "MATCH (e:EvolutionCandidate {status: 'pending'}) "
@@ -202,7 +202,7 @@ def _self_evolution_v2_plan() -> GraphPlan:
                     "agent-utilities and generate an SDD plan if actionable "
                     "gaps are found. Update candidate status to 'analyzed'."
                 ),
-                is_parallel=False,
+                parallel=False,
                 timeout=300,
             ),
         ],

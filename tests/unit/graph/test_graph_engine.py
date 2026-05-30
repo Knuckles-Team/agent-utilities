@@ -1,19 +1,21 @@
 """CONCEPT:ORCH-1.0"""
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import (
     IntelligenceGraphEngine,
     cosine_similarity,
 )
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.knowledge_graph import RegistryEdgeType, RegistryNodeType
 
 
 def test_cosine_similarity():
-    assert cosine_similarity([1, 0], [1, 0]) == pytest.approx(1.0)
-    assert cosine_similarity([1, 0], [0, 1]) == pytest.approx(0.0)
-    assert cosine_similarity([1, 1], [1, 1]) == pytest.approx(1.0)
+    import math
+
+    assert math.isclose(cosine_similarity([1, 0], [1, 0]), 1.0)
+    assert math.isclose(cosine_similarity([1, 0], [0, 1]), 0.0)
+    assert math.isclose(cosine_similarity([1, 1], [1, 1]), 1.0)
     assert cosine_similarity([1, 0], [1, 1]) > 0.7
 
 
@@ -28,7 +30,7 @@ def engine(monkeypatch, request):
     g = GraphComputeEngine(backend_type="rust")
     for node in g.node_ids():
         g.remove_node(node)
-    return IntelligenceGraphEngine(graph=g)
+    return IntelligenceGraphEngine(db_path=":memory:")
 
 
 def test_add_memory(engine):

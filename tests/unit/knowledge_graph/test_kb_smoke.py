@@ -18,8 +18,9 @@ markdown, which is what these tests assert.
 from collections.abc import Iterator
 from pathlib import Path
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 pytestmark = pytest.mark.integration
 
@@ -48,7 +49,7 @@ def engine_with_tmp_db(
 
     backend = create_backend(backend_type="ladybug", db_path=str(db_path))
     graph: GraphComputeEngine = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph, backend=backend)
+    engine = IntelligenceGraphEngine(backend=backend)
 
     yield graph, engine
 

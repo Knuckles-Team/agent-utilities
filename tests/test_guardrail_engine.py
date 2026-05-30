@@ -273,10 +273,11 @@ class TestTriggerLog:
 # ---------------------------------------------------------------------------
 
 from agent_utilities.security.guardrails import (
-    PiiSanitizer,
     EphemeralContext,
+    PiiSanitizer,
     PIISanitizerPolicy,
 )
+
 
 class TestPiiSanitizer:
     def test_sanitize_text_ssn(self):
@@ -296,8 +297,8 @@ class TestPiiSanitizer:
             "name": "John Doe",
             "sensitive": {
                 "ssn": "123-45-6789",
-                "nested_list": ["12-3456789", "clean text"]
-            }
+                "nested_list": ["12-3456789", "clean text"],
+            },
         }
         sanitized = sanitizer.sanitize_dict(data)
         assert sanitized["sensitive"]["ssn"] == "[REDACTED_SSN]"

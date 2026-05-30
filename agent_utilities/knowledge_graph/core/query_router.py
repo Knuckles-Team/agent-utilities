@@ -250,7 +250,7 @@ class QueryRouter:
                 return results
 
         raise RuntimeError(
-            "No SPARQL-capable backend available. " "Use create_backend('jena_fuseki')."
+            "No SPARQL-capable backend available. Use create_backend('jena_fuseki')."
         )
 
     def get_stats(self) -> dict[str, Any]:

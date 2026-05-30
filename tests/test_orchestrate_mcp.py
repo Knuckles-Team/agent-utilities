@@ -14,8 +14,9 @@ from __future__ import annotations
 import os
 from unittest.mock import AsyncMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
+
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # Integration test marker — requires live LM Studio
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -31,8 +32,8 @@ def _create_engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph, backend=None)
+    GraphComputeEngine(backend_type="rust")
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     return engine
 
 

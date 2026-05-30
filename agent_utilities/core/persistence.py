@@ -121,7 +121,7 @@ class PostgresStatePersistence(BaseStatePersistence[StateT]):
                     f"{snapshot.run_id}_{snapshot.timestamp.timestamp()}",
                 ),
                 (
-                    snapshot.node.node_id
+                    snapshot.node.id
                     if hasattr(snapshot.node, "node_id")
                     else str(snapshot.node)
                 ),
@@ -185,7 +185,7 @@ class RedisStatePersistence(BaseStatePersistence[StateT]):
         data = {
             "timestamp": snapshot.timestamp.isoformat(),
             "node_id": (
-                snapshot.node.node_id
+                snapshot.node.id
                 if hasattr(snapshot.node, "node_id")
                 else str(snapshot.node)
             ),

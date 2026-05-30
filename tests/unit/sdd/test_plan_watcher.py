@@ -193,7 +193,9 @@ def test_get_workspace_path(tmp_path):
     with tempfile.TemporaryDirectory(dir="/tmp") as isolated_dir:
         isolated = Path(isolated_dir)
         with patch.dict("os.environ", {}, clear=True):
-            with patch("agent_utilities.sdd.watcher.os.getcwd", return_value=str(isolated)):
+            with patch(
+                "agent_utilities.sdd.watcher.os.getcwd", return_value=str(isolated)
+            ):
                 # No pyproject.toml, .git, or .specify in /tmp ancestors → returns cwd
                 assert get_workspace_path() == isolated
 
@@ -261,9 +263,9 @@ def test_process_kg_ingest_location(tmp_path):
 
 def test_start_sdd_watcher():
     """Test start_sdd_watcher behaves correctly under various configuration conditions."""
-    from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
-
     from typing import Any
+
+    from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
     class TestEngine(TaskManagerMixin):
         def __init__(self):
@@ -334,8 +336,9 @@ def test_start_sdd_watcher():
 
 def test_watcher_paused_flag():
     """Test that setting _WATCHER_PAUSED = True skips scans during the watcher loop."""
-    import agent_utilities.sdd.watcher as watcher
     from pathlib import Path
+
+    import agent_utilities.sdd.watcher as watcher
 
     mock_engine = MagicMock()
     mock_workspace = Path("/fake/workspace")

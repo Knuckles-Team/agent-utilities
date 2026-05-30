@@ -457,7 +457,7 @@ class GovernanceWorkflow:
             if self.engine:
                 pending = self.engine.query_cypher(
                     "MATCH (p) WHERE p.node_type = 'agents_md_proposal' "
-                    "AND p.applied = false RETURN p.node_id as id, "
+                    "AND p.applied = false RETURN p.id as id, "
                     "p.section as section, p.proposed_content as content "
                     "LIMIT 10"
                 )

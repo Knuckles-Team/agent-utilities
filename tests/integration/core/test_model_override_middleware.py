@@ -34,6 +34,7 @@ from agent_utilities.graph.executor import pick_specialist_model
 from agent_utilities.graph.state import REQUESTED_MODEL_ID_CTX, GraphDeps
 from agent_utilities.models import ModelDefinition, ModelRegistry
 from agent_utilities.server import build_agent_app
+from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 
 
 @pytest.fixture
@@ -169,7 +170,7 @@ def test_middleware_contextvar_is_reset_after_request(mock_agent, registry):
 
 
 def test_stream_route_honors_header(mock_agent, registry):
-    """``/stream`` forwards the header value into ``run_graph_stream``."""
+    """``/stream`` forwards the header value into ``stream_graph``."""
     client = _build_client(mock_agent, model_registry=registry)
 
     captured: dict[str, Any] = {}
@@ -179,7 +180,7 @@ def test_stream_route_honors_header(mock_agent, registry):
         yield "data: ok\n\n"
 
     with patch(
-        "agent_utilities.graph_orchestration.run_graph_stream",
+        "agent_utilities.orchestration.engine.AgentOrchestrationEngine.stream_graph",
         side_effect=fake_stream,
     ):
         resp = client.post(
@@ -205,7 +206,7 @@ def test_stream_route_no_header_passes_none(mock_agent, registry):
         yield "data: ok\n\n"
 
     with patch(
-        "agent_utilities.graph_orchestration.run_graph_stream",
+        "agent_utilities.orchestration.engine.AgentOrchestrationEngine.stream_graph",
         side_effect=fake_stream,
     ):
         resp = client.post(
@@ -426,13 +427,12 @@ def test_invalid_model_id_falls_back_to_default(registry):
 
 
 @pytest.mark.asyncio
-async def test_run_graph_stream_reads_contextvar_fallback(registry):
-    """When no explicit kwarg is passed, run_graph_stream reads the CV.
+async def test_stream_graph_reads_contextvar_fallback(registry):
+    """When no explicit kwarg is passed, stream_graph reads the CV.
 
     This is the channel used by ACP (which sets the CV in the middleware
     and then the graph runs several layers deep inside pydantic-acp).
     """
-    from agent_utilities.graph.dynamic_graph_orchestrator import run_graph_stream
 
     captured: dict[str, Any] = {}
 
@@ -443,7 +443,7 @@ async def test_run_graph_stream_reads_contextvar_fallback(registry):
 
     token = REQUESTED_MODEL_ID_CTX.set("premium-cloud")
     try:
-        gen = run_graph_stream(
+        gen = AgentOrchestrationEngine().stream_graph(
             _Graph(),
             {"model_registry": registry},
             "hi",
@@ -461,7 +461,6 @@ async def test_run_graph_stream_reads_contextvar_fallback(registry):
 @pytest.mark.asyncio
 async def test_run_graph_kwarg_overrides_contextvar(registry):
     """An explicit kwarg wins over the ContextVar fallback."""
-    from agent_utilities.graph.dynamic_graph_orchestrator import run_graph
 
     captured: dict[str, Any] = {}
 
@@ -472,7 +471,7 @@ async def test_run_graph_kwarg_overrides_contextvar(registry):
 
     token = REQUESTED_MODEL_ID_CTX.set("cheap-local")
     try:
-        await run_graph(
+        await AgentOrchestrationEngine().execute_graph(
             _Graph(),
             {"model_registry": registry},
             "hi",

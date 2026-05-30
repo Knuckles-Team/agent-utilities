@@ -124,7 +124,7 @@ Agents interact with this layer using the `knowledge_tools` suite to manage memo
 | **REASONING** | `ingest_episode` / `record_outcome` | Capturing reasoning traces and evaluating outcomes for self-improvement. |
 | **MAGMA** | `retrieve_orthogonal_context` | Policy-guided retrieval across Semantic, Temporal, Causal, and Entity views. |
 | **SPAWNING** | `spawn_specialized_agent` | Creating dynamic sub-agents with curated toolsets for complex tasks. |
-| **INGEST DOCUMENT** | `DocumentIngestionPipeline.ingest_document` | When ingesting new documents into Document DB, Vector DB, and Knowledge Graph with unified IDs. |
+| **INGEST DOCUMENT** | `IngestionEngine.ingest(ContentType.DOCUMENT)` | When ingesting new documents into Document DB, Vector DB, and Knowledge Graph with unified IDs. |
 | **UPDATE DOCUMENT** | `DocumentUpdatePipeline.update_document` | When updating document content or metadata with cascading sync to all storage layers. |
 | **DELETE DOCUMENT** | `DocumentDeletionPipeline.delete_document` | When soft/hard deleting documents with cascading cleanup across all storage layers. |
 | **CLEANUP DOCUMENTS** | `DocumentCleanupManager.run_cleanup` | When performing automated cleanup of old soft-deleted documents and orphan data. |

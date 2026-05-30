@@ -2,9 +2,9 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.pipeline.phases.centrality import (
     execute_centrality,
 )
@@ -17,6 +17,7 @@ from agent_utilities.knowledge_graph.pipeline.types import PipelineContext
 @pytest.fixture
 def mock_pipeline_ctx():
     import sys
+
     sys.modules["repository_manager"] = MagicMock()
     sys.modules["repository_manager.repository_manager"] = MagicMock()
 

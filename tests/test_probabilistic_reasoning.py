@@ -4,7 +4,6 @@ import math
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.graph_primitives import PyDiGraph
 from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     BayesianBeliefPropagator,
     RandomWalkExplorer,
@@ -12,6 +11,8 @@ from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     conditional_independence_test,
     total_probability_aggregation,
 )
+from agent_utilities.knowledge_graph.core.graph_primitives import PyDiGraph
+
 
 def build_digraph(edges: list[tuple[str, str]]) -> PyDiGraph:
     g = PyDiGraph()
@@ -27,6 +28,7 @@ def build_digraph(edges: list[tuple[str, str]]) -> PyDiGraph:
         t_idx = get_or_add(tgt)
         g.add_edge(s_idx, t_idx, {})
     return g
+
 
 class TestBayesianBeliefPropagation:
     """Tests for Bayesian belief updates (MCS §18.4)."""

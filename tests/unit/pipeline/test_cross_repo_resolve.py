@@ -8,9 +8,9 @@ Concept: cross-repo-symbols
 """
 
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.pipeline.phases.resolve import (
     _build_package_map,
     _is_stdlib,

@@ -5,9 +5,9 @@
 
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.pipeline.phases.owl_reasoning import (
     execute_owl_reasoning,
 )

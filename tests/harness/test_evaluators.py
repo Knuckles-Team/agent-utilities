@@ -58,7 +58,7 @@ async def test_capture_feedback_below_threshold(
     mock_backend.add_to_dataset.assert_called_once_with(
         dataset_name="continuous_learning_test_score",
         trace_id="trace_123",
-        input_data="input_1",
+        description="input_1",
         expected_output="expected_1",
     )
 

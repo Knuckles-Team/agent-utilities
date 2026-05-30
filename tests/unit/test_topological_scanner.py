@@ -1,14 +1,14 @@
 """CONCEPT:KG-2.5"""
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+import uuid
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.analogy_engine import TopologicalAnalogyEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.knowledge_graph import RegistryNode, RegistryNodeType
 from agent_utilities.security.threat_defense_engine import TopologicalScanner
 
-
-import uuid
 
 @pytest.fixture
 def analogy_engine():

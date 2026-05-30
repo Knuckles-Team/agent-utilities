@@ -180,12 +180,17 @@ aligned to `schema:SocialMediaPosting`.
 
 ### X Ingestion Bridge
 
-Connects X tool output → Classifier → KG:
+Connects X tool output → Classifier → KG, accessible directly or via ``IngestionEngine`` (CONCEPT:KG-3.0):
 
 ```python
-bridge = XIngestionBridge(graph=nx_graph)
-result = await bridge.ingest_browse_result(browse_json)
-# result: {action: "ingest_and_evolve", node_id: "social:x:2057129225593741768", ...}
+from agent_utilities.knowledge_graph.ingestion import IngestionEngine, IngestionManifest, ContentType
+
+engine = IngestionEngine(kg_engine=my_kg)
+result = await engine.ingest(IngestionManifest(
+    content_type=ContentType.SOCIAL,
+    source_uri=browse_json,
+))
+# result.details: {action: "ingest_and_evolve", node_id: "social:x:2057129225593741768", ...}
 ```
 
 **Implementation:** [x_ingestion.py](../../../agent_utilities/knowledge_graph/kb/x_ingestion.py)
@@ -200,7 +205,7 @@ X Articles (up to ~100K chars) are **not available via the xAI API** — the
 **Handling strategy:**
 1. Detect article links in browse results (URLs matching `x.com/*/articles/*`)
 2. Fetch via `read_url_content` or browser subagent
-3. Route through `KBIngestionEngine.ingest_url()` for full KB processing
+3. Route through `IngestionEngine` with `ContentType.DOCUMENT` for full KB processing
 4. Link back to SocialPost via `PROMOTES_RESEARCH` edge
 
 ---

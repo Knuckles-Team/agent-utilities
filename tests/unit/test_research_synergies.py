@@ -2,13 +2,13 @@
 
 from unittest.mock import MagicMock
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.adaptation.experience_alignment import (
     ExperienceAlignmentEngine,
 )
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.orchestration.voi_budget_controller import (
     VOIBudgetController,
 )
@@ -25,9 +25,10 @@ from agent_utilities.models.knowledge_graph import ExperienceNode
 @pytest.fixture
 def mock_engine():
     import uuid
+
     graph_name = f"test_graph_{uuid.uuid4().hex}"
-    graph = GraphComputeEngine(backend_type="rust", graph_name=graph_name)
-    engine = IntelligenceGraphEngine(graph=graph)
+    GraphComputeEngine(backend_type="rust", graph_name=graph_name)
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     engine.backend = MagicMock()
     return engine
 
@@ -110,7 +111,7 @@ def test_experience_alignment(mock_engine):
     alignment = ExperienceAlignmentEngine(mock_engine)
     alignment.ingest_experience(exp)
     mock_engine.add_node.assert_called_once_with(
-        node_id=exp.id, node_type="Experience", properties=exp.model_dump()
+        id=exp.id, node_type="Experience", properties=exp.model_dump()
     )
 
     # Test retrieval

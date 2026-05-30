@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic_ai import Agent
 
 if TYPE_CHECKING:
-    from ..knowledge_graph.core.engine import RegistryGraphEngine
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
     from ..models import ModelRegistry
     from .models import Policy, ProcessFlow
 
@@ -133,7 +133,7 @@ class GraphDeps:
     :func:`~agent_utilities.approval_manager.run_with_approvals` instead
     of terminating when ``DeferredToolRequests`` is returned."""
 
-    knowledge_engine: RegistryGraphEngine | None = None
+    knowledge_engine: IntelligenceGraphEngine | None = None
     """Engine for topological and semantic discovery of adaptive_agent_router and memories."""
 
     model_registry: ModelRegistry | None = None

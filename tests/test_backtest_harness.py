@@ -186,7 +186,9 @@ class TestBacktestKGNodes:
         assert RegistryEdgeType.COMPARED_TO_BENCHMARK == "compared_to_benchmark"
 
     def test_backtest_graph(self):
-        from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         g = GraphComputeEngine(backend_type="rust")
 

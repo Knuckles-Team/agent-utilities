@@ -8,10 +8,10 @@ Integration tests for KG lifecycle management:
 - DocumentDeletionPipeline + QueryMixin parity
 """
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.schema_definition import SCHEMA
 
 # ── Fixtures ──
@@ -20,8 +20,8 @@ from agent_utilities.models.schema_definition import SCHEMA
 @pytest.fixture
 def engine():
     """Create a lightweight IntelligenceGraphEngine for testing."""
-    graph = GraphComputeEngine(backend_type="rust")
-    return IntelligenceGraphEngine(graph=graph)
+    GraphComputeEngine(backend_type="rust")
+    return IntelligenceGraphEngine(db_path=":memory:")
 
 
 # ── Gap 1: DiffEntry Schema ──
@@ -122,8 +122,8 @@ def test_archived_node_visible_via_direct_graph_query(engine):
 @pytest.mark.asyncio
 async def test_soft_delete_pipeline_uses_archived_status():
     """DocumentDeletionPipeline._soft_delete must set status=ARCHIVED, not is_deleted."""
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph)
+    GraphComputeEngine(backend_type="rust")
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     engine.graph.add_node("doc-001", name="TestDoc", content="test", status="ACTIVE")
 
     from agent_utilities.knowledge_graph.pipeline.document_deletion import (
@@ -144,8 +144,8 @@ async def test_soft_delete_pipeline_uses_archived_status():
 @pytest.mark.asyncio
 async def test_restore_document_resets_to_active():
     """Restoring a soft-deleted document must set status=ACTIVE."""
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph)
+    GraphComputeEngine(backend_type="rust")
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     engine.graph.add_node(
         "doc-002",
         name="TestDoc",
@@ -172,8 +172,8 @@ async def test_restore_document_resets_to_active():
 @pytest.mark.asyncio
 async def test_document_update_rejects_archived():
     """DocumentUpdatePipeline must reject updates to ARCHIVED documents."""
-    graph = GraphComputeEngine(backend_type="rust")
-    engine = IntelligenceGraphEngine(graph=graph)
+    GraphComputeEngine(backend_type="rust")
+    engine = IntelligenceGraphEngine(db_path=":memory:")
     engine.graph.add_node("doc-003", name="Archived", content="old", status="ARCHIVED")
 
     from agent_utilities.knowledge_graph.pipeline.document_update import (

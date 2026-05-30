@@ -5,6 +5,7 @@ from __future__ import annotations
 
 
 import pytest
+from pydantic import ValidationError
 
 from agent_utilities.graph.hierarchical_planner import (
     AggregationStrategy,
@@ -61,7 +62,7 @@ class TestGroupFitness:
         assert gf.timestamp  # Should be non-empty
 
     def test_confidence_clamped(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             GroupFitness(group_id="bad", group_confidence=1.5)
 
 

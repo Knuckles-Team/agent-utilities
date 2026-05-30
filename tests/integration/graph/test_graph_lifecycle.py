@@ -7,9 +7,9 @@ import pytest
 from pydantic_ai import Agent
 
 from agent_utilities.graph.builder import initialize_graph_from_workspace
-from agent_utilities.graph.dynamic_graph_orchestrator import run_graph
 from agent_utilities.graph.graph_models import ValidationResult
 from agent_utilities.models import ExecutionStep, GraphPlan
+from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 
 # Cap every test in this module at 30 s so a graph-orchestration infinite loop
 # surfaces as a clean failure instead of hanging the entire suite.
@@ -80,7 +80,7 @@ async def test_full_graph_lifecycle():
         graph, config = initialize_graph_from_workspace()
 
     plan = GraphPlan(
-        steps=[ExecutionStep(node_id="researcher", status="pending")],
+        steps=[ExecutionStep(id="researcher", status="pending")],
         metadata={"reasoning": "Test plan"},
     )
     validation_ok = ValidationResult(is_valid=True, score=0.9, feedback="Perfect")
@@ -110,7 +110,7 @@ async def test_full_graph_lifecycle():
         patch.object(Agent, "run", new=mock_run_call),
         patch.object(Agent, "run_stream", new=mock_run_stream),
         patch(
-            "agent_utilities.graph.dynamic_graph_orchestrator.create_model",
+            "agent_utilities.orchestration.graph_orchestrator.create_model",
             return_value=MagicMock(),
         ),
         patch(
@@ -119,7 +119,7 @@ async def test_full_graph_lifecycle():
         ),
     ):
         result = await asyncio.wait_for(
-            run_graph(graph, config, "What is X?"),
+            AgentOrchestrationEngine().execute_graph(graph, config, "What is X?"),
             timeout=_LIFECYCLE_RUN_TIMEOUT_S,
         )
         assert result["status"] == "completed"
@@ -150,13 +150,13 @@ async def test_graph_parallel_and_fallback():
 
     plan_a = GraphPlan(
         steps=[
-            ExecutionStep(node_id="researcher", is_parallel=True),
-            ExecutionStep(node_id="researcher", is_parallel=True),
+            ExecutionStep(id="researcher", parallel=True),
+            ExecutionStep(id="researcher", parallel=True),
         ],
         metadata={"reasoning": "Parallel research plan"},
     )
     plan_b = GraphPlan(
-        steps=[ExecutionStep(node_id="researcher", is_parallel=False)],
+        steps=[ExecutionStep(id="researcher", parallel=False)],
         metadata={"reasoning": "Simple fallback plan"},
     )
 
@@ -228,7 +228,7 @@ async def test_graph_parallel_and_fallback():
         patch.object(Agent, "run", new=mock_run_call),
         patch.object(Agent, "run_stream", new=mock_run_stream),
         patch(
-            "agent_utilities.graph.dynamic_graph_orchestrator.create_model",
+            "agent_utilities.orchestration.graph_orchestrator.create_model",
             return_value=MagicMock(),
         ),
         patch(
@@ -240,7 +240,7 @@ async def test_graph_parallel_and_fallback():
         test_graph_parallel_and_fallback.routed_count = 0
 
         result = await asyncio.wait_for(
-            run_graph(graph, config, "Complex query"),
+            AgentOrchestrationEngine().execute_graph(graph, config, "Complex query"),
             timeout=_LIFECYCLE_RUN_TIMEOUT_S,
         )
 

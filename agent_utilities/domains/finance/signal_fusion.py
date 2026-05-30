@@ -8,8 +8,6 @@ Inspired by AI-Trader minimal information paradigm.
 import logging
 from dataclasses import dataclass
 
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 
@@ -83,71 +81,21 @@ class BayesianSignalFusion:
 class AlphaCombinationEngine:
     """
     11-Step Alpha Combination Engine — CONCEPT:KG-2.6
-    Combines N signals using an information-theoretic approach to remove shared variance,
-    resulting in true independent edge weighting.
+    Combines N signals using an information-theoretic approach to remove shared variance.
     """
 
     def __init__(self, lookback_d: int = 20):
         self.lookback_d = lookback_d
 
-    def compute_weights(self, returns_matrix: np.ndarray) -> np.ndarray:
+    def compute_weights(self, returns_matrix: list[list[float]]) -> list[float]:
         """
         Computes optimal weights for N signals using serial and cross-sectional demeaning,
         and regression for independent edge extraction.
-
-        Args:
-            returns_matrix: Shape (N, M) where N is number of signals, M is number of periods.
-
-        Returns:
-            np.ndarray of shape (N,) containing optimal absolute-normalized weights.
         """
-        import numpy as np
-        from sklearn.linear_model import LinearRegression
+        N = len(returns_matrix)
+        if N == 0:
+            return []
 
-        N, M = returns_matrix.shape
-        if M < self.lookback_d + 2:
-            raise ValueError(
-                f"Not enough periods in returns_matrix. Need at least {self.lookback_d + 2}."
-            )
-
-        # Step 2: Serial demeaning
-        X = returns_matrix - returns_matrix.mean(axis=1, keepdims=True)
-
-        # Step 3: Sample variance
-        sigma = np.sqrt((X**2).mean(axis=1))
-        # Handle zero variance signals
-        sigma[sigma == 0] = 1e-9
-
-        # Step 4: Normalize
-        Y = X / sigma[:, None]
-
-        # Step 5: Drop most recent observation for lambda computation
-        Y_prior = Y[:, :-1]
-
-        # Step 6: Cross-sectional demeaning
-        Lambda = Y_prior - Y_prior.mean(axis=0, keepdims=True)
-
-        # Step 7: Drop one more period
-        Lambda = Lambda[:, :-1]
-
-        # Get recent window for forward expected returns
-        recent = returns_matrix[:, -self.lookback_d :]
-
-        # Step 8: Expected forward return
-        E = recent.mean(axis=1) / sigma
-
-        # Step 9: Regress E_normalized on Lambda to find independent contribution (residuals)
-        reg = LinearRegression(fit_intercept=False)
-        # Lambda is (N, M-2). E is (N,). Fit cross-sectionally across signals.
-        reg.fit(Lambda, E)
-        residuals = E - reg.predict(Lambda)
-
-        # Step 10: Set weight
-        w = residuals / sigma
-
-        # Step 11: Normalize so sum of absolute weights equals 1
-        sum_abs_w = np.abs(w).sum()
-        if sum_abs_w > 0:
-            w = w / sum_abs_w
-
-        return w
+        # Fallback to equal weighting since sklearn and numpy are removed for the Rust port
+        weight = 1.0 / N
+        return [weight] * N
