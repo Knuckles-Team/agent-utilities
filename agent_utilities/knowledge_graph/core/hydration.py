@@ -25,12 +25,19 @@ logger = logging.getLogger(__name__)
 # requires appending an entry here; the orchestration loop is generic.
 # ═══════════════════════════════════════════════════════════════════
 CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
-    "gitlab": {"category": "source_control", "method": "_hydrate_gitlab"},
-    "leanix": {"category": "enterprise_architecture", "method": "_hydrate_leanix"},
+    "gitlab": {"category": "source_control", "method": "_hydrate_source_control"},
+    "github": {"category": "source_control", "method": "_hydrate_source_control"},
+    "source_control": {"category": "source_control", "method": "_hydrate_source_control"},
+    "leanix": {"category": "enterprise_architecture", "method": "_hydrate_enterprise_architecture"},
+    "enterprise_architecture": {"category": "enterprise_architecture", "method": "_hydrate_enterprise_architecture"},
     "twenty": {"category": "crm", "method": "_hydrate_twenty"},
     "servicenow": {"category": "itsm", "method": "_hydrate_servicenow"},
-    "jira": {"category": "issue_tracking", "method": "_hydrate_jira"},
-    "plane": {"category": "issue_tracking", "method": "_hydrate_plane"},
+    "jira": {"category": "issue_tracking", "method": "_hydrate_issue_tracking"},
+    "plane": {"category": "issue_tracking", "method": "_hydrate_issue_tracking"},
+    "issue_tracking": {"category": "issue_tracking", "method": "_hydrate_issue_tracking"},
+    "process_modeling": {"category": "process_modeling", "method": "_hydrate_process_modeling"},
+    "relational_database": {"category": "databases", "method": "_hydrate_relational_database"},
+    "databases": {"category": "databases", "method": "_hydrate_relational_database"},
     "portainer": {
         "category": "container_orchestration",
         "method": "_hydrate_portainer",
@@ -42,7 +49,8 @@ CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
     "openbao": {"category": "secret_management", "method": "_hydrate_openbao"},
     "nextcloud": {"category": "collaboration", "method": "_hydrate_nextcloud"},
     "listmonk": {"category": "mailing", "method": "_hydrate_listmonk"},
-    "mattermost": {"category": "collaboration", "method": "_hydrate_mattermost"},
+    "mattermost": {"category": "collaboration", "method": "_hydrate_message_protocol"},
+    "message_protocol": {"category": "collaboration", "method": "_hydrate_message_protocol"},
     "technitium_dns": {"category": "dns", "method": "_hydrate_technitium_dns"},
     "caddy": {"category": "reverse_proxy", "method": "_hydrate_caddy"},
     "tunnel_manager": {"category": "vpn", "method": "_hydrate_tunnel_manager"},
@@ -66,7 +74,8 @@ class HydrationManager:
     """
 
     def __init__(self) -> None:
-        pass
+        self.sources = list(CAPABILITY_REGISTRY.keys())
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def get_status(self) -> dict[str, Any]:
         """Check environment variables to see which sources are configured."""

@@ -111,11 +111,16 @@ async def evaluate_llm_as_judge(
     try:
         from pydantic import BaseModel, Field
         from pydantic_ai import Agent
+
         from agent_utilities.core.model_factory import create_model
 
         class LLMJudgeResult(BaseModel):
-            score: float = Field(description="Evaluation score between 0.0 and 1.0 based on the criteria.")
-            rationale: str = Field(description="Detailed rationale and critique justifying the score.")
+            score: float = Field(
+                description="Evaluation score between 0.0 and 1.0 based on the criteria."
+            )
+            rationale: str = Field(
+                description="Detailed rationale and critique justifying the score."
+            )
 
         model = create_model()
         agent = Agent(
@@ -127,13 +132,13 @@ async def evaluate_llm_as_judge(
                 "1.0 is perfect alignment with criteria) and a clear, detailed rationale."
             ),
         )
-        
+
         prompt = (
             f"Input Text:\n{input_text}\n\n"
             f"Output Text:\n{output_text}\n\n"
             f"Evaluation Criteria:\n{criteria}"
         )
-        
+
         result = await agent.run(prompt)
         llm_score = result.data.score
         llm_rationale = result.data.rationale

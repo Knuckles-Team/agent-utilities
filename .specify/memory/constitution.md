@@ -49,6 +49,14 @@ If you append to the Knowledge Graph schema, you should always consider adding a
 
 We should always look at the existing ontology and try to notice some existing types that are in the schema definition but NOT yet in the OWL ontology. We want to highly consider adding those to OWL ontology.
 
+## Ecosystem Human Interface Guidelines (HIG)
+
+All user-facing projects (Web, Terminal, Native Desktop) MUST strictly adhere to the unified **CONCEPT-HIG** (Human Interface Guidelines). This ensures that across mediums, the agent ecosystem feels like a single unified brain.
+
+1. **Dynamic Brand Theming**: UIs MUST NOT use hard-coded branding colors. They MUST ingest a base brand color (e.g., OKLCH, Hex, or QPalette) and generate application palettes dynamically.
+2. **Collapsible "Rail" Navigation**: All primary application navigation menus MUST support a graceful collapse into an icon-only "rail" to maximize workspace real-estate. Text labels must degrade to tooltips.
+3. **Depth-Aware Modals**: Disruptive configurations or tool-approval flows (Tool Guards) MUST be presented in depth-separated modals. Where supported by the OS/Framework (Web, Qt), these MUST utilize glassmorphic/blur effects. In environments where it is not (Terminal), they MUST use simulated depth (borders, shadows, and z-index layers).
+
 ## Concept Governance — Extend Before Invent
 
 New functionality MUST first be expressed as an extension, augmentation, or composition

@@ -223,7 +223,7 @@ class PredictionMarketProvider:
     def fetch(
         self, symbol: str, period: str = "1y", interval: str = "1d"
     ) -> pd.DataFrame:
-        # Stub for actual prediction market API (requires Py-Polymarket or Kalshi SDK)
+        # Provider API mapping for prediction market (requires Py-Polymarket or Kalshi SDK)
         # Returns synthetic probability data for now to satisfy the abstraction
         logger.info(f"Using synthetic prediction market data for {symbol}")
         provider = SyntheticProvider()

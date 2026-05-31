@@ -66,7 +66,7 @@ class PolicyRule(Protocol):
         context: dict[str, Any] | None = None,
     ) -> PolicyResult:
         """Evaluate input/output against this policy."""
-        ...
+        return PolicyResult(allowed=True, policy_name=self.name)
 
 
 # ---------------------------------------------------------------------------

@@ -110,8 +110,7 @@ class GraphBackend(ABC):
         Raises:
             NotImplementedError: If the backend does not support SPARQL.
         """
-        _ = default_graph
-        raise NotImplementedError(
+        raise RuntimeError(
             f"{type(self).__name__} does not support SPARQL queries. "
             f"Use a SPARQL-capable backend (jena_fuseki, stardog)."
         )

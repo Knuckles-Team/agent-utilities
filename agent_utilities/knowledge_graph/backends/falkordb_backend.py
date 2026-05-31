@@ -103,5 +103,8 @@ class FalkorDBBackend(GraphBackend):
     def close(self) -> None:
         """Close the FalkorDB connection."""
         # FalkorDB client doesn't have an explicit close in some versions,
-        # but we follow the interface.
-        pass
+        # but we follow the interface by clearing our references to free resources.
+        if hasattr(self, "client"):
+            del self.client
+        if hasattr(self, "graph"):
+            del self.graph

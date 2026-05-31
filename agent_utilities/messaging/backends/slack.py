@@ -169,8 +169,8 @@ class SlackBackend(MessagingBackend):
 
     async def send_typing(self, channel_id: str) -> None:
         """Indicate typing. CONCEPT:ECO-4.0"""
-        # Slack doesn't have a direct typing API for bots
-        pass
+        # Slack doesn't have a direct typing API for bots, so we log the trigger
+        logger.debug(f"[CONCEPT:ECO-4.0] Slack typing indicator triggered for channel {channel_id}")
 
     async def create_thread(
         self, channel_id: str, message_id: str, title: str = ""

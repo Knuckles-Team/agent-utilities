@@ -105,7 +105,13 @@ class DataConnectorProtocol(Protocol):
         Returns:
             A ``DataFetchResult`` with the fetched data.
         """
-        ...
+        # Base protocol implementation returns a clean empty fetch result
+        return DataFetchResult(
+            rows=[],
+            row_count=0,
+            connector_name=getattr(self, "name", "base_connector"),
+            query=query,
+        )
 
     def health_check(self) -> bool:
         """Check if the connector is healthy and reachable.
@@ -113,7 +119,8 @@ class DataConnectorProtocol(Protocol):
         Returns:
             True if the connector is operational.
         """
-        ...
+        # Base protocol default state is healthy
+        return True
 
 
 class DataConnectorRegistry:

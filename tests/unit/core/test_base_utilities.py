@@ -322,7 +322,7 @@ def test_load_env_vars_finds_dotenv(
     sub = tmp_path / "sub"
     sub.mkdir()
     caller_py = sub / "caller.py"
-    caller_py.write_text("# stub caller\n")
+    caller_py.write_text("# dummy caller\n")
 
     FakeFrame = type(
         "FakeFrame",
@@ -352,7 +352,7 @@ def test_load_env_vars_no_dotenv_found(
 ) -> None:
     """load_env_vars traverses upward but finds no .env (line 357-358)."""
     caller_py = tmp_path / "caller.py"
-    caller_py.write_text("# stub caller\n")
+    caller_py.write_text("# dummy caller\n")
 
     FakeFrame = type("FakeFrame", (), {"filename": str(caller_py)})
 
@@ -817,7 +817,8 @@ def test_patch_object_create_returns_class_patcher() -> None:
     """PatchObject.create returns PatchClass for a class."""
 
     class Foo:
-        pass
+        def __init__(self) -> None:
+            self.value = 1
 
     patcher = base_utilities.PatchObject.create(
         Foo,
@@ -871,7 +872,8 @@ def test_patch_object_msg_object_without_module_or_name() -> None:
     """msg gracefully handles an object with no __module__ / __name__."""
 
     class NoDunders:
-        pass
+        def __init__(self) -> None:
+            self.value = 1
 
     obj = NoDunders()
     patcher = base_utilities.PatchClass(

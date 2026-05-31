@@ -15,6 +15,7 @@ from agent_utilities.core.config import (
     DEFAULT_EMBEDDING_BASE_URL,
     DEFAULT_EMBEDDING_MODEL_ID,
 )
+
 from .engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
@@ -111,10 +112,13 @@ class GraphMaintainer:
             msgs = self.engine.backend.execute(m_query, {"t_id": t_id}) or []
 
             if len(msgs) > 0:
-                combined_text = "\n".join([m["content"] for m in msgs if m.get("content")])
-                
+                combined_text = "\n".join(
+                    [m["content"] for m in msgs if m.get("content")]
+                )
+
                 try:
                     from pydantic_ai import Agent
+
                     from agent_utilities.core.model_factory import create_model
 
                     model = create_model()
@@ -130,8 +134,12 @@ class GraphMaintainer:
                     result = agent.run_sync(combined_text)
                     summary_text = str(result.data)
                 except Exception as e:
-                    logger.warning(f"Conversation summarization failed, using fallback: {e}")
-                    summary_text = f"Summary of {len(msgs)} messages: {combined_text[:100]}..."
+                    logger.warning(
+                        f"Conversation summarization failed, using fallback: {e}"
+                    )
+                    summary_text = (
+                        f"Summary of {len(msgs)} messages: {combined_text[:100]}..."
+                    )
 
                 import uuid
 
@@ -323,16 +331,23 @@ class GraphMaintainer:
         failures = self.engine.backend.execute(query_execs) or []
 
         if not anomalies and not failures:
-            logger.info("No recent failures or performance anomalies found. System is healthy.")
+            logger.info(
+                "No recent failures or performance anomalies found. System is healthy."
+            )
             return 0
 
         from pydantic import BaseModel, Field
         from pydantic_ai import Agent
+
         from agent_utilities.core.model_factory import create_model
 
         class SelfImprovementAction(BaseModel):
-            critique: str = Field(description="Critical analysis of the failure points or performance anomalies.")
-            improvement_goals: list[str] = Field(description="Concrete, actionable improvement goals or guidelines to mitigate future issues.")
+            critique: str = Field(
+                description="Critical analysis of the failure points or performance anomalies."
+            )
+            improvement_goals: list[str] = Field(
+                description="Concrete, actionable improvement goals or guidelines to mitigate future issues."
+            )
 
         try:
             model = create_model()
@@ -354,10 +369,11 @@ class GraphMaintainer:
 
             result = agent.run_sync(prompt)
             data = result.data
-            
+
             logger.info(f"Self-improvement critique generated: {data.critique}")
 
             import uuid
+
             ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
             # Store critique as a Reflection node
@@ -371,8 +387,12 @@ class GraphMaintainer:
                 "timestamp": ts,
                 "is_permanent": True,
             }
-            ref_set = self.engine._get_set_clause(ref_props, alias="n", label="Reflection")
-            self.engine.backend.execute(f"MERGE (n:Reflection {{id: $id}}){ref_set}", ref_props)
+            ref_set = self.engine._get_set_clause(
+                ref_props, alias="n", label="Reflection"
+            )
+            self.engine.backend.execute(
+                f"MERGE (n:Reflection {{id: $id}}){ref_set}", ref_props
+            )
 
             # Store each recommendation as a Goal node
             goals_count = 0
@@ -387,8 +407,12 @@ class GraphMaintainer:
                     "timestamp": ts,
                     "is_permanent": False,
                 }
-                goal_set = self.engine._get_set_clause(goal_props, alias="n", label="Goal")
-                self.engine.backend.execute(f"MERGE (n:Goal {{id: $id}}){goal_set}", goal_props)
+                goal_set = self.engine._get_set_clause(
+                    goal_props, alias="n", label="Goal"
+                )
+                self.engine.backend.execute(
+                    f"MERGE (n:Goal {{id: $id}}){goal_set}", goal_props
+                )
 
                 # Link Goal to the Reflection
                 self.engine.backend.execute(
@@ -409,7 +433,9 @@ class GraphMaintainer:
             return 0
 
         # Retrieve existing skills and agent descriptions
-        query_skills = "MATCH (s:Skill) RETURN s.name as name, s.version as version LIMIT 20"
+        query_skills = (
+            "MATCH (s:Skill) RETURN s.name as name, s.version as version LIMIT 20"
+        )
         skills = self.engine.backend.execute(query_skills) or []
 
         query_agents = "MATCH (a:Agent) RETURN a.name as name, a.description as description LIMIT 10"
@@ -417,11 +443,16 @@ class GraphMaintainer:
 
         from pydantic import BaseModel, Field
         from pydantic_ai import Agent as PydanticAgent
+
         from agent_utilities.core.model_factory import create_model
 
         class DreamResult(BaseModel):
-            synthesis_idea: str = Field(description="The synthesized creative strategy or concept.")
-            suggested_features: list[str] = Field(description="Suggested new features, tool templates, or skills.")
+            synthesis_idea: str = Field(
+                description="The synthesized creative strategy or concept."
+            )
+            suggested_features: list[str] = Field(
+                description="Suggested new features, tool templates, or skills."
+            )
 
         try:
             model = create_model()
@@ -436,10 +467,7 @@ class GraphMaintainer:
                 ),
             )
 
-            prompt = (
-                f"Existing Skills:\n{skills}\n\n"
-                f"Existing Agents:\n{agents}"
-            )
+            prompt = f"Existing Skills:\n{skills}\n\n" f"Existing Agents:\n{agents}"
 
             result = agent.run_sync(prompt)
             data = result.data
@@ -447,6 +475,7 @@ class GraphMaintainer:
             logger.info(f"Dream synthesized concept: {data.synthesis_idea}")
 
             import uuid
+
             ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
             # Store the dream as a permanent Reflection node in the graph
@@ -460,8 +489,12 @@ class GraphMaintainer:
                 "timestamp": ts,
                 "is_permanent": True,
             }
-            dream_set = self.engine._get_set_clause(dream_props, alias="n", label="Reflection")
-            self.engine.backend.execute(f"MERGE (n:Reflection {{id: $id}}){dream_set}", dream_props)
+            dream_set = self.engine._get_set_clause(
+                dream_props, alias="n", label="Reflection"
+            )
+            self.engine.backend.execute(
+                f"MERGE (n:Reflection {{id: $id}}){dream_set}", dream_props
+            )
 
             return 1
         except Exception as e:
