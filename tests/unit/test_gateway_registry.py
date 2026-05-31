@@ -1,6 +1,5 @@
 """Tests for agent_utilities.gateway.registry — migrated from service-dashboard-core."""
 
-
 from agent_utilities.gateway.registry import Registry, get_registry
 
 

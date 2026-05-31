@@ -60,7 +60,7 @@ class FederatedSparqlIngestor:
         for endpoint in self.endpoints:
             # Ensure the endpoint exists as a PROVENANCE_AGENT in the local graph
             self.engine.add_node(
-                id=endpoint,
+                node_id=endpoint,
                 type=RegistryNodeType.PROVENANCE_AGENT,
                 name=f"SPARQL Endpoint: {endpoint}",
             )
@@ -85,7 +85,7 @@ class FederatedSparqlIngestor:
 
                     # Store in our native graph using operational source of truth semantics
                     self.engine.add_node(
-                        id=subj_uri,
+                        node_id=subj_uri,
                         type=target_node_type,
                         name=label,
                         uri=subj_uri,

@@ -511,7 +511,7 @@ def _log_graph_trace(event_type: str, timestamp: float, **kwargs):
     phase = _PHASE_MAP.get(event_type, "GRAPH")
     detail_parts: list[str] = []
 
-    for key in ("agent", "expert", "node_id", "domain", "server"):
+    for key in ("agent", "expert", "node_id", "id", "domain", "server"):
         if key in kwargs:
             detail_parts.append(f"{key}={kwargs[key]}")
     for key in ("count", "score", "batch_size", "attempt", "duration_ms"):

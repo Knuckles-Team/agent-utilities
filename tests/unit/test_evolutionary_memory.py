@@ -99,7 +99,7 @@ def test_drift_tracker():
 
     report = check_knowledge_drift("node_1", history, current, drift_threshold=0.15)
 
-    assert report.id == "node_1"
+    assert report.node_id == "node_1"
     assert report.has_drifted is True
     assert report.cosine_shift == 1.0  # Cosine distance between [1,0,0] and [0,1,0]
     assert report.coefficient_of_variation > 0.0

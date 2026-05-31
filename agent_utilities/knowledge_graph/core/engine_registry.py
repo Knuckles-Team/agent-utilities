@@ -762,7 +762,9 @@ class RegistryMixin(_Base):
 
         for u, v in self.graph._get_all_edges():
             if u in set(node_ids) and v in set(node_ids):
-                builder.add_edge(u, v, label="")
+                props = self.graph._get_edge_properties(u, v)
+                rel_type = props.get("type") or props.get("edge_type") or ""
+                builder.add_edge(u, v, label=rel_type)
 
         # Add some default styling for KG types
         builder.lines.append(
@@ -1216,6 +1218,7 @@ class RegistryMixin(_Base):
                 from ...knowledge_graph.core.engine import IntelligenceGraphEngine
 
                 if isinstance(self, IntelligenceGraphEngine):
+                    self.graph.add_node(new_id, config)
                     self._upsert_node("TeamConfig", new_id, config)
                     logger.info(
                         "[CONCEPT:ORCH-1.1] Imported team config '%s' from bundle",

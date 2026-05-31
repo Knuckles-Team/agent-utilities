@@ -13,7 +13,8 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 
 pytestmark = pytest.mark.skipif(
-    not LADYBUG_AVAILABLE, reason="ladybug package is required for graph enhancement tests"
+    not LADYBUG_AVAILABLE,
+    reason="ladybug package is required for graph enhancement tests",
 )
 
 

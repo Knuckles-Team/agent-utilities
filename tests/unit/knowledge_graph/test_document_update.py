@@ -113,8 +113,8 @@ class TestDocumentUpdatePipeline:
     async def test_get_document_chunks(self):
         """Test getting document chunks."""
         knowledge_graph = MagicMock()
-        # Mock edges to return 3 chunks
-        knowledge_graph.graph.edges.return_value = [
+        # Mock out_edges to return 3 chunks
+        knowledge_graph.graph.out_edges.return_value = [
             ("doc_123", "doc_123_chunk_0000", {"relationship_type": "HAS_CHUNK"}),
             ("doc_123", "doc_123_chunk_0001", {"relationship_type": "HAS_CHUNK"}),
             ("doc_123", "doc_123_chunk_0002", {"relationship_type": "HAS_CHUNK"}),

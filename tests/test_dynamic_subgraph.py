@@ -46,7 +46,9 @@ def test_dynamic_subgraph_synthesize_team():
     ]
 
     orchestrator = AgentOrchestrationEngine(engine=mock_engine)
-    team = orchestrator.synthesize_team(query="Research and write a report on AI")
+    team = orchestrator.synthesize_team(
+        query="Research and write a report on AI", domain="general"
+    )
 
     assert isinstance(team, TeamComposition)
     assert team.execution_mode in ["sequential", "parallel", "mixed"]

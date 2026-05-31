@@ -42,7 +42,6 @@ from .executor import (
     _execute_domain_logic,
     _execute_dynamic_mcp_agent,
 )
-from .hierarchical_planner import fetch_epistemic_context
 from .hsm import StateInvariantError, assert_state_valid
 from .lifecycle import _emit_node_lifecycle
 from .state import GraphDeps, GraphState
@@ -389,7 +388,29 @@ async def router_step(
         failure_context = f"### PREVIOUS FAILURE CONTEXT\nThe last attempt failed with the following error:\n{ctx.state.error}\nUse this information to update your plan. You may need more research or a different approach."
 
     try:
-        unified_context = await fetch_epistemic_context()
+        # Phase 4 Edge-Computed Scopes: Check if the workflow scope was already computed
+        # and signed at the JWT edge layer, bypassing the persistent graph hit.
+        if ctx.state.workflow_context and ctx.state.workflow_context.get(
+            "edge_computed", False
+        ):
+            logger.info(
+                "Using edge-computed JWT workflow context; bypassing persistent graph."
+            )
+            from .workflow_context_router import ShieldedResult
+
+            # Ensure workflow_id is present for Pydantic validation
+            payload = dict(ctx.state.workflow_context)
+            if "workflow_id" not in payload:
+                payload["workflow_id"] = "jwt_edge_computed"
+            workflow_context = ShieldedResult(**payload)
+        else:
+            from .workflow_context_router import WorkflowContextRouter
+
+            router = WorkflowContextRouter(deps.knowledge_engine)
+            workflow_context = await router.route_context(ctx.state.query)
+            ctx.state.workflow_context = workflow_context.model_dump()
+
+        unified_context = workflow_context.to_prompt_string()
 
         logger.info("[LAYER:GRAPH:ROUTER] Fetching specialist tags...")
         specialist_tags = deps.tag_prompts

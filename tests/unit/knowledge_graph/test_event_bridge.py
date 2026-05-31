@@ -23,7 +23,12 @@ async def test_graph_compute_event_bridge():
             GraphComputeEngine,
         )
 
-        with patch.dict("os.environ", {"KAFKA_BOOTSTRAP_SERVERS": ""}):
+        import agent_utilities.knowledge_graph.core.event_backend as eb_module
+
+        eb_module._GLOBAL_EVENT_BACKEND = None
+        with patch.dict(
+            "os.environ", {"KAFKA_BOOTSTRAP_SERVERS": "", "EVENT_BACKEND": "memory"}
+        ):
             GraphComputeEngine(graph_name="test_graph")
 
             # The bridge starts in a background thread. We can simulate the EventBus emission

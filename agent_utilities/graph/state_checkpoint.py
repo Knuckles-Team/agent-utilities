@@ -25,7 +25,7 @@ import json
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..models.knowledge_graph import (
     RegistryNodeType,
@@ -33,6 +33,7 @@ from ..models.knowledge_graph import (
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.graph_compute import GraphComputeEngine
 
 logger = logging.getLogger(__name__)
 
@@ -143,29 +144,47 @@ class StateCheckpointer:
         }
 
         if self.engine:
-            if self.engine.backend:
-                try:
-                    self.engine._upsert_node(
-                        "SessionCheckpoint", checkpoint_id, node_data
-                    )
-                    logger.info(
-                        "[CONCEPT:ORCH-1.1] Checkpointed session '%s' (status=%s, nodes=%d)",
-                        session_id,
-                        status,
-                        len(node_history),
-                    )
-                except Exception as e:
-                    logger.warning("Failed to checkpoint to backend: %s", e)
-                    self.engine.graph.add_node(checkpoint_id, **node_data)
-            else:
-                # Memory-only mode: store directly in NX graph
-                self.engine.graph.add_node(checkpoint_id, **node_data)
-                logger.info(
-                    "[CONCEPT:ORCH-1.1] Checkpointed session '%s' to NX (memory-only)",
-                    session_id,
+            if (
+                hasattr(self.engine, "backend_type")
+                and self.engine.backend_type == "rust"
+            ):
+                # GraphComputeEngine
+                cast("GraphComputeEngine", self.engine).add_node(
+                    checkpoint_id, properties=node_data
                 )
+                logger.info(
+                    "[CONCEPT:ORCH-1.1] Checkpointed session '%s' to Rust compute backend (status=%s, nodes=%d)",
+                    session_id,
+                    status,
+                    len(node_history),
+                )
+            else:
+                # IntelligenceGraphEngine
+                if getattr(self.engine, "backend", None):
+                    try:
+                        self.engine._upsert_node(
+                            "SessionCheckpoint", checkpoint_id, node_data
+                        )
+                        logger.info(
+                            "[CONCEPT:ORCH-1.1] Checkpointed session '%s' (status=%s, nodes=%d)",
+                            session_id,
+                            status,
+                            len(node_history),
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to checkpoint to backend: %s", e)
+
+                # Always add to NX graph as fallback (memory)
+                if hasattr(self.engine, "graph") and hasattr(
+                    self.engine.graph, "add_node"
+                ):
+                    self.engine.graph.add_node(checkpoint_id, **node_data)
+                    logger.info(
+                        "[CONCEPT:ORCH-1.1] Checkpointed session '%s' to NX (memory)",
+                        session_id,
+                    )
         else:
-            logger.debug("No engine available — checkpoint stored in memory only")
+            logger.debug("No engine available — checkpoint dropped")
 
         return checkpoint_id
 
@@ -197,61 +216,106 @@ class StateCheckpointer:
                     checkpoint = results[0]
                     if isinstance(checkpoint, dict) and "c" in checkpoint:
                         checkpoint = checkpoint["c"]
+
+                    if not isinstance(checkpoint, dict):
+                        # Invalid result from backend (e.g. SQLite returning strings)
+                        checkpoint = None
+
             except Exception as e:
                 logger.debug("Backend checkpoint restore failed: %s", e)
 
-        # Fallback to NX graph
-        if checkpoint is None:
-            for nid, data in self.engine.graph.nodes(data=True):
-                if (
-                    data.get("type") == RegistryNodeType.SESSION_CHECKPOINT.value
-                    and data.get("session_id") == session_id
-                ):
-                    checkpoint = dict(data)
-                    break
+        # Fallback to memory
+        if checkpoint is None and self.engine:
+            checkpoint_id = f"SessionCheckpoint_{session_id}"
+            if (
+                hasattr(self.engine, "backend_type")
+                and self.engine.backend_type == "rust"
+            ):
+                rust_engine = cast("GraphComputeEngine", self.engine)
+                if rust_engine.has_node(checkpoint_id):
+                    checkpoint = rust_engine[checkpoint_id]
+            elif hasattr(self.engine, "graph"):
+                if checkpoint_id in self.engine.graph:
+                    checkpoint = dict(self.engine.graph.nodes[checkpoint_id])
+                else:
+                    for nid, data in self.engine.graph.nodes(data=True):
+                        if (
+                            data.get("type")
+                            == RegistryNodeType.SESSION_CHECKPOINT.value
+                            and data.get("session_id") == session_id
+                        ):
+                            checkpoint = dict(data)
+                            break
 
         if checkpoint is None:
             logger.info("No checkpoint found for session '%s'", session_id)
+            print("DEBUG: checkpoint is None after loop")
             return None
+        try:
+            print(
+                "DEBUG: checkpoint type:", type(checkpoint), "value:", repr(checkpoint)
+            )
+            print("DEBUG: assigning session_id")
+            s_id = checkpoint.get("session_id", session_id)
+            print("DEBUG: assigning query")
+            q = checkpoint.get("query", "")
+            print("DEBUG: assigning plan")
+            p = checkpoint.get("plan", "")
+            print("DEBUG: assigning node_history")
+            nh = checkpoint.get("node_history", [])
+            print("DEBUG: assigning current_node")
+            cn = checkpoint.get("current_node", "")
+            print("DEBUG: assigning total_usage_tokens")
+            tut = checkpoint.get("total_usage_tokens", 0)
+            print("DEBUG: assigning status")
+            st = checkpoint.get("status", "active")
+            print("DEBUG: assigning topology_template_id")
+            ttid = checkpoint.get("topology_template_id", "")
 
-        # Deserialize fields
-        state_dict: dict[str, Any] = {
-            "session_id": checkpoint.get("session_id", session_id),
-            "query": checkpoint.get("query", ""),
-            "plan": checkpoint.get("plan", ""),
-            "node_history": checkpoint.get("node_history", []),
-            "current_node": checkpoint.get("current_node", ""),
-            "total_usage_tokens": checkpoint.get("total_usage_tokens", 0),
-            "status": checkpoint.get("status", "active"),
-            "topology_template_id": checkpoint.get("topology_template_id", ""),
-        }
+            state_dict: dict[str, Any] = {
+                "session_id": s_id,
+                "query": q,
+                "plan": p,
+                "node_history": nh,
+                "current_node": cn,
+                "total_usage_tokens": tut,
+                "status": st,
+                "topology_template_id": ttid,
+            }
 
-        # Parse specialist results
-        sr = checkpoint.get("specialist_results", "{}")
-        if isinstance(sr, str):
-            try:
-                state_dict["specialist_results"] = json.loads(sr)
-            except (json.JSONDecodeError, TypeError):
-                state_dict["specialist_results"] = {}
-        else:
-            state_dict["specialist_results"] = sr
+            # Parse specialist results
+            sr = checkpoint.get("specialist_results", "{}")
+            if isinstance(sr, str):
+                try:
+                    state_dict["specialist_results"] = json.loads(sr)
+                except ValueError:
+                    state_dict["specialist_results"] = {}
+            else:
+                state_dict["specialist_results"] = sr
 
-        # Parse state data
-        sd = checkpoint.get("state_data", "{}")
-        if isinstance(sd, str):
-            try:
-                state_dict["state_data"] = json.loads(sd)
-            except (json.JSONDecodeError, TypeError):
-                state_dict["state_data"] = {}
-        else:
-            state_dict["state_data"] = sd
+            # Parse state data
+            sd = checkpoint.get("state_data", "{}")
+            if isinstance(sd, str):
+                try:
+                    state_dict["state_data"] = json.loads(sd)
+                except ValueError:
+                    state_dict["state_data"] = {}
+            else:
+                state_dict["state_data"] = sd
 
-        logger.info(
-            "[CONCEPT:ORCH-1.1] Restored session '%s' (status=%s)",
-            session_id,
-            state_dict.get("status"),
-        )
-        return state_dict
+            logger.info(
+                "[CONCEPT:ORCH-1.1] Restored session '%s' (status=%s)",
+                session_id,
+                state_dict.get("status"),
+            )
+            print("RETURNING:", state_dict)
+            return state_dict
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            print("DEBUG: Exception in restore fields!", e)
+            return None
 
     def list_sessions(
         self,

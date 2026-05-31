@@ -25,6 +25,13 @@ Transitioned the agent framework into a **Multi-Domain Expert System**, supporti
 To support 100,000+ employees and scale to true enterprise size, the architecture has decoupled its localized NetworkX memory from the persistent Backend. NetworkX now serves purely as an **ephemeral compute scratchpad** for localized sub-graph analytics, preventing Out-Of-Memory (OOM) bottlenecks.
 Furthermore, raw data ingestion (e.g., Active Directory, Workday, ServiceNow) is externalized to peripheral "spoke" agents. These webhooks utilize high-throughput asynchronous batched `UNWIND` logic directly into the central graph.
 
+### High-Throughput Stream Ingestion & Shared Ephemeral Memory (CONCEPT:KG-2.60)
+To scale to massive workloads (100K+ employees, tens of thousands of active codebases, and continuous AI chat streams), the system incorporates a unified stream hydration and cache fabric:
+
+1. **High-Throughput Parallel Stream Hydration**: Consumes large data streams from external enterprise systems (ServiceNow incidents, GitLab repositories/pipelines, etc.) in parallel. Rather than relying on LLMs to translate unstructured text into graph representations, the pipeline utilizes schema-compliant, rigid R2RML mappings. These map raw JSON structures directly to formal ontology classes (like `au:Incident`, `au:Repository`, `au:Pipeline`), guaranteeing zero hallucination, predictable execution paths, and complete semantic alignment.
+2. **Shared Ephemeral Cache Fabric**: Enables stateless, short-lived agents and communication channels to share context instantly. The cache fabric is powered by a standard connection URI supporting Redis and Valkey (`redis://` or `valkey://`) with serializable payloads, falling back to a structured local directory namespaces architecture.
+3. **Dynamic TTL Eviction**: Prevents graph pollution from transient conversational memories. Nodes and edges ingested into ephemeral namespaces are decorated with explicit temporal boundaries (`ttl` and `created_at`). A periodic background task (`cleanup_expired_namespaces`) automatically sweeps and purges expired namespaces from the graph.
+
 ### Deterministic Garbage Collection (Mark-and-Sweep)
 To maintain 1:1 parity between external file systems and the Knowledge Graph, the system utilizes a **Mark-and-Sweep Synchronization** approach:
 - **Mark**: During ingestion, every parsed file (e.g., `:Code` or `:Article` nodes) is tagged with a session-specific `last_seen_timestamp` in the pipeline context.

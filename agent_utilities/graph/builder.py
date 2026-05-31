@@ -14,13 +14,13 @@ import os
 from typing import Any, Literal
 
 from pydantic_ai import Agent
-from pydantic_graph import End, Graph
+from pydantic_graph import End
 
 try:
-    from pydantic_graph.graph_builder import GraphBuilder
+    from pydantic_graph.graph_builder import Graph, GraphBuilder
     from pydantic_graph.step import StepContext
 except ImportError:
-    from pydantic_graph.beta import GraphBuilder, StepContext
+    from pydantic_graph.beta import Graph, GraphBuilder, StepContext
 
 from agent_utilities.agent.discovery import discover_agents, discover_all_specialists
 from agent_utilities.core.config import (

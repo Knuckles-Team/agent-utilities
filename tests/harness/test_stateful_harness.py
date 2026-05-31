@@ -132,7 +132,7 @@ def test_declarative_contract_validation():
         return ctx_dict.get("api_ready", False) is True
 
     contract = ToolContract(
-        id="test_mcp_node",
+        node_id="test_mcp_node",
         pre_condition=pre_validator,
         post_condition_schema=MockPostSchema,
     )

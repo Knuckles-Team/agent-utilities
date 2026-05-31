@@ -1549,6 +1549,7 @@ async def _execute_domain_logic(
                 target = sub_agent_target
                 if isinstance(target, dict) and "tags" in target:
                     from agent_utilities.agent.factory import create_agent
+
                     target, _ = create_agent(
                         name=domain,
                         system_prompt=target.get(
@@ -1609,6 +1610,7 @@ async def _execute_domain_logic(
                 query = f"{query}\n\n[SELF-CORRECTION FEEDBACK]: {ctx.state.validation_feedback}"
 
             from agent_utilities.agent.factory import create_agent
+
             sub_agent, _ = create_agent(
                 provider=deps.provider,
                 model_id=deps.agent_model,

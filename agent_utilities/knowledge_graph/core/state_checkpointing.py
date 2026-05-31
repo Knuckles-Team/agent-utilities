@@ -8,7 +8,7 @@ pick up, monitor, and resume paused executions across a distributed environment.
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -55,7 +55,7 @@ class StateCheckpointer:
             agent_id=agent_id,
             state_data=json.dumps(state_data),
             status=status,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
         )
 
         if self.engine.backend:

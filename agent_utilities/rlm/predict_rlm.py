@@ -1,0 +1,141 @@
+"""Predict-RLM: Structured, type-safe RLM executions using Pydantic signatures.
+
+CONCEPT:ORCH-1.30 — Structured Predict-RLM Runtime
+
+This module implements a native Pydantic signature system to replicate
+the structured input/output contract of DSPy Signatures without adding
+external dependencies.
+"""
+
+from typing import Any, Dict, List, Type, get_type_hints
+from pydantic import BaseModel, Field
+from .repl import RLMEnvironment
+from .config import RLMConfig
+from ..graph.state import GraphDeps
+
+
+def InputField(default: Any = ..., *, description: str = "", **kwargs) -> Any:
+    """Helper to define an input field in an RLM Signature."""
+    json_schema_extra = kwargs.setdefault("json_schema_extra", {})
+    json_schema_extra["is_input"] = True
+    return Field(default, description=description, **kwargs)
+
+
+def OutputField(default: Any = ..., *, description: str = "", **kwargs) -> Any:
+    """Helper to define an output field in an RLM Signature."""
+    json_schema_extra = kwargs.setdefault("json_schema_extra", {})
+    json_schema_extra["is_output"] = True
+    return Field(default, description=description, **kwargs)
+
+
+class PredictRLM:
+    """Predict-RLM execution harness wrapping RLMEnvironment.
+
+    Enforces Pydantic-based structured signatures and allows dynamic
+    mounting of skills into the sandboxed REPL.
+    """
+
+    def __init__(
+        self,
+        signature: Type[BaseModel],
+        config: RLMConfig | None = None,
+        graph_deps: GraphDeps | None = None,
+    ):
+        self.signature = signature
+        self.config = config or RLMConfig()
+        self.graph_deps = graph_deps
+        self.skills: Dict[str, Any] = {}
+
+        # Inspect the signature to identify input and output fields
+        self.inputs: List[str] = []
+        self.outputs: List[str] = []
+
+        for name, field in self.signature.model_fields.items():
+            extra = getattr(field, "json_schema_extra", None) or {}
+            is_input = False
+            is_output = False
+            if isinstance(extra, dict):
+                is_input = bool(extra.get("is_input", False))
+                is_output = bool(extra.get("is_output", False))
+
+            if is_input:
+                self.inputs.append(name)
+            elif is_output:
+                self.outputs.append(name)
+            else:
+                # If neither is marked, treat fields with default values as inputs,
+                # and fields with no defaults as outputs by convention.
+                if field.is_required():
+                    self.outputs.append(name)
+                else:
+                    self.inputs.append(name)
+
+    def mount_skill(self, name: str, skill_fn: Any):
+        """Register a custom function or API client helper to be injected into the REPL."""
+        self.skills[name] = skill_fn
+
+    def _generate_instruction_prompt(self, inputs: Dict[str, Any]) -> str:
+        """Construct the prompt guiding the RLM REPL to solve the task and assign outputs."""
+        prompt = (
+            f"TASK DESCRIPTION:\n"
+            f"  {self.signature.__doc__ or 'No description provided.'}\n\n"
+            f"INPUT VALUES PROVIDED:\n"
+        )
+        for name in self.inputs:
+            val = inputs.get(name, "Not provided")
+            # If the input is massive, show metadata only in the prompt to prevent context pollution
+            val_str = str(val)
+            if len(val_str) > 1000:
+                prompt += f"  - `{name}` (Massive field, length: {len(val_str)} chars). Access programmatically via `context['{name}']`.\n"
+            else:
+                prompt += f"  - `{name}`: {val_str}\n"
+
+        prompt += "\nREQUIRED OUTPUT FIELDS TO POPULATE:\n"
+        for name in self.outputs:
+            field = self.signature.model_fields[name]
+            prompt += f"  - `{name}`: {field.description or 'No description'}\n"
+
+        prompt += (
+            f"\nINSTRUCTIONS:\n"
+            f"  1. Analyze the inputs programmatically inside the Python REPL.\n"
+            f"  2. Compute values for each of the required output fields.\n"
+            f"  3. For EACH required output field, call `FINAL_VAR('field_name', value)` to record the result.\n"
+            f"  4. Ensure your output values conform to the types and constraints described.\n"
+        )
+        return prompt
+
+    async def run(self, **inputs) -> BaseModel:
+        """Execute the RLM REPL and return a validated signature model instance."""
+        # Bundle inputs into a context dictionary
+        context = {name: inputs.get(name) for name in self.inputs}
+
+        # Inject mounted skills into context if needed, but wait, skills should go into globals
+        env = RLMEnvironment(
+            context=context,
+            depth=0,
+            config=self.config,
+            graph_deps=self.graph_deps,
+        )
+
+        # Dynamic skill injection into the REPL global namespace
+        for name, fn in self.skills.items():
+            env.globals_dict[name] = fn
+
+        prompt = self._generate_instruction_prompt(inputs)
+        await env.run_full_rlm(prompt)
+
+        # Gather final variables and validate with Pydantic
+        output_data = {}
+        for name in self.outputs:
+            if name in env.vars:
+                output_data[name] = env.vars[name]
+            elif "__FINAL__" in env.vars and env.vars["__FINAL__"] == name:
+                output_data[name] = env.vars[name]
+            else:
+                # Attempt to extract from globals/locals if written directly
+                if name in env.globals_dict:
+                    output_data[name] = env.globals_dict[name]
+
+        # Combine inputs and outputs to construct the full signature model
+        full_data = {**inputs, **output_data}
+        return self.signature(**full_data)

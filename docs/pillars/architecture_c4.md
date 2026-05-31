@@ -142,6 +142,8 @@ C4Component
         Component(ctxbudget, "🔬 Context Budget Optimizer", "Python", "KG-2.1: Root Theorem compaction. Research: 2604.20874v1")
         Component(argraph, "🔬 AR-Graph", "Python", "KG-2.11: Dynamic Agent Relationship Graph")
         Component(tsgraph, "🔬 Time-Series Graph", "Python", "KG-2.12: Temporal weighted decay graphs")
+        Component(stream_ingest, "Stream Hydration / R2RML", "Python", "Dynamic dynamic-free parallel streaming from external APIs (ServiceNow, GitLab)")
+        Component(cache_fabric, "Shared Ephemeral Cache Fabric", "Valkey / Redis / Filesystem", "Memory sharing between agents with TTL-based decay")
     }
 
     Rel(engine, backend, "Tier 1: Cypher persistence")
@@ -159,6 +161,9 @@ C4Component
     Rel(ctxbudget, memory, "Compacts recall results within budget")
     Rel(engine, argraph, "Tracks inter-agent communication topologies")
     Rel(engine, tsgraph, "Applies temporal decay to HNSW edges")
+    Rel(engine, stream_ingest, "Hydrates graph from high-throughput API streams")
+    Rel(stream_ingest, ontology, "Enforces schema correctness during ingestion via dynamic OWL classification")
+    Rel(engine, cache_fabric, "Stores and invalidates ephemeral agent contexts with dynamic TTL tracking")
 ```
 
 ### Pillar 3: Agentic Harness (AHE)
@@ -423,11 +428,11 @@ flowchart LR
 ```mermaid
 graph TD
     subgraph "Pillar Interconnection Matrix"
-            Component(P1, "ORCH-1.0: Orchestration", "Orchestrates multi-agent workflows")
-            Component(P2, "KG-2.0: Knowledge Graph", "LadybugDB/ParadeDB semantic engine")
-            Component(P3, "AHE-3.0: Agentic Harness", "Continuous evaluation and evolution")
-            Component(P4, "ECO-4.0: Ecosystem", "MCP server connections and APIs")
-            Component(P5, "OS-5.0: Agent OS", "Runtime environment and security")
+            P1["<b>ORCH-1.0: Orchestration</b><br/>Orchestrates multi-agent workflows"]
+            P2["<b>KG-2.0: Knowledge Graph</b><br/>LadybugDB/ParadeDB semantic engine"]
+            P3["<b>AHE-3.0: Agentic Harness</b><br/>Continuous evaluation and evolution"]
+            P4["<b>ECO-4.0: Ecosystem</b><br/>MCP server connections and APIs"]
+            P5["<b>OS-5.0: Agent OS</b><br/>Runtime environment and security"]
     end
 
     P1 <-->|"Router queries KG for specialist selection<br/>KG provides ontological routing tables"| P2

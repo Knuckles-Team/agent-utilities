@@ -79,6 +79,7 @@ class RLMEnvironment:
             "graph_query": self.graph_query,
             "owl_query": self.owl_query,
             "kg_bulk_export": self.kg_bulk_export,
+            "ephemeral_graph_query": self.ephemeral_graph_query,
             "sub_agent_call": self.sub_agent_call_helper,
             "FINAL_VAR": self.FINAL_VAR,
             "json": json,
@@ -119,6 +120,23 @@ class RLMEnvironment:
             return [{"error": "Knowledge engine not initialized"}]
 
         return engine.query_cypher(cypher, params)
+
+    async def ephemeral_graph_query(
+        self, cypher: str, namespace: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Run a Cypher query against a specific ephemeral graph namespace."""
+        try:
+            # We instantiate a GraphComputeEngine connected to the ephemeral namespace
+            # It should have been hydrated by OWLBridge previously.
+            ephemeral_engine = GraphComputeEngine(graph_name=namespace)
+            if hasattr(ephemeral_engine._client, "cypher"):
+                result = ephemeral_engine._client.cypher.query(cypher, params or {})
+                import json
+
+                return json.loads(result) if isinstance(result, str) else result
+            return [{"error": "Ephemeral graph client does not support direct cypher."}]
+        except Exception as e:
+            return [{"error": f"Ephemeral graph query failed: {e}"}]
 
     async def owl_query(self, sparql: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against the OWL reasoner backend.
@@ -211,7 +229,7 @@ class RLMEnvironment:
             system_prompt=f"You are a specialized sub-agent for: {agent_id or 'general'}",
         )
         res = await agent.run(f"Context: {input_data}\n\nTask: {prompt}")
-        return str(res.output)
+        return res.output
 
     async def rlm_query(self, prompt: str, sub_context: Any = None) -> str:
         """Spawn a full recursive RLM at the next depth."""
@@ -490,6 +508,7 @@ class RLMEnvironment:
                 "- `await magma_view(query, views=None)`: Retrieve MAGMA orthogonal context "
                 "(semantic, temporal, causal, entity).\n"
                 "- `await graph_query(cypher, params=None)`: Run a Cypher query against the knowledge graph.\n"
+                "- `await ephemeral_graph_query(cypher, namespace, params=None)`: Run a Cypher query against a specific ephemeral memory namespace.\n"
                 "- `await owl_query(sparql)`: Run a SPARQL query against the OWL reasoner "
                 "for transitive reasoning (wasDerivedFrom chains, SKOS hierarchies, escalation paths).\n"
                 "- `await kg_bulk_export(node_type, limit=500)`: Export KG nodes as JSON for bulk analysis.\n"
@@ -520,7 +539,7 @@ class RLMEnvironment:
                 res = await agent.run("Continue.", message_history=history)
             history = res.all_messages()
 
-            output_text = str(res.output)
+            output_text = res.output
 
             # Extract code block
             code_blocks = [
@@ -532,37 +551,55 @@ class RLMEnvironment:
                 _, stdout = await self.execute(code_to_run)
 
                 # Record trajectory
-                if (
-                    self.config.trajectory_storage == "process_flow"
-                    and self.graph_deps
-                    and hasattr(self.graph_deps, "knowledge_engine")
-                ):
-                    engine = self.graph_deps.knowledge_engine
-                    if engine:
-                        import time
+                if self.config.trajectory_storage == "process_flow" and self.graph_deps:
+                    import time
 
-                        from ..models.knowledge_graph import (
-                            ReasoningTraceNode,
-                            RegistryNodeType,
-                        )
+                    from ..graph.client import create_or_merge_node
+                    from ..graph.models import GraphNode
+                    from ..models.knowledge_graph import (
+                        ReasoningTraceNode,
+                        RegistryNodeType,
+                    )
 
-                        node_id = f"rlm_trace_{time.time_ns()}"
-                        trace_node = ReasoningTraceNode(
-                            id=node_id,
-                            type=RegistryNodeType.REASONING_TRACE,
-                            name=f"RLM Depth {self.depth} Execution",
-                            thought=prompt,
-                            reflection=f"Code: {code_to_run}\nResult: {stdout[:500]}",
-                            timestamp=time.strftime(
-                                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-                            ),
-                        )
+                    node_id = f"rlm_trace_{time.time_ns()}"
+                    trace_node = ReasoningTraceNode(
+                        id=node_id,
+                        type=RegistryNodeType.REASONING_TRACE,
+                        name=f"RLM Depth {self.depth} Execution",
+                        thought=prompt,
+                        reflection=f"Code: {code_to_run}\nResult: {stdout[:500]}",
+                        timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    )
+
+                    # 1. In-Memory Graph persistence if engine exists
+                    if (
+                        hasattr(self.graph_deps, "knowledge_engine")
+                        and self.graph_deps.knowledge_engine
+                    ):
                         try:
-                            engine.graph.add_node(
+                            self.graph_deps.knowledge_engine.graph.add_node(
                                 trace_node.id, **(trace_node.model_dump())
                             )
                         except Exception as e:
-                            logger.warning(f"Failed to store RLM trajectory: {e}")
+                            logger.warning(
+                                f"Failed to store RLM trajectory in-memory: {e}"
+                            )
+
+                    # 2. Asynchronous/Persistent Graph DB persistence
+                    try:
+                        g_node = GraphNode(
+                            id=trace_node.id,
+                            labels=["ReasoningTrace"],
+                            properties=trace_node.model_dump(exclude_none=True),
+                        )
+                        # Schedule background/async write to persistent backend
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            loop.create_task(create_or_merge_node(g_node))
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to store RLM trajectory in DB backend: {e}"
+                        )
 
                 if "__FINAL__" in self.vars:
                     final_var_name = self.vars["__FINAL__"]

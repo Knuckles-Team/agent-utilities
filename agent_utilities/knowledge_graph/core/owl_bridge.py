@@ -11,6 +11,7 @@ enriches the LPG with OWL-inferred facts.
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -422,6 +423,10 @@ class OWLBridge:
         else:
             self._effective_node_types = PROMOTABLE_NODE_TYPES
             self._effective_edge_types = PROMOTABLE_EDGE_TYPES
+
+        # Ephemeral Namespaced In-Memory and Shared Cache registries
+        self._namespaces: dict[str, dict[str, Any]] = {}
+        self._namespace_ttls: dict[str, float] = {}
 
     def run_cycle(self, lightweight: bool = True) -> dict[str, Any]:
         """Full promote → reason → downfeed cycle. Returns stats.
@@ -988,3 +993,192 @@ class OWLBridge:
                 "Install with: pip install rdflib"
             }
         ]
+
+    async def stream_api_to_graph(
+        self, api_stream: Any, source_type: str, namespace: str, ttl_seconds: int = 3600
+    ) -> dict[str, Any]:
+        """Hydrates raw enterprise payloads from external streams into LPG nodes and edges.
+
+        Strictly maps fields using rigid, schema-compliant R2RML mappings to prevent dynamic
+        LLM hallucinations. If namespace matches 'redis://' or 'valkey://', hydrates the state
+        to an external shared ephemeral cache fabric, enabling concurrent agents to share memory.
+
+        Supports automatic TTL expiration tracking.
+        """
+        # R2RML mappings based on ontology.ttl classes & properties
+        r2rml_mappings = {
+            "servicenow:incident": {
+                "class": "Incident",
+                "id_field": "sys_id",
+                "properties": ["short_description", "severity", "state", "description"],
+                "edges": {
+                    "assigned_to": ("Person", "was_attributed_to"),
+                    "cmdb_ci": ("PlatformService", "monitors"),
+                },
+            },
+            "gitlab:project": {
+                "class": "Repository",
+                "id_field": "id",
+                "properties": ["name", "path_with_namespace", "description"],
+                "edges": {"owner": ("Person", "creator")},
+            },
+            "gitlab:pipeline": {
+                "class": "Pipeline",
+                "id_field": "id",
+                "properties": ["status", "ref", "sha"],
+                "edges": {"project_id": ("Repository", "part_of")},
+            },
+        }
+
+        mapping = r2rml_mappings.get(source_type)
+        if not mapping:
+            raise ValueError(
+                f"No registered R2RML mapping for stream source type: {source_type}"
+            )
+
+        nodes_hydrated = 0
+        edges_hydrated = 0
+        hydrated_payloads = []
+
+        # Consume api stream items (handles lists, dicts, or async iterators)
+        items = []
+        if isinstance(api_stream, list):
+            items = api_stream
+        elif isinstance(api_stream, dict):
+            items = [api_stream]
+        else:
+            # Assume async iterator
+            try:
+                async for item in api_stream:
+                    items.append(item)
+            except Exception:
+                # Fallback to standard iter
+                for item in api_stream:
+                    items.append(item)
+
+        id_field = str(mapping.get("id_field", ""))
+        class_name = str(mapping.get("class", ""))
+        props_keys = mapping.get("properties", [])
+        edges_mapping = mapping.get("edges", {})
+
+        for item in items:
+            raw_id = item.get(id_field)
+            if not raw_id:
+                continue
+
+            node_id = f"{source_type}:{raw_id}"
+
+            # Construct mapped properties
+            props = {
+                "type": class_name,
+                "id": node_id,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "is_permanent": False,
+            }
+            if isinstance(props_keys, list):
+                for p in props_keys:
+                    if p in item:
+                        props[p] = item[p]
+
+            # Construct mapped edges
+            edges = []
+            if isinstance(edges_mapping, dict):
+                for field, target_mapping in edges_mapping.items():
+                    ref_val = item.get(field)
+                    if ref_val:
+                        tgt_class, rel_type = target_mapping
+                        tgt_id = f"{tgt_class.lower()}:{ref_val}"
+                        edges.append(
+                            {
+                                "source": node_id,
+                                "target": tgt_id,
+                                "type": rel_type,
+                                "inferred": False,
+                            }
+                        )
+
+            hydrated_payloads.append({"node": props, "edges": edges})
+            nodes_hydrated += 1
+            edges_hydrated += len(edges)
+
+        # Persistence: External Valkey/Redis or local Namespaced Storage
+        is_external = namespace.startswith("redis://") or namespace.startswith(
+            "valkey://"
+        )
+        expiration_time = time.time() + ttl_seconds
+
+        if is_external:
+            try:
+                import redis
+
+                client = redis.from_url(namespace)
+                # Store serialized graph nodes & edges
+                key_prefix = f"company_brain:ns:{namespace.split('/')[-1]}"
+                client.setex(
+                    f"{key_prefix}:data", ttl_seconds, json.dumps(hydrated_payloads)
+                )
+                logger.info(
+                    "Successfully hydrated %d nodes to external cache fabric.",
+                    nodes_hydrated,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Valkey/Redis hydration failed: %s. Falling back to local namespace.",
+                    e,
+                )
+                self._save_local_namespace(
+                    namespace, hydrated_payloads, expiration_time
+                )
+        else:
+            self._save_local_namespace(namespace, hydrated_payloads, expiration_time)
+
+        # Inject hydrated nodes and edges into active LPG context
+        for hydrated in hydrated_payloads:
+            n = hydrated.get("node")
+            if isinstance(n, dict):
+                n_id = n.get("id")
+                if isinstance(n_id, str):
+                    self.graph.add_node(n_id, **n)
+            e_list = hydrated.get("edges")
+            if isinstance(e_list, list):
+                for e_item in e_list:
+                    if isinstance(e_item, dict):
+                        e_src = e_item.get("source")
+                        e_tgt = e_item.get("target")
+                        e_type = e_item.get("type")
+                        e_inferred = e_item.get("inferred", False)
+                        if isinstance(e_src, str) and isinstance(e_tgt, str):
+                            self.graph.add_edge(
+                                e_src, e_tgt, type=e_type, inferred=e_inferred
+                            )
+
+        return {
+            "namespace": namespace,
+            "nodes_hydrated": nodes_hydrated,
+            "edges_hydrated": edges_hydrated,
+            "expiration": expiration_time,
+        }
+
+    def _save_local_namespace(
+        self, namespace: str, data: list[dict[str, Any]], expiration: float
+    ) -> None:
+        self._namespaces[namespace] = {"data": data}
+        self._namespace_ttls[namespace] = expiration
+
+    def cleanup_expired_namespaces(self) -> int:
+        """Evicts expired local namespaces and clean up related cache allocations."""
+        now = time.time()
+        expired = [ns for ns, exp in self._namespace_ttls.items() if now >= exp]
+        for ns in expired:
+            # Clean up the graph nodes that belong to this namespace
+            ns_data = self._namespaces.get(ns, {}).get("data", [])
+            for hydrated in ns_data:
+                node_id = hydrated["node"]["id"]
+                if node_id in self.graph:
+                    self.graph.remove_node(node_id)
+
+            del self._namespaces[ns]
+            del self._namespace_ttls[ns]
+            logger.info("Evicted expired namespace cache: %s", ns)
+
+        return len(expired)

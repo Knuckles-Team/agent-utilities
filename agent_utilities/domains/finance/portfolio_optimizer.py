@@ -66,8 +66,7 @@ class MeanVarianceOptimizer:
 
         sharpe = (port_return - risk_free_rate) / port_vol if port_vol > 0 else 0.0
         weight_dict = {
-            name: round(w, 6)
-            for name, w in zip(asset_names, weights, strict=False)
+            name: round(w, 6) for name, w in zip(asset_names, weights, strict=False)
         }
 
         return OptimizationResult(
@@ -115,8 +114,7 @@ class RiskParityOptimizer:
             )
 
         weight_dict = {
-            name: round(w, 6)
-            for name, w in zip(asset_names, weights, strict=False)
+            name: round(w, 6) for name, w in zip(asset_names, weights, strict=False)
         }
 
         return OptimizationResult(
@@ -163,8 +161,7 @@ class BlackLittermanOptimizer:
         port_return = 0.0
 
         weight_dict = {
-            name: round(w, 6)
-            for name, w in zip(asset_names, weights, strict=False)
+            name: round(w, 6) for name, w in zip(asset_names, weights, strict=False)
         }
 
         return OptimizationResult(

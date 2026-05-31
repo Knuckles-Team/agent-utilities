@@ -128,7 +128,7 @@ async def test_execute_domain_logic_approval_required():
     mock_agent.run.return_value = mock_res
 
     with patch(
-        "agent_utilities.graph.executor.create_agent", return_value=(mock_agent, [])
+        "agent_utilities.agent.factory.create_agent", return_value=(mock_agent, [])
     ):
         result = await executor._execute_domain_logic(ctx, "test_domain")
         assert type(result).__name__ == "End"

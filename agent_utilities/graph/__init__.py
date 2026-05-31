@@ -101,7 +101,20 @@ from .state import (
     GraphState,
 )
 
+run_graph = execute_graph
+run_graph_stream = execute_graph_stream
+
+
+def validate_graph(graph, config) -> dict:
+    from ..orchestration.engine import AgentOrchestrationEngine
+
+    return AgentOrchestrationEngine.validate_graph(graph, config)
+
+
 __all__ = [
+    "run_graph",
+    "run_graph_stream",
+    "validate_graph",
     # CONCEPT:ORCH-1.28 — Graph-Native Reactive Event Sourcing and OS Guardrails
     "EventLedger",
     "BehaviorDispatcher",
@@ -142,7 +155,6 @@ __all__ = [
     "create_master_graph",
     "initialize_graph_from_workspace",
     "build_tag_env_map",
-    "AgentOrchestrationEngine",
     # Unified execution
     "execute_graph",
     "execute_graph_iter",

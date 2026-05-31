@@ -234,8 +234,9 @@ class MemoryMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="Memory")
             self._upsert_node("Memory", node.id, data)
-        else:
-            self.graph.add_node(node.id, **node.model_dump())
+
+        # Update graph compute cache
+        self.graph.add_node(node.id, **node.model_dump())
 
         return memory_id
 

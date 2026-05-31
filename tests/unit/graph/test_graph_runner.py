@@ -27,9 +27,7 @@ async def test_run_graph_basic(mock_graph):
     deps.event_queue = None
     config = {"deps": deps}
 
-    response = await runner().execute_graph(
-        mock_graph, config, query="hello"
-    )
+    response = await runner().execute_graph(mock_graph, config, query="hello")
 
     assert response["status"] == "completed"
     assert response["results"]["output"] == "final answer"
@@ -45,9 +43,7 @@ async def test_run_graph_exception(mock_graph):
     deps.tag_prompts = {}
     config = {"deps": deps}
 
-    response = await runner().execute_graph(
-        mock_graph, config, query="hello"
-    )
+    response = await runner().execute_graph(mock_graph, config, query="hello")
 
     assert response["status"] == "error"
     assert "test error" in response["error"]
@@ -99,9 +95,7 @@ async def test_run_graph_stream_basic(mock_graph):
         patch(
             "agent_utilities.orchestration.engine.load_node_agents_registry"
         ) as mock_reg,
-        patch(
-            "agent_utilities.orchestration.engine.create_model"
-        ) as mock_model,
+        patch("agent_utilities.orchestration.engine.create_model") as mock_model,
     ):
         mock_reg.return_value.agents = []
         mock_model.return_value = MagicMock()
