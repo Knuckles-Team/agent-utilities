@@ -333,6 +333,8 @@ class LadybugBackend(GraphBackend):
                     or "cannot open file" in msg
                     or "cannot read from file" in msg
                     or "no such file or directory" in msg
+                    or "not a valid lbug" in msg
+                    or "unable to open database" in msg
                 ):
                     logger.warning(
                         f"Detected database corruption or WAL/shadow error in {self.db_path} "
