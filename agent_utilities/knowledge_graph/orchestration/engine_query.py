@@ -615,16 +615,67 @@ class QueryMixin(_Base):
     ) -> list[dict[str, Any]]:
         """MAGMA Place view — retrieve co-located entities (EcphoryRAG).
 
-        Stub implementation: returns an empty list. Full Cypher query per
-        ``docs/KG_V2_DESIGN.md`` §5.1 lands in a follow-up PR.
+        Retrieves co-located entities or places using a Cypher query from the backend.
         """
-        _ = (query, place_ids, phase_ids, top_k)  # unused in stub
-        logger.debug(
-            "retrieve_place_view stub called (query=%r); see "
-            "docs/KG_V2_DESIGN.md §5.1 for full impl.",
-            query,
-        )
-        return []
+        if not self.backend:
+            logger.debug("No backend configured for retrieve_place_view.")
+            return []
+
+        results = []
+        if place_ids:
+            # Match entities co-located at specified places
+            cypher = (
+                "MATCH (e:Entity)-[r:CO_LOCATED_AT|co_located_at]->(p:Place) "
+                "WHERE p.id IN $place_ids "
+                "RETURN e, p LIMIT $limit"
+            )
+            rows = self.backend.execute(
+                cypher, {"place_ids": place_ids, "limit": top_k}
+            )
+            for row in rows:
+                entity = row.get("e", row)
+                place = row.get("p", {})
+                if isinstance(entity, dict):
+                    entity["_place"] = (
+                        place.get("id") if isinstance(place, dict) else str(place)
+                    )
+                    results.append(entity)
+        elif phase_ids:
+            # Match entities associated with specific phases
+            cypher = (
+                "MATCH (e:Entity)-[r:ASSOCIATED_WITH|associated_with]->(p:Phase) "
+                "WHERE p.id IN $phase_ids "
+                "RETURN e, p LIMIT $limit"
+            )
+            rows = self.backend.execute(
+                cypher, {"phase_ids": phase_ids, "limit": top_k}
+            )
+            for row in rows:
+                entity = row.get("e", row)
+                phase = row.get("p", {})
+                if isinstance(entity, dict):
+                    entity["_phase"] = (
+                        phase.get("id") if isinstance(phase, dict) else str(phase)
+                    )
+                    results.append(entity)
+        else:
+            # Query based search for co-located entities matching query
+            cypher = (
+                "MATCH (e:Entity)-[r:CO_LOCATED_AT|co_located_at]->(p:Place) "
+                "WHERE e.id CONTAINS $q OR p.id CONTAINS $q "
+                "RETURN e, p LIMIT $limit"
+            )
+            rows = self.backend.execute(cypher, {"q": query, "limit": top_k})
+            for row in rows:
+                entity = row.get("e", row)
+                place = row.get("p", {})
+                if isinstance(entity, dict):
+                    entity["_place"] = (
+                        place.get("id") if isinstance(place, dict) else str(place)
+                    )
+                    results.append(entity)
+
+        return results
 
     def retrieve_epistemic_view(
         self,

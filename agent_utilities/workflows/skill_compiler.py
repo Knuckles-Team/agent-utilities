@@ -116,11 +116,9 @@ class SkillCompiler:
                         ).strip()
                     else:
                         step_body_clean = step_body
-                        # Fallback to sequential execution using step number of the last parsed step
+                        # Fallback to sequential execution using the node ID of the last parsed step
                         depends_on = (
-                            [f"step {parsed_step_info[-1][0]}"]
-                            if parsed_step_info
-                            else []
+                            [parsed_step_info[-1][1]] if parsed_step_info else []
                         )
 
                 # Try to extract agent name if step title specifies it, e.g. "### Step 1: Agent Name"
@@ -139,6 +137,13 @@ class SkillCompiler:
                         step_title_clean.lower().replace(" ", "-").replace("_", "-")
                     )
 
+                # Ensure agent_name is unique
+                base_name = agent_name
+                counter = 1
+                while agent_name in [s.id for s in steps]:
+                    agent_name = f"{base_name}-{counter}"
+                    counter += 1
+
                 parsed_step_info.append((step_num, agent_name))
                 steps.append(
                     ExecutionStep(
@@ -156,9 +161,10 @@ class SkillCompiler:
                     dep_cleaned = (
                         dep.strip().lower().replace("_", "-").replace(" ", "-")
                     )
-                    match_num = re.search(r"\d+", dep_cleaned)
+                    # Only extract a step number if it's explicitly formatted as a step reference or just a number
+                    match_num = re.match(r"^(?:step-?)?(\d+)$", dep_cleaned)
                     if match_num:
-                        dep_num = int(match_num.group(0))
+                        dep_num = int(match_num.group(1))
                         if dep_num in step_num_to_id:
                             resolved_deps.append(step_num_to_id[dep_num])
                         else:

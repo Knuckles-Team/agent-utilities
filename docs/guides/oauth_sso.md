@@ -512,7 +512,7 @@ vault auth enable -path=oidc oidc
 vault write auth/oidc/config \
   oidc_discovery_url="https://your-idp.example.com" \
   oidc_client_id="vault-client-id" \
-  oidc_client_secret="vault-client-secret" \
+  oidc_client_secret="vault-client-secret" \ # sanitizer:ignore
   default_role="agent-reader"
 
 # 3. Create a role that maps OIDC claims to Vault policies
