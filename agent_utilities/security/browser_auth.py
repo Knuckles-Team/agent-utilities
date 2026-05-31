@@ -104,7 +104,7 @@ class BaseLoopbackCallbackHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         # Suppress logging request details to standard out to maintain clean CLI
-        pass
+        logger.debug(format, *args)
 
     def do_GET(self) -> None:
         parsed_url = urlparse(self.path)

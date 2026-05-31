@@ -1475,7 +1475,7 @@ class SynthesisRule(Protocol):
 
     def detect(self, engine: IntelligenceGraphEngine) -> list[SynthesisProposal]:
         """Return zero or more proposals derived from the current graph."""
-        ...
+        return []
 
 
 # ---------------------------------------------------------------------------

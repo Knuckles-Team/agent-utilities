@@ -33,6 +33,7 @@ except ImportError:
     _CAPABILITIES_AVAILABLE = False
 
     from typing import Generic, TypeVar
+
     T = TypeVar("T")
 
     # Fallback base class when the pydantic_ai capabilities module is unavailable.

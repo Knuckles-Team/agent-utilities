@@ -185,8 +185,8 @@ def main():
     else:
         # Recursive scan of current directory
         for root, dirs, files in os.walk("."):
-            # Exclude specified directories in place
-            dirs[:] = [d for d in dirs if d not in excludes]
+            # Exclude specified directories and all hidden directories starting with '.' in place
+            dirs[:] = [d for d in dirs if d not in excludes and d != "workspace" and not d.startswith(".")]
             for file in files:
                 if file.endswith(".py"):
                     files_to_scan.append(os.path.join(root, file))

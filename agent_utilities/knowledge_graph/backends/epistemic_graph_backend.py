@@ -105,8 +105,9 @@ class EpistemicGraphBackend(GraphBackend):
         return results
 
     def create_schema(self) -> None:
-        """No-op for in-memory backend."""
-        pass
+        """Initialize schema metadata representation."""
+        # Simple schema metadata tracking for in-memory backend
+        self._schema_created = True
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Store an embedding vector for a node."""

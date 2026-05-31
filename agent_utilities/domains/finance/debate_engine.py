@@ -77,14 +77,42 @@ class DebateEngine:
         self, context: DebateContext, history: list[DebateRound], round_num: int
     ) -> DebateArgument:
         """Generate Bull Researcher argument using LLM."""
-        # Stub for LLM call — would use self.llm
         logger.info(f"Generating Bull argument for {context.ticker}, round {round_num}")
-        return DebateArgument(
-            role="Bull Researcher",
-            content=f"Strong growth potential for {context.ticker} based on market expansion.",
-            evidence=["Revenue grew 20% YoY", "Positive sentiment spike"],
-            confidence=0.85,
-        )
+        try:
+            from pydantic_ai import Agent
+            from agent_utilities.core.model_factory import create_model
+
+            model = self.llm or create_model()
+            agent = Agent(
+                model=model,
+                output_type=DebateArgument,
+                system_prompt=(
+                    "You are a Bull Researcher. Present a compelling, highly optimistic financial/quant "
+                    "argument for buying or holding the given asset. Support your points with realistic "
+                    "or historical evidence."
+                ),
+            )
+            prompt = (
+                f"Asset: {context.ticker} ({context.asset_class})\n"
+                f"History of previous rounds: {history}\n"
+                f"Current round: {round_num}\n"
+                f"Market Context:\n"
+                f"Report: {context.market_report}\n"
+                f"Sentiment: {context.sentiment_report}\n"
+                f"News: {context.news_report}\n"
+                f"Fundamentals: {context.fundamentals_report}\n"
+                f"Technical: {context.technical_report}"
+            )
+            result = agent.run_sync(prompt)
+            return getattr(result, "data")
+        except Exception as e:
+            logger.warning(f"Bull argument LLM generation failed, using fallback: {e}")
+            return DebateArgument(
+                role="Bull Researcher",
+                content=f"Strong growth potential for {context.ticker} based on market expansion.",
+                evidence=["Revenue grew 20% YoY", "Positive sentiment spike"],
+                confidence=0.85,
+            )
 
     def _generate_bear_argument(
         self,
@@ -94,40 +122,87 @@ class DebateEngine:
         bull_arg: DebateArgument,
     ) -> DebateArgument:
         """Generate Bear Researcher argument using LLM, responding to Bull."""
-        # Stub for LLM call
         logger.info(f"Generating Bear argument for {context.ticker}, round {round_num}")
-        return DebateArgument(
-            role="Bear Researcher",
-            content=f"Valuation is stretched for {context.ticker}; macroeconomic headwinds present.",
-            evidence=["P/E ratio at historical highs", "Sector rotation indicated"],
-            confidence=0.75,
-        )
+        try:
+            from pydantic_ai import Agent
+            from agent_utilities.core.model_factory import create_model
+
+            model = self.llm or create_model()
+            agent = Agent(
+                model=model,
+                output_type=DebateArgument,
+                system_prompt=(
+                    "You are a Bear Researcher. Present a compelling, highly skeptical financial/quant "
+                    "argument highlighting risks, macro headwinds, and valuation metrics for the given asset. "
+                    "Critique the Bull argument directly."
+                ),
+            )
+            prompt = (
+                f"Asset: {context.ticker} ({context.asset_class})\n"
+                f"Bull argument to critique: {bull_arg.content}\n"
+                f"History of previous rounds: {history}\n"
+                f"Current round: {round_num}\n"
+                f"Market Context:\n"
+                f"Report: {context.market_report}\n"
+                f"Sentiment: {context.sentiment_report}\n"
+                f"News: {context.news_report}\n"
+                f"Fundamentals: {context.fundamentals_report}\n"
+                f"Technical: {context.technical_report}"
+            )
+            result = agent.run_sync(prompt)
+            return getattr(result, "data")
+        except Exception as e:
+            logger.warning(f"Bear argument LLM generation failed, using fallback: {e}")
+            return DebateArgument(
+                role="Bear Researcher",
+                content=f"Valuation is stretched for {context.ticker}; macroeconomic headwinds present.",
+                evidence=["P/E ratio at historical highs", "Sector rotation indicated"],
+                confidence=0.75,
+            )
 
     def _evaluate_risk(
         self, context: DebateContext, rounds: list[DebateRound]
     ) -> RiskVeto:
         """Risk Manager team evaluates the debate and makes a final call."""
-        # Stub for LLM call
         logger.info(f"Evaluating risk for {context.ticker} debate")
+        try:
+            from pydantic_ai import Agent
+            from agent_utilities.core.model_factory import create_model
 
-        # Calculate average confidence
-        bull_conf = (
-            sum(r.bull_argument.confidence for r in rounds) / len(rounds)
-            if rounds
-            else 0
-        )
-        bear_conf = (
-            sum(r.bear_argument.confidence for r in rounds) / len(rounds)
-            if rounds
-            else 0
-        )
-
-        approved = bull_conf > bear_conf
-        return RiskVeto(
-            approved=approved,
-            reasoning=f"Bull arguments ({bull_conf:.2f}) outweighed Bear risks ({bear_conf:.2f})",
-            max_position_size=0.05 if approved else 0.0,
-        )
+            model = self.llm or create_model()
+            agent = Agent(
+                model=model,
+                output_type=RiskVeto,
+                system_prompt=(
+                    "You are a Risk Manager. Evaluate the structured debate rounds between the Bull and Bear "
+                    "researchers for the asset. Assess the validity of their claims, their confidence levels, "
+                    "and decide whether to approve the trade and assign a maximum position size (0 to 1.0)."
+                ),
+            )
+            prompt = (
+                f"Asset: {context.ticker} ({context.asset_class})\n"
+                f"Debate Rounds:\n{rounds}\n"
+            )
+            result = agent.run_sync(prompt)
+            return getattr(result, "data")
+        except Exception as e:
+            logger.warning(f"Risk evaluation LLM call failed, using heuristic fallback: {e}")
+            bull_conf = (
+                sum(r.bull_argument.confidence for r in rounds) / len(rounds)
+                if rounds
+                else 0
+            )
+            bear_conf = (
+                sum(r.bear_argument.confidence for r in rounds) / len(rounds)
+                if rounds
+                else 0
+            )
+            approved = bull_conf > bear_conf
+            return RiskVeto(
+                approved=approved,
+                reasoning=f"Bull arguments ({bull_conf:.2f}) outweighed Bear risks ({bear_conf:.2f})",
+                max_position_size=0.05 if approved else 0.0,
+            )
 
     def run_debate(
         self, session_id: str, context: DebateContext, num_rounds: int = 3

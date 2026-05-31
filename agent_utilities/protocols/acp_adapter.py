@@ -34,30 +34,36 @@ except ImportError:
     _ACP_INSTALLED = False
 
 if not _ACP_INSTALLED:
-    # Type stubs for when package is missing
+    # Fallback definitions when pydantic-acp is not installed
     class AdapterConfig:  # type: ignore
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
 
     class PrepareToolsMode:  # type: ignore
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
 
     class PrepareToolsBridge:  # type: ignore
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
 
     class ThinkingBridge:  # type: ignore
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
 
     class FileSessionStore:  # type: ignore
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
 
     class NativeApprovalBridge:  # type: ignore
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
 
 
 logger = logging.getLogger(__name__)

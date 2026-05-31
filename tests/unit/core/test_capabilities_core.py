@@ -587,7 +587,8 @@ def test_stuck_loop_hash_args_unserializable() -> None:
     from agent_utilities.capabilities.stuck_loop import _hash_args
 
     class NoSerializer:
-        pass
+        def __init__(self) -> None:
+            self.value = 1
 
     h = _hash_args({"obj": NoSerializer()})
     assert isinstance(h, str)
@@ -612,6 +613,7 @@ def test_stuck_loop_hash_result_unserializable() -> None:
     from agent_utilities.capabilities.stuck_loop import _hash_result
 
     class NoSerializer:
-        pass
+        def __init__(self) -> None:
+            self.value = 1
 
     assert isinstance(_hash_result(NoSerializer()), str)

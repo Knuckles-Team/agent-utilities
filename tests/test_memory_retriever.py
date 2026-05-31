@@ -27,7 +27,7 @@ class FakeEngine:  # type: ignore
         self.backend = None
 
     def _upsert_node(self, label, node_id, props):
-        pass
+        self.graph.add_node(node_id, label=label, **props)
 
     def link_nodes(self, src, tgt, rel_type, props=None):
         self.graph.add_edge(src, tgt, type=rel_type, **(props or {}))

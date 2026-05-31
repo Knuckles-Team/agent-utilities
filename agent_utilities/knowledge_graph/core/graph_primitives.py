@@ -41,7 +41,10 @@ class _BaseGraph:
         return len(self._nodes)
 
     def copy(self) -> _BaseGraph:
-        raise NotImplementedError
+        g = self.__class__()
+        g._nodes = dict(self._nodes)
+        g._next_id = self._next_id
+        return g
 
 
 class PyDiGraph(_BaseGraph):

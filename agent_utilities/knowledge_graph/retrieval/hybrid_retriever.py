@@ -202,6 +202,7 @@ class HybridRetriever:
         skip_quality_gate: bool = False,
         relevance_threshold: float | None = None,
         target_paths: list[str] | None = None,
+        active_task: str | None = None,
     ) -> list[dict[str, Any]]:
         """Perform a hybrid search using both vector similarity and graph topology.
 
@@ -327,6 +328,28 @@ class HybridRetriever:
                 if self._boost_strategy == "global":
                     for node in scored_nodes:
                         node["_score"] *= self._backlink_boost(node["id"])
+
+                # 1c. Apply Attention-Driven Context Filter (Retrieve query boost on active_task)
+                if active_task and self.embed_model:
+                    try:
+                        active_task_emb = self.embed_model.get_text_embedding(active_task)
+                        for node in scored_nodes:
+                            node_emb = node.get("embedding")
+                            if node_emb:
+                                task_sim = cosine_similarity(active_task_emb, node_emb)
+                                if task_sim > 0.0:
+                                    node["_score"] *= (1.0 + 0.5 * task_sim)
+                                    node["_active_task_boost"] = task_sim
+                            else:
+                                # Overlap-based attention boost fallback
+                                overlap = sum(
+                                    1 for w in active_task.lower().split()
+                                    if w in str(node.get("name", "")).lower() or w in str(node.get("description", "")).lower()
+                                )
+                                if overlap > 0:
+                                    node["_score"] *= (1.0 + 0.1 * overlap)
+                    except Exception as e:
+                        logger.debug("Active task boost computation failed: %s", e)
 
                 # Apply hard negative penalties (CONCEPT:KG-2.3)
                 if hard_negatives:

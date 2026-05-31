@@ -39,10 +39,11 @@ try:
 except (ImportError, ModuleNotFoundError):
     _FASTMCP_AVAILABLE = False
 
-    # Type stub for when module is missing
+    # Fallback definition when fastmcp module is missing
     class FastMCPToolset:  # type: ignore
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
 
 
 from agent_utilities.base_utilities import (

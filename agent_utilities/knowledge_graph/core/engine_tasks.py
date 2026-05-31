@@ -218,7 +218,13 @@ class GraphEngineProtocol(Protocol):
         properties: dict[str, Any] | None = None,
         ephemeral: bool = False,
     ) -> Any:
-        ...
+        if properties is None:
+            properties = {}
+        props = {"node_type": node_type, **properties, "ephemeral": ephemeral}
+        if hasattr(self, "backend") and self.backend is not None:
+            if hasattr(self.backend, "add_node"):
+                return self.backend.add_node(node_id, **props)
+        return {"id": node_id, "properties": props}
 
     def link_nodes(
         self,
@@ -228,12 +234,20 @@ class GraphEngineProtocol(Protocol):
         properties: dict | None = None,
         ephemeral: bool = False,
     ) -> None:
-        ...
+        if properties is None:
+            properties = {}
+        props = {"rel_type": rel_type, **properties, "ephemeral": ephemeral}
+        if hasattr(self, "backend") and self.backend is not None:
+            if hasattr(self.backend, "add_edge"):
+                self.backend.add_edge(source_id, target_id, **props)
 
     def query_cypher(
         self, cypher: str, params: dict | None = None
     ) -> list[dict[str, Any]]:
-        ...
+        if hasattr(self, "backend") and self.backend is not None:
+            if hasattr(self.backend, "execute"):
+                return self.backend.execute(cypher, params)
+        return []
 
 
 class TaskManagerMixin(GraphEngineProtocol):

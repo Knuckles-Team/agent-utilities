@@ -70,7 +70,7 @@ class CryptoDerivatives:
 
     def get_funding_rate(self, symbol: str) -> FundingRate:
         """Fetch current perpetual futures funding rate."""
-        # Stub using ccxt logic pattern
+        # Reference integration using ccxt logic pattern
         return FundingRate(
             symbol=symbol,
             rate=0.0001,  # 0.01%

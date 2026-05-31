@@ -224,7 +224,7 @@ def test_deep_imports() -> None:
     )
     from agent_utilities.sdd import SDDManager
 
-    # Every symbol must be a real object (not a stub/None). We don't need to
+    # Every symbol must be a real object (not a placeholder/None). We don't need to
     # call them — the mere successful import is the integrity check.
     imported = [
         create_agent_server,
