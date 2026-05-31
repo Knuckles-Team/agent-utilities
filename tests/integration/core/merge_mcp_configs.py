@@ -43,7 +43,7 @@ def merge_mcp_configs(target_path):
                 servers = data.get("mcpServers", {})
                 for name, cfg in servers.items():
                     # If duplicate, we just keep the first one found or merge if they match
-                    # User requested consolidation, so we just build the master list
+                    # User requested synthesis, so we just build the master list
                     if name in master_config["mcpServers"]:
                         continue
                     master_config["mcpServers"][name] = cfg
@@ -57,7 +57,7 @@ def merge_mcp_configs(target_path):
         json.dump(master_config, f, indent=2)
 
     print(
-        f"✅ Consolidated {len(master_config['mcpServers'])} servers into {target_path}"
+        f"✅ Synthesized {len(master_config['mcpServers'])} servers into {target_path}"
     )
 
 

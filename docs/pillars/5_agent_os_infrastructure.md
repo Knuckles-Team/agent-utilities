@@ -83,7 +83,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is the unified data layer that all three frontends (agent-webui, agent-terminal-ui, geniusbot) use to render service health, metrics, and quick-access links for 50+ integrated services.
 
 > [!NOTE]
-> Consolidated from the former standalone `service-dashboard-core` package into
+> Synthesized from the former standalone `service-dashboard-core` package into
 > `agent_utilities/gateway/` to eliminate duplicate registries, duplicate XDG path
 > logic, and an orphaned package dependency. See [GW-1.0](5_agent_os_infrastructure/GW-1.0-Gateway_Service_Dashboard.md) for full documentation.
 

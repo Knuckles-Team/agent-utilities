@@ -84,7 +84,7 @@ def _validate_date_range(from_date: str, to_date: str) -> None:
 
 
 def _extract_response_text(payload: dict[str, Any]) -> str:
-    """Extract full consolidated text response from xAI Responses payload."""
+    """Extract full synthesized text response from xAI Responses payload."""
     output_text = str(payload.get("output_text") or "").strip()
     if output_text:
         return output_text

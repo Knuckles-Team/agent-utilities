@@ -20,7 +20,7 @@
 | Concept ID | Name | MEMO | ParamMem | LatentRAG | MINER | SIRA | MemReranker | Safety | Gap? |
 |---|---|---|---|---|---|---|---|---|---|
 | `KG-2.0` | Active Knowledge Graph | ● graph memory | ● parametric KG | ○ latent KG | ○ representation | — | — | — | — |
-| `KG-2.1` | Tiered Memory & Context | ● CLS consolidation | ● fast/slow memory | — | — | — | ● MemOS rerank | — | **YES — consolidation loop** |
+| `KG-2.1` | Tiered Memory & Context | ● CLS synthesis | ● fast/slow memory | — | — | — | ● MemOS rerank | — | **YES — synthesis loop** |
 | `KG-2.2` | Ontology & Epistemics | — | — | — | — | — | — | — | — |
 | `KG-2.3` | Graph Integrity & Retrieval | ○ retrieval patterns | — | ● 90% latency cut | ● 4.5% nDCG boost | ● sketch retrieval | — | ○ RAG evaluation | **YES — AutoRefine** |
 | `KG-2.4` | Inductive Knowledge | — | — | — | ○ layer probing | — | — | — | — |
@@ -74,6 +74,6 @@
 
 | Gap | Concept | SDD Feature | Research Sources |
 |-----|---------|-------------|-----------------|
-| Missing consolidation loop | KG-2.1 | `kg-2.1-memory-consolidation` | MEMO Survey, ParamMem, MemReranker |
+| Missing synthesis loop | KG-2.1 | `kg-2.1-memory-synthesis` | MEMO Survey, ParamMem, MemReranker |
 | No AutoRefine post-retrieval | KG-2.3 | `kg-2.3-latentrag-retrieval` | LatentRAG, MINER, SIRA |
 | No assimilation tracking | KG-2.7 | `kg-2.7-research-assimilation` | (meta — this pipeline) |

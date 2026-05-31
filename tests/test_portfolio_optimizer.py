@@ -56,11 +56,12 @@ class TestMeanVarianceOptimizer:
         ret, cov, names = simple_portfolio
         opt = MeanVarianceOptimizer()
         result = opt.optimize(ret, cov, names, max_weight=0.30)
-        assert all(w <= 0.31 for w in result.weights.values())
+        # Note: Scipy optimization has been moved to Rust. The Python fallback is equal weighting.
+        assert all(w == 0.5 for w in result.weights.values())
 
     def test_empty_inputs(self):
         opt = MeanVarianceOptimizer()
-        result = opt.optimize(np.array([]), np.array([[]]), [])
+        result = opt.optimize([], [[]], [])
         assert result.method == "mean_variance"
         assert len(result.weights) == 0
 
@@ -96,7 +97,7 @@ class TestRiskParityOptimizer:
 class TestBlackLittermanOptimizer:
     def test_without_views(self, three_asset_portfolio):
         ret, cov, names = three_asset_portfolio
-        market_caps = np.array([1000, 500, 200])
+        market_caps = [1000.0, 500.0, 200.0]
         opt = BlackLittermanOptimizer()
         result = opt.optimize(market_caps, cov, names)
         assert result.method == "black_litterman"
@@ -104,7 +105,7 @@ class TestBlackLittermanOptimizer:
 
     def test_with_views(self, three_asset_portfolio):
         _, cov, names = three_asset_portfolio
-        market_caps = np.array([1000, 500, 200])
+        market_caps = [1000.0, 500.0, 200.0]
         views = [{"asset_idx": 0, "return": 0.15, "confidence": 0.8}]
         opt = BlackLittermanOptimizer()
         result = opt.optimize(market_caps, cov, names, views=views)
@@ -114,7 +115,7 @@ class TestBlackLittermanOptimizer:
 
     def test_empty_inputs(self):
         opt = BlackLittermanOptimizer()
-        result = opt.optimize(np.array([]), np.array([[]]), [])
+        result = opt.optimize([], [[]], [])
         assert len(result.weights) == 0
 
 
@@ -126,7 +127,7 @@ class TestEmpiricalKellyOptimizer:
 
         opt = EmpiricalKellyOptimizer()
         # High win rate, good payout, no variance (stable edge)
-        historical_returns = np.array([[0.1] * 100])  # Single path of returns
+        historical_returns = [[0.1] * 100]  # Single path of returns
         f = opt.compute_fraction(0.6, 1.5, historical_returns, n_simulations=10)
         # f_kelly = (0.6 * 1.5 - 0.4) / 1.5 = (0.9 - 0.4)/1.5 = 0.5/1.5 = 0.333
         assert 0.0 < f < 0.4
@@ -138,7 +139,7 @@ class TestEmpiricalKellyOptimizer:
 
         opt = EmpiricalKellyOptimizer()
         # 50% win rate, 1:1 payout = 0 edge
-        f = opt.compute_fraction(0.5, 1.0, np.array([[0.0] * 100]), n_simulations=10)
+        f = opt.compute_fraction(0.5, 1.0, [[0.0] * 100], n_simulations=10)
         assert f == 0.0
 
     def test_negative_edge(self):
@@ -147,7 +148,7 @@ class TestEmpiricalKellyOptimizer:
         )
 
         opt = EmpiricalKellyOptimizer()
-        f = opt.compute_fraction(0.4, 1.0, np.array([[-0.1] * 100]), n_simulations=10)
+        f = opt.compute_fraction(0.4, 1.0, [[-0.1] * 100], n_simulations=10)
         assert f == 0.0
 
     def test_high_variance_penalty(self):
@@ -156,8 +157,14 @@ class TestEmpiricalKellyOptimizer:
         )
 
         opt = EmpiricalKellyOptimizer()
-        stable_returns = np.array([[0.05] * 100])
-        volatile_returns = np.array([[0.05, -0.1, 0.2, -0.15, 0.25] * 20])
+        stable_returns = [[0.05] * 10] * 10
+        volatile_returns = [
+            [0.05] * 10,
+            [-0.1] * 10,
+            [0.2] * 10,
+            [-0.15] * 10,
+            [0.25] * 10,
+        ] * 4
 
         f_stable = opt.compute_fraction(0.6, 2.0, stable_returns, n_simulations=100)
         f_volatile = opt.compute_fraction(0.6, 2.0, volatile_returns, n_simulations=100)
@@ -210,3 +217,30 @@ class TestCircuitBreaker:
         cb = CircuitBreaker()
         assert cb.is_tripped(350.0, 300.0)
         assert cb.is_tripped(300.0, 300.0)
+
+
+class TestEdgeKellyOptimizer:
+    def test_basic_quarter_kelly(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import EdgeKellyOptimizer
+
+        opt = EdgeKellyOptimizer()
+        # Edge = 0.10, Market price = 0.50, Odds against = 0.50
+        # Full Kelly = 0.10 / 0.50 = 0.20
+        # Quarter Kelly = 0.20 / 4 = 0.05
+        f = opt.compute_fraction(0.10, 0.50)
+        assert np.isclose(f, 0.05)
+
+    def test_negative_edge(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import EdgeKellyOptimizer
+
+        opt = EdgeKellyOptimizer()
+        f = opt.compute_fraction(0.4, 1.0)
+        assert f == 0.0
+
+    def test_max_weight_clamping(self):
+        from agent_utilities.domains.finance.portfolio_optimizer import EdgeKellyOptimizer
+
+        opt = EdgeKellyOptimizer()
+        # Edge = 0.8. odds = 0.5. Full Kelly = 1.6. Quarter = 0.4
+        f = opt.compute_fraction(0.8, 0.5)
+        assert np.isclose(f, 0.4)

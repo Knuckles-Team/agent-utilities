@@ -2,7 +2,7 @@
 
 > **CONCEPT:GW-1.0** — Gateway Service Dashboard
 >
-> Consolidated from the former standalone `service-dashboard-core` package
+> Synthesized from the former standalone `service-dashboard-core` package
 > into `agent_utilities/gateway/` to eliminate duplicate registries,
 > duplicate XDG path logic, and an orphaned package dependency.
 
@@ -173,7 +173,7 @@ When mounted in agent-webui via `app.include_router(dashboard_router, prefix='/a
 ## Consolidation History
 
 > [!IMPORTANT]
-> The Gateway was consolidated from `service-dashboard-core` (standalone package)
+> The Gateway was synthesized from `service-dashboard-core` (standalone package)
 > into `agent_utilities/gateway/` to eliminate 5 patterns that were duplicated
 > across both packages:
 >

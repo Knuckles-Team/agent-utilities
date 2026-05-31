@@ -334,11 +334,11 @@ class WorkflowStore:
         # Fetch steps ordered by position
         step_rows = self.engine.backend.execute(
             "MATCH (w:WorkflowDefinition {id: $wid})-[r:HAS_STEP]->(s:WorkflowStep) "
-            "RETURN s.id AS node_id, s.refined_subtask AS refined_subtask, "
-            "s.input_data_json AS input_data, s.parallel AS is_parallel, "
+            "RETURN s.node_id AS node_id, s.refined_subtask AS refined_subtask, "
+            "s.input_data_json AS input_data, s.is_parallel AS is_parallel, "
             "s.timeout AS timeout, s.depends_on_json AS depends_on, "
-            "s.access_list_json AS access_list, r.step_order AS step_order "
-            "ORDER BY r.step_order",
+            "s.access_list_json AS access_list, s.step_order AS step_order "
+            "ORDER BY s.step_order",
             {"wid": wid},
         )
 

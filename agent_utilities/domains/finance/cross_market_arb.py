@@ -138,3 +138,52 @@ class OrnsteinUhlenbeckModel:
         x_open_short = mu + (c + variance_buffer)
 
         return (x_open_long, x_open_short)
+
+
+class CostAwareThresholdFilter:
+    """
+    Cost-Aware Edge Thresholding — CONCEPT:KG-2.6
+    Ensures that an arbitrage signal strictly outpaces the cost of doing business
+    (taker fees + slippage + model error) before entering a trade.
+    """
+
+    @staticmethod
+    def passes_threshold(
+        model_probability: float, market_price: float, execution_costs: float = 0.08
+    ) -> bool:
+        """
+        Calculates if the absolute edge is strictly greater than or equal to the combined costs.
+        Default 0.08 reflects a typical 8% threshold for prediction market taker fees and slippage.
+        """
+        edge = abs(model_probability - market_price)
+        return edge >= execution_costs
+
+
+class EventArbitrageEngine:
+    """
+    Dual-Platform Event Arbitrage Scanner — CONCEPT:KG-2.6
+    Evaluates identical event probabilities across two distinct venues against
+    a single deterministic model baseline (e.g. Polymarket vs Kalshi vs Open-Meteo).
+    """
+
+    @staticmethod
+    def evaluate_dual_markets(
+        model_probability: float,
+        market_a_price: float,
+        market_b_price: float,
+        execution_costs: float = 0.08,
+    ) -> dict[str, float]:
+        """
+        Returns a dictionary mapping the market to its actionable edge (if passing the threshold).
+        """
+        opportunities = {}
+
+        edge_a = abs(model_probability - market_a_price)
+        if edge_a >= execution_costs:
+            opportunities["market_a"] = model_probability - market_a_price
+
+        edge_b = abs(model_probability - market_b_price)
+        if edge_b >= execution_costs:
+            opportunities["market_b"] = model_probability - market_b_price
+
+        return opportunities

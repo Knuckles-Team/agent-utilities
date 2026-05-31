@@ -25,8 +25,8 @@
 ### Extension Analysis
 
 - **Primary Extension Point**: `CONCEPT:KG-2.1` — Tiered Memory & Context
-- **Extension Strategy**: `augment` — adds consolidation loop + decay scoring to existing memory system
-- **New Concept Required?**: No — extends KG-2.1 with three new consolidation rules
+- **Extension Strategy**: `augment` — adds synthesis loop + decay scoring to existing memory system
+- **New Concept Required?**: No — extends KG-2.1 with three new synthesis rules
 
 ### Research-Backed Feature Set
 
@@ -36,7 +36,7 @@
    - Formula: `relevance = base_score × exp(-λt)` where λ = ln(2)/half_life
 
 2. **Trace→Skill Distillation** (ParamMem §4, MEMO §5.1)
-   - New `TraceToSkillRule` in `ConsolidationEngine`
+   - New `TraceToSkillRule` in `SynthesisEngine`
    - Detects patterns: N ≥ 3 ChatTurn/ExecutionTrace nodes with positive outcomes
    - Proposes `SkillNode` entries capturing reusable strategies
    - Background timer + on-demand MCP trigger (both)
@@ -59,7 +59,7 @@ C4Context
     System_Boundary(b1, "agent-utilities KG Pillar") {
         System(existing, "KG-2.1 Tiered Memory", "Current: store/recall/CRUD")
         System(target, "Consolidation Loop", "Trace→Skill→FT + Ebbinghaus Decay")
-        System(engine, "ConsolidationEngine", "Existing: Episode→Preference, Decision→Principle")
+        System(engine, "SynthesisEngine", "Existing: Episode→Preference, Decision→Principle")
     }
 
     System_Boundary(b2, "MCP Interface") {
@@ -78,7 +78,7 @@ C4Context
 
 ## Data Flow
 
-1. **ORCH**: Orchestrator can trigger consolidation via `kg_memory(action='consolidate')`
+1. **ORCH**: Orchestrator can trigger synthesis via `kg_memory(action='consolidate')`
 2. **KG**: Reads ChatTurn, ExecutionTrace nodes; writes SkillNode proposals; updates trust scores
 3. **AHE**: Consolidation proposals feed into self-improvement evaluation pipeline
 4. **ECO**: Exposed as `kg_memory(action='consolidate')` MCP tool
@@ -86,6 +86,6 @@ C4Context
 
 ## Risk Assessment
 
-- **Blast Radius**: `engine_memory.py`, `consolidation.py`, `kg_server.py` (kg_memory tool)
+- **Blast Radius**: `engine_memory.py`, `synthesis.py`, `kg_server.py` (kg_memory tool)
 - **Backward Compatible**: Yes — all new fields are optional with defaults
 - **Breaking Changes**: None — existing store/recall API unchanged

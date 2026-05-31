@@ -164,7 +164,7 @@ Previously, each `execute()` created a new `httpx.Client()` context manager, for
 
 The 47-line routing block (environment detection → coordinator import → httpx routing) was duplicated verbatim in both `execute()` and `execute_batch()`.
 
-**Fix:** Consolidated into a single private method `_route_to_gateway()` with batch/single mode discrimination. Both `execute()` and `execute_batch()` now delegate with a single 2-line call. Includes automatic health cache invalidation on routing failure.
+**Fix:** Synthesized into a single private method `_route_to_gateway()` with batch/single mode discrimination. Both `execute()` and `execute_batch()` now delegate with a single 2-line call. Includes automatic health cache invalidation on routing failure.
 
 ### G4: File-Based PID Lock for Spawn Election
 **File:** `kg_coordinator.py` — `KGCoordinator.spawn_server()`

@@ -10,7 +10,7 @@ from agent_utilities.knowledge_graph.core.kg_versioning import (
     KGVersionEngine,
     SpeculativeGraphBrancher,
 )
-from agent_utilities.knowledge_graph.memory.memory_compaction import SemanticCompactor
+from agent_utilities.knowledge_graph.memory import SemanticCompactor
 from agent_utilities.security.tool_guard import check_ontological_guardrails
 
 

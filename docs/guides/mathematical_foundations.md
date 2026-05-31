@@ -275,7 +275,7 @@ When consolidating an embedding:
 2. Check if the result reduces the overall participation ratio
 3. If so, apply additional dampening to preserve diversity
 
-**Module**: `LatentSpaceRegularizer.diversity_preserving_consolidation()`
+**Module**: `LatentSpaceRegularizer.diversity_preserving_synthesis()`
 
 ### Predictive Consistency Score
 

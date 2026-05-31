@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from agent_utilities.graph.adaptive_agent_router import OntologicalFallbackChain
-from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+from agent_utilities.knowledge_graph.memory import (
     prune_context_by_semantic_distance,
 )
 

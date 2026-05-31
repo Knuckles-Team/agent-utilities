@@ -1,4 +1,4 @@
-"""Telemetry Engine — Consolidated Observability Facade.
+"""Telemetry Engine — Synthesized Observability Facade.
 
 CONCEPT:OS-5.1 — Telemetry Engine
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class TelemetryEngine:
-    """Consolidated observability engine.
+    """Synthesized observability engine.
 
     CONCEPT:OS-5.1 — Telemetry Engine
 

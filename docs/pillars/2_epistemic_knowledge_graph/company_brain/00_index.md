@@ -110,7 +110,7 @@ print(brain.status())
 | `agent_utilities/knowledge_graph/core/kg_versioning.py` | KGVersionEngine — git-like transactional mutations |
 | `agent_utilities/knowledge_graph/core/owl_bridge.py` | OWLBridge — promote→reason→downfeed reasoning cycles |
 | `agent_utilities/knowledge_graph/core/maintainer.py` | GraphMaintainer — 13 autonomous maintenance operations |
-| `agent_utilities/knowledge_graph/memory/consolidation.py` | ConsolidationEngine — homeostatic memory distillation |
+| `agent_utilities/knowledge_graph/memory/synthesis.py` | SynthesisEngine — homeostatic memory distillation |
 | `agent_utilities/security/permissions_kernel.py` | PermissionsKernel — RBAC tool-level access control |
 | `agent_utilities/observability/audit_logger.py` | AuditLogger — append-only compliance logging |
 | `agent_utilities/knowledge_graph/ontology.ttl` | 74KB OWL ontology with BFO/PROV-O/SKOS/FIBO alignment |

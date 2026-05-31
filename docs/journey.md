@@ -120,7 +120,7 @@ To find structural similarities between different business scenarios, the **Topo
 
 Because this mandate involves market operations, the query interacts directly with the **Finance Domain** (`CONCEPT:KG-2.6`) and **Research Intelligence** (`CONCEPT:KG-2.7`) modules. The system crawls arXiv and financial research databases using the research intelligence engine, ingesting the latest optimal execution papers to refine its mathematical trading algorithms.
 
-To ensure memories remain stable and free of cognitive drift, the **Memory Stability controller** (`CONCEPT:KG-2.8`) periodically runs consolidation audits. The entire database is structured using a **Multi-Domain Architecture** (`CONCEPT:KG-2.9`) that partitions sensitive enterprise data from general skills, bridging them via the **Enterprise Domain** (`CONCEPT:KG-2.10`) observational gateway.
+To ensure memories remain stable and free of cognitive drift, the **Memory Stability controller** (`CONCEPT:KG-2.8`) periodically runs synthesis audits. The entire database is structured using a **Multi-Domain Architecture** (`CONCEPT:KG-2.9`) that partitions sensitive enterprise data from general skills, bridging them via the **Enterprise Domain** (`CONCEPT:KG-2.10`) observational gateway.
 
 Retrievals are accelerated by **Vectorized Retrieval** (`CONCEPT:KG-2.11`) and a **Time-Series Graph** (`CONCEPT:KG-2.12`) that caches high-density asset pricing series. When agents write their decisions, they do so through the **Centralized Epistemic Gateway & Transaction Proxy** (`CONCEPT:KG-2.15`), which forces ACID compliance across the graph DB.
 

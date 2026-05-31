@@ -166,7 +166,7 @@ graph TB
 5. **P2P Graph Sharing**: Agents can selectively export context subgraphs or "agent cards" to share capabilities and learned knowledge across the A2A network (`kg_share_tools`).
 6. **Background Concept Research Daemon**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via `kg_analyze(action="background_research")`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow.
 
-## Unified Intelligence Pipeline (5 Stages / 17 Phases)
+## Intelligence Pipeline (5 Stages / 17 Phases)
 
 | Phase | Name | Purpose |
 |-------|------|---------|

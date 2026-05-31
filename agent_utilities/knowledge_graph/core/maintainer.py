@@ -209,7 +209,7 @@ class GraphMaintainer:
             "%Y-%m-%dT%H:%M:%SZ"
         )
 
-        # Find episodes that haven't been consolidated
+        # Find episodes that haven't been synthesized
         query = "MATCH (e:Episode) WHERE e.timestamp < $cutoff AND NOT (e)-[:CONSOLIDATES_INTO]->() RETURN e.id as id, e.description AS descriptionription"
         episodes = self.engine.backend.execute(query, {"cutoff": cutoff_date})
 
@@ -230,7 +230,7 @@ class GraphMaintainer:
             model = create_model()
             agent = Agent(
                 model=model,
-                system_prompt="You are a memory consolidation engine. Summarize the following episode descriptions into a single, highly dense and concise paragraph capturing the core actions, decisions, and outcomes.",
+                system_prompt="You are a memory synthesis engine. Summarize the following episode descriptions into a single, highly dense and concise paragraph capturing the core actions, decisions, and outcomes.",
             )
             combined_text = "\n".join(
                 [ep["description"] for ep in episodes if ep.get("description")]
@@ -239,7 +239,7 @@ class GraphMaintainer:
             summary_text = str(result.data)
         except Exception as e:
             logger.warning(f"LLM summarization failed, using fallback: {e}")
-            summary_text = f"Consolidated summary of {len(episodes)} episodes."
+            summary_text = f"Synthesized summary of {len(episodes)} episodes."
 
         sum_id = f"sum:{uuid.uuid4().hex[:8]}"
 
@@ -254,11 +254,11 @@ class GraphMaintainer:
                 {"eid": ep["id"], "sid": sum_id},
             )
 
-        logger.info(f"Consolidated {len(episodes)} episodes into summary {sum_id}.")
+        logger.info(f"Synthesized {len(episodes)} episodes into summary {sum_id}.")
         return len(episodes)
 
     def prune_low_importance_nodes(self, threshold: float = 0.05) -> int:
-        """Remove low-signal nodes to maintain scalability, utilizing validation-gated consolidation."""
+        """Remove low-signal nodes to maintain scalability, utilizing validation-gated synthesis."""
         if not self.engine.backend:
             return 0
 

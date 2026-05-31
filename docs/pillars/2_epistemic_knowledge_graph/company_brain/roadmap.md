@@ -53,7 +53,7 @@
 | Tenant-scoped promotion | OWLBridge promotes only nodes within tenant scope | Medium |
 | Per-tenant ontology imports | Each tenant can import additional OWL ontologies | High |
 | Cross-tenant reasoning rules | Configurable rules for when reasoning crosses tenant boundaries | High |
-| Tenant-aware consolidation | ConsolidationEngine operates within tenant scope | Medium |
+| Tenant-aware synthesis | SynthesisEngine operates within tenant scope | Medium |
 
 ---
 

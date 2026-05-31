@@ -1,4 +1,4 @@
-"""Topological Analysis Engine — Consolidated Graph Topology Facade.
+"""Topological Analysis Engine — Synthesized Graph Topology Facade.
 
 CONCEPT:KG-2.5/2.15/2.34/2.35 — Topological Analysis Engine
 
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class TopologicalAnalysisEngine:
-    """Consolidated topological analysis engine.
+    """Synthesized topological analysis engine.
 
     CONCEPT:KG-2.5/2.15/2.34/2.35 — Topological Analysis Engine
 

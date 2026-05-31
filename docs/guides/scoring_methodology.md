@@ -144,7 +144,7 @@ kg_query(
 # Cross-reference a paper's topic against the full KG
 kg_search(
     mode="discover",
-    query="memory-augmented LLM systems consolidation",
+    query="memory-augmented LLM systems synthesis",
     top_k=20
 )
 ```
@@ -206,7 +206,7 @@ Ingest → Discover → Analyze → Assimilate → Implement
 # Future comparative analyses skip papers already implemented
 kg_search(
     mode="discover",
-    query="memory consolidation",
+    query="memory synthesis",
     # Pass exclude_assimilated flag (available in discover_innovations engine method)
 )
 ```

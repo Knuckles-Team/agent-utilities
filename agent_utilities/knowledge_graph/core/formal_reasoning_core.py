@@ -500,7 +500,7 @@ def generate_math_foundation_seed() -> list[dict[str, Any]]:
             "definition": "aₙ = c₁aₙ₋₁ + ... + cₖaₙ₋ₖ. Solved via characteristic polynomial.",
             "chapter": "MCS Ch 22",
             "domain": "combinatorics",
-            "relevance": "KG growth modeling and memory consolidation dynamics.",
+            "relevance": "KG growth modeling and memory synthesis dynamics.",
         },
         {
             "id": "mcs_adjacency_power",

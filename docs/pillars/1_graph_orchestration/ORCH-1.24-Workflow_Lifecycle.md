@@ -126,8 +126,17 @@ External agents consume workflows via four new actions:
 |--------|-------------|
 | `compile_workflow` | NL → GraphPlan → KG persistence |
 | `list_workflows` | List stored workflow definitions |
-| `execute_workflow` | Load and run a stored workflow |
+| `execute_workflow` | Load and run a stored workflow. Supports `completion_state` and `max_fan_out` for dynamic adversarial execution loops. |
 | `export_workflow` | Export a workflow as JSON |
+
+### Dynamic Workflow Execution
+
+Workflows can optionally be executed in an autonomous, adversarial loop by specifying a `completion_state`. When this parameter is provided, the `execute_workflow` action shifts from a linear execution path to an iterative convergence loop:
+
+1. **Parallel Fan-Out**: The engine spawns up to `max_fan_out` (default: 5) parallel subagents to attempt the goal.
+2. **Adversarial Verification**: Results are synthesized and passed through a secondary `run_adversarial_pass` verifier to check if the `completion_state` has been met.
+3. **Feedback Loop**: Failures generate specific feedback fed into the next iteration.
+4. **GitOps Integration**: Upon successful convergence, a dedicated `pr_submitter` agent automatically commits changes and submits a Pull Request.
 
 ## KG Schema
 

@@ -1,4 +1,4 @@
-"""Research Intelligence Engine — Consolidated Research Facade.
+"""Research Intelligence Engine — Synthesized Research Facade.
 
 CONCEPT:KG-2.6/2.33/2.39 — Research Intelligence Engine
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class ResearchIntelligenceEngine:
-    """Consolidated research intelligence engine.
+    """Synthesized research intelligence engine.
 
     CONCEPT:KG-2.6/2.33/2.39 — Research Intelligence Engine
 

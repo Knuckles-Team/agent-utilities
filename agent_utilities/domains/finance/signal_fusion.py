@@ -99,3 +99,26 @@ class AlphaCombinationEngine:
         # Fallback to equal weighting since sklearn and numpy are removed for the Rust port
         weight = 1.0 / N
         return [weight] * N
+
+
+class LaplaceEnsembleFusion:
+    """
+    Ensemble Probability Pipeline — CONCEPT:KG-2.6
+    Converts raw ensemble models (like 31 GFS runs or parallel orderbook snapshots)
+    into a highly calibrated, bounded probability using Laplace smoothing.
+    """
+
+    @staticmethod
+    def compute_probability(
+        condition_met_count: int, total_members: int, smoothing_factor: int = 1
+    ) -> float:
+        """
+        Computes the smoothed probability: (count + smoothing) / (total + 2 * smoothing)
+        Prevents 0% or 100% confidence limits on small sample sizes.
+        """
+        if total_members <= 0:
+            return 0.5
+
+        return (condition_met_count + smoothing_factor) / (
+            total_members + 2 * smoothing_factor
+        )

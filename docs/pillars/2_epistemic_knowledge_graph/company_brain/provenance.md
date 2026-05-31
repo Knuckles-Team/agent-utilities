@@ -131,7 +131,7 @@ trusted = brain.provenance.filter_by_trust(all_nodes, min_trust=0.8)
 | `actor_id` | str | Who performed the write |
 | `actor_type` | ActorType | Human, AI, hybrid team, service, system |
 | `action` | str | create, update, delete, merge |
-| `assertion_type` | AssertionType | raw_data, agent_inference, human_judgment, consolidated, external_import |
+| `assertion_type` | AssertionType | raw_data, agent_inference, human_judgment, synthesized, external_import |
 | `confidence` | float | Self-assessed confidence (0.0–1.0) |
 | `source_system` | str | System of record (CRM, Slack, git, manual) |
 | `derived_from` | list[str] | Node IDs this was derived from |

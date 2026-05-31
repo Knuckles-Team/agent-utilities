@@ -13,7 +13,7 @@ Standard RAG architectures suffer from three critical flaws that block Agentic G
 
 ## How It Works (Implementation)
 
-The solution is the `15-phase Unified Intelligence Pipeline` backed by LadybugDB (Cypher) and NetworkX.
+The solution is the `15-phase Intelligence Pipeline` backed by LadybugDB (Cypher) and NetworkX.
 
 ### RAG-KG Unification & Spectral Clustering (KG-2.38 & KG-2.34)
 We collapsed separate vector indexes directly into the Knowledge Graph. By computing an **Auto-Similarity Memory Graph**, the system pre-computes semantic proximity and creates `SIMILAR_TO` edges. Retrieval is now accelerated to O(degree) complexity via shortest-path traversal. The **Spectral Cluster Navigator** groups these nodes using normalized Laplacian eigengap heuristics, providing hierarchy-aware context scoping.

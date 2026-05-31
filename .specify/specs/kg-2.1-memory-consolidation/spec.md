@@ -2,7 +2,7 @@
 
 ## Pre-Flight Checklist (Mandatory — DSTDD)
 
-- [x] **KG search completed** — `.specify/design/kg-2.1-memory-consolidation/design.md` exists
+- [x] **KG search completed** — `.specify/design/kg-2.1-memory-synthesis/design.md` exists
 - [x] **Extension point identified** — Extends KG-2.1 (Tiered Memory & Context)
 - [x] **C4 diagram created** — showing integration into KG pillar
 - [x] **No new CONCEPT: tag** — uses existing KG-2.1
@@ -11,7 +11,7 @@
 
 ## Design Reference
 
-→ [design.md](../../design/kg-2.1-memory-consolidation/design.md)
+→ [design.md](../../design/kg-2.1-memory-synthesis/design.md)
 
 ## Research Sources
 
@@ -38,7 +38,7 @@
 **As an** agent system, **I want** successful interaction patterns automatically distilled into reusable SkillNode proposals, **so that** the agent improves with experience.
 
 **Acceptance Criteria:**
-- [x] New `TraceToSkillRule` in `ConsolidationEngine` detects patterns from ChatTurn/ExecutionTrace nodes
+- [x] New `TraceToSkillRule` in `SynthesisEngine` detects patterns from ChatTurn/ExecutionTrace nodes
 - [x] Minimum evidence: 3 successful traces with shared tool/approach pattern
 - [x] Produces `SkillNode` proposals with confidence scoring
 - [x] Both timer-driven (periodic) and on-demand (`kg_memory(action='consolidate')`) triggers

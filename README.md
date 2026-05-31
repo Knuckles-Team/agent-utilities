@@ -21,7 +21,7 @@
 ![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)
 ![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)
 
-*Version: 0.32.0*
+*Version: 0.33.0*
 
 ## Table of Contents
 
@@ -64,7 +64,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 
 ## Key Features
 
-- **[Multi-Domain Expert System](docs/guides/features.md#comprehensive-feature-list)**: Scale across finance, medical, and scientific domains using Vectorized Topological Memory and specialized MCP tools.
+- **[Multi-Domain Expert System](docs/guides/features.md#comprehensive-feature-list)**: Scale across finance, medical, and scientific domains using Temporally-Aware Epistemic Memory (TKG) and specialized MCP tools.
 - **[Unified Intelligence Graph](docs/guides/features.md#comprehensive-feature-list)**: A topological pipeline combining native Rust in-memory processing (`EpistemicGraphBackend`) with persistent Cypher (LadybugDB/Neo4j) and OWL (Apache Jena Fuseki) backends.
 - **[Centralized Sessions & Goals (API-First Gateway)](docs/centralized_kg_coordination.md#7-centralized-sessions--autonomous-goal-coordination)**: A highly-resilient, centralized REST API gateway running on Port `8100` that handles background goal loops, durable turns, and user session reply orchestration.
 - **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.6-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` running over high-speed Unix Sockets, providing fast AST parsing, VF2 subgraph matching, and a Redpanda-backed Reactive State Ledger designed to scale seamlessly up to 100,000,000 concurrent agents.
@@ -77,7 +77,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 
 ## 🗺 Concept Map
 
-Consolidated from 169 tags into **64 canonical concepts** across **5 Core Pillars**.
+Synthesized from 169 tags into **64 canonical concepts** across **5 Core Pillars**.
 
 → **Full Concept Map**: [docs/concept_map.md](docs/concept_map.md) — canonical concept registry (single source of truth).
 → **Concept Index**: [docs/overview.md](docs/overview.md#concept-index) — all pillars with descriptions and code paths.
@@ -86,7 +86,7 @@ Consolidated from 169 tags into **64 canonical concepts** across **5 Core Pillar
 |:------|:---------|:---:|:------|
 | **ORCH-1** Graph Orchestration | ORCH-1.0 – 1.29 | 14 | Intelligence graph, HTN planning, routing, execution safety, DSTDD, parallel engine, reactive sourcing, WASM sandbox |
 | **KG-2** Knowledge Graph | KG-2.0 – 2.18 | 16 | Active KG, memory, ontology, retrieval, research, finance, enterprise, quant FFI, compiled compute |
-| **AHE-3** Agentic Harness | AHE-3.0 – 3.16 | 10 | Evaluation, evolution, teams, heavy thinking, backtest, model evolver |
+| **AHE-3** Agentic Harness | AHE-3.0 – 3.16 | 11 | Evaluation, evolution, teams, heavy thinking, backtest, model evolver, DSPy mathematical prompt optimization |
 | **ECO-4** Ecosystem | ECO-4.0 – 4.23 | 17 | MCP, A2A, telemetry, connectors, messaging, governance, hooks, plugins, permissions |
 | **OS-5** Agent OS | OS-5.0 – 5.6 | 7 | Kernel, security, scheduling, guardrails, observability, budgets, massive-scale |
 | **GBOT-6** GeniusBot Cockpit | GBOT-6.0 – 6.6 | 7 | Premium Systems GUI, swappable tab matrix, embedded sandboxed terminal, universal approval gate, real-time finance dashboard |

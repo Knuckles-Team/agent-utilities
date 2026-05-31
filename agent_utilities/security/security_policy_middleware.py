@@ -1,4 +1,4 @@
-"""Security Policy Middleware (OS-5.4, OS-5.5, OS-5.11, OS-5.12 consolidation).
+"""Security Policy Middleware (OS-5.4, OS-5.5, OS-5.11, OS-5.12 synthesis).
 
 Combines Jailbreak Hardening, Prompt Injection, Doom-Loop tracking,
 and Repetition Guards into a single cohesive security gateway.
@@ -46,7 +46,7 @@ class SecurityPolicyMiddleware:
 
     def _detect_jailbreak(self, prompt: str) -> bool:
         """Detect jailbreak patterns (DAN, AIM, UCAR) and topological risks."""
-        # Simple static checks for the consolidated concept.
+        # Simple static checks for the synthesized concept.
         # Advanced implementations will use subgraph comparisons.
         suspicious_keywords = ["ignore all previous", "DAN", "developer mode", "bypass"]
         return any(k.lower() in prompt.lower() for k in suspicious_keywords)

@@ -1,4 +1,4 @@
-# Unified Intelligence Pipeline
+# Intelligence Pipeline
 
 The pipeline is a multi-phase, topological ingestion engine that builds the Knowledge Graph from source code and metadata.
 

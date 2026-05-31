@@ -49,7 +49,7 @@ graph TD
 
     subgraph Unified_Discovery ["2. Unified Discovery (Bootstrap)"]
         KG_Registry --> UAL["<b>get_discovery_registry()</b><br/><i>config_helpers.py</i>"]
-        UAL -->|Consolidated Roster| Roster["<b>MCPAgentRegistryModel</b><br/><i>name, agent_type, tools, url</i>"]
+        UAL -->|Synthesized Roster| Roster["<b>MCPAgentRegistryModel</b><br/><i>name, agent_type, tools, url</i>"]
     end
 
     subgraph Initialization_Phase ["3. Graph Initialization (Runtime)"]

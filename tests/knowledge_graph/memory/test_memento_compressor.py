@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.knowledge_graph.memory.memento_compressor import (
+from agent_utilities.knowledge_graph.memory import (
     compress_to_memento,
     get_recent_mementos,
 )

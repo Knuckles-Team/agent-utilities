@@ -109,7 +109,7 @@ graph TD
 *   **Mechanism**: 1 million active agents generate billions of execution traces daily, leading to exponential database storage bloat.
     - An offline, high-performance Datalog compiler (`KG-2.17`) runs continuous **semantic garbage collection**.
     - It aggregates raw execution traces, interaction logs, and tool parameters.
-    - If 1,000 steps concluded that a library was stable, the engine deletes the individual `InteractionRecordNode`s and creates a single, consolidated fact triple:
+    - If 1,000 steps concluded that a library was stable, the engine deletes the individual `InteractionRecordNode`s and creates a single, synthesized fact triple:
       `(:AgentUtilitiesClass) --isVerifiedStableUnder-- (:LinuxKernelNode)`
     - This maintains an incredibly lean, highly optimized epistemic base, keeping query latency flat even as the company's historical knowledge grows to petabytes.
 

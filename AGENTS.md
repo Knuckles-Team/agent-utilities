@@ -19,7 +19,7 @@ graph TD
     Agent --> MCP[graph-os MCP Server]
 
     subgraph Knowledge Graph [KG-2.0 Epistemic Graph]
-        MCP --> Core[Unified Orchestration Engine]
+        MCP --> Core[Orchestration Engine]
         Core --> EpistemicGraph[Rust epistemic-graph daemon]
         EpistemicGraph --> Quant[KG-2.6 Quant Domain]
         Quant --> Debate[Debate Engine]

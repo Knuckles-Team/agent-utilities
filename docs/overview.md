@@ -264,7 +264,7 @@ graph TD
 
 | ID | Concept | Description |
 |---|---|---|
-| GW-1.0 | Gateway Service Dashboard | Unified 50-widget dashboard data layer with registry, aggregator, REST+WS API, and MCP auto-discovery. Consolidated from former `service-dashboard-core` into `agent_utilities/gateway/`. |
+| GW-1.0 | Gateway Service Dashboard | Unified 50-widget dashboard data layer with registry, aggregator, REST+WS API, and MCP auto-discovery. Synthesized from former `service-dashboard-core` into `agent_utilities/gateway/`. |
 
 ## Agent OS Architecture
 

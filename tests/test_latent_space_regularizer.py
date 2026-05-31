@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from agent_utilities.knowledge_graph.memory.knowledge_stability_engine import (
-    KnowledgeStabilityEngine as LatentSpaceRegularizer,
+from agent_utilities.knowledge_graph.memory import (
+    MemoryOptimizationEngine as LatentSpaceRegularizer,
 )
 
 
@@ -81,12 +81,12 @@ class TestDiversityMetrics:
 class TestDiversityPreservingConsolidation:
     """Tests for EWC + diversity preservation."""
 
-    def test_basic_consolidation(self, regularizer):
+    def test_basic_synthesis(self, regularizer):
         old = [1.0, 0.0, 0.0, 0.0, 0.0]
         new = [0.0, 1.0, 0.0, 0.0, 0.0]
         fisher = [0.5, 0.5, 0.1, 0.1, 0.1]
         all_emb = np.random.randn(20, 5)
-        result = regularizer.diversity_preserving_consolidation(
+        result = regularizer.diversity_preserving_synthesis(
             old,
             new,
             fisher,
@@ -97,12 +97,12 @@ class TestDiversityPreservingConsolidation:
         norm = np.linalg.norm(result)
         assert abs(norm - 1.0) < 0.01
 
-    def test_consolidation_respects_fisher(self, regularizer):
+    def test_synthesis_respects_fisher(self, regularizer):
         old = [1.0, 0.0, 0.0]
         new = [0.0, 1.0, 0.0]
         fisher = [10.0, 0.0, 0.0]  # High Fisher on dim 0 → resist change
         all_emb = np.random.randn(20, 3)
-        result = regularizer.diversity_preserving_consolidation(
+        result = regularizer.diversity_preserving_synthesis(
             old,
             new,
             fisher,

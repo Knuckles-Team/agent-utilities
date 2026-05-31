@@ -422,7 +422,7 @@ class MemoryMixin(_Base):
         Returns:
             List of memory dicts with decay_adjusted_score.
         """
-        from agent_utilities.knowledge_graph.memory.consolidation import (
+        from agent_utilities.knowledge_graph.memory import (
             MEMORY_HALF_LIVES,
             ebbinghaus_decay,
         )
@@ -545,11 +545,11 @@ class MemoryMixin(_Base):
         return memories[:top_k]
 
     def consolidate_memories(self, dry_run: bool = False) -> dict[str, Any]:
-        """Trigger memory consolidation — runs all registered rules.
+        """Trigger memory synthesis — runs all registered rules.
 
         CONCEPT:KG-2.1 — Research: ParamMem (2604.27707v1)
 
-        Runs the ConsolidationEngine with all three rules:
+        Runs the SynthesisEngine with all three rules:
         1. EpisodeToPreferenceRule
         2. DecisionToPrincipleRule
         3. TraceToSkillRule (NEW — from ParamMem research)
@@ -560,26 +560,26 @@ class MemoryMixin(_Base):
         Returns:
             Dict with proposal counts and details.
         """
-        from agent_utilities.knowledge_graph.memory.consolidation import (
-            ConsolidationEngine,
+        from agent_utilities.knowledge_graph.memory import (
             DecisionToPrincipleRule,
             EpisodeToPreferenceRule,
+            SynthesisEngine,
             TraceToSkillRule,
         )
 
-        consolidation = ConsolidationEngine(engine=self)  # type: ignore[arg-type]
-        consolidation.register(EpisodeToPreferenceRule())
-        consolidation.register(DecisionToPrincipleRule())
-        consolidation.register(TraceToSkillRule())
+        synthesis = SynthesisEngine(engine=self)  # type: ignore[arg-type]
+        synthesis.register(EpisodeToPreferenceRule())
+        synthesis.register(DecisionToPrincipleRule())
+        synthesis.register(TraceToSkillRule())
 
-        proposals = consolidation.run(dry_run=dry_run)
-        deduped = consolidation.dedup_by_signature(proposals)
+        proposals = synthesis.run(dry_run=dry_run)
+        deduped = synthesis.dedup_by_signature(proposals)
 
         return {
             "total_proposals": len(deduped),
             "by_rule": {
                 rule.name: len([p for p in deduped if p.rule_name == rule.name])
-                for rule in consolidation.rules
+                for rule in synthesis.rules
             },
             "proposals": [p.model_dump() for p in deduped[:20]],
             "dry_run": dry_run,

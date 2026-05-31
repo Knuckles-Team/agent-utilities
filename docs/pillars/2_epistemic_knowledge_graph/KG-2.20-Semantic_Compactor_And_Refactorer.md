@@ -3,7 +3,7 @@
 ## Overview
 The **Semantic Compactor** resolves the exponential database bloat caused by active agents generating millions of step-by-step reasoning traces.
 
-It periodically executes an offline compilation and refactoring sweep. The compactor aggregates raw execution traces, interaction logs, and tool parameters, replacing thousands of individual `AgentProcess` nodes with consolidated high-level declarative state triples (e.g., summarizing total execution steps, token usage, and outcomes).
+It periodically executes an offline compilation and refactoring sweep. The compactor aggregates raw execution traces, interaction logs, and tool parameters, replacing thousands of individual `AgentProcess` nodes with synthesized high-level declarative state triples (e.g., summarizing total execution steps, token usage, and outcomes).
 
 ## Problem Statement
 
@@ -36,7 +36,7 @@ The Semantic Compactor reduces the trace node count by **95–99%** while preser
 ## API Surface
 
 ```python
-from agent_utilities.knowledge_graph.memory.memory_compaction import SemanticCompactor
+from agent_utilities.knowledge_graph.memory import SemanticCompactor
 
 compactor = SemanticCompactor(engine=kg_engine)
 
@@ -86,7 +86,7 @@ The `SemanticSummary` node type should be declared in the SDD ontology as:
 ```turtle
 :SemanticSummary a owl:Class ;
     rdfs:subClassOf :KnowledgeNode ;
-    rdfs:comment "Consolidated execution trace summary produced by KG-2.20 compaction" ;
+    rdfs:comment "Synthesized execution trace summary produced by KG-2.20 compaction" ;
     :hasProperty :compacted_count, :total_tokens_consumed, :agent_id .
 
 :HAS_COMPACTED_HISTORY a owl:ObjectProperty ;

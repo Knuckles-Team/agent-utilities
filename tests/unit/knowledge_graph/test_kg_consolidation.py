@@ -3,20 +3,20 @@ from __future__ import annotations
 
 """CONCEPT:KG-2.0"""
 
-"""Unit tests for the ``consolidation.py`` minimum-viable skeleton.
+"""Unit tests for the ``synthesis.py`` minimum-viable skeleton.
 
 Covers:
 
-* ``ConsolidationProposal`` construction and confidence bounds.
-* ``ConsolidationProposal.compute_signature`` is stable and
+* ``SynthesisProposal`` construction and confidence bounds.
+* ``SynthesisProposal.compute_signature`` is stable and
   order-independent over ``evidence_node_ids``.
 * ``EpisodeToPreferenceRule.detect`` produces the expected number of
   proposals on a synthetic in-memory graph.
 * Rule respects ``min_evidence_count`` (below-threshold scenarios emit 0
   proposals).
 * Rule skips episodes with outcome below ``reward_threshold``.
-* ``ConsolidationEngine.run`` isolates broken rules (per §4.2).
-* ``ConsolidationEngine.dedup_by_signature`` removes duplicates.
+* ``SynthesisEngine.run`` isolates broken rules (per §4.2).
+* ``SynthesisEngine.dedup_by_signature`` removes duplicates.
 """
 
 
@@ -25,9 +25,9 @@ from pydantic import ValidationError
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-from agent_utilities.knowledge_graph.memory.consolidation import (
-    ConsolidationEngine,
-    ConsolidationProposal,
+from agent_utilities.knowledge_graph.memory import (
+    SynthesisEngine,
+    SynthesisProposal,
     EpisodeToPreferenceRule,
 )
 
@@ -67,13 +67,13 @@ def synthetic_engine() -> IntelligenceGraphEngine:
 
 
 # ---------------------------------------------------------------------------
-# ConsolidationProposal
+# SynthesisProposal
 # ---------------------------------------------------------------------------
 
 
 def test_proposal_confidence_upper_bound_rejected() -> None:
     with pytest.raises(ValidationError):
-        ConsolidationProposal(
+        SynthesisProposal(
             proposal_id="p1",
             rule_name="r",
             proposed_node_type="PreferenceNode",
@@ -85,7 +85,7 @@ def test_proposal_confidence_upper_bound_rejected() -> None:
 
 def test_proposal_confidence_lower_bound_rejected() -> None:
     with pytest.raises(ValidationError):
-        ConsolidationProposal(
+        SynthesisProposal(
             proposal_id="p1",
             rule_name="r",
             proposed_node_type="PreferenceNode",
@@ -97,7 +97,7 @@ def test_proposal_confidence_lower_bound_rejected() -> None:
 
 def test_proposal_invalid_node_type_rejected() -> None:
     with pytest.raises(ValidationError):
-        ConsolidationProposal(
+        SynthesisProposal(
             proposal_id="p1",
             rule_name="r",
             proposed_node_type="UnknownNode",  # type: ignore[arg-type]
@@ -108,7 +108,7 @@ def test_proposal_invalid_node_type_rejected() -> None:
 
 
 def test_proposal_signature_is_order_independent() -> None:
-    p1 = ConsolidationProposal(
+    p1 = SynthesisProposal(
         proposal_id="a",
         rule_name="r1",
         proposed_node_type="PreferenceNode",
@@ -117,7 +117,7 @@ def test_proposal_signature_is_order_independent() -> None:
         confidence=0.5,
         created_at="2026-01-01T00:00:00Z",
     )
-    p2 = ConsolidationProposal(
+    p2 = SynthesisProposal(
         proposal_id="a",
         rule_name="r1",
         proposed_node_type="PreferenceNode",
@@ -130,7 +130,7 @@ def test_proposal_signature_is_order_independent() -> None:
 
 
 def test_proposal_signature_differs_across_rules() -> None:
-    p1 = ConsolidationProposal(
+    p1 = SynthesisProposal(
         proposal_id="a",
         rule_name="r1",
         proposed_node_type="PreferenceNode",
@@ -139,7 +139,7 @@ def test_proposal_signature_differs_across_rules() -> None:
         confidence=0.5,
         created_at="2026-01-01T00:00:00Z",
     )
-    p2 = ConsolidationProposal(
+    p2 = SynthesisProposal(
         proposal_id="a",
         rule_name="r2",  # different rule
         proposed_node_type="PreferenceNode",
@@ -205,14 +205,14 @@ def test_rule_honours_custom_min_evidence_count(
 
 
 # ---------------------------------------------------------------------------
-# ConsolidationEngine
+# SynthesisEngine
 # ---------------------------------------------------------------------------
 
 
 def test_engine_runs_registered_rules(
     synthetic_engine: IntelligenceGraphEngine,
 ) -> None:
-    ce = ConsolidationEngine(synthetic_engine)
+    ce = SynthesisEngine(synthetic_engine)
     ce.register(EpisodeToPreferenceRule(min_evidence_count=5))
     proposals = ce.run(dry_run=True)
     assert len(proposals) == 1
@@ -231,10 +231,10 @@ def test_engine_isolates_broken_rules(
 
         def detect(
             self, engine: IntelligenceGraphEngine
-        ) -> list[ConsolidationProposal]:
+        ) -> list[SynthesisProposal]:
             raise RuntimeError("intentional failure for the test")
 
-    ce = ConsolidationEngine(synthetic_engine)
+    ce = SynthesisEngine(synthetic_engine)
     ce.register(BrokenRule())
     ce.register(EpisodeToPreferenceRule(min_evidence_count=5))
 
@@ -250,7 +250,7 @@ def test_engine_isolates_broken_rules(
 
 
 def test_engine_dedup_by_signature() -> None:
-    p1 = ConsolidationProposal(
+    p1 = SynthesisProposal(
         proposal_id="a",
         rule_name="r",
         proposed_node_type="PreferenceNode",
@@ -260,7 +260,7 @@ def test_engine_dedup_by_signature() -> None:
         created_at="2026-01-01T00:00:00Z",
     )
     p1.signature = p1.compute_signature()
-    p2 = ConsolidationProposal(
+    p2 = SynthesisProposal(
         proposal_id="b",  # different id but same signature
         rule_name="r",
         proposed_node_type="PreferenceNode",
@@ -275,7 +275,7 @@ def test_engine_dedup_by_signature() -> None:
     g = GraphComputeEngine(backend_type="rust")
     if g._client:
         g._client.clear()
-    ce = ConsolidationEngine(IntelligenceGraphEngine(db_path=":memory:"))
+    ce = SynthesisEngine(IntelligenceGraphEngine(db_path=":memory:"))
     deduped = ce.dedup_by_signature([p1, p2])
     assert len(deduped) == 1
 
@@ -284,6 +284,6 @@ def test_engine_empty_graph_yields_no_proposals() -> None:
     g = GraphComputeEngine(backend_type="rust")
     if g._client:
         g._client.clear()
-    ce = ConsolidationEngine(IntelligenceGraphEngine(db_path=":memory:"))
+    ce = SynthesisEngine(IntelligenceGraphEngine(db_path=":memory:"))
     ce.register(EpisodeToPreferenceRule(min_evidence_count=5))
     assert ce.run(dry_run=True) == []

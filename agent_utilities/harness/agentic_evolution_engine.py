@@ -1,4 +1,4 @@
-"""Agentic Evolution Engine — Consolidated Evolution Facade.
+"""Agentic Evolution Engine — Synthesized Evolution Facade.
 
 CONCEPT:AHE-3.2 — Agentic Evolution Engine
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgenticEvolutionEngine:
-    """Consolidated evolution engine.
+    """Synthesized evolution engine.
 
     CONCEPT:AHE-3.2 — Agentic Evolution Engine
 

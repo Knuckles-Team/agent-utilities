@@ -38,7 +38,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from agent_utilities.knowledge_graph.memory.auto_similarity import (
+from agent_utilities.knowledge_graph.memory import (
     AutoSimilarityLinker,
 )
 from agent_utilities.knowledge_graph.orchestration.research_subagent import (

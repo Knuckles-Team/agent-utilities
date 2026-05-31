@@ -63,7 +63,7 @@ tests/unit/graph/test_graph_runner.py ...                                [ 26%]
 tests/unit/graph/test_graph_steps.py ...                                 [ 26%]
 tests/unit/knowledge_graph/test_codemaps.py .                            [ 26%]
 tests/unit/knowledge_graph/test_company_models.py .....................  [ 27%]
-tests/unit/knowledge_graph/test_consolidation_engine.py ......           [ 27%]
+tests/unit/knowledge_graph/test_synthesis_engine.py ......           [ 27%]
 tests/unit/knowledge_graph/test_contextual_embeddings.py ...             [ 27%]
 tests/unit/knowledge_graph/test_document_deletion.py ..............      [ 28%]
 tests/unit/knowledge_graph/test_document_ingestion.py ......             [ 28%]
@@ -83,7 +83,7 @@ tests/unit/knowledge_graph/test_jena_fuseki_event_publishing.py ..       [ 33%]
 tests/unit/knowledge_graph/test_kb_logic.py .....                        [ 33%]
 tests/unit/knowledge_graph/test_kb_research.py F...                      [ 33%]
 tests/unit/knowledge_graph/test_kb_smoke.py ..                           [ 33%]
-tests/unit/knowledge_graph/test_kg_consolidation.py .............        [ 34%]
+tests/unit/knowledge_graph/test_kg_synthesis.py .............        [ 34%]
 tests/unit/knowledge_graph/test_kg_models.py ........................... [ 35%]
 ........................................................................ [ 38%]
 ...........FFFF                                                          [ 38%]
@@ -254,12 +254,12 @@ ___________________ test_init_lazy_agent_factory_and_config ____________________
 
     def test_init_lazy_agent_factory_and_config():
         import agent_utilities
-    
+
 >       assert agent_utilities.create_agent is not None
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/core/test_core_modules_misc.py:334: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/core/test_core_modules_misc.py:334:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'create_agent'
 
@@ -292,25 +292,25 @@ name = 'create_agent'
                 to_integer,
                 to_list,
             )
-    
+
             return locals()[name]
         elif name == "create_agent_parser":
             from .agent.factory import create_agent_parser
-    
+
             return create_agent_parser
         elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
             from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
-    
+
             return DEFAULT_GRAPH_PERSISTENCE_PATH
         elif name in ["discover_agents", "discover_all_specialists"]:
             from .agent.discovery import discover_agents, discover_all_specialists
-    
+
             return (
                 discover_agents if name == "discover_agents" else discover_all_specialists
             )
         elif name == "create_embedding_model":
             from .core.embedding_utilities import create_embedding_model
-    
+
             return create_embedding_model
         elif name in [
             "GraphState",
@@ -345,12 +345,12 @@ ______________________ test_init_lazy_graph_and_workspace ______________________
 
     def test_init_lazy_graph_and_workspace():
         import agent_utilities
-    
+
 >       assert agent_utilities.GraphState is not None
                ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/core/test_core_modules_misc.py:354: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/core/test_core_modules_misc.py:354:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'GraphState'
 
@@ -383,25 +383,25 @@ name = 'GraphState'
                 to_integer,
                 to_list,
             )
-    
+
             return locals()[name]
         elif name == "create_agent_parser":
             from .agent.factory import create_agent_parser
-    
+
             return create_agent_parser
         elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
             from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
-    
+
             return DEFAULT_GRAPH_PERSISTENCE_PATH
         elif name in ["discover_agents", "discover_all_specialists"]:
             from .agent.discovery import discover_agents, discover_all_specialists
-    
+
             return (
                 discover_agents if name == "discover_agents" else discover_all_specialists
             )
         elif name == "create_embedding_model":
             from .core.embedding_utilities import create_embedding_model
-    
+
             return create_embedding_model
         elif name in [
             "GraphState",
@@ -439,10 +439,10 @@ __________________________ test_kg_mermaid_generation __________________________
         graph.add_node("agent1", type="agent", name="Agent 1")
         graph.add_node("mem1", type="memory", description="Some memory")
         graph.add_edge("agent1", "mem1", type="CREATED")
-    
+
         engine = IntelligenceGraphEngine(db_path=":memory:")
         mermaid = engine.generate_mermaid_graph()
-    
+
         # Account for sanitization
         assert 'agent1(("Agent 1\n&#40;agent&#41;"))' in mermaid
         assert 'mem1[("mem1\n&#40;memory&#41;")]' in mermaid
@@ -482,8 +482,8 @@ self = <test_reference_agent.TestBasicAgent object at 0x7b6d5c742990>
         """Test that a basic agent can be created."""
 >       from agent_utilities import create_agent
 
-tests/unit/core/test_reference_agent.py:18: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/core/test_reference_agent.py:18:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'create_agent'
 
@@ -516,25 +516,25 @@ name = 'create_agent'
                 to_integer,
                 to_list,
             )
-    
+
             return locals()[name]
         elif name == "create_agent_parser":
             from .agent.factory import create_agent_parser
-    
+
             return create_agent_parser
         elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
             from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
-    
+
             return DEFAULT_GRAPH_PERSISTENCE_PATH
         elif name in ["discover_agents", "discover_all_specialists"]:
             from .agent.discovery import discover_agents, discover_all_specialists
-    
+
             return (
                 discover_agents if name == "discover_agents" else discover_all_specialists
             )
         elif name == "create_embedding_model":
             from .core.embedding_utilities import create_embedding_model
-    
+
             return create_embedding_model
         elif name in [
             "GraphState",
@@ -573,8 +573,8 @@ self = <test_reference_agent.TestGraphAgent object at 0x7b6d5c743250>
         """Test that a graph agent can be created with universal skills."""
 >       from agent_utilities import create_agent
 
-tests/unit/core/test_reference_agent.py:30: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/core/test_reference_agent.py:30:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'create_agent'
 
@@ -607,25 +607,25 @@ name = 'create_agent'
                 to_integer,
                 to_list,
             )
-    
+
             return locals()[name]
         elif name == "create_agent_parser":
             from .agent.factory import create_agent_parser
-    
+
             return create_agent_parser
         elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
             from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
-    
+
             return DEFAULT_GRAPH_PERSISTENCE_PATH
         elif name in ["discover_agents", "discover_all_specialists"]:
             from .agent.discovery import discover_agents, discover_all_specialists
-    
+
             return (
                 discover_agents if name == "discover_agents" else discover_all_specialists
             )
         elif name == "create_embedding_model":
             from .core.embedding_utilities import create_embedding_model
-    
+
             return create_embedding_model
         elif name in [
             "GraphState",
@@ -664,8 +664,8 @@ self = <test_reference_agent.TestMCPAgent object at 0x7b6d5c713d10>
         """Test that an MCP agent can be created (even without config)."""
 >       from agent_utilities import create_agent
 
-tests/unit/core/test_reference_agent.py:46: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/core/test_reference_agent.py:46:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'create_agent'
 
@@ -698,25 +698,25 @@ name = 'create_agent'
                 to_integer,
                 to_list,
             )
-    
+
             return locals()[name]
         elif name == "create_agent_parser":
             from .agent.factory import create_agent_parser
-    
+
             return create_agent_parser
         elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
             from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
-    
+
             return DEFAULT_GRAPH_PERSISTENCE_PATH
         elif name in ["discover_agents", "discover_all_specialists"]:
             from .agent.discovery import discover_agents, discover_all_specialists
-    
+
             return (
                 discover_agents if name == "discover_agents" else discover_all_specialists
             )
         elif name == "create_embedding_model":
             from .core.embedding_utilities import create_embedding_model
-    
+
             return create_embedding_model
         elif name in [
             "GraphState",
@@ -755,8 +755,8 @@ self = <test_reference_agent.TestKnowledgeGraphAgent object at 0x7b6d5c7403d0>
         """Test that a knowledge graph agent can be created."""
 >       from agent_utilities import create_agent
 
-tests/unit/core/test_reference_agent.py:61: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/core/test_reference_agent.py:61:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'create_agent'
 
@@ -789,25 +789,25 @@ name = 'create_agent'
                 to_integer,
                 to_list,
             )
-    
+
             return locals()[name]
         elif name == "create_agent_parser":
             from .agent.factory import create_agent_parser
-    
+
             return create_agent_parser
         elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
             from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
-    
+
             return DEFAULT_GRAPH_PERSISTENCE_PATH
         elif name in ["discover_agents", "discover_all_specialists"]:
             from .agent.discovery import discover_agents, discover_all_specialists
-    
+
             return (
                 discover_agents if name == "discover_agents" else discover_all_specialists
             )
         elif name == "create_embedding_model":
             from .core.embedding_utilities import create_embedding_model
-    
+
             return create_embedding_model
         elif name in [
             "GraphState",
@@ -846,8 +846,8 @@ self = <test_reference_agent.TestProtocolAgent object at 0x7b6d5c743b90>
         """Test that a protocol agent can be created with ACP enabled."""
 >       from agent_utilities import create_agent
 
-tests/unit/core/test_reference_agent.py:77: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/core/test_reference_agent.py:77:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'create_agent'
 
@@ -880,25 +880,25 @@ name = 'create_agent'
                 to_integer,
                 to_list,
             )
-    
+
             return locals()[name]
         elif name == "create_agent_parser":
             from .agent.factory import create_agent_parser
-    
+
             return create_agent_parser
         elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
             from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
-    
+
             return DEFAULT_GRAPH_PERSISTENCE_PATH
         elif name in ["discover_agents", "discover_all_specialists"]:
             from .agent.discovery import discover_agents, discover_all_specialists
-    
+
             return (
                 discover_agents if name == "discover_agents" else discover_all_specialists
             )
         elif name == "create_embedding_model":
             from .core.embedding_utilities import create_embedding_model
-    
+
             return create_embedding_model
         elif name in [
             "GraphState",
@@ -937,8 +937,8 @@ self = <test_reference_agent.TestMemoryAgent object at 0x7b6d5c7540d0>
         """Test that a memory agent can be created with knowledge base."""
 >       from agent_utilities import create_agent
 
-tests/unit/core/test_reference_agent.py:93: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/core/test_reference_agent.py:93:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 name = 'create_agent'
 
@@ -971,25 +971,25 @@ name = 'create_agent'
                 to_integer,
                 to_list,
             )
-    
+
             return locals()[name]
         elif name == "create_agent_parser":
             from .agent.factory import create_agent_parser
-    
+
             return create_agent_parser
         elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
             from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
-    
+
             return DEFAULT_GRAPH_PERSISTENCE_PATH
         elif name in ["discover_agents", "discover_all_specialists"]:
             from .agent.discovery import discover_agents, discover_all_specialists
-    
+
             return (
                 discover_agents if name == "discover_agents" else discover_all_specialists
             )
         elif name == "create_embedding_model":
             from .core.embedding_utilities import create_embedding_model
-    
+
             return create_embedding_model
         elif name in [
             "GraphState",
@@ -1133,17 +1133,17 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
         ep_id = "ep:1"
         eval_id = "eval:1"
         tool_id = "tool:t1"
-    
+
         engine.graph.add_node(ep_id, type="episode", description="success task")
         engine.graph.add_node(eval_id, type=RegistryNodeType.OUTCOME_EVALUATION, reward=0.9)
         engine.graph.add_node(tool_id, type="tool_call", tool_name="my_tool")
-    
+
         engine.graph.add_edge(ep_id, eval_id, type="PRODUCED_OUTCOME")
         engine.graph.add_edge(ep_id, tool_id, type="USED_TOOL")
-    
+
         query = "MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation), (e)-[:USED_TOOL]->(t:tool_call) WHERE o.reward >= 0.8 RETURN t.tool_name as tool"
         results = engine.query_cypher(query)
-    
+
 >       assert len(results) == 1
 E       assert 0 == 1
 E        +  where 0 = len([])
@@ -1178,7 +1178,7 @@ _________________ test_execute_domain_logic_approval_required __________________
     @pytest.mark.asyncio
     async def test_execute_domain_logic_approval_required():
         from pydantic_ai import DeferredToolRequests
-    
+
         state = GraphState(query="test")
         deps = GraphDeps(
             tag_prompts={},
@@ -1186,42 +1186,42 @@ _________________ test_execute_domain_logic_approval_required __________________
             mcp_toolsets=[],
         )
         ctx = MockCtx(state, deps)
-    
+
         mock_agent = AsyncMock()
         mock_res = MagicMock()
         mock_res.output = DeferredToolRequests(calls=[])
         mock_agent.run.return_value = mock_res
-    
+
 >       with patch(
             "agent_utilities.graph.executor.create_agent", return_value=(mock_agent, [])
         ):
 
-tests/unit/graph/test_graph_executor.py:130: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/graph/test_graph_executor.py:130:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 /home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py:1446: in __enter__
     original, local = self.get_original()
                       ^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <unittest.mock._patch object at 0x7b6cfc238550>
 
     def get_original(self):
         target = self.getter()
         name = self.attribute
-    
+
         original = DEFAULT
         local = False
-    
+
         try:
             original = target.__dict__[name]
         except (AttributeError, KeyError):
             original = getattr(target, name, DEFAULT)
         else:
             local = True
-    
+
         if name in _builtins and isinstance(target, ModuleType):
             self.create = True
-    
+
         if not self.create and original is DEFAULT:
 >           raise AttributeError(
                 "%s does not have the attribute %r" % (target, name)
@@ -1262,11 +1262,11 @@ self = <unit.knowledge_graph.test_document_update.TestDocumentUpdatePipeline obj
                 "content": "Chunk 3",
             },
         }.get(x)
-    
+
         pipeline = DocumentUpdatePipeline(knowledge_graph=knowledge_graph)
-    
+
         chunks = await pipeline._get_document_chunks("doc_123")
-    
+
 >       assert len(chunks) == 3
 E       assert 0 == 3
 E        +  where 0 = len([])
@@ -1279,7 +1279,7 @@ _______________________ test_graph_compute_event_bridge ________________________
     @pytest.mark.asyncio
     async def test_graph_compute_event_bridge():
         """Test that GraphComputeEngine forwards local EventBus events to the Rust client."""
-    
+
         # Mock the entire epistemic_graph package since the compiled extension might not match
         # the test runner's Python version (e.g. 3.11 vs 3.14).
         mock_client_module = MagicMock()
@@ -1293,18 +1293,18 @@ _______________________ test_graph_compute_event_bridge ________________________
             from agent_utilities.knowledge_graph.core.graph_compute import (
                 GraphComputeEngine,
             )
-    
+
             with patch.dict("os.environ", {"KAFKA_BOOTSTRAP_SERVERS": ""}):
                 GraphComputeEngine(graph_name="test_graph")
-    
+
                 # The bridge starts in a background thread. We can simulate the EventBus emission
                 # and then check if the client's apply_mutation was called.
                 # However, since it's a separate thread, it's easier to just test the bridge logic directly.
-    
+
                 from agent_utilities.knowledge_graph.core.event_backend import (
                     MemoryEventBackend,
                 )
-    
+
                 eb = get_event_backend()
 >               assert isinstance(eb, MemoryEventBackend)
 E               AssertionError: assert False
@@ -1325,7 +1325,7 @@ graph_engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEng
         """Test registering external ontologies and verify nodes are added."""
         uri = "http://example.org/ontology#"
         endpoint = "http://example.org/sparql"
-    
+
 >       graph_engine.register_external_ontology(uri, endpoint)
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E       AttributeError: 'IntelligenceGraphEngine' object has no attribute 'register_external_ontology'
@@ -1360,12 +1360,12 @@ graph_engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEng
         """Test ingesting metadata stubs from external KGs."""
         internal_node = "InternalConcept_1"
         graph_engine.graph.add_node(internal_node, name="My Concept")
-    
+
         external_id = "ext-999"
         external_uri = "https://leanix.example.com/factsheet/ext-999"
         platform = "leanix"
         name = "LeanIX FactSheet"
-    
+
 >       stub_id = graph_engine.ingest_external_entity_stub(
                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
             internal_node_id=internal_node,
@@ -1408,7 +1408,7 @@ graph_engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEng
         """Test executing SPARQL query against mock external HTTP endpoint."""
         endpoint = "http://example.org/sparql"
         query = "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
-    
+
         # Mock response
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -1423,7 +1423,7 @@ graph_engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEng
             }
         }
         mock_post.return_value = mock_response
-    
+
 >       results = graph_engine.execute_federated_sparql(endpoint, query)
                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E       AttributeError: 'IntelligenceGraphEngine' object has no attribute 'execute_federated_sparql'
@@ -1460,11 +1460,11 @@ graph_engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEng
         """Test executing federated Cypher query against LPG backend."""
         endpoint = "bolt://neo4j.example.com:7687"
         query = "MATCH (n) RETURN n LIMIT 5"
-    
+
         mock_backend = MagicMock()
         mock_backend.execute.return_value = [{"n": {"id": "123", "name": "Test Node"}}]
         mock_create_backend.return_value = mock_backend
-    
+
 >       results = graph_engine.execute_federated_lpg(endpoint, query)
                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E       AttributeError: 'IntelligenceGraphEngine' object has no attribute 'execute_federated_lpg'
@@ -1507,8 +1507,8 @@ ___________________________ test_kb_model_validation ___________________________
 >       assert src.id == "src:1"
                ^^^^^^
 
-tests/unit/knowledge_graph/test_kb_research.py:34: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/knowledge_graph/test_kb_research.py:34:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = Source(node_id='src:1', labels=['Source'], properties={}, created_at=datetime.datetime(2026, 5, 30, 20, 56, 0, 645344,...le='Impact of Climate on Health', doi='10.1234/nature.2026', url=None, publication_date=None, authors=['Alice', 'Bob'])
 item = 'id'
@@ -1519,7 +1519,7 @@ item = 'id'
             attribute = private_attributes[item]
             if hasattr(attribute, '__get__'):
                 return attribute.__get__(self, type(self))  # type: ignore
-    
+
             try:
                 # Note: self.__pydantic_private__ cannot be None if self.__private_attributes__ has items
                 return self.__pydantic_private__[item]  # type: ignore
@@ -1532,7 +1532,7 @@ item = 'id'
                 pydantic_extra = object.__getattribute__(self, '__pydantic_extra__')
             except AttributeError:
                 pydantic_extra = None
-    
+
             if pydantic_extra and item in pydantic_extra:
                 return pydantic_extra[item]
             else:
@@ -1553,12 +1553,12 @@ _______________ test_retrieve_place_view_stub_returns_empty_list _______________
             IntelligenceGraphEngine,
         )
         from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-    
+
 >       eng = IntelligenceGraphEngine(graph=GraphComputeEngine())
               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/knowledge_graph/test_kg_models.py:987: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/knowledge_graph/test_kg_models.py:987:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine object at 0x7b6cc0321a50>
 backend = None, db_path = None, external_ontologies = None
@@ -1599,12 +1599,12 @@ _____________ test_retrieve_epistemic_view_stub_has_expected_shape _____________
             IntelligenceGraphEngine,
         )
         from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-    
+
 >       eng = IntelligenceGraphEngine(graph=GraphComputeEngine())
               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/knowledge_graph/test_kg_models.py:998: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/knowledge_graph/test_kg_models.py:998:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine object at 0x7b6ce45173d0>
 backend = None, db_path = None, external_ontologies = None
@@ -1646,12 +1646,12 @@ ______ test_retrieve_orthogonal_context_includes_v2_views_when_requested _______
             IntelligenceGraphEngine,
         )
         from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-    
+
 >       eng = IntelligenceGraphEngine(graph=GraphComputeEngine())
               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/knowledge_graph/test_kg_models.py:1010: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/knowledge_graph/test_kg_models.py:1010:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine object at 0x7b6cc041c0d0>
 backend = None, db_path = None, external_ontologies = None
@@ -1690,19 +1690,19 @@ __________ test_retrieve_orthogonal_context_default_keeps_v1_contract __________
 
     def test_retrieve_orthogonal_context_default_keeps_v1_contract() -> None:
         """Passing no ``views`` argument must still return the V1 four views,
-    
+
         so existing callers don't break. (§6 backward-compat invariant.)
         """
         from agent_utilities.knowledge_graph.core.engine import (
             IntelligenceGraphEngine,
         )
         from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-    
+
 >       eng = IntelligenceGraphEngine(graph=GraphComputeEngine())
               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/knowledge_graph/test_kg_models.py:1031: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/knowledge_graph/test_kg_models.py:1031:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine object at 0x7b6ce45ea310>
 backend = None, db_path = None, external_ontologies = None
@@ -1744,18 +1744,18 @@ ______________ test_standard_inference_skos_broader_transitivity _______________
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
         from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
         from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
-    
+
         g = GraphComputeEngine(backend_type="rust")
         g.add_node("concept:a", type="concept", name="A")
         g.add_node("concept:b", type="concept", name="B")
         g.add_node("concept:c", type="concept", name="C")
         g.add_edge("concept:a", "concept:b", type="broader")
         g.add_edge("concept:b", "concept:c", type="broader")
-    
+
         engine = IntelligenceGraphEngine(db_path=":memory:")
         inf = InferenceEngine(engine)
         result = inf.run_inference()
-    
+
 >       assert result >= 1, "Expected at least 1 inference from SKOS broader transitivity"
 E       AssertionError: Expected at least 1 inference from SKOS broader transitivity
 E       assert 0 >= 1
@@ -1800,18 +1800,18 @@ _____________ test_standard_inference_prov_derivation_transitivity _____________
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
         from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
         from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
-    
+
         g = GraphComputeEngine(backend_type="rust")
         g.add_node("doc:a", type="document", name="A")
         g.add_node("doc:b", type="document", name="B")
         g.add_node("doc:c", type="document", name="C")
         g.add_edge("doc:a", "doc:b", type="was_derived_from")
         g.add_edge("doc:b", "doc:c", type="was_derived_from")
-    
+
         engine = IntelligenceGraphEngine(db_path=":memory:")
         inf = InferenceEngine(engine)
         result = inf.run_inference()
-    
+
 >       assert result >= 1
 E       assert 0 >= 1
 
@@ -1852,18 +1852,18 @@ ______________ test_standard_inference_temporal_phase_containment ______________
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
         from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
         from agent_utilities.knowledge_graph.core.inference_engine import InferenceEngine
-    
+
         g = GraphComputeEngine(backend_type="rust")
         g.add_node("event:1", type="event", name="E1")
         g.add_node("phase:q2", type="phase", name="Q2")
         g.add_node("phase:2026", type="phase", name="2026")
         g.add_edge("event:1", "phase:q2", type="occurred_during")
         g.add_edge("phase:q2", "phase:2026", type="part_of")
-    
+
         engine = IntelligenceGraphEngine(db_path=":memory:")
         inf = InferenceEngine(engine)
         result = inf.run_inference()
-    
+
 >       assert result >= 1
 E       assert 0 >= 1
 
@@ -1903,7 +1903,7 @@ base_graph = <agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEng
 
     def test_find_analogous_subgraphs(base_graph):
         engine = TopologicalAnalogyEngine(base_graph)
-    
+
         # Create a target subgraph that is structurally isomorphic and semantically similar
         target_G = GraphComputeEngine(
             backend_type="rust", graph_name="test_analogy_target_1"
@@ -1914,7 +1914,7 @@ base_graph = <agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEng
             except Exception:
                 pass
             target_G._client.clear()
-    
+
         target_a = RegistryNode(
             id="target_A",
             name="Target A",
@@ -1927,20 +1927,20 @@ base_graph = <agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEng
             type=RegistryNodeType.TOOL_METADATA,
             embedding=[0.1, 0.9, 0.0],  # Very similar to Base B
         )
-    
+
         target_G.add_node("target_A", data=target_a)
         target_G.add_node("target_B", data=target_b)
         target_G.add_edge("target_A", "target_B", type="DEPENDS_ON")
-    
+
 >       matches = engine.find_analogous_subgraphs(target_G, threshold=0.8)
                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/knowledge_graph/test_topological_analogy.py:81: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/knowledge_graph/test_topological_analogy.py:81:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/knowledge_graph/core/analogy_engine.py:154: in find_analogous_subgraphs
     n_target = target_rx[target_idx]
                ^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <agent_utilities.knowledge_graph.core.graph_primitives.PyDiGraph object at 0x7b6c801be190>
 idx = 2
@@ -1968,14 +1968,14 @@ ______________________________ test_drift_tracker ______________________________
     @pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.4")
     def test_drift_tracker():
         """Test temporal knowledge drift measurement.
-    
+
         CONCEPT:AHE-3.4
         """
         history = [[1.0, 0.0, 0.0], [0.9, 0.1, 0.0], [0.8, 0.2, 0.0]]
         current = [0.0, 1.0, 0.0]  # Orthogonal, huge shift
-    
+
         report = check_knowledge_drift("node_1", history, current, drift_threshold=0.15)
-    
+
 >       assert report.id == "node_1"
                ^^^^^^^^^
 E       AttributeError: 'DriftReport' object has no attribute 'id'
@@ -1994,10 +1994,10 @@ mock_engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngi
         mock_engine.graph.add_edge("F1", "F2", type="AGREES_WITH")
         mock_engine.graph.add_edge("F2", "F3", type="AGREES_WITH")
         mock_engine.graph.add_edge("F3", "F1", type="AGREES_WITH")
-    
+
         traps = defense.scan_for_traps()
         assert len(traps) > 0
-    
+
         neutralized = defense.neutralize_traps()
         assert neutralized > 0
         # Graph nodes should be removed
@@ -2037,7 +2037,7 @@ mock_engine = <MagicMock id='135705939708816'>
             action="Retry task",
             importance_score=0.9,
         )
-    
+
         # Test ingestion uses add_node
         mock_engine = MagicMock()
         mock_engine.add_node = MagicMock()
@@ -2047,12 +2047,12 @@ mock_engine = <MagicMock id='135705939708816'>
             id=exp.id, node_type="Experience", properties=exp.model_dump()
         )
 
-tests/unit/test_research_synergies.py:113: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_research_synergies.py:113:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 /home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/unittest/mock.py:951: in assert_called_once_with
     return self.assert_called_with(*args, **kwargs)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <MagicMock name='mock.add_node' id='135705939954960'>, args = ()
 kwargs = {'id': 'exp1', 'node_type': 'Experience', 'properties': {'action': 'Retry task', 'condition': 'When task fails', 'description': '', 'embedding': None, ...}}
@@ -2063,7 +2063,7 @@ cause = None
 
     def assert_called_with(self, /, *args, **kwargs):
         """assert that the last call was made with the specified arguments.
-    
+
         Raises an AssertionError if the args and keyword args passed in are
         different to the last call to the mock."""
         if self.call_args is None:
@@ -2072,7 +2072,7 @@ cause = None
             error_message = ('expected call not found.\nExpected: %s\n  Actual: %s'
                     % (expected, actual))
             raise AssertionError(error_message)
-    
+
         def _error_message():
             msg = self._format_mock_failure_message(args, kwargs)
             return msg
@@ -2172,7 +2172,7 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
         """get_prompt_versions walks the SUPERSEDES chain."""
         v1 = engine.add_prompt(content="v1", name="history-test")
         _v2 = engine.update_prompt(v1["id"], content="v2")  # noqa: F841
-    
+
         versions = engine.get_prompt_versions(v1["id"])
 >       assert len(versions) >= 1
 E       assert 0 >= 1
@@ -2198,10 +2198,10 @@ memory_engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEn
     def test_inference_engine_fallback(memory_engine):
         """Test topological inference in graph compute fallback mode."""
         inf_engine = memory_engine.inference_engine
-    
+
         # Run inference
         new_facts = inf_engine.run_inference()
-    
+
 >       assert new_facts > 0
 E       assert 0 > 0
 
@@ -2244,13 +2244,13 @@ memory_engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEn
         mock_model = MagicMock()
         mock_model.get_text_embedding.return_value = [0.1] * 768
         mock_create_model.return_value = mock_model
-    
+
         # Initialize retriever
         retriever = HybridRetriever(memory_engine)
-    
+
         # Search for Agent A
         results = retriever.retrieve_hybrid("Agent A", context_window=1, multi_hop_depth=1)
-    
+
         # Should find Agent A and its neighbor Tool X
         result_ids = [r["id"] for r in results]
 >       assert "entity:agent_a" in result_ids
@@ -2284,7 +2284,7 @@ tmp_path = PosixPath('/tmp/pytest-of-genius/pytest-114/test_intelligence_pipelin
             persist_to_ladybug=False,
             enable_embeddings=False,
         )
-    
+
         mock_agent = MagicMock()
         mock_agent.name = "TestBot"
         mock_agent.description = "desc"
@@ -2292,11 +2292,11 @@ tmp_path = PosixPath('/tmp/pytest-of-genius/pytest-114/test_intelligence_pipelin
         mock_agent.system_prompt = "prompt"
         mock_agent.endpoint_url = None
         mock_agent.tool_count = 0
-    
+
         mock_registry = MagicMock()
         mock_registry.agents = [mock_agent]
         mock_registry.tools = []
-    
+
         with patch(
             "agent_utilities.graph.config_helpers.get_discovery_registry",
             return_value=mock_registry,
@@ -2305,8 +2305,8 @@ tmp_path = PosixPath('/tmp/pytest-of-genius/pytest-114/test_intelligence_pipelin
 >           metadata = await pipeline.run()
                        ^^^^^^^^^^^^^^^^^^^^
 
-tests/integration/knowledge_graph/test_knowledge_graph.py:66: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/knowledge_graph/test_knowledge_graph.py:66:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/knowledge_graph/pipeline/__init__.py:52: in run
     results = await runner.run(ctx)
               ^^^^^^^^^^^^^^^^^^^^^
@@ -2320,7 +2320,7 @@ agent_utilities/knowledge_graph/pipeline/types.py:44: in execute
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 agent_utilities/knowledge_graph/pipeline/phases/validate.py:34: in execute_validate
     engine = IntelligenceGraphEngine(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine object at 0x7b6c41b70ed0>
 backend = None, db_path = None, external_ontologies = None
@@ -2397,7 +2397,7 @@ ____________________________ test_memory_operations ____________________________
     async def test_memory_operations():
         graph = GraphComputeEngine(backend_type="rust")
         engine = IntelligenceGraphEngine(db_path=":memory:")
-    
+
         # Add
         content = "User prefers dark mode"
         with patch("uuid.uuid4") as mock_uuid:
@@ -2457,7 +2457,7 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
         """Verify spawned agent gets USES edges to its tools."""
         # First ingest a resource so we can link to it
         engine.ingest_agent_skill("/skills/test.md", {"name": "test-skill"}, "body")
-    
+
 >       agent_id = engine.spawn_specialized_agent(
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
             task_description="Analyze code", tool_ids=["skill:test-skill"]
@@ -2549,7 +2549,7 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
             "CREATE (p:SystemPrompt {id: $id, content: $content, tags: ['agent-base'], source: 'MANUAL', version: 'v1'})",
             {"id": base_id, "content": "You are a helpful assistant."},
         )
-    
+
         # Create a critique
 >       crit_id = engine.generate_critique(
                   ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -2612,8 +2612,8 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
     def test_impact_analysis(self, engine):
 >       engine.graph.add_node("mod:auth", type="module", name="auth")
 
-tests/integration/knowledge_graph/test_knowledge_graph_integration.py:427: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/knowledge_graph/test_knowledge_graph_integration.py:427:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     self._client.nodes.add(node_id, props)
 ../epistemic-graph/epistemic_graph/client.py:662: in sync_wrapper
@@ -2626,7 +2626,7 @@ agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     raise self._exception
 ../epistemic-graph/epistemic_graph/client.py:31: in add
     await self._client._send(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <epistemic_graph.client.EpistemicGraphClient object at 0x7b69b00fa1d0>
 method = 'AddNode'
@@ -2648,22 +2648,22 @@ graph = None
         }
         if params:
             request["params"] = params
-    
+
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
-    
+
         async with self._lock:
             self._writer.write(length_prefix)
             self._writer.write(payload)
             await self._writer.drain()
-    
+
             try:
                 len_buf = await self._reader.readexactly(4)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
                 resp_bytes = await self._reader.readexactly(msg_len)
             except asyncio.IncompleteReadError as e:
                 raise ConnectionError("Connection closed by server") from e
-    
+
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
@@ -2695,8 +2695,8 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
     def test_shortest_path(self, engine):
 >       engine.graph.add_node("A", type="node", name="A")
 
-tests/integration/knowledge_graph/test_knowledge_graph_integration.py:436: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/knowledge_graph/test_knowledge_graph_integration.py:436:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     self._client.nodes.add(node_id, props)
 ../epistemic-graph/epistemic_graph/client.py:662: in sync_wrapper
@@ -2709,7 +2709,7 @@ agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     raise self._exception
 ../epistemic-graph/epistemic_graph/client.py:31: in add
     await self._client._send(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <epistemic_graph.client.EpistemicGraphClient object at 0x7b696b1b3250>
 method = 'AddNode'
@@ -2731,22 +2731,22 @@ graph = None
         }
         if params:
             request["params"] = params
-    
+
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
-    
+
         async with self._lock:
             self._writer.write(length_prefix)
             self._writer.write(payload)
             await self._writer.drain()
-    
+
             try:
                 len_buf = await self._reader.readexactly(4)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
                 resp_bytes = await self._reader.readexactly(msg_len)
             except asyncio.IncompleteReadError as e:
                 raise ConnectionError("Connection closed by server") from e
-    
+
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
@@ -2783,8 +2783,8 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
             description="Runs Python code",
         )
 
-tests/integration/knowledge_graph/test_knowledge_graph_integration.py:446: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/knowledge_graph/test_knowledge_graph_integration.py:446:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     self._client.nodes.add(node_id, props)
 ../epistemic-graph/epistemic_graph/client.py:662: in sync_wrapper
@@ -2797,7 +2797,7 @@ agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     raise self._exception
 ../epistemic-graph/epistemic_graph/client.py:31: in add
     await self._client._send(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <epistemic_graph.client.EpistemicGraphClient object at 0x7b69b01f5350>
 method = 'AddNode'
@@ -2819,22 +2819,22 @@ graph = None
         }
         if params:
             request["params"] = params
-    
+
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
-    
+
         async with self._lock:
             self._writer.write(length_prefix)
             self._writer.write(payload)
             await self._writer.drain()
-    
+
             try:
                 len_buf = await self._reader.readexactly(4)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
                 resp_bytes = await self._reader.readexactly(msg_len)
             except asyncio.IncompleteReadError as e:
                 raise ConnectionError("Connection closed by server") from e
-    
+
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
@@ -2902,52 +2902,52 @@ conn_kwargs = {'db_name': 'agent_graph', 'host': 'localhost', 'port': 6380}
         # Locate correct absolute path of compose file
         workspace_dir = "/home/apps/workspace/agent-packages/agent-utilities"
         abs_compose = os.path.join(workspace_dir, compose_file)
-    
+
         print(
             f"\n>>> Starting container for backend: {backend_type} using {compose_file}..."
         )
-    
+
         # 1. Clean teardown from any previous partial states
         try:
             manage_container(abs_compose, "down")
         except Exception:
             pass
-    
+
         # Ensure active engine and active backend are clean
         IntelligenceGraphEngine._ACTIVE_ENGINE = None
         set_active_backend(None)
-    
+
         # 2. Spin up the specific container
         try:
             manage_container(abs_compose, "up")
             assert wait_for_port(port, timeout=45.0), (
                 f"Port {port} failed to open in time!"
             )
-    
+
             # Wait for database driver initialization success
             print(f"Waiting for {backend_type} driver connectivity check...")
             assert wait_for_db_ready(backend_type, conn_kwargs, timeout=60.0), (
                 f"Database {backend_type} failed ready check!"
             )
             print(f"Database {backend_type} is ready!")
-    
+
             # 3. Instantiate the backend factory
             print(f"Creating backend instance for: {backend_type}...")
             backend = create_backend(backend_type=backend_type, **conn_kwargs)
             assert backend is not None, f"Failed to instantiate {backend_type} backend"
-    
+
             # Initialize schema and tables
             print(f"Creating schema/tables for {backend_type}...")
             backend.create_schema()
-    
+
             # 4. Initialize graph engine
             GraphComputeEngine(backend_type="rust")
             engine = IntelligenceGraphEngine(backend=backend)
-    
+
             # Set the engine active correctly using class variable
             IntelligenceGraphEngine.set_active(engine)
             assert get_active_backend() == backend
-    
+
             # 5. High-fidelity Stress/CRUD verification
             # Add nodes with complex strings, escapes, nested metadata to ensure robust serialization
             agent_id = "agent:complex-router"
@@ -2961,7 +2961,7 @@ conn_kwargs = {'db_name': 'agent_graph', 'host': 'localhost', 'port': 6380}
                 "importance_score": 0.98,
                 "is_permanent": True,
             }
-    
+
             tool_id = "tool:math-eval"
             tool_props = {
                 "name": "math-eval",
@@ -2973,7 +2973,7 @@ conn_kwargs = {'db_name': 'agent_graph', 'host': 'localhost', 'port': 6380}
                 "importance_score": 0.85,
                 "is_permanent": False,
             }
-    
+
             memory_id = "mem:user-preferences"
             memory_props = {
                 "name": "user-preferences",
@@ -2987,12 +2987,12 @@ conn_kwargs = {'db_name': 'agent_graph', 'host': 'localhost', 'port': 6380}
                 ),
                 "is_permanent": True,
             }
-    
+
             print("Adding nodes via active graph engine...")
 >           engine.add_node(agent_id, RegistryNodeType.AGENT, agent_props)
 
-tests/integration/knowledge_graph/test_multibackend_integration.py:239: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/knowledge_graph/test_multibackend_integration.py:239:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/knowledge_graph/core/engine.py:489: in add_node
     self.graph_compute.add_node(node_id, props)
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
@@ -3007,7 +3007,7 @@ agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     raise self._exception
 ../epistemic-graph/epistemic_graph/client.py:31: in add
     await self._client._send(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <epistemic_graph.client.EpistemicGraphClient object at 0x7b69b0383c50>
 method = 'AddNode'
@@ -3029,22 +3029,22 @@ graph = None
         }
         if params:
             request["params"] = params
-    
+
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
-    
+
         async with self._lock:
             self._writer.write(length_prefix)
             self._writer.write(payload)
             await self._writer.drain()
-    
+
             try:
                 len_buf = await self._reader.readexactly(4)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
                 resp_bytes = await self._reader.readexactly(msg_len)
             except asyncio.IncompleteReadError as e:
                 raise ConnectionError("Connection closed by server") from e
-    
+
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
@@ -3112,28 +3112,28 @@ conn_kwargs = {'password': 'password', 'uri': 'bolt://localhost:7687', 'user': '
         # Locate correct absolute path of compose file
         workspace_dir = "/home/apps/workspace/agent-packages/agent-utilities"
         abs_compose = os.path.join(workspace_dir, compose_file)
-    
+
         print(
             f"\n>>> Starting container for backend: {backend_type} using {compose_file}..."
         )
-    
+
         # 1. Clean teardown from any previous partial states
         try:
             manage_container(abs_compose, "down")
         except Exception:
             pass
-    
+
         # Ensure active engine and active backend are clean
         IntelligenceGraphEngine._ACTIVE_ENGINE = None
         set_active_backend(None)
-    
+
         # 2. Spin up the specific container
         try:
             manage_container(abs_compose, "up")
             assert wait_for_port(port, timeout=45.0), (
                 f"Port {port} failed to open in time!"
             )
-    
+
             # Wait for database driver initialization success
             print(f"Waiting for {backend_type} driver connectivity check...")
 >           assert wait_for_db_ready(backend_type, conn_kwargs, timeout=60.0), (
@@ -3197,52 +3197,52 @@ conn_kwargs = {'db_name': 'agent_graph', 'uri': 'postgresql://agent:agent@localh
         # Locate correct absolute path of compose file
         workspace_dir = "/home/apps/workspace/agent-packages/agent-utilities"
         abs_compose = os.path.join(workspace_dir, compose_file)
-    
+
         print(
             f"\n>>> Starting container for backend: {backend_type} using {compose_file}..."
         )
-    
+
         # 1. Clean teardown from any previous partial states
         try:
             manage_container(abs_compose, "down")
         except Exception:
             pass
-    
+
         # Ensure active engine and active backend are clean
         IntelligenceGraphEngine._ACTIVE_ENGINE = None
         set_active_backend(None)
-    
+
         # 2. Spin up the specific container
         try:
             manage_container(abs_compose, "up")
             assert wait_for_port(port, timeout=45.0), (
                 f"Port {port} failed to open in time!"
             )
-    
+
             # Wait for database driver initialization success
             print(f"Waiting for {backend_type} driver connectivity check...")
             assert wait_for_db_ready(backend_type, conn_kwargs, timeout=60.0), (
                 f"Database {backend_type} failed ready check!"
             )
             print(f"Database {backend_type} is ready!")
-    
+
             # 3. Instantiate the backend factory
             print(f"Creating backend instance for: {backend_type}...")
             backend = create_backend(backend_type=backend_type, **conn_kwargs)
             assert backend is not None, f"Failed to instantiate {backend_type} backend"
-    
+
             # Initialize schema and tables
             print(f"Creating schema/tables for {backend_type}...")
             backend.create_schema()
-    
+
             # 4. Initialize graph engine
             GraphComputeEngine(backend_type="rust")
             engine = IntelligenceGraphEngine(backend=backend)
-    
+
             # Set the engine active correctly using class variable
             IntelligenceGraphEngine.set_active(engine)
             assert get_active_backend() == backend
-    
+
             # 5. High-fidelity Stress/CRUD verification
             # Add nodes with complex strings, escapes, nested metadata to ensure robust serialization
             agent_id = "agent:complex-router"
@@ -3256,7 +3256,7 @@ conn_kwargs = {'db_name': 'agent_graph', 'uri': 'postgresql://agent:agent@localh
                 "importance_score": 0.98,
                 "is_permanent": True,
             }
-    
+
             tool_id = "tool:math-eval"
             tool_props = {
                 "name": "math-eval",
@@ -3268,7 +3268,7 @@ conn_kwargs = {'db_name': 'agent_graph', 'uri': 'postgresql://agent:agent@localh
                 "importance_score": 0.85,
                 "is_permanent": False,
             }
-    
+
             memory_id = "mem:user-preferences"
             memory_props = {
                 "name": "user-preferences",
@@ -3282,12 +3282,12 @@ conn_kwargs = {'db_name': 'agent_graph', 'uri': 'postgresql://agent:agent@localh
                 ),
                 "is_permanent": True,
             }
-    
+
             print("Adding nodes via active graph engine...")
 >           engine.add_node(agent_id, RegistryNodeType.AGENT, agent_props)
 
-tests/integration/knowledge_graph/test_multibackend_integration.py:239: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/knowledge_graph/test_multibackend_integration.py:239:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/knowledge_graph/core/engine.py:489: in add_node
     self.graph_compute.add_node(node_id, props)
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
@@ -3302,7 +3302,7 @@ agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     raise self._exception
 ../epistemic-graph/epistemic_graph/client.py:31: in add
     await self._client._send(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <epistemic_graph.client.EpistemicGraphClient object at 0x7b69b0097c50>
 method = 'AddNode'
@@ -3324,22 +3324,22 @@ graph = None
         }
         if params:
             request["params"] = params
-    
+
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
-    
+
         async with self._lock:
             self._writer.write(length_prefix)
             self._writer.write(payload)
             await self._writer.drain()
-    
+
             try:
                 len_buf = await self._reader.readexactly(4)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
                 resp_bytes = await self._reader.readexactly(msg_len)
             except asyncio.IncompleteReadError as e:
                 raise ConnectionError("Connection closed by server") from e
-    
+
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
@@ -3385,12 +3385,12 @@ graph_engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEng
                 "capabilities": ["social", "write"],
             },
         ]
-    
+
         # 1. Ingest MCP Server
         graph_engine.ingest_mcp_server(
             name="WeatherTwitter", url="http://localhost:8000/mcp", tools=tools
         )
-    
+
         # 2. Verify CallableResources exist
         res = graph_engine.query_cypher(
             "MATCH (r:CallableResource) RETURN r.name as name, r.resource_type as type"
@@ -3418,8 +3418,8 @@ ________________________ test_eunomia_client_connection ________________________
         try:
 >           yield
 
-../../.venv/lib/python3.11/site-packages/httpx/_transports/default.py:101: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.venv/lib/python3.11/site-packages/httpx/_transports/default.py:101:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 ../../.venv/lib/python3.11/site-packages/httpx/_transports/default.py:250: in handle_request
     resp = self._pool.handle_request(req)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -3439,7 +3439,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
     with map_exceptions(exc_map):
 /home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/contextlib.py:158: in __exit__
     self.gen.throw(typ, value, traceback)
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 map = {<class 'TimeoutError'>: <class 'httpcore.ConnectTimeout'>, <class 'OSError'>: <class 'httpcore.ConnectError'>}
 
@@ -3463,8 +3463,8 @@ The above exception was the direct cause of the following exception:
 >       policies = client.get_policies()
                    ^^^^^^^^^^^^^^^^^^^^^
 
-tests/integration/test_eunomia_integration.py:8: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_eunomia_integration.py:8:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 ../../.venv/lib/python3.11/site-packages/eunomia_sdk/client.py:272: in get_policies
     response = self.client.get("/admin/policies")
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -3487,7 +3487,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
     with map_httpcore_exceptions():
 /home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/contextlib.py:158: in __exit__
     self.gen.throw(typ, value, traceback)
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
     @contextlib.contextmanager
     def map_httpcore_exceptions() -> typing.Iterator[None]:
@@ -3498,7 +3498,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
             yield
         except Exception as exc:
             mapped_exc = None
-    
+
             for from_exc, to_exc in HTTPCORE_EXC_MAP.items():
                 if not isinstance(exc, from_exc):
                     continue
@@ -3507,10 +3507,10 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
                 # `httpx.ReadTimeout`, not just `httpx.TimeoutException`.
                 if mapped_exc is None or issubclass(to_exc, mapped_exc):
                     mapped_exc = to_exc
-    
+
             if mapped_exc is None:  # pragma: no cover
                 raise
-    
+
             message = str(exc)
 >           raise mapped_exc(message) from exc
 E           httpx.ConnectError: [Errno 113] No route to host
@@ -3525,9 +3525,9 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
         """CONCEPT:ORCH-1.22 — Workflows round-trip through KG."""
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
         from agent_utilities.models.graph import ExecutionStep, GraphPlan
-    
+
         store = WorkflowStore(engine)
-    
+
         plan = GraphPlan(
             steps=[
                 ExecutionStep(
@@ -3541,7 +3541,7 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
                 ),
             ]
         )
-    
+
 >       workflow_id = store.save_workflow(
             name="test_research_pipeline",
             plan=plan,
@@ -3549,8 +3549,8 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
             nl_spec="Search for papers on transformers, then summarize the top 3.",
         )
 
-tests/integration/test_observability_pipeline.py:265: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_observability_pipeline.py:265:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/knowledge_graph/workflow_store.py:144: in save_workflow
     self.engine.add_node(workflow_id, "WorkflowDefinition", properties=props)
 agent_utilities/knowledge_graph/core/engine.py:489: in add_node
@@ -3567,7 +3567,7 @@ agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     raise self._exception
 ../epistemic-graph/epistemic_graph/client.py:31: in add
     await self._client._send(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <epistemic_graph.client.EpistemicGraphClient object at 0x7b6980166d90>
 method = 'AddNode'
@@ -3589,22 +3589,22 @@ graph = None
         }
         if params:
             request["params"] = params
-    
+
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
-    
+
         async with self._lock:
             self._writer.write(length_prefix)
             self._writer.write(payload)
             await self._writer.drain()
-    
+
             try:
                 len_buf = await self._reader.readexactly(4)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
                 resp_bytes = await self._reader.readexactly(msg_len)
             except asyncio.IncompleteReadError as e:
                 raise ConnectionError("Connection closed by server") from e
-    
+
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
@@ -3633,15 +3633,15 @@ engine = <agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine ob
     async def test_compile_and_store(self, engine):
         """CONCEPT:ORCH-1.23 — Compile and persist workflow."""
         from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
-    
+
         compiler = WorkflowCompiler(engine)
 >       workflow_id = await compiler.compile_and_store(
             name="compiled_research",
             description="Search papers, summarize them, then present findings",
         )
 
-tests/integration/test_observability_pipeline.py:323: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/integration/test_observability_pipeline.py:323:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/knowledge_graph/workflow_compiler.py:238: in compile_and_store
     workflow_id = self.store.save_workflow(
 agent_utilities/knowledge_graph/workflow_store.py:144: in save_workflow
@@ -3660,7 +3660,7 @@ agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     raise self._exception
 ../epistemic-graph/epistemic_graph/client.py:31: in add
     await self._client._send(
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <epistemic_graph.client.EpistemicGraphClient object at 0x7b6980166d90>
 method = 'AddNode'
@@ -3682,22 +3682,22 @@ graph = None
         }
         if params:
             request["params"] = params
-    
+
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
-    
+
         async with self._lock:
             self._writer.write(length_prefix)
             self._writer.write(payload)
             await self._writer.drain()
-    
+
             try:
                 len_buf = await self._reader.readexactly(4)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
                 resp_bytes = await self._reader.readexactly(msg_len)
             except asyncio.IncompleteReadError as e:
                 raise ConnectionError("Connection closed by server") from e
-    
+
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_utilities.knowledge_graph.memory.eval_capture import KGEvalCapture
+from agent_utilities.knowledge_graph.memory import EvaluationCapture
 
 
 @pytest.fixture()
@@ -38,16 +38,16 @@ def mock_ke():
 
 @pytest.fixture()
 def eval_db(mock_ke):
-    return KGEvalCapture(knowledge_engine=mock_ke, enabled=True)
+    return EvaluationCapture(knowledge_engine=mock_ke, enabled=True)
 
 
 class TestEvalCaptureInit:
     def test_init_enabled(self, mock_ke):
-        cap = KGEvalCapture(knowledge_engine=mock_ke, enabled=True)
+        cap = EvaluationCapture(knowledge_engine=mock_ke, enabled=True)
         assert cap.enabled
 
     def test_disabled_by_default(self, mock_ke):
-        cap = KGEvalCapture(knowledge_engine=mock_ke, enabled=False)
+        cap = EvaluationCapture(knowledge_engine=mock_ke, enabled=False)
         assert not cap.enabled
 
 
@@ -71,7 +71,7 @@ class TestCapture:
         assert eval_db.count() == 5
 
     def test_capture_noop_when_disabled(self, mock_ke):
-        cap = KGEvalCapture(knowledge_engine=mock_ke, enabled=False)
+        cap = EvaluationCapture(knowledge_engine=mock_ke, enabled=False)
         cap.capture("q", "hybrid", ["a"])
         assert cap.count() == 0
 

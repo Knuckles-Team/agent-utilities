@@ -224,7 +224,7 @@ class TestAutoSimilarityLinker:
 
     def test_similar_nodes_linked(self):
         """Nodes above threshold should be linked."""
-        from agent_utilities.knowledge_graph.memory.auto_similarity import (
+        from agent_utilities.knowledge_graph.memory import (
             AutoSimilarityLinker,
         )
         from agent_utilities.models.knowledge_graph import (
@@ -249,7 +249,7 @@ class TestAutoSimilarityLinker:
 
     def test_dissimilar_nodes_not_linked(self):
         """Orthogonal nodes should NOT be linked."""
-        from agent_utilities.knowledge_graph.memory.auto_similarity import (
+        from agent_utilities.knowledge_graph.memory import (
             AutoSimilarityLinker,
         )
         from agent_utilities.models.knowledge_graph import (
@@ -270,7 +270,7 @@ class TestAutoSimilarityLinker:
 
     def test_decay_reduces_weight(self):
         """Weights should decay over time."""
-        from agent_utilities.knowledge_graph.memory.auto_similarity import (
+        from agent_utilities.knowledge_graph.memory import (
             AutoSimilarityLinker,
         )
         from agent_utilities.models.knowledge_graph import SimilarityEdgeNode
@@ -290,7 +290,7 @@ class TestAutoSimilarityLinker:
 
     def test_hub_control(self):
         """Max edges per node should be enforced."""
-        from agent_utilities.knowledge_graph.memory.auto_similarity import (
+        from agent_utilities.knowledge_graph.memory import (
             AutoSimilarityLinker,
         )
         from agent_utilities.models.knowledge_graph import (

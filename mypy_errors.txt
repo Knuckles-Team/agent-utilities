@@ -125,4 +125,3 @@ agent_utilities/knowledge_graph/__main__.py:229: [1m[31merror:(B[m Argument 
 agent_utilities/knowledge_graph/__main__.py:241: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
 agent_utilities/knowledge_graph/__main__.py:250: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
 [1m[31mFound 96 errors in 33 files (checked 888 source files)(B[m
-

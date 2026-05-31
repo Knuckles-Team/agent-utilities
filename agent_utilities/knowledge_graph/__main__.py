@@ -3,7 +3,7 @@
 
 CONCEPT:KG-2.0
 
-Command-line interface for running the Unified Intelligence Pipeline
+Command-line interface for running the Intelligence Pipeline
 and querying the graph (Agents, Tools, Code, Memory).
 """
 

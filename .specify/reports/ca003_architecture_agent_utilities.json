@@ -2423,7 +2423,7 @@
         ]
       },
       {
-        "file": ".specify/design/kg-2.1-memory-consolidation/design.md",
+        "file": ".specify/design/kg-2.1-memory-synthesis/design.md",
         "level": "system_context",
         "components": [
           {
@@ -2439,7 +2439,7 @@
           {
             "kind": "System",
             "id": "engine",
-            "name": "ConsolidationEngine"
+            "name": "SynthesisEngine"
           },
           {
             "kind": "System",
@@ -2600,7 +2600,7 @@
         ]
       },
       {
-        "file": ".specify/design/kg-2.1-memory-consolidation/design.md",
+        "file": ".specify/design/kg-2.1-memory-synthesis/design.md",
         "level": "system_context",
         "components": [
           {
@@ -2616,7 +2616,7 @@
           {
             "kind": "System",
             "id": "engine",
-            "name": "ConsolidationEngine"
+            "name": "SynthesisEngine"
           },
           {
             "kind": "System",

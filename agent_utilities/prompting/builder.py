@@ -299,7 +299,19 @@ def extract_agent_metadata(content: str) -> dict[str, Any]:
     if "role" in data and "description" not in data:
         data["description"] = data.pop("role")
     meta.update(data)
+
     body = data.get("content") or data.get("input") or ""
+
+    # Prepend few-shot examples if present (CONCEPT:AHE-3.1)
+    if "few_shot_examples" in data and isinstance(data["few_shot_examples"], list):
+        few_shots = "\n\n".join(
+            f"Example Task:\n{ex.get('task', '')}\nExample Response:\n{ex.get('response', '')}"
+            for ex in data["few_shot_examples"]
+            if "task" in ex or "response" in ex
+        )
+        if few_shots:
+            body = f"{body}\n\n## Examples (Optimized)\n{few_shots}".strip()
+
     if isinstance(body, str):
         meta["content"] = body
     return meta

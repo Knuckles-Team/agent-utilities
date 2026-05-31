@@ -23,7 +23,7 @@ Runtime function registration with input/output JSON schemas and declarative tri
 # Dynamic Skill Evolution (CONCEPT:ECO-4.0)
 
 ## Overview
-On-the-fly skill creation and consolidation to avoid catastrophic forgetting during continual learning. SkillNeologismDetector (identifies when existing skills don't cover a task), SkillFactory (creates new skills from execution traces), SkillMerger (detects overlapping skills via Jaccard similarity and consolidates). Derived from Skill Neologisms (arXiv:2605.04970v1).
+On-the-fly skill creation and synthesis to avoid catastrophic forgetting during continual learning. SkillNeologismDetector (identifies when existing skills don't cover a task), SkillFactory (creates new skills from execution traces), SkillMerger (detects overlapping skills via Jaccard similarity and consolidates). Derived from Skill Neologisms (arXiv:2605.04970v1).
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/knowledge_graph/skill_evolver.py``

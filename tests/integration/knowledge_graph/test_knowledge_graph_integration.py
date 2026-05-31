@@ -411,8 +411,8 @@ class TestMaintenance:
             )
 
         maintainer = GraphMaintainer(engine)
-        consolidated = maintainer.consolidate_memory(keep_days=1)
-        assert consolidated >= 3
+        synthesized = maintainer.consolidate_memory(keep_days=1)
+        assert synthesized >= 3
 
 
 # ---------------------------------------------------------------------------

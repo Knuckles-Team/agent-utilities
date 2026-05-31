@@ -64,7 +64,7 @@ class ActorType(StrEnum):
         AI_AGENT: An autonomous AI agent operating within the ecosystem.
         AUTOMATED_SERVICE: A non-AI automated system (CI/CD, cron, webhook).
         HYBRID_TEAM: A human+AI collaborative unit acting as a single actor.
-        SYSTEM: The Company Brain infrastructure itself (maintenance, consolidation).
+        SYSTEM: The Company Brain infrastructure itself (maintenance, synthesis).
     """
 
     HUMAN = "human"
@@ -85,14 +85,14 @@ class AssertionType(StrEnum):
         RAW_DATA: Direct observation from a system of record (CRM, HRIS, git).
         AGENT_INFERENCE: An AI agent's derived conclusion or interpretation.
         HUMAN_JUDGMENT: A human's explicit assessment or decision.
-        CONSOLIDATED: Result of the ConsolidationEngine distillation process.
+        SYNTHESIZED: Result of the SynthesisEngine distillation process.
         EXTERNAL_IMPORT: Data imported from an external system without verification.
     """
 
     RAW_DATA = "raw_data"
     AGENT_INFERENCE = "agent_inference"
     HUMAN_JUDGMENT = "human_judgment"
-    CONSOLIDATED = "consolidated"
+    SYNTHESIZED = "synthesized"
     EXTERNAL_IMPORT = "external_import"
 
 

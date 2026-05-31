@@ -3,8 +3,7 @@ import contextlib
 import logging
 from typing import Any
 
-from pydantic import BaseModel
-from agent_utilities.models.company_brain import ConflictStatus, TrustHierarchyEntry
+from agent_utilities.models.company_brain import ConflictStatus
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,7 @@ class RuleSynthesizerDaemon:
     def __init__(self, engine: Any):
         self.engine = engine
         self._running = False
-        self._task = None
+        self._task: asyncio.Task[Any] | None = None
 
     async def start(self):
         """Start the background daemon loop."""
@@ -66,7 +65,7 @@ class RuleSynthesizerDaemon:
 
         for record in results:
             conflict = record.get("c", {})
-            target_node = record.get("n", {})
+            record.get("n", {})
 
             # 2. Penalize failing source
             losing_source = conflict.get("losing_source_system")

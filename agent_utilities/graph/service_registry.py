@@ -243,7 +243,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
     {
         "module": "agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine",
         "entry": "KGNativeRetrievalRetriever",
-        "capability": "unified_retrieval",
+        "capability": "graph_retrieval",
         "layer": "kg_intelligence",
         "domain": "general",
         "desc": "KG-native retrieval (KG-2.38)",
@@ -523,7 +523,7 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "domain": "finance",
         "desc": "Gaussian HMM latent regime detection (KG-2.6)",
     },
-    # --- Consolidated Engine Facades ---
+    # --- Synthesized Engine Facades ---
     {
         "module": "agent_utilities.observability",
         "entry": "TelemetryEngine",

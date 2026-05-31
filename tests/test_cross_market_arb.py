@@ -6,6 +6,8 @@ import pytest
 from agent_utilities.domains.finance.cross_market_arb import (
     CointegrationAnalyzer,
     OrnsteinUhlenbeckModel,
+    CostAwareThresholdFilter,
+    EventArbitrageEngine,
 )
 
 
@@ -47,3 +49,28 @@ class TestOrnsteinUhlenbeckModel:
         spread = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
         res = OrnsteinUhlenbeckModel.calibrate(spread, 1.0)
         assert res["theta"] == 0.0
+
+
+class TestPredictionMarketArbitrage:
+    def test_cost_aware_threshold(self):
+        # Model: 0.60, Market: 0.50, Cost: 0.08
+        # Edge = 0.10 >= 0.08 (True)
+        assert CostAwareThresholdFilter.passes_threshold(0.60, 0.50, 0.08) is True
+
+        # Model: 0.55, Market: 0.50, Cost: 0.08
+        # Edge = 0.05 < 0.08 (False)
+        assert CostAwareThresholdFilter.passes_threshold(0.55, 0.50, 0.08) is False
+
+    def test_event_arbitrage_engine(self):
+        # Model: 0.70
+        # Market A: 0.60 (Edge 0.10) -> Valid
+        # Market B: 0.65 (Edge 0.05) -> Invalid (below 0.08 threshold)
+        ops = EventArbitrageEngine.evaluate_dual_markets(
+            model_probability=0.70,
+            market_a_price=0.60,
+            market_b_price=0.65,
+            execution_costs=0.08
+        )
+        assert "market_a" in ops
+        assert "market_b" not in ops
+        assert np.isclose(ops["market_a"], 0.10)
