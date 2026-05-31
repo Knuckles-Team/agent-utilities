@@ -68,7 +68,10 @@ class GraphComputeEngine:
                 # if the graph doesn't exist in the Rust backend yet.
                 self._client.tenants.create(graph_name)
         except Exception as e:
-            logger.warning(f"Failed to create tenant graph {graph_name}: {repr(e)}")
+            if "already exists" in str(e).lower():
+                logger.debug(f"Tenant graph {graph_name} already exists.")
+            else:
+                logger.warning(f"Failed to create tenant graph {graph_name}: {repr(e)}")
             pass
 
         # Bridging local events to the rust service when kafka isn't running

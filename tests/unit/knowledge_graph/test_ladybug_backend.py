@@ -82,6 +82,29 @@ def test_ladybug_backend_cleanup_corrupted(temp_db_dir):
         assert not shm_path.exists()
 
 
+def test_ladybug_backend_self_heal_invalid_lbug(temp_db_dir):
+    db_path = temp_db_dir / "invalid.db"
+    db_path.write_text("invalid data")
+
+    with patch("ladybug.Database") as mock_db, patch("ladybug.Connection"):
+        # Force 'not a valid lbug' error on first 3 calls, then success
+        # The first 2 calls will attempt WAL cleanup, the 3rd will trigger renaming the file
+        mock_db.side_effect = [
+            Exception("Unable to open database. The file is not a valid Lbug database file!"),
+            Exception("Unable to open database. The file is not a valid Lbug database file!"),
+            Exception("Unable to open database. The file is not a valid Lbug database file!"),
+            MagicMock()
+        ]
+
+        backend = LadybugBackend(str(db_path))
+        backend._ensure_connection()
+
+        # The original db file should be renamed to .corrupted
+        corrupted_path = db_path.with_suffix(".corrupted")
+        assert corrupted_path.exists()
+        assert corrupted_path.read_text() == "invalid data"
+
+
 def test_ladybug_backend_disabled_backup(temp_db_dir):
     db_path = str(temp_db_dir / "test.db")
     with open(db_path, "w") as f:
