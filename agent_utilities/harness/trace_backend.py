@@ -286,12 +286,95 @@ class OTelTraceBackend(TraceBackend):
         return traces
 
     async def get_trace_summary(self, trace_id: str) -> dict[str, Any]:
-        """Stub: OTel trace summary extraction."""
-        return {"id": trace_id, "status": "unknown", "error": "not_implemented"}
+        """Get a lightweight trace summary from OTel/Logfire."""
+        # 1. First search in exported directory files
+        if self.export_dir:
+            import glob
+            import json
+
+            for path in glob.glob(os.path.join(self.export_dir, "*.json")):
+                try:
+                    with open(path) as f:
+                        data = json.load(f)
+                    trace_list = data if isinstance(data, list) else [data]
+                    for t in trace_list:
+                        if isinstance(t, dict) and (
+                            t.get("id") == trace_id
+                            or t.get("traceId") == trace_id
+                            or t.get("trace_id") == trace_id
+                        ):
+                            return self._format_otel_summary(t, trace_id)
+                except Exception as e:
+                    logger.debug(f"Failed to parse trace file {path}: {e}")
+
+        # 2. If endpoint is configured, try querying the endpoint (e.g. Jaeger API or local server)
+        if self.endpoint:
+            import httpx
+
+            try:
+                url = f"{self.endpoint.rstrip('/')}/api/traces/{trace_id}"
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(url, timeout=5.0)
+                    if resp.status_code == 200:
+                        t_data = resp.json()
+                        if (
+                            "data" in t_data
+                            and isinstance(t_data["data"], list)
+                            and t_data["data"]
+                        ):
+                            return self._format_otel_summary(
+                                t_data["data"][0], trace_id
+                            )
+            except Exception as e:
+                logger.debug(
+                    f"Failed to fetch trace from endpoint {self.endpoint}: {e}"
+                )
+
+        return {"id": trace_id, "status": "unknown", "error": "trace_not_found"}
+
+    def _format_otel_summary(
+        self, trace: dict[str, Any], trace_id: str
+    ) -> dict[str, Any]:
+        """Format an OTel trace dict into a standard summary structure."""
+        name = trace.get("name") or trace.get("traceName") or ""
+        duration = (
+            trace.get("duration")
+            or trace.get("latency")
+            or trace.get("duration_ms")
+            or 0
+        )
+        status = trace.get("status") or trace.get("statusMessage") or "unknown"
+
+        usage = trace.get("usageDetails") or trace.get("usage") or {}
+        input_tokens = usage.get("input") or usage.get("prompt_tokens") or 0
+        output_tokens = usage.get("output") or usage.get("completion_tokens") or 0
+
+        score = trace.get("score") or trace.get("value") or 0.0
+        if not score and "scores" in trace:
+            scores_dict = trace["scores"]
+            if isinstance(scores_dict, dict) and scores_dict:
+                score = list(scores_dict.values())[0]
+            elif isinstance(scores_dict, list) and scores_dict:
+                score = scores_dict[0].get("value", 0.0)
+
+        return {
+            "id": trace_id,
+            "name": name,
+            "status": status,
+            "duration_ms": duration,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "score": float(score),
+            "error": None if status in ("ok", "success") else status,
+        }
 
     async def get_trace_scores(self, trace_ids: list[str]) -> dict[str, float]:
-        """Stub: scores not natively available in OTel."""
-        return {tid: 0.0 for tid in trace_ids}
+        """Fetch scores from OTel/Logfire traces."""
+        scores: dict[str, float] = {}
+        for tid in trace_ids:
+            summary = await self.get_trace_summary(tid)
+            scores[tid] = summary.get("score", 0.0)
+        return scores
 
 
 class FileTraceBackend(TraceBackend):

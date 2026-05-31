@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.34.2"
+version = "0.34.3"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -24,7 +24,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
 
     "ladybug>=0.16.0",
-    "epistemic-graph>=0.17.1",
+    "epistemic-graph>=0.17.3",
     "cryptography>=48.0.0",
     "pathspec",
     "platformdirs>=4.0.0",
