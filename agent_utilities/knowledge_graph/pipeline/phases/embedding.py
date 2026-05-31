@@ -26,7 +26,7 @@ def _generate_embedding_batch(texts: list[str]) -> list[list[float]] | None:
         DEFAULT_EMBEDDING_MODEL_ID,
     )
 
-    url = DEFAULT_EMBEDDING_BASE_URL or "http://localhost:1234/v1"
+    url = DEFAULT_EMBEDDING_BASE_URL or "http://vllm-embed.arpa/v1"
     model = DEFAULT_EMBEDDING_MODEL_ID
 
     try:

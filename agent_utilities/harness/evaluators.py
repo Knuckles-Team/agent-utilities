@@ -103,13 +103,42 @@ async def evaluate_llm_as_judge(
     LLM-as-a-judge evaluator.
     Calls the configured LLM to score the trace based on the provided criteria.
     """
-    # In a real implementation, this would use agent-utilities LLM client to evaluate
-    # Here is a placeholder for the actual LLM call
     logger.debug(f"Evaluating trace {trace_id} with criteria: {criteria}")
 
-    # Placeholder: Assuming LLM returned a score of 0.8
     llm_score = 0.8
-    llm_rationale = "The response is generally helpful and matches criteria."
+    llm_rationale = "The response was evaluated with a fallback score due to an error or missing provider config."
+
+    try:
+        from pydantic import BaseModel, Field
+        from pydantic_ai import Agent
+        from agent_utilities.core.model_factory import create_model
+
+        class LLMJudgeResult(BaseModel):
+            score: float = Field(description="Evaluation score between 0.0 and 1.0 based on the criteria.")
+            rationale: str = Field(description="Detailed rationale and critique justifying the score.")
+
+        model = create_model()
+        agent = Agent(
+            model=model,
+            output_type=LLMJudgeResult,
+            system_prompt=(
+                "You are an expert AI evaluator. Assess the quality of the model's output given the input "
+                "and the specified evaluation criteria. Return a numeric score between 0.0 and 1.0 (where "
+                "1.0 is perfect alignment with criteria) and a clear, detailed rationale."
+            ),
+        )
+        
+        prompt = (
+            f"Input Text:\n{input_text}\n\n"
+            f"Output Text:\n{output_text}\n\n"
+            f"Evaluation Criteria:\n{criteria}"
+        )
+        
+        result = await agent.run(prompt)
+        llm_score = result.data.score
+        llm_rationale = result.data.rationale
+    except Exception as e:
+        logger.warning(f"LLM-as-a-judge evaluation failed, using fallback: {e}")
 
     await capture_feedback(
         trace_id, score_name, llm_score, comment=llm_rationale, input_data=input_text

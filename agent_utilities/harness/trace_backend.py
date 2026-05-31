@@ -257,8 +257,34 @@ class OTelTraceBackend(TraceBackend):
         """
         if self.export_dir:
             return self._read_exported_traces(round_id)
+        
+        if self.endpoint:
+            import httpx
+            try:
+                query_url = self.endpoint.replace("4318", "16686").replace("4317", "16686").rstrip("/")
+                if not query_url.endswith("/api/traces"):
+                    query_url += "/api/traces"
+                if not query_url.startswith("http"):
+                    query_url = f"http://{query_url}"
+
+                params = {"service": "agent-utilities", "tags": f'{{"round_id":"{round_id}"}}'}
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(query_url, params=params, timeout=5.0)
+                    if response.status_code == 200:
+                        data = response.json()
+                        traces: list[dict[str, Any]] = []
+                        for trace in data.get("data", []):
+                            traces.append({
+                                "id": trace.get("traceID"),
+                                "round_id": round_id,
+                                "spans": trace.get("spans", []),
+                            })
+                        return traces
+            except Exception as e:
+                logger.warning(f"Failed to query live OTLP endpoint: {e}")
+        
         logger.warning(
-            "OTelTraceBackend: OTLP query not yet implemented. "
+            "OTelTraceBackend: OTLP query could not resolve endpoint or query failed. "
             "Set export_dir for file-based ingestion."
         )
         return []
