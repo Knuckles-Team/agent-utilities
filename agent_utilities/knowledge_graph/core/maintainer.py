@@ -11,13 +11,18 @@ from typing import Any
 
 import requests
 
+from agent_utilities.core.config import (
+    DEFAULT_EMBEDDING_BASE_URL,
+    DEFAULT_EMBEDDING_MODEL_ID,
+)
 from .engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 
-# LM Studio default configuration
-LM_STUDIO_URL = "http://localhost:1234/v1/embeddings"
-EMBEDDING_MODEL = "nomic-embed-text-v1.5"
+# Default configuration using model registry with fallback to native vLLM embeddings
+_base_url = (DEFAULT_EMBEDDING_BASE_URL or "http://vllm-embed.arpa/v1").rstrip("/")
+LM_STUDIO_URL = f"{_base_url}/embeddings"
+EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL_ID or "bge-m3"
 
 
 def generate_embedding(text: str) -> list[float] | None:

@@ -77,7 +77,7 @@ def create_embedding_model(
         base_url
         or (_embed_cfg.base_url if _embed_cfg else None)
         or (_chat_cfg.base_url if _chat_cfg else None)
-        or "http://localhost:1234/v1"
+        or "http://vllm-embed.arpa/v1"
     )
     api_key_str = (
         api_key
