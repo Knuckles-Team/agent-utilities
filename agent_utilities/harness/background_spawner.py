@@ -12,8 +12,6 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from ..orchestration.engine import AgentOrchestrationEngine
-
 if TYPE_CHECKING:
     pass
 
@@ -34,6 +32,8 @@ class BackgroundAgentSpawner:
             engine: An IntelligenceGraphEngine instance.
         """
         self.engine = engine
+        from ..orchestration.engine import AgentOrchestrationEngine
+
         self.orchestrator = AgentOrchestrationEngine(engine=self.engine)
         self.poll_interval_sec = 60
         self._running = False

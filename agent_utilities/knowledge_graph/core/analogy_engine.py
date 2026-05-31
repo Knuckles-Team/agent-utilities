@@ -142,14 +142,14 @@ class TopologicalAnalogyEngine:
 
         seen_names = set()
         for mapping in mappings:
-            # mapping is a dict mapping main_idx -> target_idx
+            # mapping is a dict mapping target_idx -> main_idx
             total_sim = 0.0
             matched_nodes_count = len(mapping)
             if matched_nodes_count == 0:
                 continue
 
             pairs = []
-            for main_idx, target_idx in mapping.items():
+            for target_idx, main_idx in mapping.items():
                 n_main = main_rx[main_idx]
                 n_target = target_rx[target_idx]
                 emb_main = get_embedding(n_main)

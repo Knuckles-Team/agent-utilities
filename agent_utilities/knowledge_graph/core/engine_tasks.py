@@ -6,7 +6,7 @@ import re
 import threading
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -633,6 +633,32 @@ class TaskManagerMixin(GraphEngineProtocol):
                         IntelligenceGraphEngine,
                     )
 
+                    # 4.5. Log OptimizationTrajectoryNode throughput
+                    throughput = 0
+                    try:
+                        throughput_query = self.query_cypher(
+                            "MATCH (n:OptimizationTrajectory) WHERE n.created_at >= $timestamp "
+                            "RETURN count(n) AS throughput",
+                            params={
+                                "timestamp": (
+                                    cycle_start - timedelta(seconds=EVOLUTION_INTERVAL)
+                                ).isoformat()
+                            },
+                        )
+                        throughput = (
+                            throughput_query[0].get("throughput", 0)
+                            if throughput_query
+                            else 0
+                        )
+                        logger.info(
+                            "EvolutionDaemon: OptimizationTrajectoryNode throughput = %d",
+                            throughput,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"EvolutionDaemon: failed to get throughput: {e}"
+                        )
+
                     if isinstance(self, IntelligenceGraphEngine):
                         self.add_node(
                             node_id=cycle_id,
@@ -642,6 +668,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                                 "topics_scanned": topic_count,
                                 "papers_scored": papers_scored,
                                 "primary_codebase": primary_codebase or "unknown",
+                                "optimization_throughput": throughput,
                                 "created_at": cycle_start.isoformat(),
                             },
                         )
@@ -666,7 +693,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                             runner = WorkflowRunner()
                             asyncio.run(
-                                runner.execute_by_name(
+                                runner.execute_workflow(
                                     "telemetry_ingestion",
                                     engine=self,  # type: ignore[arg-type]
                                 )
@@ -1941,6 +1968,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         results = self.query_cypher(
             "MATCH (t:Task) RETURN t.id as id, t.status as status, t.metadata as meta"
         )
+        print(f"DEBUG: list_tasks results: {results}")
         response: dict[str, Any] = {
             "running": [],
             "pending": [],

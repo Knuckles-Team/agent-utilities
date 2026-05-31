@@ -41,6 +41,7 @@ class MockEngine:
 
     def __init__(self):
         self.graph = GraphComputeEngine(backend_type="rust")
+        self.graph_compute = self.graph
         self.backend = MockBackend(self.graph)
 
     def search(self, query: str, top_k: int = 10, node_types=None):
@@ -163,7 +164,7 @@ def _build_mock_engine_with_templates() -> MockEngine:
         model_preference="gpt-4o-mini",
         execution_tier="lite",
         step_order=0,
-        parallel=False,
+        is_parallel=False,
         max_retries=2,
         description="Research specialist for web queries",
     )
@@ -178,7 +179,7 @@ def _build_mock_engine_with_templates() -> MockEngine:
         model_preference="gpt-4o",
         execution_tier="standard",
         step_order=1,
-        parallel=False,
+        is_parallel=False,
         max_retries=2,
         description="Python programming specialist",
     )
@@ -193,7 +194,7 @@ def _build_mock_engine_with_templates() -> MockEngine:
         model_preference="",
         execution_tier="standard",
         step_order=2,
-        parallel=False,
+        is_parallel=False,
         max_retries=1,
         description="Code review specialist",
     )
@@ -220,7 +221,7 @@ def _build_mock_engine_parallel() -> MockEngine:
         toolset_ids=[],
         model_preference="",
         step_order=0,
-        parallel=True,
+        is_parallel=True,
         description="Web research specialist",
     )
     g.add_node(
@@ -232,7 +233,7 @@ def _build_mock_engine_parallel() -> MockEngine:
         toolset_ids=[],
         model_preference="",
         step_order=0,
-        parallel=True,
+        is_parallel=True,
         description="Documentation research specialist",
     )
     g.add_node(
@@ -244,7 +245,7 @@ def _build_mock_engine_parallel() -> MockEngine:
         toolset_ids=[],
         model_preference="",
         step_order=1,
-        parallel=False,
+        is_parallel=False,
         description="Synthesizes results from parallel research",
     )
 
@@ -515,7 +516,7 @@ class TestAgentTemplateNodeModel:
         assert node.role == ""
         assert node.execution_tier == "standard"
         assert node.step_order == 0
-        assert node.parallel is False
+        assert node.is_parallel is False
         assert node.max_retries == 2
 
     def test_full_initialization(self):
@@ -529,7 +530,7 @@ class TestAgentTemplateNodeModel:
             model_preference="gpt-4o",
             execution_tier="super",
             step_order=1,
-            parallel=False,
+            is_parallel=False,
             max_retries=3,
         )
         assert node.role == "python_programmer"

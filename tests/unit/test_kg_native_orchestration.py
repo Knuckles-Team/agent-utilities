@@ -14,6 +14,16 @@ Tests cover all 7 gaps:
 import pytest
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+
+@pytest.fixture(autouse=True)
+def setup_engine():
+    """Ensure IntelligenceGraphEngine is globally active for orchestration tests."""
+    if IntelligenceGraphEngine._ACTIVE_ENGINE is None:
+        compute = GraphComputeEngine(backend_type="rust")
+        IntelligenceGraphEngine(db_path=":memory:", graph=compute)
+
 
 # --- Gap 1: Team Composer ---
 
@@ -586,6 +596,7 @@ class TestEndToEndOrchestration:
 
         cp = StateCheckpointer(engine=engine)
         cp.checkpoint(MockState(), session_id="e2e-sess")
+
         restored = cp.restore("e2e-sess")
         assert restored is not None
         assert restored["query"] == "Analyze data"

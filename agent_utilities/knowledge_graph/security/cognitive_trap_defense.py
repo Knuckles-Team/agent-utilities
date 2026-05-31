@@ -80,15 +80,15 @@ class CognitiveTrapDefense:
                     scan_graph.add_edge(node_map[src], node_map[tgt], {})
 
         for i, trap_sig in enumerate(self.known_traps):
-            # Use rustworkx subgraph isomorphism check
-            is_match = rx.is_subgraph_isomorphic(
-                scan_graph,
-                trap_sig,
-                induced=False,
-            )
-            if is_match:
-                logger.warning(f"Cognitive Trap Signature {i} detected in graph!")
-                detected_traps.append({"trap_id": i, "mapping": {}})
+            mappings = rx.vf2_mapping(scan_graph, trap_sig, subgraph=True)
+            for mapping in mappings:
+                resolved_mapping = {}
+                for p_idx, g_idx in mapping.items():
+                    resolved_mapping[trap_sig[p_idx]] = scan_graph[g_idx]
+                logger.warning(
+                    f"Cognitive Trap Signature {i} detected in graph: {resolved_mapping}"
+                )
+                detected_traps.append({"trap_id": i, "mapping": resolved_mapping})
 
         return detected_traps
 
@@ -102,9 +102,15 @@ class CognitiveTrapDefense:
         neutralized_count = 0
 
         for trap in traps:
-            # Since we can't get exact mappings from rustworkx is_subgraph_isomorphic,
-            # we log the detection and increment the count
-            logger.info(f"Detected trap {trap['trap_id']} — manual review recommended")
+            mapping = trap.get("mapping", {})
+            if "Center" in mapping:
+                center_node = mapping["Center"]
+                if center_node in self.engine.graph:
+                    self.engine.graph.remove_node(center_node)
+            elif "A" in mapping:
+                node_a = mapping["A"]
+                if node_a in self.engine.graph:
+                    self.engine.graph.remove_node(node_a)
             neutralized_count += 1
 
         return neutralized_count

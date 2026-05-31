@@ -145,44 +145,120 @@ class InferenceEngine:
 
             ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-            # Collect all edges by type for transitive closure
+            # Collect all edges with their properties/types
             all_edges = self.engine.graph._get_all_edges()
+            raw_edges = []
+            for src, tgt in all_edges:
+                props = self.engine.graph._get_edge_properties(src, tgt)
+                raw_edges.append((src, tgt, props))
 
             # Helper for transitive closure on a given edge type
             def _transitive_closure(
                 edge_type: str, inferred_type: str, rule_name: str
             ) -> int:
-                # Build adjacency from edge type (we don't have edge properties in GCE,
-                # so we approximate by using all successors)
+                # Build adjacency only for the specified edge type (case-insensitive)
                 typed_adj: dict[str, list[str]] = {}
-                for u, v in all_edges:
-                    typed_adj.setdefault(u, []).append(v)
+                for u, v, props in raw_edges:
+                    e_type = props.get("type", "") if isinstance(props, dict) else ""
+                    if e_type.upper() == edge_type.upper():
+                        typed_adj.setdefault(u, []).append(v)
 
                 count = 0
                 for n, successors in typed_adj.items():
                     for succ in successors:
                         for succ2 in typed_adj.get(succ, []):
-                            if (
-                                n != succ2
-                                and succ2 not in self.engine.graph.get_successors(n)
-                            ):
-                                self.engine.link_nodes(
-                                    n,
-                                    succ2,
-                                    inferred_type,
-                                    {
-                                        "inferred": True,
-                                        "inferred_from": rule_name,
-                                        "timestamp": ts,
-                                    },
-                                )
-                                count += 1
+                            if n != succ2:
+                                # Check if they are already linked with inferred_type
+                                already_linked = False
+                                for src, tgt, props in raw_edges:
+                                    if src == n and tgt == succ2:
+                                        e_type = (
+                                            props.get("type", "")
+                                            if isinstance(props, dict)
+                                            else ""
+                                        )
+                                        if e_type.upper() == inferred_type.upper():
+                                            already_linked = True
+                                            break
+                                if not already_linked:
+                                    self.engine.link_nodes(
+                                        n,
+                                        succ2,
+                                        inferred_type,
+                                        {
+                                            "inferred": True,
+                                            "inferred_from": rule_name,
+                                            "timestamp": ts,
+                                        },
+                                        ephemeral=True,
+                                    )
+                                    # Update raw_edges so nested closure sees it immediately if needed
+                                    raw_edges.append(
+                                        (n, succ2, {"type": inferred_type})
+                                    )
+                                    count += 1
                 return count
 
             # 1. DEPENDS_ON transitive closure
             new_inferences += _transitive_closure(
                 "DEPENDS_ON", "DEPENDS_ON_INDIRECT", "rule_transitive_deps"
             )
+
+            # 2. SKOS Broader transitive closure
+            new_inferences += _transitive_closure(
+                "broader", "broader", "rule_skos_broader_transitivity"
+            )
+
+            # 3. PROV-O was_derived_from transitive closure
+            new_inferences += _transitive_closure(
+                "was_derived_from",
+                "was_derived_from",
+                "rule_prov_derivation_transitivity",
+            )
+
+            # 4. Temporal Phase containment rule (occurred_during + part_of -> occurred_during)
+            def _temporal_phase_containment() -> int:
+                occurred_during_edges = []
+                part_of_edges: dict[str, list[str]] = {}
+
+                for u, v, props in raw_edges:
+                    e_type = props.get("type", "") if isinstance(props, dict) else ""
+                    if e_type.upper() == "OCCURRED_DURING":
+                        occurred_during_edges.append((u, v))
+                    elif e_type.upper() == "PART_OF":
+                        part_of_edges.setdefault(u, []).append(v)
+
+                count = 0
+                for e, p in occurred_during_edges:
+                    for pp in part_of_edges.get(p, []):
+                        if e != pp:
+                            already_linked = False
+                            for src, tgt, props in raw_edges:
+                                if src == e and tgt == pp:
+                                    e_type = (
+                                        props.get("type", "")
+                                        if isinstance(props, dict)
+                                        else ""
+                                    )
+                                    if e_type.upper() == "OCCURRED_DURING":
+                                        already_linked = True
+                                        break
+                            if not already_linked:
+                                self.engine.link_nodes(
+                                    e,
+                                    pp,
+                                    "occurred_during",
+                                    {
+                                        "inferred": True,
+                                        "inferred_from": "rule_temporal_phase_containment",
+                                        "timestamp": ts,
+                                    },
+                                    ephemeral=True,
+                                )
+                                count += 1
+                return count
+
+            new_inferences += _temporal_phase_containment()
 
             logger.info(f"InferenceEngine (GCE): Derived {new_inferences} new facts.")
 

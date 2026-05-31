@@ -99,6 +99,7 @@ def check_ontological_guardrails(
     tool_name: str,
     tool_args: dict[str, Any],
     engine: Any | None = None,
+    ctx: Any | None = None,
 ) -> bool:
     """Performs real-time OWL reasoning / classification on tool arguments.
 

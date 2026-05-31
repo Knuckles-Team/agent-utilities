@@ -25,6 +25,11 @@ class GraphNode(BaseModel):
     )
     importance_score: float = Field(default=0.5, ge=0.0, le=1.0)
 
+    @property
+    def id(self) -> str:
+        """Allow backwards compatibility access to node_id via .id"""
+        return self.node_id
+
     @model_validator(mode="after")
     def validate_labels_and_temporal(self) -> "GraphNode":
         if not self.labels:

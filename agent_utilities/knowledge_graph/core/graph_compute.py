@@ -67,8 +67,8 @@ class GraphComputeEngine:
                 # Try to create the graph so tests and dynamic instances don't fail
                 # if the graph doesn't exist in the Rust backend yet.
                 self._client.tenants.create(graph_name)
-        except Exception:
-            # Graph may already exist — that's fine.
+        except Exception as e:
+            logger.warning(f"Failed to create tenant graph {graph_name}: {repr(e)}")
             pass
 
         # Bridging local events to the rust service when kafka isn't running
@@ -435,12 +435,49 @@ class GraphComputeEngine:
     # ── Serialization ────────────────────────────────────────────────────
 
     def to_json(self) -> str:
-        """Serialize graph to JSON string representation."""
-        return self._client.lifecycle.to_json()
+        """Serialize the graph to a JSON string representation."""
+        nodes = []
+        for nid in self._get_all_nodes():
+            props = self._get_node_properties(nid)
+            nodes.append({"id": nid, "properties": props})
+
+        edges = []
+        for src, tgt in self._get_all_edges():
+            props = self._get_edge_properties(src, tgt)
+            edges.append({"source": src, "target": tgt, "properties": props})
+
+        return json.dumps({"nodes": nodes, "edges": edges}, default=str)
 
     def from_json(self, json_str: str) -> None:
-        """Deserialize graph from JSON string representation."""
-        self._client.lifecycle.from_json(json_str)
+        """Deserialize and rebuild the graph from a JSON string."""
+        data = json.loads(json_str)
+        # Clear existing graph nodes/edges via client if possible or just rebuild
+        for nid in self._get_all_nodes():
+            try:
+                self.remove_node(nid)
+            except Exception:
+                pass
+
+        # Re-add nodes
+        for node_data in data.get("nodes", []):
+            nid = node_data["id"]
+            props = node_data.get("properties", {})
+            self.add_node(nid, props)
+
+        # Re-add edges
+        for edge_data in data.get("edges", []):
+            src = edge_data["source"]
+            tgt = edge_data["target"]
+            props = edge_data.get("properties", {})
+            self.add_edge(src, tgt, props)
+
+    def to_msgpack(self) -> bytes:
+        """Serialize graph to MsgPack binary representation."""
+        return self._client.lifecycle.to_msgpack()
+
+    def from_msgpack(self, msgpack_bytes: bytes) -> None:
+        """Deserialize graph from MsgPack binary representation."""
+        self._client.lifecycle.from_msgpack(msgpack_bytes)
 
     # ── Internal Helpers ─────────────────────────────────────────────────
 
@@ -448,12 +485,12 @@ class GraphComputeEngine:
         return [nid for nid, _ in self._client.nodes.list()]
 
     def _get_node_properties(self, node_id: str) -> dict[str, Any]:
-        props_str = self._client.nodes.properties(node_id)
-        if props_str:
+        props = self._client.nodes.properties(node_id)
+        if isinstance(props, dict):
+            return props
+        if isinstance(props, str):
             try:
-                parsed = json.loads(props_str)
-                if isinstance(parsed, str):
-                    parsed = json.loads(parsed)
+                parsed = json.loads(props)
                 return parsed if isinstance(parsed, dict) else {}
             except Exception:
                 return {}
@@ -692,13 +729,15 @@ class GraphComputeEngine:
         """Retrieve edge properties between two nodes."""
         props_list = self._client.edges.properties(source_id, target_id)
         if props_list:
-            try:
-                parsed = json.loads(props_list[0])
-                if isinstance(parsed, str):
-                    parsed = json.loads(parsed)
-                return parsed if isinstance(parsed, dict) else {}
-            except Exception:
-                return {}
+            props = props_list[0]
+            if isinstance(props, dict):
+                return props
+            if isinstance(props, str):
+                try:
+                    parsed = json.loads(props)
+                    return parsed if isinstance(parsed, dict) else {}
+                except Exception:
+                    return {}
         return {}
 
     def __contains__(self, node_id: str) -> bool:

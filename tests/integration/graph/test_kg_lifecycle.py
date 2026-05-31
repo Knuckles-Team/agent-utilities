@@ -201,7 +201,23 @@ def test_task_submit_and_list(engine):
     )
     assert job_id.startswith("job-")
 
+    # The background worker thread is disabled during tests (AGENT_UTILITIES_TESTING),
+    # so we manually process the queue item to add the task node to the graph.
+    item = engine._submission_queue.get()
+    if item:
+        item_id, task_data = item
+        print(f"DEBUG: add_node calling with {task_data}")
+        engine.add_node(task_data["job_id"], "Task", properties=task_data["props"])
+        engine._submission_queue.ack(item_id)
+
+    try:
+        res = engine.backend.execute("MATCH (t:Task) RETURN t")
+        print(f"DEBUG: MATCH (t:Task) RETURN t => {res}")
+    except Exception as e:
+        print(f"DEBUG: MATCH (t:Task) RETURN t ERROR => {e}")
+
     tasks = engine.list_tasks()
+    print(f"DEBUG: tasks => {tasks}")
     all_jobs = tasks["pending"] + tasks["running"]
     assert any(j["job_id"] == job_id for j in all_jobs), (
         "Submitted task must appear in list"

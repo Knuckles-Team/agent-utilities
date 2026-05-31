@@ -153,7 +153,7 @@ def start_epistemic_graph_server():
                 "run",
                 "--all-features",
                 "--bin",
-                "epistemic-graph",
+                "epistemic-graph-server",
                 "--",
                 "--socket-path",
                 socket_path,
@@ -164,10 +164,21 @@ def start_epistemic_graph_server():
         )
 
         # Wait for socket to be ready
-        for _ in range(30):
+        for _ in range(60):
+            if process.poll() is not None:
+                log_file.flush()
+                with open(log_file.name, "r") as f:
+                    logs = f.read()
+                raise RuntimeError(
+                    f"epistemic-graph-server crashed on startup.\nLogs:\n{logs}"
+                )
             if os.path.exists(socket_path):
                 break
             time.sleep(0.5)
+        else:
+            raise RuntimeError(
+                "epistemic-graph-server failed to create socket in time."
+            )
 
         # Set environment variable so the client connects to this socket
         os.environ["GRAPH_SERVICE_SOCKET"] = socket_path
@@ -186,9 +197,7 @@ def start_epistemic_graph_server():
 import sys
 from unittest.mock import MagicMock
 
-sys.modules["numpy"] = MagicMock()
-sys.modules["numpy"].bool_ = bool
-sys.modules["numpy.random"] = MagicMock()
+# Removed numpy mocks to prevent PyBind11 PyCapsule crash
 sys.modules["scipy"] = MagicMock()
 sys.modules["scipy.stats"] = MagicMock()
 sys.modules["pandas"] = MagicMock()
@@ -203,3 +212,6 @@ sys.modules["torch"] = MagicMock()
 sys.modules["torch.nn"] = MagicMock()
 sys.modules["sklearn.metrics"] = MagicMock()
 sys.modules["sklearn.preprocessing"] = MagicMock()
+
+for mod_name in ["pandas", "torch", "scipy", "sklearn"]:
+    sys.modules[mod_name].__version__ = "2.2.0"  # type: ignore

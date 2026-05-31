@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.30.0"
+version = "0.31.0"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -24,7 +24,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
 
     "ladybug>=0.16.0",
-    "epistemic-graph>=0.13.0",
+    "epistemic-graph>=0.14.0",
     "cryptography>=48.0.0",
     "pathspec",
     "platformdirs>=4.0.0",
@@ -52,8 +52,8 @@ mcp = [
 ]
 agent = [
     "agent-utilities[mcp,ag-ui,terminal]>=0.30.0",
-    "universal-skills>=0.31.0",
-    "skill-graphs>=0.27.0",
+    "universal-skills>=0.32.0",
+    "skill-graphs>=0.28.0",
     "pydantic-ai-skills>=0.10.0",
     "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.90.0,<2.0.0",
     "pydantic-graph>=1.0.0"

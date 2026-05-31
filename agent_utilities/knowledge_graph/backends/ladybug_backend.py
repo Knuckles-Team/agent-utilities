@@ -300,7 +300,7 @@ class LadybugBackend(GraphBackend):
                     abs_db_path = (
                         os.path.abspath(self.db_path)
                         if self.db_path != ":memory:"
-                        else ":memory:"
+                        else f":memory:{id(self.db)}"
                     )
                     with _SYNCHRONIZED_DB_PATHS_LOCK:
                         already_synced = abs_db_path in _SYNCHRONIZED_DB_PATHS
@@ -658,8 +658,10 @@ class LadybugBackend(GraphBackend):
                     else:
                         logger.error(f"LadybugDB binder issue (invalid property?): {e}")
                 else:
+                    import traceback
+
                     logger.error(
-                        f"LadybugDB Cypher execution failed: {e}\nQuery: {query}"
+                        f"LadybugDB Cypher execution failed: {e}\nTraceback: {traceback.format_exc()}\nQuery: {query}"
                     )
                 return []
 

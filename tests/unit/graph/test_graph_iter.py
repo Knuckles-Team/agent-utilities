@@ -72,7 +72,7 @@ class _FakeGraphTask:
     """Simulates a GraphTask for testing."""
 
     def __init__(self, node_id: str, task_id: str = "task:0"):
-        self.id = node_id
+        self.node_id = node_id
         self.task_id = task_id
 
 
@@ -125,7 +125,7 @@ async def test_run_graph_iter_yields_node_transitions():
     events = []
     with (
         patch(
-            "agent_utilities.orchestration.graph_orchestrator.load_node_agents_registry"
+            "agent_utilities.graph.config_helpers.load_node_agents_registry"
         ) as mock_registry,
         patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker),
     ):
@@ -161,7 +161,7 @@ async def test_run_graph_iter_state_snapshots():
     events = []
     with (
         patch(
-            "agent_utilities.orchestration.graph_orchestrator.load_node_agents_registry"
+            "agent_utilities.graph.config_helpers.load_node_agents_registry"
         ) as mock_registry,
         patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker),
     ):
@@ -192,7 +192,7 @@ async def test_run_graph_iter_handles_error():
 
     events = []
     with patch(
-        "agent_utilities.orchestration.graph_orchestrator.load_node_agents_registry"
+        "agent_utilities.graph.config_helpers.load_node_agents_registry"
     ) as mock_registry:
         mock_registry.return_value = MagicMock(agents=[])
 
@@ -246,7 +246,7 @@ async def test_run_graph_iter_drains_sideband():
     events = []
     with (
         patch(
-            "agent_utilities.orchestration.graph_orchestrator.load_node_agents_registry"
+            "agent_utilities.graph.config_helpers.load_node_agents_registry"
         ) as mock_registry,
         patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker),
     ):

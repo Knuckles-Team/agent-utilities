@@ -1,0 +1,128 @@
+mypy.....................................................................[41mFailed[m
+[2m- hook id: mypy[m
+[2m- exit code: 1[m
+
+agent_utilities/knowledge_graph/core/formal_reasoning_core.py:1322: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"BeliefState"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/formal_reasoning_core.py:1352: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"BeliefState"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:69: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"KGMutation"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:74: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"KGMutation"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:79: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"KGMutation"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:182: [1m[31merror:(B[m (B[m[1m"KGMutation"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:183: [1m[31merror:(B[m (B[m[1m"KGMutation"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:184: [1m[31merror:(B[m (B[m[1m"KGMutation"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:187: [1m[31merror:(B[m (B[m[1m"KGMutation"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:188: [1m[31merror:(B[m (B[m[1m"KGMutation"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:189: [1m[31merror:(B[m (B[m[1m"KGMutation"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:192: [1m[31merror:(B[m (B[m[1m"KGMutation"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/kg_versioning.py:193: [1m[31merror:(B[m (B[m[1m"KGMutation"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/harness/contract_validator.py:57: [1m[31merror:(B[m (B[m[1m"ToolContract"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/workflows/visualizer.py:74: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"add_node"(B[m of (B[m[1m"FlowchartBuilder"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/workflows/visualizer.py:74: [34mnote:(B[m (B[m[1m"add_node"(B[m defined in (B[m[1m"agent_utilities.observability.mermaid"(B[m(B[m
+agent_utilities/knowledge_graph/core/company_brain.py:90: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"VersionVector"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:90: [34mnote:(B[m (B[m[1m"VersionVector"(B[m defined in (B[m[1m"agent_utilities.models.company_brain"(B[m(B[m
+agent_utilities/knowledge_graph/core/company_brain.py:124: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"CASResult"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:124: [34mnote:(B[m (B[m[1m"CASResult"(B[m defined in (B[m[1m"agent_utilities.models.company_brain"(B[m(B[m
+agent_utilities/knowledge_graph/core/company_brain.py:133: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"CASResult"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:133: [34mnote:(B[m (B[m[1m"CASResult"(B[m defined in (B[m[1m"agent_utilities.models.company_brain"(B[m(B[m
+agent_utilities/knowledge_graph/core/company_brain.py:361: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ConflictNode"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:361: [34mnote:(B[m (B[m[1m"ConflictNode"(B[m defined in (B[m[1m"agent_utilities.models.company_brain"(B[m(B[m
+agent_utilities/knowledge_graph/core/company_brain.py:474: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ProvenanceRecord"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:474: [34mnote:(B[m (B[m[1m"ProvenanceRecord"(B[m defined in (B[m[1m"agent_utilities.models.company_brain"(B[m(B[m
+agent_utilities/knowledge_graph/core/company_brain.py:513: [1m[31merror:(B[m (B[m[1m"ProvenanceRecord"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:644: [1m[31merror:(B[m (B[m[1m"NodeACL"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:661: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"PermissionCheckResult"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:661: [34mnote:(B[m (B[m[1m"PermissionCheckResult"(B[m defined in (B[m[1m"agent_utilities.models.company_brain"(B[m(B[m
+agent_utilities/knowledge_graph/core/company_brain.py:695: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"PermissionCheckResult"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:695: [34mnote:(B[m (B[m[1m"PermissionCheckResult"(B[m defined in (B[m[1m"agent_utilities.models.company_brain"(B[m(B[m
+agent_utilities/knowledge_graph/core/company_brain.py:727: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"NodeACL"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/company_brain.py:727: [34mnote:(B[m (B[m[1m"NodeACL"(B[m defined in (B[m[1m"agent_utilities.models.company_brain"(B[m(B[m
+tests/harness/test_stateful_harness.py:134: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ToolContract"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/harness/tracing.py:152: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"description"(B[m for (B[m[1m"_emit_trace"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/harness/tracing.py:171: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"description"(B[m for (B[m[1m"_emit_trace"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/harness/tracing.py:216: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"description"(B[m for (B[m[1m"_emit_trace"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/harness/tracing.py:235: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"description"(B[m for (B[m[1m"_emit_trace"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/harness/evaluators.py:47: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"description"(B[m for (B[m[1m"add_to_dataset"(B[m of (B[m[1m"LangfuseTraceBackend"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/harness/evaluators.py:47: [34mnote:(B[m (B[m[1m"add_to_dataset"(B[m defined in (B[m[1m"agent_utilities.harness.trace_backend"(B[m(B[m
+agent_utilities/harness/evaluators.py:114: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"description"(B[m for (B[m[1m"capture_feedback"(B[m  (B[m[33m[call-arg](B[m
+tests/unit/test_evolutionary_memory.py:101: [1m[31merror:(B[m (B[m[1m"DriftReport"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/integrations/sparql_ingestor.py:62: [1m[31merror:(B[m Missing positional argument (B[m[1m"node_id"(B[m in call to (B[m[1m"add_node"(B[m of (B[m[1m"GraphComputeEngine"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/integrations/sparql_ingestor.py:87: [1m[31merror:(B[m Missing positional argument (B[m[1m"node_id"(B[m in call to (B[m[1m"add_node"(B[m of (B[m[1m"GraphComputeEngine"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/kb/x_ingestion.py:271: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"_ingest_article"(B[m of (B[m[1m"XIngestionBridge"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:305: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:323: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:339: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:357: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:376: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:395: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:416: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:426: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:443: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:456: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:469: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:488: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:501: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:528: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:547: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:568: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/security/graph_validator.py:597: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ValidationIssue"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/pipeline/phases/validate.py:34: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"graph"(B[m for (B[m[1m"IntelligenceGraphEngine"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/pipeline/phases/validate.py:34: [34mnote:(B[m (B[m[1m"IntelligenceGraphEngine"(B[m defined in (B[m[1m"agent_utilities.knowledge_graph.core.engine"(B[m(B[m
+agent_utilities/knowledge_graph/core/conversation_ingestion.py:390: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"add_node"(B[m of (B[m[1m"IntelligenceGraphEngine"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/conversation_ingestion.py:390: [34mnote:(B[m (B[m[1m"add_node"(B[m defined in (B[m[1m"agent_utilities.knowledge_graph.core.engine"(B[m(B[m
+agent_utilities/knowledge_graph/core/conversation_ingestion.py:413: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"add_node"(B[m of (B[m[1m"IntelligenceGraphEngine"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/conversation_ingestion.py:413: [34mnote:(B[m (B[m[1m"add_node"(B[m defined in (B[m[1m"agent_utilities.knowledge_graph.core.engine"(B[m(B[m
+agent_utilities/__init__.py:127: [1m[31merror:(B[m Module (B[m[1m"agent_utilities.graph"(B[m has no attribute (B[m[1m"run_graph"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/__init__.py:127: [1m[31merror:(B[m Module (B[m[1m"agent_utilities.graph"(B[m has no attribute (B[m[1m"run_graph_stream"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/__init__.py:127: [1m[31merror:(B[m Module (B[m[1m"agent_utilities.graph"(B[m has no attribute (B[m[1m"validate_graph"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/engine_tasks.py:637: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"add_node"(B[m of (B[m[1m"IntelligenceGraphEngine"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/core/engine_tasks.py:637: [34mnote:(B[m (B[m[1m"add_node"(B[m defined in (B[m[1m"agent_utilities.knowledge_graph.core.engine"(B[m(B[m
+agent_utilities/graph/reactive/budget.py:174: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"append_event"(B[m of (B[m[1m"EventLedger"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/graph/reactive/budget.py:174: [34mnote:(B[m (B[m[1m"append_event"(B[m defined in (B[m[1m"agent_utilities.graph.reactive.ledger"(B[m(B[m
+agent_utilities/tools/tool_registry.py:122: [1m[31merror:(B[m Module (B[m[1m"agent_utilities.graph_orchestration"(B[m has no attribute (B[m[1m"run_graph"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/tools/self_improvement_tools.py:45: [1m[31merror:(B[m (B[m[1m"IntelligenceGraphEngine"(B[m has no attribute (B[m[1m"run_self_improvement_cycle"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/tools/self_improvement_tools.py:66: [1m[31merror:(B[m (B[m[1m"IntelligenceGraphEngine"(B[m has no attribute (B[m[1m"propose_new_skill_from_experience"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/server/routers/agent_ui.py:338: [1m[31merror:(B[m Module (B[m[1m"agent_utilities.graph_orchestration"(B[m has no attribute (B[m[1m"run_graph_stream"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/graph/builder.py:453: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+agent_utilities/graph/builder.py:561: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"agent_package_step"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/graph/builder.py:561: [34mnote:(B[m (B[m[1m"agent_package_step"(B[m defined in (B[m[1m"agent_utilities.graph.executor"(B[m(B[m
+tests/unit/knowledge_graph/test_kb_research.py:33: [1m[31merror:(B[m (B[m[1m"Source"(B[m has no attribute (B[m[1m"id"(B[m  (B[m[33m[attr-defined](B[m
+tests/test_reactive_framework.py:65: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"append_event"(B[m of (B[m[1m"EventLedger"(B[m  (B[m[33m[call-arg](B[m
+tests/test_reactive_framework.py:65: [34mnote:(B[m (B[m[1m"append_event"(B[m defined in (B[m[1m"agent_utilities.graph.reactive.ledger"(B[m(B[m
+tests/test_reactive_framework.py:84: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"append_event"(B[m of (B[m[1m"EventLedger"(B[m  (B[m[33m[call-arg](B[m
+tests/test_reactive_framework.py:84: [34mnote:(B[m (B[m[1m"append_event"(B[m defined in (B[m[1m"agent_utilities.graph.reactive.ledger"(B[m(B[m
+tests/test_reactive_framework.py:101: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"append_event"(B[m of (B[m[1m"EventLedger"(B[m  (B[m[33m[call-arg](B[m
+tests/test_reactive_framework.py:101: [34mnote:(B[m (B[m[1m"append_event"(B[m defined in (B[m[1m"agent_utilities.graph.reactive.ledger"(B[m(B[m
+tests/test_reactive_framework.py:102: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"append_event"(B[m of (B[m[1m"EventLedger"(B[m  (B[m[33m[call-arg](B[m
+tests/test_reactive_framework.py:102: [34mnote:(B[m (B[m[1m"append_event"(B[m defined in (B[m[1m"agent_utilities.graph.reactive.ledger"(B[m(B[m
+tests/test_reactive_framework.py:113: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"append_event"(B[m of (B[m[1m"EventLedger"(B[m  (B[m[33m[call-arg](B[m
+tests/test_reactive_framework.py:113: [34mnote:(B[m (B[m[1m"append_event"(B[m defined in (B[m[1m"agent_utilities.graph.reactive.ledger"(B[m(B[m
+tests/test_reactive_framework.py:114: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"append_event"(B[m of (B[m[1m"EventLedger"(B[m  (B[m[33m[call-arg](B[m
+tests/test_reactive_framework.py:114: [34mnote:(B[m (B[m[1m"append_event"(B[m defined in (B[m[1m"agent_utilities.graph.reactive.ledger"(B[m(B[m
+tests/test_reactive_framework.py:115: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"append_event"(B[m of (B[m[1m"EventLedger"(B[m  (B[m[33m[call-arg](B[m
+tests/test_reactive_framework.py:115: [34mnote:(B[m (B[m[1m"append_event"(B[m defined in (B[m[1m"agent_utilities.graph.reactive.ledger"(B[m(B[m
+tests/test_kg_graph_factory.py:518: [1m[31merror:(B[m (B[m[1m"AgentTemplateNode"(B[m has no attribute (B[m[1m"parallel"(B[m; maybe (B[m[1m"is_parallel"(B[m?  (B[m[33m[attr-defined](B[m
+tests/test_kg_graph_factory.py:523: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"parallel"(B[m for (B[m[1m"AgentTemplateNode"(B[m; did you mean (B[m[1m"is_parallel"(B[m?  (B[m[33m[call-arg](B[m
+tests/test_kg_graph_factory.py:523: [34mnote:(B[m (B[m[1m"AgentTemplateNode"(B[m defined in (B[m[1m"agent_utilities.models.knowledge_graph"(B[m(B[m
+tests/conftest.py:174: [1m[31merror:(B[m Module has no attribute (B[m[1m"bool_"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/knowledge_graph/core/state_checkpointing.py:52: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"ExecutionStateNode"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/adaptation/experience_alignment.py:32: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"id"(B[m for (B[m[1m"add_node"(B[m of (B[m[1m"IntelligenceGraphEngine"(B[m  (B[m[33m[call-arg](B[m
+agent_utilities/knowledge_graph/adaptation/experience_alignment.py:32: [34mnote:(B[m (B[m[1m"add_node"(B[m defined in (B[m[1m"agent_utilities.knowledge_graph.core.engine"(B[m(B[m
+tests/unit/knowledge_graph/test_ladybug_backend.py:143: [1m[31merror:(B[m (B[m[1m"IntelligenceGraphEngine"(B[m gets multiple values for keyword argument (B[m[1m"backend"(B[m  (B[m[33m[misc](B[m
+tests/unit/knowledge_graph/test_ladybug_backend.py:143: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+tests/unit/knowledge_graph/test_kg_models.py:988: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+tests/unit/knowledge_graph/test_kg_models.py:1000: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+tests/unit/knowledge_graph/test_kg_models.py:1013: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+tests/unit/knowledge_graph/test_kg_models.py:1035: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+tests/integration/mcp/test_mcp_integration.py:14: [1m[31merror:(B[m Unexpected keyword argument (B[m[1m"graph"(B[m for (B[m[1m"IntelligenceGraphEngine"(B[m  (B[m[33m[call-arg](B[m
+tests/integration/mcp/test_mcp_integration.py:14: [34mnote:(B[m (B[m[1m"IntelligenceGraphEngine"(B[m defined in (B[m[1m"agent_utilities.knowledge_graph.core.engine"(B[m(B[m
+tests/integration/graph/test_graph_orchestration.py:8: [1m[31merror:(B[m Module (B[m[1m"agent_utilities.graph"(B[m has no attribute (B[m[1m"validate_graph"(B[m  (B[m[33m[attr-defined](B[m
+agent_utilities/messaging/kg_ingest.py:210: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+agent_utilities/knowledge_graph/__main__.py:184: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+agent_utilities/knowledge_graph/__main__.py:196: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+agent_utilities/knowledge_graph/__main__.py:209: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+agent_utilities/knowledge_graph/__main__.py:223: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+agent_utilities/knowledge_graph/__main__.py:229: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+agent_utilities/knowledge_graph/__main__.py:241: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+agent_utilities/knowledge_graph/__main__.py:250: [1m[31merror:(B[m Argument 1 to (B[m[1m"IntelligenceGraphEngine"(B[m has incompatible type (B[m[1m"GraphComputeEngine"(B[m; expected (B[m[1m"GraphBackend | None"(B[m  (B[m[33m[arg-type](B[m
+[1m[31mFound 96 errors in 33 files (checked 888 source files)(B[m
+

@@ -30,8 +30,6 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
-from ..orchestration.engine import AgentOrchestrationEngine
-
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
     from ..models.knowledge_graph import TeamComposition
@@ -89,6 +87,8 @@ class KGTeamComposer:
             return proven
 
         # Step 2: Dynamically synthesize the topology using ORCH-1.19
+        from ..orchestration.engine import AgentOrchestrationEngine
+
         orchestrator = AgentOrchestrationEngine(engine=self.engine)
         composition = orchestrator.synthesize_team(
             query=query,
@@ -159,7 +159,10 @@ class KGTeamComposer:
         }
 
         try:
-            self.engine._upsert_node("TeamConfig", node_id, node_data)
+            if hasattr(self.engine, "add_node"):
+                self.engine.add_node(node_id, "TeamConfig", node_data)
+            elif hasattr(self.engine, "_upsert_node"):
+                self.engine._upsert_node("TeamConfig", node_id, node_data)
             logger.info(
                 "[CONCEPT:ORCH-1.1] Promoted composition to TeamConfig '%s'",
                 node_id,

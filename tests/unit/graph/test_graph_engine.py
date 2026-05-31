@@ -106,7 +106,10 @@ def test_record_outcome(engine):
 
 
 def test_nx_fallback_successful_episodes(engine):
-    # Setup successful episode
+    # Force the NetworkX query fallback path by setting backend to None
+    engine.backend = None
+
+    # Setup successful episode in the in-memory graph
     ep_id = "ep:1"
     eval_id = "eval:1"
     tool_id = "tool:t1"

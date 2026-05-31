@@ -559,7 +559,8 @@ def test_standard_inference_skos_broader_transitivity() -> None:
     g.add_edge("concept:a", "concept:b", type="broader")
     g.add_edge("concept:b", "concept:c", type="broader")
 
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    engine = IntelligenceGraphEngine(db_path=":memory:", graph=g)
+    engine.backend = None  # type: ignore[assignment]
     inf = InferenceEngine(engine)
     result = inf.run_inference()
 
@@ -580,7 +581,8 @@ def test_standard_inference_prov_derivation_transitivity() -> None:
     g.add_edge("doc:a", "doc:b", type="was_derived_from")
     g.add_edge("doc:b", "doc:c", type="was_derived_from")
 
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    engine = IntelligenceGraphEngine(db_path=":memory:", graph=g)
+    engine.backend = None  # type: ignore[assignment]
     inf = InferenceEngine(engine)
     result = inf.run_inference()
 
@@ -601,7 +603,8 @@ def test_standard_inference_temporal_phase_containment() -> None:
     g.add_edge("event:1", "phase:q2", type="occurred_during")
     g.add_edge("phase:q2", "phase:2026", type="part_of")
 
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    engine = IntelligenceGraphEngine(db_path=":memory:", graph=g)
+    engine.backend = None  # type: ignore[assignment]
     inf = InferenceEngine(engine)
     result = inf.run_inference()
 

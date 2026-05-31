@@ -165,7 +165,7 @@ def test_kg_mermaid_generation():
     graph.add_node("mem1", type="memory", description="Some memory")
     graph.add_edge("agent1", "mem1", type="CREATED")
 
-    engine = IntelligenceGraphEngine(db_path=":memory:")
+    engine = IntelligenceGraphEngine(db_path=":memory:", graph=graph)
     mermaid = engine.generate_mermaid_graph()
 
     # Account for sanitization

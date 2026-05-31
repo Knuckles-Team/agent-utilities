@@ -15,8 +15,6 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from ..orchestration.engine import AgentOrchestrationEngine
-
 logger = logging.getLogger(__name__)
 
 
@@ -69,6 +67,8 @@ async def execute_graph(
         A dictionary containing the final graph execution results.
 
     """
+    from ..orchestration.engine import AgentOrchestrationEngine
+
     engine = AgentOrchestrationEngine()
     return await engine.execute_graph(
         graph=graph,
@@ -112,6 +112,8 @@ async def execute_graph_stream(
         A stream of graph event dictionaries (SSE compatible).
 
     """
+    from ..orchestration.engine import AgentOrchestrationEngine
+
     engine = AgentOrchestrationEngine()
     async for event in engine.stream_graph(
         graph=graph,
@@ -170,6 +172,8 @@ async def execute_graph_iter(
         ``"node_transition"``, ``"graph_complete"``, ``"error"``, etc.
 
     """
+    from ..orchestration.engine import AgentOrchestrationEngine
+
     engine = AgentOrchestrationEngine()
     async for event in engine.iter_graph(
         graph=graph,

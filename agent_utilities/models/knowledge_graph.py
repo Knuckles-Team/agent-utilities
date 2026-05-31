@@ -230,6 +230,9 @@ class RegistryNodeType(StrEnum):
     SESSION_CHECKPOINT = "session_checkpoint"
     PERSISTENT_AGENT = "persistent_agent"
     TOPOLOGY_TRANSITION = "topology_transition"
+    # GEPA Reflective Optimizer (CONCEPT:ORCH-1.31)
+    OPTIMIZATION_TRAJECTORY = "optimization_trajectory"
+    EVALUATOR_FEEDBACK = "evaluator_feedback"
     # Phase 2-5: Operationalized missing ontology nodes
     AGENT_SWARM = "agent_swarm"
     BUSINESS_UNIT = "business_unit"
@@ -846,6 +849,33 @@ class TrajectoryNode(RegistryNode):
     score: float = Field(default=0.0, ge=0.0, le=1.0)
     is_correct: bool | None = None
     model_id: str = ""
+
+
+class OptimizationTrajectoryNode(RegistryNode):
+    """Tracks the lineage of a prompt in GEPA (parent prompt, mutation rationale, performance metrics).
+
+    CONCEPT:ORCH-1.31 — GEPA Reflective Optimizer
+    """
+
+    type: RegistryNodeType = RegistryNodeType.OPTIMIZATION_TRAJECTORY
+    thinker_id: str = ""
+    query_hash: str = ""
+    answer: str = ""
+    reasoning_summary: str = ""
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+    is_correct: bool | None = None
+    model_id: str = ""
+
+
+class EvaluatorFeedbackNode(RegistryNode):
+    """Links execution traces to scalar and textual feedback for GEPA.
+
+    CONCEPT:ORCH-1.31 — GEPA Reflective Optimizer
+    """
+
+    type: RegistryNodeType = RegistryNodeType.EVALUATOR_FEEDBACK
+    reward: float = 0.0
+    feedback_text: str = ""
 
 
 class DeliberationNode(RegistryNode):

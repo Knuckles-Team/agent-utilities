@@ -67,7 +67,7 @@ class TestEventLedger:
         # 1. Append first event
         evt1 = ledger.append_event(
             run_id=run_id,
-            id="agent_alpha",
+            node_id="agent_alpha",
             event_type="task.proposed",
             payload={"task": "do research"},
             severity="info",
@@ -86,7 +86,7 @@ class TestEventLedger:
         # 2. Append second event to check chronological linkage
         evt2 = ledger.append_event(
             run_id=run_id,
-            id="agent_alpha",
+            node_id="agent_alpha",
             event_type="task.completed",
             payload={"status": "success"},
             severity="info",
@@ -103,8 +103,8 @@ class TestEventLedger:
         ledger = EventLedger(engine=mock_engine_singleton)
         run_id = "run:test:2"
 
-        evt1 = ledger.append_event(run_id=run_id, id="a", event_type="step.1")
-        evt2 = ledger.append_event(run_id=run_id, id="a", event_type="step.2")
+        evt1 = ledger.append_event(run_id=run_id, node_id="a", event_type="step.1")
+        evt2 = ledger.append_event(run_id=run_id, node_id="a", event_type="step.2")
 
         events = ledger.get_run_events(run_id)
         assert len(events) == 2
@@ -115,9 +115,9 @@ class TestEventLedger:
         ledger = EventLedger(engine=mock_engine_singleton)
         run_id = "run:test:3"
 
-        evt1 = ledger.append_event(run_id=run_id, id="a", event_type="init")
-        evt2 = ledger.append_event(run_id=run_id, id="a", event_type="middle")
-        ledger.append_event(run_id=run_id, id="a", event_type="end")
+        evt1 = ledger.append_event(run_id=run_id, node_id="a", event_type="init")
+        evt2 = ledger.append_event(run_id=run_id, node_id="a", event_type="middle")
+        ledger.append_event(run_id=run_id, node_id="a", event_type="end")
 
         # Fork execution up to 'middle' event
         forked = ledger.fork_run(run_id, evt2.id)

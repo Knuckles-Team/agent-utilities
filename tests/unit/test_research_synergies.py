@@ -111,7 +111,7 @@ def test_experience_alignment(mock_engine):
     alignment = ExperienceAlignmentEngine(mock_engine)
     alignment.ingest_experience(exp)
     mock_engine.add_node.assert_called_once_with(
-        id=exp.id, node_type="Experience", properties=exp.model_dump()
+        node_id=exp.id, node_type="Experience", properties=exp.model_dump()
     )
 
     # Test retrieval

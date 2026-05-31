@@ -478,6 +478,8 @@ class TrustHierarchyEntry(BaseModel):
         authority_level: Authority score (0.0–1.0, higher = more trusted).
         rationale: Why this source has this authority level.
         overrides: List of source systems this one overrides.
+        trust_decay_rate: Rate at which trust decays over time without reinforcement (0.0–1.0 per day).
+        conflict_penalty: Penalty applied to authority_level when this source is overridden by human arbitration.
     """
 
     source_system: str
@@ -485,6 +487,8 @@ class TrustHierarchyEntry(BaseModel):
     authority_level: float = Field(default=0.5, ge=0.0, le=1.0)
     rationale: str = ""
     overrides: list[str] = Field(default_factory=list)
+    trust_decay_rate: float = Field(default=0.01, ge=0.0, le=1.0)
+    conflict_penalty: float = Field(default=0.05, ge=0.0, le=1.0)
 
 
 class ReadAuditEntry(BaseModel):

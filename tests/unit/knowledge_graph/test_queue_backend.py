@@ -126,9 +126,7 @@ async def test_nats_backend_mocked():
 @pytest.mark.anyio
 async def test_kafka_backend_mocked():
     """Verify KafkaQueueBackend integration with mocked kafka components."""
-    with patch(
-        "agent_utilities.knowledge_graph.core.kafka_queue_backend.json"
-    ):
+    with patch("agent_utilities.knowledge_graph.core.kafka_queue_backend.json"):
         # Instantiate with fallback path to avoid parameter issues
         backend = KafkaQueueBackend(
             fallback_db_path="test_kafka_mock.db", bootstrap_servers="localhost:9092"

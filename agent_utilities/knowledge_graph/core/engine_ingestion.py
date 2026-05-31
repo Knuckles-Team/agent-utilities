@@ -68,8 +68,9 @@ class IngestionMixin(_Base):
         if self.backend:
             data = self._serialize_node(node, label="Episode")
             self._upsert_node("Episode", node.id, data)
-        else:
-            self.graph.add_node(node.id, **node.model_dump())
+
+        # Update graph compute cache
+        self.graph.add_node(node.id, **node.model_dump())
         return ep_id
 
     def ingest_mcp_server(

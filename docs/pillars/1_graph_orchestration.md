@@ -49,7 +49,8 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.27**: Autonomous Department Orchestration — OWL-materialized company departments with `reportsTo` hierarchy
 - **ORCH-1.28**: Reactive Event Sourcing — reactive event-driven state and graph staging dispatcher
 - **ORCH-1.29**: WASM Micro-Agent Execution — isolated WebAssembly sandbox runner with gas/memory limits and Python emulation fallback
-
+- **ORCH-1.30**: Structured Predict-RLM Runtime — standard Pydantic signatures and dynamic skill injection wrapper for sandboxed REPL
+- **ORCH-1.31**: [**GEPA Reflective Prompt Optimizer**](1_graph_orchestration/ORCH-1.31-GEPA_Optimization.md) — Genetic-Pareto optimization loop with reflective mutation and structural crossover for prompt evolution
 
 ## 🧬 First Principles Architecture
 

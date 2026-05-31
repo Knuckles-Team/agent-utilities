@@ -57,8 +57,6 @@ def test_export_import(tmp_path):
     assert len(loaded_json.nodes) == 1
 
 
-
-
 def test_seeding_idempotency():
     engine = IntelligenceGraphEngine(db_path=":memory:")
 

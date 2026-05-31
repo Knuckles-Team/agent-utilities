@@ -36,8 +36,10 @@ Every concept has 1:1:1 traceability across:
 | `ORCH-1.27` | Autonomous Department Orchestration | 3 | 1 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.28` | Reactive Event Sourcing | 3 | 1 | [ORCH-1.28](pillars/1_graph_orchestration/ORCH-1.28-Reactive_Event_Sourcing.md) |
 | `ORCH-1.29` | WASM Micro-Agent Execution | 1 | 1 | [OS-5.6](pillars/5_agent_os_infrastructure/OS-5.6-Massive_Scale_Architecture.md) |
+| `ORCH-1.30` | Structured Predict-RLM Runtime | 2 | 1 | [Pillar Summary](pillars/1_graph_orchestration.md) |
+| `ORCH-1.31` | GEPA Reflective Prompt Optimizer | 2 | 1 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 
-Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/routing.py`, `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, `graph/parallel_engine.py`, `graph/manifest_generators.py`, `models/execution_manifest.py`, `graph/reactive/ledger.py`, `graph/reactive/dispatcher.py`, `core/wasm_runner.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
+Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/routing.py`, `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, `graph/parallel_engine.py`, `graph/manifest_generators.py`, `models/execution_manifest.py`, `graph/reactive/ledger.py`, `graph/reactive/dispatcher.py`, `core/wasm_runner.py`, `rlm/predict_rlm.py`, `rlm/gepa.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
 
 ---
 

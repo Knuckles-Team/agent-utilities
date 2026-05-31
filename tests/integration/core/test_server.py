@@ -191,7 +191,9 @@ async def test_ag_ui_stream(client):
 
 def test_stream_endpoint(client, mock_agent):
     # Mocking stream_graph from its source module
-    with patch("agent_utilities.orchestration.engine.AgentOrchestrationEngine.stream_graph") as mock_run:
+    with patch(
+        "agent_utilities.orchestration.engine.AgentOrchestrationEngine.stream_graph"
+    ) as mock_run:
 
         async def mock_stream_gen(*args, **kwargs):
             yield "event: message\ndata: hello\n\n"

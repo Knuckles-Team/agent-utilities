@@ -135,8 +135,7 @@ def test_rust_repository_ast_parsing(engine, tmp_path):
     # Verify classes and functions found
     from typing import Any, cast
 
-    assert engine._graph is not None
-    nodes = [nid for nid, _ in cast(Any, engine._graph).get_nodes()]
+    nodes = engine._get_all_nodes()
     assert any("MyAgent" in n for n in nodes)
     assert any("my_tool" in n for n in nodes)
 
@@ -199,8 +198,8 @@ def test_rust_reactive_state_ledger(engine):
     assert engine2.node_count() == 2
     assert engine2.has_edge("A", "B")
 
-    # Verify json serialization
-    js = engine.to_json()
+    # Verify msgpack serialization
+    js = engine.to_msgpack()
     engine3_name = f"test_{uuid.uuid4().hex[:8]}"
     engine3 = GraphComputeEngine(backend_type="rust", graph_name=engine3_name)
     if engine3._client:
@@ -210,6 +209,6 @@ def test_rust_reactive_state_ledger(engine):
             pass
         engine3._client.clear()
 
-    engine3.from_json(js)
+    engine3.from_msgpack(js)
     assert engine3.node_count() == 2
     assert engine3.has_edge("A", "B")

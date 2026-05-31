@@ -270,6 +270,9 @@ class GraphState:
     user_redirect_feedback: str | None = None
     """Feedback from a triage pause that redirects the graph to a different domain."""
 
+    workflow_context: dict[str, Any] = field(default_factory=dict)
+    """Structured context payload (e.g. ShieldedResult) from the WorkflowContextRouter."""
+
     # Dynamic Planning State
     plan: GraphPlan = field(default_factory=GraphPlan)
     """The fully determined execution plan for this run."""
