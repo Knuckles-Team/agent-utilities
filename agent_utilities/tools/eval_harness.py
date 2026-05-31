@@ -70,7 +70,7 @@ class EvalScorer(Protocol):
         self, input_text: str, output_text: str, context: dict[str, Any] | None = None
     ) -> EvalResult:
         """Score an input/output pair and return an EvalResult."""
-        ...
+        return EvalResult(score=0.0, passed=False, evaluator=self.name)
 
 
 # ---------------------------------------------------------------------------

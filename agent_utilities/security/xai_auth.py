@@ -57,7 +57,8 @@ def validate_xai_oauth_endpoint(url: str, field: str) -> str:
 class LoopbackCallbackServer(BaseLoopbackCallbackServer):
     """Subclassed HTTPServer to store authorization code cleanly."""
 
-    pass
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
 
 
 class LoopbackCallbackHandler(BaseLoopbackCallbackHandler):

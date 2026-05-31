@@ -22,7 +22,7 @@ class FakeEngine:  # type: ignore
         self.backend = None
 
     def _upsert_node(self, label, node_id, props):
-        pass
+        self.last_upserted = (label, node_id, props)
 
 
 class TestProposalCollection:

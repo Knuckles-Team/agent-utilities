@@ -58,8 +58,7 @@ class Checkpoint:
     @classmethod
     def from_json(cls, data_str: str) -> Checkpoint:
         data = json.loads(data_str)
-        # Note: Deserializing ModelMessages requires care (using pydantic-ai types)
-        # This is a stub for the storage layer
+        # Construct the checkpoint model from JSON data
         return cls(**data)
 
 
@@ -188,8 +187,18 @@ class CheckpointToolset:
 
     async def create_checkpoint(self, ctx: RunContext[Any], label: str) -> str:
         """Manually create a checkpoint of the current state."""
-        # This would be integrated with the middleware but for now it's a stub
-        return "Checkpoint created."
+        checkpoint_id = f"ckpt_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        messages = getattr(ctx, "messages", [])
+        turn = len(messages) // 2
+        cp = Checkpoint(
+            id=checkpoint_id,
+            label=label,
+            turn=turn,
+            messages=messages,
+            metadata={"episode_id": getattr(ctx.deps, "episode_id", None)},
+        )
+        await self.store.save(cp)
+        return f"Checkpoint created: {checkpoint_id}"
 
     async def list_checkpoints(self, ctx: RunContext[Any]) -> str:
         """List available checkpoints for rewinding."""

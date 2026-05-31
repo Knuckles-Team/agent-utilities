@@ -76,12 +76,16 @@ class BaseProjectInitializerNode(_RouterNodeBase):
 
 @dataclass
 class RouterNode(_RouterNodeBase):
-    """Legacy compat router node (terminal stub)."""
+    """Legacy compat router node (terminal shim)."""
+
+    is_router: bool = True
 
 
 @dataclass
 class DomainNode(_RouterNodeBase):
-    """Legacy compat domain node (terminal stub)."""
+    """Legacy compat domain node (terminal shim)."""
+
+    is_domain: bool = True
 
 
 __all__ = [

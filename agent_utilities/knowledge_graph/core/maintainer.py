@@ -111,8 +111,27 @@ class GraphMaintainer:
             msgs = self.engine.backend.execute(m_query, {"t_id": t_id}) or []
 
             if len(msgs) > 0:
-                combined_text = "\\n".join([m["content"] for m in msgs])
-                summary_text = f"Summary of {len(msgs)} messages: {combined_text[:100]}..."  # Very basic summary placeholder
+                combined_text = "\n".join([m["content"] for m in msgs if m.get("content")])
+                
+                try:
+                    from pydantic_ai import Agent
+                    from agent_utilities.core.model_factory import create_model
+
+                    model = create_model()
+                    agent = Agent(
+                        model=model,
+                        system_prompt=(
+                            "You are a conversation synthesis assistant. Summarize the following thread "
+                            "messages into a clear, comprehensive, yet concise summary capturing the "
+                            "user's core requests, the assistant's actions/resolutions, and any key "
+                            "context or decisions made."
+                        ),
+                    )
+                    result = agent.run_sync(combined_text)
+                    summary_text = str(result.data)
+                except Exception as e:
+                    logger.warning(f"Conversation summarization failed, using fallback: {e}")
+                    summary_text = f"Summary of {len(msgs)} messages: {combined_text[:100]}..."
 
                 import uuid
 
@@ -283,17 +302,171 @@ class GraphMaintainer:
 
     def trigger_self_improvement(self) -> int:
         """Trigger autonomous self-improvement tasks based on recent failures."""
-        logger.info(
-            "Triggering self improvement loop (placeholder for LLM-driven critique)."
-        )
-        return 1
+        logger.info("Triggering self improvement loop (LLM-driven critique).")
+        if not self.engine.backend:
+            return 0
+
+        # Query recent performance anomalies
+        query_anomalies = """
+        MATCH (a:PerformanceAnomaly)
+        RETURN a.id as id, a.anomaly_type as anomaly_type, a.target_node_id as target_node_id, a.timestamp as timestamp
+        ORDER BY a.timestamp DESC LIMIT 10
+        """
+        anomalies = self.engine.backend.execute(query_anomalies) or []
+
+        # Query recent execution summaries with failures
+        query_execs = """
+        MATCH (e:ExecutionSummary) WHERE e.success_rate < 1.0
+        RETURN e.id as id, e.workflow_id as workflow_id, e.success_rate as success_rate, e.timestamp as timestamp
+        ORDER BY e.timestamp DESC LIMIT 10
+        """
+        failures = self.engine.backend.execute(query_execs) or []
+
+        if not anomalies and not failures:
+            logger.info("No recent failures or performance anomalies found. System is healthy.")
+            return 0
+
+        from pydantic import BaseModel, Field
+        from pydantic_ai import Agent
+        from agent_utilities.core.model_factory import create_model
+
+        class SelfImprovementAction(BaseModel):
+            critique: str = Field(description="Critical analysis of the failure points or performance anomalies.")
+            improvement_goals: list[str] = Field(description="Concrete, actionable improvement goals or guidelines to mitigate future issues.")
+
+        try:
+            model = create_model()
+            agent = Agent(
+                model=model,
+                output_type=SelfImprovementAction,
+                system_prompt=(
+                    "You are a system self-improvement optimizer. Analyze the provided list of recent "
+                    "execution failures and performance anomalies. Critique the root causes, and propose "
+                    "a list of highly specific, actionable self-improvement goals or guidelines (e.g. prompt "
+                    "adjustments, timeout adjustments, routing policies)."
+                ),
+            )
+
+            prompt = (
+                f"Recent Performance Anomalies:\n{anomalies}\n\n"
+                f"Recent Execution Failures:\n{failures}"
+            )
+
+            result = agent.run_sync(prompt)
+            data = result.data
+            
+            logger.info(f"Self-improvement critique generated: {data.critique}")
+
+            import uuid
+            ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            # Store critique as a Reflection node
+            ref_id = f"ref:improve:{uuid.uuid4().hex[:8]}"
+            ref_props = {
+                "id": ref_id,
+                "type": "reflection",
+                "content": f"Self-Improvement Critique: {data.critique}",
+                "confidence": 0.85,
+                "importance_score": 0.9,
+                "timestamp": ts,
+                "is_permanent": True,
+            }
+            ref_set = self.engine._get_set_clause(ref_props, alias="n", label="Reflection")
+            self.engine.backend.execute(f"MERGE (n:Reflection {{id: $id}}){ref_set}", ref_props)
+
+            # Store each recommendation as a Goal node
+            goals_count = 0
+            for goal_text in data.improvement_goals:
+                goal_id = f"goal:improve:{uuid.uuid4().hex[:8]}"
+                goal_props = {
+                    "id": goal_id,
+                    "type": "goal",
+                    "goal_text": goal_text,
+                    "status": "active",
+                    "importance_score": 0.8,
+                    "timestamp": ts,
+                    "is_permanent": False,
+                }
+                goal_set = self.engine._get_set_clause(goal_props, alias="n", label="Goal")
+                self.engine.backend.execute(f"MERGE (n:Goal {{id: $id}}){goal_set}", goal_props)
+
+                # Link Goal to the Reflection
+                self.engine.backend.execute(
+                    "MATCH (g:Goal {id: $goal_id}), (r:Reflection {id: $ref_id}) MERGE (g)-[:SUPPORTED_BY]->(r)",
+                    {"goal_id": goal_id, "ref_id": ref_id},
+                )
+                goals_count += 1
+
+            return goals_count
+        except Exception as e:
+            logger.error(f"Failed to run self-improvement LLM loop: {e}")
+            return 0
 
     def trigger_dreaming(self) -> int:
         """Trigger 'dreaming' to synthesize new features or strategies."""
-        logger.info(
-            "Triggering feature dreaming (placeholder for nocturnal processing)."
-        )
-        return 1
+        logger.info("Triggering feature dreaming (nocturnal processing).")
+        if not self.engine.backend:
+            return 0
+
+        # Retrieve existing skills and agent descriptions
+        query_skills = "MATCH (s:Skill) RETURN s.name as name, s.version as version LIMIT 20"
+        skills = self.engine.backend.execute(query_skills) or []
+
+        query_agents = "MATCH (a:Agent) RETURN a.name as name, a.description as description LIMIT 10"
+        agents = self.engine.backend.execute(query_agents) or []
+
+        from pydantic import BaseModel, Field
+        from pydantic_ai import Agent as PydanticAgent
+        from agent_utilities.core.model_factory import create_model
+
+        class DreamResult(BaseModel):
+            synthesis_idea: str = Field(description="The synthesized creative strategy or concept.")
+            suggested_features: list[str] = Field(description="Suggested new features, tool templates, or skills.")
+
+        try:
+            model = create_model()
+            agent = PydanticAgent(
+                model=model,
+                output_type=DreamResult,
+                system_prompt=(
+                    "You are a nocturnal feature dreaming synthesis agent. Review the list of existing "
+                    "skills and agents in the system. Synthesize a creative new cross-disciplinary strategy "
+                    "or feature idea that combines existing capabilities in novel ways, and suggest a list "
+                    "of new capability/tool ideas."
+                ),
+            )
+
+            prompt = (
+                f"Existing Skills:\n{skills}\n\n"
+                f"Existing Agents:\n{agents}"
+            )
+
+            result = agent.run_sync(prompt)
+            data = result.data
+
+            logger.info(f"Dream synthesized concept: {data.synthesis_idea}")
+
+            import uuid
+            ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            # Store the dream as a permanent Reflection node in the graph
+            dream_id = f"ref:dream:{uuid.uuid4().hex[:8]}"
+            dream_props = {
+                "id": dream_id,
+                "type": "reflection",
+                "content": f"Nocturnal Dream Synthesis: {data.synthesis_idea}. Suggested Features: {', '.join(data.suggested_features)}",
+                "confidence": 0.75,
+                "importance_score": 0.7,
+                "timestamp": ts,
+                "is_permanent": True,
+            }
+            dream_set = self.engine._get_set_clause(dream_props, alias="n", label="Reflection")
+            self.engine.backend.execute(f"MERGE (n:Reflection {{id: $id}}){dream_set}", dream_props)
+
+            return 1
+        except Exception as e:
+            logger.error(f"Failed to run nocturnal feature dreaming: {e}")
+            return 0
 
     def merge_similar_concepts(self, similarity_threshold: float = 0.95) -> int:
         """Find and merge similar Concept nodes based on semantic embeddings."""

@@ -32,10 +32,14 @@ try:
 except ImportError:
     _CAPABILITIES_AVAILABLE = False
 
-    # Type stub for when module is missing
-    class AbstractCapability:  # type: ignore
-        def __init__(self, **kwargs):
-            pass
+    from typing import Generic, TypeVar
+    T = TypeVar("T")
+
+    # Fallback base class when the pydantic_ai capabilities module is unavailable.
+    class AbstractCapability(Generic[T]):  # type: ignore
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._args = args
+            self._kwargs = kwargs
 
 
 # StuckLoopError is raised when loop is detected
