@@ -232,3 +232,21 @@ knowledge_graph.db.lock
 registry_graph.db
 .pytest_tmp/
 .test_epistemic_graph.*
+
+# Model-generated transient scripts at root level
+/test_*.py
+/fix_*.py
+/debug_*.py
+/scratch_*.py
+/temp_*.py
+
+# Transient logs, traces, patch files, and test outputs
+*.orig
+*.rej
+*.patch
+*.log
+*output*.txt
+*errors*.txt
+failed_tests.txt
+trace.txt
+
