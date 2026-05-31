@@ -60,13 +60,13 @@ class MarketDataProvider(Protocol):
 
     @property
     def name(self) -> str:
-        ...
+        return "protocol"
 
     def fetch(self, symbol: str, period: str, interval: str) -> pd.DataFrame:
-        ...
+        return pd.DataFrame()
 
     def supports(self, symbol: str) -> bool:
-        ...
+        return False
 
 
 class YFinanceProvider:
