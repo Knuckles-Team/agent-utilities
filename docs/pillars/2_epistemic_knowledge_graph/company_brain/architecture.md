@@ -161,7 +161,7 @@ Every mutation to the Company Brain carries mandatory provenance metadata:
 The Company Brain is not judged by the first answer — it is judged by what happens after six months. Infrastructure primitives include:
 - **Temporal decay** — Importance scores decay over time (Ebbinghaus-style)
 - **Concept merging** — Similar concepts are automatically merged
-- **Memory consolidation** — Episodes distill into Preferences and Principles
+- **Memory synthesis** — Episodes distill into Preferences and Principles
 - **Staleness detection** — Fingerprint-based change classification
 - **OWL reasoning** — Autonomous promote→reason→downfeed cycles
 
@@ -232,7 +232,7 @@ The Company Brain does **not** replace existing infrastructure. It **extends** i
 | `KGVersionEngine` (KG-2.0) | + Version vectors, CAS, multi-writer safety |
 | `PermissionsKernel` (OS-5.1) | + Data-level ACLs, classification labels |
 | `AuditLogger` (OS-5.7) | + Read audit trails, provenance chains |
-| `ConsolidationEngine` (KG-2.0) | + Conflict-aware consolidation |
+| `SynthesisEngine` (KG-2.0) | + Conflict-aware synthesis |
 | `AsyncioConcurrencyManager` (OS-5.3) | + Graph-level locking (not just session-level) |
 | `OWLBridge` (KG-2.0) | + Continuous reasoning triggers |
 | `ingest_external_batch` | + Real-time event streaming |

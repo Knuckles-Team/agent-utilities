@@ -1,4 +1,4 @@
-"""Evaluation Engine — Consolidated Evaluation Facade.
+"""Evaluation Engine — Synthesized Evaluation Facade.
 
 CONCEPT:AHE-3.1 — Evaluation Engine
 
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class EvaluationEngine:
-    """Consolidated evaluation engine.
+    """Synthesized evaluation engine.
 
     CONCEPT:AHE-3.1 — Evaluation Engine
 

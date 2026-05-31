@@ -6,11 +6,11 @@ The GEPA (Genetic-Pareto) Reflective Prompt Optimizer introduces evolutionary le
 
 ## Schema Diversity Perturbation
 
-A critical addition to GEPA is the **Schema Diversity Sweep**, which mitigates the risk of the model overfitting to static, hardcoded API schemas (e.g., rigid JSON shapes typical in enterprise integration). 
+A critical addition to GEPA is the **Schema Diversity Sweep**, which mitigates the risk of the model overfitting to static, hardcoded API schemas (e.g., rigid JSON shapes typical in enterprise integration).
 
 ### How It Works
 
-Within the `GEPAOptimizer` loop, when `enable_schema_diversity=True` is enabled, the system automatically injects recursive structural perturbations into the data payloads being evaluated. 
+Within the `GEPAOptimizer` loop, when `enable_schema_diversity=True` is enabled, the system automatically injects recursive structural perturbations into the data payloads being evaluated.
 These perturbations include:
 1. **Key Nesting Variations:** Wrapping data in transient intermediary dictionary keys.
 2. **Noise Injection:** Inserting random, non-functional key-value pairs into the payload structure.

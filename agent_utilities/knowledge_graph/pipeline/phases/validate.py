@@ -6,7 +6,7 @@ Auto-fixes recoverable issues and logs integrity/quality reports.
 
 from typing import Any
 
-from agent_utilities.knowledge_graph.memory.eval_capture import KGEvalCapture
+from agent_utilities.knowledge_graph.memory import EvaluationCapture
 from agent_utilities.knowledge_graph.security.graph_validator import GraphValidator
 
 from ..types import (
@@ -41,7 +41,7 @@ async def execute_validate(
 
     # Store validation report as eval_capture entry for trend analysis
     try:
-        capture = KGEvalCapture(knowledge_engine=engine, enabled=True)
+        capture = EvaluationCapture(knowledge_engine=engine, enabled=True)
         capture.capture(
             query="__graph_validation__",
             method="validator",

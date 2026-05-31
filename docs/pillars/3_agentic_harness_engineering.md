@@ -64,3 +64,22 @@ Separates retriever quality from LLM reasoning quality in evaluation. Returns th
 Measures citation quality in agent responses. Extracts KG node references (`[KG:id]`), concept IDs (`CONCEPT:X`), external URLs, file paths, and arXiv IDs. Computes precision/recall/F1 against retrieved and gold document sets. Identifies hallucinated citations and uncited evidence.
 - **Source**: `agent_utilities/harness/citation_tracker.py`
 - **Hot Path**: Lazy-loaded in `EvaluationEngine._lazy_init()` → `CitationTracker.evaluate_citations()`
+
+---
+
+## Evolved Self-Evolution Capabilities (Phase 10 — DSPy-Driven Self-Evolution)
+
+### Physical Knowledge Distillation Engine (AHE-4.0) 🔬
+The **Physical Knowledge Distillation Engine** represents a monumental architectural breakthrough in self-evolution. Rather than restricting optimized prompts and tool schemas to dynamic, volatile in-memory Knowledge Graph nodes, the distiller maps semantic components from the graph back into structural, human-readable file system changes. This allows the system to bridge the divide between runtime optimization and permanent code enhancement.
+- **Source Code**: `agent_utilities/knowledge_graph/distillation/physical_distiller.py`
+- **Hot Path**: `PhysicalDistillationEngine.distill_kg_to_code(failure_cluster_id=...)`
+
+### Multi-Optimizer Prompt Selection Strategy (AHE-4.1) 🔬
+The **Multi-Optimizer Prompt Selection Strategy** ensures that the optimization behavior scales appropriately based on the failure footprint. When optimizing prompt signatures via DSPy, the system dynamically inspects failure cluster scales. For highly localized failures, lightweight bootstrap optimizers (like `BootstrapFewShot`) are used. For widespread systemic regressions, the system employs high-parameter multi-generation optimization (like `MIPROv2`) to perform multi-stage hyperparameter tuning.
+- **Source Code**: `agent_utilities/harness/evolve_agent.py`
+- **Hot Path**: `EvolveAgent._dspy_optimize_cluster(failure_cluster=...)`
+
+### GitOps Commit & Evolution Boundary Traceability (AHE-4.2) 🔬
+Every evolutionary cycle is governed by strict, declarative **GitOps boundaries**. When changes are distilled to the physical file system, a structured, isolated git commit is generated programmatically. This commit is tagged with concept traceability IDs and the source failure cluster ID, linking runtime agent telemetry directly to code version control.
+- **Source Code**: `agent_utilities/knowledge_graph/distillation/physical_distiller.py`
+- **Hot Path**: `PhysicalDistillationEngine._commit_to_gitops_boundary(file_path=..., change_desc=...)`

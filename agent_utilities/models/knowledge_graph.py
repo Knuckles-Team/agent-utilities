@@ -210,7 +210,7 @@ class RegistryNodeType(StrEnum):
     # Enhanced Doom-Loop Detector (CONCEPT:OS-5.0)
     DOOM_LOOP_INCIDENT = "doom_loop_incident"
     # RAG-KG Unification (CONCEPT:KG-2.3)
-    UNIFIED_RAG_CONFIG = "unified_rag_config"
+    AGENT_RAG_CONFIG = "agent_rag_config"
     # Research Orchestration (CONCEPT:KG-2.6)
     ORCHESTRATION_CYCLE = "orchestration_cycle"
     # Graph Distillation Migration (CONCEPT:KG-2.6)
@@ -1013,7 +1013,7 @@ from agent_utilities.core.config import (
 
 
 class PipelineConfig(BaseModel):
-    """Configuration for the Unified Intelligence Pipeline."""
+    """Configuration for the Intelligence Pipeline."""
 
     workspace_path: str
     enable_embeddings: bool = DEFAULT_ENABLE_KG_EMBEDDINGS
@@ -4211,7 +4211,7 @@ class DoomLoopIncidentNode(RegistryNode):
 # --- RAG-KG Unification Node (CONCEPT:KG-2.3) ---
 
 
-class UnifiedRAGConfigNode(RegistryNode):
+class AgentRAGConfigNode(RegistryNode):
     """Configuration snapshot for a unified RAG-KG retrieval session.
 
     CONCEPT:KG-2.3 — RAG-KG Unification
@@ -4230,7 +4230,7 @@ class UnifiedRAGConfigNode(RegistryNode):
         avg_latency_ms: Average retrieval latency in milliseconds.
     """
 
-    type: RegistryNodeType = RegistryNodeType.UNIFIED_RAG_CONFIG
+    type: RegistryNodeType = RegistryNodeType.AGENT_RAG_CONFIG
     enable_similarity_shortcuts: bool = True
     enable_cluster_scoping: bool = True
     enable_hybrid_scoring: bool = True

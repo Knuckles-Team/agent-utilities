@@ -52,7 +52,7 @@ def _get_engine():
 
 def cmd_context(args: argparse.Namespace) -> None:
     """Generate startup context payload for an agent."""
-    from agent_utilities.knowledge_graph.memory.startup_context import (
+    from agent_utilities.knowledge_graph.memory import (
         build_startup_payload,
     )
 
@@ -69,7 +69,7 @@ def cmd_context(args: argparse.Namespace) -> None:
 
 def cmd_recall(args: argparse.Namespace) -> None:
     """Search KG memory or expand a startup handle."""
-    from agent_utilities.knowledge_graph.memory.startup_context import (
+    from agent_utilities.knowledge_graph.memory import (
         StartupContextBuilder,
     )
 
@@ -115,7 +115,7 @@ def cmd_observe(args: argparse.Namespace) -> None:
 
 def cmd_reflect(args: argparse.Namespace) -> None:
     """Run the reflection cycle to condense observations."""
-    from agent_utilities.knowledge_graph.memory.reflector import run_reflector
+    from agent_utilities.knowledge_graph.memory import run_reflector
 
     engine = _get_engine()
     result = run_reflector(engine, dry_run=args.dry_run)
@@ -127,7 +127,7 @@ def cmd_reflect(args: argparse.Namespace) -> None:
 
 def cmd_materialize(args: argparse.Namespace) -> None:
     """Materialize KG memory state into Markdown files."""
-    from agent_utilities.knowledge_graph.memory.memory_materializer import (
+    from agent_utilities.knowledge_graph.memory import (
         materialize_memory,
     )
 
@@ -140,7 +140,7 @@ def cmd_materialize(args: argparse.Namespace) -> None:
 
 def cmd_sync(args: argparse.Namespace) -> None:
     """Bidirectional sync: detect edits and ingest back to KG."""
-    from agent_utilities.knowledge_graph.memory.memory_materializer import (
+    from agent_utilities.knowledge_graph.memory import (
         MemoryMaterializer,
         ingest_memory_edits,
     )
@@ -196,7 +196,7 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
 def cmd_doctor(args: argparse.Namespace) -> None:
     """Verify all hook installations and memory health."""
     from agent_utilities.ecosystem.hook_installer import HookInstaller
-    from agent_utilities.knowledge_graph.memory.memory_materializer import (
+    from agent_utilities.knowledge_graph.memory import (
         memory_dir,
     )
 
@@ -227,7 +227,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
 def cmd_export(args: argparse.Namespace) -> None:
     """Export materialized memory in various formats."""
-    from agent_utilities.knowledge_graph.memory.memory_materializer import memory_dir
+    from agent_utilities.knowledge_graph.memory import memory_dir
 
     mem_dir = memory_dir()
     if not mem_dir.exists():

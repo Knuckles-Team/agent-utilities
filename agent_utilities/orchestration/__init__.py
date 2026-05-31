@@ -1,17 +1,26 @@
 """Orchestration Module.
 
-CONCEPT:ORCH-2.0 — Unified Orchestration Engine
+CONCEPT:ORCH-2.0 — Orchestration Engine
 """
+
+from typing import Any
 
 from .engine import AgentOrchestrationEngine
 
 __all__ = [
     "AgentOrchestrationEngine",
+    "ParallelEngine",
+    "WorkflowRunner",
 ]
 
-# Backward compatibility aliases that raise DeprecationWarnings if possible,
-# or just alias directly for now to not break tests.
-AgentOrchestrationEngine = AgentOrchestrationEngine
-KGDrivenExecutionEngine = AgentOrchestrationEngine
-ParallelEngine = AgentOrchestrationEngine
-WorkflowRunner = AgentOrchestrationEngine
+
+def __getattr__(name: str) -> Any:
+    if name == "ParallelEngine":
+        from agent_utilities.graph.parallel_engine import ParallelEngine
+
+        return ParallelEngine
+    if name == "WorkflowRunner":
+        from agent_utilities.workflows.runner import WorkflowRunner
+
+        return WorkflowRunner
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

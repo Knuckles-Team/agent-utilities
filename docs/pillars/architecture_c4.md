@@ -138,12 +138,14 @@ C4Component
         Component(shacl, "SHACL Validator", "Python + pyshacl", "KG-2.7: Enterprise governance shape validation")
         Component(publisher, "Ontology Publisher", "Python", "KG-2.7: Push to Stardog/Fuseki")
         Component(loader, "Ontology Loader", "Python", "KG-2.7: owl:imports resolver with caching")
-        Component(memory, "Memory Tiers", "Python", "Episodic, semantic, procedural memory")
+        Component(memory, "Memory Tiers", "Python", "Temporally-Aware Epistemic Memory (Episodic, Semantic, Procedural)")
+        Component(evolving_memory, "🔬 Evolving Memory API", "Python", "KG-2.4: Ebbinghaus fact decay & GraphRAG traversal")
         Component(ctxbudget, "🔬 Context Budget Optimizer", "Python", "KG-2.1: Root Theorem compaction. Research: 2604.20874v1")
         Component(argraph, "🔬 AR-Graph", "Python", "KG-2.11: Dynamic Agent Relationship Graph")
         Component(tsgraph, "🔬 Time-Series Graph", "Python", "KG-2.12: Temporal weighted decay graphs")
         Component(stream_ingest, "Stream Hydration / R2RML", "Python", "Dynamic dynamic-free parallel streaming from external APIs (ServiceNow, GitLab)")
         Component(cache_fabric, "Shared Ephemeral Cache Fabric", "Valkey / Redis / Filesystem", "Memory sharing between agents with TTL-based decay")
+        Component(dspy_bridge, "DSPy KG Bridge", "Python", "KG-2.2: Instantly persists evolved prompts and optimization traces")
     }
 
     Rel(engine, backend, "Tier 1: Cypher persistence")
@@ -164,6 +166,7 @@ C4Component
     Rel(engine, stream_ingest, "Hydrates graph from high-throughput API streams")
     Rel(stream_ingest, ontology, "Enforces schema correctness during ingestion via dynamic OWL classification")
     Rel(engine, cache_fabric, "Stores and invalidates ephemeral agent contexts with dynamic TTL tracking")
+    Rel(dspy_bridge, engine, "Fast-path Cypher MERGE")
 ```
 
 ### Pillar 3: Agentic Harness (AHE)
@@ -180,6 +183,10 @@ C4Component
         Component(sdd, "DSTDD Manager", "Python", "Design-Spec-Test pipeline")
         Component(dasm, "🔬 Distributed Agent State Manager", "Python", "AHE-3.7: Optimistic locking with optional Redis support")
         Component(distill, "Workflow Distillation Hook", "Python", "ORCH-1.25: Auto-promotes successful patterns to Workflow Skills")
+        Component(dspy, "DSPy Compiler", "Python", "AHE-3.1: Mathematical prompt optimization")
+        Component(physdistill, "🔬 Physical Knowledge Distiller", "Python", "AHE-4.0: Distills evolved prompts/tools to physical git-tracked files")
+        Component(dynoptimizer, "🔬 Dynamic Optimizer Selector", "Python", "AHE-4.1: Dynamically selects optimal optimizer (MIPROv2, FewShot, etc.) based on cluster scale")
+        Component(gitops_bound, "🔬 GitOps Evolution Boundary", "Python", "AHE-4.2: Enforces git boundaries and registers evolutionary changes in KG")
     }
 
     Rel(eval, selfmodel, "Updates self-assessment scores")
@@ -189,6 +196,10 @@ C4Component
     Rel(team, dasm, "Syncs concurrent agent state")
     Rel(distill, team, "Promotes proven team compositions")
     Rel(distill, evolve, "Feeds back distilled patterns")
+    Rel(evolve, dspy, "Offloads trace-based tuning to DSPy")
+    Rel(evolve, physdistill, "Offloads evolved structures for physical write")
+    Rel(physdistill, gitops_bound, "Triggers git changes and commits via boundaries")
+    Rel(evolve, dynoptimizer, "Selects dynamic optimizer strategy based on failure characteristics")
 ```
 
 ### Pillar 4: Ecosystem Peripherals (ECO)

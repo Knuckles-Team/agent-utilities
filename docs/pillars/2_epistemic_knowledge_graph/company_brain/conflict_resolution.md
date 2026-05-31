@@ -129,7 +129,7 @@ Every write carries an `AssertionType` that the resolver uses for context:
 | `RAW_DATA` | Direct observation from a system of record | CRM field value, git commit hash |
 | `AGENT_INFERENCE` | AI agent's derived conclusion | Risk score from ML model |
 | `HUMAN_JUDGMENT` | Human's explicit assessment | Analyst's risk rating |
-| `CONSOLIDATED` | Result of memory consolidation | Distilled preference from episodes |
+| `SYNTHESIZED` | Result of memory synthesis | Distilled preference from episodes |
 | `EXTERNAL_IMPORT` | Imported from external system without verification | API response, scraped data |
 
 ---

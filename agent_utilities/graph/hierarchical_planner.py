@@ -75,7 +75,7 @@ async def researcher_step(
 
     """
     logger.info("Researcher: Triangulating context...")
-    unified_context = await fetch_epistemic_context()
+    agent_context = await fetch_epistemic_context()
 
     # If the dispatcher sent a specific question, use it as the prompt
     step_input = ctx.inputs
@@ -94,7 +94,7 @@ async def researcher_step(
 
     researcher = Agent(
         model=ctx.deps.agent_model,
-        system_prompt=(f"{researcher_prompt}\n\nWorkspace Context: {unified_context}"),
+        system_prompt=(f"{researcher_prompt}\n\nWorkspace Context: {agent_context}"),
         tools=[project_search, read_workspace_file] + knowledge_tools,
     )
 
@@ -150,7 +150,7 @@ async def planner_step(
     )
 
     planner_prompt = load_specialized_prompts("planner")
-    unified_context = await fetch_epistemic_context()
+    agent_context = await fetch_epistemic_context()
 
     # Build a rich re-planning context from previous execution
     previous_results = "\n".join(
@@ -228,7 +228,7 @@ async def planner_step(
             f"{policies_context}\n\n"
             f"{process_context}\n\n"
             f"### ARCHITECTURAL DECISIONS\n{ctx.state.architectural_decisions}\n\n"
-            f"### WORKSPACE CONTEXT\n{unified_context}"
+            f"### WORKSPACE CONTEXT\n{agent_context}"
         ),
     )
 
@@ -242,7 +242,7 @@ async def planner_step(
         if getattr(ctx.state, "use_lats", False) or ctx.state.verification_attempts > 1:
             logger.info("Planner: Running in LATS (Language Agent Tree Search) mode.")
             lats_env = LATSPlanner(
-                context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{unified_context}",
+                context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{agent_context}",
                 deps=ctx.deps,
                 model=ctx.deps.agent_model,
             )
@@ -250,7 +250,7 @@ async def planner_step(
         elif rlm_config.enabled or getattr(ctx.state, "requires_long_horizon", False):
             logger.info("Planner: Running in RLM (Recursive Language Model) mode.")
             env = RLMEnvironment(
-                context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{unified_context}",
+                context=f"{feedback_section}\n{error_section}\n{results_section}\n{policies_context}\n{process_context}\n{agent_context}",
                 config=rlm_config,
                 graph_deps=ctx.deps,
             )

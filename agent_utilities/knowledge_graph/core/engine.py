@@ -119,6 +119,8 @@ class IntelligenceGraphEngine(
                 self.backend = active_backend
             elif db_path:
                 self.backend = create_backend(db_path=db_path)
+            elif os.getenv("AGENT_UTILITIES_TESTING", "false").lower() == "true":
+                self.backend = create_backend(db_path=":memory:")
             else:
                 raise RuntimeError(
                     "A persistent graph backend is required. Memory-only mode is no longer supported."
@@ -209,15 +211,15 @@ class IntelligenceGraphEngine(
 
     @property
     def memory(self):
-        """Lazy-initialized MemoryLifecycleManager for the full memory lifecycle.
+        """Lazy-initialized MemoryEngine for the full memory lifecycle.
 
         Provides a single ergonomic entry point for:
-          startup → active context → compaction → consolidation → retrieval
+          startup → active context → compaction → synthesis → retrieval
         """
         if not hasattr(self, "_memory_manager"):
-            from ..memory.unified_memory import MemoryLifecycleManager
+            from ..memory import MemoryEngine
 
-            self._memory_manager = MemoryLifecycleManager(engine=self)
+            self._memory_manager = MemoryEngine(engine=self)
         return self._memory_manager
 
     @classmethod
@@ -394,17 +396,8 @@ class IntelligenceGraphEngine(
             # Tier 1: Backend is source of truth — write here FIRST
             set_clause = self._get_set_clause(props, alias="r")
 
-            is_postgres = self.backend.__class__.__name__ == "PostgreSQLBackend"
-            s_query = (
-                "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"
-                if is_postgres
-                else "MATCH (n) WHERE n.id = $id RETURN labels(n)[0] as lbl"
-            )
-            t_query = (
-                "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"
-                if is_postgres
-                else "MATCH (n) WHERE n.id = $id RETURN labels(n)[0] as lbl"
-            )
+            s_query = "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"
+            t_query = "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"
 
             s_label_res = self.backend.execute(s_query, {"id": source_id})
             t_label_res = self.backend.execute(t_query, {"id": target_id})

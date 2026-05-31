@@ -330,7 +330,7 @@ With the recent modularization, `agent-utilities` has been restructured to clean
 | `rlm/` | Recursive Language Model handlers for autonomous sub-shells and self-prompting loops. | `repl.py` |
 | `sdd/` | Spec-Driven Development pipelines decomposing `.specify` files into actionable graphs. | `orchestrator.py` |
 | `server/` | FastAPI applications hosting all HTTP, ACP, and SSE routes. | `app.py`, `routers/` |
-| `gateway/` | Homepage-style service dashboard data layer (CONCEPT:GW-1.0). 50 widget types, aggregator, REST+WS API. Consolidated from former `service-dashboard-core`. | `models.py`, `registry.py`, `config.py`, `aggregator.py`, `api.py`, `ws.py`, `widgets/` |
+| `gateway/` | Homepage-style service dashboard data layer (CONCEPT:GW-1.0). 50 widget types, aggregator, REST+WS API. Synthesized from former `service-dashboard-core`. | `models.py`, `registry.py`, `config.py`, `aggregator.py`, `api.py`, `ws.py`, `widgets/` |
 
 ## Hierarchical State Machine (HSM) Architecture
 
@@ -434,7 +434,7 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 1. **Entry**: A user query (text + optional images) arrives via any supported protocol: AG-UI (`/ag-ui`), ACP (`/acp`), SSE (`/stream`), or REST (`/api/chat`).
 2. **Direct Dispatch Check**: If a `graph_bundle` is present and `GRAPH_DIRECT_EXECUTION=true`, AG-UI routes directly to `execute_graph_iter()` — bypassing the outer LLM agent.
 3. **Unified Execution**: All protocols funnel through the same graph engine via `graph/unified.py`. The `execute_graph_iter()` entry point uses `graph.iter()` for step-by-step control.
-4. **State Initialization**: A fresh `GraphState` is initialized with the consolidated `query_parts`.
+4. **State Initialization**: A fresh `GraphState` is initialized with the synthesized `query_parts`.
 
 ### Phase 2: Safety & Policy Enforcement
 4. **Usage Guard**: The `usage_guard_step` checks session's token usage and estimated cost against safety limits.

@@ -71,6 +71,31 @@ class QuantOntology:
             properties=["id", "nav", "cash", "margin_utilization", "var_95"],
         )
 
+        # 4. Prediction Markets & Forecasts
+        engine.add_node(
+            "Schema:PredictionMarket",
+            "OntologySchema",
+            properties=[
+                "id",
+                "platform",
+                "event",
+                "implied_probability",
+                "settlement_time",
+            ],
+        )
+        engine.add_node(
+            "Schema:EnsembleForecast",
+            "OntologySchema",
+            properties=[
+                "id",
+                "model_family",
+                "member_count",
+                "mean",
+                "probability",
+                "target_event",
+            ],
+        )
+
         # Define formal relationships
         relations = [
             ("TradingHypothesis", "TESTED_IN", "BacktestResult"),
@@ -80,6 +105,10 @@ class QuantOntology:
             ("TradingSignal", "EXECUTES_AS", "Order"),
             ("MarketRegime", "INFLUENCES", "TradingStrategy"),
             ("Order", "BELONGS_TO", "Portfolio"),
+            # Prediction Market Relations
+            ("EnsembleForecast", "DRIVES", "TradingSignal"),
+            ("TradingSignal", "TARGETS", "PredictionMarket"),
+            ("PredictionMarket", "PRICES", "TradingHypothesis"),
         ]
 
         for source, rel, target in relations:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# --- FROM elastic_context_manager.py ---
 import hashlib
 import logging
 import math
@@ -739,7 +740,7 @@ class OperatorResult(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class ElasticContextManager:
+class AgentContextManager:
     """Elastic context orchestration with 5 atomic operators.
 
     CONCEPT:KG-2.1 — Derived from LongSeeker's Context-ReAct paradigm.
@@ -750,7 +751,7 @@ class ElasticContextManager:
 
     Example::
 
-        ecm = ElasticContextManager(max_tokens=8000)
+        ecm = AgentContextManager(max_tokens=8000)
         messages = [...]
 
         # Create a checkpoint before risky operations
@@ -1255,6 +1256,9 @@ class ElasticContextManager:
         }
 
 
+# For backward compatibility with Goose and older test files
+ElasticContextManager = AgentContextManager
+
 # --- Merged from elastic_context_manager.py ---
 
 #!/usr/bin/python
@@ -1490,3 +1494,354 @@ def prune_context_by_semantic_distance(
 
     logger.info(f"Topological pruning complete. Final tokens: {current_tokens}.")
     return pruned_nodes
+
+
+# --- FROM preemptive_caching.py ---
+"""Preemptive Caching Engine.
+
+Combines Markov Transition Forecasting (KG-2.49) with Vectorized
+Context Filtering (KG-2.50) to predict and preload KG context.
+
+Configurable and disabled by default.
+"""
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class PreemptiveCacheEngine:
+    """Predicts next tool calls and pre-loads required context."""
+
+    def __init__(
+        self, markov_forecaster: Any, context_manager: Any, enabled: bool = False
+    ):
+        self.enabled = enabled
+        self.markov_forecaster = markov_forecaster
+        self.context_manager = context_manager
+
+    def predict_and_preload(self, current_state: str) -> None:
+        """Forecast the next probable states and preload memory."""
+        if not self.enabled:
+            return
+
+        logger.debug(f"Running Preemptive Cache prediction for state: {current_state}")
+
+        if hasattr(self.markov_forecaster, "predict_next_states"):
+            # Predict top 3 likely next steps
+            likely_states = self.markov_forecaster.predict_next_states(
+                current_state, k=3
+            )
+            logger.info(f"Predicted likely next states: {likely_states}")
+
+            # Preload and vector-filter the necessary context for those states
+            for state in likely_states:
+                self._preload_context_for_state(state)
+
+    def _preload_context_for_state(self, target_state: str) -> None:
+        """Fetch and filter context into the fast memory layer."""
+        # Simulated context retrieval
+        predicted_context = {"state": target_state, "data": "preloaded_vectors"}
+
+        # Inject into the context manager's working memory
+        if hasattr(self.context_manager, "add_event"):
+            self.context_manager.add_event(
+                {"type": "cache_preload", "context": predicted_context}
+            )
+
+
+# --- FROM memory_compaction.py ---
+#!/usr/bin/python
+"""Semantic Compaction (CONCEPT:KG-2.20).
+
+Compacts low-level trace/episodic memory nodes into consolidated,
+high-level declarative knowledge representations to prevent graph explosion.
+"""
+
+import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
+
+logger = logging.getLogger(__name__)
+
+
+class SemanticCompactor:
+    """Semantic Compactor for Knowledge Graph trace nodes (CONCEPT:KG-2.20)."""
+
+    def __init__(self, engine: Any, compute_engine: Any = None) -> None:
+        self.engine = engine
+        self._compute_engine = compute_engine
+
+    def compact_traces(self, agent_id: str, threshold: int = 10) -> int:
+        """Find trace/process nodes for a given agent and compact them.
+
+        Traces represent highly verbose execution steps. When they exceed
+        the threshold, we compress them into high-level summary edges/nodes
+        and prune the verbose details.
+
+        If a Rust-backed GraphComputeEngine was provided, uses the compiled
+        ``compact_nodes_by_type`` FFI for zero round-trip compaction.
+        """
+        if not self.engine:
+            return 0
+
+        # Fast path: compiled Rust compaction (avoids N+2 Cypher round-trips)
+        if self._compute_engine is not None:
+            rust_graph = getattr(self._compute_engine, "_rust_graph", None)
+            if rust_graph is not None and hasattr(rust_graph, "compact_nodes_by_type"):
+                try:
+                    removed = rust_graph.compact_nodes_by_type(
+                        "AgentProcess", threshold
+                    )
+                    if removed:
+                        logger.info(
+                            f"SemanticCompactor (Rust): Compacted {len(removed)} "
+                            f"AgentProcess nodes via compiled FFI"
+                        )
+                        return len(removed)
+                except Exception as e:
+                    logger.warning(
+                        f"Rust compaction failed, falling back to Cypher: {e}"
+                    )
+
+        # Try to find all trace nodes for the agent from the database
+        try:
+            # We fetch all AgentProcess/Trace nodes linked to this agent
+            query = (
+                "MATCH (a:Agent {id: $agent_id})-[:HAS_PROCESS]->(p:AgentProcess) "
+                "RETURN p.id, p.state, p.tokens_used"
+            )
+            res = self.engine.backend.execute(query, {"agent_id": agent_id})
+
+            trace_nodes = []
+            if res and hasattr(res, "rows"):
+                trace_nodes = res.rows
+            elif isinstance(res, list):
+                trace_nodes = res
+
+            if len(trace_nodes) < threshold:
+                return 0
+
+            # Aggregate stats
+            total_tokens = 0
+            states_summary: dict[str, int] = {}
+            for row in trace_nodes:
+                # row can be a dict, a list/tuple, or an object
+                state = "unknown"
+                tokens = 0
+                pid = None
+                if isinstance(row, dict):
+                    pid = row.get("p.id") or row.get("id")
+                    state = row.get("p.state") or row.get("state") or "unknown"
+                    tokens = row.get("p.tokens_used") or row.get("tokens_used") or 0
+                elif isinstance(row, list | tuple) and len(row) >= 3:
+                    pid, state, tokens = row[0], row[1], row[2]
+
+                if pid:
+                    total_tokens += int(tokens or 0)
+                    states_summary[state] = states_summary.get(state, 0) + 1
+
+            summary_node_id = f"summary:agent:{agent_id}:{len(trace_nodes)}_compacted"
+
+            # 1. Create consolidated summary node
+            query_summary = (
+                "MERGE (s:SemanticSummary {id: $summary_id}) "
+                "SET s.name = $name, "
+                "    s.compacted_count = $compacted_count, "
+                "    s.total_tokens_consumed = $total_tokens, "
+                "    s.agent_id = $agent_id"
+            )
+            self.engine.backend.execute(
+                query_summary,
+                {
+                    "summary_id": summary_node_id,
+                    "name": f"Compacted Trace Summary for Agent {agent_id}",
+                    "compacted_count": len(trace_nodes),
+                    "total_tokens": total_tokens,
+                    "agent_id": agent_id,
+                },
+            )
+
+            # 2. Link summary to Agent
+            query_link = (
+                "MATCH (a:Agent {id: $agent_id}) "
+                "MATCH (s:SemanticSummary {id: $summary_id}) "
+                "MERGE (a)-[:HAS_COMPACTED_HISTORY]->(s)"
+            )
+            self.engine.backend.execute(
+                query_link,
+                {"agent_id": agent_id, "summary_id": summary_node_id},
+            )
+
+            # 3. Delete verbose process/trace nodes to prune database
+            deleted = 0
+            for row in trace_nodes:
+                pid = None
+                if isinstance(row, dict):
+                    pid = row.get("p.id") or row.get("id")
+                elif isinstance(row, list | tuple):
+                    pid = row[0]
+
+                if pid:
+                    query_delete = "MATCH (p:AgentProcess {id: $pid}) DETACH DELETE p"
+                    self.engine.backend.execute(query_delete, {"pid": pid})
+                    deleted += 1
+
+            logger.info(
+                f"SemanticCompactor: Compacted {deleted} traces for agent '{agent_id}' "
+                f"into summary node '{summary_node_id}'"
+            )
+            return deleted
+
+        except Exception as e:
+            logger.error(f"SemanticCompactor failed during compaction: {e}")
+            return 0
+
+
+# --- FROM memento_compressor.py ---
+#!/usr/bin/python
+
+"""Generalized Memento Context Compressor.
+
+CONCEPT:KG-2.1 -- Observational Memory Bridge (Extension)
+
+Provides generalized LLM-based state compression for long-running
+agents. Takes a block of conversation history and generates a dense
+memento preserving formulas, intermediate values, and strategic decisions.
+"""
+
+import logging
+import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+logger = logging.getLogger(__name__)
+
+MEMENTO_SYSTEM_PROMPT = """You are a state-compression Memento generator for an autonomous agent.
+Your task is to take a block of reasoning and conversation history and compress it into a dense Memento.
+
+## Strict Rules:
+1. You are NOT summarizing for a human. You are compressing state for an LLM to reason forward from.
+2. You MUST extract exact formulas, key intermediate values, commands executed, and their precise outcomes.
+3. Keep the strategic decisions and the current execution state (what succeeded, what failed, what is next).
+4. Do NOT hallucinate or add outside knowledge.
+5. Provide a terse, information-dense output that can act as a drop-in replacement for the raw block.
+6. Output ONLY the memento text.
+"""
+
+
+def compress_to_memento(
+    engine: IntelligenceGraphEngine,
+    messages: list[dict[str, str]],
+    *,
+    source: str = "agent_runner",
+    dry_run: bool = False,
+) -> str | None:
+    """Compress a block of messages into a dense memento and persist it.
+
+    Args:
+        engine: IntelligenceGraphEngine instance.
+        messages: The block of raw messages to compress.
+        source: The source agent or component name.
+        dry_run: If True, do not persist to the KG.
+
+    Returns:
+        The generated memento string, or None if compression failed.
+    """
+    if not messages:
+        return None
+
+    # Format block for compression
+    transcript_lines = []
+    for msg in messages:
+        role = msg.get("role", "unknown").upper()
+        content = msg.get("content", "")
+        transcript_lines.append(f"[{role}]: {content}")
+    block_text = "\n\n".join(transcript_lines)
+
+    try:
+        from pydantic_ai import Agent
+
+        from agent_utilities.core.config import (
+            DEFAULT_KG_MODEL_ID,
+            DEFAULT_LLM_PROVIDER,
+        )
+        from agent_utilities.core.model_factory import create_model
+
+        model = create_model(
+            provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
+        )
+        agent = Agent(model, system_prompt=MEMENTO_SYSTEM_PROMPT)
+
+        import nest_asyncio
+
+        nest_asyncio.apply()
+
+        user_content = (
+            f"## Compress the following block into a Memento:\n\n{block_text}"
+        )
+        result = agent.run_sync(user_content)
+        memento_text = str(getattr(result, "data", result)).strip()
+    except Exception as e:
+        logger.warning("Memento compression failed: %s", e)
+        return None
+
+    if dry_run:
+        return memento_text
+
+    _persist_memento(engine, memento_text, source=source)
+    return memento_text
+
+
+def _persist_memento(
+    engine: IntelligenceGraphEngine,
+    memento_text: str,
+    *,
+    source: str = "unknown",
+) -> None:
+    """Persist the generated memento to the Knowledge Graph."""
+    if not engine or not engine.backend:
+        return
+
+    memento_id = f"mem_{hashlib.md5(memento_text.encode(), usedforsecurity=False).hexdigest()[:10]}"
+    current_time = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    props: dict[str, Any] = {
+        "name": f"Memento: {current_time}",
+        "content": memento_text,
+        "source": source,
+        "timestamp": current_time,
+        "type": "MementoBlock",
+    }
+
+    try:
+        engine.add_node(memento_id, "Memento", properties=props)
+        logger.info("[KG-2.10] Persisted Memento context block (%s)", memento_id)
+    except Exception as e:
+        logger.debug("Failed to persist Memento: %s", e)
+
+
+def get_recent_mementos(
+    engine: IntelligenceGraphEngine,
+    source: str,
+    limit: int = 5,
+) -> list[str]:
+    """Retrieve the most recent mementos for a given source."""
+    if not engine or not engine.backend:
+        return []
+
+    try:
+        rows = engine.backend.execute(
+            "MATCH (m:Memento {source: $source}) "
+            "RETURN m.content AS content "
+            "ORDER BY m.timestamp ASC LIMIT $limit",
+            {"source": source, "limit": limit},
+        )
+        return [r.get("content", "") for r in rows if r.get("content")]
+    except Exception as e:
+        logger.debug("Failed to retrieve Mementos: %s", e)
+        return []

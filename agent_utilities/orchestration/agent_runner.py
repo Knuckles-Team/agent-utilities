@@ -78,7 +78,7 @@ async def run_agent(
 
     if agent_name.lower() == "enterprise":
         from agent_utilities.graph.manifest_generators import manifest_for_enterprise
-        from agent_utilities.orchestration import ParallelEngine
+        from agent_utilities.graph.parallel_engine import ParallelEngine
 
         logger.info(
             "[ORCH-1.27] Executing full Enterprise Autonomous Company orchestration"
@@ -404,7 +404,7 @@ def _build_execution_config(
 
     # Fetch recent Mementos to build the sawtooth context
     try:
-        from agent_utilities.knowledge_graph.memory.memento_compressor import (
+        from agent_utilities.knowledge_graph.memory import (
             get_recent_mementos,
         )
 

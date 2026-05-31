@@ -1,6 +1,6 @@
-"""Unified Orchestration Engine — The canonical entrypoint for all agent execution.
+"""Orchestration Engine — The canonical entrypoint for all agent execution.
 
-CONCEPT:ORCH-2.0 — Unified Orchestration Engine
+CONCEPT:ORCH-2.0 — Orchestration Engine
 
 This module replaces the legacy fragmented orchestrators (AgentOrchestrationEngine,
 KGDrivenExecutionEngine, run_graph, ParallelEngine, WorkflowRunner, SDDOrchestrator,
@@ -58,19 +58,10 @@ except ImportError:
 
 from contextlib import AsyncExitStack
 
-
-import time
-from agent_utilities.core.config import config
-
 from agent_utilities.models.execution_manifest import (
-    AgentExecutionResult,
-    AgentSpec,
     ExecutionManifest,
     ExecutionResult,
-    SynthesisSpec,
-    WaveResult,
 )
-from agent_utilities.knowledge_graph.core import graph_primitives as rx
 
 
 class _CircuitBreaker:
@@ -168,15 +159,16 @@ class AgentOrchestrationEngine:
         """
         logger.info(f"Synthesizing team for {domain} (complexity: {complexity})")
         # Delegate to Rust graph compute for sub-graph pattern matching
-        assert self.engine is not None, (
-            "IntelligenceGraphEngine is required for team synthesis"
-        )
+        assert (
+            self.engine is not None
+        ), "IntelligenceGraphEngine is required for team synthesis"
         team_nodes = self.engine.graph_compute.get_blast_radius(
             f"domain:{domain}", max_depth=2
         )
 
-        from agent_utilities.models.knowledge_graph import TeamComposition
         import uuid
+
+        from agent_utilities.models.knowledge_graph import TeamComposition
 
         agents = []
         if not team_nodes:
@@ -213,9 +205,9 @@ class AgentOrchestrationEngine:
         Replaces KGDrivenExecutionEngine routing logic.
         """
         # Call into rust to evaluate next hops based on semantic edges
-        assert self.engine is not None, (
-            "IntelligenceGraphEngine is required for node determination"
-        )
+        assert (
+            self.engine is not None
+        ), "IntelligenceGraphEngine is required for node determination"
         successors = self.engine.graph_compute.get_successors(current_node)
         return successors[0] if successors else "END"
 
@@ -686,7 +678,6 @@ class AgentOrchestrationEngine:
         graph_result_holder = {"value": None}
 
         async def run_in_background() -> None:
-
             try:
                 async with AsyncExitStack() as stack:
                     connected_toolsets = []
@@ -1143,9 +1134,174 @@ class AgentOrchestrationEngine:
 
     # --- Workflow Execution ---
     async def execute_workflow(self, workflow_id: str, **kwargs: Any) -> dict[str, Any]:
-        """Execute a predefined workflow by ID. Replaces WorkflowRunner."""
-        logger.info(f"Executing compiled workflow: {workflow_id}")
-        return {"workflow_id": workflow_id, "status": "executed"}
+        """Execute a dynamic workflow by ID. Replaces WorkflowRunner.
+
+        CONCEPT:ORCH-1.24 - Dynamic Workflows
+        Supports autonomous adversarial loops converging on a completion state,
+        followed by automated PR creation via GitHub/GitLab MCP tools.
+        """
+        import asyncio
+
+        logger.info(f"Executing dynamic workflow: {workflow_id}")
+
+        task = kwargs.get("task", "")
+        completion_state = kwargs.get("completion_state", "")
+        max_fan_out = kwargs.get("max_fan_out", 5)
+        max_iterations = kwargs.get("max_iterations", 5)
+
+        # 1. Base task setup
+        # If there is no explicit completion state, we do standard linear execution (fallback)
+        if not completion_state:
+            logger.info(
+                "No completion_state provided. Falling back to standard execution."
+            )
+            from agent_utilities.orchestration.agent_runner import run_agent
+
+            result = await run_agent(
+                agent_name="dynamic_worker", task=task, max_steps=30, engine=self.engine
+            )
+            return {"workflow_id": workflow_id, "status": "executed", "output": result}
+
+        # 2. Dynamic Workflow Loop
+        logger.info(
+            f"Starting Dynamic Workflow '{workflow_id}' aimed at completion_state: '{completion_state}'"
+        )
+
+        # Load capability for creating PRs and checking conditions
+        from agent_utilities.capabilities.adversarial_verifier import (
+            run_adversarial_pass,
+        )
+
+        class MockGraphState:
+            def __init__(self, q, m="execute"):
+                self.query = q
+                self.mode = m
+                self.signal_board = {}
+
+        class MockGraphDeps:
+            def __init__(self, model):
+                self.agent_model = model
+                self.verifier_timeout = 120.0
+                self.event_queue = None
+
+        state = MockGraphState(task)
+        deps = MockGraphDeps("openai:gpt-4o-mini")
+
+        iteration = 0
+        convergence_reached = False
+        final_output = ""
+        current_context = task
+
+        while iteration < max_iterations:
+            iteration += 1
+            logger.info(f"Dynamic Workflow iteration {iteration}/{max_iterations}")
+
+            # Create an agent to execute the task
+            from agent_utilities.orchestration.agent_runner import run_agent
+
+            # Use max_fan_out to control parallel subagents
+            tasks = []
+            for i in range(min(max_fan_out, 3)):
+                # Add variation to prompt
+                sub_task = f"{current_context}\n\nAttempt {i+1}. Ensure you work towards: {completion_state}"
+                tasks.append(
+                    run_agent(
+                        agent_name=f"dynamic_worker_{i}",
+                        task=sub_task,
+                        max_steps=30,
+                        engine=self.engine,
+                    )
+                )
+
+            # Run parallel fan-out
+            fan_out_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Filter successful runs
+            valid_outputs = [r for r in fan_out_results if isinstance(r, str) and r]
+            if not valid_outputs:
+                logger.warning("All parallel subagents failed in this iteration.")
+                current_context = f"{current_context}\n\nPrevious attempt failed. Please correct and try again."
+                continue
+
+            # Pick the best output for adversarial review
+            synthesis_output = "\n\n---\n\n".join(valid_outputs[:1])
+
+            # ADVERSARIAL VERIFICATION
+            logger.info("Running adversarial verification against completion_state...")
+
+            from typing import cast
+
+            from agent_utilities.graph.state import GraphDeps, GraphState
+
+            m_state = cast(GraphState, state)
+            m_deps = cast(GraphDeps, deps)
+
+            # Inject the completion state into the verifier query
+            state.query = (
+                f"Task: {task}\n\nRequired Completion State: {completion_state}"
+            )
+            adv_res = await run_adversarial_pass(m_state, m_deps, synthesis_output)
+
+            if adv_res and not getattr(adv_res, "vulnerabilities_found", True):
+                logger.info("Adversarial verification passed! Convergence reached.")
+                convergence_reached = True
+                final_output = synthesis_output
+                break
+            else:
+                findings = getattr(
+                    adv_res, "findings", "Failed to meet completion state."
+                )
+                logger.warning(f"Adversarial verification failed. Findings: {findings}")
+                # Feed findings back into the loop
+                current_context = (
+                    f"Original Task: {task}\n\n"
+                    f"Previous Output:\n{synthesis_output}\n\n"
+                    f"Reviewer Findings (MUST FIX):\n{findings}"
+                )
+
+        # 3. Pull Request Submission
+        pr_url = None
+        if convergence_reached or final_output:
+            logger.info("Workflow complete. Submitting automated PR...")
+            try:
+                # Use a specialized agent to create the PR
+                from agent_utilities.agent.factory import create_agent
+
+                pr_agent, _ = create_agent(
+                    provider="openai",
+                    model_id="openai:gpt-4o",
+                    system_prompt="You are an automated PR submission agent. You have access to GitHub, GitLab, and Repository Manager MCP tools.",
+                    name="pr_submitter",
+                    enable_universal_tools=True,
+                    tool_tags=[
+                        "github-tools",
+                        "github",
+                        "gitlab",
+                        "repository-manager",
+                    ],
+                )
+
+                pr_task = (
+                    f"The dynamic workflow '{workflow_id}' has completed its task.\n\n"
+                    f"Task details: {task}\n"
+                    f"Please review the git diff, commit the changes, push to a new branch, and create a Pull Request with the title 'Auto-chore: {workflow_id}'.\n"
+                    f"If there are no changes, just return 'No changes to commit'.\n\n"
+                    f"Return ONLY the URL of the created PR, or a message saying no changes were needed."
+                )
+
+                pr_result = await asyncio.wait_for(pr_agent.run(pr_task), timeout=180.0)
+                pr_url = pr_result.output
+            except Exception as e:
+                logger.error(f"Failed to submit automated PR: {e}")
+                pr_url = f"Failed to create PR: {e}"
+
+        return {
+            "workflow_id": workflow_id,
+            "status": "converged" if convergence_reached else "max_iterations_reached",
+            "iterations": iteration,
+            "final_output": final_output,
+            "pr_result": pr_url,
+        }
 
     # --- SDD Execution ---
     async def execute_sdd(self, spec: Any, **kwargs: Any) -> dict[str, Any]:
@@ -1157,966 +1313,18 @@ class AgentOrchestrationEngine:
         """Internal dynamic execution loop."""
         return {"status": "dynamic_executed", "task": str(task)}
 
-    # --- Migrated ParallelEngine Methods ---
+    # --- ParallelEngine Delegation ---
 
     async def execute(
         self,
         manifest: ExecutionManifest,
         graph_deps: GraphDeps | None = None,
     ) -> ExecutionResult:
-        """Execute a manifest. This is the **only** entry point.
+        """Execute a manifest. Delegates to ParallelEngine.
 
         CONCEPT:ORCH-1.25 — Parallel Engine
-
-        Args:
-            manifest: The execution specification.
-            graph_deps: Optional graph runtime dependencies.
-
-        Returns:
-            Complete ``ExecutionResult`` with synthesis output and per-wave results.
         """
-        start_time = time.monotonic()
+        from agent_utilities.graph.parallel_engine import ParallelEngine
 
-        if not hasattr(self, "_circuit_breaker"):
-            self._circuit_breaker = _CircuitBreaker()
-        if not hasattr(self, "coordination"):
-
-            class DummyProtocol:
-                name = "dummy"
-
-            class DummyCoord:
-                def select_protocol(self, *args, **kwargs):
-                    return DummyProtocol()
-
-                def apply_protocol(self, *args, **kwargs):
-                    return None
-
-                def log_coordination_trace(self, *args, **kwargs):
-                    pass
-
-            self.coordination = DummyCoord()
-        if not hasattr(self, "auto_healing"):
-            from agent_utilities.capabilities.auto_healing import AutoHealingEngine
-
-            self.auto_healing = AutoHealingEngine(
-                skill_evolver=None,
-                fallback_router=None,
-                enabled=getattr(config, "enable_auto_healing", False),
-            )
-        # 1. Resolve auto-configuration
-        resolved = self._resolve_manifest(manifest)
-
-        logger.info(
-            "[CONCEPT:ORCH-1.25] Executing manifest '%s' — %d agents, mode=%s, "
-            "synthesis=%s, source=%s",
-            resolved.name or resolved.manifest_id,
-            resolved.agent_count,
-            resolved.execution_mode,
-            resolved.synthesis.strategy,
-            resolved.source or "direct",
-        )
-
-        # 2. Build DAG and schedule waves
-        waves = self._schedule_waves(resolved)
-
-        # Generate Mermaid diagram representing the execution topography
-        mermaid_code = None
-        try:
-            from agent_utilities.workflows.visualizer import WorkflowVisualizer
-
-            mermaid_code = WorkflowVisualizer.generate(resolved, waves)
-            logger.info(
-                "\n" + "=" * 80 + "\n"
-                "[VISUALIZER] Deterministically Generated Mermaid Topography:\n\n"
-                f"```mermaid\n{mermaid_code}\n```\n" + "=" * 80 + "\n"
-            )
-        except Exception as vis_err:
-            logger.warning("Failed to generate workflow Mermaid diagram: %s", vis_err)
-
-        # 3. Select and apply coordination protocol
-        protocol = self.coordination.select_protocol(
-            agent_count=resolved.agent_count,
-            execution_mode=resolved.execution_mode,
-        )
-
-        # Apply protocol to establish consensus/voting mechanics
-        agent_ids = [a.agent_id for a in resolved.agents]
-        coordination_result = self.coordination.apply_protocol(
-            protocol=protocol,
-            agent_ids=agent_ids,
-            task=resolved.query,
-            task_type=resolved.metadata.get("task_type", "general"),
-        )
-        self.coordination.log_coordination_trace(coordination_result)
-
-        # 4. Execute waves with backpressure
-        concurrency = resolved.max_concurrency
-        if concurrency is None:
-            concurrency = getattr(config, "max_parallel_agents", 60) or 60
-
-        from ..core.cognitive_scheduler import CognitiveScheduler
-
-        scheduler = CognitiveScheduler(
-            max_concurrent=int(concurrency), engine=self.engine
-        )
-
-        wave_results: list[WaveResult] = []
-
-        for wave_idx, wave_agents in enumerate(waves):
-            logger.info(
-                "[CONCEPT:ORCH-1.25] Wave %d/%d — %d agents",
-                wave_idx + 1,
-                len(waves),
-                len(wave_agents),
-            )
-
-            wave_result = await self._execute_wave(
-                wave_agents, wave_idx, scheduler, resolved, graph_deps, wave_results
-            )
-            wave_results.append(wave_result)
-
-            logger.info(
-                "[CONCEPT:ORCH-1.25] Wave %d complete — success_rate=%.1f%%, "
-                "duration=%.0fms",
-                wave_idx + 1,
-                wave_result.success_rate * 100,
-                wave_result.duration_ms,
-            )
-
-        # 5. Synthesize outputs (RLM-native)
-        all_results = [r for w in wave_results for r in w.results]
-        synthesis_output = await self._synthesize(
-            all_results, resolved.synthesis, resolved.query, graph_deps
-        )
-
-        # Adversarial verification on final run synthesized output
-        from ..capabilities.adversarial_verifier import ADVERSARIAL_ENABLED
-
-        if ADVERSARIAL_ENABLED:
-            try:
-                from ..capabilities.adversarial_verifier import run_adversarial_pass
-
-                # Mock GraphState/Deps if missing
-                class MockGraphState:
-                    def __init__(self, q):
-                        self.query = q
-                        self.mode = "execute"
-                        self.signal_board = {}
-
-                class MockGraphDeps:
-                    def __init__(self, model, eq=None):
-                        self.agent_model = model
-                        self.verifier_timeout = 120.0
-                        self.event_queue = eq
-
-                from typing import cast
-
-                from ..graph.state import GraphDeps, GraphState
-
-                m_state = cast(GraphState, MockGraphState(resolved.query))
-                model_id = resolved.synthesis.model_id or (
-                    str(graph_deps.agent_model) if graph_deps else "openai:gpt-4o-mini"
-                )
-                m_deps = cast(
-                    GraphDeps,
-                    MockGraphDeps(
-                        model_id, graph_deps.event_queue if graph_deps else None
-                    ),
-                )
-
-                logger.info(
-                    "[CONCEPT:AHE-3.1] Running final adversarial verification pass..."
-                )
-                adv_res = await run_adversarial_pass(m_state, m_deps, synthesis_output)
-                if adv_res and adv_res.vulnerabilities_found:
-                    logger.warning(
-                        "[CONCEPT:AHE-3.1] Adversarial pass found vulnerabilities: %s",
-                        adv_res.findings,
-                    )
-                    # Attach findings to resolved metadata or final execution log
-                    resolved.metadata["adversarial_findings"] = adv_res.findings
-            except Exception as adv_err:
-                logger.warning("Adversarial pass failed (non-fatal): %s", adv_err)
-
-        total_duration = (time.monotonic() - start_time) * 1000
-
-        # 6. Persist to KG
-        execution_id = self._persist_execution(resolved, wave_results, synthesis_output)
-
-        result = ExecutionResult(
-            manifest_id=resolved.manifest_id,
-            execution_id=execution_id,
-            synthesis_output=synthesis_output,
-            mermaid=mermaid_code,
-            wave_results=wave_results,
-            agent_count=resolved.agent_count,
-            protocol=protocol.name,
-            total_duration_ms=total_duration,
-            synthesis_strategy=resolved.synthesis.strategy,
-            success=all(r.success for r in all_results) if all_results else True,
-        )
-
-        logger.info(
-            "[CONCEPT:ORCH-1.25] Execution complete — %d agents, %d waves, "
-            "%.0fms total, success=%s",
-            result.agent_count,
-            len(wave_results),
-            total_duration,
-            result.success,
-        )
-
-        return result
-
-    def _resolve_manifest(self, manifest: ExecutionManifest) -> ExecutionManifest:
-        """Resolve ``auto`` fields based on agent count and complexity.
-
-        CONCEPT:ORCH-1.25 — Parallel Engine
-
-        Auto-resolution rules:
-            - execution_mode: sequential (1), parallel (≤5), wave (>5)
-            - synthesis: flat (≤10), hierarchical (≤50), rlm (>50)
-            - coordination: delegation (1), consensus (2), voting (3+)
-        """
-        import copy
-
-        resolved = copy.deepcopy(manifest)
-
-        if resolved.execution_mode == "auto":
-            if resolved.is_trivial:
-                resolved.execution_mode = "sequential"
-            elif resolved.agent_count <= 5 and not resolved.has_dependencies:
-                resolved.execution_mode = "parallel"
-            else:
-                resolved.execution_mode = "wave"
-
-        if resolved.synthesis.strategy == "auto":
-            if resolved.agent_count <= 1:
-                resolved.synthesis.strategy = "flat"
-            elif resolved.agent_count <= 10:
-                resolved.synthesis.strategy = "flat"
-            elif resolved.agent_count <= 50:
-                resolved.synthesis.strategy = "hierarchical"
-            else:
-                resolved.synthesis.strategy = "rlm"
-
-        return resolved
-
-    def _schedule_waves(self, manifest: ExecutionManifest) -> list[list[AgentSpec]]:
-        """Build a dependency DAG and schedule agents into execution waves.
-
-        CONCEPT:ORCH-1.25 — Parallel Engine
-
-        Uses topological sort on the dependency graph to determine
-        execution order, then groups agents by topological level
-        into parallel waves.
-
-        Args:
-            manifest: Resolved execution manifest.
-
-        Returns:
-            List of waves, each containing agents that can run concurrently.
-        """
-        if manifest.execution_mode == "sequential":
-            # Each agent is its own wave
-            return [[a] for a in self._expand_partitions(manifest)]
-
-        expanded = self._expand_partitions(manifest)
-
-        if not manifest.has_dependencies:
-            # No DAG — batch by configured batch size
-            b_size = manifest.batch_size
-            if b_size is None:
-                b_size = getattr(config, "parallel_batch_size", 25) or 25
-            batch_size = int(b_size)
-            waves = []
-            for i in range(0, len(expanded), batch_size):
-                waves.append(expanded[i : i + batch_size])
-            return waves
-
-        # Build DAG from depends_on edges using graph primitives
-        dag = rx.PyDiGraph()
-        agent_map: dict[str, AgentSpec] = {}
-        node_indices: dict[str, int] = {}
-
-        valid_ids = {a.agent_id for a in expanded}
-        for agent in expanded:
-            idx = dag.add_node(agent.agent_id)
-            node_indices[agent.agent_id] = idx
-            agent_map[agent.agent_id] = agent
-
-        for agent in expanded:
-            for dep in agent.depends_on:
-                if dep in valid_ids:
-                    dag.add_edge(node_indices[dep], node_indices[agent.agent_id], None)
-
-        # Group by topological generation (parallel levels)
-        try:
-            generations = rx.topological_generations(dag)
-        except Exception:
-            logger.warning(
-                "[CONCEPT:ORCH-1.25] Dependency cycle detected — falling back "
-                "to sequential execution"
-            )
-            return [[a] for a in expanded]
-
-        topological_waves: list[list[AgentSpec]] = []
-        b_size = manifest.batch_size
-        if b_size is None:
-            b_size = getattr(config, "parallel_batch_size", 25) or 25
-        batch_size = int(b_size)
-
-        for generation in generations:
-            gen_agents = [
-                agent_map[dag[nidx]] for nidx in generation if dag[nidx] in agent_map
-            ]
-            # Sub-batch within a generation if it exceeds batch_size
-            for i in range(0, len(gen_agents), batch_size):
-                topological_waves.append(gen_agents[i : i + batch_size])
-
-        return topological_waves
-
-    def _expand_partitions(self, manifest: ExecutionManifest) -> list[AgentSpec]:
-        """Expand fan-out partitions into individual agent specs.
-
-        CONCEPT:ORCH-1.25 — Parallel Engine
-
-        If an ``AgentSpec`` has partitions, create one copy per partition
-        with ``{{partition}}`` replaced in the task template and a unique
-        agent_id suffix.
-        """
-        expanded: list[AgentSpec] = []
-        for agent in manifest.agents:
-            if agent.partitions:
-                for partition in agent.partitions:
-                    expanded_agent = agent.model_copy(deep=True)
-                    expanded_agent.agent_id = f"{agent.agent_id}:{partition}"
-                    expanded_agent.task_template = agent.task_template.replace(
-                        "{{partition}}", partition
-                    )
-                    expanded_agent.partitions = []  # Already expanded
-                    expanded.append(expanded_agent)
-            else:
-                expanded.append(agent)
-        return expanded
-
-    async def _execute_wave(
-        self,
-        agents: list[AgentSpec],
-        wave_idx: int,
-        scheduler: Any,
-        manifest: ExecutionManifest,
-        graph_deps: GraphDeps | None,
-        wave_results: list[WaveResult],
-    ) -> WaveResult:
-        """Execute one wave of agents concurrently with semaphore backpressure.
-
-        CONCEPT:ORCH-1.25 — Parallel Engine
-
-        Args:
-            agents: Agents in this wave.
-            wave_idx: Zero-based wave index.
-            semaphore: Concurrency governor.
-            manifest: The full manifest for context.
-            graph_deps: Optional runtime dependencies.
-            wave_results: Accumulated results from preceding waves.
-
-        Returns:
-            ``WaveResult`` with all agent outcomes.
-        """
-        start_time = time.monotonic()
-
-        async def _run_one(agent: AgentSpec) -> AgentExecutionResult:
-            if self._circuit_breaker.is_open(agent.agent_id):
-                return AgentExecutionResult(
-                    agent_id=agent.agent_id,
-                    role=agent.role,
-                    success=False,
-                    error=f"Circuit breaker open for {agent.agent_id}",
-                )
-
-            proc = await scheduler.submit(
-                agent_id=agent.agent_id,
-                task=agent.task_template or manifest.query,
-            )
-
-            await scheduler.wait_for_running(proc.id)
-
-            try:
-                res = await self._execute_agent(
-                    agent, manifest, graph_deps, wave_results, proc
-                )
-                await scheduler.complete(proc.id)
-                return res
-            except Exception as e:
-                await scheduler.fail(proc.id, str(e))
-                raise e
-
-        tasks = [_run_one(a) for a in agents]
-        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        results: list[AgentExecutionResult] = []
-        for raw in raw_results:
-            if isinstance(raw, AgentExecutionResult):
-                results.append(raw)
-                # Update circuit breaker
-                if raw.success:
-                    self._circuit_breaker.record_success(raw.agent_id)
-                else:
-                    self._circuit_breaker.record_failure(raw.agent_id)
-            elif isinstance(raw, Exception):
-                results.append(
-                    AgentExecutionResult(
-                        agent_id="unknown",
-                        success=False,
-                        error=str(raw),
-                    )
-                )
-
-        duration_ms = (time.monotonic() - start_time) * 1000
-        return WaveResult(
-            wave_index=wave_idx,
-            results=results,
-            duration_ms=duration_ms,
-        )
-
-    async def _execute_agent(
-        self,
-        agent: AgentSpec,
-        manifest: ExecutionManifest,
-        graph_deps: GraphDeps | None,
-        wave_results: list[WaveResult],
-        proc: Any = None,
-    ) -> AgentExecutionResult:
-        """Execute a single agent invocation with full capability wiring.
-
-        CONCEPT:ORCH-1.25 — Parallel Engine
-
-        Args:
-            agent: The agent specification.
-            manifest: The parent manifest for shared context.
-            graph_deps: Optional runtime dependencies.
-            wave_results: Preceding wave results for context injection.
-
-        Returns:
-            ``AgentExecutionResult`` with the agent's output.
-        """
-        start_time = time.monotonic()
-        timeout = agent.timeout or getattr(config, "agent_execution_timeout", 120.0)
-
-        # Build the task prompt
-        task = agent.task_template or manifest.query
-
-        # Ingest dependency outputs (Fan-In / Fan-Out topological context flow)
-        dependency_contexts = []
-        if agent.depends_on:
-            for dep_id in agent.depends_on:
-                for wave_res in wave_results:
-                    for agent_res in wave_res.results:
-                        if (
-                            agent_res.agent_id == dep_id
-                            or agent_res.agent_id.startswith(f"{dep_id}:")
-                        ) and agent_res.success:
-                            role_str = (
-                                f"Role: {agent_res.role}" if agent_res.role else ""
-                            )
-                            part_str = (
-                                f", Partition: {agent_res.partition}"
-                                if agent_res.partition
-                                else ""
-                            )
-                            dependency_contexts.append(
-                                f"### Output from dependent agent '{agent_res.agent_id}' ({role_str}{part_str}):\n"
-                                f"{agent_res.output}"
-                            )
-
-        if dependency_contexts:
-            dep_text = "\n\n".join(dependency_contexts)
-            task = (
-                f"{task}\n\n"
-                f"## DEPENDENCY OUTPUTS\n"
-                f"The following dependent upstream steps have completed successfully. "
-                f"Use their outputs to complete your task:\n\n"
-                f"{dep_text}"
-            )
-
-        if manifest.context:
-            task = f"{task}\n\nContext:\n{manifest.context}"
-
-        # CONCEPT:OS-5.9 Context Paging
-        if proc and hasattr(proc, "checkpoint_id") and proc.checkpoint_id:
-            logger.info(
-                "Paging context from checkpoint %s for agent %s",
-                proc.checkpoint_id,
-                agent.agent_id,
-            )
-            try:
-                from ..capabilities.checkpointing import GraphCheckpointStore
-
-                store = GraphCheckpointStore(engine=self.engine)
-                ckpt_data = store.get(proc.checkpoint_id)
-                if ckpt_data:
-                    task = f"{task}\n\n## RESUMED CONTEXT (Paged from KG)\n{ckpt_data}"
-            except Exception as e:
-                logger.warning(
-                    "Failed to page context from checkpoint %s: %s",
-                    proc.checkpoint_id,
-                    e,
-                )
-
-        # Determine model
-        model_id = agent.model_id
-        if not model_id and graph_deps:
-            model_id = str(graph_deps.agent_model)
-        if not model_id:
-            model_id = "openai:gpt-4o-mini"  # Fallback
-
-        system_prompt = agent.system_prompt or (
-            f"You are a {agent.role or agent.agent_id} specialist agent. "
-            f"Provide your best analysis and response."
-        )
-
-        try:
-            from ..agent.factory import create_agent
-
-            # Setup provider & model override
-            provider = "openai"
-            prov_model = model_id
-            if ":" in model_id:
-                provider, prov_model = model_id.split(":", 1)
-
-            # Map manifest settings / metadata
-            metadata = manifest.metadata or {}
-            from ..capabilities.checkpointing import CheckpointStore
-
-            checkpoint_store: CheckpointStore | None = None
-            if metadata.get("checkpoint_store") == "file":
-                from ..capabilities.checkpointing import FileCheckpointStore
-
-                checkpoint_store = FileCheckpointStore(
-                    directory=metadata.get("checkpoint_dir", "./checkpoints")
-                )
-            elif metadata.get("checkpoint_store") == "graph":
-                from ..capabilities.checkpointing import GraphCheckpointStore
-
-                checkpoint_store = GraphCheckpointStore(engine=self.engine)
-
-            # Wire up all 8 capabilities natively using factory
-            llm_agent, _ = create_agent(
-                provider=provider,
-                model_id=prov_model,
-                system_prompt=system_prompt,
-                name=agent.agent_id,
-                enable_skills=True,
-                enable_universal_tools=True,
-                mcp_config=metadata.get("mcp_config"),
-                tool_tags=agent.tools,
-                stuck_loop_detection=metadata.get("stuck_loop_detection", True),
-                stuck_loop_max_repeated=metadata.get("stuck_loop_max_repeated", 3),
-                context_warnings=metadata.get("context_warnings", True),
-                max_context_tokens=metadata.get("max_context_tokens"),
-                output_eviction=metadata.get("output_eviction", True),
-                eviction_threshold_chars=metadata.get(
-                    "eviction_threshold_chars", 80_000
-                ),
-                include_checkpoints=metadata.get("include_checkpoints", False),
-                checkpoint_store=checkpoint_store,
-                checkpoint_frequency=metadata.get("checkpoint_frequency", "every_tool"),
-                include_teams=metadata.get("include_teams", False),
-            )
-
-            result = await asyncio.wait_for(
-                llm_agent.run(task),
-                timeout=timeout,
-            )
-
-            duration_ms = (time.monotonic() - start_time) * 1000
-            output = result.output
-
-            logger.debug(
-                "[CONCEPT:ORCH-1.25] Agent %s (%s) completed in %.0fms — "
-                "output=%d chars",
-                agent.agent_id,
-                agent.role,
-                duration_ms,
-                len(output),
-            )
-
-            return AgentExecutionResult(
-                agent_id=agent.agent_id,
-                role=agent.role,
-                partition=agent.partitions[0] if agent.partitions else "",
-                output=output,
-                success=True,
-                duration_ms=duration_ms,
-                model_id=model_id,
-            )
-
-        except TimeoutError:
-            duration_ms = (time.monotonic() - start_time) * 1000
-            logger.warning(
-                "[CONCEPT:ORCH-1.25] Agent %s timed out after %.0fms",
-                agent.agent_id,
-                duration_ms,
-            )
-            return AgentExecutionResult(
-                agent_id=agent.agent_id,
-                role=agent.role,
-                success=False,
-                error=f"Timeout after {duration_ms:.0f}ms",
-                duration_ms=duration_ms,
-                model_id=model_id,
-            )
-
-        except Exception as e:
-            duration_ms = (time.monotonic() - start_time) * 1000
-            logger.warning(
-                "[CONCEPT:ORCH-1.25] Agent %s failed: %s",
-                agent.agent_id,
-                e,
-            )
-            # Register failure with Auto-Healing retry engine
-            try:
-                self.auto_healing.report_failure(
-                    task_name=agent.agent_id,
-                    error_context=str(e),
-                )
-            except Exception as ah_err:
-                logger.debug("Auto-healing trigger failed: %s", ah_err)
-
-            return AgentExecutionResult(
-                agent_id=agent.agent_id,
-                role=agent.role,
-                success=False,
-                error=str(e),
-                duration_ms=duration_ms,
-                model_id=model_id,
-            )
-
-    async def _synthesize(
-        self,
-        results: list[AgentExecutionResult],
-        spec: SynthesisSpec,
-        query: str,
-        graph_deps: GraphDeps | None,
-    ) -> str:
-        """Synthesize agent outputs using the specified strategy.
-
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
-
-        The key insight: outputs are stored as Pydantic objects and
-        processed programmatically, never dumped into context windows.
-
-        Args:
-            results: All agent execution results.
-            spec: Synthesis specification.
-            query: Original user query.
-            graph_deps: Optional runtime dependencies.
-
-        Returns:
-            Synthesized output string.
-        """
-        successful = [r for r in results if r.success]
-        if not successful:
-            return "No successful agent outputs to synthesize."
-
-        if len(successful) == 1:
-            return successful[0].output
-
-        if spec.strategy == "flat":
-            return self._flat_synthesis(successful)
-
-        elif spec.strategy == "hierarchical":
-            return await self._hierarchical_synthesis(
-                successful, spec, query, graph_deps
-            )
-
-        elif spec.strategy == "rlm":
-            return await self._rlm_synthesis(successful, spec, query, graph_deps)
-
-        elif spec.strategy == "progressive":
-            return await self._progressive_synthesis(
-                successful, spec, query, graph_deps
-            )
-
-        # Default fallback
-        return self._flat_synthesis(successful)
-
-    def _flat_synthesis(self, results: list[AgentExecutionResult]) -> str:
-        """Simple concatenation synthesis for small agent counts.
-
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
-        """
-        parts: list[str] = []
-        for r in results:
-            header = f"## {r.role or r.agent_id}"
-            if r.partition:
-                header += f" [{r.partition}]"
-            parts.append(f"{header}\n\n{r.output}")
-        return "\n\n---\n\n".join(parts)
-
-    async def _synthesize_group(
-        self,
-        results: list[AgentExecutionResult],
-        query: str,
-        graph_deps: GraphDeps | None,
-    ) -> str:
-        """Synthesize a subgroup of results. For now, falls back to flat synthesis."""
-        return self._flat_synthesis(results)
-
-    async def _merge_pair(
-        self,
-        running_summary: str,
-        new_result: AgentExecutionResult,
-        query: str,
-        graph_deps: GraphDeps | None,
-    ) -> str:
-        """Merge a new result into the running summary. For now, concatenates."""
-        header = f"## {new_result.role or new_result.agent_id}"
-        if new_result.partition:
-            header += f" [{new_result.partition}]"
-        return f"{running_summary}\n\n---\n\n{header}\n\n{new_result.output}"
-
-    async def _hierarchical_synthesis(
-        self,
-        results: list[AgentExecutionResult],
-        spec: SynthesisSpec,
-        query: str,
-        graph_deps: GraphDeps | None,
-    ) -> str:
-        """Tiered synthesis: group → sub-summaries → final summary.
-
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
-
-        Groups outputs by ``spec.ratio`` (default 10), generates a
-        sub-summary for each group, then synthesizes sub-summaries
-        into a final output. Recurses if needed for very large sets.
-        """
-        ratio = spec.ratio
-
-        # Base case: small enough for direct synthesis
-        if len(results) <= ratio:
-            return await self._synthesize_group(results, query, graph_deps)
-
-        # Tier 1: Create sub-summaries
-        sub_summaries: list[str] = []
-        for i in range(0, len(results), ratio):
-            group = results[i : i + ratio]
-            summary = await self._synthesize_group(group, query, graph_deps)
-            sub_summaries.append(summary)
-
-        logger.info(
-            "[CONCEPT:ORCH-1.26] Hierarchical synthesis: %d results → "
-            "%d sub-summaries → final",
-            len(results),
-            len(sub_summaries),
-        )
-
-        # Tier 2: Final synthesis of sub-summaries
-        if len(sub_summaries) > ratio:
-            # Recurse for very large sets
-            pseudo_results = [
-                AgentExecutionResult(
-                    agent_id=f"sub_summary_{i}",
-                    output=s,
-                    success=True,
-                )
-                for i, s in enumerate(sub_summaries)
-            ]
-            return await self._hierarchical_synthesis(
-                pseudo_results, spec, query, graph_deps
-            )
-
-        return await self._synthesize_group(
-            [
-                AgentExecutionResult(
-                    agent_id=f"sub_summary_{i}",
-                    output=s,
-                    success=True,
-                )
-                for i, s in enumerate(sub_summaries)
-            ],
-            query,
-            graph_deps,
-        )
-
-    async def _rlm_synthesis(
-        self,
-        results: list[AgentExecutionResult],
-        spec: SynthesisSpec,
-        query: str,
-        graph_deps: GraphDeps | None,
-    ) -> str:
-        """Full RLM synthesis for massive-scale (50+ agent) output processing.
-
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
-
-        Uses the RLM environment to programmatically process outputs
-        stored as Pydantic objects, not dumped into the context window.
-        Falls back to hierarchical synthesis if RLM is unavailable.
-        """
-        try:
-            from ..rlm.config import RLMConfig
-            from ..rlm.repl import RLMEnvironment
-
-            # Serialize outputs as environment context
-            outputs_json = json.dumps(
-                [
-                    {
-                        "agent_id": r.agent_id,
-                        "role": r.role,
-                        "partition": r.partition,
-                        "output": r.output[:2000],  # Truncate for metadata
-                        "success": r.success,
-                    }
-                    for r in results
-                ],
-                indent=2,
-            )
-
-            rlm_config = RLMConfig(
-                metadata_only_root=True,
-                async_enabled=True,
-            )
-
-            env = RLMEnvironment(
-                context=outputs_json,
-                config=rlm_config,
-                graph_deps=graph_deps,
-            )
-
-            return await env.run_full_rlm(
-                f"Synthesize {len(results)} agent outputs for query: {query}"
-            )
-
-        except Exception as e:
-            logger.warning(
-                "[CONCEPT:ORCH-1.26] RLM synthesis failed, falling back to "
-                "hierarchical: %s",
-                e,
-            )
-            return await self._hierarchical_synthesis(results, spec, query, graph_deps)
-
-    async def _progressive_synthesis(
-        self,
-        results: list[AgentExecutionResult],
-        spec: SynthesisSpec,
-        query: str,
-        graph_deps: GraphDeps | None,
-    ) -> str:
-        """Progressive synthesis: incrementally merge as results arrive.
-
-        CONCEPT:ORCH-1.26 — RLM-Native Hierarchical Synthesis
-
-        Processes results one at a time, maintaining a running summary
-        that grows as each agent's output is incorporated.
-        """
-        if not results:
-            return ""
-
-        running_summary = results[0].output
-
-        for r in results[1:]:
-            running_summary = await self._merge_pair(
-                running_summary, r, query, graph_deps
-            )
-
-        return running_summary
-
-    def _persist_execution(
-        self,
-        manifest: ExecutionManifest,
-        wave_results: list[WaveResult],
-        synthesis_output: str,
-    ) -> str:
-        """Persist execution results to the Knowledge Graph with verbose hierarchy.
-
-        CONCEPT:ORCH-1.25 — Parallel Engine
-
-        Creates a ``ParallelExecution`` node, individual ``AgentExecutionResult`` nodes
-        linked via ``PART_OF_EXECUTION`` edges, and dependency edges linked via
-        ``DEPENDS_ON`` edges.
-
-        Args:
-            manifest: The executed manifest.
-            wave_results: Per-wave results.
-            synthesis_output: Final synthesis output.
-
-        Returns:
-            The execution node ID.
-        """
-        execution_id = f"pe:{uuid4().hex[:8]}"
-
-        if self.engine is None:
-            return execution_id
-
-        try:
-            all_results = [r for w in wave_results for r in w.results]
-            total_duration = sum(w.duration_ms for w in wave_results)
-            success_count = sum(1 for r in all_results if r.success)
-
-            node_data = {
-                "id": execution_id,
-                "type": "ParallelExecution",
-                "name": f"PE: {manifest.name or manifest.manifest_id}",
-                "manifest_id": manifest.manifest_id,
-                "agent_count": manifest.agent_count,
-                "wave_count": len(wave_results),
-                "success_count": success_count,
-                "failure_count": len(all_results) - success_count,
-                "total_duration_ms": total_duration,
-                "synthesis_strategy": manifest.synthesis.strategy,
-                "execution_mode": manifest.execution_mode,
-                "source": manifest.source,
-                "synthesis_preview": synthesis_output[:500],
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "importance_score": 0.7,
-            }
-
-            self.engine.graph.add_node(execution_id, **node_data)
-
-            # Persist individual AgentExecutionResult nodes and connect them
-            kg_node_map = {}
-            for result in all_results:
-                node_uuid = f"agent_exec_res:{uuid4().hex[:8]}"
-                res_data = {
-                    "id": node_uuid,
-                    "type": "AgentExecutionResult",
-                    "agent_id": result.agent_id,
-                    "role": result.role,
-                    "partition": result.partition,
-                    "success": result.success,
-                    "error": result.error,
-                    "duration_ms": result.duration_ms,
-                    "model_id": result.model_id,
-                    "output_preview": result.output[:500] if result.output else "",
-                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                }
-                self.engine.graph.add_node(node_uuid, **res_data)
-                self.engine.graph.add_edge(
-                    execution_id, node_uuid, type="PART_OF_EXECUTION"
-                )
-                kg_node_map[result.agent_id] = node_uuid
-
-            # Reconstruct and persist dependency topology edges inside KG
-            for agent_spec in manifest.agents:
-                for dep in agent_spec.depends_on:
-                    source_kg = kg_node_map.get(dep)
-                    target_kg = kg_node_map.get(agent_spec.agent_id)
-                    if source_kg and target_kg:
-                        self.engine.graph.add_edge(
-                            source_kg, target_kg, type="DEPENDS_ON"
-                        )
-
-            logger.info(
-                "[CONCEPT:ORCH-1.25] Persisted execution hierarchy %s to KG "
-                "(%d agents, %d waves, %d topology edges)",
-                execution_id,
-                manifest.agent_count,
-                len(wave_results),
-                sum(len(a.depends_on) for a in manifest.agents),
-            )
-
-        except Exception as e:
-            logger.debug("ParallelEngine: KG persistence failed: %s", e)
-
-        return execution_id
+        pe = ParallelEngine(engine=self.engine)
+        return await pe.execute(manifest, graph_deps)

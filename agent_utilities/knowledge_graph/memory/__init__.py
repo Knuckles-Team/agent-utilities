@@ -4,7 +4,7 @@ CONCEPT:KG-2.1 — Tiered Memory & Context
 CONCEPT:KG-2.1 — Observational Memory Bridge
 
 This package contains:
-- Consolidation engine (KG-2.4) — Episode→Preference, Decision→Principle rules
+- Synthesis engine (KG-2.4) — Episode→Preference, Decision→Principle rules
 - Memory materializer (KG-2.10) — KG→Markdown bidirectional sync
 - Observer (KG-2.10) — LLM-powered transcript→observation extraction
 - Reflector (KG-2.10) — Observation→reflection condensation
@@ -12,43 +12,110 @@ This package contains:
 - Semantic compactor (KG-2.20) — Trace compaction to prevent graph explosion
 """
 
-from .consolidation import ConsolidationEngine, ConsolidationProposal
-from .memory_compaction import SemanticCompactor
-from .memory_materializer import (
+from .agent_context import (
+    AgentContextManager,
+    CompactedResult,
+    CompactionStrategy,
+    ContextCompactor,
+    ContextOperator,
+    ElasticContextManager,
+    MemoryEntry,
+    MemoryTimescale,
+    PreemptiveCacheEngine,
+    SemanticCompactor,
+    TimescaleMemoryStore,
+    compress_to_memento,
+    estimate_message_tokens,
+    estimate_tokens,
+    get_recent_mementos,
+    prune_context_by_semantic_distance,
+)
+from .memory_engine import (
+    EvolvingMemoryAPI,
+    MemoryEngine,
     MemoryMaterializer,
+    StartupContextBuilder,
+    StartupPayload,
+    build_startup_payload,
     ingest_memory_edits,
     materialize_memory,
     memory_dir,
 )
+
+# Also expose observer routines if they exist in optimization engine
 from .observer import observe_from_file, observe_transcript
-from .reflector import run_reflector
-from .startup_context import (
-    StartupContextBuilder,
-    StartupPayload,
-    build_startup_payload,
+from .optimization_engine import (
+    MEMORY_HALF_LIVES,
+    AutoSimilarityLinker,
+    CKAResult,
+    DecisionToPrincipleRule,
+    EmbeddingHealthReport,
+    EpisodeToPreferenceRule,
+    EvaluationCapture,
+    FusionResult,
+    MemoryOptimizationEngine,
+    SynthesisEngine,
+    SynthesisProposal,
+    TraceToSkillRule,
+    apply_ewc_synthesis,
+    check_knowledge_drift,
+    compute_fisher_diagonal_proxy,
+    ebbinghaus_decay,
+    run_reflector,
 )
-from .unified_memory import MemoryLifecycleManager
 
 __all__ = [
-    # Memory Lifecycle Manager (KG-2.1)
-    "MemoryLifecycleManager",
-    # Consolidation (KG-2.4)
-    "ConsolidationEngine",
-    "ConsolidationProposal",
-    # Memory Materializer (KG-2.10)
+    # Memory Lifecycle
+    "MemoryEngine",
+    "EvolvingMemoryAPI",
+    # Context
+    "AgentContextManager",
+    "ContextCompactor",
+    "ContextOperator",
+    "ElasticContextManager",
+    "CompactedResult",
+    "CompactionStrategy",
+    "PreemptiveCacheEngine",
+    "TimescaleMemoryStore",
+    "MemoryTimescale",
+    "MemoryEntry",
+    "compress_to_memento",
+    "estimate_message_tokens",
+    "estimate_tokens",
+    "get_recent_mementos",
+    "prune_context_by_semantic_distance",
+    # Synthesis
+    "SynthesisEngine",
+    "SynthesisProposal",
+    # Materialization
     "MemoryMaterializer",
     "materialize_memory",
     "ingest_memory_edits",
     "memory_dir",
-    # Observer (KG-2.10)
+    # Observer
     "observe_transcript",
     "observe_from_file",
-    # Reflector (KG-2.10)
+    # Reflector
     "run_reflector",
-    # Startup Context (KG-2.10)
+    # Context Builder
     "StartupContextBuilder",
     "StartupPayload",
     "build_startup_payload",
-    # Semantic Compactor (KG-2.20)
+    # Compaction
     "SemanticCompactor",
+    # Stability
+    "MemoryOptimizationEngine",
+    "AutoSimilarityLinker",
+    "check_knowledge_drift",
+    "apply_ewc_synthesis",
+    "compute_fisher_diagonal_proxy",
+    "DecisionToPrincipleRule",
+    "EpisodeToPreferenceRule",
+    "EvaluationCapture",
+    "TraceToSkillRule",
+    "ebbinghaus_decay",
+    "MEMORY_HALF_LIVES",
+    "CKAResult",
+    "EmbeddingHealthReport",
+    "FusionResult",
 ]

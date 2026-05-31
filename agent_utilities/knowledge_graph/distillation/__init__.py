@@ -23,9 +23,11 @@ Public API::
 from .deduplicator import KnowledgeDeduplicator
 from .distillation_engine import DistillationEngine
 from .lsh_index import LSHIndex
+from .physical_distiller import PhysicalDistillationEngine
 
 __all__ = [
     "DistillationEngine",
     "KnowledgeDeduplicator",
     "LSHIndex",
+    "PhysicalDistillationEngine",
 ]

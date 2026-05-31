@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from agent_utilities.knowledge_graph.memory.knowledge_stability_engine import (
-    KnowledgeStabilityEngine as EmbeddingDiagnostics,
+from agent_utilities.knowledge_graph.memory import (
+    MemoryOptimizationEngine as EmbeddingDiagnostics,
 )
 
 

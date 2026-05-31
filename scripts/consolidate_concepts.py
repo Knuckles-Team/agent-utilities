@@ -16,7 +16,7 @@ from pathlib import Path
 # Only tags that CHANGE are listed here.
 # Tags that stay the same (e.g., ORCH-1.0, KG-2.0) are NOT listed.
 RENAME_MAP = {
-    # ── ORCH consolidation ──
+    # ── ORCH synthesis ──
     "ORCH-1.5": "ORCH-1.3",  # state management → Execution Safety & State
     "ORCH-1.6": "ORCH-1.5",  # agent orchestrator → Agent Orchestrator (renumber)
     "ORCH-1.14": "ORCH-1.2",  # fallback chains → Specialist Routing
@@ -27,7 +27,7 @@ RENAME_MAP = {
     "ORCH-1.19": "ORCH-1.4",  # subgraph synthesis → Capability Wiring
     "ORCH-1.20": "ORCH-1.4",  # capability auto-activation → Capability Wiring
     # ORCH-1.21 → ORCH-1.4 (already implied by wiring engine)
-    # ── KG consolidation (most aggressive) ──
+    # ── KG synthesis (most aggressive) ──
     "KG-001": "KG-2.0",
     "KG-002": "KG-2.0",
     "KG-003": "KG-2.0",
@@ -79,7 +79,7 @@ RENAME_MAP = {
     "KG-2.50": "KG-2.11",  # context-window filtering → Vectorized Retrieval
     # Finance sub-concepts (KG-2.60-2.76)
     **{f"KG-2.{i}": "KG-2.6" for i in range(60, 77)},
-    # ── AHE consolidation ──
+    # ── AHE synthesis ──
     "AHE-3.10": "AHE-3.1",  # decomposed rewards → Continuous Evaluation
     "AHE-3.12": "AHE-3.1",  # multi-strategy eval → Continuous Evaluation
     "AHE-3.13": "AHE-3.2",  # config versioning → Evolution Engine
@@ -97,7 +97,7 @@ RENAME_MAP = {
     "AHE-3.25": "AHE-3.7",  # topological reasoning → KG-Native Task Detection
     "AHE-3.18": "AHE-3.7",  # auto-healing → KG-Native Task Detection
     "AHE-3.11": "ORCH-1.3",  # structured retry → Execution Safety
-    # ── ECO consolidation ──
+    # ── ECO synthesis ──
     "ECO-4.1": "ECO-4.0",  # universal skills → Tool Interface
     "ECO-4.5": "ECO-4.0",  # skill loading → Tool Interface
     "ECO-4.6": "ECO-4.0",  # bridges → Tool Interface
@@ -110,7 +110,7 @@ RENAME_MAP = {
     "ECO-4.11": "ECO-4.4",  # durable exec → KG MCP (renumber)
     "ECO-4.12": "ECO-4.4",  # jupyter sandbox → KG MCP
     "ECO-4.13": "ECO-4.4",  # KG MCP → KG MCP
-    # ── OS consolidation ──
+    # ── OS synthesis ──
     "OS-5.3": "OS-5.1",  # session concurrency → Security
     "OS-5.4": "OS-5.1",  # prompt injection → Security
     "OS-5.10": "OS-5.1",  # prompt governance → Security

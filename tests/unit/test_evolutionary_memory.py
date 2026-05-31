@@ -13,11 +13,11 @@ from agent_utilities.knowledge_graph.core.topological_partition import (
     detect_communities,
     persist_stable_communities,
 )
-from agent_utilities.knowledge_graph.memory.drift_tracker import (
+from agent_utilities.knowledge_graph.memory import (
     check_knowledge_drift,
 )
-from agent_utilities.knowledge_graph.memory.ewc import (
-    apply_ewc_consolidation,
+from agent_utilities.knowledge_graph.memory import (
+    apply_ewc_synthesis,
     compute_fisher_diagonal_proxy,
 )
 
@@ -106,7 +106,7 @@ def test_drift_tracker():
 
 
 @pytest.mark.concept("AHE-3.6", "CONCEPT:AHE-3.4")
-def test_ewc_consolidation():
+def test_ewc_synthesis():
     """Test Fisher-proxy Elastic Weight Consolidation.
 
     CONCEPT:AHE-3.4
@@ -121,7 +121,7 @@ def test_ewc_consolidation():
     old_emb = [1.0, 0.0]
     new_emb = [0.0, 1.0]
 
-    consolidated = apply_ewc_consolidation(old_emb, new_emb, fisher, lambda_param=0.5)
+    synthesized = apply_ewc_synthesis(old_emb, new_emb, fisher, lambda_param=0.5)
 
-    assert len(consolidated) == 2
-    assert consolidated[0] > 0.0  # Index 0 preserved due to high fisher (was 1.0)
+    assert len(synthesized) == 2
+    assert synthesized[0] > 0.0  # Index 0 preserved due to high fisher (was 1.0)

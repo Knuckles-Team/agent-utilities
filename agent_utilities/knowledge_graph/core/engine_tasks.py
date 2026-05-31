@@ -531,7 +531,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
 
                 if threads:
-                    from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+                    from agent_utilities.knowledge_graph.memory import (
                         ElasticContextManager,
                     )
 
@@ -689,11 +689,11 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                     def _run_telemetry():
                         try:
-                            from agent_utilities.orchestration import WorkflowRunner
+                            from agent_utilities.workflows.runner import WorkflowRunner
 
                             runner = WorkflowRunner()
                             asyncio.run(
-                                runner.execute_workflow(
+                                runner.execute_by_name(
                                     "telemetry_ingestion",
                                     engine=self,  # type: ignore[arg-type]
                                 )

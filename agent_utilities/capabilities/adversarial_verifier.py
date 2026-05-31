@@ -78,7 +78,7 @@ async def run_adversarial_pass(
     Args:
         state: The current ``GraphState`` with execution results.
         deps: The ``GraphDeps`` with model and event queue.
-        results_summary: Consolidated results from execution steps.
+        results_summary: Synthesized results from execution steps.
 
     Returns:
         An ``AdversarialResult`` if findings exist, or ``None`` if clean.

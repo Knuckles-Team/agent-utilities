@@ -87,8 +87,8 @@ def test_hybrid_retriever_fallback(mock_create_model, memory_engine):
 @patch("agent_utilities.core.model_factory.create_model")
 @patch("pydantic_ai.Agent.run_sync")
 def test_consolidate_memory_llm(mock_run_sync, mock_create_model, memory_engine):
-    """Test memory consolidation using the LLM judge."""
-    mock_run_sync.return_value.data = "This is a consolidated summary."
+    """Test memory synthesis using the LLM judge."""
+    mock_run_sync.return_value.data = "This is a synthesized summary."
 
     # Mock backend to simulate matching episodes
     mock_backend = MagicMock()
@@ -115,4 +115,4 @@ def test_consolidate_memory_llm(mock_run_sync, mock_create_model, memory_engine)
         if "CREATE (s:ChatSummary" in c[0][0]
     ]
     assert len(create_calls) == 1
-    assert create_calls[0][0][1]["text"] == "This is a consolidated summary."
+    assert create_calls[0][0][1]["text"] == "This is a synthesized summary."

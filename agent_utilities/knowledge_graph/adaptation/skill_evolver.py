@@ -106,7 +106,7 @@ class SkillGap(BaseModel):
 
 
 class SkillMergeCandidate(BaseModel):
-    """Two skills that may overlap and should be consolidated.
+    """Two skills that may overlap and should be synthesized.
 
     Attributes:
         skill_a_id: First skill ID.

@@ -7,11 +7,13 @@ the structured input/output contract of DSPy Signatures without adding
 external dependencies.
 """
 
-from typing import Any, Dict, List, Type, get_type_hints
+from typing import Any
+
 from pydantic import BaseModel, Field
-from .repl import RLMEnvironment
-from .config import RLMConfig
+
 from ..graph.state import GraphDeps
+from .config import RLMConfig
+from .repl import RLMEnvironment
 
 
 def InputField(default: Any = ..., *, description: str = "", **kwargs) -> Any:
@@ -37,18 +39,18 @@ class PredictRLM:
 
     def __init__(
         self,
-        signature: Type[BaseModel],
+        signature: type[BaseModel],
         config: RLMConfig | None = None,
         graph_deps: GraphDeps | None = None,
     ):
         self.signature = signature
         self.config = config or RLMConfig()
         self.graph_deps = graph_deps
-        self.skills: Dict[str, Any] = {}
+        self.skills: dict[str, Any] = {}
 
         # Inspect the signature to identify input and output fields
-        self.inputs: List[str] = []
-        self.outputs: List[str] = []
+        self.inputs: list[str] = []
+        self.outputs: list[str] = []
 
         for name, field in self.signature.model_fields.items():
             extra = getattr(field, "json_schema_extra", None) or {}
@@ -74,7 +76,7 @@ class PredictRLM:
         """Register a custom function or API client helper to be injected into the REPL."""
         self.skills[name] = skill_fn
 
-    def _generate_instruction_prompt(self, inputs: Dict[str, Any]) -> str:
+    def _generate_instruction_prompt(self, inputs: dict[str, Any]) -> str:
         """Construct the prompt guiding the RLM REPL to solve the task and assign outputs."""
         prompt = (
             f"TASK DESCRIPTION:\n"
@@ -96,11 +98,11 @@ class PredictRLM:
             prompt += f"  - `{name}`: {field.description or 'No description'}\n"
 
         prompt += (
-            f"\nINSTRUCTIONS:\n"
-            f"  1. Analyze the inputs programmatically inside the Python REPL.\n"
-            f"  2. Compute values for each of the required output fields.\n"
-            f"  3. For EACH required output field, call `FINAL_VAR('field_name', value)` to record the result.\n"
-            f"  4. Ensure your output values conform to the types and constraints described.\n"
+            "\nINSTRUCTIONS:\n"
+            "  1. Analyze the inputs programmatically inside the Python REPL.\n"
+            "  2. Compute values for each of the required output fields.\n"
+            "  3. For EACH required output field, call `FINAL_VAR('field_name', value)` to record the result.\n"
+            "  4. Ensure your output values conform to the types and constraints described.\n"
         )
         return prompt
 

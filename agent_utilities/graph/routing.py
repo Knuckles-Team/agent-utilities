@@ -410,7 +410,7 @@ async def router_step(
             workflow_context = await router.route_context(ctx.state.query)
             ctx.state.workflow_context = workflow_context.model_dump()
 
-        unified_context = workflow_context.to_prompt_string()
+        agent_context = workflow_context.to_prompt_string()
 
         logger.info("[LAYER:GRAPH:ROUTER] Fetching specialist tags...")
         specialist_tags = deps.tag_prompts
@@ -496,7 +496,7 @@ async def router_step(
                 [f"- {tag}: {desc}" for tag, desc in specialist_tags.items()]
             )
         logger.info(
-            f"Router: Specialists count: {len(specialist_tags)}, Context length: {len(unified_context)}"
+            f"Router: Specialists count: {len(specialist_tags)}, Context length: {len(agent_context)}"
         )
 
         router_prompt = load_specialized_prompts("router")
@@ -526,15 +526,14 @@ async def router_step(
             f"### FAILURE CONTEXT\n{failure_context}\n\n"
             f"{discovery_context}"
             f"### AVAILABLE SPECIALIST NODES\n{step_info}\n\n"
-            f"### PROJECT CONTEXT\n{unified_context}"
+            f"### PROJECT CONTEXT\n{agent_context}"
         )
         from ..rlm.config import RLMConfig
         from ..rlm.repl import RLMEnvironment
 
         rlm_config = RLMConfig()
         use_rlm = (
-            rlm_config.enabled
-            or len(unified_context) > rlm_config.max_context_threshold
+            rlm_config.enabled or len(agent_context) > rlm_config.max_context_threshold
         )
 
         if use_rlm:
@@ -542,7 +541,7 @@ async def router_step(
                 "[LAYER:GRAPH:ROUTER] Running in RLM (Recursive Language Model) mode."
             )
             env = RLMEnvironment(
-                context=f"SYSTEM_PROMPT:\n{system_prompt_str}\n\nPROJECT_CONTEXT:\n{unified_context}",
+                context=f"SYSTEM_PROMPT:\n{system_prompt_str}\n\nPROJECT_CONTEXT:\n{agent_context}",
                 config=rlm_config,
                 graph_deps=ctx.deps,
             )

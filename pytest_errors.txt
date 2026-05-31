@@ -167,7 +167,7 @@ tests/unit/knowledge_graph/test_graph_validator.py:22: in __init__
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E   AttributeError: 'EpistemicGraphClient' object has no attribute 'clear'
 _________ ERROR at setup of test_rule_emits_one_proposal_for_terraform _________
-tests/unit/knowledge_graph/test_kg_consolidation.py:57: in synthetic_engine
+tests/unit/knowledge_graph/test_kg_synthesis.py:57: in synthetic_engine
     g._client.clear()
     ^^^^^^^^^^^^^^^
 ../epistemic-graph/epistemic_graph/client.py:696: in __getattr__
@@ -177,7 +177,7 @@ E   AttributeError: 'EpistemicGraphClient' object has no attribute 'clear'
 ------------------------------ Captured log setup ------------------------------
 ERROR    agent_utilities.knowledge_graph.core.event_backend:event_backend.py:442 Failed to create Redpanda consumer: No module named 'confluent_kafka'
 ______________ ERROR at setup of test_rule_skips_below_threshold _______________
-tests/unit/knowledge_graph/test_kg_consolidation.py:57: in synthetic_engine
+tests/unit/knowledge_graph/test_kg_synthesis.py:57: in synthetic_engine
     g._client.clear()
     ^^^^^^^^^^^^^^^
 ../epistemic-graph/epistemic_graph/client.py:696: in __getattr__
@@ -187,7 +187,7 @@ E   AttributeError: 'EpistemicGraphClient' object has no attribute 'clear'
 ------------------------------ Captured log setup ------------------------------
 ERROR    agent_utilities.knowledge_graph.core.event_backend:event_backend.py:442 Failed to create Redpanda consumer: No module named 'confluent_kafka'
 ________ ERROR at setup of test_rule_honours_custom_min_evidence_count _________
-tests/unit/knowledge_graph/test_kg_consolidation.py:57: in synthetic_engine
+tests/unit/knowledge_graph/test_kg_synthesis.py:57: in synthetic_engine
     g._client.clear()
     ^^^^^^^^^^^^^^^
 ../epistemic-graph/epistemic_graph/client.py:696: in __getattr__
@@ -197,7 +197,7 @@ E   AttributeError: 'EpistemicGraphClient' object has no attribute 'clear'
 ------------------------------ Captured log setup ------------------------------
 ERROR    agent_utilities.knowledge_graph.core.event_backend:event_backend.py:442 Failed to create Redpanda consumer: No module named 'confluent_kafka'
 _____________ ERROR at setup of test_engine_runs_registered_rules ______________
-tests/unit/knowledge_graph/test_kg_consolidation.py:57: in synthetic_engine
+tests/unit/knowledge_graph/test_kg_synthesis.py:57: in synthetic_engine
     g._client.clear()
     ^^^^^^^^^^^^^^^
 ../epistemic-graph/epistemic_graph/client.py:696: in __getattr__
@@ -205,7 +205,7 @@ tests/unit/knowledge_graph/test_kg_consolidation.py:57: in synthetic_engine
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E   AttributeError: 'EpistemicGraphClient' object has no attribute 'clear'
 _____________ ERROR at setup of test_engine_isolates_broken_rules ______________
-tests/unit/knowledge_graph/test_kg_consolidation.py:57: in synthetic_engine
+tests/unit/knowledge_graph/test_kg_synthesis.py:57: in synthetic_engine
     g._client.clear()
     ^^^^^^^^^^^^^^^
 ../epistemic-graph/epistemic_graph/client.py:696: in __getattr__
@@ -350,9 +350,9 @@ tests/unit/knowledge_graph/test_topological_analogy.py:18: in base_graph
 E   AttributeError: 'EpistemicGraphClient' object has no attribute 'clear'
 =================================== FAILURES ===================================
 _____________________ test_persist_proposals_creates_nodes _____________________
-tests/unit/knowledge_graph/test_consolidation_engine.py:78: in test_persist_proposals_creates_nodes
+tests/unit/knowledge_graph/test_synthesis_engine.py:78: in test_persist_proposals_creates_nodes
     _populate_episodes(engine, count=6)
-tests/unit/knowledge_graph/test_consolidation_engine.py:43: in _populate_episodes
+tests/unit/knowledge_graph/test_synthesis_engine.py:43: in _populate_episodes
     engine.graph.add_node(
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     self._client.nodes.add(node_id, props)
@@ -370,9 +370,9 @@ agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     raise RuntimeError(err_msg)
 E   RuntimeError: Invalid request MsgPack: invalid type: byte array, expected a sequence
 ___________________ test_decision_to_principle_rule_detects ____________________
-tests/unit/knowledge_graph/test_consolidation_engine.py:98: in test_decision_to_principle_rule_detects
+tests/unit/knowledge_graph/test_synthesis_engine.py:98: in test_decision_to_principle_rule_detects
     _populate_decisions(engine, approach="use structured output", count=5)
-tests/unit/knowledge_graph/test_consolidation_engine.py:60: in _populate_decisions
+tests/unit/knowledge_graph/test_synthesis_engine.py:60: in _populate_decisions
     engine.graph.add_node(
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     self._client.nodes.add(node_id, props)
@@ -390,9 +390,9 @@ agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     raise RuntimeError(err_msg)
 E   RuntimeError: Invalid request MsgPack: invalid type: byte array, expected a sequence
 ___________________ test_approve_proposal_creates_real_node ____________________
-tests/unit/knowledge_graph/test_consolidation_engine.py:113: in test_approve_proposal_creates_real_node
+tests/unit/knowledge_graph/test_synthesis_engine.py:113: in test_approve_proposal_creates_real_node
     _populate_decisions(engine, count=4)
-tests/unit/knowledge_graph/test_consolidation_engine.py:60: in _populate_decisions
+tests/unit/knowledge_graph/test_synthesis_engine.py:60: in _populate_decisions
     engine.graph.add_node(
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     self._client.nodes.add(node_id, props)
@@ -412,9 +412,9 @@ E   RuntimeError: Invalid request MsgPack: invalid type: byte array, expected a 
 ------------------------------ Captured log call -------------------------------
 ERROR    agent_utilities.knowledge_graph.core.event_backend:event_backend.py:442 Failed to create Redpanda consumer: No module named 'confluent_kafka'
 _____________________ test_reject_proposal_updates_status ______________________
-tests/unit/knowledge_graph/test_consolidation_engine.py:140: in test_reject_proposal_updates_status
+tests/unit/knowledge_graph/test_synthesis_engine.py:140: in test_reject_proposal_updates_status
     _populate_decisions(engine, count=5)
-tests/unit/knowledge_graph/test_consolidation_engine.py:60: in _populate_decisions
+tests/unit/knowledge_graph/test_synthesis_engine.py:60: in _populate_decisions
     engine.graph.add_node(
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     self._client.nodes.add(node_id, props)
@@ -434,9 +434,9 @@ E   RuntimeError: Invalid request MsgPack: invalid type: byte array, expected a 
 ------------------------------ Captured log call -------------------------------
 ERROR    agent_utilities.knowledge_graph.core.event_backend:event_backend.py:442 Failed to create Redpanda consumer: No module named 'confluent_kafka'
 __________________________ test_get_pending_proposals __________________________
-tests/unit/knowledge_graph/test_consolidation_engine.py:159: in test_get_pending_proposals
+tests/unit/knowledge_graph/test_synthesis_engine.py:159: in test_get_pending_proposals
     _populate_decisions(engine, count=5)
-tests/unit/knowledge_graph/test_consolidation_engine.py:60: in _populate_decisions
+tests/unit/knowledge_graph/test_synthesis_engine.py:60: in _populate_decisions
     engine.graph.add_node(
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     self._client.nodes.add(node_id, props)
@@ -456,9 +456,9 @@ E   RuntimeError: Invalid request MsgPack: invalid type: byte array, expected a 
 ------------------------------ Captured log call -------------------------------
 ERROR    agent_utilities.knowledge_graph.core.event_backend:event_backend.py:442 Failed to create Redpanda consumer: No module named 'confluent_kafka'
 _______________________ test_dedup_prevents_re_proposal ________________________
-tests/unit/knowledge_graph/test_consolidation_engine.py:178: in test_dedup_prevents_re_proposal
+tests/unit/knowledge_graph/test_synthesis_engine.py:178: in test_dedup_prevents_re_proposal
     _populate_decisions(engine, count=5)
-tests/unit/knowledge_graph/test_consolidation_engine.py:60: in _populate_decisions
+tests/unit/knowledge_graph/test_synthesis_engine.py:60: in _populate_decisions
     engine.graph.add_node(
 agent_utilities/knowledge_graph/core/graph_compute.py:159: in add_node
     self._client.nodes.add(node_id, props)
@@ -745,7 +745,7 @@ ERROR    agent_utilities.knowledge_graph.core.event_backend:event_backend.py:442
 ERROR    agent_utilities.knowledge_graph.backends.ladybug_backend:ladybug_backend.py:661 LadybugDB Cypher execution failed: __version__
 Query: MATCH (t:Task {status: 'pending'}) RETURN count(t) as c
 ______________________ test_rule_ignores_failed_episodes _______________________
-tests/unit/knowledge_graph/test_kg_consolidation.py:186: in test_rule_ignores_failed_episodes
+tests/unit/knowledge_graph/test_kg_synthesis.py:186: in test_rule_ignores_failed_episodes
     g._client.clear()
     ^^^^^^^^^^^^^^^
 ../epistemic-graph/epistemic_graph/client.py:696: in __getattr__
@@ -755,7 +755,7 @@ E   AttributeError: 'EpistemicGraphClient' object has no attribute 'clear'
 ------------------------------ Captured log call -------------------------------
 ERROR    agent_utilities.knowledge_graph.core.event_backend:event_backend.py:442 Failed to create Redpanda consumer: No module named 'confluent_kafka'
 ________________________ test_engine_dedup_by_signature ________________________
-tests/unit/knowledge_graph/test_kg_consolidation.py:277: in test_engine_dedup_by_signature
+tests/unit/knowledge_graph/test_kg_synthesis.py:277: in test_engine_dedup_by_signature
     g._client.clear()
     ^^^^^^^^^^^^^^^
 ../epistemic-graph/epistemic_graph/client.py:696: in __getattr__
@@ -763,7 +763,7 @@ tests/unit/knowledge_graph/test_kg_consolidation.py:277: in test_engine_dedup_by
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E   AttributeError: 'EpistemicGraphClient' object has no attribute 'clear'
 _________________ test_engine_empty_graph_yields_no_proposals __________________
-tests/unit/knowledge_graph/test_kg_consolidation.py:286: in test_engine_empty_graph_yields_no_proposals
+tests/unit/knowledge_graph/test_kg_synthesis.py:286: in test_engine_empty_graph_yields_no_proposals
     g._client.clear()
     ^^^^^^^^^^^^^^^
 ../epistemic-graph/epistemic_graph/client.py:696: in __getattr__
@@ -895,7 +895,7 @@ agent_utilities/graph/kg_graph_factory.py:35
 
 ../../../../genius/.local/lib/python3.14/site-packages/_pytest/config/__init__.py:1434
   /home/genius/.local/lib/python3.14/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: env
-  
+
     self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
 
 agent_utilities/knowledge_graph/pipeline/types.py:12
@@ -912,12 +912,12 @@ tests/unit/knowledge_graph/test_codemaps.py::test_codemap_generator_create
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
-FAILED tests/unit/knowledge_graph/test_consolidation_engine.py::test_persist_proposals_creates_nodes
-FAILED tests/unit/knowledge_graph/test_consolidation_engine.py::test_decision_to_principle_rule_detects
-FAILED tests/unit/knowledge_graph/test_consolidation_engine.py::test_approve_proposal_creates_real_node
-FAILED tests/unit/knowledge_graph/test_consolidation_engine.py::test_reject_proposal_updates_status
-FAILED tests/unit/knowledge_graph/test_consolidation_engine.py::test_get_pending_proposals
-FAILED tests/unit/knowledge_graph/test_consolidation_engine.py::test_dedup_prevents_re_proposal
+FAILED tests/unit/knowledge_graph/test_synthesis_engine.py::test_persist_proposals_creates_nodes
+FAILED tests/unit/knowledge_graph/test_synthesis_engine.py::test_decision_to_principle_rule_detects
+FAILED tests/unit/knowledge_graph/test_synthesis_engine.py::test_approve_proposal_creates_real_node
+FAILED tests/unit/knowledge_graph/test_synthesis_engine.py::test_reject_proposal_updates_status
+FAILED tests/unit/knowledge_graph/test_synthesis_engine.py::test_get_pending_proposals
+FAILED tests/unit/knowledge_graph/test_synthesis_engine.py::test_dedup_prevents_re_proposal
 FAILED tests/unit/knowledge_graph/test_contextual_embeddings.py::test_owl_context
 FAILED tests/unit/knowledge_graph/test_contextual_embeddings.py::test_hierarchical_context
 FAILED tests/unit/knowledge_graph/test_contextual_embeddings.py::test_build_contextual_description
@@ -933,9 +933,9 @@ FAILED tests/unit/knowledge_graph/test_federation.py::test_execute_federated_lpg
 FAILED tests/unit/knowledge_graph/test_kb_research.py::test_kb_model_validation
 FAILED tests/unit/knowledge_graph/test_kb_smoke.py::test_kb_ingest_small_directory
 FAILED tests/unit/knowledge_graph/test_kb_smoke.py::test_kb_search_returns_article
-FAILED tests/unit/knowledge_graph/test_kg_consolidation.py::test_rule_ignores_failed_episodes
-FAILED tests/unit/knowledge_graph/test_kg_consolidation.py::test_engine_dedup_by_signature
-FAILED tests/unit/knowledge_graph/test_kg_consolidation.py::test_engine_empty_graph_yields_no_proposals
+FAILED tests/unit/knowledge_graph/test_kg_synthesis.py::test_rule_ignores_failed_episodes
+FAILED tests/unit/knowledge_graph/test_kg_synthesis.py::test_engine_dedup_by_signature
+FAILED tests/unit/knowledge_graph/test_kg_synthesis.py::test_engine_empty_graph_yields_no_proposals
 FAILED tests/unit/knowledge_graph/test_kg_models.py::test_retrieve_place_view_stub_returns_empty_list
 FAILED tests/unit/knowledge_graph/test_kg_models.py::test_retrieve_epistemic_view_stub_has_expected_shape
 FAILED tests/unit/knowledge_graph/test_kg_models.py::test_retrieve_orthogonal_context_includes_v2_views_when_requested
@@ -959,11 +959,11 @@ ERROR tests/unit/knowledge_graph/test_graph_validator.py::TestTier4Fatal::test_d
 ERROR tests/unit/knowledge_graph/test_graph_validator.py::TestTier4Fatal::test_healthy_graph_passes
 ERROR tests/unit/knowledge_graph/test_graph_validator.py::TestValidationReport::test_report_summary
 ERROR tests/unit/knowledge_graph/test_graph_validator.py::TestValidationReport::test_report_issue_count
-ERROR tests/unit/knowledge_graph/test_kg_consolidation.py::test_rule_emits_one_proposal_for_terraform
-ERROR tests/unit/knowledge_graph/test_kg_consolidation.py::test_rule_skips_below_threshold
-ERROR tests/unit/knowledge_graph/test_kg_consolidation.py::test_rule_honours_custom_min_evidence_count
-ERROR tests/unit/knowledge_graph/test_kg_consolidation.py::test_engine_runs_registered_rules
-ERROR tests/unit/knowledge_graph/test_kg_consolidation.py::test_engine_isolates_broken_rules
+ERROR tests/unit/knowledge_graph/test_kg_synthesis.py::test_rule_emits_one_proposal_for_terraform
+ERROR tests/unit/knowledge_graph/test_kg_synthesis.py::test_rule_skips_below_threshold
+ERROR tests/unit/knowledge_graph/test_kg_synthesis.py::test_rule_honours_custom_min_evidence_count
+ERROR tests/unit/knowledge_graph/test_kg_synthesis.py::test_engine_runs_registered_rules
+ERROR tests/unit/knowledge_graph/test_kg_synthesis.py::test_engine_isolates_broken_rules
 ERROR tests/unit/knowledge_graph/test_knowledge_graph_unit.py::test_extract_focused_subgraph
 ERROR tests/unit/knowledge_graph/test_knowledge_graph_unit.py::test_codemap_persistence
 ERROR tests/unit/knowledge_graph/test_knowledge_graph_unit.py::test_hybrid_search

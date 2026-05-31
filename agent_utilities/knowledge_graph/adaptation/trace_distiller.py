@@ -3,7 +3,7 @@ import logging
 from typing import Any
 
 from ..core.engine import IntelligenceGraphEngine
-from .consolidation import ConsolidationEngine
+from .synthesis import SynthesisEngine
 
 logger = logging.getLogger(__name__)
 
@@ -35,19 +35,19 @@ class TraceDistiller:
         while True:
             try:
                 await asyncio.sleep(self.interval_seconds)
-                logger.info("Running periodic trace distillation / consolidation...")
-                consolidation_engine = ConsolidationEngine(engine=self.engine)
+                logger.info("Running periodic trace distillation / synthesis...")
+                synthesis_engine = SynthesisEngine(engine=self.engine)
                 # Ensure rules are registered
-                from .consolidation import (
+                from .synthesis import (
                     DecisionToPrincipleRule,
                     EpisodeToPreferenceRule,
                 )
 
-                consolidation_engine.register(EpisodeToPreferenceRule())
-                consolidation_engine.register(DecisionToPrincipleRule())
+                synthesis_engine.register(EpisodeToPreferenceRule())
+                synthesis_engine.register(DecisionToPrincipleRule())
 
-                # Run consolidation and automatically persist (dry_run=False)
-                proposals = consolidation_engine.run(dry_run=False)
+                # Run synthesis and automatically persist (dry_run=False)
+                proposals = synthesis_engine.run(dry_run=False)
                 logger.info(
                     f"Trace distillation produced {len(proposals)} new proposals."
                 )

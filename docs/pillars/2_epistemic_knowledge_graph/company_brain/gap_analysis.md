@@ -53,7 +53,7 @@
 ## Strategic Advantages
 
 1. **Ontology-First** — We start with OWL and bolt storage underneath, not the reverse
-2. **Memory Is Infrastructure** — ConsolidationEngine + temporal decay = self-maintaining state
+2. **Memory Is Infrastructure** — SynthesisEngine + temporal decay = self-maintaining state
 3. **Mixin Architecture** — New capabilities are additive, not rewrites
 4. **Multi-Backend** — LadybugDB/Neo4j/FalkorDB via `GraphBackend` abstraction
 5. **5-Pillar Ecosystem** — Only architecture where the substrate integrates orchestration, self-improvement, ecosystem sensors, and governance

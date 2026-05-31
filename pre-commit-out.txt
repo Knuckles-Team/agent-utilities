@@ -30,5 +30,5 @@ mypy.....................................................................[41mFa
 tests/unit/graph/test_graph_iter.py:19: [1m[31merror:(B[m Unexpected indent  (B[m[33m[syntax](B[m
 [1m[31mFound 1 error in 1 file (errors prevented further checking)(B[m
 
-vulture..................................................................Interrupted (^C): KeyboardInterrupt: 
+vulture..................................................................Interrupted (^C): KeyboardInterrupt:
 Check the log at /home/genius/.cache/pre-commit/pre-commit.log

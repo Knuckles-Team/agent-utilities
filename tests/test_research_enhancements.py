@@ -135,7 +135,7 @@ class TestElasticContext:
         ]
 
     def test_skip_operator(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ContextOperator,
             ElasticContextManager,
         )
@@ -146,7 +146,7 @@ class TestElasticContext:
         assert len(result.messages) == 3
 
     def test_compress_operator(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ContextOperator,
             ElasticContextManager,
         )
@@ -158,7 +158,7 @@ class TestElasticContext:
         assert "[Compressed" in result.messages[1]["content"]
 
     def test_delete_operator(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ContextOperator,
             ElasticContextManager,
         )
@@ -169,7 +169,7 @@ class TestElasticContext:
         assert len(result.messages) == 3
 
     def test_rollback(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ContextOperator,
             ElasticContextManager,
         )
@@ -183,7 +183,7 @@ class TestElasticContext:
         assert len(restored.messages) == 5
 
     def test_snippet_operator(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ContextOperator,
             ElasticContextManager,
         )
@@ -206,7 +206,7 @@ class TestElasticContext:
         assert "[Snippet" in result.messages[0]["content"]
 
     def test_rollback_no_checkpoint_raises(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ElasticContextManager,
         )
 
@@ -303,7 +303,7 @@ class TestTimescaleMemory:
     """Tests for elastic_context_manager.py — CONCEPT:KG-2.1"""
 
     def test_store_and_retrieve(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             TimescaleMemoryStore,
         )
 
@@ -314,7 +314,7 @@ class TestTimescaleMemory:
         assert "dark mode" in results[0].content
 
     def test_dedup_on_store(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             TimescaleMemoryStore,
         )
 
@@ -324,15 +324,15 @@ class TestTimescaleMemory:
         assert e1.memory_id == e2.memory_id
         assert e2.access_count == 2  # Boosted by second store
 
-    def test_consolidation(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+    def test_synthesis(self):
+        from agent_utilities.knowledge_graph.memory import (
             MemoryTimescale,
             TimescaleMemoryStore,
         )
 
         store = TimescaleMemoryStore()
         entry = store.store("important fact", tags=["fact"])
-        # Access enough times to trigger consolidation
+        # Access enough times to trigger synthesis
         for _ in range(5):
             entry.access()
         promotions = store.consolidate()
@@ -341,7 +341,7 @@ class TestTimescaleMemory:
         assert promotions[0][2] == MemoryTimescale.EPISODIC
 
     def test_get_stats(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             TimescaleMemoryStore,
         )
 
@@ -352,7 +352,7 @@ class TestTimescaleMemory:
         assert stats["total_memories"] == 2
 
     def test_activation_decay(self):
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             MemoryEntry,
             MemoryTimescale,
         )

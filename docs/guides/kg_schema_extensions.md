@@ -13,7 +13,7 @@ Represents a feature specification derived from research analysis.
 | Property | Type | Description |
 |----------|------|-------------|
 | `id` | string | Unique identifier (e.g., `trace-abc1234567`) |
-| `name` | string | Feature name (e.g., `kg-2.1-memory-consolidation`) |
+| `name` | string | Feature name (e.g., `kg-2.1-memory-synthesis`) |
 | `concept_ids` | string[] | Related CONCEPT:IDs (e.g., `["KG-2.1"]`) |
 | `research_sources` | string[] | Source paper paths |
 | `status` | enum | `DRAFT` → `SPEC` → `IN_PROGRESS` → `COMPLETED` |

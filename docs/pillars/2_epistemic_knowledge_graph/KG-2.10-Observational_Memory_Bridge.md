@@ -51,7 +51,7 @@ graph TD
     subgraph "KG-2.0: Knowledge Graph"
         KG["KG-2.0: LadybugDB"]
         MEM["Tiered Memory (KG-2.1)"]
-        CON["ConsolidationEngine (KG-2.4)"]
+        CON["SynthesisEngine (KG-2.4)"]
         RET["HybridRetriever (KG-2.3)"]
     end
 
@@ -110,7 +110,7 @@ LLM-powered transcript compression and Context Management:
 **Module**: `knowledge_graph/memory/reflector.py`
 
 Condenses observations into durable long-term memory:
-- Wired into existing ConsolidationEngine (KG-2.4)
+- Wired into existing SynthesisEngine (KG-2.4)
 - Merges, promotes, demotes, and archives observations
 - Extracts preferences and principles into dedicated KG node types
 - Triggers materialization after reflection
@@ -180,7 +180,7 @@ Agent A finishes session
   → Session hook fires (SessionEnd)
   → Transcript parsed + ingested into KG as Thread/Message nodes
   → LLM Observer extracts decisions, preferences, lessons → ObservationNode in KG
-  → ConsolidationEngine reflects → updates Semantic Memory
+  → SynthesisEngine reflects → updates Semantic Memory
   → KG Materializer renders updated Markdown files
 
 Agent B starts session
@@ -215,7 +215,7 @@ Agent B starts session
 ## Related Concepts
 
 - **KG-2.1**: Tiered Memory & Context — underlying memory tier lifecycle
-- **KG-2.4**: Inductive Knowledge & Hypergraphs — ConsolidationEngine hosts reflection rules
+- **KG-2.4**: Inductive Knowledge & Hypergraphs — SynthesisEngine hosts reflection rules
 - **KG-2.3**: Graph Integrity & Retrieval — HybridRetriever powers startup context
 - **KG-2.9**: External Graph Federation — multi-machine KG sync
 - **ECO-4.6**: Agent Hook Installer — cross-agent integration

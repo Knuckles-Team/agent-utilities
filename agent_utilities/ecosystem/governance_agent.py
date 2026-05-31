@@ -3,7 +3,7 @@
 
 CONCEPT:KG-2.2 — Governance Agent
 
-A background autonomous agent that manages continuous knowledge consolidation,
+A background autonomous agent that manages continuous knowledge synthesis,
 departmental orchestration, and reviews/approves ecosystem proposals
 using the GovernanceWorkflow pipeline.
 """
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class GraphGovernanceAgent:
     """Autonomous background daemon for ecosystem governance.
 
-    Coordinates the GovernanceWorkflow and background consolidation tasks.
+    Coordinates the GovernanceWorkflow and background synthesis tasks.
     """
 
     def __init__(
@@ -97,13 +97,13 @@ class GraphGovernanceAgent:
             await self._evaluate_proposal(proposal)
 
         # 3. Trigger Semantic Consolidation
-        # Call the ConsolidationEngine if available (from Phase 2)
+        # Call the SynthesisEngine if available (from Phase 2)
         try:
             from agent_utilities.knowledge_graph.core.maintainer import (  # noqa: F401
                 GraphMaintainer,
             )
 
-            # Or whichever class handles consolidation
+            # Or whichever class handles synthesis
             # E.g. trigger compaction
             pass
         except ImportError:

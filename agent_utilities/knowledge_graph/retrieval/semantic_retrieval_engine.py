@@ -11,7 +11,7 @@ import numpy as np
 from agent_utilities.knowledge_graph.core.spectral_navigator import (
     SpectralClusterNavigator,
 )
-from agent_utilities.knowledge_graph.memory.auto_similarity import (
+from agent_utilities.knowledge_graph.memory import (
     AutoSimilarityLinker,
 )
 from agent_utilities.models.knowledge_graph import (

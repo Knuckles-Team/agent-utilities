@@ -1,7 +1,7 @@
 # agent-utilities Canonical Concept Registry
 
 > **Single Source of Truth** for all CONCEPT: tags in the ecosystem.
-> Consolidated to **64 canonical concepts** with gap-free numbering and logically derived naming.
+> Synthesized to **64 canonical concepts** with gap-free numbering and logically derived naming.
 > Components marked 🔬 have research-backed enhancements.
 >
 > **Rule**: All new concept proposals must go through the DSTDD design phase.
@@ -22,7 +22,7 @@ Every concept has 1:1:1 traceability across:
 
 | ID | Canonical Name | Code Modules | Tests | Doc Page |
 |----|---------------|:---:|:---:|---|
-| `ORCH-1.0` | Unified Orchestration Engine | 14 | 16 | [Pillar Summary](pillars/1_graph_orchestration.md) |
+| `ORCH-1.0` | Orchestration Engine | 14 | 16 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.1` | HTN Planning Pipeline | 25 | 11 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.2` | Specialist Routing & Discovery | 28 | 14 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.3` | Execution Safety & State | 11 | 2 | [ORCH-1.3](pillars/1_graph_orchestration/ORCH-1.3-Execution_Safety_And_State.md) |
@@ -49,7 +49,7 @@ Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/ro
 |----|---------------|:---:|:---:|---|
 | `KG-2.0` | Active Knowledge Graph | 42 | 24 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
 | `KG-2.1` | Tiered Memory & Context 🔬 | 17 | 8 | [KG-2.1](pillars/2_epistemic_knowledge_graph/KG-2.1-Tiered_Memory_And_Context.md) |
-| `KG-2.2` | Ontology & Epistemics | 26 | 6 | [KG-2.2](pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md) |
+| `KG-2.2` | Ontology, Epistemics & DSPy Integration | 27 | 6 | [KG-2.2](pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md) |
 | `KG-2.3` | Graph Integrity & Retrieval 🔬 | 14 | 4 | [KG-2.3](pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md) |
 | `KG-2.4` | Inductive Knowledge | 12 | 5 | [KG-2.4](pillars/2_epistemic_knowledge_graph/KG-2.4-Inductive_Knowledge_And_Hypergraphs.md) |
 | `KG-2.5` | Topological Analysis | 11 | 4 | [KG-2.5](pillars/2_epistemic_knowledge_graph/KG-2.5-Topological_Analysis.md) |
@@ -70,7 +70,7 @@ Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planner.py`, `graph/ro
 | `KG-2.20` | Semantic Compactor & Refactorer 🔬 | 1 | 1 | [KG-2.20](pillars/2_epistemic_knowledge_graph/KG-2.20-Semantic_Compactor_And_Refactorer.md) |
 | `KG-3.0` | Ingestion Engine | 1 | 24 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
 
-Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/graph_compute.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/consolidation.py`, `knowledge_graph/memory/memory_materializer.py`, `knowledge_graph/memory/observer.py`, `knowledge_graph/memory/reflector.py`, `knowledge_graph/memory/startup_context.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `knowledge_graph/ingestion/engine.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`, `mcp/kg_server.py`, `mcp/kg_coordinator.py`, `knowledge_graph/backends/ladybug_backend.py`, 🔬 `knowledge_graph/core/ar_graph.py`, 🔬 `knowledge_graph/core/time_series_graph.py`
+Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/graph_compute.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/synthesis.py`, `knowledge_graph/memory/memory_materializer.py`, `knowledge_graph/memory/observer.py`, `knowledge_graph/memory/reflector.py`, `knowledge_graph/memory/startup_context.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `knowledge_graph/ingestion/engine.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`, `mcp/kg_server.py`, `mcp/kg_coordinator.py`, `knowledge_graph/backends/ladybug_backend.py`, 🔬 `knowledge_graph/core/ar_graph.py`, 🔬 `knowledge_graph/core/time_series_graph.py`
 
 ---
 
@@ -79,7 +79,7 @@ Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memo
 | ID | Canonical Name | Code Modules | Tests | Doc Page |
 |----|---------------|:---:|:---:|---|
 | `AHE-3.0` | Agentic Harness Core | 16 | 3 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
-| `AHE-3.1` | Continuous Evaluation Engine | 16 | 7 | [AHE-3.1](pillars/3_agentic_harness_engineering/AHE-3.1-Continuous_Evaluation_Engine.md) |
+| `AHE-3.1` | Continuous Evaluation & DSPy Math Optimization | 17 | 7 | [AHE-3.1](pillars/3_agentic_harness_engineering/AHE-3.1-Continuous_Evaluation_Engine.md) |
 | `AHE-3.2` | Agentic Evolution Engine | 16 | 5 | [AHE-3.2](pillars/3_agentic_harness_engineering/AHE-3.2-Agentic_Evolution_Engine.md) |
 | `AHE-3.3` | Team & Synergy Optimization | 14 | 5 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
 | `AHE-3.4` | Distributed Agentic Evolution | 11 | 1 | [AHE-3.4](pillars/3_agentic_harness_engineering/AHE-3.4-Distributed_Agentic_Evolution.md) |
@@ -88,8 +88,11 @@ Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memo
 | `AHE-3.7` | KG-Native Task Detection 🔬 | 1 | 0 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
 | `AHE-3.15` | Agent-Interpretable Model Evolver | 2 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
 | `AHE-3.16` | LLM-Graded Interpretability Tests | 2 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
+| `AHE-4.0` | Physical Knowledge Distillation Engine 🔬 | 1 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
+| `AHE-4.1` | Multi-Optimizer Prompt Selection Strategy 🔬 | 1 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
+| `AHE-4.2` | GitOps Commit & Evolution Boundary Traceability 🔬 | 1 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
 
-Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.py`, `graph/team_composer.py`, `agentic_evolution/forge.py`, `knowledge_graph/orchestration/engine_ahe.py`, 🔬 `harness/distributed_state_manager.py`
+Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.py`, `graph/team_composer.py`, `agentic_evolution/forge.py`, `knowledge_graph/orchestration/engine_ahe.py`, `knowledge_graph/distillation/physical_distiller.py`, `harness/evolve_agent.py`, 🔬 `harness/distributed_state_manager.py`
 
 ---
 

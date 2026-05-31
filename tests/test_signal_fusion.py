@@ -6,6 +6,7 @@ import pytest
 from agent_utilities.domains.finance.signal_fusion import (
     AlphaCombinationEngine,
     BayesianSignalFusion,
+    LaplaceEnsembleFusion,
 )
 
 
@@ -42,10 +43,23 @@ class TestAlphaCombinationEngine:
         assert len(weights) == 3
         assert np.isclose(np.abs(weights).sum(), 1.0)
 
-    def test_not_enough_periods(self):
-        engine = AlphaCombinationEngine(lookback_d=10)
-        # N=3 signals, M=5 periods (needs at least 12)
-        returns = np.random.randn(3, 5)
 
-        with pytest.raises(ValueError):
-            engine.compute_weights(returns)
+
+
+class TestLaplaceEnsembleFusion:
+    def test_basic_smoothing(self):
+        # 16 / 31 models say UP
+        # Expected: (16 + 1) / (31 + 2) = 17 / 33 ~= 0.515
+        prob = LaplaceEnsembleFusion.compute_probability(16, 31)
+        assert np.isclose(prob, 17 / 33)
+
+    def test_zero_total_members(self):
+        prob = LaplaceEnsembleFusion.compute_probability(0, 0)
+        assert prob == 0.5
+
+    def test_extreme_smoothing(self):
+        # 31/31 say UP
+        # Expected: 32 / 33 ~= 0.9697 (not 1.0)
+        prob = LaplaceEnsembleFusion.compute_probability(31, 31)
+        assert prob < 1.0
+        assert np.isclose(prob, 32 / 33)

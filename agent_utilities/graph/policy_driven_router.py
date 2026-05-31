@@ -1,4 +1,4 @@
-"""Policy-Driven Routing Engine (ORCH-1.4, ORCH-1.6, ORCH-1.8 consolidation).
+"""Policy-Driven Routing Engine (ORCH-1.4, ORCH-1.6, ORCH-1.8 synthesis).
 
 Consolidates swarm presets, subagent lifecycles, and learned agent routing
 into a single parameterized engine driven by RoutingPolicies.

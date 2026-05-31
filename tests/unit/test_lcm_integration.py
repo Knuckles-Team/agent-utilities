@@ -32,7 +32,7 @@ def mock_engine():
 @pytest.fixture()
 def compactor():
     """Create a ContextCompactor instance."""
-    from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+    from agent_utilities.knowledge_graph.memory import (
         ContextCompactor,
     )
 
@@ -42,7 +42,7 @@ def compactor():
 @pytest.fixture()
 def compacted_result():
     """Create a sample CompactedResult for testing persistence."""
-    from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+    from agent_utilities.knowledge_graph.memory import (
         CompactedResult,
     )
 
@@ -123,7 +123,7 @@ class TestContextCompactorPersistence:
 
     def test_get_summary_dag_returns_structured_result(self, mock_engine):
         """get_summary_dag() should return a dict with levels and total_summaries."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ContextCompactor,
         )
 
@@ -150,7 +150,7 @@ class TestContextCompactorPersistence:
 
     def test_get_summary_dag_empty_without_engine(self):
         """get_summary_dag() should return empty levels without an engine."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ContextCompactor,
         )
 
@@ -173,7 +173,7 @@ class TestElasticContextManagerLCM:
 
     def test_compact_thread_below_threshold(self, mock_engine):
         """compact_thread() should return 'below_threshold' for small threads."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ElasticContextManager,
         )
 
@@ -198,7 +198,7 @@ class TestElasticContextManagerLCM:
 
     def test_compact_thread_no_engine_returns_error(self):
         """compact_thread() should return error when no engine provided."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ElasticContextManager,
         )
 
@@ -214,7 +214,7 @@ class TestElasticContextManagerLCM:
 
     def test_expand_summary_no_engine_returns_error(self):
         """expand_summary() should return error when no engine provided."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ElasticContextManager,
         )
 
@@ -228,7 +228,7 @@ class TestElasticContextManagerLCM:
 
     def test_expand_summary_returns_messages(self, mock_engine):
         """expand_summary() should traverse SUMMARIZES edges to recover messages."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ElasticContextManager,
         )
 
@@ -268,7 +268,7 @@ class TestElasticContextManagerLCM:
 
     def test_grep_memories_empty_without_engine(self):
         """grep_memories() should return empty list without engine."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ElasticContextManager,
         )
 
@@ -281,7 +281,7 @@ class TestElasticContextManagerLCM:
 
     def test_grep_memories_with_partition_filter(self, mock_engine):
         """grep_memories() should support partition filtering."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ElasticContextManager,
         )
 
@@ -307,7 +307,7 @@ class TestElasticContextManagerLCM:
 
     def test_describe_summary_no_engine_returns_error(self):
         """describe_summary() should return error without engine."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ElasticContextManager,
         )
 
@@ -321,7 +321,7 @@ class TestElasticContextManagerLCM:
 
     def test_describe_summary_returns_metadata(self, mock_engine):
         """describe_summary() should return summary metadata and child count."""
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ElasticContextManager,
         )
 

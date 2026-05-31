@@ -25,18 +25,18 @@ Path = <class 'pathlib.Path'>, server_path = '/usr/bin/epistemic-graph-server'
 
     def __init__(self, graph_name: str = "__bus__", **kwargs: Any) -> None:
         from epistemic_graph.client import SyncEpistemicGraphClient
-    
+
         self._graph: Any = None
         self.graph: dict[str, Any] = {}
         self._client: SyncEpistemicGraphClient | None = None
         self._mode: str = "embedded"
-    
+
         try:
 >           self._client = SyncEpistemicGraphClient.connect(graph_name=graph_name)
                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-agent_utilities/knowledge_graph/core/graph_compute.py:32: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+agent_utilities/knowledge_graph/core/graph_compute.py:32:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 ../epistemic-graph/epistemic_graph/client.py:504: in connect
     async_client = future.result()
                    ^^^^^^^^^^^^^^^
@@ -55,7 +55,7 @@ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 /usr/lib/python3.14/asyncio/selector_events.py:645: in sock_connect
     return await fut
            ^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <_UnixSelectorEventLoop running=True closed=False debug=False>
 fut = None, sock = <socket.socket [closed] fd=-1, family=1, type=1, proto=0>
@@ -80,12 +80,12 @@ Path = <class 'pathlib.Path'>, server_path = '/usr/bin/epistemic-graph-server'
 
     def __init__(self, graph_name: str = "__bus__", **kwargs: Any) -> None:
         from epistemic_graph.client import SyncEpistemicGraphClient
-    
+
         self._graph: Any = None
         self.graph: dict[str, Any] = {}
         self._client: SyncEpistemicGraphClient | None = None
         self._mode: str = "embedded"
-    
+
         try:
             self._client = SyncEpistemicGraphClient.connect(graph_name=graph_name)
         except Exception:
@@ -96,7 +96,7 @@ Path = <class 'pathlib.Path'>, server_path = '/usr/bin/epistemic-graph-server'
             import sys
             import time
             from pathlib import Path
-    
+
             try:
                 server_path = str(
                     Path(sys.executable).parent / "epistemic-graph-server"
@@ -108,11 +108,11 @@ Path = <class 'pathlib.Path'>, server_path = '/usr/bin/epistemic-graph-server'
                     start_new_session=True,
                 )
 
-agent_utilities/knowledge_graph/core/graph_compute.py:46: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+agent_utilities/knowledge_graph/core/graph_compute.py:46:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 /usr/lib/python3.14/subprocess.py:1039: in __init__
     self._execute_child(args, executable, preexec_fn, close_fds,
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <Popen: returncode: 255 args: ['/usr/bin/epistemic-graph-server']>
 args = ['/usr/bin/epistemic-graph-server']
@@ -133,7 +133,7 @@ process_group = -1
                        gid, gids, uid, umask,
                        start_new_session, process_group):
         """Execute program (POSIX version)"""
-    
+
         if isinstance(args, (str, bytes)):
             args = [args]
         elif isinstance(args, os.PathLike):
@@ -143,7 +143,7 @@ process_group = -1
             args = [args]
         else:
             args = list(args)
-    
+
         if shell:
             # On Android the default shell is at '/system/bin/sh'.
             unix_shell = ('/system/bin/sh' if
@@ -151,12 +151,12 @@ process_group = -1
             args = [unix_shell, "-c"] + args
             if executable:
                 args[0] = executable
-    
+
         if executable is None:
             executable = args[0]
-    
+
         sys.audit("subprocess.Popen", executable, args, cwd, env)
-    
+
         if (_USE_POSIX_SPAWN
                 and os.path.dirname(executable)
                 and preexec_fn is None
@@ -177,9 +177,9 @@ process_group = -1
                               c2pread, c2pwrite,
                               errread, errwrite)
             return
-    
+
         orig_executable = executable
-    
+
         # For transferring possible exec failure from child to parent.
         # Data format: "exception name:hex errno:description"
         # Pickle is not used; it is complex and involves memory allocation.
@@ -197,7 +197,7 @@ process_group = -1
                 # malloc or free in the child process to avoid
                 # potential deadlocks, thus we do all this here.
                 # and pass it to fork_exec()
-    
+
                 if env is not None:
                     env_list = []
                     for k, v in env.items():
@@ -231,11 +231,11 @@ process_group = -1
             finally:
                 # be sure the FD is closed no matter what
                 os.close(errpipe_write)
-    
+
             self._close_pipe_fds(p2cread, p2cwrite,
                                  c2pread, c2pwrite,
                                  errread, errwrite)
-    
+
             # Wait for exec to fail or succeed; possibly raising an
             # exception (limited in size)
             errpipe_data = bytearray()
@@ -247,7 +247,7 @@ process_group = -1
         finally:
             # be sure the FD is closed no matter what
             os.close(errpipe_read)
-    
+
         if errpipe_data:
             try:
                 pid, sts = os.waitpid(self.pid, 0)
@@ -257,7 +257,7 @@ process_group = -1
                     self.returncode = sys.maxsize
             except ChildProcessError:
                 pass
-    
+
             try:
                 exception_name, hex_errno, err_msg = (
                         errpipe_data.split(b':', 2))
@@ -307,7 +307,7 @@ The above exception was the direct cause of the following exception:
             api_key="sk-test",
         )
         ctx = MockCtx(state, deps)
-    
+
         mock_agent = MagicMock()
         stream = MagicMock()
         # delta=True → yield incremental chunks; delta=False → yield accumulated text.
@@ -317,10 +317,10 @@ The above exception was the direct cause of the following exception:
         stream.get_output = AsyncMock(return_value="specialized result")
         stream.usage.return_value = UsageStatistics()
         stream.all_messages = AsyncMock(return_value=[])
-    
+
         mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=stream)
         mock_agent.run_stream.return_value.__aexit__ = AsyncMock()
-    
+
         with (
             patch(
                 "agent_utilities.graph.executor.load_specialized_prompts",
@@ -343,8 +343,8 @@ The above exception was the direct cause of the following exception:
 >           result = await executor._execute_specialized_step(ctx, "qa")
                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-tests/unit/graph/test_graph_executor.py:186: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/graph/test_graph_executor.py:186:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 agent_utilities/graph/executor.py:1317: in _execute_specialized_step
     registry = get_discovery_registry()
                ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -362,7 +362,7 @@ agent_utilities/knowledge_graph/core/engine.py:112: in __init__
                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 tests/conftest.py:100: in _isolated_init
     _original_init(self, graph_name=effective_name, **kwargs)
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <agent_utilities.knowledge_graph.core.graph_compute.GraphComputeEngine object at 0x7d3e62e37c50>
 graph_name = 'test_e83e1f54e245', kwargs = {'backend_type': 'epistemic_graph'}
@@ -373,12 +373,12 @@ Path = <class 'pathlib.Path'>, server_path = '/usr/bin/epistemic-graph-server'
 
     def __init__(self, graph_name: str = "__bus__", **kwargs: Any) -> None:
         from epistemic_graph.client import SyncEpistemicGraphClient
-    
+
         self._graph: Any = None
         self.graph: dict[str, Any] = {}
         self._client: SyncEpistemicGraphClient | None = None
         self._mode: str = "embedded"
-    
+
         try:
             self._client = SyncEpistemicGraphClient.connect(graph_name=graph_name)
         except Exception:
@@ -389,7 +389,7 @@ Path = <class 'pathlib.Path'>, server_path = '/usr/bin/epistemic-graph-server'
             import sys
             import time
             from pathlib import Path
-    
+
             try:
                 server_path = str(
                     Path(sys.executable).parent / "epistemic-graph-server"
@@ -765,7 +765,7 @@ agent_utilities/graph/kg_graph_factory.py:35
 
 ../../../../genius/.local/lib/python3.14/site-packages/_pytest/config/__init__.py:1434
   /home/genius/.local/lib/python3.14/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: env
-  
+
     self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html

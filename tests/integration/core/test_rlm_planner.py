@@ -15,6 +15,7 @@ async def test_router_rlm_trigger():
         query="Analyze the entire history of the project and summarize every failure."
     )
     state.error = None
+    state.workflow_context = {"summary": "A" * 60000}
 
     deps = MagicMock(spec=GraphDeps)
     deps.router_model = "test-model"
@@ -38,21 +39,14 @@ async def test_router_rlm_trigger():
     ) as mock_rlm:
         mock_rlm.return_value = '{"steps": [{"node_id": "test", "input_data": {}}], "metadata": {"reasoning": "test"}}'
 
-        # Patch fetch_epistemic_context to return a large string
+        # Patch RLMConfig
+        mock_config = MagicMock()
+        mock_config.enabled = True
+        mock_config.max_context_threshold = 50000
+
         with patch(
-            "agent_utilities.graph.routing.fetch_epistemic_context",
-            new_callable=AsyncMock,
-        ) as mock_fetch:
-            mock_fetch.return_value = "A" * 60000
-
-            # Patch RLMConfig
-            mock_config = MagicMock()
-            mock_config.enabled = True
-            mock_config.max_context_threshold = 50000
-
-            with patch(
-                "agent_utilities.rlm.config.RLMConfig", return_value=mock_config
-            ):
-                res = await router_step(ctx)
-                assert res == "dispatcher"
-                mock_rlm.assert_called_once()
+            "agent_utilities.rlm.config.RLMConfig", return_value=mock_config
+        ):
+            res = await router_step(ctx)
+            assert res == "dispatcher"
+            mock_rlm.assert_called_once()

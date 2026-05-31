@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Unified Intelligence Pipeline Package."""
+"""Intelligence Pipeline Package."""
 
 import logging
 import time
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class IntelligencePipeline:
-    """Orchestrator for the Unified Intelligence Pipeline."""
+    """Orchestrator for the Intelligence Pipeline."""
 
     def __init__(self, config: PipelineConfig, backend: GraphBackend | None = None):
         self.config = config
@@ -30,7 +30,7 @@ class IntelligencePipeline:
 
         start_time = time.time()
         run_start_timestamp = datetime.datetime.now(datetime.UTC).isoformat()
-        logger.info("Starting Unified Intelligence Pipeline...")
+        logger.info("Starting Intelligence Pipeline...")
 
         ctx = PipelineContext(
             config=self.config, graph=self.graph, backend=self.backend

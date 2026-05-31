@@ -4,7 +4,7 @@ from __future__ import annotations
 
 """Tests for the Memory Consolidation Engine.
 
-Concept: memory-consolidation
+Concept: memory-synthesis
 """
 
 
@@ -14,8 +14,8 @@ import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-from agent_utilities.knowledge_graph.memory.consolidation import (
-    ConsolidationEngine,
+from agent_utilities.knowledge_graph.memory import (
+    SynthesisEngine,
     DecisionToPrincipleRule,
     EpisodeToPreferenceRule,
 )
@@ -71,16 +71,16 @@ def _populate_decisions(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("memory-consolidation")
+@pytest.mark.concept("memory-synthesis")
 def test_persist_proposals_creates_nodes() -> None:
-    """Running consolidation in non-dry_run mode should create proposal nodes."""
+    """Running synthesis in non-dry_run mode should create proposal nodes."""
     engine = FakeEngine()
     _populate_episodes(engine, count=6)
 
-    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
-    consolidation.register(EpisodeToPreferenceRule(min_evidence_count=5))
+    synthesis = SynthesisEngine(engine=cast(IntelligenceGraphEngine, engine))
+    synthesis.register(EpisodeToPreferenceRule(min_evidence_count=5))
 
-    proposals = consolidation.run(dry_run=False)
+    proposals = synthesis.run(dry_run=False)
 
     assert len(proposals) >= 1
     # Verify proposal node exists in graph
@@ -91,7 +91,7 @@ def test_persist_proposals_creates_nodes() -> None:
     assert engine.graph.nodes[proposal_nodes[0]]["status"] == "pending"
 
 
-@pytest.mark.concept("memory-consolidation")
+@pytest.mark.concept("memory-synthesis")
 def test_decision_to_principle_rule_detects() -> None:
     """DecisionToPrincipleRule should detect repeated approach patterns."""
     engine = FakeEngine()
@@ -106,21 +106,21 @@ def test_decision_to_principle_rule_detects() -> None:
     assert len(proposals[0].evidence_node_ids) >= 3
 
 
-@pytest.mark.concept("memory-consolidation")
+@pytest.mark.concept("memory-synthesis")
 def test_approve_proposal_creates_real_node() -> None:
     """Approving a proposal should create the real target node."""
     engine = FakeEngine()
     _populate_decisions(engine, count=4)
 
-    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
-    consolidation.register(DecisionToPrincipleRule(min_evidence_count=3))
-    proposals = consolidation.run(dry_run=False)
+    synthesis = SynthesisEngine(engine=cast(IntelligenceGraphEngine, engine))
+    synthesis.register(DecisionToPrincipleRule(min_evidence_count=3))
+    proposals = synthesis.run(dry_run=False)
 
     assert len(proposals) >= 1
     pid = proposals[0].proposal_id
 
     # Approve it
-    result = consolidation.approve_proposal(pid)
+    result = synthesis.approve_proposal(pid)
     assert result is True
     assert engine.graph.nodes[pid]["status"] == "approved"
 
@@ -133,45 +133,45 @@ def test_approve_proposal_creates_real_node() -> None:
     assert len(promoted_edges) >= 1
 
 
-@pytest.mark.concept("memory-consolidation")
+@pytest.mark.concept("memory-synthesis")
 def test_reject_proposal_updates_status() -> None:
     """Rejecting a proposal should set status to 'rejected'."""
     engine = FakeEngine()
     _populate_decisions(engine, count=5)
 
-    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
-    consolidation.register(DecisionToPrincipleRule(min_evidence_count=3))
-    proposals = consolidation.run(dry_run=False)
+    synthesis = SynthesisEngine(engine=cast(IntelligenceGraphEngine, engine))
+    synthesis.register(DecisionToPrincipleRule(min_evidence_count=3))
+    proposals = synthesis.run(dry_run=False)
 
     assert len(proposals) >= 1
     pid = proposals[0].proposal_id
-    result = consolidation.reject_proposal(pid, reason="Not convincing")
+    result = synthesis.reject_proposal(pid, reason="Not convincing")
 
     assert result is True
     assert engine.graph.nodes[pid]["status"] == "rejected"
     assert engine.graph.nodes[pid]["rejection_reason"] == "Not convincing"
 
 
-@pytest.mark.concept("memory-consolidation")
+@pytest.mark.concept("memory-synthesis")
 def test_get_pending_proposals() -> None:
     """get_pending_proposals should return only pending proposals."""
     engine = FakeEngine()
     _populate_decisions(engine, count=5)
 
-    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
-    consolidation.register(DecisionToPrincipleRule(min_evidence_count=3))
-    proposals = consolidation.run(dry_run=False)
+    synthesis = SynthesisEngine(engine=cast(IntelligenceGraphEngine, engine))
+    synthesis.register(DecisionToPrincipleRule(min_evidence_count=3))
+    proposals = synthesis.run(dry_run=False)
 
-    pending = consolidation.get_pending_proposals()
+    pending = synthesis.get_pending_proposals()
     assert len(pending) >= 1
 
     # Approve one, then check pending decreases
-    consolidation.approve_proposal(proposals[0].proposal_id)
-    pending_after = consolidation.get_pending_proposals()
+    synthesis.approve_proposal(proposals[0].proposal_id)
+    pending_after = synthesis.get_pending_proposals()
     assert len(pending_after) < len(pending)
 
 
-@pytest.mark.concept("memory-consolidation")
+@pytest.mark.concept("memory-synthesis")
 def test_dedup_prevents_re_proposal() -> None:
     """Same evidence pattern should not produce duplicate proposals."""
     engine = FakeEngine()
@@ -181,9 +181,9 @@ def test_dedup_prevents_re_proposal() -> None:
     proposals_1 = rule.detect(cast(IntelligenceGraphEngine, engine))
     proposals_2 = rule.detect(cast(IntelligenceGraphEngine, engine))
 
-    consolidation = ConsolidationEngine(engine=cast(IntelligenceGraphEngine, engine))
+    synthesis = SynthesisEngine(engine=cast(IntelligenceGraphEngine, engine))
     all_proposals = proposals_1 + proposals_2
-    deduped = consolidation.dedup_by_signature(all_proposals)
+    deduped = synthesis.dedup_by_signature(all_proposals)
 
     assert len(deduped) < len(all_proposals)
     assert len(deduped) == len(proposals_1)

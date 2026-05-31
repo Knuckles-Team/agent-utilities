@@ -236,7 +236,7 @@ def compact_messages(
         Compacted message list.
     """
     try:
-        from agent_utilities.knowledge_graph.memory.elastic_context_manager import (
+        from agent_utilities.knowledge_graph.memory import (
             ContextCompactor,
         )
 

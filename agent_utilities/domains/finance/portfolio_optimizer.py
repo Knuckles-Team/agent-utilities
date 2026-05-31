@@ -272,3 +272,28 @@ class CircuitBreaker:
         current_daily_loss: float, max_daily_loss_limit: float = 300.0
     ) -> bool:
         return current_daily_loss >= max_daily_loss_limit
+
+
+class EdgeKellyOptimizer:
+    """
+    Edge-based Kelly Position Sizing — CONCEPT:KG-2.6
+    Calculates Kelly fraction directly from the calculated edge and market price.
+    Uses a default Quarter-Kelly (0.25) fractional multiplier for risk dampening.
+    """
+
+    @staticmethod
+    def compute_fraction(
+        edge: float, market_price: float, fraction: float = 0.25
+    ) -> float:
+        """
+        Compute uncertainty-adjusted Kelly fraction for prediction markets.
+        kelly_fraction = edge / (1 - market_price)
+        """
+        if market_price >= 1.0 or market_price <= 0.0 or edge <= 0:
+            return 0.0
+
+        odds_against = 1.0 - market_price
+        kelly_fraction = edge / odds_against
+
+        # Apply Fractional Kelly logic
+        return max(kelly_fraction * fraction, 0.0)

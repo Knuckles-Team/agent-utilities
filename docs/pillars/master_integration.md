@@ -145,7 +145,7 @@ graph TD
 
 ## 3. Consolidation Key (v2.0)
 
-To achieve maximum system stability and clean 1:1:1 traceability, the legacy conceptual layout was pruned and consolidated down to **40 distinct concepts**:
+To achieve maximum system stability and clean 1:1:1 traceability, the legacy conceptual layout was pruned and synthesized down to **40 distinct concepts**:
 * **Legacy ORCH Consolidation**:
   * `ORCH-1.5` -> Merged into `ORCH-1.3` (Execution Safety & State).
   * `ORCH-1.6` -> Merged into `ORCH-1.5` (Agent Orchestrator).
@@ -162,4 +162,4 @@ To achieve maximum system stability and clean 1:1:1 traceability, the legacy con
 * **Legacy ECO Consolidation**:
   * `ECO-4.5` (Terminal Agent Launcher) -> Merged into `ECO-4.0` (Tool Interface & MCP Factory).
   * `ECO-4.6` (Agent Hook Installer) -> Merged into `ECO-4.0` (Tool Interface & MCP Factory).
-  * `ECO-4.7`, `ECO-4.8`, `ECO-4.9` (Quant ecosystem) -> Consolidated into `ECO-4.3` (Market Data Connectors).
+  * `ECO-4.7`, `ECO-4.8`, `ECO-4.9` (Quant ecosystem) -> Synthesized into `ECO-4.3` (Market Data Connectors).

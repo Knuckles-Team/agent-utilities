@@ -23,7 +23,7 @@ from agent_utilities.models.knowledge_graph import (
     RegistryNode,
     RegistryNodeType,
     SimilarityEdgeNode,
-    UnifiedRAGConfigNode,
+    AgentRAGConfigNode,
 )
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -521,13 +521,13 @@ class TestGraphDistillationMigrator:
 class TestNewPydanticModels:
     """Tests for KG-2.38, KG-2.39, KG-2.40 Pydantic models."""
 
-    def test_unified_rag_config_node(self):
-        """UnifiedRAGConfigNode creates with defaults."""
-        node = UnifiedRAGConfigNode(
+    def test_agent_rag_config_node(self):
+        """AgentRAGConfigNode creates with defaults."""
+        node = AgentRAGConfigNode(
             id="urag_1",
             name="Unified RAG Config",
         )
-        assert node.type == RegistryNodeType.UNIFIED_RAG_CONFIG
+        assert node.type == RegistryNodeType.AGENT_RAG_CONFIG
         assert node.enable_similarity_shortcuts is True
         assert node.shortcut_hits == 0
 
@@ -573,6 +573,6 @@ class TestNewPydanticModels:
 
     def test_new_node_types(self):
         """New node types are registered."""
-        assert RegistryNodeType.UNIFIED_RAG_CONFIG == "unified_rag_config"
+        assert RegistryNodeType.AGENT_RAG_CONFIG == "agent_rag_config"
         assert RegistryNodeType.ORCHESTRATION_CYCLE == "orchestration_cycle"
         assert RegistryNodeType.DISTILLATION_INDEX == "distillation_index"

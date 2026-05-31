@@ -1271,6 +1271,8 @@ async def graph_orchestrate_execute_workflow_endpoint(request: Request) -> JSONR
             agent_name=body.get("agent_name", ""),
             task=body.get("task", ""),
             max_steps=int(body.get("max_steps", 30)),
+            completion_state=body.get("completion_state", ""),
+            max_fan_out=int(body.get("max_fan_out", 5)),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
@@ -1291,6 +1293,8 @@ async def graph_orchestrate_dispatch_workflow_endpoint(
             agent_name=body.get("agent_name", ""),
             task=body.get("task", ""),
             max_steps=int(body.get("max_steps", 30)),
+            completion_state=body.get("completion_state", ""),
+            max_fan_out=int(body.get("max_fan_out", 5)),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
@@ -1600,7 +1604,7 @@ def _build_server():
         ),
     )
 
-    # ═══ Consolidated Tools (7 tools, action-routed) ═══
+    # ═══ Synthesized Tools (7 tools, action-routed) ═══
 
     @mcp.tool(
         name="graph_query",
@@ -2017,7 +2021,7 @@ def _build_server():
 
             elif action == "materialize":
                 try:
-                    from agent_utilities.knowledge_graph.memory.memory_materializer import (
+                    from agent_utilities.knowledge_graph.memory import (
                         materialize_memory,
                     )
 
@@ -2033,7 +2037,7 @@ def _build_server():
 
             elif action == "sync":
                 try:
-                    from agent_utilities.knowledge_graph.memory.memory_materializer import (
+                    from agent_utilities.knowledge_graph.memory import (
                         ingest_memory_edits,
                     )
 
@@ -2048,7 +2052,7 @@ def _build_server():
 
             elif action == "reflect":
                 try:
-                    from agent_utilities.knowledge_graph.memory.reflector import (
+                    from agent_utilities.knowledge_graph.memory import (
                         run_reflector,
                     )
 
@@ -2174,7 +2178,7 @@ def _build_server():
             # ── KG-2.10: Startup Context Generation ──
             elif action == "context":
                 try:
-                    from agent_utilities.knowledge_graph.memory.startup_context import (
+                    from agent_utilities.knowledge_graph.memory import (
                         build_startup_payload,
                     )
 
@@ -2240,6 +2244,14 @@ def _build_server():
         ),
         dependencies: str = Field(
             default="[]", description="JSON-encoded list of dependency job IDs."
+        ),
+        completion_state: str = Field(
+            default="",
+            description="Strict mathematical or semantic definition of when this workflow is considered done.",
+        ),
+        max_fan_out: int = Field(
+            default=5,
+            description="Maximum number of parallel subagents to spawn during adversarial loop.",
         ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution."""
@@ -2384,6 +2396,8 @@ def _build_server():
                     wf_result = await runner.execute_workflow(
                         workflow_id=name,
                         task=input_task,
+                        completion_state=completion_state,
+                        max_fan_out=max_fan_out,
                     )
                     return json.dumps(wf_result, default=str)
                 except ValueError as exc:
@@ -2407,6 +2421,8 @@ def _build_server():
                         runner.execute_workflow(
                             workflow_id=name,
                             task=input_task,
+                            completion_state=completion_state,
+                            max_fan_out=max_fan_out,
                         )
                     )
                     return (

@@ -3,17 +3,18 @@
 CONCEPT:ORCH-1.31 — GEPA Reflective Prompt Optimizer
 """
 
-import time
 import logging
-from typing import Any, Callable, Dict, List, Set, Tuple, Type
+import time
+from collections.abc import Callable
+from typing import Any
+
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
-from .predict_rlm import PredictRLM
-from .config import RLMConfig
-from ..graph.client import get_graph_client, create_or_merge_node
+from ..graph.client import create_or_merge_node
 from ..graph.state import GraphDeps
-from ..graph.models import GraphNode
+from .config import RLMConfig
+from .predict_rlm import PredictRLM
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +25,16 @@ class Candidate(BaseModel):
     id: str
     prompt_text: str
     generation: int
-    scores: Dict[str, float] = Field(default_factory=dict)
+    scores: dict[str, float] = Field(default_factory=dict)
     rationale: str = ""
-    parent_ids: List[str] = Field(default_factory=list)
+    parent_ids: list[str] = Field(default_factory=list)
 
 
 class GEPAInstance(BaseModel):
     """An evaluation instance containing dynamic project payloads (JSON, GraphQL)."""
 
     id: str
-    input_data: Dict[str, Any]
+    input_data: dict[str, Any]
     reference_output: Any = None
     rubric: str = ""
 
@@ -41,10 +42,10 @@ class GEPAInstance(BaseModel):
 class ParetoCandidatePool:
     """Maintains a set of non-dominated candidates (the Pareto Frontier)."""
 
-    def __init__(self, objectives: List[str], max_size: int = 10):
+    def __init__(self, objectives: list[str], max_size: int = 10):
         self.objectives = objectives  # e.g., ["accuracy", "efficiency", "error_rate"]
         self.max_size = max_size
-        self.pool: List[Candidate] = []
+        self.pool: list[Candidate] = []
 
     def is_dominated(self, c1: Candidate, c2: Candidate) -> bool:
         """Returns True if c1 is dominated by c2.
@@ -70,10 +71,10 @@ class ParetoCandidatePool:
 
         return no_worse and strictly_better
 
-    def update(self, new_candidates: List[Candidate]):
+    def update(self, new_candidates: list[Candidate]):
         """Adds new candidates and prunes dominated ones to maintain the Pareto frontier."""
         all_candidates = self.pool + new_candidates
-        non_dominated: List[Candidate] = []
+        non_dominated: list[Candidate] = []
 
         for c1 in all_candidates:
             dominated = False
@@ -98,7 +99,7 @@ class ParetoCandidatePool:
 
         self.pool = sorted_candidates[: self.max_size]
 
-    def get_frontier(self) -> List[Candidate]:
+    def get_frontier(self) -> list[Candidate]:
         """Return the current active Pareto frontier candidates."""
         return self.pool
 
@@ -121,8 +122,8 @@ class ReflectiveMutator:
     async def mutate(
         self,
         parent: Candidate,
-        traces: List[Dict[str, Any]],
-        feedback: List[str],
+        traces: list[dict[str, Any]],
+        feedback: list[str],
         generation: int,
     ) -> Candidate:
         """Propose a mutated prompt variant using natural language gradients."""
@@ -226,10 +227,10 @@ class GEPAOptimizer:
 
     def __init__(
         self,
-        signature_class: Type[BaseModel],
+        signature_class: type[BaseModel],
         base_prompt: str,
         evaluator_fn: Callable[[GEPAInstance, BaseModel, str], Any],
-        objectives: List[str] | None = None,
+        objectives: list[str] | None = None,
         config: RLMConfig | None = None,
         graph_deps: GraphDeps | None = None,
     ):
@@ -255,7 +256,7 @@ class GEPAOptimizer:
 
     async def optimize(
         self,
-        dataset: List[GEPAInstance],
+        dataset: list[GEPAInstance],
         iterations: int = 3,
         batch_size: int = 5,
         enable_schema_diversity: bool = False,
@@ -270,20 +271,20 @@ class GEPAOptimizer:
             # 1. Propose mutations/crossovers
             for parent in frontier:
                 # Run parent evaluations to capture traces
-                traces: List[Dict[str, Any]] = []
-                feedback: List[str] = []
+                traces: list[dict[str, Any]] = []
+                feedback: list[str] = []
                 scores_accumulator = {obj: 0.0 for obj in self.objectives}
 
                 # Evaluate on a mini-batch subset
                 import random
 
-                mini_batch = random.sample(dataset, min(len(dataset), batch_size))
+                mini_batch = random.sample(dataset, min(len(dataset), batch_size))  # nosec B311
 
                 if enable_schema_diversity:
                     diverse_batch = []
                     for inst in mini_batch:
                         diverse_batch.append(inst)
-                        if random.random() > 0.5:
+                        if random.random() > 0.5:  # nosec B311
                             diverse_batch.append(self._perturb_instance(inst))
                     mini_batch = diverse_batch
 
@@ -375,19 +376,19 @@ class GEPAOptimizer:
         # Simple schema perturbations
         if isinstance(perturbed_data, dict):
             # 1. Nest payload under a 'data' or 'payload' key
-            if random.random() > 0.5:
-                wrapper = random.choice(["data", "payload", "result", "response"])
+            if random.random() > 0.5:  # nosec B311
+                wrapper = random.choice(["data", "payload", "result", "response"])  # nosec B311
                 perturbed_data = {wrapper: perturbed_data}
 
             # 2. Add synthetic noise fields
-            if random.random() > 0.5:
+            if random.random() > 0.5:  # nosec B311
                 perturbed_data["_metadata"] = {
                     "timestamp": time.time(),
                     "synthetic": True,
                 }
 
             # 3. Randomize key casing (snake_case to camelCase mapping representation)
-            if random.random() > 0.7:
+            if random.random() > 0.7:  # nosec B311
                 camel_data = {}
                 for k, v in list(perturbed_data.items()):
                     if isinstance(k, str) and "_" in k:
@@ -409,7 +410,7 @@ class GEPAOptimizer:
         self,
         candidate: Candidate,
         instance: GEPAInstance,
-        eval_scores: Dict[str, float],
+        eval_scores: dict[str, float],
         explanation: str,
     ):
         """Persist RLM prompt execution metrics and lineage to the Epistemic Graph using standard nodes."""
@@ -418,8 +419,8 @@ class GEPAOptimizer:
             # Reusing the existing graph nodes enables full compatibility.
             # TrajectoryNode has thinker_id, query_hash, answer, reasoning_summary, score, is_correct, model_id.
             from ..models.knowledge_graph import (
-                OptimizationTrajectoryNode,
                 EvaluatorFeedbackNode,
+                OptimizationTrajectoryNode,
                 RegistryNodeType,
             )
 
