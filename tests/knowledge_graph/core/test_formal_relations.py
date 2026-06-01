@@ -67,8 +67,8 @@ def test_equivalence_classes():
         G.add_edge(u, v, {})
     classes = equivalence_classes(G)
     assert len(classes) == 2
-    assert {1, 2} in classes
-    assert {3, 4} in classes
+    assert {"1", "2"} in classes
+    assert {"3", "4"} in classes
 
 
 def test_resolve_entities():

@@ -1946,6 +1946,15 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Force a WAL checkpoint to ensure data persists across server restarts."""
         if not self.backend:
             return
+        backend_name = self.backend.__class__.__name__
+        if backend_name in (
+            "LadybugBackend",
+            "Neo4jBackend",
+            "FalkorDBBackend",
+            "EpistemicGraphBackend",
+        ):
+            logger.debug(f"WAL checkpoint skipped for non-SQL backend: {backend_name}")
+            return
         try:
             # Use native wal_checkpoint if available on the backend
             if hasattr(self.backend, "wal_checkpoint"):

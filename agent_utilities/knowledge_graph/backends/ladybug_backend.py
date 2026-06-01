@@ -168,11 +168,27 @@ class LadybugBackend(GraphBackend):
             FileLock(f"{self.db_path}.lock", timeout=30.0),
         )
 
+    @property
+    def conn(self) -> typing.Any:
+        local_store = getattr(self, "_local", None)
+        if local_store is None:
+            return None
+        return getattr(local_store, "conn", None)
+
+    @conn.setter
+    def conn(self, value: typing.Any) -> None:
+        local_store = getattr(self, "_local", None)
+        if local_store is None:
+            self._local = threading.local()
+            local_store = self._local
+        local_store.conn = value
+
     def __init__(self, db_path: str = "knowledge_graph.db", max_retries: int = 15):
         if not LADYBUG_AVAILABLE:
             raise ImportError(
                 "ladybug package is not installed. Install with 'pip install ladybug'"
             )
+        self._local = threading.local()
         self.db_path = db_path
         self.read_only = os.environ.get("LADYBUG_DB_READ_ONLY", "0").lower() in (
             "1",
@@ -181,14 +197,14 @@ class LadybugBackend(GraphBackend):
         )
         self.max_retries = max_retries
         self.db: typing.Any = None
-        self.conn: typing.Any = None
+        self.conn = None
         self._schema_created = False
         abs_db_path = (
             os.path.abspath(self.db_path) if self.db_path != ":memory:" else ":memory:"
         )
         with _ACTIVE_LOCKS_LOCK:
             if abs_db_path not in _ACTIVE_LOCKS:
-                _ACTIVE_LOCKS[abs_db_path] = threading.Lock()
+                _ACTIVE_LOCKS[abs_db_path] = threading.RLock()
             self._thread_lock = _ACTIVE_LOCKS[abs_db_path]
 
         # Transient connection mode closes the database connection after every query
@@ -209,32 +225,37 @@ class LadybugBackend(GraphBackend):
 
     def _recover_connection(self) -> None:
         """Perform a deep connection cleanup and garbage collection to recover from locking/timeout deadlocks."""
-        logger.warning(
-            f"LadybugBackend: self-healing recovery started for {self.db_path}..."
-        )
-        abs_db_path = (
-            os.path.abspath(self.db_path) if self.db_path != ":memory:" else ":memory:"
-        )
-        with _ACTIVE_DATABASES_LOCK:
-            _ACTIVE_DATABASES.pop(abs_db_path, None)
-        try:
-            self.close()
-        except Exception as e:
-            logger.debug(f"Error during self-healing close: {e}")
-
-        # Run Python garbage collection to clean up C++ object wrappers
-        import gc
-
-        gc.collect()
-
-        # Re-open connection
-        try:
-            self._ensure_connection()
-            logger.info("LadybugBackend: self-healing recovery completed successfully.")
-        except Exception as e:
-            logger.error(
-                f"LadybugBackend: failed to restore connection in self-healing: {e}"
+        with self._thread_lock:
+            logger.warning(
+                f"LadybugBackend: self-healing recovery started for {self.db_path}..."
             )
+            abs_db_path = (
+                os.path.abspath(self.db_path)
+                if self.db_path != ":memory:"
+                else ":memory:"
+            )
+            with _ACTIVE_DATABASES_LOCK:
+                _ACTIVE_DATABASES.pop(abs_db_path, None)
+            try:
+                self.close()
+            except Exception as e:
+                logger.debug(f"Error during self-healing close: {e}")
+
+            # Run Python garbage collection to clean up C++ object wrappers
+            import gc
+
+            gc.collect()
+
+            # Re-open connection
+            try:
+                self._ensure_connection()
+                logger.info(
+                    "LadybugBackend: self-healing recovery completed successfully."
+                )
+            except Exception as e:
+                logger.error(
+                    f"LadybugBackend: failed to restore connection in self-healing: {e}"
+                )
 
     def _ensure_connection(self, max_retries: int | None = None) -> None:
         """Lazily ensure the Database and Connection are open with robust retry-backoff."""
@@ -385,32 +406,47 @@ class LadybugBackend(GraphBackend):
 
     def close(self) -> None:
         """Close the database connection and database object."""
-        conn = getattr(self, "conn", None)
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:  # nosec B110
-                pass
-            self.conn = None
-            _throttled_gc()
-        db = getattr(self, "db", None)
-        if db is not None:
-            self.db = None
-            _throttled_gc()
-
-    def __del__(self) -> None:
-        """Ensure connection is destroyed before database to avoid C++ Kuzu abort."""
-        try:
+        with self._thread_lock:
             conn = getattr(self, "conn", None)
             if conn is not None:
                 try:
                     conn.close()
-                except Exception:
+                except Exception:  # nosec B110
                     pass
                 self.conn = None
+                _throttled_gc()
             db = getattr(self, "db", None)
             if db is not None:
                 self.db = None
+                _throttled_gc()
+
+    def __del__(self) -> None:
+        """Ensure connection is destroyed before database to avoid C++ Kuzu abort."""
+        try:
+            lock = getattr(self, "_thread_lock", None)
+            if lock is not None:
+                with lock:
+                    conn = getattr(self, "conn", None)
+                    if conn is not None:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                        self.conn = None
+                    db = getattr(self, "db", None)
+                    if db is not None:
+                        self.db = None
+            else:
+                conn = getattr(self, "conn", None)
+                if conn is not None:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    self.conn = None
+                db = getattr(self, "db", None)
+                if db is not None:
+                    self.db = None
         except Exception:  # nosec B110
             pass
 

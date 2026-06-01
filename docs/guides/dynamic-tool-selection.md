@@ -15,7 +15,7 @@ flowchart TD
     %% Input Channels
     subgraph Inputs [Dynamic Inputs]
         Env[1. Process Environment Variables]
-        CLI[2. CLI Overrides & CLI Parameters]
+        CLI["2. CLI Overrides & CLI Parameters"]
         Query[3. HTTP SSE/Streamable Query Params]
         Headers[4. HTTP Request Headers]
     end
@@ -50,8 +50,8 @@ flowchart TD
     Transform --> KGCheck
     KGCheck -- Yes --> KGQuery
     KGQuery --> KGCache
-    KGCache -- Yes (>24h) --> BGRefresh
-    KGCache -- No (<24h) --> ActiveTools
+    KGCache -->|Yes >24h| BGRefresh
+    KGCache -->|No <24h| ActiveTools
     KGQuery -- Match Found --> ActiveTools
     KGQuery -- No Match --> Fallback
     Fallback --> ActiveTools

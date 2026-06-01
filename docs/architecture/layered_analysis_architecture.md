@@ -10,7 +10,7 @@
 
 ```mermaid
 graph TD
-    subgraph "ORCH-1.2: Layer 1: Vector Discovery (All items, 0 LLM calls)"
+    subgraph "ORCH-1.2: Layer 1: Vector Discovery - All items - Zero LLM calls"
         A["Re-ingest with v2 schema<br/>Types + Content + Embeddings"] --> B["Run concept cross-reference<br/>34 concepts × all nodes"]
         B --> C["Score & rank matches<br/>by cosine similarity"]
     end

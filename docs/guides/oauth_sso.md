@@ -562,7 +562,7 @@ graph TD
     classDef backend fill:#5f2f20,stroke:#ba4a00,stroke-width:1.5px,color:#ffffff;
 
     subgraph UserInterface ["User Space"]
-        User([User / AI Developer])
+        User(["User / AI Developer"])
         Browser["Local Web Browser<br/>(Local Machine)"]
     end
 

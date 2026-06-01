@@ -237,8 +237,8 @@ graph TD
     B --> C[Check Connectivity Socket]
     C -->|Waiting...| C
     C -->|Connected| D[Init DB Backend Schema]
-    D --> E[CRUD & Node Writes]
-    E --> F[Vector Search & HNSW Indexing]
+    D --> E["CRUD & Node Writes"]
+    E --> F["Vector Search & HNSW Indexing"]
     F --> G[Run Ingestion Pipeline]
     G --> H[Stop and Prune Container]
     H --> I[Execute Next Database Backend]

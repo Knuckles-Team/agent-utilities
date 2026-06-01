@@ -85,16 +85,6 @@ class IMessageBackend(MessagingBackend):
             )
             while True:
                 await asyncio.sleep(3600)
-                # Keep the generator alive, but yield nothing.
-                if False:
-                    yield InboundEvent(
-                        event_id="mock",
-                        channel_id="mock",
-                        user_id="mock",
-                        text="mock",
-                        platform=PlatformId.IMESSAGE,
-                        raw=None,
-                    )
 
         import os
         import sqlite3
@@ -141,10 +131,9 @@ class IMessageBackend(MessagingBackend):
                         last_timestamp = date_val
 
                     yield InboundEvent(
-                        event_id=guid or "",
                         channel_id=sender or "unknown",
                         user_id=sender or "unknown",
-                        text=text or "",
+                        content=text or "",
                         platform=PlatformId.IMESSAGE,
                         raw={},
                     )

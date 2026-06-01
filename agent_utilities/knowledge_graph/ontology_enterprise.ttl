@@ -15,8 +15,9 @@
 :EAFactSheet a owl:Class ;
     rdfs:label "EA Fact Sheet" ;
     rdfs:comment """A fact sheet from any Enterprise Architecture management tool.
-Maps to ArchiMate elements for EA-tool interoperability.  Concrete
-instances link to their source tool via :externalToolId and declare
+Natively represents Spotify Backstage software catalog components and standard
+ArchiMate model elements. Maps to ArchiMate elements for EA-tool interoperability.
+Concrete instances link to their source tool via :externalToolId and declare
 :providesCapability :EnterpriseArchitectureCapability.""" ;
     rdfs:subClassOf :ArchiMateElement .
 
@@ -27,6 +28,7 @@ instances link to their source tool via :externalToolId and declare
 :ProcessModel a owl:Class ;
     rdfs:label "Process Model" ;
     rdfs:comment """A reference to a process model from any process mining or BPM tool.
+Natively represents BPMN 2.0 process flows and ArchiMate processes.
 Subclass of ProcessFlow for process mining and documentation integration.
 Concrete instances may link to a source tool via :externalToolId.""" ;
     rdfs:subClassOf :ProcessFlow .

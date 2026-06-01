@@ -330,24 +330,44 @@ class HybridRetriever:
                         node["_score"] *= self._backlink_boost(node["id"])
 
                 # 1c. Apply Attention-Driven Context Filter (Retrieve query boost on active_task)
-                if active_task and self.embed_model:
+                if active_task:
                     try:
-                        active_task_emb = self.embed_model.get_text_embedding(active_task)
-                        for node in scored_nodes:
-                            node_emb = node.get("embedding")
-                            if node_emb:
-                                task_sim = cosine_similarity(active_task_emb, node_emb)
-                                if task_sim > 0.0:
-                                    node["_score"] *= (1.0 + 0.5 * task_sim)
-                                    node["_active_task_boost"] = task_sim
-                            else:
-                                # Overlap-based attention boost fallback
+                        if self.embed_model:
+                            active_task_emb = self.embed_model.get_text_embedding(
+                                active_task
+                            )
+                            for node in scored_nodes:
+                                node_emb = node.get("embedding")
+                                if node_emb:
+                                    task_sim = cosine_similarity(
+                                        active_task_emb, node_emb
+                                    )
+                                    if task_sim > 0.0:
+                                        node["_score"] *= 1.0 + 0.5 * task_sim
+                                        node["_active_task_boost"] = task_sim
+                                else:
+                                    # Overlap-based attention boost fallback
+                                    overlap = sum(
+                                        1
+                                        for w in active_task.lower().split()
+                                        if w in str(node.get("name", "")).lower()
+                                        or w in str(node.get("description", "")).lower()
+                                    )
+                                    if overlap > 0:
+                                        node["_score"] *= 1.0 + 0.1 * overlap
+                                        node["_active_task_boost_overlap"] = overlap
+                        else:
+                            # Overlap-based attention boost fallback if no embed model
+                            for node in scored_nodes:
                                 overlap = sum(
-                                    1 for w in active_task.lower().split()
-                                    if w in str(node.get("name", "")).lower() or w in str(node.get("description", "")).lower()
+                                    1
+                                    for w in active_task.lower().split()
+                                    if w in str(node.get("name", "")).lower()
+                                    or w in str(node.get("description", "")).lower()
                                 )
                                 if overlap > 0:
-                                    node["_score"] *= (1.0 + 0.1 * overlap)
+                                    node["_score"] *= 1.0 + 0.1 * overlap
+                                    node["_active_task_boost_overlap"] = overlap
                     except Exception as e:
                         logger.debug("Active task boost computation failed: %s", e)
 
@@ -480,6 +500,7 @@ class HybridRetriever:
         max_subtasks: int = 3,
         corpus_id: str | None = None,
         hard_negatives: set[str] | None = None,
+        active_task: str | None = None,
     ) -> list[dict[str, Any]]:
         """Retrieve using decomposed subqueries (CONCEPT:AHE-3.4)."""
         subqueries = self._decompose_query(query, max_subtasks=max_subtasks)
@@ -492,6 +513,7 @@ class HybridRetriever:
                 multi_hop_depth,
                 corpus_id=corpus_id,
                 hard_negatives=hard_negatives,
+                active_task=active_task,
             )
 
         logger.info(f"Decomposed query into: {subqueries}")
@@ -508,6 +530,7 @@ class HybridRetriever:
                 multi_hop_depth=multi_hop_depth,
                 corpus_id=corpus_id,
                 hard_negatives=hard_negatives,
+                active_task=active_task,
             )
             for node in nodes:
                 if node["id"] not in seen_ids:
