@@ -80,6 +80,7 @@ class DebateEngine:
         logger.info(f"Generating Bull argument for {context.ticker}, round {round_num}")
         try:
             from pydantic_ai import Agent
+
             from agent_utilities.core.model_factory import create_model
 
             model = self.llm or create_model()
@@ -104,7 +105,7 @@ class DebateEngine:
                 f"Technical: {context.technical_report}"
             )
             result = agent.run_sync(prompt)
-            return getattr(result, "data")
+            return result.data
         except Exception as e:
             logger.warning(f"Bull argument LLM generation failed, using fallback: {e}")
             return DebateArgument(
@@ -125,6 +126,7 @@ class DebateEngine:
         logger.info(f"Generating Bear argument for {context.ticker}, round {round_num}")
         try:
             from pydantic_ai import Agent
+
             from agent_utilities.core.model_factory import create_model
 
             model = self.llm or create_model()
@@ -150,7 +152,7 @@ class DebateEngine:
                 f"Technical: {context.technical_report}"
             )
             result = agent.run_sync(prompt)
-            return getattr(result, "data")
+            return result.data
         except Exception as e:
             logger.warning(f"Bear argument LLM generation failed, using fallback: {e}")
             return DebateArgument(
@@ -167,6 +169,7 @@ class DebateEngine:
         logger.info(f"Evaluating risk for {context.ticker} debate")
         try:
             from pydantic_ai import Agent
+
             from agent_utilities.core.model_factory import create_model
 
             model = self.llm or create_model()
@@ -184,9 +187,11 @@ class DebateEngine:
                 f"Debate Rounds:\n{rounds}\n"
             )
             result = agent.run_sync(prompt)
-            return getattr(result, "data")
+            return result.data
         except Exception as e:
-            logger.warning(f"Risk evaluation LLM call failed, using heuristic fallback: {e}")
+            logger.warning(
+                f"Risk evaluation LLM call failed, using heuristic fallback: {e}"
+            )
             bull_conf = (
                 sum(r.bull_argument.confidence for r in rounds) / len(rounds)
                 if rounds

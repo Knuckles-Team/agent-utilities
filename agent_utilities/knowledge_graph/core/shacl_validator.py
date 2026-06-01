@@ -78,6 +78,41 @@ class SHACLValidator:
             }
 
         try:
+            import rdflib
+
+            if isinstance(data_graph, rdflib.Graph):
+                mapped_graph = rdflib.Graph()
+                mapped_graph.bind("kg", rdflib.Namespace("http://knuckles.team/kg#"))
+
+                casing_map = {
+                    "Architecturedecisionrecord": "ArchitectureDecisionRecord",
+                    "Optimizationpattern": "OptimizationPattern",
+                    "Softwarefeature": "SoftwareFeature",
+                    "Testcase": "TestCase",
+                    "Triggersonostreamevent": "triggersOnEvent",
+                    "Scopespath": "scopesPath",
+                    "Motivatedby": "motivatedBy",
+                    "Teststatus": "testStatus",
+                }
+
+                def map_term(term):
+                    if isinstance(term, rdflib.URIRef):
+                        val = str(term)
+                        if val.startswith("http://agent-utilities.dev/ontology#"):
+                            local = val.split("#", 1)[1]
+                            mapped_local = casing_map.get(local, local)
+                            return rdflib.URIRef(
+                                f"http://knuckles.team/kg#{mapped_local}"
+                            )
+                    return term
+
+                for s, p, o in data_graph:
+                    mapped_graph.add((map_term(s), map_term(p), map_term(o)))
+                data_graph = mapped_graph
+        except Exception as e:
+            logger.warning("Failed to align RDF graph namespaces: %s", e)
+
+        try:
             conforms, results_graph, results_text = pyshacl.validate(
                 data_graph=data_graph,
                 shacl_graph=str(shapes_file),

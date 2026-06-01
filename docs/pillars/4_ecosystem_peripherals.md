@@ -198,13 +198,13 @@ graph TD
     subgraph Initialization_Phase ["2. Graph Initialization (Runtime)"]
         Config -->|Per-server resilient load| Loader["<b>builder.py</b><br/><i>MCPServerStdio per server</i><br/>⚠️ Skips missing env-vars<br/>❌ Logs failed servers clearly"]
         KG_Registry --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
-        Loader -->|mcp_toolsets| 'graph'
+        Loader -->|mcp_toolsets| graphNode
         Builder -->|Register Nodes| Specialists["<b>Specialist Superstates</b><br/>(Python, TS, GitLab, etc.)"]
-        Specialists -->|Compile| 'graph'["<b>Pydantic Graph Agent</b>"]
+        Specialists -->|Compile| graphNode["<b>Pydantic Graph Agent</b>"]
     end
 
     subgraph Operation_Phase ["3. Persistent Operation (Execution)"]
-        'graph' --> Lifespan["<b>runner.py</b><br/><i>run_graph() AsyncExitStack</i>"]
+        graphNode --> Lifespan["<b>runner.py</b><br/><i>run_graph() AsyncExitStack</i>"]
         Lifespan -->|"Sequential connect<br/>per-server error reporting"| ConnPool["<b>Active Connection Pool</b><br/>(Warm Toolsets)<br/>❌ failing servers skipped & logged"]
         ConnPool -->|Zero-Latency Call| Servers
     end

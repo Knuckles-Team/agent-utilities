@@ -35,23 +35,23 @@ This achieves significant cost reduction with equivalent or improved accuracy.
 ```mermaid
 flowchart LR
     subgraph Signals
-        WA[WorkspaceAttention<br/>CONCEPT:ORCH-1.2]
-        SM[SelfModel<br/>CONCEPT:KG-2.1]
+        WA["WorkspaceAttention<br/>CONCEPT:ORCH-1.2"]
+        SM["SelfModel<br/>CONCEPT:KG-2.1"]
     end
 
     subgraph Routing
-        WA -->|runtime score| BLEND[Confidence Blend<br/>70% runtime + 30% historical]
+        WA -->|runtime score| BLEND["Confidence Blend<br/>70% runtime + 30% historical"]
         SM -->|proficiency| BLEND
-        BLEND --> GATE{confidence vs<br/>threshold}
+        BLEND --> GATE{"confidence vs<br/>threshold"}
     end
 
     subgraph Dispatch
-        GATE -->|high confidence| DOWN[Tier Down<br/>cheaper model]
-        GATE -->|neutral| KEEP[Keep Tier<br/>same model]
-        GATE -->|low confidence| UP[Tier Up<br/>stronger model]
+        GATE -->|high confidence| DOWN["Tier Down<br/>cheaper model"]
+        GATE -->|neutral| KEEP["Keep Tier<br/>same model"]
+        GATE -->|low confidence| UP["Tier Up<br/>stronger model"]
     end
 
-    DOWN --> REG[ModelRegistry<br/>pick_for_task]
+    DOWN --> REG["ModelRegistry<br/>pick_for_task"]
     KEEP --> REG
     UP --> REG
 ```
@@ -131,8 +131,8 @@ flowchart TB
     P1 & P2 --> G1[ORCH-1.21: Group 1]
     P3 & P4 --> G2[ORCH-1.21: Group 2]
 
-    G1 --> F1{GC=0.9<br/>D=1}
-    G2 --> F2{GC=0.3<br/>D=3}
+    G1 --> F1{"GC=0.9<br/>D=1"}
+    G2 --> F2{"GC=0.3<br/>D=3"}
 
     F1 -->|"High GC + Low D"| MV["🆓 MAJORITY_VOTE<br/>No LLM call"]
     F2 -->|"Low GC + High D"| HM["🔴 HEAVY_MODEL<br/>Reasoning-tier aggregation"]
@@ -180,11 +180,11 @@ for iteration in evolutionary_loop:
 
 ```mermaid
 graph LR
-    AU016[CONCEPT:KG-2.1<br/>Self-Model] -->|historical proficiency| AU039
-    AU017[CONCEPT:ORCH-1.2<br/>Workspace Attention] -->|confidence scores| AU039[CONCEPT:ORCH-1.2<br/>Confidence Router]
-    AU017 -->|proposals| AU040[CONCEPT:ORCH-1.2<br/>Evolutionary Aggregation]
-    AU033[CONCEPT:OS-5.2<br/>Homeostatic Downgrade] -->|budget tier| AU039
-    AU030[CONCEPT:OS-5.2<br/>Cognitive Scheduler] -->|hosts| CM[Convergence<br/>Monitor]
+    AU016["CONCEPT:KG-2.1<br/>Self-Model"] -->|historical proficiency| AU039
+    AU017["CONCEPT:ORCH-1.2<br/>Workspace Attention"] -->|confidence scores| AU039["CONCEPT:ORCH-1.2<br/>Confidence Router"]
+    AU017 -->|proposals| AU040["CONCEPT:ORCH-1.2<br/>Evolutionary Aggregation"]
+    AU033["CONCEPT:OS-5.2<br/>Homeostatic Downgrade"] -->|budget tier| AU039
+    AU030["CONCEPT:OS-5.2<br/>Cognitive Scheduler"] -->|hosts| CM["Convergence<br/>Monitor"]
     CM --> AU040
     AU039 -->|adaptive model| REG[ECO-4.10: Model Registry]
 

@@ -9,7 +9,7 @@ semantic formats (OWL/Turtle) for export/import across instances.
 
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ...models.knowledge_graph import TeamComposition
@@ -135,7 +135,7 @@ class OntologicalTeamExporter:
                 )
             ):
                 spec_uri = o
-                spec_dict = {"role": "", "agent_id": "", "tools": []}
+                spec_dict: dict[str, Any] = {"role": "", "agent_id": "", "tools": []}
                 for sp, so in g.predicate_objects(spec_uri):
                     spred_str = str(sp).split("#")[-1]
                     if spred_str == "hasRole":
@@ -199,7 +199,7 @@ class OntologicalTeamExporter:
                 r"agent:\w+_spec_\d+\s+a\s+agent:Specialist[\s\S]+?\.", ttl_content
             )
             for block in spec_blocks:
-                spec_dict = {"role": "", "agent_id": "", "tools": []}
+                spec_dict: dict[str, Any] = {"role": "", "agent_id": "", "tools": []}
                 r_m = re.search(r'agent:hasRole\s+"([^"]+)"', block)
                 if r_m:
                     spec_dict["role"] = r_m.group(1)

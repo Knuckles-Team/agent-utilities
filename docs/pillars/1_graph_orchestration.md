@@ -68,7 +68,7 @@ The **First Principles Architecture** (CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0)
 ```mermaid
 graph LR
     subgraph Routing ["3-Stage Hybrid Routing"]
-        Query([ORCH-1.0: User Query]) --> TC{"ORCH-1.2: TeamConfig\nMatch?"}
+        Query(["ORCH-1.0: User Query"]) --> TC{"ORCH-1.2: TeamConfig\nMatch?"}
         TC -- "Hit" --> Dispatch["ORCH-1.2: Direct\nDispatch"]
         TC -- "Miss" --> SM{"AHE-3.3: Self-Model\nBias"}
         SM --> LLM["ORCH-1.1: LLM Planner\n(Top-7 Filtered)"]
@@ -77,7 +77,7 @@ graph LR
 
     subgraph Execution ["Execute & Learn"]
         Dispatch --> Exec["ORCH-1.2: Specialist\nExecution"]
-        Exec --> ORCH-1.3: Verify["Verify"]
+        Exec --> Verify["Verify"]
         Verify --> Feedback["ORCH-1.2: Self-Model Update\n+ TeamConfig Reward"]
         Feedback -.-> TC
     end
@@ -110,22 +110,22 @@ graph LR
 
 ```mermaid
   graph TB
-  Start([ORCH-1.0: User Query + Images]) --> ACPLayer["<b>ACP / AG-UI / SSE </b><br/><i>(Unified Protocol Layer)</i>"]
-  ACPLayer --> UsageGuard[ORCH-1.3: Usage Guard: Rate Limiting]
-  UsageGuard -- "Allow" --> router_step[ORCH-1.2: Router: Topology Selection]
-  UsageGuard -- "Block" --> End([ORCH-1.21: End Result])
+  Start(["ORCH-1.0: User Query + Images"]) --> ACPLayer["<b>ACP / AG-UI / SSE </b><br/><i>(Unified Protocol Layer)</i>"]
+  ACPLayer --> UsageGuard["ORCH-1.3: Usage Guard: Rate Limiting"]
+  UsageGuard -- "Allow" --> router_step["ORCH-1.2: Router: Topology Selection"]
+  UsageGuard -- "Block" --> End(["ORCH-1.21: End Result"])
 
   router_step -- "Trivial Query" --> End
-  router_step -- "Full Pipeline" --> dispatcher[ORCH-1.0: Dispatcher: Dynamic Routing]
-  dispatcher -- "First Entry" --> mem_step[KG-2.3: Memory: Context Retrieval]
-  mem_step --> dispatcher[ORCH-1.0: Dispatcher: Dynamic Routing]
+  router_step -- "Full Pipeline" --> dispatcher["ORCH-1.0: Dispatcher: Dynamic Routing"]
+  dispatcher -- "First Entry" --> mem_step["KG-2.3: Memory: Context Retrieval"]
+  mem_step --> dispatcher["ORCH-1.0: Dispatcher: Dynamic Routing"]
 
   subgraph "ORCH-1.2: Discovery Phase"
     direction TB
     Researcher["<b>Researcher</b><br/>---<br/><i>u-skill:</i> web-search, web-crawler, web-fetch<br/><i>t-tool:</i> project_search, read_workspace_file"]
     Architect["<b>Architect</b><br/>---<br/><i>u-skill:</i> c4-architecture, spec-generator, product-strategy, user-research, brainstorming<br/><i>t-tool:</i> developer_tools"]
     KGDiscovery["<b>Unified Discovery</b><br/>---<br/><i>source:</i> Knowledge Graph<br/>"]
-    res_joiner[ORCH-1.0: Research Joiner: Barrier Sync]
+    res_joiner["ORCH-1.0: Research Joiner: Barrier Sync"]
   end
 
   dispatcher -- "Research First" --> Researcher
@@ -164,16 +164,16 @@ graph LR
       UIUX["<b>UI/UX</b><br/>---<br/><i>u-skill:</i> theme-factory, brand-guidelines, algorithmic-art<br/><i>g-skill:</i> shadcn-docs, framer-docs<br/><i>t-tool:</i> developer_tools"]
       Debug["<b>Debugger</b><br/>---<br/><i>u-skill:</i> developer-utilities, agent-builder<br/><i>t-tool:</i> developer_tools"]
     end
-  Programmers --> exe_joiner[ORCH-1.0: Execution Joiner: Barrier Sync]
+  Programmers --> exe_joiner["ORCH-1.0: Execution Joiner: Barrier Sync"]
   Infrastructure --> exe_joiner
   Specialized --> exe_joiner
 
   exe_joiner -- "Implementation Results" --> dispatcher
 
-  dispatcher -- "Plan Complete" --> verifier[AHE-3.1: Verifier: Quality Gate]
-  verifier -- "Score >= 0.7" --> synthesizer[ORCH-1.0: Synthesizer: Response Composition]
+  dispatcher -- "Plan Complete" --> verifier["AHE-3.1: Verifier: Quality Gate"]
+  verifier -- "Score ≥ 0.7" --> synthesizer["ORCH-1.0: Synthesizer: Response Composition"]
   verifier -- "Score 0.4-0.7" --> dispatcher
-  verifier -- "Score < 0.4" --> planner_step[ORCH-1.1: Planner: Re-plan with Feedback]
+  verifier -- "Score < 0.4" --> planner_step["ORCH-1.1: Planner: Re-plan with Feedback"]
   planner_step --> dispatcher
   synthesizer -- "Final Response" --> End
   dispatcher -- "Terminal Failure" --> End
@@ -247,7 +247,7 @@ By routing communication through embedding projections (latent space), Recursive
 
 ```mermaid
 graph TD
-    UserQuery["User Query / Task Input"] --> Agent1["Agent A (e.g. Planner) <br/> [Model Frozen]"]
+    UserQuery["User Query / Task Input"] --> Agent1["Agent A (e.g. Planner) <br/> (Model Frozen)"]
 
     %% Agent A loops internally
     Agent1 -->|Hidden States| InnerLinkA["Inner RecursiveLink A <br/> (Self-thoughts loop)"]
@@ -255,7 +255,7 @@ graph TD
 
     %% Connection between A and B
     Agent1 -->|Raw Output Activations| OuterLinkAB["Outer RecursiveLink AB <br/> (Projection & Dimension Matching)"]
-    OuterLinkAB -->|Projected Embeddings| Agent2["Agent B (e.g. Specialist) <br/> [Model Frozen]"]
+    OuterLinkAB -->|Projected Embeddings| Agent2["Agent B (e.g. Specialist) <br/> (Model Frozen)"]
 
     %% Agent B loops internally
     Agent2 -->|Hidden States| InnerLinkB["Inner RecursiveLink B"]
@@ -282,12 +282,12 @@ To implement RecursiveMAS without introducing performance overhead or heavy depe
 
 ```mermaid
 graph TD
-    TaskIn([Incoming Task]) --> ModelCheck{Is Model Local & <br/> Open-Weights?}
+    TaskIn(["Incoming Task"]) --> ModelCheck{"Is Model Local & <br/> Open-Weights?"}
 
     ModelCheck -- "Yes (Local GPU)" --> LocalPath["<b>Native Open-Weights Pipeline</b> <br/> - Dynamic PyTorch/vLLM import <br/> - Last hidden state weight access <br/> - Direct projection tensors"]
     ModelCheck -- "No (Off-the-shelf API)" --> APIPath["<b>Universal API Semantic Simulator</b> <br/> - Zero extra VRAM/PyTorch imports <br/> - Local REPL variable state passing <br/> - Semantic thought vectors via embeddings"]
 
-    LocalPath --> Execution[Orchestration Engine Execution]
+    LocalPath --> Execution["Orchestration Engine Execution"]
     APIPath --> Execution
 ```
 

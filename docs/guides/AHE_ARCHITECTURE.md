@@ -22,7 +22,7 @@ structured observability.
 ```mermaid
 graph LR
     A[OS-5.4: Langfuse Traces] --> B[AHE-3.1: Automated Distillation]
-    B --> C[KG-2.10: Summaries & Clusters]
+    B --> C["KG-2.10: Summaries & Clusters"]
     C --> D[ORCH-1.21: Failure Taxonomies]
     D --> E[KG-2.7: Layered Evidence Corpus]
     E --> F[ORCH-1.1: Evolve Agent Decisions]
@@ -40,19 +40,19 @@ AHE decomposes the harness into 7 independently editable component types:
 ```mermaid
 graph TD
     subgraph "AHE Component Types"
-        SP[System Prompt<br>prompt_builder.py<br>structured_prompts.py]
-        TD[Tool Description<br>tool_filtering.py<br>SKILL.md frontmatter]
-        TI[Tool Implementation<br>tools/*.py<br>mcp_server.py]
-        MW[OS-5.3: Middleware<br>middlewares.py<br>guardrails.py<br>tool_guard.py]
-        SK[Skills<br>universal-skills/]
-        SA[Sub-Agents<br>graph/steps/<br>HSM specialist nodes]
-        LM[Long-Term Memory<br>knowledge_graph/<br>MemoryNode]
+        SP["System Prompt<br>prompt_builder.py<br>structured_prompts.py"]
+        TD["Tool Description<br>tool_filtering.py<br>SKILL.md frontmatter"]
+        TI["Tool Implementation<br>tools/*.py<br>mcp_server.py"]
+        MW["OS-5.3: Middleware<br>middlewares.py<br>guardrails.py<br>tool_guard.py"]
+        SK["Skills<br>universal-skills/"]
+        SA["Sub-Agents<br>graph/steps/<br>HSM specialist nodes"]
+        LM["Long-Term Memory<br>knowledge_graph/<br>MemoryNode"]
     end
 
     subgraph "OS-5.4: Observability Pillars"
-        CO[OS-5.4: Component Observability<br>File-level diffs + git]
-        EO[OS-5.4: Experience Observability<br>TraceDistiller → EvidenceCorpus]
-        DO[OS-5.4: Decision Observability<br>ChangeManifest + VerificationResult]
+        CO["OS-5.4: Component Observability<br>File-level diffs + git"]
+        EO["OS-5.4: Experience Observability<br>TraceDistiller → EvidenceCorpus"]
+        DO["OS-5.4: Decision Observability<br>ChangeManifest + VerificationResult"]
     end
 
     SP --> CO
@@ -70,9 +70,9 @@ Constraints escalate through 4 enforcement levels when violations are detected:
 
 ```mermaid
 graph LR
-    P[PROMPT<br>Level 1: Advisory] --> TD2[TOOL_DESCRIPTION<br>Level 2: Descriptive]
-    TD2 --> M[MIDDLEWARE<br>Level 3: Blocking]
-    M --> TI2[TOOL_IMPLEMENTATION<br>Level 4: Hardcoded]
+    P["PROMPT<br>Level 1: Advisory"] --> TD2["TOOL_DESCRIPTION<br>Level 2: Descriptive"]
+    TD2 --> M["MIDDLEWARE<br>Level 3: Blocking"]
+    M --> TI2["TOOL_IMPLEMENTATION<br>Level 4: Hardcoded"]
 
     style P fill:#4caf50,color:#fff
     style TD2 fill:#ff9800,color:#fff

@@ -4,12 +4,18 @@
 
 ```mermaid
 graph TD
-    User([ORCH-1.0: User Request + Images]) --> WebUI[ECO-4.0: agent-webui]
-    User --> TUI[ECO-4.0: agent-terminal-ui]
-    WebUI -- ACP Protocol /acp --> Backend[ECO-4.0: agent-utilities Server]
+    User("ORCH-1.0: User Request + Images")
+    WebUI["ECO-4.0: agent-webui"]
+    TUI["ECO-4.0: agent-terminal-ui"]
+    Backend["ECO-4.0: agent-utilities Server"]
+    External["ECO-4.0: External AG-UI Client"]
+
+    User --> WebUI
+    User --> TUI
+    WebUI -- ACP Protocol /acp --> Backend
     TUI -- AG-UI /ag-ui --> Backend
     TUI -- ACP Protocol /acp --> Backend
-    External[ECO-4.0: External AG-UI Client] -- Legacy Protocol /ag-ui --> Backend
+    External -- Legacy Protocol /ag-ui --> Backend
 
     subgraph AgentUtilities [agent-utilities]
         Backend --> UnifiedExec["Unified Execution Layer<br/>(graph/unified.py)"]
@@ -55,9 +61,9 @@ graph TD
         end
 
         DSRoster --> Graph
-        Graph --> Specialists[ORCH-1.2: Specialist Superstates]
-        Specialists --> MCP[ECO-4.0: MCP Servers]
-        Specialists --> Skills[ECO-4.10: Universal Skills, Skill Graphs]
+        Graph --> Specialists["ORCH-1.2: Specialist Superstates"]
+        Specialists --> MCP["ECO-4.0: MCP Servers"]
+        Specialists --> Skills["ECO-4.10: Universal Skills, Skill Graphs"]
 
         subgraph ElicitationFlow [Human-in-the-Loop Flow]
             MCP -- 1. Tool needs approval --> TG[OS-5.2: tool_guard: requires_approval]
@@ -142,14 +148,22 @@ This strategy means the system progressively learns: the more queries it handles
 
 ```mermaid
 graph TB
-    Start([ORCH-1.0: User Query + Images]) --> ACPLayer["<b>ACP / AG-UI / SSE</b><br/><i>(Unified Protocol Layer)</i>"]
-    ACPLayer --> UsageGuard[ORCH-1.3: Usage Guard: Rate Limiting]
-    UsageGuard -- "Allow" --> router_step[ORCH-1.2: Router: Topology Selection]
-    UsageGuard -- "Block" --> End([ORCH-1.21: End Result])
+    Start("ORCH-1.0: User Query + Images")
+    End("ORCH-1.21: End Result")
+    UsageGuard["ORCH-1.3: Usage Guard: Rate Limiting"]
+    router_step["ORCH-1.2: Router: Topology Selection"]
+    dispatcher["ORCH-1.0: Dispatcher: Dynamic Routing"]
+    mem_step["KG-2.3: Memory: Context Retrieval"]
+    ACPLayer["<b>ACP / AG-UI / SSE</b><br/><i>(Unified Protocol Layer)</i>"]
+
+    Start --> ACPLayer
+    ACPLayer --> UsageGuard
+    UsageGuard -- "Allow" --> router_step
+    UsageGuard -- "Block" --> End
 
     router_step -- "Trivial Query" --> End
-    router_step -- "Full Pipeline" --> dispatcher[ORCH-1.0: Dispatcher: Dynamic Routing]
-    dispatcher -- "First Entry" --> mem_step[KG-2.3: Memory: Context Retrieval]
+    router_step -- "Full Pipeline" --> dispatcher
+    dispatcher -- "First Entry" --> mem_step
     mem_step --> dispatcher
 
     subgraph DiscoveryPhase ["Discovery Phase"]
@@ -202,19 +216,25 @@ graph TB
     dispatcher -- "Parallel Dispatch" --> InfraGroup
     dispatcher -- "Parallel Dispatch" --> Specialized
 
-    Programmers --> exe_joiner[ORCH-1.0: Execution Joiner: Barrier Sync]
+    exe_joiner["ORCH-1.0: Execution Joiner: Barrier Sync"]
+    verifier["AHE-3.1: Verifier: Quality Gate"]
+    council["ORCH-1.2: Council: Multi-Perspective Deliberation"]
+    synthesizer["ORCH-1.0: Synthesizer: Response Composition"]
+    planner_step["ORCH-1.1: Planner: Re-plan"]
+
+    Programmers --> exe_joiner
     InfraGroup --> exe_joiner
     Specialized --> exe_joiner
 
     exe_joiner -- "Implementation Results" --> dispatcher
 
-    dispatcher -- "Plan Complete" --> verifier[AHE-3.1: Verifier: Quality Gate]
-    dispatcher -- "Council" --> council[ORCH-1.2: Council: Multi-Perspective Deliberation]
+    dispatcher -- "Plan Complete" --> verifier
+    dispatcher -- "Council" --> council
     council --> exe_joiner
-    verifier -- "Pass: Score >= 0.7" --> synthesizer[ORCH-1.0: Synthesizer: Response Composition]
+    verifier -- "Pass: Score >= 0.7" --> synthesizer
     verifier -- "Fail: Score < 0.7" --> dispatcher
     dispatcher -- "Terminal Failure" --> End
-    planner_step[ORCH-1.1: Planner: Re-plan] --> dispatcher
+    planner_step --> dispatcher
     synthesizer -- "Final Response" --> End
 
     subgraph SDD_Lifecycle ["Spec-Driven Development"]

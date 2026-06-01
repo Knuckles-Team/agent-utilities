@@ -568,3 +568,57 @@ def test_hydrate_langfuse(mock_engine):
         assert res["status"] == "ok"
         assert res["nodes_hydrated"] == 2
         assert res["relations_hydrated"] == 1
+
+
+def test_hydrate_source_control_default(mock_engine):
+    manager = HydrationManager()
+    res = manager.hydrate_source(mock_engine, "source_control")
+    assert res["status"] == "ok"
+    assert res["nodes_hydrated"] >= 1
+
+
+@patch.dict(os.environ, {"GITHUB_TOKEN": "gh-tok"})
+def test_hydrate_source_control_github(mock_engine):
+    manager = HydrationManager()
+    res = manager.hydrate_source(mock_engine, "source_control")
+    assert res["status"] == "ok"
+    assert res["nodes_hydrated"] == 2
+    assert res["relations_hydrated"] == 1
+
+
+def test_hydrate_enterprise_architecture_default(mock_engine):
+    manager = HydrationManager()
+    res = manager.hydrate_source(mock_engine, "enterprise_architecture")
+    assert res["status"] == "ok"
+    assert res["nodes_hydrated"] == 2
+    assert res["relations_hydrated"] == 1
+
+
+def test_hydrate_process_modeling_default(mock_engine):
+    manager = HydrationManager()
+    res = manager.hydrate_source(mock_engine, "process_modeling")
+    assert res["status"] == "ok"
+    assert res["nodes_hydrated"] >= 1
+    assert res["relations_hydrated"] >= 1
+
+
+def test_hydrate_issue_tracking_default(mock_engine):
+    manager = HydrationManager()
+    res = manager.hydrate_source(mock_engine, "issue_tracking")
+    assert res["status"] == "ok"
+    assert res["nodes_hydrated"] >= 1
+
+
+def test_hydrate_relational_database(mock_engine):
+    manager = HydrationManager()
+    res = manager.hydrate_source(mock_engine, "relational_database")
+    assert res["status"] == "ok"
+    assert res["nodes_hydrated"] >= 1
+
+
+def test_hydrate_message_protocol(mock_engine):
+    manager = HydrationManager()
+    res = manager.hydrate_source(mock_engine, "message_protocol")
+    assert res["status"] == "ok"
+    assert res["nodes_hydrated"] == 2
+    assert res["relations_hydrated"] == 1

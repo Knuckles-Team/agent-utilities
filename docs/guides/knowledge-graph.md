@@ -61,7 +61,7 @@ graph TD
             Sync --> OWL --> Ext[KG-2.13: Ext Graphs] --> KB
         end
 
-        subgraph S5 [Stage 5: Governance & Evolution]
+        subgraph S5 ["Stage 5: Governance & Evolution"]
             direction LR
             Val[AHE-3.1: Validate] --> Exp[AHE-3.1: Distill] -.->|Async| Evo[AHE-3.2: Evolution]
         end

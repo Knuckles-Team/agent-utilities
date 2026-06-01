@@ -57,11 +57,11 @@ The `access_list` field on `ExecutionStep` supports three modes:
 
 ```mermaid
 graph LR
-    R[ORCH-1.2: Researcher] -->|"results_registry['researcher']"| F[KG-2.3: Filter]
-    A[ORCH-1.2: Architect] -->|"results_registry['architect']"| F
-    P[ORCH-1.2: Programmer] -->|"results_registry['programmer']"| F
-    F -->|access_list: researcher,architect| S[ORCH-1.0: Synthesizer]
-    F -.->|blocked| X[ORCH-1.2: Programmer output hidden]
+    R["ORCH-1.2: Researcher"] -->|"results_registry['researcher']"| F["KG-2.3: Filter"]
+    A["ORCH-1.2: Architect"] -->|"results_registry['architect']"| F
+    P["ORCH-1.2: Programmer"] -->|"results_registry['programmer']"| F
+    F -->|access_list: researcher,architect| S["ORCH-1.0: Synthesizer"]
+    F -.->|blocked| X["ORCH-1.2: Programmer output hidden"]
 ```
 
 ### Helper Function
@@ -127,11 +127,12 @@ The Conductor paper demonstrates that allowing the orchestrator to specify *itse
 
 ```mermaid
 graph TD
-    Q[ORCH-1.0: User Query] --> G1[KG-2.0: Graph Execution L0]
-    G1 -->|Plan fails| RC[ORCH-1.21: recursive_orchestrator]
-    RC -->|RecursiveContext| G2[KG-2.0: Graph Execution L1]
+    ERR["OS-5.2: RecursionDepthExceeded"]
+    Q["ORCH-1.0: User Query"] --> G1["KG-2.0: Graph Execution L0"]
+    G1 -->|Plan fails| RC["ORCH-1.21: recursive_orchestrator"]
+    RC -->|RecursiveContext| G2["KG-2.0: Graph Execution L1"]
     G2 -->|Result| G1
-    G2 -.->|depth > MAX| ERR[OS-5.2: RecursionDepthExceeded]
+    G2 -.->|depth > MAX| ERR
 ```
 
 ### Depth Control

@@ -21,7 +21,8 @@ Six infrastructure primitives:
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 from ...models.company_brain import (
     ActorType,
@@ -958,6 +959,116 @@ class CompanyBrain:
                 "nodes_with_acls": len(self.permissions._acls),
             },
         }
+
+    def pre_commit_validate(
+        self,
+        base_graph: Any,
+        proposed_node: tuple[str, dict[str, Any]] | None = None,
+        proposed_edge: tuple[str, str, dict[str, Any]] | None = None,
+        shapes_path: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """Validate proposed assertion (node or edge) using a forked EpistemicGraph.
+
+        Forks the base_graph, applies the proposed assertion, converts the resulting
+        state into an RDF graph using an internal OWLBridge-compatible materialization,
+        and validates against governance shapes using SHACLValidator.
+
+        Args:
+            base_graph: An EpistemicGraph instance.
+            proposed_node: Tuple of (node_id, properties) to assert.
+            proposed_edge: Tuple of (src_id, tgt_id, properties) to assert.
+            shapes_path: Optional path to SHACL shapes file.
+
+        Returns:
+            Dict containing conformance status and violations list.
+        """
+        import json
+
+        # 1. Fork the epistemic graph
+        forked_graph = base_graph.fork()
+
+        # 2. Apply proposed additions
+        if proposed_node:
+            node_id, props = proposed_node
+            props_str = json.dumps(props) if isinstance(props, dict) else str(props)
+            forked_graph.add_node(node_id, props_str)
+
+        if proposed_edge:
+            src, tgt, props = proposed_edge
+            # Ensure endpoints exist in forked graph
+            if not forked_graph.has_node(src):
+                forked_graph.add_node(src, json.dumps({"type": "Thing"}))
+            if not forked_graph.has_node(tgt):
+                forked_graph.add_node(tgt, json.dumps({"type": "Thing"}))
+            props_str = json.dumps(props) if isinstance(props, dict) else str(props)
+            forked_graph.add_edge(src, tgt, props_str)
+
+        # 3. Create a networkx-compatible wrapper so OWLBridge can materialize it
+        class NetworkXWrapper:
+            def __init__(self, eg: Any) -> None:
+                self.eg = eg
+
+            @property
+            def nodes(self) -> Any:
+                class NodeView:
+                    def __init__(self, eg: Any) -> None:
+                        self.eg = eg
+
+                    def __call__(self, data: bool = False) -> list[Any]:
+                        nodes_list: list[Any] = []
+                        for node_id, props_str in self.eg.get_nodes():
+                            try:
+                                props = json.loads(props_str)
+                            except Exception:
+                                props = {}
+                            if data:
+                                nodes_list.append((node_id, props))
+                            else:
+                                nodes_list.append(node_id)
+                        return nodes_list
+
+                return NodeView(self.eg)
+
+            @property
+            def edges(self) -> Any:
+                class EdgeView:
+                    def __init__(self, eg: Any) -> None:
+                        self.eg = eg
+
+                    def __call__(self, data: bool = False) -> list[Any]:
+                        edges_list: list[Any] = []
+                        for src, tgt, props_str in self.eg.get_edges():
+                            try:
+                                props = json.loads(props_str)
+                            except Exception:
+                                props = {}
+                            if data:
+                                edges_list.append((src, tgt, props))
+                            else:
+                                edges_list.append((src, tgt))
+                        return edges_list
+
+                return EdgeView(self.eg)
+
+        wrapper = NetworkXWrapper(forked_graph)
+
+        # 4. Use SHACLValidator to validate
+        from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
+        from agent_utilities.knowledge_graph.core.shacl_validator import SHACLValidator
+
+        class DummyOWLBackend:
+            pass
+
+        owl_bridge = OWLBridge(
+            graph=wrapper,
+            owl_backend=cast(Any, DummyOWLBackend()),
+        )
+
+        validator = SHACLValidator()
+        if shapes_path:
+            return validator.validate(owl_bridge._build_rdf_graph(), shapes_path)
+        else:
+            return validator.validate_kg(owl_bridge)
 
 
 __all__ = [

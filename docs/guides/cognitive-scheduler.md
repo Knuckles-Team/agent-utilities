@@ -27,9 +27,9 @@ flowchart TB
     end
 
     subgraph Integrations
-        RO[ResourceOptimizer<br>CONCEPT:OS-5.2] -.-> QE
-        CP[Checkpointing<br>CONCEPT:OS-5.2] -.-> CKP
-        EV[Eviction<br>CONCEPT:OS-5.2] -.-> CKP
+        RO["ResourceOptimizer<br>CONCEPT:OS-5.2"] -.-> QE
+        CP["Checkpointing<br>CONCEPT:OS-5.2"] -.-> CKP
+        EV["Eviction<br>CONCEPT:OS-5.2"] -.-> CKP
     end
 ```
 

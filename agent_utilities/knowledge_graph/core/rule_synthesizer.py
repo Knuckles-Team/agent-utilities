@@ -77,14 +77,21 @@ class RuleSynthesizerDaemon:
             human_resolver = conflict.get("resolved_by", "Unknown Human")
             resolved_value = conflict.get("resolved_value")
 
+            conflict_id = conflict.get("id")
+            node_id = record.get("n", {}).get("id")
+
             # Create a RuleNode ensuring future automated resolution
             rule_cypher = (
+                "MATCH (c:ConflictRecord {id: $conflict_id}) "
+                "MATCH (n {id: $node_id}) "
                 "MERGE (r:RuleNode {id: $rule_id}) "
                 "SET r.description = $desc, r.confidence = 1.0, r.created_by = $human "
                 "MERGE (r)-[:GOVERNS]->(n) "
-                "SET c.rule_synthesized = true "
+                "SET c.rule_synthesized = true"
             )
             rule_params = {
+                "conflict_id": conflict_id,
+                "node_id": node_id,
                 "rule_id": rule_id,
                 "desc": f"Automatically synthesize rule based on human arbitration by {human_resolver} setting value to {resolved_value}",
                 "human": human_resolver,

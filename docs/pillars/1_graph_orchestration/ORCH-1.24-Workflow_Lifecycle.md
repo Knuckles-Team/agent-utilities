@@ -52,7 +52,7 @@ graph TB
     JSON -->|"load_from_json()"| CATALOG
     NL -->|"compile()"| COMPILER
 
-    CATALOG -->|"to_graph_plans()"| PLANS["GraphPlan[]"]
+    CATALOG -->|"to_graph_plans()"| PLANS["GraphPlans"]
     CATALOG -->|"register_in_kg()"| STORE
     COMPILER -->|"compile_and_store()"| STORE
 

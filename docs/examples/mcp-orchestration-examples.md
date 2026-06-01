@@ -8,7 +8,7 @@ This guide details how to use the `IntelligenceGraphEngine` to ingest external c
 graph TB
     subgraph "Workflow Lifecycle (ORCH-1.24)"
         A["catalog.yaml<br/>(YAML definitions)"] -->|"load()"| B["WorkflowCatalog"]
-        B -->|"to_graph_plans()"| C["GraphPlan[]"]
+        B -->|"to_graph_plans()"| C["GraphPlans"]
         B -->|"register_in_kg()"| D["KG: WorkflowDefinition"]
         D -->|"HAS_STEP"| E["KG: WorkflowStep"]
         E -->|"TRANSITION_TO"| E
