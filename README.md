@@ -67,29 +67,43 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **[Multi-Domain Expert System](docs/guides/features.md#comprehensive-feature-list)**: Scale across finance, medical, and scientific domains using Temporally-Aware Epistemic Memory (TKG) and specialized MCP tools.
 - **[Unified Intelligence Graph](docs/guides/features.md#comprehensive-feature-list)**: A topological pipeline combining native Rust in-memory processing (`EpistemicGraphBackend`) with persistent Cypher (LadybugDB/Neo4j) and OWL (Apache Jena Fuseki) backends.
 - **[Centralized Sessions & Goals (API-First Gateway)](docs/centralized_kg_coordination.md#7-centralized-sessions--autonomous-goal-coordination)**: A highly-resilient, centralized REST API gateway running on Port `8100` that handles background goal loops, durable turns, and user session reply orchestration.
-- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.6-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` running over high-speed Unix Sockets, providing fast AST parsing, VF2 subgraph matching, and a Redpanda-backed Reactive State Ledger designed to scale seamlessly up to 100,000,000 concurrent agents.
+- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` running over high-speed Unix Sockets, providing fast AST parsing, VF2 subgraph matching, and a Redpanda-backed Reactive State Ledger designed to scale seamlessly up to 100,000,000 concurrent agents.
 - **[Spec-Driven Development (SDD)](docs/guides/features.md#spec-driven-development-sdd-lifecycle)**: High-fidelity orchestration that decomposes goals into structured specs, implementation plans, and parallel tasks.
 - **[Emergent Architecture](docs/guides/features.md#emergent-architecture-conceptkg-20-through-conceptorch-12)**: Dynamic AgentCapability auto-activation, TeamConfig coalition promotion, and evolutionary skill refinement via self-models.
 - **[Agent OS & Safety](docs/guides/features.md#human-in-the-loop--tool-safety)**: Built-in Universal Tool Guards, structural vulnerability scanning, and transparent process lifecycle management.
+- **[Dynamic Company Brain Ingestion](docs/guides/features.md#company-intelligence-graph)**: Dynamic data ingestion from external platforms like Jira, GitLab/GitHub, enterprise architecture repositories (e.g., Essential Project, Archi), and databases with automatic ontology alignment and GraphQL/REST extraction.
 - **[Enterprise Agent Governance](docs/pillars/4_ecosystem_peripherals.md#-enterprise-agent-governance-eco-416--eco-422)**: Production-grade mutation governance with risk-scored change proposals, human-in-the-loop approval gates, AGENTS.md self-improvement, lint enforcement hooks, plugin bundle distribution, permission policies, staleness auditing, and unified governance workflow pipeline.
 
 > 📖 **[View the Comprehensive Feature List & Architecture Deep Dives](docs/guides/features.md)**
 
 ## 🗺 Concept Map
 
-Synthesized from 169 tags into **64 canonical concepts** across **5 Core Pillars**.
-
-→ **Full Concept Map**: [docs/concept_map.md](docs/concept_map.md) — canonical concept registry (single source of truth).
+→ **Full Concept Map**: [docs/concept_map.md](docs/concept_map.md) — canonical concept registry.
+→ **Single Source of Truth**: [docs/concepts.yaml](docs/concepts.yaml) — machine-generated registry of every concept marker in code.
 → **Concept Index**: [docs/overview.md](docs/overview.md#concept-index) — all pillars with descriptions and code paths.
+
+<!-- BEGIN GENERATED: concepts -->
+
+Synthesized from concept markers in the codebase into **67 canonical concepts** across **12 pillars**.
+
+> This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
 | Pillar | ID Range | Count | Focus |
 |:------|:---------|:---:|:------|
-| **ORCH-1** Graph Orchestration | ORCH-1.0 – 1.29 | 14 | Intelligence graph, HTN planning, routing, execution safety, DSTDD, parallel engine, reactive sourcing, WASM sandbox |
-| **KG-2** Knowledge Graph | KG-2.0 – 2.18 | 16 | Active KG, memory, ontology, retrieval, research, finance, enterprise, quant FFI, compiled compute |
-| **AHE-3** Agentic Harness | AHE-3.0 – 3.16 | 11 | Evaluation, evolution, teams, heavy thinking, backtest, model evolver, DSPy mathematical prompt optimization |
-| **ECO-4** Ecosystem | ECO-4.0 – 4.23 | 17 | MCP, A2A, telemetry, connectors, messaging, governance, hooks, plugins, permissions |
-| **OS-5** Agent OS | OS-5.0 – 5.6 | 7 | Kernel, security, scheduling, guardrails, observability, budgets, massive-scale |
-| **GBOT-6** GeniusBot Cockpit | GBOT-6.0 – 6.6 | 7 | Premium Systems GUI, swappable tab matrix, embedded sandboxed terminal, universal approval gate, real-time finance dashboard |
+| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.11 | 8 | Telemetry-Driven Routing Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
+| **CTX-1** Context Management | CTX-1.0 | 1 | Nested Subfolder Instructions |
+| **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.23 | 13 | Register PlannerGraphSkill when graph_bundle is available, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
+| **KG-1** Knowledge Graph Core | KG-1.0 | 1 | Centralized KG Coordination Protocol |
+| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.23 | 11 | Provides git-like transactional mutation for KG evolution, Inject Self-Model proficiency into discovery context, Entity-Claim Extraction for MAGMA Epistemic View, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Generates actionable LLM artifacts from KG-ingested research, Bidirectional sync to ensure both the persistent |
+| **LGC-1** Logic & Governance Core | LGC-1.0 | 1 | Logic & Governance Core |
+| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.26 | 18 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Execution Budget. Defines caps for this session, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
+| **ORCH-2** Orchestration Extensions | ORCH-2.0 | 1 | Orchestration Engine |
+| **ORCH-5** Orchestration Runtime | ORCH-5.0 | 1 | / TUI-20 |
+| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.10 | 10 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
+| **SAFE-1** Safety & Guardrails | SAFE-1.0 | 1 | Tool-Agnostic File Safety Hooks |
+| **UTIL-1** Shared Utilities | UTIL-1.0 | 1 | Data Type Conversion |
+
+<!-- END GENERATED: concepts -->
 
 ## 🏗️ Architecture & Pillar Reference
 
@@ -349,7 +363,7 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 
 | Guide | Description |
 | :--- | :--- |
-| [Overview Map](docs/overview.md) | The Concept Galaxy — 34 canonical concepts, query lifecycle, concept index |
+| [Overview Map](docs/overview.md) | The Concept Galaxy — canonical concepts (see the Concept Map above for the authoritative count), query lifecycle, concept index |
 | [Concept Map](docs/concept_map.md) | Canonical concept registry (single source of truth) |
 | [C4 Architecture](docs/pillars/architecture_c4.md) | System context, container, and component diagrams |
 | [Evolution Pipeline](docs/overview.md#evolution-pipeline--super-assimilation-architecture) | Assimilation governance, wire-or-discard heuristic, 4-phase pipeline |

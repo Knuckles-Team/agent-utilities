@@ -1,77 +1,87 @@
 #!/usr/bin/env python3
-"""Concept Registry and Documentation Validator.
+"""Concept Registry Validator.
 
-Robustly parses the canonical concept registry in docs/concept_map.md
-and ensures every concept has its dedicated documentation file on disk.
+Ensures that *every* ``CONCEPT:<ID>`` marker present in the codebase
+(``agent_utilities/**/*.py`` and ``*.rs``) is registered in the single source
+of truth ``docs/concepts.yaml``. Exits non-zero if any marker is missing from
+the registry, which keeps the docs honest with the code.
+
+Run:  python scripts/check_concepts.py
 """
 
-import os
+from __future__ import annotations
+
 import re
+import sys
 from pathlib import Path
 
+import yaml
 
-def main():
-    root = Path("/home/apps/workspace/agent-packages/agent-utilities")
-    concept_map_path = root / "docs/concept_map.md"
+ROOT = Path(__file__).resolve().parent.parent
+SRC_DIR = ROOT / "agent_utilities"
+CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
 
-    if not concept_map_path.exists():
-        print(f"Error: {concept_map_path} does not exist.")
-        return
+# Must stay in lock-step with scripts/build_concepts_yaml.py.
+MARKER_RE = re.compile(r"CONCEPT:([A-Z]+-\d+(?:\.[0-9A-Za-z]+)?)")
 
-    content = concept_map_path.read_text(encoding="utf-8")
 
-    # Find the table rows of the form:
-    # | `CONCEPT-ID` | Canonical Name | ... | [Doc Name](relative_path) |
-    rows = re.findall(
-        r"\|\s*`([A-Z]+-\d+\.\d+)`\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|",
-        content,
-    )
+def markers_in_code() -> dict[str, list[str]]:
+    """Map every concept id found in code to the files it appears in."""
+    found: dict[str, list[str]] = {}
+    for path in sorted(SRC_DIR.rglob("*")):
+        if path.suffix not in (".py", ".rs") or not path.is_file():
+            continue
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        for cid in MARKER_RE.findall(content):
+            found.setdefault(cid, []).append(rel)
+    return found
 
-    missing_docs = []
-    total_docs = 0
+
+def registered_ids() -> set[str]:
+    if not CONCEPTS_PATH.exists():
+        print(
+            f"ERROR: {CONCEPTS_PATH.relative_to(ROOT)} does not exist. "
+            "Run `python scripts/build_concepts_yaml.py`.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    data = yaml.safe_load(CONCEPTS_PATH.read_text(encoding="utf-8")) or {}
+    return {c["id"] for c in data.get("concepts", [])}
+
+
+def main() -> int:
+    code = markers_in_code()
+    registry = registered_ids()
+
+    missing = sorted(set(code) - registry)
 
     print(
-        f"Validating concept documentation from {concept_map_path.relative_to(root)}...\n"
+        f"Validating {len(code)} unique concept markers against "
+        f"{len(registry)} registered concepts in "
+        f"{CONCEPTS_PATH.relative_to(ROOT)}...\n"
     )
 
-    for row in rows:
-        concept_id = row[0].strip()
-        concept_name = row[1].strip()
-        doc_cell = row[4].strip()
-
-        # Parse markdown link: [Text](path) or just path
-        match = re.search(r"\[([^\]]+)\]\(([^)]+)\)", doc_cell)
-        if match:
-            doc_path_str = match.group(2)
-        else:
-            doc_path_str = doc_cell
-
-        # Clean anchor tags if any
-        doc_path_str = doc_path_str.split("#")[0]
-
-        # Check if the doc page points to a summary rather than a dedicated sub-doc
-        if "Pillar Summary" in doc_cell or "Summary" in doc_cell:
-            # Resolved to the pillar summary main doc
-            full_path = root / "docs" / doc_path_str
-        else:
-            full_path = root / "docs" / doc_path_str
-
-        total_docs += 1
-        if not full_path.exists():
-            missing_docs.append((concept_id, concept_name, doc_path_str))
-
-    print(f"Total Concepts Checked: {total_docs}")
-    if missing_docs:
-        print(f"Missing Doc Files: {len(missing_docs)}")
-        for c_id, c_name, path in missing_docs:
-            print(f"  ❌ {c_id} - {c_name}: docs/{path} (Not Found)")
-        # Exit with error to plug into CI/pre-commit
-        os._exit(1)
-    else:
+    if missing:
+        print(f"FAIL: {len(missing)} concept marker(s) missing from registry:")
+        for cid in missing:
+            example = code[cid][0]
+            print(f"  - {cid} (e.g. {example})")
         print(
-            "  ✅ All concept documentation files exist on disk! 100% concept integrity."
+            "\nRegenerate the registry with "
+            "`python scripts/build_concepts_yaml.py`.",
+            file=sys.stderr,
         )
+        return 1
+
+    print(f"OK: all {len(code)} concept markers are registered in concepts.yaml.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
