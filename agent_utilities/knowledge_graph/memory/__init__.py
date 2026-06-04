@@ -5,11 +5,11 @@ CONCEPT:KG-2.1 — Observational Memory Bridge
 
 This package contains:
 - Synthesis engine (KG-2.4) — Episode→Preference, Decision→Principle rules
-- Memory materializer (KG-2.10) — KG→Markdown bidirectional sync
-- Observer (KG-2.10) — LLM-powered transcript→observation extraction
-- Reflector (KG-2.10) — Observation→reflection condensation
-- Startup context builder (KG-2.10) — Budgeted payload for agent hooks
-- Semantic compactor (KG-2.20) — Trace compaction to prevent graph explosion
+- Memory materializer (KG-2.7) — KG→Markdown bidirectional sync
+- Observer (KG-2.7) — LLM-powered transcript→observation extraction
+- Reflector (KG-2.7) — Observation→reflection condensation
+- Startup context builder (KG-2.7) — Budgeted payload for agent hooks
+- Semantic compactor (KG-2.7) — Trace compaction to prevent graph explosion
 """
 
 from .agent_context import (

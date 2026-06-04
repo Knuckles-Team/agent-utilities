@@ -17,7 +17,7 @@ uv run ruff format --check agent_utilities/ tests/
 uv run mypy agent_utilities/
 
 # Run the server (development)
-uv run python -m agent_utilities.server --debug --provider openai --model-id llama-3.2-3b-instruct
+uv run python -m agent_utilities --debug --provider openai --model-id llama-3.2-3b-instruct
 
 # Install with all optional dependencies
 uv pip install -e ".[all]"
@@ -50,7 +50,7 @@ Default: `pytest -m "not live"` runs unit + integration.
 | `TOOL_GUARD_MODE` | `on`, `off`, `custom` | `on` |
 | `DISABLE_TOOL_GUARD` | Boolean to disable tool guard | `False` |
 | `ENABLE_DELEGATION` | Enable OIDC token delegation | `False` |
-| `GRAPH_BACKEND` | Backend type: `ladybug`, `falkordb`, `neo4j`, `postgresql` | `ladybug` |
+| `GRAPH_BACKEND` | Backend type: `memory`, `file`, `epistemic_graph`, `postgresql` (contrib opt-in: `ladybug`, `falkordb`, `neo4j`) | `memory` (prod uses `postgresql`) |
 | `GRAPH_DIRECT_EXECUTION` | Direct graph dispatch in AG-UI/ACP (bypasses LLM tool-call hop) | `True` |
 | `SECRETS_BACKEND` | Secrets storage backend: `inmemory`, `sqlite`, `vault` | `inmemory` |
 | `SECRETS_SQLITE_PATH` | SQLite secrets database path | `~/.agent-utilities/secrets.db` |
@@ -119,24 +119,25 @@ agent_utilities/
 │
 ├── graph/                   # Orchestration Engine
 │   ├── builder.py           # Graph initialization
-│   ├── unified.py           # Execution layer
-│   ├── runner.py            # Lifecycle management
+│   ├── executor.py          # Execution layer (step descriptions, specialist dispatch)
+│   ├── lifecycle.py         # Lifecycle management
 │   ├── steps.py             # Orchestration nodes (router, verifier, etc.)
 │   └── state.py             # GraphState definitions
 │
 ├── knowledge_graph/         # MAGMA Memory System
-│   ├── engine.py            # IntelligenceGraphEngine
-│   ├── maintainer.py        # Pruning, decay, maintenance
-│   ├── hybrid_retriever.py  # Vector + topological search
-│   └── owl_bridge.py        # LPG ↔ OWL transitive reasoning
+│   ├── core/engine.py       # IntelligenceGraphEngine
+│   ├── core/maintainer.py   # Pruning, decay, maintenance
+│   ├── retrieval/hybrid_retriever.py  # Vector + topological search
+│   └── core/owl_bridge.py   # LPG ↔ OWL transitive reasoning
 │
 ├── harness/                 # Agentic Harness Engineering (AHE)
 │   ├── verifier.py          # Decision observability
-│   ├── trace_distiller.py   # Execution trace distillation
 │   └── evolve_agent.py      # Prompt evolution loop
+│   # (trace distillation lives in knowledge_graph/adaptation/trace_distiller.py)
 │
 ├── mcp/                     # MCP Orchestration
-│   └── utilities.py         # MCP tool extraction
+│   ├── kg_server.py         # graph-os KG MCP server entry point
+│   └── server_factory.py    # MCP server creation helpers
 │
 ├── tools/                   # Agent Tools
 │   ├── agent_tools.py       # Core agent tools
@@ -205,11 +206,10 @@ When running multiple agents on the same host, LadybugDB (DuckDB) may encounter 
 ## When Stuck
 
 Key entry points for understanding the codebase:
-- `agent_utilities.py` → `create_agent` implementation
-- `agent_factory.py` → CLI agent creation
+- `agent/factory.py` → `create_agent` implementation and CLI agent creation
 - `mcp_utilities.py` → MCP tool registration
 - `graph/builder.py` → Graph initialization and workspace discovery
-- `knowledge_graph/engine.py` → Intelligence Graph API
+- `knowledge_graph/core/engine.py` → `IntelligenceGraphEngine` (Intelligence Graph API)
 
 
 ## API Documentation

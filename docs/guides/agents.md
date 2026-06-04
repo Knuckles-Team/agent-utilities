@@ -6,8 +6,8 @@ The specialist ecosystem is managed via the **Knowledge Graph**. This registry i
 
 **How it works:**
 1. Each specialist entry in the graph matches to a `.json` file in `agent_utilities/prompts/` (for prompt agents) or a remote endpoint (for A2A/MCP agents).
-2. The `agent_registry_builder.py` script automatically synchronizes this registry by parsing prompt JSON and ingesting them as `PromptNode`s.
-3. When `builder.py` spawns the orchestrator, it loads all agents via `get_discovery_registry()`.
+2. The `agent/registry_builder.py` script (`ingest_prompts_to_graph()`) automatically synchronizes this registry by parsing prompt JSON and ingesting them as `PromptNode`s.
+3. When `builder.py` spawns the orchestrator, it loads all agents via `get_discovery_registry()` (`core/config.py`).
 4. Capability tags are assigned to agents, and the `expert_executor` uses these tags to dynamically bind toolsets at runtime.
 
 **Prompt JSON format:** All prompts in `agent_utilities/prompts/` are structured JSON blueprints. The canonical shape is:
@@ -35,11 +35,11 @@ Consumers load via `json.loads(...)` and pluck `"content"` for the system prompt
 ```mermaid
 graph TD
     subgraph Registry_Phase ["1. Registry Synchronization (Deployment)"]
-        Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp_agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
+        Config["<b>mcp_config.json</b><br/><i>(Source of Truth)</i>"] --> Manager["<b>mcp/agent_manager.py</b><br/><i>sync_mcp_agents()</i>"]
         KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"] -.->|Read Hash| Manager
 
         Manager -->|Config Hash Match?| Branch{ORCH-1.1: Decision}
-        Branch -- "Yes (Cache Hit)" --> Skip["ECO-4.10: Skip Tool Extraction"]
+        Branch -- "Yes (Cache Hit)" --> Skip["ECO-4.6: Skip Tool Extraction"]
         Branch -- "No (Cache Miss)" --> Parallel["<b>Parallel Dispatch</b><br/>(Semaphore 30)"]
 
         Parallel -->|Deploy STDIO / HTTPs| Servers["<b>N MCP Servers</b><br/>(Git, DB, Cloud, etc.)"]
@@ -48,7 +48,7 @@ graph TD
     end
 
     subgraph Unified_Discovery ["2. Unified Discovery (Bootstrap)"]
-        KG_Registry --> UAL["<b>get_discovery_registry()</b><br/><i>config_helpers.py</i>"]
+        KG_Registry --> UAL["<b>get_discovery_registry()</b><br/><i>core/config.py</i>"]
         UAL -->|Synthesized Roster| Roster["<b>MCPAgentRegistryModel</b><br/><i>name, agent_type, tools, url</i>"]
     end
 
@@ -61,7 +61,7 @@ graph TD
     end
 
     subgraph Operation_Phase ["4. Persistent Operation (Execution)"]
-        GraphAgent --> Lifespan["<b>runner.py</b><br/><i>run_graph() AsyncExitStack</i>"]
+        GraphAgent --> Lifespan["<b>executor.py</b><br/><i>AsyncExitStack warm toolsets</i>"]
         Lifespan -->|"Parallel connect<br/>with per-server error reporting"| ConnPool["<b>Active Connection Pool</b><br/>(Warm Toolsets)<br/>Failing servers skipped and logged"]
         ConnPool -->|Zero-Latency Call| Servers
     end
@@ -127,11 +127,11 @@ Agents interact with this layer using the `knowledge_tools` suite to manage memo
 | **INGEST DOCUMENT** | `IngestionEngine.ingest(ContentType.DOCUMENT)` | When ingesting new documents into Document DB, Vector DB, and Knowledge Graph with unified IDs. |
 | **UPDATE DOCUMENT** | `DocumentUpdatePipeline.update_document` | When updating document content or metadata with cascading sync to all storage layers. |
 | **DELETE DOCUMENT** | `DocumentDeletionPipeline.delete_document` | When soft/hard deleting documents with cascading cleanup across all storage layers. |
-| **CLEANUP DOCUMENTS** | `DocumentCleanupManager.run_cleanup` | When performing automated cleanup of old soft-deleted documents and orphan data. |
+| **CLEANUP DOCUMENTS** | `DocumentCleanup.run_all_cleanup_operations` | When performing automated cleanup of old soft-deleted documents and orphan data. |
 
 ## Graph Event System & Phase Map
 
-Every significant state transition emits a structured event via `emit_graph_event()` (`graph/config_helpers.py`). Events serve two purposes:
+Every significant state transition emits a structured event via `emit_graph_event()` (`core/config.py`). Events serve two purposes:
 1. **Server-side structured logging** -- `_log_graph_trace()` uses `_PHASE_MAP` to prefix each log line with a phase label.
 2. **Real-time UI sideband streaming** -- Each event is pushed as a `data-graph-event` payload via SSE.
 
@@ -148,7 +148,7 @@ emit_graph_event(
 
 | Phase | Event Types | Emitted By |
 |---|---|---|
-| **LIFECYCLE** | `graph_start`, `graph_complete`, `node_start`, `node_complete` | `runner.py`, `steps.py` |
+| **LIFECYCLE** | `graph_start`, `graph_complete`, `node_start`, `node_complete` | `protocol_agnostic_execution.py`, `lifecycle.py`, `steps.py` |
 | **SAFETY** | `safety_warning` | `steps.py` (usage_guard) |
 | **ROUTING** | `routing_started`, `routing_completed` | `steps.py` (router) |
 | **PLANNING** | `plan_created` | `steps.py` (dispatcher) |

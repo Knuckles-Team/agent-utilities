@@ -17,11 +17,11 @@ from pathlib import Path
 import pytest
 
 # ========================================================================
-# KG-2.13 — Chat Search Facade
+# KG-2.7 — Chat Search Facade
 # ========================================================================
 
 
-@pytest.mark.concept("KG-2.13")
+@pytest.mark.concept("KG-2.7")
 class TestChatSearchFacade:
     """Tests for agent_utilities.knowledge_graph.chat_search."""
 
@@ -97,11 +97,11 @@ class TestChatSearchFacade:
 
 
 # ========================================================================
-# KG-2.14 — Agents MD Facade
+# KG-2.7 — Agents MD Facade
 # ========================================================================
 
 
-@pytest.mark.concept("KG-2.14")
+@pytest.mark.concept("KG-2.7")
 class TestAgentsMdFacade:
     """Tests for agent_utilities.knowledge_graph.agents_md."""
 

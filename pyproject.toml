@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-utilities"
-version = "0.38.0"
+version = "0.39.0"
 description = "Agent Utilities for Pydantic AI Agents"
 readme = "README.md"
 classifiers = [
@@ -22,9 +22,8 @@ dependencies = [
     "pydantic-settings>=2.14.0",
     "PyYAML>=6.0.0",
     "python-dotenv>=1.2.1",
-
     "ladybug>=0.16.0",
-    "epistemic-graph>=0.20.0",
+    "epistemic-graph>=0.22.0",
     "cryptography>=48.0.0",
     "pathspec",
     "platformdirs>=4.0.0",
@@ -35,7 +34,14 @@ dependencies = [
     "tree-sitter-typescript>=0.23.0",
     "filelock>=3.0.0",
     "dspy-ai>=2.5.0",
-    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.90.0,<2.0.0"]
+    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.90.0,<2.0.0",
+    "confluent-kafka>=2.14.0",
+    "llama-index-core>=0.14.21",
+    "llama-index-llms-openai>=0.7.9",
+    "llama-index-embeddings-openai>=0.6.0",
+    "pydantic-acp>=0.1.0",
+    "defusedxml>=0.7.1",
+]
 
 [[project.authors]]
 name = "Audel Rouhi"
@@ -105,6 +111,9 @@ logfire = [
 ]
 graph = [
     "ladybug>=0.15.3"
+]
+ann = [
+    "hnswlib>=0.8.0"
 ]
 neo4j = [
     "neo4j>=6.1.0"
@@ -194,13 +203,14 @@ test = [
     "opentelemetry-instrumentation-starlette",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-instrumentation-asgi",
-    "agent-utilities[agent,graph,acp,owl,finance]"
+    "agent-utilities[agent,graph,acp,owl,finance,event-kafka]"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,browser,test,owl,stardog,vault,auth,finance,messaging]>=0.37.0"]
+    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,ann,browser,test,owl,stardog,vault,auth,finance,messaging]>=0.37.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:main"
+graph-os-daemon = "agent_utilities.gateway.daemon:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
 mcp-multiplexer = "agent_utilities.mcp.multiplexer:main"
 

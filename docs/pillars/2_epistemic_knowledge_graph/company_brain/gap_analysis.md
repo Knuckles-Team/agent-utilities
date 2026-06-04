@@ -9,7 +9,7 @@
 | # | Dimension | Requirement | Status | Maturity |
 |:--|:----------|:------------|:-------|:---------|
 | 1 | **State Graph** | Maintained operational state | ✅ `IntelligenceGraphEngine` with NetworkX + multi-backend | 🟢 85% |
-| 2 | **Ontology** | Company-specific perspective | ✅ 74KB OWL ontology, OWLBridge reasoning, SKOS taxonomies | 🟢 80% |
+| 2 | **Ontology** | Company-specific perspective | ✅ ~26KB OWL ontology, OWLBridge reasoning, SKOS taxonomies | 🟢 80% |
 | 3 | **Provenance** | Who wrote, from where, with what confidence | ✅ `ProvenanceTracker` with PROV-O alignment, read audits, trust hierarchies | 🟢 85% |
 | 4 | **Permissions** | Data-level access control | ✅ `DataLevelPermissions` with node ACLs, classification labels, query filtering | 🟢 80% |
 | 5 | **Concurrency** | Multi-writer safety | ✅ `GraphConcurrencyManager` with version vectors, CAS, graph locks | 🟢 75% |
@@ -55,5 +55,5 @@
 1. **Ontology-First** — We start with OWL and bolt storage underneath, not the reverse
 2. **Memory Is Infrastructure** — SynthesisEngine + temporal decay = self-maintaining state
 3. **Mixin Architecture** — New capabilities are additive, not rewrites
-4. **Multi-Backend** — LadybugDB/Neo4j/FalkorDB via `GraphBackend` abstraction
+4. **Multi-Backend** — Postgres (pggraph) + `epistemic-graph` primary tier via the `GraphBackend` abstraction (Neo4j/FalkorDB/LadybugDB available under `backends/contrib/`)
 5. **5-Pillar Ecosystem** — Only architecture where the substrate integrates orchestration, self-improvement, ecosystem sensors, and governance

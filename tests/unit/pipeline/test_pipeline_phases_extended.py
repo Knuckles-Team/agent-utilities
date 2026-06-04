@@ -815,7 +815,7 @@ async def test_registry_empty() -> None:
     from agent_utilities.models import MCPAgentRegistryModel
 
     with patch(
-        "agent_utilities.graph.config_helpers.get_discovery_registry",
+        "agent_utilities.core.config.get_discovery_registry",
         return_value=MCPAgentRegistryModel(),
     ):
         ctx = _make_ctx()
@@ -856,7 +856,7 @@ async def test_registry_with_agents_and_tools() -> None:
         ],
     )
     with patch(
-        "agent_utilities.graph.config_helpers.get_discovery_registry",
+        "agent_utilities.core.config.get_discovery_registry",
         return_value=registry,
     ):
         ctx = _make_ctx()

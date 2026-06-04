@@ -89,13 +89,10 @@ def create_embedding_model(
     if not ssl_verify:
         http_client = httpx.Client(verify=False, timeout=timeout)  # nosec B501
 
-    if provider_str == "mock" or os.environ.get("AGENT_UTILITIES_TESTING") == "true":
-        from unittest.mock import MagicMock
-
-        mock = MagicMock()
-        dim = int(config.kg_embedding_dim or "768")
-        mock.get_text_embedding.return_value = [1.0] + [0.0] * (dim - 1)
-        return mock
+    if provider_str == "mock":
+        raise ValueError(
+            "Mock embeddings are strictly forbidden by Zero-Stub Compliance. Please configure a real embedding provider in AgentConfig."
+        )
 
     if provider_str == "openai":
         # Fallback for LM Studio / Local Testing
@@ -140,13 +137,10 @@ def create_embedding_model(
 
         return HuggingFaceEmbedding(model_name=model_str)
 
-    elif provider_str == "mock" or os.environ.get("AGENT_UTILITIES_TESTING") == "true":
-        from unittest.mock import MagicMock
-
-        mock = MagicMock()
-        dim = int(config.kg_embedding_dim or "768")
-        mock.get_text_embedding.return_value = [1.0] + [0.0] * (dim - 1)
-        return mock
+    elif provider_str == "mock":
+        raise ValueError(
+            "Mock embeddings are strictly forbidden by Zero-Stub Compliance. Please configure a real embedding provider in AgentConfig."
+        )
 
     else:
         raise ValueError(f"Unsupported embedding provider: {provider}")

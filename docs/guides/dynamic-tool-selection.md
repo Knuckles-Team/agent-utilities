@@ -98,7 +98,7 @@ For secure agent-to-agent (A2A) calls, custom headers can be attached to the req
 
 When a client passes a query filter (e.g. `?q=search` or header `x-mcp-query: directory`), the system automatically delegates resolution to the **Knowledge Graph** to discover relevant tools dynamically.
 
-### Concept Overview (CONCEPT:ECO-4.11)
+### Concept Overview (CONCEPT:ECO-4.6)
 Unlike traditional slow and expensive LLM-based tool classification, this path uses the `DynamicToolOrchestrator` to execute high-speed, direct Cypher queries on the local graph database backend. It retrieves matching tool nodes based on name matching, description contents, and system-defined tags.
 
 ### Cypher Query Implementation

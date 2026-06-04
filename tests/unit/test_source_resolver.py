@@ -21,7 +21,7 @@ from agent_utilities.knowledge_graph.core.source_resolver import (
 )
 
 
-@pytest.mark.concept("KG-2.12")
+@pytest.mark.concept("KG-2.7")
 class TestResolvedSource:
     """Test ResolvedSource model."""
 
@@ -47,7 +47,7 @@ class TestResolvedSource:
         assert len(src.authors) == 2
 
 
-@pytest.mark.concept("KG-2.12")
+@pytest.mark.concept("KG-2.7")
 class TestKGSourceResolverNoEngine:
     """Test graceful behavior when no KG engine is available."""
 
@@ -71,7 +71,7 @@ class TestKGSourceResolverNoEngine:
         assert result == []
 
 
-@pytest.mark.concept("KG-2.12")
+@pytest.mark.concept("KG-2.7")
 class TestKGSourceResolverWithEngine:
     """Test resolution with a mocked KG engine."""
 
@@ -216,7 +216,7 @@ class TestKGSourceResolverWithEngine:
         assert len(results) == 0
 
 
-@pytest.mark.concept("KG-2.12")
+@pytest.mark.concept("KG-2.7")
 class TestDefaultResolveDir:
     """Test default resolve directory."""
 

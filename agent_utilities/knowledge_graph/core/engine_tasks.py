@@ -10,12 +10,32 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
-from agent_utilities.core.config import (
-    DEFAULT_KG_INGESTION_WORKERS,
-    DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND,
-)
-
 logger = logging.getLogger(__name__)
+
+
+def daemon_role() -> str:
+    """Resolve this process's KG background-daemon role (CONCEPT:KG-2.8 / OS-5.0).
+
+    The KG runs ONE consolidated background daemon (queue drain + graph writer +
+    task workers + maintenance scheduler + file-watch poll). This selects who
+    runs it:
+
+    * ``host``   — run the full UnifiedDaemon (the API gateway sets this).
+    * ``client`` — run NOTHING; submit work to the durable queue that the host
+      daemon drains (MCP server / CLI / one-shot scripts set this).
+    * ``auto``   — default: run the consolidated daemon in-process (single-
+      process / dev usage, backward compatible).
+
+    ``KG_DAEMON_ROLE`` overrides (default ``auto``). Note: test mode and
+    ``--stage-to-queue`` independently suppress *auto-start* of the daemon in
+    ``__init__`` without changing the role, so explicit ``start_task_workers()``
+    calls in tests still work.
+    """
+    import os
+
+    role = (os.environ.get("KG_DAEMON_ROLE") or "auto").strip().lower()
+    return role if role in {"host", "client", "auto"} else "auto"
+
 
 # Supported file extensions for document ingestion (LlamaIndex SimpleDirectoryReader)
 SUPPORTED_EXTENSIONS: set[str] = {
@@ -108,22 +128,31 @@ class SQLiteTaskQueue(QueueBackend):
         self.db_path = db_path
         self.lock = threading.Lock()
         with self.lock:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
-            try:
-                with conn:
-                    conn.execute("PRAGMA journal_mode=WAL")
-                    conn.execute(
-                        "CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY, data TEXT)"
-                    )
-                    conn.execute(
-                        "CREATE TABLE IF NOT EXISTS staging (id INTEGER PRIMARY KEY, job_id TEXT, graph_data TEXT)"
-                    )
-            finally:
-                conn.close()
+            self._connect().close()
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open a connection with the schema ENSURED.
+
+        Tables are (re)created on every connect (cheap ``IF NOT EXISTS``) so the
+        queue self-heals if its db file is deleted/recreated/corrupted after
+        init — otherwise every method would fail forever with
+        ``no such table: staging`` once the file is gone. (CONCEPT:KG-2.7)
+        """
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        with conn:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS queue (id INTEGER PRIMARY KEY, data TEXT)"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS staging "
+                "(id INTEGER PRIMARY KEY, job_id TEXT, graph_data TEXT)"
+            )
+        return conn
 
     def put(self, item: dict):
         with self.lock:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn = self._connect()
             try:
                 with conn:
                     conn.execute(
@@ -134,7 +163,7 @@ class SQLiteTaskQueue(QueueBackend):
 
     def get(self) -> tuple[int, dict] | None:
         with self.lock:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn = self._connect()
             try:
                 with conn:
                     cur = conn.execute(
@@ -149,7 +178,7 @@ class SQLiteTaskQueue(QueueBackend):
 
     def ack(self, item_id: int):
         with self.lock:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn = self._connect()
             try:
                 with conn:
                     conn.execute("DELETE FROM queue WHERE id = ?", (item_id,))
@@ -158,7 +187,7 @@ class SQLiteTaskQueue(QueueBackend):
 
     def get_queue_size(self) -> int:
         with self.lock:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn = self._connect()
             try:
                 with conn:
                     cur = conn.execute("SELECT COUNT(*) FROM queue")
@@ -171,7 +200,7 @@ class SQLiteTaskQueue(QueueBackend):
         """Insert a serialized graph into the staging queue for the GraphWriterDaemon."""
         payload = json.dumps({"nodes": nodes, "edges": edges})
         with self.lock:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn = self._connect()
             try:
                 with conn:
                     conn.execute(
@@ -184,7 +213,7 @@ class SQLiteTaskQueue(QueueBackend):
     def get_staged_graph(self) -> tuple[int, str, dict] | None:
         """Fetch the oldest staged graph payload."""
         with self.lock:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn = self._connect()
             try:
                 with conn:
                     cur = conn.execute(
@@ -200,7 +229,7 @@ class SQLiteTaskQueue(QueueBackend):
     def ack_staged_graph(self, item_id: int):
         """Acknowledge and remove a processed staged graph."""
         with self.lock:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn = self._connect()
             try:
                 with conn:
                     conn.execute("DELETE FROM staging WHERE id = ?", (item_id,))
@@ -298,187 +327,194 @@ class TaskManagerMixin(GraphEngineProtocol):
         import os
         import sys
 
-        if os.environ.get("AGENT_UTILITIES_TESTING") or "--stage-to-queue" in sys.argv:
-            # In test mode, skip all background daemon threads to prevent
-            # pytest-xdist worker hangs from orphaned threads on closed backends.
+        # ── Role-gated background daemon (CONCEPT:KG-2.8 / OS-5.0) ───────────
+        # The KG runs ONE consolidated daemon. ``client`` processes (the MCP
+        # server, CLI, one-shot scripts, and tests) spawn NOTHING — they enqueue
+        # work to the durable queue that the ``host`` daemon (the API gateway)
+        # drains. ``host``/``auto`` run the daemon here. This replaces the former
+        # five independently-spawned thread families (submitter, graph-writer,
+        # task workers, per-job maintenance daemons, and the SDD/scholarx file
+        # watcher) with one lifecycle.
+        self._daemon_role = daemon_role()
+        if (
+            self._daemon_role == "client"
+            or os.environ.get("AGENT_UTILITIES_TESTING")
+            or "--stage-to-queue" in sys.argv
+        ):
+            # client role: never run daemons (host drains the queue). Test /
+            # staging: suppress auto-start only — explicit start_task_workers()
+            # still works (role stays auto).
+            logger.info(
+                "KG daemon auto-start skipped (role=%s, test/staging aware); "
+                "work is drained by the host daemon when role=client.",
+                self._daemon_role,
+            )
             return
 
-        if "--stage-to-queue" not in sys.argv:
-            # Start the dedicated queue writer daemon thread
-            self._submission_thread = threading.Thread(
-                target=self._submission_worker_loop,
+        # Continuous queue drainers that actually move ingested data.
+        self._submission_thread = threading.Thread(
+            target=self._submission_worker_loop,
+            daemon=True,
+            name="KG-Job-Submitter",
+        )
+        self._submission_thread.start()
+
+        self._graph_writer_thread = threading.Thread(
+            target=self._graph_writer_loop, daemon=True, name="KG-Graph-Writer"
+        )
+        self._graph_writer_thread.start()
+
+        # Bulk-ingest mode (CONCEPT:KG-2.7 throughput): keep only the queue
+        # submission + graph-writer threads; skip the periodic maintenance
+        # scheduler (analysis/compaction/evolution/enrichment + file-watch)
+        # whose whole-graph passes contend with the ingest. Re-enabled after.
+        if os.environ.get("KG_BULK_INGEST"):
+            logger.info(
+                "KG_BULK_INGEST set — skipping maintenance scheduler during "
+                "bulk ingestion."
+            )
+            return
+
+        # Single consolidated maintenance scheduler (CONCEPT:KG-2.8): runs ALL
+        # periodic KG jobs (analysis, compaction, evolution, enrichment, AND the
+        # SDD/skills/scholarx file-watch scan — see ``_maintenance_jobs``) in ONE
+        # throttled thread behind one shared foreground gate. No separate file
+        # watcher thread.
+        self._maintenance_thread = threading.Thread(
+            target=self._maintenance_scheduler_loop,
+            daemon=True,
+            name="KG-Maintenance-Scheduler",
+        )
+        self._maintenance_thread.start()
+
+        # Dedicated vector-embedding backfill drain (separate from the periodic
+        # scheduler so it is never starved behind slow LLM ticks). (KG-2.8)
+        if os.environ.get("KG_EMBED_BACKFILL", "1") != "0":
+            self._embed_backfill_thread = threading.Thread(
+                target=self._embedding_backfill_loop,
                 daemon=True,
-                name="KG-Job-Submitter",
+                name="KG-Embedding-Backfill",
             )
-            self._submission_thread.start()
+            self._embed_backfill_thread.start()
 
-            self._graph_writer_thread = threading.Thread(
-                target=self._graph_writer_loop, daemon=True, name="KG-Graph-Writer"
-            )
-            self._graph_writer_thread.start()
+    def unified_daemon_status(self) -> dict[str, Any]:
+        """Status of the single consolidated background daemon (CONCEPT:KG-2.8).
 
-            from agent_utilities.core.config import DEFAULT_KG_MODEL_ID
+        Reports this process's role and which daemon threads are alive, so the
+        API gateway can surface one '/daemon/status' view instead of scattered
+        per-thread state.
+        """
 
-            if DEFAULT_KG_MODEL_ID:
-                self._kg_analysis_thread = threading.Thread(
-                    target=self._kg_analysis_loop,
-                    daemon=True,
-                    name="KG-Analysis-Daemon",
-                )
-                self._kg_analysis_thread.start()
+        def _alive(attr: str) -> bool:
+            t = getattr(self, attr, None)
+            return bool(t and t.is_alive())
 
-            # Start conversation compaction daemon (LCM)
-            self._compaction_thread = threading.Thread(
-                target=self._conversation_compaction_loop,
-                daemon=True,
-                name="KG-Compaction-Daemon",
-            )
-            self._compaction_thread.start()
-
-            # Start evolution cycle daemon (research-driven development)
-            self._evolution_thread = threading.Thread(
-                target=self._evolution_cycle_loop,
-                daemon=True,
-                name="KG-Evolution-Daemon",
-            )
-            self._evolution_thread.start()
-
-            # Start SDD plan/tasks watcher daemon natively
-            self.start_sdd_watcher()
+        role = getattr(self, "_daemon_role", None) or daemon_role()
+        threads = {
+            "submission": _alive("_submission_thread"),
+            "graph_writer": _alive("_graph_writer_thread"),
+            "maintenance": _alive("_maintenance_thread"),
+            "embed_backfill": _alive("_embed_backfill_thread"),
+            "task_workers": bool(getattr(self, "_workers_running", False)),
+        }
+        status: dict[str, Any] = {
+            "role": role,
+            "running": any(threads.values()),
+            "threads": threads,
+            "maintenance_jobs": [n for n, _, _ in self._maintenance_jobs()],
+        }
+        try:
+            q = getattr(self, "_submission_queue", None)
+            if q is not None and hasattr(q, "depth"):
+                status["queue_depth"] = q.depth()
+        except Exception:  # noqa: BLE001
+            pass
+        return status
 
     def start_sdd_watcher(self):
-        """Start the background plan/task watcher thread natively.
+        """Deprecated: the SDD/plan/skills/scholarx file-watch is now a periodic
+        job inside the consolidated maintenance scheduler (``_tick_file_watch``,
+        registered in ``_maintenance_jobs``), not a dedicated thread.
 
-        CONCEPT:KG-2.6 — Implementation Plan & Tasks versioning and KG lineage.
+        Kept as a no-op so existing callers (e.g. the MCP server) don't spawn a
+        second watcher thread. The scan runs only in the daemon ``host``/``auto``
+        process. (CONCEPT:KG-2.6 / KG-2.8)
         """
-        import os
-        import sys
+        logger.debug(
+            "start_sdd_watcher() is a no-op; file-watch runs as the 'file_watch' "
+            "maintenance job in the consolidated scheduler."
+        )
 
-        if os.environ.get("AGENT_UTILITIES_TESTING") or "--stage-to-queue" in sys.argv:
-            logger.debug("Skipping plan watcher in test mode / staging.")
-            return
+    def _tick_kg_analysis(self) -> None:
+        """One autonomous-analysis tick (CONCEPT:KG-2.4).
 
-        from agent_utilities.core.config import config
-
-        if not config.enable_sdd_watcher:
-            logger.info(
-                "Plan watcher is disabled via config.json / environment variables."
-            )
-            return
-
-        if getattr(self, "_watcher_thread_running", False):
-            logger.debug("Plan watcher thread is already running.")
-            return
-
-        try:
-            from agent_utilities.sdd.watcher import (
-                get_workspace_path,
-                run_plan_watcher_loop,
-            )
-
-            workspace_path = get_workspace_path()
-            self._watcher_thread_running = True
-            self._plan_watcher_thread = threading.Thread(
-                target=run_plan_watcher_loop,
-                args=(self, workspace_path),
-                daemon=True,
-                name="KGPlanWatcherThread",
-            )
-            self._plan_watcher_thread.start()
-            logger.info(
-                f"Successfully launched background KGPlanWatcherThread for {workspace_path}"
-            )
-        except Exception as e:
-            self._watcher_thread_running = False
-            logger.error(f"Failed to start background KGPlanWatcherThread: {e}")
-
-    def _kg_analysis_loop(self):
-        """Background daemon thread to autonomously synthesize relationships and concepts using LLMs.
-
-        Also schedules periodic relevance sweeps every 60 minutes.
-        CONCEPT:KG-2.4 — Autonomous Background Analysis
+        Schedules a relevance sweep hourly, then selects the highest-degree
+        stale ``Concept`` for background deep analysis. Run by the consolidated
+        maintenance scheduler (no own thread / sleeps / throttle gate).
         """
         import time
 
-        last_relevance_sweep = 0.0
         RELEVANCE_SWEEP_INTERVAL = 3600.0  # 60 minutes
-
-        while True:
+        last_relevance_sweep = getattr(self, "_last_relevance_sweep", 0.0)
+        now = time.time()
+        if now - last_relevance_sweep >= RELEVANCE_SWEEP_INTERVAL:
             try:
-                if not getattr(self, "backend", None):
-                    time.sleep(10.0)
-                    continue
-
-                # ── Periodic Relevance Sweep (every 60 min) ──
-                now = time.time()
-                if now - last_relevance_sweep >= RELEVANCE_SWEEP_INTERVAL:
-                    try:
-                        # Find the primary codebase (most Code nodes)
-                        primary = self._detect_primary_codebase()
-                        if primary:
-                            logger.info(
-                                f"KGAnalysisDaemon: scheduling relevance sweep for '{primary}'"
-                            )
-                            self.submit_task(
-                                target_path=primary,
-                                is_codebase=False,
-                                task_type="relevance_sweep",
-                                provenance={
-                                    "source": "autonomous_kg_daemon",
-                                    "mode": "scheduled",
-                                },
-                            )
-                        last_relevance_sweep = now
-                    except Exception as e:
-                        logger.error(f"Relevance sweep scheduling error: {e}")
-
-                # ── Deep Analysis (existing) ──
-                from datetime import datetime, timedelta
-
-                cutoff = (datetime.now(UTC) - timedelta(days=7)).isoformat()
-                query = (
-                    "MATCH (n:Concept) "
-                    "WHERE (n.last_analyzed IS NULL OR n.last_analyzed < $cutoff) "
-                    "WITH n, size((n)--()) as degree "
-                    "ORDER BY degree DESC "
-                    "LIMIT 1 "
-                    "RETURN n.id as id, n.name as name"
-                )
-                results = self.query_cypher(query, {"cutoff": cutoff})
-
-                if not results:
-                    time.sleep(300.0)
-                    continue
-
-                node_id = results[0]["id"]
-                node_name = results[0].get("name") or node_id
-
-                logger.info(
-                    f"KGAnalysisDaemon autonomously selected '{node_name}' ({node_id}) for background deep analysis."
-                )
-
-                self.backend.execute(
-                    "MATCH (n:Concept {id: $id}) SET n.last_analyzed = current_timestamp()",
-                    {"id": node_id},
-                )
-
-                from agent_utilities.core.config import DEFAULT_KG_ANALYSIS_MAX_DEPTH
-
-                self.submit_task(
-                    target_path=node_name,
-                    is_codebase=False,
-                    task_type="deep_analysis",
-                    provenance={
-                        "current_depth": 0,
-                        "max_depth": DEFAULT_KG_ANALYSIS_MAX_DEPTH,
-                        "source": "autonomous_kg_daemon",
-                    },
-                )
-
-                time.sleep(120.0)
+                primary = self._detect_primary_codebase()
+                if primary:
+                    logger.info(
+                        "KGAnalysis: scheduling relevance sweep for '%s'", primary
+                    )
+                    self.submit_task(
+                        target_path=primary,
+                        is_codebase=False,
+                        task_type="relevance_sweep",
+                        provenance={
+                            "source": "autonomous_kg_daemon",
+                            "mode": "scheduled",
+                        },
+                    )
             except Exception as e:
-                logger.error(f"KGAnalysisDaemon error: {e}")
-                time.sleep(60.0)
+                logger.error(f"Relevance sweep scheduling error: {e}")
+            self._last_relevance_sweep = now
+
+        from datetime import datetime, timedelta
+
+        cutoff = (datetime.now(UTC) - timedelta(days=7)).isoformat()
+        query = (
+            "MATCH (n:Concept) "
+            "WHERE (n.last_analyzed IS NULL OR n.last_analyzed < $cutoff) "
+            "WITH n, size((n)--()) as degree "
+            "ORDER BY degree DESC "
+            "LIMIT 1 "
+            "RETURN n.id as id, n.name as name"
+        )
+        results = self.query_cypher(query, {"cutoff": cutoff})
+        if not results:
+            return
+
+        node_id = results[0]["id"]
+        node_name = results[0].get("name") or node_id
+        logger.info(
+            "KGAnalysis: selected '%s' (%s) for background deep analysis.",
+            node_name,
+            node_id,
+        )
+        self.backend.execute(
+            "MATCH (n:Concept {id: $id}) SET n.last_analyzed = current_timestamp()",
+            {"id": node_id},
+        )
+        from agent_utilities.core.config import DEFAULT_KG_ANALYSIS_MAX_DEPTH
+
+        self.submit_task(
+            target_path=node_name,
+            is_codebase=False,
+            task_type="deep_analysis",
+            provenance={
+                "current_depth": 0,
+                "max_depth": DEFAULT_KG_ANALYSIS_MAX_DEPTH,
+                "source": "autonomous_kg_daemon",
+            },
+        )
 
     def _detect_primary_codebase(self) -> str | None:
         """Detect the primary codebase by finding the repository with the most Code nodes."""
@@ -508,225 +544,561 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug(f"Primary codebase detection failed: {e}")
         return None
 
-    def _conversation_compaction_loop(self):
-        """Background daemon to compact large conversation threads.
+    # ── Consolidated maintenance scheduler (CONCEPT:KG-2.8) ──────────────
 
-        CONCEPT:KG-2.1 — LCM Compaction Daemon
+    def _maintenance_jobs(self) -> list[tuple[str, float, Any]]:
+        """Registry of periodic KG maintenance jobs: ``(name, interval_s, tick)``.
 
-        Runs every 30 minutes. Finds Thread nodes with more than
-        COMPACTION_THRESHOLD uncompacted messages and delegates to the
-        unified ElasticContextManager.compact_thread() for the actual work.
+        One place to see/declare every background job. The scheduler runs them
+        all in a single thread, each on its own interval, behind one shared
+        foreground-throttle gate.
+        """
+        import os
 
-        Same pattern as _kg_analysis_loop — no new daemon infrastructure.
+        from agent_utilities.core.config import DEFAULT_KG_MODEL_ID
+
+        jobs: list[tuple[str, float, Any]] = []
+        # NOTE: embedding backfill is NOT a periodic maintenance job — it runs in
+        # its own dedicated drain loop (``_embedding_backfill_loop``) so it isn't
+        # starved behind the slower LLM ticks (analysis/enrichment) in this
+        # single sequential scheduler thread.
+        if DEFAULT_KG_MODEL_ID:
+            jobs.append(("analysis", 120.0, self._tick_kg_analysis))
+        # Self-evolution golden loop (propose-only) — always-on but throttled and
+        # OPT-IN (autonomous LLM work). Enable with KG_GOLDEN_LOOP=1. (KG-2.7)
+        if os.environ.get("KG_GOLDEN_LOOP", "0") == "1":
+            jobs.append(
+                (
+                    "golden_loop",
+                    float(os.getenv("KG_GOLDEN_LOOP_INTERVAL", "3600")),
+                    self._tick_golden_loop,
+                )
+            )
+        jobs.append(("compaction", 1800.0, self._tick_compaction))
+        jobs.append(
+            (
+                "evolution",
+                float(os.getenv("KG_EVOLUTION_INTERVAL", "3600")),
+                self._tick_evolution,
+            )
+        )
+        if os.environ.get("KG_ENRICH_DAEMON", "1") != "0":
+            jobs.append(
+                (
+                    "enrichment",
+                    float(os.getenv("KG_ENRICH_INTERVAL", "20")),
+                    self._tick_enrichment,
+                )
+            )
+        # SDD/skills/scholarx/config file-watch as a periodic scan job — folded
+        # in here instead of its own KGPlanWatcherThread + watchdog. Gated by
+        # ``config.enable_sdd_watcher``. (CONCEPT:KG-2.6 / OS-5.0)
+        try:
+            from agent_utilities.core.config import config as _cfg
+
+            watch_enabled = getattr(_cfg, "enable_sdd_watcher", True)
+        except Exception:  # noqa: BLE001
+            watch_enabled = True
+        if watch_enabled and os.environ.get("KG_FILE_WATCH", "1") != "0":
+            jobs.append(
+                (
+                    "file_watch",
+                    float(os.getenv("KG_FILE_WATCH_INTERVAL", "30")),
+                    self._tick_file_watch,
+                )
+            )
+        return jobs
+
+    def _tick_file_watch(self) -> None:
+        """One SDD/skills/scholarx/config file-watch scan (CONCEPT:KG-2.6 / OS-5.0).
+
+        Replaces the former dedicated ``KGPlanWatcherThread``: a single
+        synchronous ``run_watcher_scan`` pass, run by the consolidated
+        maintenance scheduler behind the shared foreground-throttle gate so it
+        no longer floods ingestion on startup or competes with interactive runs.
+        """
+        try:
+            from agent_utilities.sdd.watcher import (
+                get_workspace_path,
+                run_watcher_scan,
+            )
+
+            run_watcher_scan(self, get_workspace_path())
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("file_watch tick error: %s", e)
+
+    def _maintenance_scheduler_loop(self) -> None:
+        """Single thread running all periodic KG maintenance jobs.
+
+        Replaces the former per-job daemon threads (analysis / compaction /
+        evolution / enrichment). One backend-readiness check and one
+        foreground-throttle gate guard every job, so background work uniformly
+        yields the GPU/LLM to interactive runs. (CONCEPT:KG-2.7 / KG-2.8)
         """
         import time
 
-        COMPACTION_THRESHOLD = 30
-        COMPACTION_INTERVAL = 1800.0  # 30 minutes
+        jobs = self._maintenance_jobs()
+        if not jobs:
+            return
+        names = ", ".join(n for n, _, _ in jobs)
+        logger.info("KG maintenance scheduler started with jobs: %s", names)
 
-        # Wait for backend to be ready
-        time.sleep(30.0)
+        POLL = 5.0
+        # Stagger first runs so a startup burst doesn't fire everything at once.
+        last_run = {name: time.time() - interval + 15.0 for name, interval, _ in jobs}
 
         while True:
             try:
                 if not getattr(self, "backend", None):
-                    time.sleep(30.0)
+                    time.sleep(10.0)
                     continue
 
-                # Find threads with many uncompacted messages
-                threads = self.query_cypher(
-                    "MATCH (t:Thread)-[:CONTAINS]->(m:Message) "
-                    "WITH t, count(m) AS msg_count "
-                    "WHERE msg_count > $threshold "
-                    "AND (t.last_compacted IS NULL) "
-                    "RETURN t.id AS id, msg_count "
-                    "ORDER BY msg_count DESC LIMIT 3",
-                    {"threshold": COMPACTION_THRESHOLD},
-                )
+                # Single shared foreground gate for ALL background jobs.
+                try:
+                    from agent_utilities.core.background_throttle import get_throttle
 
-                if threads:
-                    from agent_utilities.knowledge_graph.memory import (
-                        ElasticContextManager,
-                    )
+                    if get_throttle().foreground_active:
+                        time.sleep(POLL)
+                        continue
+                except ImportError:
+                    pass
 
-                    ecm = ElasticContextManager(max_tokens=32000)
-                    for thread in threads:
-                        thread_id = thread.get("id", "")
-                        msg_count = thread.get("msg_count", 0)
-                        if not thread_id:
-                            continue
-                        try:
-                            result = ecm.compact_thread(
-                                thread_id=thread_id,
-                                engine=self,
-                                strategy="progressive",
-                                compaction_threshold=COMPACTION_THRESHOLD,
-                            )
-                            logger.info(
-                                "CompactionDaemon: compacted thread %s (%d msgs) → %s",
-                                thread_id,
-                                msg_count,
-                                result.get("status", "unknown"),
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                f"CompactionDaemon: failed to compact {thread_id}: {e}"
-                            )
-
-                time.sleep(COMPACTION_INTERVAL)
+                now = time.time()
+                for name, interval, tick in jobs:
+                    if now - last_run[name] < interval:
+                        continue
+                    try:
+                        tick()
+                    except Exception as e:  # one job's failure never stops others
+                        logger.error("Maintenance job '%s' error: %s", name, e)
+                    last_run[name] = time.time()
+                time.sleep(POLL)
             except Exception as e:
-                logger.error(f"CompactionDaemon error: {e}")
-                time.sleep(120.0)
+                logger.error(f"MaintenanceScheduler error: {e}")
+                time.sleep(30.0)
 
-    def _evolution_cycle_loop(self):
-        """Background daemon to run autonomous research evolution cycles.
+    def _tick_enrichment(self) -> None:
+        """One Phase-2 enrichment tick: backfill LLM capability cards onto
+        structurally-ingested ``Code`` nodes whose ``summary`` is still empty.
 
-        CONCEPT:KG-2.5 — Evolution Cycle Daemon
+        CONCEPT:KG-2.8. Cards are cached by ``ast_hash`` so unchanged code is
+        never re-summarised; only non-empty summaries are written back (so a
+        transient LLM outage doesn't poison nodes). Drains up to
+        ``KG_ENRICH_MAX_BATCHES`` batches per tick, re-checking the foreground
+        throttle between batches so it yields promptly to interactive runs.
+        """
+        import json
+        import os
 
-        Runs every 60 minutes (configurable via KG_EVOLUTION_INTERVAL).
-        Queries the KG for unresolved research topics, triggers relevance
-        sweeps against the primary codebase, and logs evolution cycle
-        metrics as EvolutionCycle nodes.
+        backend = getattr(self, "backend", None)
+        if not backend:
+            return
+        if not hasattr(self, "_enrich_card_cache"):
+            self._enrich_card_cache: dict[str, Any] = {}
 
-        Same daemon pattern as _kg_analysis_loop and _conversation_compaction_loop.
+        from ..enrichment.cards import generate_symbol_cards, make_llm_fn
+        from ..enrichment.models import CodeEntity
+
+        BATCH = int(os.environ.get("KG_ENRICH_BATCH", "16"))
+        MAX_BATCHES = int(os.environ.get("KG_ENRICH_MAX_BATCHES", "8"))
+        max_workers = int(os.environ.get("KG_LLM_CONCURRENCY", "6"))
+        llm_fn = getattr(self, "_enrich_llm_fn", None)
+
+        for _ in range(MAX_BATCHES):
+            # Yield to interactive runs between batches.
+            try:
+                from agent_utilities.core.background_throttle import get_throttle
+
+                if get_throttle().foreground_active:
+                    return
+            except ImportError:
+                pass
+
+            rows = self.query_cypher(
+                "MATCH (n:Code) WHERE n.summary = '' AND n.ast_hash IS NOT NULL "
+                "RETURN n.id AS id, n.name AS name, n.kind AS kind, "
+                "n.file_path AS file_path, n.patterns AS patterns, "
+                "n.ast_hash AS ast_hash LIMIT " + str(BATCH)
+            )
+            if not rows:
+                return
+            if llm_fn is None:
+                llm_fn = make_llm_fn()
+                self._enrich_llm_fn = llm_fn
+
+            ents = [
+                CodeEntity(
+                    id=r["id"],
+                    name=r.get("name") or r["id"],
+                    qualname=r.get("name") or r["id"],
+                    kind=r.get("kind") or "function",
+                    file_path=r.get("file_path") or "",
+                    line=0,
+                    ast_hash=r.get("ast_hash") or "",
+                    patterns=[p for p in (r.get("patterns") or "").split(",") if p],
+                )
+                for r in rows
+            ]
+            cards = generate_symbol_cards(
+                ents, llm_fn, cache=self._enrich_card_cache, max_workers=max_workers
+            )
+            written = 0
+            for card in cards:
+                if not card.summary:
+                    continue
+                try:
+                    backend.execute(
+                        "MATCH (n:Code {id: $id}) SET n.summary = $summary, "
+                        "n.responsibilities = $resp",
+                        {
+                            "id": card.id,
+                            "summary": card.summary,
+                            "resp": json.dumps(card.responsibilities),
+                        },
+                    )
+                    written += 1
+                except Exception:
+                    logger.debug("card writeback failed for %s", card.id, exc_info=True)
+            logger.info("KG enrichment: backfilled %d/%d cards", written, len(rows))
+            # If nothing landed (LLM likely down), stop this tick; retry later.
+            if written == 0:
+                return
+
+    # Candidate text columns used to build embedding input, in priority order.
+    _EMBED_TEXT_COLS = (
+        "name",
+        "title",
+        "summary",
+        "description",
+        "content",
+        "qualname",
+    )
+
+    def _tick_embedding_backfill(self) -> int:
+        """Backfill vector embeddings onto durable nodes that lack them.
+
+        Vector features (semantic_search, concept→code RELATES_TO linking,
+        designation, latent retrieval) need embeddings on the L3/pgvector node
+        tables, but the structural codebase pass and concept extraction create
+        nodes WITHOUT embeddings. This embeds unembedded rows incrementally in
+        bounded batches with the configured model, behind the shared foreground
+        gate. Idempotent (only ``embedding IS NULL`` rows). (CONCEPT:KG-2.8)
+        """
+        import os
+
+        l3 = getattr(self.backend, "l3", self.backend)
+        conn_factory = getattr(l3, "_conn", None)
+        get_tables = getattr(l3, "_get_embedding_tables", None)
+        if (
+            not callable(conn_factory)
+            or not callable(get_tables)
+            or not getattr(l3, "pgvector_available", False)
+        ):
+            return 0  # not a pgvector-backed L3
+
+        try:
+            budget = int(os.getenv("KG_EMBED_BACKFILL_BATCH", "256"))
+        except ValueError:
+            budget = 256
+
+        tables = get_tables()
+        if not tables:
+            return 0
+        # Retrieval-critical labels first, then the rest.
+        prio = ["Code", "Concept", "Document", "Feature", "Skill", "Message"]
+        ordered = [t for t in prio if t in tables] + [
+            t for t in tables if t not in prio
+        ]
+
+        from ..enrichment.semantic import make_embed_fn
+
+        embed_fn = getattr(self, "_backfill_embed_fn", None)
+        if embed_fn is None:
+            embed_fn = make_embed_fn()
+            self._backfill_embed_fn = embed_fn
+
+        # Fair per-table share so retrieval-critical labels (e.g. Concept) aren't
+        # starved behind a huge table (e.g. Code). Each table gets up to
+        # ``per_table`` rows per tick, still bounded by the total budget.
+        per_table = max(16, budget // max(1, len(ordered)))
+        total = 0
+        remaining = budget
+        for tbl in ordered:
+            if remaining <= 0:
+                break
+            take = min(per_table, remaining)
+            try:
+                with conn_factory() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = %s",
+                        (tbl,),
+                    )
+                    cols = {r[0] for r in cur.fetchall()}
+                    text_cols = [c for c in self._EMBED_TEXT_COLS if c in cols]
+                    if not text_cols or "embedding" not in cols:
+                        continue
+                    expr = " || ' ' || ".join(
+                        f"COALESCE(\"{c}\",'')" for c in text_cols
+                    )
+                    cur.execute(
+                        f'SELECT id, {expr} FROM "{tbl}" '  # nosec B608
+                        "WHERE embedding IS NULL LIMIT %s",
+                        (take,),
+                    )
+                    rows = cur.fetchall()
+            except Exception as e:  # noqa: BLE001
+                logger.debug("embed backfill: query %s failed: %s", tbl, e)
+                continue
+
+            items = [(r[0], (r[1] or "").strip()) for r in rows]
+            items = [(nid, txt) for nid, txt in items if txt]
+            if not items:
+                continue
+            try:
+                vecs = embed_fn([t for _, t in items])
+                with conn_factory() as conn, conn.cursor() as cur:
+                    for (nid, _), vec in zip(items, vecs, strict=False):
+                        cur.execute(
+                            f'UPDATE "{tbl}" SET embedding = %s::vector '  # nosec B608
+                            "WHERE id = %s",
+                            (str(vec), nid),
+                        )
+                    conn.commit()
+                total += len(items)
+                remaining -= len(items)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("embed backfill: store %s failed: %s", tbl, e)
+        if total:
+            logger.info("KG embedding backfill: embedded %d nodes", total)
+        return total
+
+    def _tick_golden_loop(self) -> None:
+        """One propose-only self-evolution cycle (CONCEPT:KG-2.7).
+
+        Runs ``GoldenLoopController.run_one_cycle`` (intake unresolved topics →
+        acquire related sources → ADDRESSES resolve → optional distill/synthesize
+        as DRAFTS/proposals). Always propose-only: nothing is auto-merged or
+        executed. Throttled + opt-in via ``KG_GOLDEN_LOOP``.
+        """
+        import os
+
+        try:
+            from ..research.golden_loop import GoldenLoopController
+
+            rep = GoldenLoopController(self).run_one_cycle(
+                max_topics=int(os.getenv("KG_GOLDEN_LOOP_TOPICS", "5"))
+            )
+            logger.info(
+                "Golden loop cycle: intake=%s resolved=%s sources=%s team=%s",
+                rep.get("topics_intake"),
+                rep.get("topics_resolved"),
+                rep.get("sources_linked"),
+                bool(rep.get("team")),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error("golden_loop tick error: %s", e)
+
+    def _embedding_backfill_loop(self) -> None:
+        """Dedicated drain loop for vector-embedding backfill (CONCEPT:KG-2.8).
+
+        Runs independently of the periodic maintenance scheduler so it is NOT
+        blocked behind slow LLM ticks: it embeds a batch, and if work remains
+        (a full batch landed) loops again almost immediately; when the graph is
+        fully embedded it idles at a long interval. Yields to interactive runs
+        via the shared foreground throttle.
         """
         import os
         import time
-        from datetime import datetime
 
-        EVOLUTION_INTERVAL = float(os.getenv("KG_EVOLUTION_INTERVAL", "3600"))
-
-        # Wait for backend initialization
-        time.sleep(60.0)
+        try:
+            batch = int(os.getenv("KG_EMBED_BACKFILL_BATCH", "512"))
+        except ValueError:
+            batch = 512
+        try:
+            idle = float(os.getenv("KG_EMBED_BACKFILL_INTERVAL", "30"))
+        except ValueError:
+            idle = 30.0
+        busy = float(os.getenv("KG_EMBED_BACKFILL_BUSY_SLEEP", "1"))
 
         while True:
             try:
                 if not getattr(self, "backend", None):
-                    time.sleep(30.0)
+                    time.sleep(idle)
                     continue
+                # Yield to interactive/foreground work.
+                try:
+                    from agent_utilities.core.background_throttle import get_throttle
 
-                cycle_start = datetime.now(UTC)
-                cycle_id = f"evo_cycle_{cycle_start.strftime('%Y%m%d_%H%M%S')}"
-                logger.info("EvolutionDaemon: starting cycle %s", cycle_id)
+                    if get_throttle().foreground_active:
+                        time.sleep(busy)
+                        continue
+                except ImportError:
+                    pass
+                embedded = self._tick_embedding_backfill()
+                # Full batch ⇒ likely more to do ⇒ loop fast; else back off.
+                time.sleep(busy if embedded >= batch else idle)
+            except Exception as e:  # noqa: BLE001 — never let the loop die
+                logger.error("EmbeddingBackfillLoop error: %s", e)
+                time.sleep(idle)
 
-                # 1. Detect unresolved research topics
-                topics = self.query_cypher(
-                    "MATCH (c:Concept) OPTIONAL MATCH (c)-[:ADDRESSED_BY]->(p) "
-                    "WHERE p IS NULL RETURN c.id AS id, c.name AS name ORDER BY c.name LIMIT 15"
+    def _tick_compaction(self) -> None:
+        """One LCM compaction tick (CONCEPT:KG-2.1).
+
+        Finds ``Thread`` nodes with more than ``COMPACTION_THRESHOLD``
+        uncompacted messages and delegates to ``ElasticContextManager``. Run by
+        the consolidated maintenance scheduler.
+        """
+        COMPACTION_THRESHOLD = 30
+        threads = self.query_cypher(
+            "MATCH (t:Thread)-[:CONTAINS]->(m:Message) "
+            "WITH t, count(m) AS msg_count "
+            "WHERE msg_count > $threshold "
+            "AND (t.last_compacted IS NULL) "
+            "RETURN t.id AS id, msg_count "
+            "ORDER BY msg_count DESC LIMIT 3",
+            {"threshold": COMPACTION_THRESHOLD},
+        )
+        if not threads:
+            return
+        from agent_utilities.knowledge_graph.memory import ElasticContextManager
+
+        ecm = ElasticContextManager(max_tokens=32000)
+        for thread in threads:
+            thread_id = thread.get("id", "")
+            msg_count = thread.get("msg_count", 0)
+            if not thread_id:
+                continue
+            try:
+                result = ecm.compact_thread(
+                    thread_id=thread_id,
+                    engine=self,
+                    strategy="progressive",
+                    compaction_threshold=COMPACTION_THRESHOLD,
                 )
-                topic_count = len(topics) if topics else 0
-                logger.info("EvolutionDaemon: found %d unresolved topics", topic_count)
-
-                # 2. Detect primary codebase
-                primary_codebase = self._detect_primary_codebase()
-
-                # 3. Run relevance sweep if we have a codebase target
-                papers_scored = 0
-                if primary_codebase and topic_count > 0:
-                    try:
-                        # Count total papers/codebases available for scoring
-                        count_result = self.query_cypher(
-                            "MATCH (n) WHERE n:Document OR n:Codebase "
-                            "RETURN count(n) AS total",
-                        )
-                        papers_scored = (
-                            count_result[0].get("total", 0) if count_result else 0
-                        )
-
-                        logger.info(
-                            "EvolutionDaemon: %d items available for relevance sweep against '%s'",
-                            papers_scored,
-                            primary_codebase,
-                        )
-                    except Exception as e:
-                        logger.warning(f"EvolutionDaemon: relevance count failed: {e}")
-
-                # 4. Log evolution cycle as a KG node
-                try:
-                    from agent_utilities.knowledge_graph.core.engine import (
-                        IntelligenceGraphEngine,
-                    )
-
-                    # 4.5. Log OptimizationTrajectoryNode throughput
-                    throughput = 0
-                    try:
-                        throughput_query = self.query_cypher(
-                            "MATCH (n:OptimizationTrajectory) WHERE n.created_at >= $timestamp "
-                            "RETURN count(n) AS throughput",
-                            params={
-                                "timestamp": (
-                                    cycle_start - timedelta(seconds=EVOLUTION_INTERVAL)
-                                ).isoformat()
-                            },
-                        )
-                        throughput = (
-                            throughput_query[0].get("throughput", 0)
-                            if throughput_query
-                            else 0
-                        )
-                        logger.info(
-                            "EvolutionDaemon: OptimizationTrajectoryNode throughput = %d",
-                            throughput,
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"EvolutionDaemon: failed to get throughput: {e}"
-                        )
-
-                    if isinstance(self, IntelligenceGraphEngine):
-                        self.add_node(
-                            node_id=cycle_id,
-                            node_type="EvolutionCycle",
-                            properties={
-                                "triggered_by": "daemon",
-                                "topics_scanned": topic_count,
-                                "papers_scored": papers_scored,
-                                "primary_codebase": primary_codebase or "unknown",
-                                "optimization_throughput": throughput,
-                                "created_at": cycle_start.isoformat(),
-                            },
-                        )
-                        logger.info(
-                            "EvolutionDaemon: logged cycle %s (topics=%d, scored=%d)",
-                            cycle_id,
-                            topic_count,
-                            papers_scored,
-                        )
-                except Exception as e:
-                    logger.warning(f"EvolutionDaemon: failed to log cycle node: {e}")
-
-                # 5. Telemetry Ingestion Sweep
-                try:
-                    logger.info(
-                        "EvolutionDaemon: triggering telemetry_ingestion workflow sweep"
-                    )
-
-                    def _run_telemetry():
-                        try:
-                            from agent_utilities.workflows.runner import WorkflowRunner
-
-                            runner = WorkflowRunner()
-                            asyncio.run(
-                                runner.execute_by_name(
-                                    "telemetry_ingestion",
-                                    engine=self,  # type: ignore[arg-type]
-                                )
-                            )
-                        except Exception as e:
-                            logger.error(f"EvolutionDaemon telemetry sweep failed: {e}")
-
-                    threading.Thread(
-                        target=_run_telemetry, daemon=True, name="KG-Telemetry-Worker"
-                    ).start()
-                except Exception as e:
-                    logger.warning(
-                        f"EvolutionDaemon: failed to trigger telemetry sweep: {e}"
-                    )
-
-                time.sleep(EVOLUTION_INTERVAL)
+                logger.info(
+                    "Compaction: thread %s (%d msgs) → %s",
+                    thread_id,
+                    msg_count,
+                    result.get("status", "unknown"),
+                )
             except Exception as e:
-                logger.error(f"EvolutionDaemon error: {e}")
-                time.sleep(300.0)
+                logger.warning(f"Compaction: failed to compact {thread_id}: {e}")
+
+    def _tick_evolution(self) -> None:
+        """One research-evolution cycle tick (CONCEPT:KG-2.5).
+
+        Scans unresolved research topics, counts scorable items against the
+        primary codebase, logs an ``EvolutionCycle`` node, and triggers the
+        telemetry-ingestion sweep. Run by the consolidated maintenance scheduler.
+        """
+        import os
+        from datetime import datetime
+
+        EVOLUTION_INTERVAL = float(os.getenv("KG_EVOLUTION_INTERVAL", "3600"))
+        cycle_start = datetime.now(UTC)
+        cycle_id = f"evo_cycle_{cycle_start.strftime('%Y%m%d_%H%M%S')}"
+        logger.info("Evolution: starting cycle %s", cycle_id)
+
+        # 1. Detect unresolved research topics
+        topics = self.query_cypher(
+            "MATCH (c:Concept) OPTIONAL MATCH (c)-[:ADDRESSED_BY]->(p) "
+            "WHERE p IS NULL RETURN c.id AS id, c.name AS name ORDER BY c.name LIMIT 15"
+        )
+        topic_count = len(topics) if topics else 0
+        logger.info("Evolution: found %d unresolved topics", topic_count)
+
+        # 2. Detect primary codebase
+        primary_codebase = self._detect_primary_codebase()
+
+        # 3. Count scorable items if we have a codebase target
+        papers_scored = 0
+        if primary_codebase and topic_count > 0:
+            try:
+                count_result = self.query_cypher(
+                    "MATCH (n) WHERE n:Document OR n:Codebase "
+                    "RETURN count(n) AS total",
+                )
+                papers_scored = count_result[0].get("total", 0) if count_result else 0
+                logger.info(
+                    "Evolution: %d items available for relevance sweep against '%s'",
+                    papers_scored,
+                    primary_codebase,
+                )
+            except Exception as e:
+                logger.warning(f"Evolution: relevance count failed: {e}")
+
+        # 4. Log evolution cycle as a KG node
+        try:
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine,
+            )
+
+            throughput = 0
+            try:
+                throughput_query = self.query_cypher(
+                    "MATCH (n:OptimizationTrajectory) WHERE n.created_at >= $timestamp "
+                    "RETURN count(n) AS throughput",
+                    params={
+                        "timestamp": (
+                            cycle_start - timedelta(seconds=EVOLUTION_INTERVAL)
+                        ).isoformat()
+                    },
+                )
+                throughput = (
+                    throughput_query[0].get("throughput", 0) if throughput_query else 0
+                )
+                logger.info(
+                    "Evolution: OptimizationTrajectoryNode throughput = %d", throughput
+                )
+            except Exception as e:
+                logger.warning(f"Evolution: failed to get throughput: {e}")
+
+            if isinstance(self, IntelligenceGraphEngine):
+                self.add_node(
+                    node_id=cycle_id,
+                    node_type="EvolutionCycle",
+                    properties={
+                        "triggered_by": "daemon",
+                        "topics_scanned": topic_count,
+                        "papers_scored": papers_scored,
+                        "primary_codebase": primary_codebase or "unknown",
+                        "optimization_throughput": throughput,
+                        "created_at": cycle_start.isoformat(),
+                    },
+                )
+                logger.info(
+                    "Evolution: logged cycle %s (topics=%d, scored=%d)",
+                    cycle_id,
+                    topic_count,
+                    papers_scored,
+                )
+        except Exception as e:
+            logger.warning(f"Evolution: failed to log cycle node: {e}")
+
+        # 5. Telemetry Ingestion Sweep
+        try:
+            logger.info("Evolution: triggering telemetry_ingestion workflow sweep")
+
+            def _run_telemetry():
+                try:
+                    from agent_utilities.workflows.runner import WorkflowRunner
+
+                    runner = WorkflowRunner()
+                    asyncio.run(
+                        runner.execute_by_name(
+                            "telemetry_ingestion",
+                            engine=self,  # type: ignore[arg-type]
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Evolution telemetry sweep failed: {e}")
+
+            threading.Thread(
+                target=_run_telemetry, daemon=True, name="KG-Telemetry-Worker"
+            ).start()
+        except Exception as e:
+            logger.warning(f"Evolution: failed to trigger telemetry sweep: {e}")
 
     def _graph_writer_loop(self):
         """Background daemon thread to drain the staging SQLite queue and insert heavy graph payloads sequentially to prevent lock contention."""
@@ -988,6 +1360,17 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def start_task_workers(self, worker_count: int | None = None):
         """Start background workers to poll and execute tasks from the graph."""
+        from agent_utilities.core.config import (
+            DEFAULT_KG_INGESTION_WORKERS,
+            DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND,
+        )
+
+        # Role gate: ``client`` processes never run task workers — the host
+        # daemon (API gateway) drains the shared queue. (CONCEPT:KG-2.8)
+        if daemon_role() == "client":
+            logger.debug("daemon role=client; not starting task workers.")
+            return
+
         if not DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND:
             logger.debug(
                 "knowledge_graph_sync_background is false, skipping task workers."
@@ -1258,53 +1641,48 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
 
             elif is_codebase or task_type == "codebase":
+                # Unified path: the async worker and the synchronous MCP/engine
+                # callers share ONE implementation — the structural
+                # EnrichmentPipeline via IngestionEngine (CONCEPT:KG-2.8). The
+                # old per-repo subprocess (`--maintain --stage-to-queue`) is
+                # gone; LLM enrichment is deferred to the background card daemon.
                 import os
-                import re
-                import sys
 
-                # To prevent uv from intercepting the subprocess and using the target directory's .venv,
-                # we construct the absolute path to the python binary and strip uv environment variables.
-                python_bin = os.path.join(sys.prefix, "bin", "python")
-                env = os.environ.copy()
-                env.pop("UV_PROJECT_ENVIRONMENT", None)
-                env.pop("UV_RUN_TARGET", None)
-                env["UV_NO_SYNC"] = "1"
-
-                process = await asyncio.create_subprocess_exec(
-                    python_bin,
-                    "-m",
-                    "agent_utilities.knowledge_graph",
-                    "--maintain",
-                    "--stage-to-queue",
-                    job_id,
-                    cwd=str(target),
-                    env=env,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                from ..ingestion.engine import (
+                    ContentType,
+                    IngestionEngine,
+                    IngestionManifest,
                 )
-                stdout, stderr = await process.communicate()
 
-                if process.returncode != 0:
-                    raise Exception(f"Ingestion subprocess failed: {stderr.decode()}")
-
-                out_str = stdout.decode()
-                nodes_added = 0
-                edges_added = 0
-                match = re.search(
-                    r"Intelligence Graph Updated: (\d+) nodes, (\d+) edges", out_str
+                # Bulk-throughput knob preserved: KG_INGEST_PROFILE=structural
+                # (or KG_INGEST_FEATURES=0) defers call-graph community detection
+                # so per-repo runs stay cheap; features then come from a later
+                # full-graph pass.
+                features = (
+                    os.environ.get("KG_INGEST_FEATURES", "1") != "0"
+                    and os.environ.get("KG_INGEST_PROFILE", "").lower() != "structural"
                 )
-                if match:
-                    nodes_added = int(match.group(1))
-                    edges_added = int(match.group(2))
+                ing = IngestionEngine(kg_engine=self)
+                cb_res = await ing.ingest(
+                    IngestionManifest(
+                        content_type=ContentType.CODEBASE,
+                        source_uri=str(target),
+                        metadata={"features": features},
+                    )
+                )
+                if cb_res.status == "failed":
+                    raise Exception(f"Codebase ingestion failed: {cb_res.error}")
 
                 self._update_task_status(
                     job_id,
                     "completed",
                     {
-                        "nodes_added": nodes_added,
-                        "edges_added": edges_added,
+                        "nodes_added": cb_res.nodes_created,
+                        "edges_added": cb_res.edges_created,
                         "target": str(target),
                         "type": "codebase",
+                        "status": cb_res.status,
+                        "cards_pending": cb_res.details.get("cards_pending", 0),
                     },
                 )
             elif task_type == "relevance_sweep":
@@ -1932,8 +2310,19 @@ class TaskManagerMixin(GraphEngineProtocol):
             old_meta.update(metadata)
             metadata = old_meta
 
-        if status in ("completed", "failed") and "completed_at" not in metadata:
-            metadata["completed_at"] = datetime.now(UTC).isoformat()
+        if status in ("completed", "failed"):
+            metadata.setdefault("completed_at", datetime.now(UTC).isoformat())
+            # Central per-job duration (CONCEPT:KG-2.8 metrics) — computed from
+            # started_at (stamped at claim time) so every category gets timing
+            # without editing each completion site.
+            started = metadata.get("started_at")
+            if started and "duration_ms" not in metadata:
+                try:
+                    st = datetime.fromisoformat(started)
+                    ct = datetime.fromisoformat(metadata["completed_at"])
+                    metadata["duration_ms"] = round((ct - st).total_seconds() * 1000, 1)
+                except (ValueError, TypeError):
+                    pass
 
         encoded = _encode_metadata(metadata)
         self.backend.execute(
@@ -1941,6 +2330,65 @@ class TaskManagerMixin(GraphEngineProtocol):
             {"id": job_id, "status": status, "meta": encoded},
         )
         self._checkpoint_db()
+
+    def aggregate_ingest_metrics(self, window_sec: int = 86400) -> dict[str, Any]:
+        """Per-category ingest metrics from completed Task nodes (CONCEPT:KG-2.8).
+
+        Powers the MCP ``graph_ingest`` jobs/job_status breakdown so polling shows
+        time/nodes/edges/failures per content type — the same view the harness
+        writes to ``progress.json``.
+        """
+        try:
+            rows = self.query_cypher(
+                "MATCH (t:Task) RETURN t.status as status, t.metadata as meta"
+            )
+        except Exception:  # noqa: BLE001
+            return {}
+        cutoff = None
+        if window_sec:
+            try:
+                cutoff = datetime.now(UTC) - timedelta(seconds=window_sec)
+            except Exception:  # noqa: BLE001
+                cutoff = None
+        cats: dict[str, dict[str, Any]] = {}
+        for r in rows or []:
+            meta = _decode_metadata(r.get("meta"))
+            if cutoff is not None:
+                ca = meta.get("completed_at")
+                if ca:
+                    try:
+                        if datetime.fromisoformat(ca) < cutoff:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+            cat = meta.get("type") or meta.get("content_type") or "unknown"
+            c = cats.setdefault(
+                cat,
+                {
+                    "jobs": 0,
+                    "completed": 0,
+                    "failed": 0,
+                    "nodes": 0,
+                    "edges": 0,
+                    "duration_ms": 0.0,
+                },
+            )
+            c["jobs"] += 1
+            st = (r.get("status") or "").lower()
+            if st in ("completed", "done", "success"):
+                c["completed"] += 1
+            elif st in ("failed", "error"):
+                c["failed"] += 1
+            c["nodes"] += int(
+                meta.get("nodes_added", meta.get("nodes_created", 0)) or 0
+            )
+            c["edges"] += int(
+                meta.get("edges_added", meta.get("edges_created", 0)) or 0
+            )
+            c["duration_ms"] += float(meta.get("duration_ms", 0) or 0)
+        for c in cats.values():
+            c["duration_ms"] = round(c["duration_ms"], 1)
+        return cats
 
     def _checkpoint_db(self) -> None:
         """Force a WAL checkpoint to ensure data persists across server restarts."""

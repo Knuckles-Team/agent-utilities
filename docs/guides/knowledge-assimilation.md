@@ -76,7 +76,7 @@ Both pipelines share the same downstream tools: `comparative-analysis`,
 - **Tool:** `x_search` with `grok-4.3` model
 - **Signal types:** Trending AI/ML discussions, framework announcements, quantitative analysis threads
 - **Auto-ingest:** `browse_x_post(url, auto_ingest=True)` pipes through classifier
-- **Article handling:** Long-form X Articles fetched via browser → `IngestionEngine` (`ContentType.DOCUMENT`)
+- **Article handling:** Long-form X Articles fetched via browser → `KBIngestionEngine.ingest_url()` (full KB document processing)
 
 ### ScholarX (via scholarx-mcp)
 
@@ -124,10 +124,12 @@ All configuration is managed via XDG-compliant paths:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KG_EVOLUTION_INTERVAL` | `3600` | Evolution daemon cycle (seconds) |
-| `EVOLUTION_AUTO_EXECUTE` | `false` | Auto-execute SDD plans |
-| `EVOLUTION_MIN_POTENTIAL` | `0.6` | Minimum evolution potential to create candidate |
+| `KG_EVOLUTION_INTERVAL` | `3600` | Evolution scheduler-tick cycle (seconds), read by `_tick_evolution` in `engine_tasks.py` |
 | `XAI_API_KEY` | (none) | Fallback API key if OAuth unavailable |
+
+> Note: `EVOLUTION_AUTO_EXECUTE` and `EVOLUTION_MIN_POTENTIAL` are not currently
+> read by the engine; auto-execute and minimum-potential gating are decided by
+> the `agent-utilities-evolution` skill rather than environment variables.
 
 ---
 

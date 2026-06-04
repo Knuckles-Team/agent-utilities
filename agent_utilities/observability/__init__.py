@@ -3,10 +3,10 @@
 CONCEPT:OS-5.1 — Telemetry Engine
 
 Provides a single entry point for all observability concerns:
-- Token usage tracking (OS-5.6 via ``TokenTracker``)
-- Audit logging (OS-5.7 via ``AuditLogger``)
-- Deterministic replay (OS-5.7 via ``DistributedReplayEngine``)
-- OpenTelemetry setup (OS-5.9 placeholder)
+- Token usage tracking (OS-5.5 via ``TokenTracker``)
+- Audit logging (OS-5.6 via ``AuditLogger``)
+- Deterministic replay (OS-5.6 via ``DistributedReplayEngine``)
+- OpenTelemetry setup (OS-5.8 placeholder)
 
 This facade wires the previously unwired AuditLogger and TokenTracker
 into the main graph execution pipeline via ``on_graph_start()``,
@@ -154,7 +154,7 @@ class TelemetryEngine:
         return []
 
 
-# Replay Engine (OS-5.7) — Deterministic execution trace recording & replay
+# Replay Engine (OS-5.6) — Deterministic execution trace recording & replay
 from .replay_engine import (  # noqa: E402
     DistributedReplayEngine,
     InteractionRecord,
@@ -163,7 +163,7 @@ from .replay_engine import (  # noqa: E402
 
 __all__ = [
     "TelemetryEngine",
-    # Replay Engine (OS-5.7)
+    # Replay Engine (OS-5.6)
     "DistributedReplayEngine",
     "ReplayManifest",
     "InteractionRecord",

@@ -245,7 +245,7 @@ def messaging_config_path() -> Path:
 def services_config_path() -> Path:
     """Return the path to the dashboard services YAML configuration.
 
-    CONCEPT:GW-1.0 — Gateway Service Dashboard
+    CONCEPT:OS-5.9 — Gateway Service Dashboard
 
     Default: ``~/.config/agent-utilities/services.yaml``
 
@@ -258,7 +258,7 @@ def services_config_path() -> Path:
 def dashboard_layout_path() -> Path:
     """Return the path to persisted dashboard layout state.
 
-    CONCEPT:GW-1.0 — Gateway Service Dashboard
+    CONCEPT:OS-5.9 — Gateway Service Dashboard
 
     Default: ``~/.local/share/agent-utilities/layout.yaml``
 

@@ -290,13 +290,13 @@ The Emergent Architecture layer enables dynamic agent coalition formation, evolu
 
 ### 5. KG Object-Graph Mapper (CONCEPT:KG-2.0)
 Declarative bidirectional mapping between Pydantic `RegistryNode` models and Knowledge Graph nodes. Eliminates manual `_upsert_node()` / `_serialize_node()` patterns.
-- **Module**: `agent_utilities/knowledge_graph/ogm.py`
+- **Module**: `agent_utilities/knowledge_graph/core/ogm.py`
 - **Features**: Auto label resolution, `@kg_label` decorator, dual-write (NetworkX + backend), change watchers
 
-### 6. Swarm Orchestration (CONCEPT:ORCH-1.0)
-Dynamic agent swarm formation replacing static specialist dispatch. Tasks are decomposed into trees, specialists are ranked by tri-signal affinity, and sub-agents are spawned with parallel/sequential execution.
-- **Module**: `agent_utilities/graph/swarm.py`
-- **Features**: LLM task decomposition, affinity scoring, recursive sub-swarms, coalition KG tracking
+### 6. Dynamic Team Composition (CONCEPT:ORCH-1.0)
+Dynamic specialist team formation replacing static dispatch. `KGTeamComposer.compose_team()` first tries a proven `TeamConfigNode`, then synthesizes a specialist subgraph via `AgentOrchestrationEngine.synthesize_team()`. (The earlier `SwarmOrchestrator`/`graph/swarm.py` API has been removed.)
+- **Module**: `agent_utilities/graph/team_composer.py`
+- **Features**: proven-team reuse, dynamic topology synthesis, coalition KG tracking (`SwarmCoalitionNode`)
 
 ### 7. Evolutionary Variant Selection (CONCEPT:AHE-3.2)
 Population-based competition for prompts, skills, and configurations using dual-strategy generation (LLM-driven + parametric mutations) and tournament selection.
@@ -305,7 +305,7 @@ Population-based competition for prompts, skills, and configurations using dual-
 
 ### 8. Persistent Self-Model (CONCEPT:KG-2.1)
 Versioned metacognitive self-model that aggregates session outcomes into a persistent KG chain. Integrates with OWL for reasoner-driven capability assessment.
-- **Module**: `agent_utilities/knowledge_graph/self_model.py`
+- **Module**: `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`; aliased as `SelfModel` via `knowledge_graph/self_model.py`)
 - **Features**: Versioned chain with `CURRENT` pointer, temporal trend analysis, OWL promotion, self-explanation
 
 ### 9. Global Workspace Attention (CONCEPT:ORCH-1.2)
@@ -321,13 +321,13 @@ The First Principles Architecture rewires the routing, dispatch, and feedback la
 
 ### 10. Registry Hot Cache (CONCEPT:ORCH-1.2)
 Session-scoped `_RegistryCache` singleton providing O(1) specialist lookups with event-driven invalidation. Reduces prompt bloat from 50+ specialist descriptions to only the top-7 relevant per query.
-- **Module**: `agent_utilities/graph/config_helpers.py`
+- **Module**: `agent_utilities/core/config.py`
 - **Features**: Query-keyed caching, 4 invalidation triggers (MCP reload, pipeline, Self-Model, TeamConfig), no TTL risk
 - **Deep-Dive**: [registry-cache.md](../1_graph_orchestration/registry-cache.md)
 
 ### 11. TeamConfig Promotion (CONCEPT:AHE-3.3)
 Proven specialist coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback.
-- **Module**: `agent_utilities/knowledge_graph/engine_registry.py`
+- **Module**: `agent_utilities/core/registry/kg_adapter.py` (`record_team_outcome`); team composition in `agent_utilities/graph/team_composer.py`
 - **Features**: Coalition promotion, domain-pattern matching, EMA-based success rate tracking, RLM + TeamConfig synergy
 
 ### 12. AgentCapability Type System (CONCEPT:ORCH-1.2)
@@ -463,11 +463,11 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Agent Server (CONCEPT:ECO-4.0)**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/acp` (Standardized Protocol), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation (CONCEPT:ECO-4.0)**: Runtime generation of OpenAPI specifications for all agent server APIs.
 - **Workspace Management (CONCEPT:OS-5.0)**: Automated management of agent state through standardized structures. (Note: Legacy files like `IDENTITY.md` and `USER.md` have been migrated to the Knowledge Graph and `main_agent.json` templates).
-- **Spec-Driven Development (SDD) (CONCEPT:ORCH-1.7)**: High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`Spec`), Implementation Plans, and dependency-aware Tasks. Ensures technical precision and parallel execution safety.
+- **Spec-Driven Development (SDD) (CONCEPT:ORCH-1.6)**: High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`Spec`), Implementation Plans, and dependency-aware Tasks. Ensures technical precision and parallel execution safety.
 - **Unified Intelligence Graph (CONCEPT:ORCH-1.0)**: A unified Knowledge Graph powered by **graph-os MCP native ingestion**. Enables deep structural codebase awareness, cross-repository symbol mapping, and long-term agent memory. Includes a **Hybrid OWL Reasoning Sidecar** for deterministic transitive inference and a **Graph Integrity Validator** for post-ingestion validation.
 - **Unified Memory Architecture**: Features Memento Context Management, Multi-Timescale dynamics, and Cross-Agent Observational Bridges. See [Memory Architecture](docs/pillars/memory_architecture.md) for full details.
-- **Graph Database Abstraction (CONCEPT:KG-2.0)**: Out-of-the-box support for multiple Cypher-compatible backends including **LadybugDB** (default embedded), **FalkorDB**, and **Neo4j**.
-- **Automated Graph Maintenance (CONCEPT:KG-2.0)**: Built-in Cypher-driven maintenance routines (`maintenance.py`) that handle vector embedding enrichment, scheduled cron log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
+- **Graph Database Abstraction (CONCEPT:KG-2.0)**: Single `GraphBackend` interface (`knowledge_graph/backends/`) with a two-tier primary stack — the Rust **epistemic-graph** L1 (`epistemic_graph_backend.py`) plus the durable **pggraph/PostgreSQL** tier (`postgresql_backend.py`), composed via `tiered_backend.py`. Additional Cypher-compatible backends (**LadybugDB**, **FalkorDB**, **Neo4j**) are available under `backends/contrib/`.
+- **Automated Graph Maintenance (CONCEPT:KG-2.0)**: A single consolidated `_maintenance_scheduler_loop` (`knowledge_graph/core/engine_tasks.py`) runs the former analysis/compaction/evolution/enrichment daemons as `_tick_*` jobs behind one background-throttle gate. Handles vector embedding enrichment, scheduled log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
 - **Confidence-Gated & Adaptive Model Routing (CONCEPT:ORCH-1.2)**: Adaptive model tier selection using runtime confidence signals from specialist consensus, plus fast-path model routing (`gpt-4o-mini`) for simple queries. High-confidence groups route to cheaper models; low-confidence groups escalate. Also leverages ACO pheromone trails to actively down-weight specialists with historically low success rates.
 - **Evolutionary Aggregation (CONCEPT:ORCH-1.2)**: Group-level diversity scoring with three-tier aggregation (majority vote / light synthesis / deep aggregation). Convergence-aware early stopping prevents diversity collapse in multi-loop specialist tasks.
 - **Schema Packs (CONCEPT:KG-2.2)**: Domain-configurable KG profiles with dual ADDITIVE/EXCLUSIVE modes. Scopes active node types, edge types, retrieval boosts, and OWL extensions to a specific domain. Pre-built packs: `core`, `research-state`, `biomedical`, `finance`.
@@ -535,11 +535,11 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Ontological State Checkpointing (CONCEPT:KG-2.6)**: Persists Pydantic Graph active states as ExecutionStateNodes, enabling zero-latency resume and background agent handoffs.
 - **Adaptive Tool Provisioning (CONCEPT:ECO-4.0)**: Real-time provisioning of MCP tools, APIs, and native functions into an execution context strictly driven by KG capabilities.
 - **Graph-Native Team Evolution (CONCEPT:AHE-3.4)**: Analyzes historical execution traces to autonomously propose architectural topological mutations and capability expansions.
-- **Terminal Agent Launcher (CONCEPT:ECO-4.0)**: `kg_launch_terminal_agent` MCP tool to spawn CLI agents (`agent-terminal-ui`, `claude`, `opencode`, `devin`) in managed tmux sessions with configurable `--prompt` and `--override` flags. Default agent configurable via `DEFAULT_TERMINAL_AGENT` in XDG config.
-- **Native Innovation Discovery Engine (CONCEPT:KG-2.0)**: Backend-native biomimicry and technology signal extraction via `discover_innovations()`. Performs vector search + keyword-driven signal enrichment (14 biomimicry, 28 tech keywords) with zero LLM calls. Exposed through `kg_search(mode='discover')` MCP tool for instant innovation cross-referencing across all ingested research papers and codebases.
-- **Native LLM Analysis via FastMCP Sampling (CONCEPT:KG-2.0)**: `kg_analyze` MCP tool leveraging FastMCP's `ctx.sample()` for server-side LLM processing. Supports 3-layer pipeline: L1 vector discovery → L2 LLM synthesis (feature recommendations) → L3 deep extraction (algorithms, patterns, integration blueprints). All processing happens inside the MCP server — skills consume enriched results.
-- **Background Concept Research Daemon (CONCEPT:KG-2.6)**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via `kg_analyze(action="background_research")`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow. Configurable via `KG_INFERENCE_MODEL` and `KG_LLM_CONCURRENCY`.
-- **Multi-IDE Conversation Log Ingestion (CONCEPT:KG-2.1)**: Native ingestion pipeline for external IDE/agent conversation logs from Antigravity, Windsurf, Claude Code, and Codex. Creates `Thread`/`Message` nodes with temporal metadata and source provenance. Triggered via `kg_ingest(target_path='conversations')` or filtered with `kg_ingest(target_path='conversations:antigravity,windsurf')`.
+- **Terminal Agent Launcher (CONCEPT:ECO-4.0)**: `launch_agent_in_terminal()` (`agent_utilities/core/agent_launcher.py`) spawns CLI agents (`agent-terminal-ui`, `claude`, `opencode`, `devin`) in managed tmux sessions with configurable prompt and override flags. Default agent configurable via `DEFAULT_TERMINAL_AGENT` in XDG config.
+- **Native Innovation Discovery Engine (CONCEPT:KG-2.0)**: Backend-native biomimicry and technology signal extraction via `discover_innovations()`. Performs vector search + keyword-driven signal enrichment (14 biomimicry, 28 tech keywords) with zero LLM calls. Exposed through the `graph_search(mode='discover')` MCP tool for instant innovation cross-referencing across all ingested research papers and codebases.
+- **Native LLM Analysis via FastMCP Sampling (CONCEPT:KG-2.0)**: `graph_analyze` MCP tool leveraging FastMCP's `ctx.sample()` for server-side LLM processing. Supports 3-layer pipeline: L1 vector discovery → L2 LLM synthesis (feature recommendations) → L3 deep extraction (algorithms, patterns, integration blueprints). All processing happens inside the MCP server — skills consume enriched results.
+- **Background Concept Research Daemon (CONCEPT:KG-2.6)**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via `graph_analyze(action="background_research")`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow. Configurable via `KG_INFERENCE_MODEL` and `KG_LLM_CONCURRENCY`.
+- **Multi-IDE Conversation Log Ingestion (CONCEPT:KG-2.1)**: Native ingestion pipeline for external IDE/agent conversation logs from Antigravity, Windsurf, Claude Code, and Codex. Creates `Thread`/`Message` nodes with temporal metadata and source provenance. Triggered via `graph_ingest(target_path='conversations')` or filtered with `graph_ingest(target_path='conversations:antigravity,windsurf')`.
 - **Disk-Aware DB Backup (CONCEPT:KG-2.0)**: Self-healing database management with disk-space-aware backups (skips if <1GB free), non-destructive WAL corruption recovery (preserves main DB, only cleans transient WAL/journal files), and configurable backup retention via `DEFAULT_KG_BACKUPS`.
 - **Super-Assimilation Evolution Pipeline (CONCEPT:KG-2.0 + AHE-3.2)**: Autonomous, KG-driven feature assimilation from external codebases and research papers. Ingests 60+ repositories via the graph-os MCP native ingestion, preserves each codebase's `constitution.md` as KG PolicyNodes, and runs parallelized comparative analysis across all 5 pillars (ORCH, KG, AHE, ECO, OS) with 34-concept cross-referencing. Enforces the **Wire or Discard** heuristic: every assimilated feature MUST connect to an existing hot path within ≤3 hops, extend existing concepts (not duplicate), and produce zero dead code. Constitution rules from ingested codebases inform integration constraints during SDD plan generation.
 - **Tool-Agnostic Pre-Edit Safety Hooks (CONCEPT:SAFE-1.0)**: Automatically protects workspace files from destructive AI edits across any connected agent environment. Files are backed up to the XDG standard directory (`~/.local/share/agent-utilities/backups/`) prior to modification.

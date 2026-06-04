@@ -364,7 +364,7 @@ class MockHybridRetriever:
 
 
 class MockBackend:
-    pass
+    pass_dummy = True
 
 
 class MockEngine:
@@ -386,7 +386,7 @@ class MockEngine:
         return node.model_dump()
 
     def _upsert_node(self, label, node_id, data):
-        pass
+        return None
 
 
 class TestRuleIngestor:

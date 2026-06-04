@@ -332,7 +332,7 @@ def build_agent_app(
 
             processor_task = asyncio.create_task(background_processor(_agent_instance))
 
-            # CONCEPT:OS-5.9 Boot SynthesisEngine daemon
+            # CONCEPT:OS-5.8 Boot SynthesisEngine daemon
             async def run_synthesis_daemon():
                 import asyncio
 
@@ -485,6 +485,16 @@ def build_agent_app(
         app.include_router(interop.router)
         app.include_router(human.router)
         app.include_router(commands.router)
+
+        try:
+            from agent_utilities.gateway.api import dashboard_router
+            from agent_utilities.gateway.graph_api import graph_router
+
+            app.include_router(dashboard_router, prefix="/api/dashboard")
+            app.include_router(graph_router, prefix="/api/graph")
+            logger.info("Mounted centralized Gateway API routers (Dashboard, Graph)")
+        except ImportError as e:
+            logger.error(f"Failed to load Gateway APIs: {e}")
 
         if enable_acp:
             from agent_utilities.protocols.acp_adapter import (

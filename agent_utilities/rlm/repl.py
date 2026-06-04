@@ -54,11 +54,19 @@ class RLMEnvironment:
         depth: int = 0,
         config: RLMConfig | None = None,
         graph_deps: GraphDeps | None = None,
+        signature: Any = None,
+        inputs_keys: list[str] | None = None,
+        outputs_keys: list[str] | None = None,
+        tool_sources: dict[str, str] | None = None,
     ):
         self.config = config or RLMConfig()
         self.depth = depth
         self.max_depth = self.config.max_depth
         self.graph_deps = graph_deps
+        self.signature = signature
+        self.inputs_keys = inputs_keys or []
+        self.outputs_keys = outputs_keys or []
+        self.tool_sources = tool_sources or {}
         self._stdout_counter = 0
 
         self.vars: dict[str, Any] = {"context": context, "depth": depth}
@@ -295,7 +303,9 @@ class RLMEnvironment:
         Executes Python code in the persistent environment.
         Returns the updated variables and stdout.
         """
-        if self.config.use_container:
+        if self.config.use_wasm:
+            return await self._execute_wasm(code)
+        elif self.config.use_container:
             return await self._execute_container(code)
         else:
             return await self._execute_local(code)
@@ -321,6 +331,12 @@ class RLMEnvironment:
         try:
             # We want to support 'await' inside the exec, so we wrap it in an async function
             wrapped_code = "async def __async_exec__():\n"
+
+            # Inject tool sources first
+            for t_name, t_src in self.tool_sources.items():
+                for line in t_src.splitlines():
+                    wrapped_code += f"    {line}\n"
+
             for line in code.splitlines():
                 wrapped_code += f"    {line}\n"
 
@@ -396,6 +412,57 @@ class RLMEnvironment:
             )
             output = res.get("output", "")
             return self.vars, output
+
+    async def _execute_wasm(self, code: str) -> tuple[dict[str, Any], str]:
+        """Executes the code securely in a WebAssembly sandbox using WasmAgentRunner.
+
+        Requires a compiled Python-in-WASM payload (e.g. Pyodide or RustPython).
+        """
+        from agent_utilities.core.wasm_runner import WasmAgentRunner
+
+        runner = WasmAgentRunner(limit_memory_pages=32)
+        # In a full implementation, we would load the python.wasm binary here.
+        # runner.load_agent(python_wasm_bytes)
+
+        # We pass the context, tools, and code as JSON input to the WASM payload
+        input_data = {
+            "action": "eval_python",
+            "context": self.vars.get("context", ""),
+            "tool_sources": self.tool_sources,
+            "code": code,
+        }
+
+        try:
+            result = runner.execute(input_data)
+            output = result.get("output", str(result))
+            return self.vars, output
+        except Exception as e:
+            return self.vars, f"WASM Execution Error: {e}"
+
+    def _validate_outputs(self) -> str | None:
+        """Validate gathered variables against the Pydantic signature. Returns error string if invalid, None if valid."""
+        if not self.signature:
+            return None
+
+        try:
+            output_data = {}
+            for name in self.outputs_keys:
+                if name in self.vars:
+                    output_data[name] = self.vars[name]
+                elif "__FINAL__" in self.vars and self.vars["__FINAL__"] == name:
+                    output_data[name] = self.vars[name]
+                elif name in self.globals_dict:
+                    output_data[name] = self.globals_dict[name]
+
+            # Reconstruct inputs
+            context = self.vars.get("context", {})
+            inputs = context if isinstance(context, dict) else {}
+
+            full_data = {**inputs, **output_data}
+            self.signature(**full_data)
+            return None
+        except Exception as e:
+            return f"Validation Error for outputs:\n{str(e)}\nPlease correct the variables and output again."
 
     # ── Whitepaper Alignment: Metadata Helpers ──
 
@@ -603,7 +670,21 @@ class RLMEnvironment:
 
                 if "__FINAL__" in self.vars:
                     final_var_name = self.vars["__FINAL__"]
-                    return str(self.vars.get(final_var_name, stdout))
+                    val = str(self.vars.get(final_var_name, stdout))
+
+                    # Validate in-loop
+                    validation_err = self._validate_outputs()
+                    if validation_err:
+                        # Clear FINAL_VAR so the LLM has to try again
+                        del self.vars["__FINAL__"]
+                        stdout_feedback = (
+                            f"Execution STDOUT:\n{stdout[:2000]}\n\n"
+                            f"CRITICAL: {validation_err}"
+                        )
+                        history.append({"role": "user", "content": stdout_feedback})
+                        continue
+
+                    return val
 
                 # Feed stdout back as metadata (Algorithm 1 alignment)
                 if self.config.metadata_only_root and self.depth == 0:
@@ -622,7 +703,17 @@ class RLMEnvironment:
             else:
                 if "__FINAL__" in self.vars:
                     final_var_name = self.vars["__FINAL__"]
-                    return str(self.vars.get(final_var_name, output_text))
+                    val = str(self.vars.get(final_var_name, output_text))
+
+                    validation_err = self._validate_outputs()
+                    if validation_err:
+                        del self.vars["__FINAL__"]
+                        history.append(
+                            {"role": "user", "content": f"CRITICAL: {validation_err}"}
+                        )
+                        continue
+
+                    return val
                 break
 
         return str(self.vars.get("__FINAL__", "Max turns reached without FINAL_VAR"))

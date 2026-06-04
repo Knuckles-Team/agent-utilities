@@ -4,7 +4,7 @@
 
 ## Overview
 
-The Agent Registry (`agent_utilities/core/registry_cli.py`) provides a CLI and programmatic API for installing, removing, and managing specialist capabilities at runtime — the `apt-get` for agents.
+The Agent Registry (`AgentRegistry` in `agent_utilities/core/registry/package_adapter.py`) provides a CLI and programmatic API for installing, removing, and managing specialist capabilities at runtime — the `apt-get` for agents.
 
 Each specialist is packaged as a JSON definition containing an MCP server config fragment, tool metadata, and dependency declarations. Installation merges the config, hydrates KG nodes, and triggers hot-reload.
 
@@ -13,20 +13,20 @@ Each specialist is packaged as a JSON definition containing an MCP server config
 ```mermaid
 flowchart LR
     subgraph Registry
-        AVAIL[ECO-4.10: available/] --> |install| INSTALLED[installed/]
+        AVAIL[ECO-4.6: available/] --> |install| INSTALLED[installed/]
         INSTALLED --> |uninstall| AVAIL
     end
 
     subgraph Install Flow
-        PKG[ECO-4.10: Package JSON] --> MCP[ECO-4.10: Merge MCP Config]
+        PKG[ECO-4.6: Package JSON] --> MCP[ECO-4.6: Merge MCP Config]
         MCP --> KG[KG-2.0: Hydrate KG Nodes]
         KG --> CACHE[Invalidate Cache CONCEPT:ORCH-1.2]
-        CACHE --> RELOAD[ECO-4.11: Hot Reload /mcp/reload]
+        CACHE --> RELOAD[ECO-4.6: Hot Reload /mcp/reload]
     end
 
     subgraph Uninstall Flow
-        RM_KG[KG-2.0: Remove KG Nodes] --> RM_MCP[ECO-4.10: Remove MCP Config]
-        RM_MCP --> RM_CACHE[ECO-4.10: Invalidate Cache]
+        RM_KG[KG-2.0: Remove KG Nodes] --> RM_MCP[ECO-4.6: Remove MCP Config]
+        RM_MCP --> RM_CACHE[ECO-4.6: Invalidate Cache]
     end
 ```
 
@@ -79,7 +79,7 @@ Each specialist package is a JSON file in the `available/` directory:
 ### Programmatic API
 
 ```python
-from agent_utilities.core.registry_cli import AgentRegistry
+from agent_utilities.core.registry.package_adapter import AgentRegistry
 
 registry = AgentRegistry(
     mcp_config_path="/path/to/mcp_config.json",
@@ -117,11 +117,11 @@ Installed packages are tracked as `SpecialistPackageNode` entries in the KG, lin
 
 ## Default Catalog
 
-The registry ships a built-in catalog of **38 packages** via `agent_utilities/core/default_catalog.py`. On first `AgentRegistry` init, the catalog is seeded automatically:
+The registry ships a built-in catalog of **37 packages** via `agent_utilities/core/default_catalog.py` (`get_default_catalog()`). On first `AgentRegistry` init, the catalog is seeded automatically:
 
 - **OS Subsystems** (4 packages) → auto-installed into `installed/`
 - **OS Services** (2 packages) → placed in `available/`
-- **Domain Specialists** (27 packages) → placed in `available/`
+- **Domain Specialists** (26 packages) → placed in `available/`
 - **Community MCPs** (5 packages) → placed in `available/`
 
 ### OS Subsystems (auto-installed)
@@ -158,7 +158,6 @@ The registry ships a built-in catalog of **38 packages** via `agent_utilities/co
 | `arr-mcp` | Media | Sonarr, Radarr, Lidarr automation |
 | `qbittorrent-agent` | Media | Torrent management, RSS |
 | `home-assistant-agent` | IoT | Smart home control, automations |
-| `adguard-home-agent` | IoT | DNS filtering, DHCP, query logs |
 | `uptime-kuma-agent` | IoT | Uptime monitoring, status pages |
 | `stirlingpdf-agent` | Documents | PDF manipulation, OCR |
 | `documentdb-mcp` | Database | MongoDB-compatible on PostgreSQL |
@@ -187,7 +186,7 @@ The registry ships a built-in catalog of **38 packages** via `agent_utilities/co
 ```python
 # Auto-seeded on first init (transparent to user)
 registry = AgentRegistry()
-# → 4 packages in installed/, 34 in available/
+# → 4 packages in installed/, 33 in available/
 
 # Refresh catalog like `apt update`
 registry.reseed_defaults()

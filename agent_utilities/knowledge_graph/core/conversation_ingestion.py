@@ -22,6 +22,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Parse-time guards (CONCEPT:KG-2.1): chat transcripts can contain multi-MB
+# tool_result blocks (full file reads / command output). Truncating content and
+# capping message count AT PARSE TIME keeps ingestion fast + bounded — without
+# these, str(content) over large logs (e.g. the agent's own session transcripts)
+# blows up CPU/RAM before any node is written.
+_MAX_MSG_CHARS = 4000
+_MAX_MSGS_PER_CONV = 200
+
 # IDE-specific log directory patterns
 IDE_LOG_PATHS: dict[str, list[str]] = {
     "antigravity": [
@@ -231,19 +239,23 @@ def parse_claude_logs(projects_dir: Path) -> list[dict[str, Any]]:
     for f in sorted(projects_dir.glob("**/*.jsonl")):
         try:
             messages = []
-            for line in f.read_text(errors="replace").strip().split("\n"):
+            for line in f.read_text(errors="replace").splitlines():
                 if not line.strip():
                     continue
                 try:
                     msg = json.loads(line)
-                    messages.append(
-                        {
-                            "role": msg.get("role", "user"),
-                            "content": str(msg.get("content", "")),
-                        }
-                    )
                 except json.JSONDecodeError:
                     continue
+                # Truncate per-message content at parse time so multi-MB
+                # tool_result blocks can't blow up memory/CPU.
+                messages.append(
+                    {
+                        "role": msg.get("role", "user"),
+                        "content": str(msg.get("content", ""))[:_MAX_MSG_CHARS],
+                    }
+                )
+                if len(messages) >= _MAX_MSGS_PER_CONV:
+                    break
 
             if messages:
                 conv_id = f.stem
@@ -351,14 +363,21 @@ def discover_all_conversations(
 def ingest_conversations_to_kg(
     conversations: list[dict[str, Any]] | None = None,
     ides: list[str] | None = None,
+    limit: int | None = None,
+    extract_concepts: bool = True,
 ) -> dict[str, Any]:
     """Ingest external IDE conversations into the Knowledge Graph.
 
-    Creates Thread and Message nodes with proper provenance linking.
+    Creates Thread and Message nodes with provenance linking, and (when
+    ``extract_concepts``) ``Concept`` nodes + ``MENTIONS`` edges per thread so
+    chats interweave with code/docs/prompts (CONCEPT:KG-2.8).
 
     Args:
         conversations: Pre-parsed conversations. If None, auto-discovers.
         ides: List of IDEs to scan (only used if conversations is None).
+        limit: Cap the number of conversations (LLM concept extraction is costly;
+            use a subset for validation runs).
+        extract_concepts: Run LLM concept extraction per thread.
 
     Returns:
         Summary dict with counts per IDE.
@@ -371,9 +390,28 @@ def ingest_conversations_to_kg(
 
     if conversations is None:
         conversations = discover_all_conversations(ides)
+    if limit:
+        conversations = conversations[:limit]
+
+    _llm = None
+    if extract_concepts:
+        try:
+            from agent_utilities.knowledge_graph.enrichment.cards import (
+                make_lite_llm_fn,
+            )
+
+            _llm = make_lite_llm_fn()
+        except Exception:  # noqa: BLE001
+            _llm = None
 
     summary: dict[str, int] = {}
     ingested = 0
+    concepts_total = 0
+    # Per-conversation concept-extraction inputs, collected during the structural
+    # pass and run CONCURRENTLY afterwards. The LLM call is I/O-bound (releases
+    # the GIL) and vLLM batches concurrent requests, so fanning out turns N
+    # sequential ~20s calls into ~one batch. (CONCEPT:KG-2.8 ingestion throughput)
+    pending_extractions: list[tuple[str, str, str, str]] = []
 
     for conv in conversations:
         source = conv.get("source", "unknown")
@@ -430,14 +468,105 @@ def ingest_conversations_to_kg(
                     properties={"source": source},
                 )
 
+            # Concept extraction so this thread interweaves with code/docs/prompts.
+            # Defer the (slow, I/O-bound) LLM call: collect its inputs and fan
+            # them out concurrently after the structural pass (see below).
+            if _llm is not None and messages:
+                agg = "\n".join(m.get("content", "") for m in messages[:max_msgs])[
+                    :8000
+                ]
+                pending_extractions.append(
+                    (conv_id, agg, conv.get("title", ""), source)
+                )
+
             summary[source] = summary.get(source, 0) + 1
             ingested += 1
 
         except Exception as e:
             logger.warning(f"Failed to ingest conversation {conv_id}: {e}")
 
+    # Concurrent concept extraction across all conversations. LLM calls run in a
+    # bounded ThreadPoolExecutor (GIL released during the network wait, vLLM
+    # batches the requests); resulting Concept/MENTIONS writes are applied as
+    # each call completes. (CONCEPT:KG-2.8 ingestion throughput)
+    if _llm is not None and pending_extractions:
+        from concurrent.futures import ThreadPoolExecutor
+
+        from agent_utilities.knowledge_graph.enrichment.extractors.text import (
+            extract_text_concepts,
+        )
+
+        try:
+            workers = int(os.getenv("KG_CHAT_CONCURRENCY", "8"))
+        except ValueError:
+            workers = 8
+        workers = max(1, min(workers, len(pending_extractions)))
+
+        def _extract(item: tuple[str, str, str, str]) -> tuple[str, str, list[Any]]:
+            cid, text, title, src = item
+            try:
+                concepts, _edges = extract_text_concepts(
+                    text, cid, _llm, source_type="chat", title=title
+                )
+                return cid, src, concepts
+            except Exception as e:  # noqa: BLE001
+                logger.debug("chat concept extraction failed for %s: %s", cid, e)
+                return cid, src, []
+
+        all_concepts: list[Any] = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for cid, src, concepts in pool.map(_extract, pending_extractions):
+                for c in concepts:
+                    engine.add_node(
+                        node_id=c.id,
+                        node_type="Concept",
+                        properties={
+                            "name": c.name,
+                            "kind": c.kind,
+                            "summary": c.summary,
+                            "source_ids": json.dumps(c.source_ids),
+                        },
+                    )
+                    engine.link_nodes(
+                        source_id=cid,
+                        target_id=c.id,
+                        rel_type="MENTIONS",
+                        properties={"source": src},
+                    )
+                    all_concepts.append(c)
+                    concepts_total += 1
+
+        # Cross-link chat concepts → Code/Feature (RELATES_TO/REALIZES) so chats
+        # interweave with the codebase, same as docs/prompts. Best-effort + gated
+        # by KG_CONCEPT_CODE_LINK. (CONCEPT:KG-2.8)
+        if all_concepts and os.getenv("KG_CONCEPT_CODE_LINK", "1") != "0":
+            try:
+                from agent_utilities.knowledge_graph.enrichment.semantic import (
+                    link_concepts_to_code,
+                    make_embed_fn,
+                )
+
+                backend = getattr(engine, "backend", None)
+                search = getattr(backend, "semantic_search", None)
+                if callable(search):
+                    edges = link_concepts_to_code(
+                        all_concepts,
+                        make_embed_fn(),
+                        lambda vec, k: search(vec, k) or [],
+                    )
+                    for edge in edges:
+                        engine.link_nodes(
+                            source_id=edge.source,
+                            target_id=edge.target,
+                            rel_type=edge.rel_type,
+                            properties={"source": "concept_link"},
+                        )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("chat concept→code linking failed: %s", exc)
+
     return {
         "total_ingested": ingested,
         "per_ide": summary,
         "total_messages": sum(len(c.get("messages", [])) for c in conversations),
+        "concepts": concepts_total,
     }

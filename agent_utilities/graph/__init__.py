@@ -3,15 +3,7 @@
 This package provides a modular entrypoint for graph orchestration
 """
 
-from .builder import (
-    build_tag_env_map,
-    # Builder
-    create_agent,
-    create_graph_agent,
-    create_master_graph,
-    initialize_graph_from_workspace,
-)
-from .config_helpers import (
+from agent_utilities.core.config import (
     DEFAULT_GRAPH_TIMEOUT,
     emit_graph_event,
     get_discovery_registry,
@@ -20,6 +12,15 @@ from .config_helpers import (
     load_node_agents_registry,
     load_specialized_prompts,
     save_mcp_config,
+)
+
+from .builder import (
+    build_tag_env_map,
+    # Builder
+    create_agent,
+    create_graph_agent,
+    create_master_graph,
+    initialize_graph_from_workspace,
 )
 from .executor import agent_matches_node_id, get_step_descriptions
 from .graph_models import (
@@ -57,7 +58,7 @@ from .kg_graph_factory import (
     build_pydantic_graph_from_kg,
 )
 from .manifest_generators import (
-    # CONCEPT:ORCH-1.25 — Manifest Generators
+    # CONCEPT:ORCH-1.8 — Manifest Generators
     manifest_for_enterprise,
     manifest_from_department,
     manifest_from_planner,
@@ -82,7 +83,7 @@ from .reactive import (
     BehaviorDispatcher,
     BudgetGuard,
     BudgetTrippedException,
-    # CONCEPT:ORCH-1.28 — Graph-Native Reactive Event Sourcing and OS Guardrails
+    # CONCEPT:ORCH-1.10 — Graph-Native Reactive Event Sourcing and OS Guardrails
     EventLedger,
     reactive_behavior,
 )
@@ -115,7 +116,7 @@ __all__ = [
     "run_graph",
     "run_graph_stream",
     "validate_graph",
-    # CONCEPT:ORCH-1.28 — Graph-Native Reactive Event Sourcing and OS Guardrails
+    # CONCEPT:ORCH-1.10 — Graph-Native Reactive Event Sourcing and OS Guardrails
     "EventLedger",
     "BehaviorDispatcher",
     "reactive_behavior",

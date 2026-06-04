@@ -22,7 +22,7 @@ To prevent catastrophic forgetting when modifying the Knowledge Graph, we implem
 ### Heavy Thinking & Horizon-Aware Curriculum (AHE-3.7 & AHE-3.9)
 For complex tasks, **Heavy Thinking Orchestration** spawns multiple parallel thinker agents to explore trajectories before synthesizing a consensus. Simultaneously, the **Horizon-Aware Task Curriculum** uses macro-action composition and subgoal checkpoints to train agents on progressively longer execution horizons without losing focus.
 
-### Agentic-iModels & Interpretability (AHE-3.15 & AHE-3.16)
+### Agentic-iModels & Interpretability (AHE-3.8 & AHE-3.8)
 The **Agent-Interpretable Model Evolver** autonomously evolves scikit-learn compatible models optimized for both predictive accuracy and LLM readability. **LLM-Graded Interpretability Tests** run 200-test protocols to verify the agent can correctly simulate the model's behavior natively.
 
 ## Benefits Introduced
@@ -31,13 +31,12 @@ The **Agent-Interpretable Model Evolver** autonomously evolves scikit-learn comp
 - **Explainable Autonomy**: Through the iModels integration, the agents can natively interpret and defend the machine learning models they use.
 - **Measurable Evolution**: The Continuous Evaluation Engine (EvalRunner) provides exact Jaccard metrics, cosine semantic tracking, and LLM-as-Judge scores to quantitatively prove the agent is getting smarter.
 
-### Workflow Distillation & Bundle Distribution (ORCH-1.25 × AHE-3.2)
+### Workflow Distillation & Bundle Distribution (ORCH-1.8 × AHE-3.2)
 The **Workflow Distillation Hook** closes the evolution feedback loop by automatically promoting successful workflow execution patterns into reusable Workflow+TeamConfig pairs in the Knowledge Graph. When `synthesizer_step` completes a successful execution, an asynchronous background task fires the distillation hook. The hook tracks success counts per canonical workflow pattern (based on agent topology, not task content) and only promotes patterns that exceed the configurable `promotion_threshold` (default: 3 successes). Both the threshold and the `quality_score_minimum` are configurable from `config.json`.
 
-Promoted patterns are persisted as paired `WorkflowDefinition` + `TeamConfigNode` KG entries and can be exported as **Unified Bundles** — YAML/JSON artifacts that package workflows with their proven team compositions. Domain-specific preset bundles (finance, infrastructure, research) ship with `agent-utilities` and can be seeded into a fresh KG via `seed_all_presets()`.
+Promoted patterns are persisted as paired `WorkflowDefinition` + `TeamConfigNode` KG entries that package workflows with their proven team compositions.
 
-- **Source Code**: `agent_utilities/workflows/distillation_hook.py`, `agent_utilities/workflows/bundle.py`
-- **Presets**: `agent_utilities/workflows/presets/`
+- **Source Code**: `agent_utilities/workflows/distillation_hook.py`
 - **Hot Path**: `synthesizer_step → WorkflowDistillationHook.on_execution_complete()`
 
 ## Key Concepts Leveraged
@@ -46,7 +45,7 @@ Promoted patterns are persisted as paired `WorkflowDefinition` + `TeamConfigNode
 - **AHE-3.6**: Continual Learning Engine
 - **AHE-3.7**: Heavy Thinking Orchestration
 - **AHE-3.9**: Horizon-Aware Task Curriculum
-- **AHE-3.15**: Agent-Interpretable Model Evolver
+- **AHE-3.8**: Agent-Interpretable Model Evolver
 
 ## BrowseComp-Plus Extensions (arXiv:2508.06600)
 
@@ -69,17 +68,17 @@ Measures citation quality in agent responses. Extracts KG node references (`[KG:
 
 ## Evolved Self-Evolution Capabilities (Phase 10 — DSPy-Driven Self-Evolution)
 
-### Physical Knowledge Distillation Engine (AHE-4.0) 🔬
+### Physical Knowledge Distillation Engine (AHE-3.9) 🔬
 The **Physical Knowledge Distillation Engine** represents a monumental architectural breakthrough in self-evolution. Rather than restricting optimized prompts and tool schemas to dynamic, volatile in-memory Knowledge Graph nodes, the distiller maps semantic components from the graph back into structural, human-readable file system changes. This allows the system to bridge the divide between runtime optimization and permanent code enhancement.
 - **Source Code**: `agent_utilities/knowledge_graph/distillation/physical_distiller.py`
-- **Hot Path**: `PhysicalDistillationEngine.distill_kg_to_code(failure_cluster_id=...)`
+- **Hot Path**: `PhysicalDistillationEngine.distill_skill(...)` / `distill_mcp_tool(...)` / `distill_system_prompt(...)`
 
-### Multi-Optimizer Prompt Selection Strategy (AHE-4.1) 🔬
+### Multi-Optimizer Prompt Selection Strategy (AHE-3.10) 🔬
 The **Multi-Optimizer Prompt Selection Strategy** ensures that the optimization behavior scales appropriately based on the failure footprint. When optimizing prompt signatures via DSPy, the system dynamically inspects failure cluster scales. For highly localized failures, lightweight bootstrap optimizers (like `BootstrapFewShot`) are used. For widespread systemic regressions, the system employs high-parameter multi-generation optimization (like `MIPROv2`) to perform multi-stage hyperparameter tuning.
 - **Source Code**: `agent_utilities/harness/evolve_agent.py`
 - **Hot Path**: `EvolveAgent._dspy_optimize_cluster(failure_cluster=...)`
 
-### GitOps Commit & Evolution Boundary Traceability (AHE-4.2) 🔬
+### GitOps Commit & Evolution Boundary Traceability (AHE-3.11) 🔬
 Every evolutionary cycle is governed by strict, declarative **GitOps boundaries**. When changes are distilled to the physical file system, a structured, isolated git commit is generated programmatically. This commit is tagged with concept traceability IDs and the source failure cluster ID, linking runtime agent telemetry directly to code version control.
 - **Source Code**: `agent_utilities/knowledge_graph/distillation/physical_distiller.py`
-- **Hot Path**: `PhysicalDistillationEngine._commit_to_gitops_boundary(file_path=..., change_desc=...)`
+- **Hot Path**: `PhysicalDistillationEngine.commit_distilled_changes(...)`

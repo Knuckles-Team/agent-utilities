@@ -258,7 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="agent-utilities-memory",
-        description="Cross-Agent Observational Memory Bridge (KG-2.10)",
+        description="Cross-Agent Observational Memory Bridge (KG-2.7)",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     sub = parser.add_subparsers(dest="command", help="Available commands")

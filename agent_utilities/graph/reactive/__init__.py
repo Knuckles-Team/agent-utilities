@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ORCH-1.28 — Graph-Native Reactive Event Sourcing and OS Guardrails.
+"""CONCEPT:ORCH-1.10 — Graph-Native Reactive Event Sourcing and OS Guardrails.
 
 Exports standard APIs for event logging, dynamic behavioral routing,
 and multi-axis boundary constraints.

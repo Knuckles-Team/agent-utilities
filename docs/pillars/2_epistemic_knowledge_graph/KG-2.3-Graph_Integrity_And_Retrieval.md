@@ -4,7 +4,7 @@
 Systematic retrieval quality measurement with 5-mode failure taxonomy (drift, truncation, staleness, low-relevance, inter-agent), configurable per-SchemaPack relevance thresholds, and temporal freshness scoring. Based on Ambekar (2026) research.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/retrieval_quality.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/retrieval_quality.py``
 - **Pillar**: KG
 
 ## Documentation Coverage
@@ -15,7 +15,7 @@ Systematic retrieval quality measurement with 5-mode failure taxonomy (drift, tr
 Tracks retrieval quality scores and failure modes across agent boundaries via `ContextProvenanceRecord`. Detects cascading retrieval degradation in multi-agent pipelines.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/retrieval_quality.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/retrieval_quality.py``
 - **Pillar**: KG
 
 ## Documentation Coverage
@@ -26,7 +26,7 @@ Tracks retrieval quality scores and failure modes across agent boundaries via `C
 Weighted semantic+keyword search scoring (72%/28% default) with CamelCase/snake_case token splitting, phrase boost, and symbol-specific matching. Uses existing `create_embedding_model()` infrastructure. Adapted from contextplus's embedding.ts.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/hybrid_search_scorer.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py``
 - **Pillar**: KG
 
 ## Documentation Coverage
@@ -37,7 +37,7 @@ Weighted semantic+keyword search scoring (72%/28% default) with CamelCase/snake_
 Collapses separate RAG vector index into KG-native retrieval using three acceleration layers: similarity-edge shortcuts (O(degree) vs O(N)), spectral cluster scoping (search space reduction), and hybrid semantic+keyword scoring. Drop-in enhancement for HybridRetriever via `retrieve_unified()`.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/unified_rag_kg.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py``
 - **Pillar**: KG
 
 ## Documentation Coverage
@@ -48,7 +48,7 @@ Collapses separate RAG vector index into KG-native retrieval using three acceler
 Migrates standard RAG retrieval to pre-computed SimilarityEdgeNode shortcuts for O(degree) retrieval. Manages distillation index lifecycle: batch creation, incremental updates, stale edge pruning, and coverage health monitoring. Includes `migrate_existing()` for batch migration of legacy nodes.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/graph_distillation.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py``
 - **Pillar**: KG
 
 ## Documentation Coverage
@@ -62,7 +62,7 @@ Fixed corpus evaluation mode for reproducible deep-research benchmarking. Inspir
 ## Implementation Details
 - **Source Code**: ``agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py``
 - **Hot Path**: `HybridRetriever.retrieve_hybrid(corpus_id=...)` → Cypher `WHERE n.id IN $corpus_ids`
-- **MCP Tools**: `kg_create_corpus`, `kg_list_corpora`, `kg_freeze_corpus`
+- **Python API**: `CorpusManager.create_corpus()`, `CorpusManager.list_corpora()`, `CorpusManager.freeze_corpus()` (in `evaluation_corpus.py`)
 - **Pillar**: KG
 
 # Hard Negative Mining (CONCEPT:KG-2.3)

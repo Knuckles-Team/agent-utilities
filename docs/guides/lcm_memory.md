@@ -13,16 +13,16 @@ are always recoverable by traversing the DAG.
 ```mermaid
 flowchart TD
     subgraph Thread["Conversation Thread"]
-        M1[KG-2.10: Message 1] --> M2[KG-2.10: Message 2]
-        M2 --> M3[KG-2.10: Message 3]
-        M3 --> M4[KG-2.10: Message 4]
-        M4 --> M5[KG-2.10: Message 5]
+        M1[KG-2.6: Message 1] --> M2[KG-2.6: Message 2]
+        M2 --> M3[KG-2.6: Message 3]
+        M3 --> M4[KG-2.6: Message 4]
+        M4 --> M5[KG-2.6: Message 5]
     end
 
     subgraph DAG["Summary DAG"]
-        S1["KG-2.10: L1 Summary\n(msgs 1-5)"]
-        S2["KG-2.10: L1 Summary\n(msgs 6-10)"]
-        S3["KG-2.10: L2 Summary\n(L1 summaries)"]
+        S1["KG-2.6: L1 Summary\n(msgs 1-5)"]
+        S2["KG-2.6: L1 Summary\n(msgs 6-10)"]
+        S3["KG-2.6: L2 Summary\n(L1 summaries)"]
     end
 
     M1 -.->|SUMMARIZES| S1
@@ -41,52 +41,43 @@ flowchart TD
 | **Escalation** | Creating higher-level summaries from existing lower-level ones |
 | **Expansion** | Recovering original messages by traversing the DAG downward |
 
-## MCP Tool Usage
+## Programmatic Usage (`AgentContextManager`)
 
-All LCM operations are exposed through the `kg_memory` MCP tool with specific actions:
+LCM operations are driven automatically by the maintenance scheduler (see
+*Compaction* below) and are also available directly on `AgentContextManager`
+(aliased as `ElasticContextManager`) in
+`knowledge_graph/memory/agent_context.py`. There is no standalone `kg_memory`
+MCP tool — these are Python methods invoked by the engine.
 
 ### Compact a Thread
 
-```json
-{
-  "action": "compact",
-  "content": "thread_abc123"
-}
+```python
+ecm.compact_thread(thread_id="thread_abc123", engine=engine, strategy="progressive")
 ```
 
 Triggers compaction for the specified thread. Returns status and summary count.
 
 ### Grep Memories
 
-```json
-{
-  "action": "grep",
-  "query": "architecture decision",
-  "content": "antigravity"
-}
+```python
+AgentContextManager.grep_memories(query="architecture decision", partition="antigravity", engine=engine)
 ```
 
-Searches across all messages and summaries. The `content` field is used as the
-partition filter for per-IDE memory isolation.
+Searches across all messages and summaries. The `partition` argument provides
+per-IDE memory isolation.
 
 ### Describe a Summary
 
-```json
-{
-  "action": "describe",
-  "content": "sum_20250516_143022"
-}
+```python
+AgentContextManager.describe_summary("sum_20250516_143022", engine=engine)
 ```
 
 Returns metadata about a summary node: level, child count, creation time, content preview.
 
 ### Expand a Summary
 
-```json
-{
-  "action": "expand",
-  "content": "sum_20250516_143022"
-}
+```python
+AgentContextManager.expand_summary("sum_20250516_143022", engine=engine)
 ```
 
 Traverses the Summary DAG to recover the original source messages that were compacted.
@@ -104,24 +95,29 @@ LCM supports per-IDE memory isolation via the `partition` property:
 Partitions are automatically assigned during conversation ingestion and respected
 by all LCM operations.
 
-## Compaction Daemon
+## Compaction (Maintenance Scheduler Tick)
 
-The `KG-Compaction-Daemon` runs as a background thread in the KG engine:
+Compaction is no longer a standalone daemon thread. It runs as the
+`_tick_compaction` job inside the **consolidated** `_maintenance_scheduler_loop`
+(`knowledge_graph/core/engine_tasks.py`), which gates all `_tick_*` jobs behind
+a single background-throttle:
 
-- **Interval**: Every 30 minutes
-- **Threshold**: Threads with > 30 uncompacted messages
-- **Strategy**: Progressive compaction (oldest messages first)
+- **Interval**: Every 30 minutes (the `compaction` job is registered at `1800.0`s)
+- **Threshold**: `Thread` nodes with > 30 uncompacted messages
+- **Strategy**: Progressive compaction (oldest messages first), via
+  `ElasticContextManager.compact_thread(strategy="progressive")`
 - **Limit**: Processes up to 3 threads per cycle
 
 ### Configuration
 
-No additional configuration needed. The daemon starts automatically with the
+No additional configuration needed. The scheduler starts automatically with the
 KG engine. To adjust the threshold, modify the `COMPACTION_THRESHOLD` constant
-in `engine_tasks.py`.
+in `_tick_compaction` (`engine_tasks.py`).
 
-## Evolution Daemon
+## Evolution (Maintenance Scheduler Tick)
 
-The `KG-Evolution-Daemon` runs alongside the compaction daemon:
+The `_tick_evolution` job runs alongside compaction in the same consolidated
+scheduler loop:
 
 - **Interval**: Every 60 minutes (configurable via `KG_EVOLUTION_INTERVAL` env var)
 - **Purpose**: Scans KG for unresolved research topics, runs relevance sweeps
@@ -129,22 +125,19 @@ The `KG-Evolution-Daemon` runs alongside the compaction daemon:
 
 ## Implementation Details
 
-### ContextCompactor Extensions
+### AgentContextManager (unified entry point)
 
-The existing `ContextCompactor` class was extended with:
+All LCM operations live on `AgentContextManager`
+(`knowledge_graph/memory/agent_context.py`); `ElasticContextManager` is a
+backward-compatible alias for the same class:
 
+- `compact_thread()` — Orchestrates compaction for a specific thread
 - `persist_compaction()` — Writes Summary nodes and SUMMARIZES edges to KG
 - `escalate()` — Builds higher-level summaries from existing L1 summaries
 - `get_summary_dag()` — Retrieves the full summary hierarchy for a thread
-
-### ElasticContextManager Extensions
-
-The `ElasticContextManager` serves as the unified entry point:
-
-- `compact_thread()` — Orchestrates compaction for a specific thread
-- `grep()` — Partition-aware search across messages and summaries
-- `describe()` — Summary metadata retrieval
-- `expand()` — DAG traversal for message recovery
+- `grep_memories()` — Partition-aware search across messages and summaries
+- `describe_summary()` — Summary metadata retrieval
+- `expand_summary()` — DAG traversal for message recovery
 
 All operations follow the vertical scaling principle — extending existing pillars
 rather than creating parallel modules.

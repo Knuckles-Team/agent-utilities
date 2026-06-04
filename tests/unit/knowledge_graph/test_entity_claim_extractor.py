@@ -116,7 +116,7 @@ class TestEntityClaimExtractor:
                 return node.model_dump()
 
             def _upsert_node(self, label, node_id, data):
-                pass
+                return None
 
             def link_nodes(self, source, target, edge_type, metadata=None):
                 self.graph.add_edge(

@@ -15,7 +15,7 @@ Abstracted-backend provider-aware prompt optimization with static and KG-backed 
 Runtime function registration with input/output JSON schemas and declarative trigger bindings (http/cron/event). Unified `discover_all_capabilities()` for AgentOS-style category collapse via KG.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/engine_registry.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/orchestration/engine_query.py`` (`discover_all_capabilities()`)
 - **Pillar**: ECO
 
 ## Documentation Coverage
@@ -26,7 +26,7 @@ Runtime function registration with input/output JSON schemas and declarative tri
 On-the-fly skill creation and synthesis to avoid catastrophic forgetting during continual learning. SkillNeologismDetector (identifies when existing skills don't cover a task), SkillFactory (creates new skills from execution traces), SkillMerger (detects overlapping skills via Jaccard similarity and consolidates). Derived from Skill Neologisms (arXiv:2605.04970v1).
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/skill_evolver.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/adaptation/skill_evolver.py``
 - **Pillar**: ECO
 
 ## Documentation Coverage

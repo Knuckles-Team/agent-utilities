@@ -24,8 +24,6 @@ from .evidence_corpus import (
 from .manifest import ComponentType
 from .trace_backend import TraceBackend
 
-# --- Merged from continuous_evaluation_engine.py ---
-
 """Automated Trace Distillation Pipeline.
 
 CONCEPT:AHE-3.0 — Agentic Harness Engineering (Experience Observability)
@@ -460,36 +458,6 @@ class TraceDistiller:
         logger.info(f"TraceDistiller: Evidence persisted to {output_dir}")
 
 
-# --- Merged from continuous_evaluation_engine.py ---
-
-"""Backtest / Evaluation Harness — strategy validation and capture.
-
-CONCEPT:AHE-3.4 — Backtest Evaluation Harness
-
-Domain-agnostic backtesting and evaluation harness that extends
-KGEvalCapture.  Records multi-dimensional evaluation results with
-walk-forward validation windows and benchmark comparison.
-
-Inspired by Vibe-Trading's 7 backtest engines with statistical validation
-(Monte Carlo, Bootstrap CI, Walk-Forward).
-
-Usage::
-
-    from agent_utilities.harness.continuous_evaluation_engine import BacktestHarness
-
-    harness = BacktestHarness()
-    run_id = harness.create_run(
-        strategy_id="strategy:momentum_v2",
-        start_date="2024-01-01",
-        end_date="2024-12-31",
-        parameters={"lookback": 20, "threshold": 0.02},
-    )
-    harness.record_metric(run_id, "sharpe_ratio", 1.45)
-    harness.record_metric(run_id, "max_drawdown", 0.12)
-    harness.complete_run(run_id, final_capital=112_500.0, total_trades=47)
-"""
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -869,21 +837,6 @@ class BacktestHarness:
             except Exception as e:
                 logger.warning("Failed to purge backtest data: %s", e)
         return count
-
-
-# --- Merged from evaluation.py ---
-
-#!/usr/bin/python
-"""Evaluation & Monitoring Framework — CONCEPT:AHE-3.1
-
-Multi-dimensional evaluation with LLM-as-Judge rubrics, trend monitoring,
-quality alerting, and human calibration support.
-
-Design-pattern source: Chapter 19 — Evaluation and Monitoring.
-
-OWL: :EvaluationRecord rdfs:subClassOf :Observation
-See docs/pillars/architecture_c4.md §CONCEPT:AHE-3.1
-"""
 
 
 logger = logging.getLogger(__name__)
@@ -1558,22 +1511,6 @@ class EvalRunner:
                 fallback_score,
                 f"LLM judge unavailable, using semantic fallback: {exc}",
             )
-
-
-# --- Merged from continuous_evaluation_engine.py ---
-
-#!/usr/bin/python
-"""CONCEPT:AHE-3.3 — LLM-Graded Interpretability Tests.
-
-Implements the 6-category interpretability testing protocol from
-arXiv:2605.03808. Tests whether an LLM can correctly answer quantitative
-questions about a model solely from its ``__str__()`` output.
-
-Integrates with EvalRunner (CONCEPT:AHE-3.1) for LLM-as-Judge scoring
-and EvaluationMonitor for trend tracking.
-
-See docs/overview.md §CONCEPT:AHE-3.3
-"""
 
 
 if TYPE_CHECKING:

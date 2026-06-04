@@ -26,6 +26,7 @@ The engine is composed of focused mixins for maintainability:
 - ``engine_registry.py``: Identity, prompt, resource, and codemap management.
 """
 
+import asyncio
 import json
 import logging
 import math
@@ -33,6 +34,7 @@ import os
 from enum import Enum, StrEnum
 from typing import Any
 
+from ...core.registry.kg_adapter import FocusedSubgraph, RegistryMixin
 from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
 from ..orchestration.engine_ahe import AHEMixin
@@ -41,7 +43,6 @@ from ..orchestration.engine_query import QueryMixin
 from .engine_ingestion import IngestionMixin
 from .engine_mcp_discovery import MCPDiscoveryMixin
 from .engine_memory import MemoryMixin
-from .engine_registry import FocusedSubgraph, RegistryMixin
 from .engine_tasks import TaskManagerMixin
 from .graph_compute import GraphComputeEngine
 
@@ -78,6 +79,7 @@ class RoutingStrategy(StrEnum):
     HYBRID = "hybrid"  # Writes → backend-first, reads → compute-first
 
 
+# implements core.execution.ExecutionEngine
 class IntelligenceGraphEngine(
     QueryMixin,
     MemoryMixin,
@@ -119,12 +121,14 @@ class IntelligenceGraphEngine(
                 self.backend = active_backend
             elif db_path:
                 self.backend = create_backend(db_path=db_path)
-            elif os.getenv("AGENT_UTILITIES_TESTING", "false").lower() == "true":
-                self.backend = create_backend(db_path=":memory:")
             else:
-                raise RuntimeError(
-                    "A persistent graph backend is required. Memory-only mode is no longer supported."
-                )
+                created_backend = create_backend()
+                if created_backend is not None:
+                    self.backend = created_backend
+                else:
+                    raise RuntimeError(
+                        "A persistent graph backend is required. Memory-only mode is no longer supported."
+                    )
 
         # Initialize compiled / optimized Graph Compute Engine (Rust/epistemic-graph)
         self.graph_compute = (
@@ -153,9 +157,7 @@ class IntelligenceGraphEngine(
                     "MATCH (t:Task {status: 'pending'}) RETURN count(t) as c"
                 )
                 if pending and pending[0]["c"] > 0:
-                    # Avoid auto-starting during unit tests to prevent thread deadlocks
-                    if os.getenv("AGENT_UTILITIES_TESTING", "false").lower() != "true":
-                        self.start_task_workers()
+                    self.start_task_workers()
             except Exception:
                 logger.debug(
                     "Failed to start task workers on initialization", exc_info=True
@@ -190,7 +192,7 @@ class IntelligenceGraphEngine(
             return 0
 
         try:
-            from ...graph.service_registry import ServiceRegistry
+            from ...core.registry.service_adapter import ServiceRegistry
 
             registry = ServiceRegistry.instance()
             registry.initialize()
@@ -291,31 +293,46 @@ class IntelligenceGraphEngine(
                 clean_data[k] = v
         return clean_data
 
+    # Backends with a fixed, column-typed schema: writing a property that is
+    # not a declared column is an error, so props must be filtered (extras are
+    # routed to the catch-all ``metadata`` column). Schemaless backends
+    # (epistemic_graph/neo4j/falkordb) accept arbitrary properties as-is.
+    _SCHEMA_BACKED = {"LadybugBackend", "PostgreSQLBackend", "TieredGraphBackend"}
+
+    def _schema_valid_keys(self, label: str | None) -> set[str] | None:
+        """Declared columns for ``label`` on a schema-backed backend, else None."""
+        if (
+            not self.backend
+            or self.backend.__class__.__name__ not in self._SCHEMA_BACKED
+            or not label
+        ):
+            return None
+        from agent_utilities.models.schema_definition import SCHEMA
+
+        for node in SCHEMA.nodes:
+            if node.name == label:
+                return set(node.columns.keys())
+        return None
+
     def _get_set_clause(
         self, data: dict[str, Any], alias: str = "n", label: str | None = None
     ) -> str:
         """Generate a SET clause for a Cypher query from a dictionary.
 
-        Filters properties against the schema if the backend is Ladybug.
+        On schema-backed backends, properties are filtered to declared columns.
         """
         if label:
             label = self._normalize_label(label)
-        valid_keys = None
-        is_ladybug = (
-            self.backend and self.backend.__class__.__name__ == "LadybugBackend"
-        )
 
-        # LadybugDB rel tables have no properties in our current schema definition.
-        if is_ladybug and alias == "r":
+        # Relationship tables have no properties in our current schema definition.
+        if (
+            alias == "r"
+            and self.backend
+            and (self.backend.__class__.__name__ in ("LadybugBackend",))
+        ):
             return ""
 
-        if is_ladybug and label:
-            from agent_utilities.models.schema_definition import SCHEMA
-
-            for node in SCHEMA.nodes:
-                if node.name == label:
-                    valid_keys = set(node.columns.keys())
-                    break
+        valid_keys = self._schema_valid_keys(label)
 
         sets = []
         for k in data.keys():
@@ -339,25 +356,34 @@ class IntelligenceGraphEngine(
         res = self.backend.execute(update_query, data)
 
         if not res:
-            # 2. If not found, create
-            valid_keys = None
-            is_ladybug = self.backend.__class__.__name__ == "LadybugBackend"
-            if is_ladybug and label:
-                from agent_utilities.models.schema_definition import SCHEMA
+            # 2. If not found, create. On schema-backed backends, filter props to
+            # declared columns and fold any extras into the ``metadata`` column so
+            # no data is lost on the durable tier (the L1 compute graph still gets
+            # the full property set via ``graph_compute.add_node``).
+            valid_keys = self._schema_valid_keys(label)
 
-                for node in SCHEMA.nodes:
-                    if node.name == label:
-                        valid_keys = set(node.columns.keys())
-                        break
-
-            create_data = {}
+            create_data: dict[str, Any] = {}
+            extras: dict[str, Any] = {}
             for k, v in data.items():
-                if k == "id":
+                if k == "id" or valid_keys is None or k in valid_keys:
                     create_data[k] = v
-                elif valid_keys is not None and k not in valid_keys:
-                    continue
-                else:
-                    create_data[k] = v
+                elif k != "metadata":
+                    extras[k] = v
+
+            if extras and valid_keys is not None and "metadata" in valid_keys:
+                import json
+
+                meta: dict[str, Any] = {}
+                existing = create_data.get("metadata")
+                if isinstance(existing, str) and existing:
+                    try:
+                        meta = json.loads(existing)
+                    except Exception:
+                        meta = {"_": existing}
+                elif isinstance(existing, dict):
+                    meta = dict(existing)
+                meta.update(extras)
+                create_data["metadata"] = json.dumps(meta, default=str)
 
             cols = ", ".join([f"`{k}`: ${k}" for k in create_data.keys()])
             create_query = f"CREATE (n:{label} {{{cols}}})"
@@ -720,6 +746,30 @@ class IntelligenceGraphEngine(
             "llm_summary": llm_summary[:2000],
         }
 
+    async def run(self, manifest: Any) -> Any:
+        """Unified ExecutionEngine contract entrypoint.
+
+        Plan 03 Step 5 — conforms to ``core.execution.ExecutionEngine``.
+        Additive adapter: normalises ``manifest`` to a query string and runs
+        the engine's native deep-analysis pipeline (:meth:`execute_deep_analysis`),
+        returning a canonical ``ExecutionResult``. Existing behaviour and all
+        other public methods are unchanged.
+        """
+        from agent_utilities.core.execution.models import ExecutionResult
+
+        query = manifest if isinstance(manifest, str) else ""
+        manifest_id = ""
+        if not query:
+            query = getattr(manifest, "query", "") or ""
+            manifest_id = getattr(manifest, "manifest_id", "") or ""
+
+        analysis = await asyncio.to_thread(self.execute_deep_analysis, query)
+        return ExecutionResult(
+            manifest_id=manifest_id,
+            synthesis_output=analysis.get("llm_summary", ""),
+            success=analysis.get("status") == "success",
+        )
+
     def delete_node(self, node_id: str, ephemeral: bool = False) -> None:
         """Remove a node and its associated relationships from the graph.
 
@@ -780,7 +830,7 @@ class IntelligenceGraphEngine(
     def hydrate_compute_engine(self, limit: int = 50000) -> int:
         """Rebuild the Rust compute engine state from the persistent backend.
 
-        CONCEPT:KG-2.16 — On startup (or after a Rust service restart), the
+        CONCEPT:KG-2.7 — On startup (or after a Rust service restart), the
         in-memory graph is empty. This method queries the backend for all
         nodes and edges, then replays them into the compute engine via
         ``batch_update()`` to restore full state parity.
@@ -862,7 +912,7 @@ class IntelligenceGraphEngine(
     ) -> int:
         """Synchronize vector embeddings between LadybugDB and Rust SemanticStore.
 
-        CONCEPT:KG-2.16 — Bidirectional sync to ensure both the persistent
+        CONCEPT:KG-2.7 — Bidirectional sync to ensure both the persistent
         VECTOR index (LadybugDB) and the in-memory SemanticStore (Rust) have
         the same embeddings.
 

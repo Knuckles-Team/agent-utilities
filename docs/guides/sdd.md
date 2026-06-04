@@ -14,14 +14,14 @@ The SDD orchestrator (`sdd/orchestrator.py`) implements a **specification-first 
 graph TD
     subgraph Phase1 [1. Specification Ingestion]
         direction TB
-        Req[ORCH-1.6: requirements.md] --> ORCH-1.6: Spec[Spec]
-        Cons[ORCH-1.6: constraints.md] --> Spec
-        Acc[ORCH-1.6: acceptance.md] --> Spec
+        Req[ORCH-1.5: requirements.md] --> ORCH-1.5: Spec[Spec]
+        Cons[ORCH-1.5: constraints.md] --> Spec
+        Acc[ORCH-1.5: acceptance.md] --> Spec
     end
 
     subgraph Phase2 [2. Plan Generation]
         Spec --> PlanAgent[ORCH-1.2: Planning Agent]
-        PlanAgent --> ImplPlan[ORCH-1.6: Implementation Plan]
+        PlanAgent --> ImplPlan[ORCH-1.5: Implementation Plan]
     end
 
     subgraph Phase3 [3. Task Decomposition]
@@ -41,7 +41,7 @@ graph TD
         DevOpsSpecialist --> Joiner
     end
 
-    Joiner --> Verifier[AHE-3.1: Spec Verifier]
+    Joiner --> Verifier[AHE-3.1: TDD Verification - tests pass]
 
     style Phase1 fill:#f5f5f5,stroke:#666
     style Phase2 fill:#dae8fe,stroke:#6c8ebf
@@ -52,10 +52,14 @@ graph TD
 
 ### Phase 1: Specification Ingestion
 
-Reads `.specify/` directory structures containing:
-- `requirements.md`: Functional requirements
-- `constraints.md`: Non-functional requirements
-- `acceptance.md`: Acceptance criteria
+Reads/writes the `.specify/` directory structure managed by `SDDManager`
+(`sdd/__init__.py`). Artifacts are persisted as Markdown (with JSON sidecars
+for design docs):
+- `constitution.md`: Project constitution (vision, principles, tech stack)
+- `design/<feature_id>/design.md`: KG-gated design (Extend-Before-Invent)
+- `specs/<feature_id>/spec.md`: User stories + acceptance criteria + NFRs
+- `specs/<feature_id>/plan.md`: Implementation plan (approach, risks)
+- `specs/<feature_id>/tasks.md`: Decomposed tasks (spec-kit `[P]` parallel markers)
 
 ### Phase 2: Plan Generation
 
@@ -90,24 +94,23 @@ The SDD pipeline is deeply integrated with the core architecture:
 ```python
 import asyncio
 from agent_utilities.sdd.orchestrator import SDDOrchestrator
-from agent_utilities.core.workspace import get_agent_workspace
+from agent_utilities.models import AgentDeps
 
 async def main():
-    workspace = get_agent_workspace()
+    # AgentDeps carries the workspace path and the agentic `patterns`
+    # helpers (first_run_tests, tdd_red/green/refactor_phase, etc.).
+    deps = AgentDeps(...)
 
-    # Initialize the SDD Pipeline
-    orchestrator = SDDOrchestrator(
-        spec_dir=workspace / ".specify",
-        workspace=workspace,
-    )
+    # Initialize the SDD orchestrator. `spec_generator` is an optional
+    # async callable that turns a goal string into a Spec; when omitted,
+    # a minimal default Spec is used.
+    orchestrator = SDDOrchestrator(deps, spec_generator=None)
 
-    # Run the full pipeline: Ingest -> Plan -> Task -> Execute -> Verify
-    results = await orchestrator.run()
+    # Run the full workflow for a goal:
+    #   baseline tests -> spec -> TDD RED -> implement -> TDD GREEN -> REFACTOR
+    refactored_code = await orchestrator.run_sdd("Add a rate limiter to the API")
 
-    if results.verified:
-        print(f"Implementation complete and verified. Score: {results.verification_score}")
-    else:
-        print("Verification failed. Check the tasks for feedback gradients.")
+    print("SDD workflow complete. Final implementation:\n", refactored_code)
 
 if __name__ == "__main__":
     asyncio.run(main())

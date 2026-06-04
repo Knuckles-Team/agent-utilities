@@ -121,18 +121,32 @@ class TestDocumentIngestionPipeline:
 
     @pytest.mark.asyncio
     @patch("agent_utilities.core.embedding_utilities.create_embedding_model")
-    async def test_generate_embeddings(self, mock_create):
-        """Test embedding generation (currently uses dummy embeddings)."""
-        mock_create.side_effect = Exception("Not available")
+    async def test_generate_embeddings_uses_real_model(self, mock_create):
+        """Embeddings come from the configured model (no dummy zero-vectors)."""
+        fake_model = MagicMock()
+        fake_model.get_text_embedding.side_effect = lambda text: [0.1] * 768
+        mock_create.return_value = fake_model
+
         knowledge_graph = MagicMock()
         knowledge_graph.nx_graph = MagicMock()
-
         pipeline = DocumentIngestionPipeline(knowledge_graph=knowledge_graph)
 
         chunks = ["Chunk 1", "Chunk 2", "Chunk 3"]
         embeddings = await pipeline._generate_embeddings(chunks)
 
-        # Should return dummy embeddings for now
         assert len(embeddings) == 3
-        assert len(embeddings[0]) == 768  # Dummy embedding dimension
-        assert all(e == 0.0 for e in embeddings[0])  # All zeros for dummy
+        assert len(embeddings[0]) == 768
+        assert any(v != 0.0 for v in embeddings[0])  # real, non-zero vectors
+        assert fake_model.get_text_embedding.call_count == 3
+
+    @pytest.mark.asyncio
+    @patch("agent_utilities.core.embedding_utilities.create_embedding_model")
+    async def test_generate_embeddings_raises_when_model_unavailable(self, mock_create):
+        """Plan 02: silent zero-vector fallback is disabled — must raise."""
+        mock_create.side_effect = Exception("Not available")
+        knowledge_graph = MagicMock()
+        knowledge_graph.nx_graph = MagicMock()
+        pipeline = DocumentIngestionPipeline(knowledge_graph=knowledge_graph)
+
+        with pytest.raises(RuntimeError):
+            await pipeline._generate_embeddings(["Chunk 1"])

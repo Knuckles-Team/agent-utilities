@@ -38,18 +38,19 @@ The Company Brain solves this by treating the Knowledge Graph not as a **storage
 │   └─────────┴─────────┴──────────┴──────────┴────────────┘    │
 ├───────────────────────────────────────────────────────────────┤
 │                   Graph Backends                               │
-│   ┌──────────┬──────────┬──────────┬──────────┐              │
-│   │LadybugDB │  Neo4j   │ FalkorDB │   OWL    │              │
-│   └──────────┴──────────┴──────────┴──────────┘              │
+│   ┌──────────────┬──────────┬──────────┬─────────────────┐   │
+│   │epistemic-graph│ Postgres │   OWL    │ contrib (neo4j, │   │
+│   │   (L1 store)  │ (durable)│ (reason) │ falkordb, …)    │   │
+│   └──────────────┴──────────┴──────────┴─────────────────┘   │
 ├───────────────────────────────────────────────────────────────┤
-│                  OWL Ontology (74KB)                           │
+│                  OWL Ontology (~26KB)                          │
 │          BFO / PROV-O / SKOS / FIBO aligned                   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
 ### Layer 1: OWL Ontology (Bottom)
 
-The foundation is the **74KB OWL ontology** (`ontology.ttl`) aligned with:
+The foundation is the **OWL ontology** (`ontology.ttl`, ~26KB) aligned with:
 - **BFO** (Basic Formal Ontology) — Upper ontology for foundational categories
 - **PROV-O** — W3C Provenance Ontology for attribution and derivation
 - **SKOS** — Simple Knowledge Organization System for taxonomic hierarchies
@@ -63,10 +64,10 @@ The `GraphBackend` abstraction supports multiple storage backends:
 
 | Backend | Use Case | ACID | Vector Search | Scale |
 |:--------|:---------|:-----|:--------------|:------|
-| **LadybugDB** | Default embedded graph | Partial | Via embeddings | Single-node |
-| **Neo4j** | Enterprise deployment | Full | Native | Cluster |
-| **FalkorDB** | High-performance cached | Partial | Redis-native | Cluster |
+| **epistemic-graph** | Primary L1 store (Rust, out-of-process UDS client) | Partial | Via embeddings | Single-node |
+| **PostgreSQL (pggraph)** | Durable tier (system of record) | Full | pgvector | Cluster |
 | **OWL/RDFLib** | Reasoning-only | N/A | N/A | In-memory |
+| **contrib** (Neo4j, FalkorDB, LadybugDB) | Optional/demoted backends under `backends/contrib/` | Varies | Varies | Varies |
 
 ### Layer 3: IntelligenceGraphEngine
 
@@ -204,11 +205,11 @@ EventStreamIngester              ProvenanceTracker
 │     (Node ACLs, Classification, Filtering)    │
 ├──────────────────────────────────────────────┤
 │        IntelligenceGraphEngine               │
-│   (NetworkX + LadybugDB/Neo4j/FalkorDB)      │
+│   (epistemic-graph L1 + Postgres durable)    │
 └──────────────────────────────────────────────┘
                     │
                     ▼
-            OWL Ontology (74KB)
+            OWL Ontology (~26KB)
          BFO/PROV-O/SKOS/FIBO
 ```
 
@@ -231,7 +232,7 @@ The Company Brain does **not** replace existing infrastructure. It **extends** i
 |:---------|:----------------------|
 | `KGVersionEngine` (KG-2.0) | + Version vectors, CAS, multi-writer safety |
 | `PermissionsKernel` (OS-5.1) | + Data-level ACLs, classification labels |
-| `AuditLogger` (OS-5.7) | + Read audit trails, provenance chains |
+| `AuditLogger` (OS-5.6) | + Read audit trails, provenance chains |
 | `SynthesisEngine` (KG-2.0) | + Conflict-aware synthesis |
 | `AsyncioConcurrencyManager` (OS-5.3) | + Graph-level locking (not just session-level) |
 | `OWLBridge` (KG-2.0) | + Continuous reasoning triggers |

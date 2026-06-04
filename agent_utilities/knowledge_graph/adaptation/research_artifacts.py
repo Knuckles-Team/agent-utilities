@@ -304,10 +304,10 @@ class ResearchArtifactGenerator:
         mapping = {
             "multi-agent": "Could enhance ORCH-1.0 specialist routing or ORCH-1.4 swarm orchestration",
             "knowledge graph": "Direct application to KG-2.0 graph engine or KG-2.2 ontology layer",
-            "memory": "Could improve KG-2.1 tiered memory or KG-2.10 context compaction",
+            "memory": "Could improve KG-2.1 tiered memory or KG-2.7 context compaction",
             "tool use": "Applicable to ECO-4.0 tool interface or ECO-4.1 MCP integration",
             "evaluation": "Could enhance AHE-3.12 EvalRunner or AHE-3.1 distillation",
-            "safety": "Relevant to OS-5.4 prompt injection scanner or OS-5.8 guardrails",
+            "safety": "Relevant to OS-5.4 prompt injection scanner or OS-5.7 guardrails",
             "reward": "Could improve AHE-3.10 decomposed reward signals",
             "planning": "Applicable to ORCH-1.1 HTN planning or AHE-3.9 horizon curriculum",
         }

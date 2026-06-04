@@ -8,7 +8,8 @@ Manual Testing, Walkthroughs, Explanations), allowing easy access from AgentDeps
 import logging
 from typing import Any
 
-from ..graph.config_helpers import emit_graph_event
+from agent_utilities.core.config import emit_graph_event
+
 from ..models import Spec
 from .first_run_tests import run_first_tests
 from .interactive_explanations import generate_interactive_explanation

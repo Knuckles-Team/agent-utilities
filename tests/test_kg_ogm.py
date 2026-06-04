@@ -217,7 +217,7 @@ class TestCustomLabel:
     def test_kg_label_decorator(self):
         @kg_label("CustomLabel")
         class MyNode(AgentNode):
-            pass
+            custom_field: str = "dummy"
 
         engine = FakeEngine()
         mapper = KGMapper(engine)

@@ -1,10 +1,10 @@
 # Cross-Pillar Synergy Engine (CONCEPT:KG-2.4)
 
 ## Overview
-Discovers non-obvious functional synergies between the 5 Unified Pillars by analyzing concept bridges, computing pillar coupling metrics, and suggesting missing relationships. Leverages the Analogy Engine (KG-2.15), SKOS taxonomy, and transitive OWL properties. OWL property: `hasSynergyWith` (symmetric).
+Discovers non-obvious functional synergies between the 5 Unified Pillars by analyzing concept bridges, computing pillar coupling metrics, and suggesting missing relationships. Leverages the Analogy Engine (KG-2.7), SKOS taxonomy, and transitive OWL properties. OWL property: `hasSynergyWith` (symmetric, defined in `ontology_quant.ttl`).
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/synergy_engine.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/core/synergy_engine.py``
 - **Pillar**: KG
 
 ## Documentation Coverage
@@ -15,7 +15,7 @@ Discovers non-obvious functional synergies between the 5 Unified Pillars by anal
 Mathematical relation properties (Reflexive, Symmetric, Transitive closures) and Equivalence Classes from MCS Ch 4. Provides zero-shot entity resolution by formally defining equivalence sets.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/core/formal_relations.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/core/inference_engine.py`` (closure rules), ``agent_utilities/knowledge_graph/core/owl_bridge.py`` (symmetric/transitive_closure inference)
 - **Pillar**: KG
 
 ## Documentation Coverage
@@ -23,10 +23,10 @@ Mathematical relation properties (Reflexive, Symmetric, Transitive closures) and
 # State Machine Invariant Engine (CONCEPT:KG-2.6)
 
 ## Overview
-Deterministic Finite Automata (DFA) abstractions and provable state invariants from MCS Ch 6. Formally validates transitions against structural invariants, preventing infinite loops.
+Deterministic Finite Automata (DFA) abstractions and provable state invariants from MCS Ch 6. Formally validates transitions against structural invariants, preventing infinite loops. Implemented as the ``FormalStateMachine`` class.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/core/state_machines.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/core/formal_reasoning_core.py``
 - **Pillar**: KG
 
 ## Documentation Coverage

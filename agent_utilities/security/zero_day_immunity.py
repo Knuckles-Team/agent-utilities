@@ -1,6 +1,6 @@
 """Zero-Day Immunity Middleware.
 
-Combines Topological Analogy Engine (KG-2.15), Vulnerability Scanner (OS-5.11),
+Combines Topological Analogy Engine (KG-2.7), Vulnerability Scanner (OS-5.11),
 and Prompt Injection Scanner (OS-5.4) to auto-detect zero-day jailbreaks via subgraph isomorphism.
 
 Designed to be configurable and disabled by default to save overhead.

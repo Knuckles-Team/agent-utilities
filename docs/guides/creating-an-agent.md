@@ -67,7 +67,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastmcp")
 from agent_utilities import (
     build_system_prompt_from_workspace,
     create_agent_parser,
-    create_graph_agent_server,
+    create_agent_server,
     initialize_workspace,
     load_identity,
 )
@@ -107,7 +107,7 @@ def agent_server():
         logging.getLogger().setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled")
 
-    create_graph_agent_server(
+    create_agent_server(
         mcp_url=args.mcp_url,
         mcp_config=args.mcp_config or "mcp_config.json",
         host=args.host,
@@ -142,7 +142,7 @@ if __name__ == "__main__":
 | `load_identity()` | Loads `main_agent.json` from the package directory |
 | `build_system_prompt_from_workspace()` | Constructs a system prompt from `AGENTS.md`, README, etc. |
 | `create_agent_parser()` | Creates a standardized CLI argument parser with provider, model, host, port, MCP config, etc. |
-| `create_graph_agent_server()` | Bootstraps the full graph agent server with ACP, A2A, AG-UI endpoints, knowledge graph, and MCP tool loading |
+| `create_agent_server()` | Bootstraps the full graph agent server with ACP, A2A, AG-UI endpoints, knowledge graph, and MCP tool loading |
 
 ## Step 3: Configure `mcp_config.json`
 
@@ -151,11 +151,11 @@ List the MCP servers your agent should connect to. Environment variables are aut
 ```json
 {
   "mcpServers": {
-    "agent-utilities-kg": {
+    "graph-os": {
       "command": "uv",
-      "args": ["run", "agent-utilities-kg"],
+      "args": ["run", "graph-os"],
       "env": {
-        "LITE_LLM_PROVIDER": "openai"
+        "WORKSPACE_PATH": "${workspaceFolder}"
       }
     }
   }
@@ -233,7 +233,7 @@ import logging, os, sys
 from agent_utilities import (
     build_system_prompt_from_workspace,
     create_agent_parser,
-    create_graph_agent_server,
+    create_agent_server,
     initialize_workspace,
     load_identity,
 )
@@ -254,7 +254,7 @@ def agent_server():
     print(f"{DEFAULT_AGENT_NAME} v{__version__}", file=sys.stderr)
     parser = create_agent_parser()
     args = parser.parse_args()
-    create_graph_agent_server(
+    create_agent_server(
         mcp_url=args.mcp_url, mcp_config=args.mcp_config or "mcp_config.json",
         host=args.host, port=args.port, provider=args.provider,
         model_id=args.model_id, base_url=args.base_url, api_key=args.api_key,

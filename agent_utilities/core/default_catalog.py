@@ -17,7 +17,7 @@ Install commands default to ``uvx`` and versions are ``*`` (latest).
 
 import functools
 
-from .registry_cli import ContainerConfig, SpecialistPackage
+from .registry.package_adapter import ContainerConfig, SpecialistPackage
 
 
 def _kt_package(
@@ -267,7 +267,7 @@ def get_default_catalog() -> tuple[SpecialistPackage, ...]:
     packages.append(
         _kt_package(
             "leanix-agent",
-            "LeanIX — enterprise architecture management via REST and GraphQL.",
+            "EAR — enterprise architecture management via REST and GraphQL.",
             "leanix-mcp",
             ["enterprise", "architecture"],
         )

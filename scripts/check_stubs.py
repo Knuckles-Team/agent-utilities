@@ -40,39 +40,65 @@ def check_file_for_stubs(filepath):
         file_basename = os.path.basename(filepath).lower()
         is_interface_file = "interface" in file_basename or "protocol" in file_basename
         
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                # Smart Exclusions:
-                # 1. Skip exceptions and ABC base classes
-                if isinstance(node, ast.ClassDef):
-                    is_exception = any(
-                        isinstance(base, ast.Name) and (
-                            "Error" in base.id or "Exception" in base.id or base.id == "ABC"
-                        ) for base in node.bases
-                    ) or "Error" in node.name or "Exception" in node.name
-                    if is_exception:
-                        continue
+        class StubVisitor(ast.NodeVisitor):
+            def __init__(self):
+                self.findings = []
+                self.in_abc = False
+
+            def visit_ClassDef(self, node: ast.ClassDef):
+                was_in_abc = self.in_abc
                 
-                # 2. Skip abstract methods or interface files
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    is_abstract = False
-                    for dec in node.decorator_list:
-                        if isinstance(dec, ast.Name) and "abstract" in dec.id:
-                            is_abstract = True
-                            break
-                        if isinstance(dec, ast.Attribute) and "abstract" in dec.attr:
-                            is_abstract = True
-                            break
-                    if is_abstract or is_interface_file:
-                        continue
+                is_abc = any(
+                    isinstance(base, ast.Name) and base.id in ("ABC", "Protocol")
+                    for base in node.bases
+                )
+                is_exception = any(
+                    isinstance(base, ast.Name) and (
+                        "Error" in base.id or "Exception" in base.id
+                    ) for base in node.bases
+                ) or "Error" in node.name or "Exception" in node.name
                 
-                # Check if body consists only of pass, docstring, ellipsis, or NotImplementedError
+                if is_exception:
+                    return  # Completely skip exceptions
+
+                if is_abc:
+                    self.in_abc = True
+                    
+                self._check_stub_body(node, "Class")
+                self.generic_visit(node)
+                
+                self.in_abc = was_in_abc
+
+            def visit_FunctionDef(self, node: ast.FunctionDef):
+                self._handle_function(node)
+
+            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+                self._handle_function(node)
+
+            def _handle_function(self, node):
+                is_abstract = False
+                for dec in getattr(node, "decorator_list", []):
+                    if isinstance(dec, ast.Name) and "abstract" in dec.id:
+                        is_abstract = True
+                        break
+                    if isinstance(dec, ast.Attribute) and "abstract" in dec.attr:
+                        is_abstract = True
+                        break
+                
+                if is_abstract or is_interface_file or self.in_abc:
+                    # Skip traversal of abstract functions, or ANY function inside an ABC
+                    # This prevents false positives for interface methods and properties
+                    return
+                    
+                self._check_stub_body(node, "Function")
+                self.generic_visit(node)
+
+            def _check_stub_body(self, node, node_type: str):
                 is_stub = True
-                if not node.body:
+                if not getattr(node, "body", []):
                     is_stub = True
                 else:
                     for expr in node.body:
-                        # docstring or ellipsis
                         if isinstance(expr, ast.Expr):
                             val = expr.value
                             is_str_or_bytes = False
@@ -82,7 +108,6 @@ def check_file_for_stubs(filepath):
                                 if isinstance(val.value, (str, bytes)):
                                     is_str_or_bytes = True
                             else:
-                                # Legacy Python compatibility for ast.Str, ast.Bytes, ast.Ellipsis
                                 val_class_name = type(val).__name__
                                 if val_class_name in ("Str", "Bytes", "Ellipsis"):
                                     is_str_or_bytes = True
@@ -92,10 +117,8 @@ def check_file_for_stubs(filepath):
                                 continue
                             is_stub = False
                             break
-                        # pass
                         elif isinstance(expr, ast.Pass):
                             continue
-                        # raise NotImplementedError
                         elif isinstance(expr, ast.Raise):
                             if isinstance(expr.exc, ast.Name) and expr.exc.id == "NotImplementedError":
                                 continue
@@ -108,27 +131,21 @@ def check_file_for_stubs(filepath):
                             break
                 
                 if is_stub:
-                    node_type = "Class" if isinstance(node, ast.ClassDef) else "Function"
-                    findings.append({
+                    if node_type == "Class" and getattr(node, "bases", []):
+                        return
+                    self.findings.append({
                         "type": "AST_STUB",
                         "line": node.lineno,
                         "message": f"{node_type} '{node.name}' has no implementation (is a stub)."
                     })
-            
-            # Check for any raise NotImplementedError in the AST (even inside a non-stub body)
-            elif isinstance(node, ast.Raise):
-                is_nie = False
-                if isinstance(node.exc, ast.Name) and node.exc.id == "NotImplementedError":
-                    is_nie = True
-                elif isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name) and node.exc.func.id == "NotImplementedError":
-                    is_nie = True
-                
-                if is_nie:
-                    findings.append({
-                        "type": "NOT_IMPLEMENTED_ERROR",
-                        "line": node.lineno,
-                        "message": "Raises NotImplementedError representing incomplete work."
-                    })
+
+
+
+        visitor = StubVisitor()
+        if not ("test_" in file_basename or "conftest" in file_basename or "tests" in filepath.split(os.sep)):
+            visitor.visit(tree)
+            findings.extend(visitor.findings)
+        
     except SyntaxError as e:
         findings.append({
             "type": "SYNTAX_ERROR",

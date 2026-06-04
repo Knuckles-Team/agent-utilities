@@ -18,13 +18,13 @@ The architecture solves these bottlenecks through several interdependent primiti
 ### Registry Hot Cache & Unified Specialists (ORCH-1.2)
 We collapsed the artificial boundary between `prompt` and `mcp` agents into a singular `specialist` type. The **Registry Hot Cache** maintains an O(1) session-scoped index of these specialists. Instead of passing 50+ specialists to the orchestrator, it filters down to the Top-7 relevant specialists per query, reducing prompt token bloat by ~7x.
 
-### Spec-Driven Development Pipeline (ORCH-1.7)
+### Spec-Driven Development Pipeline (ORCH-1.6)
 The orchestrator implements a multi-stage SDD pipeline:
 - **Discovery & Requirements**: Generates structured `Spec` models with measurable success criteria.
 - **Task Decomposition**: Emits a `Tasks` dependency graph, identifying which subtasks can be executed in parallel (e.g., frontend and backend).
 - **Parallel Dispatch**: Fuses tasks out to specific `specialist` workers, leveraging the `Execution Visibility Graph` to constrain context so a backend specialist only sees backend-related prior steps.
 
-### Learned Agent Routing & Execution Budgets (ORCH-1.8 & ORCH-1.3)
+### Learned Agent Routing & Execution Budgets (ORCH-1.7 & ORCH-1.3)
 Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical `ExecutionTrace` records with an exponential moving average (EMA) to actively down-weight specialists with low success rates. `ExecutionBudget` acts as an absolute cost governor, preempting infinite loops by enforcing USD/token constraints at the dispatcher step.
 
 ## Benefits Introduced
@@ -38,19 +38,19 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.1**: Agentic Planning Engine (Planning)
 - **ORCH-1.2**: Agentic Planning Engine (Routing)
 - **ORCH-1.3**: Execution Budgets & State Safety
-- **ORCH-1.7**: Spec-Driven Development
-- **ORCH-1.8**: Learned Agent Routing
+- **ORCH-1.6**: Spec-Driven Development
+- **ORCH-1.7**: Learned Agent Routing
 - **ORCH-1.19**: Subgraph Synthesis (Legacy Compat)
 - **ORCH-1.20**: KG-Driven Graph Factory — materializes pydantic-graph topologies from AgentTemplate nodes
 - **ORCH-1.21**: Agent Runner — KG-to-LLM execution bridge with dynamic tool binding and provenance tracking
 - **ORCH-1.22**: RecursiveMAS Latent Orchestrator 🔬 — continuous latent loop or simulated semantic collaboration
-- **ORCH-1.25**: [**Parallel Engine**](1_graph_orchestration/ORCH-1.25-Parallel_Engine.md) — unified 1→300+ agent execution engine with semaphore-governed concurrency, DAG scheduling, and tiered synthesis
-- **ORCH-1.26**: RLM-Native Hierarchical Synthesis — flat/hierarchical/progressive/rlm output merging strategies
-- **ORCH-1.27**: Autonomous Department Orchestration — OWL-materialized company departments with `reportsTo` hierarchy
-- **ORCH-1.28**: Reactive Event Sourcing — reactive event-driven state and graph staging dispatcher
-- **ORCH-1.29**: WASM Micro-Agent Execution — isolated WebAssembly sandbox runner with gas/memory limits and Python emulation fallback
-- **ORCH-1.30**: Structured Predict-RLM Runtime — standard Pydantic signatures and dynamic skill injection wrapper for sandboxed REPL
-- **ORCH-1.31**: [**GEPA Reflective Prompt Optimizer**](1_graph_orchestration/ORCH-1.31-GEPA_Optimization.md) — Genetic-Pareto optimization loop with reflective mutation and structural crossover for prompt evolution
+- **ORCH-1.8**: [**Parallel Engine**](1_graph_orchestration/ORCH-1.8-Parallel_Engine.md) — unified 1→300+ agent execution engine with semaphore-governed concurrency, DAG scheduling, and tiered synthesis
+- **ORCH-1.8**: RLM-Native Hierarchical Synthesis — flat/hierarchical/progressive/rlm output merging strategies
+- **ORCH-1.9**: Autonomous Department Orchestration — OWL-materialized company departments with `reportsTo` hierarchy
+- **ORCH-1.10**: Reactive Event Sourcing — reactive event-driven state and graph staging dispatcher
+- **ORCH-1.11**: WASM Micro-Agent Execution — isolated WebAssembly sandbox runner with gas/memory limits and Python emulation fallback
+- **ORCH-1.12**: Structured Predict-RLM Runtime — standard Pydantic signatures and dynamic skill injection wrapper for sandboxed REPL
+- **ORCH-1.13**: [**GEPA Reflective Prompt Optimizer**](1_graph_orchestration/ORCH-1.13-GEPA_Optimization.md) — Genetic-Pareto optimization loop with reflective mutation and structural crossover for prompt evolution
 
 ## 🧬 First Principles Architecture
 
@@ -229,9 +229,17 @@ graph LR
 
 ---
 
-## 🔬 ORCH-1.22: RecursiveMAS Latent Orchestration
+## 🔬 RecursiveMAS Latent Orchestration (research / not yet wired)
 
-**RecursiveMAS** (Recursive Multi-Agent System) is a research-backed addition that redefines multi-agent collaboration by passing **continuous representations in latent space** rather than raw text sequences.
+> **Status:** research design only — the native open-weights pipeline described
+> below (`RecursiveLink`, a dedicated `rlm/mas_local.py` module) is **not yet
+> implemented** in the codebase. The shipped RLM substrate lives in
+> `agent_utilities/rlm/` (`RLMEnvironment` in `rlm/repl.py`, `rlm/specialist.py`,
+> `rlm/predict_rlm.py`). Note also that the concept ID `ORCH-1.22` is now
+> assigned to *Workflow Persistence & Replay Relationships* in
+> `docs/concepts.yaml`; this section is retained as forward-looking design.
+
+**RecursiveMAS** (Recursive Multi-Agent System) is a research-backed design that redefines multi-agent collaboration by passing **continuous representations in latent space** rather than raw text sequences.
 
 ### Why RecursiveMAS?
 In traditional multi-agent architectures, agents communicate via textual generation. This forces the system to undergo costly autoregressive decoding/generation cycles at every step, creating:
@@ -294,7 +302,7 @@ graph TD
 #### 1. Native Open-Weights Pipeline (Optional GPU Mode)
 For specialized local runs executing open-source weights (via PyTorch, Hugging Face `transformers`, or custom vLLM adapters):
 * The system accesses the model's `last_hidden_state` activations during generation, runs them through the lightweight PyTorch `RecursiveLink` projection layers, and injects them directly into the input attention space of the next agent.
-* **Decoupled Security**: All neural modeling code is isolated in a modular wrapper (`agent_utilities/rlm/mas_local.py`). This ensures **zero dependencies** (like PyTorch) are imported during standard framework operations, maintaining a strict zero-overhead baseline.
+* **Decoupled Security**: All neural modeling code would be isolated in a modular wrapper (planned `agent_utilities/rlm/mas_local.py`, not yet present). This ensures **zero dependencies** (like PyTorch) are imported during standard framework operations, maintaining a strict zero-overhead baseline.
 
 #### 2. Universal API Semantic Simulator (Off-the-Shelf Fallback)
 For standard deployments using cloud-hosted models (Gemini, OpenAI, Claude) where hidden layer access is technically restricted, the orchestrator extrapolates the core benefits of RecursiveMAS via **API-level symbolic emulation**:

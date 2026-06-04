@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 
-from agent_utilities.graph.service_registry import ServiceDescriptor
+from agent_utilities.core.registry.service_adapter import ServiceDescriptor
 
 logger = logging.getLogger(__name__)
 

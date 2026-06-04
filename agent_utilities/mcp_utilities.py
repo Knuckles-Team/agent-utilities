@@ -10,7 +10,7 @@ New code should import from the submodules directly:
 CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 """
 
-__version__ = "0.38.0"
+__version__ = "0.39.0"
 
 
 def __getattr__(name: str):
@@ -21,15 +21,19 @@ def __getattr__(name: str):
         "DEFAULT_LLM_MODEL_ID",
         "DEFAULT_LLM_PROVIDER",
     ):
-        import agent_utilities.core.config as config_mod
+        import importlib
+
+        config_mod = importlib.import_module("agent_utilities.core.config")
 
         return getattr(config_mod, name)
 
     # Config Loader
     if name == "load_mcp_servers_from_config" or name == "load_mcp_config":
-        import agent_utilities.mcp.config_loader as loader_mod
+        import importlib
 
-        return loader_mod.load_mcp_servers_from_config
+        loader_mod = importlib.import_module("agent_utilities.core.config")
+
+        return getattr(loader_mod, name)
 
     # Context Helpers
     if name in (

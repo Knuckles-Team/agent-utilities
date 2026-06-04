@@ -1,25 +1,40 @@
 #!/usr/bin/python
 """Graph Database Backends.
 
-Provides the `GraphBackend` ABC and concrete implementations for Memory,
-LadybugDB, FalkorDB, Neo4j, and PostgreSQL. Use `create_backend()` to
-instantiate the correct backend from configuration or environment variables.
+Provides the `GraphBackend` ABC and concrete primary implementations
+(EpistemicGraph/file, PostgreSQL + pgvector). Demoted "contrib" backends
+(LadybugDB, FalkorDB, Neo4j) live under ``backends.contrib`` and are opt-in:
+they are never imported eagerly, so default backend selection works without
+their optional driver packages. Use `create_backend()` to instantiate the
+correct backend from configuration or environment variables.
 
 Architecture (Tiered Graph Engine):
     The engine uses a two-tier architecture:
-    - **Tier 1 (Source of Truth)**: A persistent Cypher-capable backend
-      (LadybugDB/Neo4j/PostgreSQL) handles all CRUD, schema enforcement,
-      vector indexing, and Cypher queries.
+    - **Tier 1 (Source of Truth)**: A persistent Cypher-capable backend.
+      PostgreSQL + pgvector is the **primary/default** durable tier; the
+      Rust-native EpistemicGraph (``file``/``memory``) is the zero-config
+      tier. Demoted contrib backends (LadybugDB/Neo4j/FalkorDB) remain fully
+      supported via opt-in import.
     - **Tier 2 (Compute Scratchpad)**: GraphComputeEngine is loaded on-demand via
       ``load_subgraph()`` for graph algorithms (PageRank, VF2, spectral
       clustering) that databases cannot perform natively.
 
-    The ``memory`` backend (pure in-memory) is available for testing/CI
-    where no persistence or Cypher support is needed.
+    The ``memory``/``file`` backends (Rust-native EpistemicGraph) are available
+    for testing/CI and edge use where no external server is needed. ``file``
+    matches the ``GRAPH_PERSISTENCE_TYPE=file`` config default.
+
+Opt-in (contrib) access::
+
+    from agent_utilities.knowledge_graph.backends.contrib.neo4j_backend import (
+        Neo4jBackend,
+    )
+    # Back-compat shim — old import path still resolves lazily:
+    from agent_utilities.knowledge_graph.backends import Neo4jBackend
 
 Environment Variables:
-    GRAPH_BACKEND: Backend type. Default: "ladybug".
-        Supported: "memory", "ladybug", "falkordb", "neo4j", "postgresql".
+    GRAPH_BACKEND: Backend type. Bare default: "memory" (prod uses "postgresql").
+        Supported: "memory", "file", "epistemic_graph", "postgresql"
+        (primary), plus opt-in contrib: "ladybug", "falkordb", "neo4j".
     GRAPH_DB_PATH: File path for LadybugDB. Default: "knowledge_graph.db".
     GRAPH_DB_HOST: Host for FalkorDB/Neo4j. Default: "localhost".
     GRAPH_DB_PORT: Port for FalkorDB (6379) or Neo4j (7687).
@@ -58,11 +73,11 @@ def __getattr__(name: str):
 
         return GraphBackend
     if name == "FalkorDBBackend":
-        from .falkordb_backend import FalkorDBBackend
+        from .contrib.falkordb_backend import FalkorDBBackend
 
         return FalkorDBBackend
     if name in ("LadybugBackend", "LADYBUG_AVAILABLE"):
-        from .ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
+        from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
 
         if name == "LadybugBackend":
             return LadybugBackend
@@ -72,7 +87,7 @@ def __getattr__(name: str):
 
         return EpistemicGraphBackend
     if name == "Neo4jBackend":
-        from .neo4j_backend import Neo4jBackend
+        from .contrib.neo4j_backend import Neo4jBackend
 
         return Neo4jBackend
     if name == "PostgreSQLBackend":
@@ -111,14 +126,16 @@ def create_backend(
     """Factory function to create the appropriate graph backend.
 
     Resolves configuration from explicit arguments first, then falls back to
-    environment variables, then to sensible defaults. LadybugDB (self-contained
-    SQLite + Cypher) is the default for zero-config startup with full
-    persistence. Use ``GRAPH_BACKEND=memory`` for testing/CI only.
+    environment variables, then to sensible defaults. PostgreSQL + pgvector is
+    the primary/default durable backend; ``file``/``memory`` use the
+    zero-dependency Rust-native EpistemicGraph. Contrib backends
+    (ladybug/falkordb/neo4j) are imported only when explicitly requested.
 
     Args:
-        backend_type: One of "memory", "ladybug", "falkordb", "neo4j",
-            "postgresql". Falls back to ``GRAPH_BACKEND`` env var,
-            then "ladybug".
+        backend_type: One of "memory", "file", "epistemic_graph",
+            "postgresql" (primary), or the opt-in contrib values
+            "ladybug", "falkordb", "neo4j". Falls back to ``GRAPH_BACKEND``
+            env var, then "memory" (zero-dep; set GRAPH_BACKEND=postgresql for prod).
         db_path: File path for LadybugDB. Falls back to ``GRAPH_DB_PATH``.
         host: Host for FalkorDB/Neo4j. Falls back to ``GRAPH_DB_HOST``.
         port: Port for FalkorDB/Neo4j. Falls back to ``GRAPH_DB_PORT``.
@@ -133,21 +150,40 @@ def create_backend(
     """
     global _ACTIVE_BACKEND
 
+    # Bare fallback is the zero-dependency in-memory tier so tests/dev never
+    # attempt a network connection. PostgreSQL is the PRODUCTION durable tier,
+    # selected explicitly via config (`graph_persistence_type`) or
+    # `GRAPH_BACKEND=postgresql` and enforced by the prod-profile guard.
     backend_type = (
-        (backend_type or os.environ.get("GRAPH_BACKEND") or "ladybug").lower().strip()
+        (backend_type or os.environ.get("GRAPH_BACKEND") or "memory").lower().strip()
     )
 
     from .base import GraphBackend
 
     backend: GraphBackend | None = None
 
-    if backend_type == "memory":
+    # Primary / default tiers — resolved WITHOUT importing any contrib backend.
+    # "memory"/"file"/"epistemic_graph" all map to the zero-dependency,
+    # Rust-native EpistemicGraphBackend (the config default ``GRAPH_PERSISTENCE_TYPE=file``
+    # resolves here). For "file", an optional JSON path enables persistence.
+    if backend_type in ("memory", "file", "epistemic_graph"):
         from .epistemic_graph_backend import EpistemicGraphBackend
 
         backend = EpistemicGraphBackend()
+        if backend_type == "file":
+            resolved_path = (
+                db_path or os.environ.get("GRAPH_DB_PATH") or kwargs.get("json_path")
+            )
+            if resolved_path and os.path.exists(resolved_path):
+                try:
+                    backend.load_from_json(resolved_path)
+                except Exception as e:  # pragma: no cover - best-effort load
+                    logger.debug(
+                        f"Failed to load epistemic graph from {resolved_path}: {e}"
+                    )
 
     elif backend_type == "ladybug":
-        from .ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
+        from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
 
         if not LADYBUG_AVAILABLE:
             logger.warning(
@@ -169,7 +205,7 @@ def create_backend(
         backend = LadybugBackend(resolved_path)
 
     elif backend_type == "falkordb":
-        from .falkordb_backend import FalkorDBBackend
+        from .contrib.falkordb_backend import FalkorDBBackend
 
         resolved_host = host or os.environ.get("GRAPH_DB_HOST") or "localhost"
         resolved_port = port or int(os.environ.get("GRAPH_DB_PORT", "6379"))
@@ -179,7 +215,7 @@ def create_backend(
         )
 
     elif backend_type == "neo4j":
-        from .neo4j_backend import Neo4jBackend
+        from .contrib.neo4j_backend import Neo4jBackend
 
         resolved_uri = uri or os.environ.get("GRAPH_DB_URI") or "bolt://localhost:7687"
         resolved_user = user or os.environ.get("GRAPH_DB_USER") or "neo4j"
@@ -236,6 +272,43 @@ def create_backend(
             password=resolved_jena_fuseki_password,
         )
 
+    elif backend_type == "tiered":
+        # Two-tier write-through: L1 working store (epistemic-graph) in front of
+        # an L3 durable PostgreSQL/pggraph tier. Sub-backends are built directly
+        # (not via recursive create_backend) so they don't claim _ACTIVE_BACKEND.
+        from .epistemic_graph_backend import EpistemicGraphBackend
+        from .postgresql_backend import PostgreSQLBackend
+        from .tiered_backend import TieredGraphBackend
+
+        l1_type = (
+            (os.environ.get("GRAPH_BACKEND_L1") or "epistemic_graph").lower().strip()
+        )
+        if l1_type not in ("epistemic_graph", "memory", "file"):
+            logger.warning(
+                "tiered L1 '%s' unsupported; falling back to epistemic_graph",
+                l1_type,
+            )
+        l1 = EpistemicGraphBackend()
+
+        resolved_uri = (
+            uri
+            or os.environ.get("GRAPH_DB_URI")
+            or os.environ.get("PGGRAPH_DSN")
+            or "postgresql://localhost:5432/agent_utilities"
+        )
+        resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
+        pool_min = int(os.environ.get("GRAPH_POOL_MIN", "2"))
+        pool_max = int(os.environ.get("GRAPH_POOL_MAX", "10"))
+        pggraph_schema = os.environ.get("GRAPH_PGGRAPH_SCHEMA", "public")
+        l3 = PostgreSQLBackend(
+            dsn=resolved_uri,
+            graph_name=resolved_name,
+            pool_min=pool_min,
+            pool_max=pool_max,
+            pggraph_schema=pggraph_schema,
+        )
+        backend = TieredGraphBackend(l1=l1, l3=l3)
+
     elif backend_type == "stardog":
         # Stardog is primarily an OWLBackend; wrap it for GraphBackend compatibility
         logger.info(
@@ -247,8 +320,8 @@ def create_backend(
     else:
         logger.error(
             f"Unknown graph backend type: '{backend_type}'. "
-            f"Supported: memory, ladybug, falkordb, neo4j, postgresql, "
-            f"jena_fuseki"
+            f"Supported: memory, file, epistemic_graph, postgresql, tiered, "
+            f"ladybug, falkordb, neo4j, jena_fuseki"
         )
         return None
 

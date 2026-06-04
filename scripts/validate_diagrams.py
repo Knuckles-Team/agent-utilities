@@ -16,7 +16,7 @@ def load_canonical_concepts():
     with open(CONCEPT_MAP) as f:
         content = f.read()
 
-    # Matches `ORCH-1.0`, `KG-2.12`, etc. inside the markdown table
+    # Matches `ORCH-1.0`, `KG-2.7`, etc. inside the markdown table
     matches = re.findall(r"`([A-Z]+-\d+\.\d+)`", content)
     for m in matches:
         valid_concepts.add(m)

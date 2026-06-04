@@ -106,13 +106,11 @@ example, if `A ANALOGOUS_TO B` and `B ANALOGOUS_TO C`, the reasoner infers
 
 ### Triggering OWL Reasoning
 
-```
-# Via MCP
-kg_inspect(view="owl_cycle")
-
-# Automatically as part of full_pipeline
-kg_analyze(query="...", action="full_pipeline")
-```
+The promote → reason → downfeed cycle is implemented in
+`agent_utilities/knowledge_graph/core/owl_bridge.py` and runs automatically as
+one of the consolidated maintenance `_tick_*` jobs (see
+`core/engine_tasks.py::_maintenance_scheduler_loop`) behind the background
+throttle gate. There is no dedicated MCP action to invoke it directly.
 
 ## Pydantic Models
 
@@ -148,15 +146,17 @@ These models are defined in:
 
 ## MCP Tool Reference
 
-| Tool | Action/View | Layer | LLM Required |
+| Tool | Action/Mode | Layer | LLM Required |
 |------|-------------|-------|-------------|
-| `kg_search` | `mode='discover'` | L1 | No |
-| `kg_analyze` | `action='synthesize'` | L1+L2 | Yes |
-| `kg_analyze` | `action='deep_extract'` | L1+L2+L3 | Yes |
-| `kg_analyze` | `action='full_pipeline'` | L1+L2+L3+OWL | Yes |
-| `kg_analyze` | `action='background_research'` | Async L1+L2+L3 | Yes |
-| `kg_inspect` | `view='owl_cycle'` | OWL only | No |
-| `kg_inspect` | `view='build_indexes'` | HNSW index mgmt | No |
+| `graph_search` | `mode='discover'` | L1 | No |
+| `graph_analyze` | `action='synthesize'` | L1+L2 | Yes |
+| `graph_analyze` | `action='deep_extract'` | L1+L2+L3 | Yes |
+| `graph_analyze` | `action='background_research'` | Async L1+L2+L3 | Yes |
+| `graph_analyze` | `action='enrichment_coverage'` | Coverage gauge | No |
+| `graph_ingest` | `action='rebuild_indexes'` | HNSW index mgmt | No |
+
+> **Note**: OWL reasoning has no standalone MCP action — it runs on the
+> consolidated maintenance scheduler (see *Triggering OWL Reasoning* above).
 
 > **See also**: [Vector Index Lifecycle](vector_index_lifecycle.md) for details
 > on HNSW index management, the drop→ingest→build cycle, and search performance tiers.

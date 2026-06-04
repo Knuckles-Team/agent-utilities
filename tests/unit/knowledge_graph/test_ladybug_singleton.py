@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities.knowledge_graph.backends.ladybug_backend import (
+from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
     _ACTIVE_DATABASES,
     _ACTIVE_LOCKS,
     LadybugBackend,

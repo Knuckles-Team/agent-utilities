@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Tests for KG-2.10 Observational Memory Bridge.
+"""Tests for KG-2.7 Observational Memory Bridge.
 
 CONCEPT:KG-2.1 — Observational Memory Bridge
 CONCEPT:ECO-4.0 — Agent Hook Installer
@@ -105,7 +105,7 @@ def engine():
         "goal_1",
         type="goal",
         name="Complete memory bridge",
-        goal_text="Implement cross-agent memory bridge (KG-2.10)",
+        goal_text="Implement cross-agent memory bridge (KG-2.7)",
         description="Memory bridge",
         status="active",
         importance_score=0.9,
@@ -179,7 +179,7 @@ class TestMemoryMaterializer:
         m = MemoryMaterializer(engine)
         paths = m.materialize()
         active = paths["active.md"].read_text()
-        assert "cross-agent memory bridge" in active.lower() or "KG-2.10" in active
+        assert "cross-agent memory bridge" in active.lower() or "KG-2.7" in active
 
     def test_detect_edits_after_modification(self, engine, memory_tmpdir):
         from agent_utilities.knowledge_graph.memory import MemoryMaterializer

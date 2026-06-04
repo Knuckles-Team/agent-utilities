@@ -7,13 +7,12 @@ This guide details how to use the `IntelligenceGraphEngine` to ingest external c
 ```mermaid
 graph TB
     subgraph "Workflow Lifecycle (ORCH-1.24)"
-        A["catalog.yaml<br/>(YAML definitions)"] -->|"load()"| B["WorkflowCatalog"]
-        B -->|"to_graph_plans()"| C["GraphPlans"]
-        B -->|"register_in_kg()"| D["KG: WorkflowDefinition"]
+        A["catalog.yaml<br/>(YAML definitions)"] -->|"parse"| C["GraphPlan"]
+        C -->|"WorkflowStore.save_workflow()"| D["KG: WorkflowDefinition"]
         D -->|"HAS_STEP"| E["KG: WorkflowStep"]
         E -->|"TRANSITION_TO"| E
-        C -->|"execute()"| F["WorkflowRunner"]
-        D -->|"load_workflow()"| C
+        C -->|"WorkflowRunner.execute()"| F["WorkflowRunner"]
+        D -->|"WorkflowStore.load_workflow()"| C
     end
 
     subgraph "Agent Execution (ORCH-1.21)"
@@ -62,66 +61,65 @@ if __name__ == "__main__":
 
 The engine supports asynchronous background ingestion jobs for massive data troves.
 
+`submit_task(target_path, is_codebase, provenance, task_type=None)` enqueues a
+durable `Task` node; `provenance` (a dict, e.g. `{"agent_id": "..."}`) is
+required. Codebase ingestion is two-phase: the structural `EnrichmentPipeline`
+(Code/Test/Feature nodes, patterns, edges, classification — no LLM) lands first
+and is immediately queryable, and LLM capability-card summaries are backfilled by
+the maintenance scheduler. Re-submitting an unchanged source is skipped by the
+`DeltaManifest` and re-ingest upserts by stable ID (no duplicates).
+
 ```python
 # Codebase Ingestion
 engine.submit_task(
     target_path="/home/apps/workspace/my-repo",
     is_codebase=True,
-    task_type="codebase"
+    provenance={"agent_id": "orchestrator"},
+    task_type="codebase",
 )
 
 # Document Chunking (PDFs, Word Docs)
 engine.submit_task(
     target_path="/home/apps/workspace/docs/architecture.pdf",
     is_codebase=False,
-    task_type="document"
+    provenance={"agent_id": "orchestrator"},
+    task_type="document",
 )
 
 # Research Paper Parsing
 engine.submit_task(
     target_path="/home/apps/workspace/papers/attention_is_all_you_need.pdf",
     is_codebase=False,
-    task_type="paper"
+    provenance={"agent_id": "orchestrator"},
+    task_type="paper",
 )
 ```
 
 ## 3. Workflow Catalog — Defining Reusable Workflows
 
-The Workflow Catalog (CONCEPT:ORCH-1.24) lets you define reusable orchestration scenarios in YAML.
+Reusable orchestration scenarios (CONCEPT:ORCH-1.24) are defined in YAML
+(`docs/examples/workflows/catalog.yaml`) and persisted to the Knowledge Graph as
+`WorkflowDefinition` + `WorkflowStep` nodes via `WorkflowStore`. Discovery and
+execution then happen through the `graph_orchestrate` MCP tool (see §4).
 
-### Loading the Built-in Catalog
-
-```python
-from agent_utilities.workflows.catalog import WorkflowCatalog
-
-# Load the built-in catalog
-catalog = WorkflowCatalog.load()
-print(catalog.summary())
-
-# Filter by domain or tag
-infra = catalog.filter_by_domain("infrastructure")
-research = catalog.filter_by_tag("arxiv")
-```
-
-### Registering Workflows in the Knowledge Graph
+### Persisting Workflows in the Knowledge Graph
 
 ```python
-# Persist all workflows into the KG
-workflow_ids = catalog.register_in_kg(engine)
-print(f"Registered {len(workflow_ids)} workflows")
+from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
-# Re-registration auto-increments version
-workflow_ids = catalog.register_in_kg(engine)  # v2 now
-```
+store = WorkflowStore(engine)
 
-### Exporting for External Consumers
+# Persist a GraphPlan as a reusable, named workflow definition.
+# Re-saving the same name updates the stored definition.
+workflow_id = store.save_workflow(
+    name="container_health_check",
+    plan=plan,                       # a GraphPlan (e.g. from WorkflowCompiler)
+    description="Full Docker infrastructure health assessment",
+)
 
-```python
-# Export as JSON (for other agents, UIs, CI)
-catalog.export_json("/tmp/workflows.json")
-
-# Export as YAML
-catalog.export_yaml("/tmp/workflows.yaml")
+# List the stored workflow definitions
+for wf in store.list_workflows(limit=50):
+    print(wf["name"], wf.get("description", ""))
 ```
 
 ### YAML Catalog Format
@@ -153,11 +151,11 @@ from agent_utilities.workflows.runner import WorkflowRunner
 
 runner = WorkflowRunner()
 
-# Execute by name (loads from KG)
+# Execute by name (loads the stored definition from the KG)
 result = await runner.execute_by_name("container_health_check", engine)
 
-# Or execute a GraphPlan directly
-plan = catalog.get("container_health_check").to_graph_plan()
+# Or execute a GraphPlan directly (e.g. loaded via WorkflowStore)
+plan = WorkflowStore(engine).load_workflow("container_health_check")
 result = await runner.execute(plan, engine, workflow_name="container_health_check")
 
 # Inspect results

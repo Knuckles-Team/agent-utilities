@@ -15,7 +15,7 @@ Separates step-level reward (local constraint satisfaction) from trajectory-leve
 Multi-strategy evaluation runner (exact match, semantic similarity, LLM-as-Judge) with composite scoring and EvaluationMonitor integration. Ported from MATE's eval_runner.py. OWL-enabled `degradedPerformance` inference across sessions.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/observability/evaluation.py``
+- **Source Code**: ``agent_utilities/harness/continuous_evaluation_engine.py``
 - **Pillar**: AHE
 
 ## Documentation Coverage

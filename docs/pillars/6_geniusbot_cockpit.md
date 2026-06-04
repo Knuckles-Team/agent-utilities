@@ -67,7 +67,7 @@ The cockpit is partitioned into seven distinct, highly optimized architectural l
     *   Kolmogorov-Smirnov regime shift indicators overlay.
     *   Snappy WebSocket client streaming price updates directly into chart buffers without GIL-induced UI freezing.
 
-### 8. Systems Dashboard (via CONCEPT:GW-1.0)
+### 8. Systems Dashboard (via CONCEPT:OS-5.9)
 *   **Module Path**: `geniusbot/qt/service_dashboard.py`
 *   **Data Backend**: `agent_utilities.gateway` (native, no standalone package required)
 *   **Behavior**: Homepage-style service dashboard rendering 50+ infrastructure service widgets (Portainer, GitLab, Uptime Kuma, Jellyfin, etc.) using the centralized `Aggregator` and `ConfigManager` from `agent_utilities.gateway`. Runs data fetching on a `QThread` to keep the UI responsive while polling service health.

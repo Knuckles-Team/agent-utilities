@@ -19,9 +19,7 @@ if TYPE_CHECKING:
     )
     from agent_utilities.models.knowledge_graph import TopologicalVulnerabilityNode
 
-# --- Merged from threat_defense_engine.py ---
 
-#!/usr/bin/python
 """Prompt Injection Scanner (CONCEPT:OS-5.1).
 
 Pattern-based runtime threat detection for agent tool calls and
@@ -765,18 +763,6 @@ class PromptInjectionPolicy:
         )
 
 
-# --- Merged from threat_defense_engine.py ---
-
-#!/usr/bin/python
-"""Topological Vulnerability Scanner.
-
-CONCEPT:OS-5.1 — Topological Vulnerability Scanner
-Enhances existing security by moving beyond pattern-matching. Scans execution
-graphs for structural vulnerabilities (e.g., untrusted data flows, circular
-dependency deadlocks) by matching them against known risk subgraphs in the KG.
-"""
-
-
 class TopologicalScanner:
     """Scans the execution graph for structural vulnerabilities."""
 
@@ -834,21 +820,6 @@ class TopologicalScanner:
                 vulnerabilities.append(vuln_node)
 
         return vulnerabilities
-
-
-# --- Merged from threat_defense_engine.py ---
-
-#!/usr/bin/python
-"""Guardrail Callback Engine — Input/Output Interception (CONCEPT:OS-5.1).
-
-Push-based guardrail interception with block, redact, and warn actions
-on both input and output. Ported from MATE's guardrail_callback.py.
-
-Integrates with the existing PolicyEngine as an adapter, adding
-automatic interception rather than manual evaluate() calls.
-
-OWL: :GuardrailTrigger rdfs:subClassOf :SecurityFinding
-"""
 
 
 logger = logging.getLogger(__name__)

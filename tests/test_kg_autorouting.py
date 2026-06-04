@@ -88,7 +88,7 @@ async def test_kg_native_reasoning_escalation():
     # Mock Agent.run_stream to raise an exception so we can break out early after model selection
     class MockAgent:
         def __init__(self, *args, **kwargs):
-            pass
+            return None
 
         async def run(self, *args, **kwargs):
             raise Exception("Mocked Agent Run")
@@ -96,10 +96,10 @@ async def test_kg_native_reasoning_escalation():
         def run_stream(self, *args, **kwargs):
             raise Exception("Mocked Agent Run")
 
-    import agent_utilities.graph.routing
+    import agent_utilities.graph._router_impl
 
-    original_agent = agent_utilities.graph.routing.Agent
-    agent_utilities.graph.routing.Agent = MockAgent  # type: ignore
+    original_agent = agent_utilities.graph._router_impl.Agent
+    agent_utilities.graph._router_impl.Agent = MockAgent  # type: ignore
 
     import agent_utilities.core.model_factory
 
@@ -117,22 +117,22 @@ async def test_kg_native_reasoning_escalation():
         side_effect=Exception("skip kg graph bypass")
     )  # type: ignore
 
-    import agent_utilities.graph.routing
+    import agent_utilities.graph._router_impl
 
-    original_logger_error = agent_utilities.graph.routing.logger.error
-    agent_utilities.graph.routing.logger.error = lambda x: print(f"ROUTER ERROR: {x}")  # type: ignore
+    original_logger_error = agent_utilities.graph._router_impl.logger.error
+    agent_utilities.graph._router_impl.logger.error = lambda x: print(f"ROUTER ERROR: {x}")  # type: ignore
 
     try:
         await router_step(ctx)
     finally:
-        agent_utilities.graph.routing.Agent = original_agent  # type: ignore
+        agent_utilities.graph._router_impl.Agent = original_agent  # type: ignore
         agent_utilities.rlm.config.RLMConfig = original_rlm_config  # type: ignore
         agent_utilities.core.model_factory.create_model = original_create_model  # type: ignore
         if original_build_kg:
             agent_utilities.graph.kg_graph_factory.build_pydantic_graph_from_kg = (
                 original_build_kg  # type: ignore
             )
-        agent_utilities.graph.routing.logger.error = original_logger_error  # type: ignore
+        agent_utilities.graph._router_impl.logger.error = original_logger_error  # type: ignore
 
     print(f"DEBUG: state.pinned_model_id is {state.pinned_model_id}")
     print(f"DEBUG: state.error is {state.error}")
@@ -180,7 +180,7 @@ async def test_kg_native_complex_task_escalation():
 
     class MockAgent:
         def __init__(self, *args, **kwargs):
-            pass
+            return None
 
         async def run(self, *args, **kwargs):
             raise Exception("Mocked Agent Run")
@@ -188,10 +188,10 @@ async def test_kg_native_complex_task_escalation():
         def run_stream(self, *args, **kwargs):
             raise Exception("Mocked Agent Run")
 
-    import agent_utilities.graph.routing
+    import agent_utilities.graph._router_impl
 
-    original_agent = agent_utilities.graph.routing.Agent
-    agent_utilities.graph.routing.Agent = MockAgent  # type: ignore
+    original_agent = agent_utilities.graph._router_impl.Agent
+    agent_utilities.graph._router_impl.Agent = MockAgent  # type: ignore
 
     import agent_utilities.core.model_factory
 
@@ -212,7 +212,7 @@ async def test_kg_native_complex_task_escalation():
     try:
         await router_step(ctx)
     finally:
-        agent_utilities.graph.routing.Agent = original_agent  # type: ignore
+        agent_utilities.graph._router_impl.Agent = original_agent  # type: ignore
         agent_utilities.rlm.config.RLMConfig = original_rlm_config  # type: ignore
         agent_utilities.core.model_factory.create_model = original_create_model  # type: ignore
         if original_build_kg2:

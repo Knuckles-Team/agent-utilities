@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """SPARQL Adapter Interface.
 
-CONCEPT:KG-2.16 — Vendor-Agnostic Graph Backend Abstraction
+CONCEPT:KG-2.7 — Vendor-Agnostic Graph Backend Abstraction
 
 Provides the ``SparqlAdapter`` base class, which is a specialized
 ``GraphBackend`` designed for W3C SPARQL 1.1 compliant triple stores

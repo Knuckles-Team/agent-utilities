@@ -64,7 +64,16 @@ Links implementation code back to the feature spec it implements. Created during
 
 ## Auto-Detection Mechanics
 
-When `kg_trace(action='submit_sdd')` receives a payload with `status='COMPLETED'`:
+> [!NOTE]
+> The current `graph_write` MCP action `submit_sdd` records a bare `SDD` node.
+> The automatic edge-derivation flow described below is the intended design for
+> COMPLETED SDD features; the **read** side (the `exclude_assimilated` filter in
+> `discover_innovations()`, which matches `ASSIMILATED_INTO` edges with
+> `status='implemented'`) is implemented in
+> `knowledge_graph/orchestration/engine_query.py`, but the automatic **writer**
+> below is not yet wired into the `submit_sdd` handler.
+
+The intended derivation, when a `submit_sdd` payload carries `status='COMPLETED'`:
 
 1. All `research_sources` paths are resolved to Article nodes
 2. `DERIVED_FROM_RESEARCH` edges are created (SDDFeature → Article)

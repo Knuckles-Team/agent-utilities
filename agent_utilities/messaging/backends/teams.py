@@ -117,7 +117,7 @@ class TeamsBackend(MessagingBackend):
 
     async def send_typing(self, channel_id: str) -> None:
         """Send typing indicator. CONCEPT:ECO-4.0"""
-        pass  # Handled via TurnContext in webhook handler
+        return None  # Handled via TurnContext in webhook handler
 
     async def create_thread(
         self, channel_id: str, message_id: str, title: str = ""

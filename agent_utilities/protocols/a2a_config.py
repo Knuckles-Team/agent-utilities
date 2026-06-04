@@ -247,7 +247,7 @@ async def sync_a2a_agents(
 
     # Invalidate registry cache after bulk ingestion (CONCEPT:ORCH-1.2)
     try:
-        from agent_utilities.graph.config_helpers import invalidate_registry_cache
+        from agent_utilities.core.config import invalidate_registry_cache
 
         invalidate_registry_cache()
         logger.info(

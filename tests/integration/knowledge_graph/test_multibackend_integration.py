@@ -332,7 +332,7 @@ class TestMultiBackendIntegration:
                 mock_registry.tools = []
 
                 with patch(
-                    "agent_utilities.graph.config_helpers.get_discovery_registry",
+                    "agent_utilities.core.config.get_discovery_registry",
                     return_value=mock_registry,
                 ):
                     pipeline = IntelligencePipeline(config, backend=backend)

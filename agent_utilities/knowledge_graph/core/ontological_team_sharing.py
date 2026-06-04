@@ -135,16 +135,20 @@ class OntologicalTeamExporter:
                 )
             ):
                 spec_uri = o
-                spec_dict: dict[str, Any] = {"role": "", "agent_id": "", "tools": []}
+                fallback_spec_dict: dict[str, Any] = {
+                    "role": "",
+                    "agent_id": "",
+                    "tools": [],
+                }
                 for sp, so in g.predicate_objects(spec_uri):
                     spred_str = str(sp).split("#")[-1]
                     if spred_str == "hasRole":
-                        spec_dict["role"] = str(so)
+                        fallback_spec_dict["role"] = str(so)
                     elif spred_str == "hasAgentId":
-                        spec_dict["agent_id"] = str(so)
+                        fallback_spec_dict["agent_id"] = str(so)
                     elif spred_str == "usesTool":
-                        spec_dict["tools"].append(str(so))
-                specialists.append(spec_dict)
+                        fallback_spec_dict["tools"].append(str(so))
+                specialists.append(fallback_spec_dict)
 
             return {
                 "team_id": team_id,
@@ -162,7 +166,7 @@ class OntologicalTeamExporter:
             )
             import re
 
-            result = {
+            result: dict[str, Any] = {
                 "team_id": "",
                 "source": "",
                 "topology_template_id": "",

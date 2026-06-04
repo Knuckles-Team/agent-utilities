@@ -24,19 +24,19 @@ class MockBackend(GraphBackend):
         return []
 
     def add_embedding(self, *args, **kwargs):
-        pass
+        self.embeddings = args
 
     def create_schema(self, *args, **kwargs):
-        pass
+        self.schema = True
 
     def prune(self, *args, **kwargs):
-        pass
+        self.pruned = True
 
     def semantic_search(self, *args, **kwargs):
         return []
 
     def close(self):
-        pass
+        self.closed = True
 
 
 def test_ingest_external_batch():

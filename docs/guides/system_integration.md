@@ -20,13 +20,13 @@ BUT: runner.py, routing.py never import any of them  ❌ Never invoked
 
 ## Solution: 5-Phase Layered Integration
 
-### Phase 1: Service Registry (`graph/service_registry.py`)
+### Phase 1: Service Registry (`core/registry/service_adapter.py`)
 
-A central nervous system that lazily loads all 54 concept modules and registers them as discoverable services:
+A central nervous system that lazily loads the concept modules and registers them as discoverable services (`ServiceRegistry`, driven by the `_SERVICE_DEFINITIONS` table):
 
 ```python
 registry = ServiceRegistry.instance()
-registry.initialize()  # Registers 54 services
+registry.initialize()  # Registers ~60 services
 
 # Discovery by capability
 svc = registry.get("team_composition")
@@ -43,16 +43,20 @@ security = registry.discover(layer="security")  # → 7 services
 
 | Layer | Count | Examples |
 |-------|-------|---------|
-| orchestration | 9 | team_composer, topology_engine, state_checkpoint |
+| orchestration | 8 | team_composer, topology_engine, state_checkpoint |
 | security | 7 | prompt_scanner, doom_loop_detector, permissions_kernel |
 | kg_intelligence | 16 | spectral_navigator, causal_reasoning, probabilistic_reasoning |
-| harness | 5 | trace_distiller, variant_pool, backtest_harness |
-| research | 3 | research_pipeline, research_subagent, research_orchestrator |
-| domain | 13 | alpha_factors, risk_manager, trading_swarm |
+| harness | 7 | trace_distiller, variant_pool, backtest_harness |
+| research | 4 | research_pipeline, research_subagent, research_orchestrator |
+| domain | 16 | alpha_factors, risk_manager, trading_swarm |
+| observability | 1 | (telemetry/tracing service) |
+| topology | 1 | topology_engine wiring |
 
-### Phase 2: Security Guard Chain (`runner.py`, `routing.py`)
+### Phase 2: Security Guard Chain (`graph/_router_impl.py`, `graph/routing/`)
 
-Wired security modules as pre/post-execution hooks in the query lifecycle:
+Wired security modules as pre/post-execution hooks in the query lifecycle. (The
+`StateCheckpointer` was since consolidated into `core/checkpoint/`, and the
+`DoomLoopDetector` lives in `security/execution_stability_engine.py`.)
 
 ```
 Query → PromptInjectionScanner (OS-5.4) → [router_step]
@@ -103,7 +107,7 @@ Fixed 21 stale file paths in `docs/overview.md` where files had been relocated t
 
 ```mermaid
 flowchart TD
-    Q[ORCH-1.0: User Query] --> SR[ECO-4.10: ServiceRegistry.initialize]
+    Q[ORCH-1.0: User Query] --> SR[ECO-4.6: ServiceRegistry.initialize]
     SR --> PS[OS-5.1: PromptInjectionScanner]
     PS -->|blocked| BLOCK[OS-5.1: Return Security Error]
     PS -->|clean| ROUTER[ORCH-1.2: router_step]

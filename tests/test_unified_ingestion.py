@@ -1,4 +1,4 @@
-"""Tests for IngestionEngine (CONCEPT:KG-3.0).
+"""Tests for IngestionEngine (CONCEPT:KG-2.7).
 
 Validates that all ContentType adaptors route correctly through the
 single ``IngestionEngine.ingest()`` entrypoint, and that batch ingestion,
@@ -52,7 +52,7 @@ def engine(mock_kg_engine):
 
 
 class TestContentType:
-    """CONCEPT:KG-3.0 — ContentType enum completeness."""
+    """CONCEPT:KG-2.7 — ContentType enum completeness."""
 
     def test_all_content_types_registered(self):
         """Every ContentType value must have a name."""
@@ -68,6 +68,7 @@ class TestContentType:
             "policy",
             "event",
             "prompt",
+            "config",
         }
         actual = {ct.value for ct in ContentType}
         assert actual == expected
@@ -81,7 +82,7 @@ class TestContentType:
 
 
 class TestIngestionManifest:
-    """CONCEPT:KG-3.0 — IngestionManifest construction and defaults."""
+    """CONCEPT:KG-2.7 — IngestionManifest construction and defaults."""
 
     def test_minimal_manifest(self):
         m = IngestionManifest(
@@ -105,11 +106,51 @@ class TestIngestionManifest:
         assert m.metadata["kg_context"] == ["AI", "ML"]
 
 
+# ── Directory content hash (delta-skip identity) ─────────────────────
+
+
+class TestDirectorySourceHash:
+    """CONCEPT:KG-2.7 — directory content-identity hashing.
+
+    Regression: ``_default_source_hash`` must prune ``_SKIP_DIRS`` *during*
+    traversal (``os.walk`` in-place prune), never descending into vendored/build
+    trees. The old ``rglob("*")``-then-filter walked every file under
+    ``node_modules``/``.git``/``.venv`` first — minutes of CPU on real repos.
+    """
+
+    def test_skips_vendored_dirs_and_is_stable(self, tmp_path):
+        from agent_utilities.knowledge_graph.ingestion.engine import (
+            _default_source_hash,
+        )
+
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.py").write_text("print('hi')")
+        (tmp_path / "README.md").write_text("docs")
+
+        baseline = _default_source_hash(str(tmp_path))
+        assert baseline is not None
+
+        # Adding files *inside* a skip-dir must not change the digest, proving we
+        # never descend into it (and never pay to walk it).
+        nm = tmp_path / "node_modules" / "pkg"
+        nm.mkdir(parents=True)
+        for i in range(50):
+            (nm / f"f{i}.js").write_text("x" * 100)
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main")
+
+        assert _default_source_hash(str(tmp_path)) == baseline
+
+        # A real source change *does* change the digest.
+        (tmp_path / "src" / "extra.py").write_text("x = 1")
+        assert _default_source_hash(str(tmp_path)) != baseline
+
+
 # ── IngestionResult ──────────────────────────────────────────────────
 
 
 class TestIngestionResult:
-    """CONCEPT:KG-3.0 — IngestionResult construction and defaults."""
+    """CONCEPT:KG-2.7 — IngestionResult construction and defaults."""
 
     def test_success_result(self):
         m = IngestionManifest(
@@ -135,7 +176,7 @@ class TestIngestionResult:
 
 
 class TestCodebaseIngestion:
-    """CONCEPT:KG-3.0 — CODEBASE content type adaptor."""
+    """CONCEPT:KG-2.7 — CODEBASE content type adaptor."""
 
     @pytest.mark.anyio
     async def test_nonexistent_path(self, engine):
@@ -149,25 +190,34 @@ class TestCodebaseIngestion:
         assert "does not exist" in result.error
 
     @pytest.mark.anyio
-    async def test_delegates_to_graph_compute(self, engine, tmp_path):
-        (tmp_path / "main.py").write_text("def hello(): pass\n")
+    async def test_routes_through_enrichment_pipeline(self, engine, tmp_path):
+        """Structural codebase ingest runs the per-file Rust parse path
+        (EnrichmentPipeline), not the old whole-repo parse_repository (CONCEPT:KG-2.8).
+        """
+        (tmp_path / "main.py").write_text("def hello():\n    return 1\n")
+        # Fake the Rust parser with a benign empty parse so no service is needed.
+        engine.kg.graph_compute.parse_file = MagicMock(return_value={})
 
         result = await engine.ingest(
             IngestionManifest(
                 content_type=ContentType.CODEBASE,
                 source_uri=str(tmp_path),
+                metadata={"features": False},  # avoid spawning a community engine
             )
         )
 
-        engine.kg.graph_compute.parse_repository.assert_called_once_with(str(tmp_path))
         assert result.status == "success"
+        # New path uses parse_file per discovered file …
+        engine.kg.graph_compute.parse_file.assert_called()
+        # … and the old whole-repo parser is gone (strangler).
+        engine.kg.graph_compute.parse_repository.assert_not_called()
 
 
 # ── Conversation Adaptor ─────────────────────────────────────────────
 
 
 class TestConversationIngestion:
-    """CONCEPT:KG-3.0 — CONVERSATION content type adaptor."""
+    """CONCEPT:KG-2.7 — CONVERSATION content type adaptor."""
 
     @pytest.mark.anyio
     async def test_creates_episode_node(self, engine):
@@ -187,7 +237,7 @@ class TestConversationIngestion:
 
 
 class TestSkillIngestion:
-    """CONCEPT:KG-3.0 — SKILL content type adaptor."""
+    """CONCEPT:KG-2.7 — SKILL content type adaptor."""
 
     @pytest.mark.anyio
     async def test_missing_skill_md(self, engine, tmp_path):
@@ -223,7 +273,7 @@ class TestSkillIngestion:
 
 
 class TestPolicyIngestion:
-    """CONCEPT:KG-3.0 — POLICY content type adaptor."""
+    """CONCEPT:KG-2.7 — POLICY content type adaptor."""
 
     @pytest.mark.anyio
     async def test_ingest_all_policies(self, engine, tmp_path):
@@ -254,13 +304,24 @@ class TestPolicyIngestion:
 
 
 class TestMCPServerIngestion:
-    """CONCEPT:KG-3.0 — MCP_SERVER content type adaptor."""
+    """CONCEPT:KG-2.7 — MCP_SERVER content type adaptor."""
 
     @pytest.mark.anyio
     async def test_local_mcp_config(self, engine, tmp_path):
-        config = {"mcpServers": {"graph-os": {"command": "uvx", "args": ["graph-os"]}}}
+        config = {"mcpServers": {"my-srv": {"command": "uvx", "args": ["x"], "env": {}}}}
         config_file = tmp_path / "mcp_config.json"
         config_file.write_text(json.dumps(config))
+
+        # Fake the live-discovery hooks: parse → one real entry; discovery →
+        # no tools (avoid spawning a real server in unit tests).
+        engine.kg.parse_mcp_config = lambda data: [
+            {"name": "my-srv", "command": "uvx", "args": ["x"], "env": {}}
+        ]
+
+        async def _no_tools(entry, timeout=15.0):
+            return []
+
+        engine.kg.discover_mcp_tools = _no_tools
 
         result = await engine.ingest(
             IngestionManifest(
@@ -269,7 +330,7 @@ class TestMCPServerIngestion:
             )
         )
         assert result.status == "success"
-        assert result.nodes_created == 1
+        assert result.details["servers_ingested"] == 1
         engine.kg.ingest_mcp_server.assert_called_once()
 
     @pytest.mark.anyio
@@ -287,7 +348,7 @@ class TestMCPServerIngestion:
 
 
 class TestPromptIngestion:
-    """CONCEPT:KG-3.0 — PROMPT content type adaptor."""
+    """CONCEPT:KG-2.7 — PROMPT content type adaptor."""
 
     @pytest.mark.anyio
     async def test_prompt_success(self, engine, tmp_path):
@@ -298,6 +359,9 @@ class TestPromptIngestion:
             IngestionManifest(
                 content_type=ContentType.PROMPT,
                 source_uri=str(prompt),
+                # Structural only — don't make a real LLM concept-extraction call
+                # in a unit test (concept extraction is covered elsewhere).
+                metadata={"extract_concepts": False},
             )
         )
         assert result.status == "success"
@@ -319,7 +383,7 @@ class TestPromptIngestion:
 
 
 class TestBatchIngestion:
-    """CONCEPT:KG-3.0 — Batch ingestion via ingest_batch()."""
+    """CONCEPT:KG-2.7 — Batch ingestion via ingest_batch()."""
 
     @pytest.mark.anyio
     async def test_mixed_results(self, engine, tmp_path):
@@ -346,7 +410,7 @@ class TestBatchIngestion:
 
 
 class TestHistoryTracking:
-    """CONCEPT:KG-3.0 — Ingestion history tracking."""
+    """CONCEPT:KG-2.7 — Ingestion history tracking."""
 
     @pytest.mark.anyio
     async def test_history_populated(self, engine, tmp_path):
@@ -379,7 +443,7 @@ class TestHistoryTracking:
 
 
 class TestModuleExports:
-    """CONCEPT:KG-3.0 — Verify public API surface from ingestion module."""
+    """CONCEPT:KG-2.7 — Verify public API surface from ingestion module."""
 
     def test_engine_importable(self):
         from agent_utilities.knowledge_graph.ingestion import IngestionEngine

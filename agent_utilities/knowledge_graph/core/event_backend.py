@@ -4,8 +4,8 @@ from __future__ import annotations
 """Abstracted Event Backbone.
 
 CONCEPT:ECO-4.05 — Pluggable Event Queue Backend
-CONCEPT:ORCH-1.28 — Reactive Event Sourcing
-CONCEPT:KG-2.19 — Vendor-Agnostic Event Backbone
+CONCEPT:ORCH-1.10 — Reactive Event Sourcing
+CONCEPT:KG-2.7 — Vendor-Agnostic Event Backbone
 
 Provides a protocol-based event backbone abstraction with:
     - **MemoryEventBackend** (default): Zero-dependency, in-process pub/sub
@@ -86,11 +86,11 @@ class EventBackend(Protocol):
 
     async def start(self) -> None:
         """Initialize connections and begin consuming."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     async def stop(self) -> None:
         """Gracefully shut down, flush pending events, close connections."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
         """Publish an event to a topic.
@@ -99,7 +99,7 @@ class EventBackend(Protocol):
             topic: Topic name (e.g. "kg.mutations").
             event: Event payload (must be JSON-serializable).
         """
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     async def subscribe(
         self,
@@ -115,11 +115,11 @@ class EventBackend(Protocol):
             handler: Callback ``(topic, event_dict) -> None``.
                      May be sync or async.
         """
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     def get_stats(self) -> dict[str, Any]:
         """Return backend statistics (published, consumed, lag, errors)."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
 
 class MemoryEventBackend:
@@ -354,7 +354,7 @@ class RedpandaEventBackend:
             try:
                 consumer.close()
             except Exception:
-                pass
+                return None
 
         if self._consumer_task:
             self._consumer_task.cancel()
@@ -552,11 +552,17 @@ def create_event_backend(
     Returns:
         A configured EventBackend instance.
     """
+    kafka_enabled = os.environ.get("KAFKA_ENABLED", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+
     backend_type = (
         (backend_type or os.environ.get("EVENT_BACKEND") or "redpanda").lower().strip()
     )
 
-    if backend_type == "memory":
+    if backend_type == "memory" or not kafka_enabled:
         max_queue = kwargs.get("max_queue_size", 10_000)
         return MemoryEventBackend(max_queue_size=max_queue)
 

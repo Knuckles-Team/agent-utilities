@@ -4,7 +4,7 @@
 Cost Governors, Execution Budgets, and payload truncation for context scaling.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/routing.py``
+- **Source Code**: ``agent_utilities/graph/state.py`` (cost governors, payload truncation) and ``agent_utilities/models/usage.py`` (``ExecutionBudget``)
 - **Pillar**: ORCH
 
 ## Documentation Coverage

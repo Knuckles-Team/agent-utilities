@@ -7,10 +7,12 @@
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix schema: <http://schema.org/> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix time: <http://www.w3.org/2006/time#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 <http://knuckles.team/kg> a owl:Ontology ;
     rdfs:label "Agent Intelligence Graph Ontology" ;
@@ -37,21 +39,13 @@ Modular imports:
         <http://knuckles.team/kg/wellness>,
         <https://agent-utilities.dev/ontology/infrastructure> .
 
-:Agent a owl:Class ;
-    rdfs:label "Agent Specialist" ;
-    rdfs:comment "An autonomous software agent. BFO:IndependentContinuant, aligned to prov:SoftwareAgent." ;
-    rdfs:subClassOf bfo:0000004 ;
-    owl:equivalentClass prov:SoftwareAgent .
-
-:Code a owl:Class ;
-    rdfs:label "Code" ;
-    rdfs:seeAlso schema:SoftwareSourceCode ;
-    rdfs:subClassOf bfo:0000004 .
-
 :CreativeWork a owl:Class ;
     rdfs:label "Creative Work" ;
     rdfs:comment "A book, manual, SOP, or other creative output. Aligned to schema:CreativeWork." ;
-    rdfs:subClassOf bfo:0000031 ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :createdBy ;
+            owl:someValuesFrom bfo:0000004 ],
+        bfo:0000031 ;
     owl:equivalentClass schema:CreativeWork .
 
 :Critique a owl:Class ;
@@ -70,11 +64,6 @@ Modular imports:
     rdfs:subClassOf bfo:0000031 ;
     owl:equivalentClass schema:Dataset .
 
-:Decision a owl:Class ;
-    rdfs:label "Decision" ;
-    rdfs:comment "A decision linking Goal → Action → Outcome. Subtype of Event." ;
-    rdfs:subClassOf :Event .
-
 :EmbeddingModel a owl:Class ;
     rdfs:label "Embedding Model" ;
     rdfs:comment "An AI model used specifically to generate high-dimensional vector embeddings." ;
@@ -84,12 +73,10 @@ Modular imports:
     rdfs:label "Episode" ;
     rdfs:comment "A discrete interaction unit. BFO:Process, aligned to prov:Activity." ;
     rdfs:seeAlso prov:Activity ;
-    rdfs:subClassOf bfo:0000015 .
-
-:Evidence a owl:Class ;
-    rdfs:label "Evidence" ;
-    rdfs:comment "A claim or finding grounded in source material." ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:maxCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :occurredDuring ],
+        bfo:0000015 .
 
 :ExternalGraphReference a owl:Class ;
     rdfs:label "External Graph Reference" ;
@@ -100,7 +87,10 @@ Modular imports:
     rdfs:label "Fact" ;
     rdfs:comment "An atomic factual assertion. BFO:GenericallyDependentContinuant." ;
     rdfs:seeAlso skos:Concept ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :derivedFrom ;
+            owl:someValuesFrom :Evidence ],
+        bfo:0000031 .
 
 :File a owl:Class ;
     rdfs:label "Source File" ;
@@ -111,12 +101,25 @@ Modular imports:
 :Goal a owl:Class ;
     rdfs:label "Goal" ;
     rdfs:comment "An objective the agent is pursuing. BFO:GenericallyDependentContinuant." ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:allValuesFrom bfo:0000001 ;
+            owl:onProperty :influenced ],
+        bfo:0000031 .
+
+:GovernedEntity a owl:Class ;
+    rdfs:label "Governed Entity" ;
+    rdfs:comment "Any entity subject to at least one governance instrument. Membership is inferred." ;
+    owl:equivalentClass [ a owl:Restriction ;
+            owl:onProperty :governedBy ;
+            owl:someValuesFrom bfo:0000001 ] .
 
 :Hypothesis a owl:Class ;
     rdfs:label "Hypothesis" ;
     rdfs:comment "A falsifiable predictive belief." ;
-    rdfs:subClassOf :Belief .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :influencedBy ;
+            owl:someValuesFrom :Evidence ],
+        :Belief .
 
 :LanguageModel a owl:Class ;
     rdfs:label "Language Model" ;
@@ -138,11 +141,17 @@ Modular imports:
     rdfs:label "Memory" ;
     rdfs:comment "A stored memory or knowledge fragment. BFO:GenericallyDependentContinuant, aligned to prov:Entity." ;
     rdfs:seeAlso prov:Entity ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :ownedBy ;
+            owl:someValuesFrom bfo:0000004 ],
+        bfo:0000031 .
 
 :Module a owl:Class ;
     rdfs:label "Module" ;
-    rdfs:subClassOf bfo:0000004 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :partOf ;
+            owl:someValuesFrom bfo:0000001 ],
+        bfo:0000004 .
 
 :Observation a owl:Class ;
     rdfs:label "Observation" ;
@@ -150,30 +159,28 @@ Modular imports:
     rdfs:seeAlso prov:Activity ;
     rdfs:subClassOf :Event .
 
-:Organization a owl:Class ;
-    rdfs:label "Organization" ;
-    rdfs:comment "An organizational entity. BFO:IndependentContinuant. Aligned to foaf:Organization, schema:Organization, and fibo-org:Organization." ;
-    rdfs:seeAlso schema:Organization,
-        fibo-org:Organization ;
-    rdfs:subClassOf bfo:0000004 ;
-    owl:equivalentClass foaf:Organization .
-
 :OutcomeEvaluation a owl:Class ;
     rdfs:label "Outcome Evaluation" ;
     rdfs:comment "A reward/evaluation record. BFO:GenericallyDependentContinuant." ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :derivedFrom ;
+            owl:someValuesFrom :Decision ],
+        bfo:0000031 .
 
-:Person a owl:Class ;
-    rdfs:label "Person" ;
-    rdfs:comment "A human individual. BFO:IndependentContinuant, aligned to foaf:Person and schema:Person." ;
-    rdfs:seeAlso schema:Person ;
-    rdfs:subClassOf bfo:0000004 ;
-    owl:equivalentClass foaf:Person .
+:OwnedEntity a owl:Class ;
+    rdfs:label "Owned Entity" ;
+    rdfs:comment "Any entity that is owned by some agent. Membership is inferred." ;
+    owl:equivalentClass [ a owl:Restriction ;
+            owl:onProperty :ownedBy ;
+            owl:someValuesFrom bfo:0000004 ] .
 
 :Policy a owl:Class ;
     rdfs:label "Policy" ;
     rdfs:comment "A governance rule or constraint." ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:allValuesFrom bfo:0000001 ;
+            owl:onProperty :governedBy ],
+        bfo:0000031 .
 
 :Principle a owl:Class ;
     rdfs:label "Principle" ;
@@ -190,7 +197,10 @@ Modular imports:
     rdfs:label "Reasoning Trace" ;
     rdfs:comment "A chain-of-thought step. BFO:Process, aligned to prov:Activity." ;
     rdfs:seeAlso prov:Activity ;
-    rdfs:subClassOf bfo:0000015 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :hadParticipant ;
+            owl:someValuesFrom :Agent ],
+        bfo:0000015 .
 
 :Reflection a owl:Class ;
     rdfs:label "Reflection" ;
@@ -200,12 +210,25 @@ Modular imports:
 :Regulation a owl:Class ;
     rdfs:label "Regulation" ;
     rdfs:comment "A compliance or regulatory rule. BFO:GenericallyDependentContinuant." ;
-    rdfs:subClassOf bfo:0000031 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :approvedBy ;
+            owl:someValuesFrom bfo:0000004 ],
+        bfo:0000031 .
 
 :Role a owl:Class ;
     rdfs:label "Role" ;
     rdfs:comment "A time-bounded role a Person plays. BFO:SpecificallyDependentContinuant (a realizable entity — a disposition of a person)." ;
-    rdfs:subClassOf bfo:0000020 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:maxCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :approvedBy ],
+        bfo:0000020 .
+
+:RootEntity a owl:Class ;
+    rdfs:label "Root Entity" ;
+    rdfs:comment "An entity with no parent — the root of a lineage chain. Membership is inferred." ;
+    owl:equivalentClass [ a owl:Restriction ;
+            owl:maxCardinality "0"^^xsd:nonNegativeInteger ;
+            owl:onProperty :hasParent ] .
 
 :ScientificEntity a owl:Class ;
     rdfs:label "Scientific Entity" ;
@@ -217,20 +240,17 @@ Modular imports:
     rdfs:comment "An attribute defining the security clearance level of an Agent or Role." ;
     rdfs:subClassOf bfo:0000031 .
 
-:Server a owl:Class ;
-    rdfs:label "Server" ;
-    rdfs:subClassOf bfo:0000004 .
-
-:Skill a owl:Class ;
-    rdfs:label "Skill" ;
-    rdfs:comment "A reusable agent skill or capability." ;
-    rdfs:subClassOf bfo:0000004 .
-
 :SoftwareProject a owl:Class ;
     rdfs:label "Software Project" ;
     rdfs:comment "A software project or repository. BFO:IndependentContinuant." ;
     rdfs:seeAlso schema:SoftwareSourceCode ;
-    rdfs:subClassOf bfo:0000004 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :createdBy ;
+            owl:someValuesFrom bfo:0000004 ],
+        [ a owl:Restriction ;
+            owl:allValuesFrom bfo:0000001 ;
+            owl:onProperty :dependsOn ],
+        bfo:0000004 .
 
 :Symbol a owl:Class ;
     rdfs:label "Code Symbol" ;
@@ -239,7 +259,13 @@ Modular imports:
 :Team a owl:Class ;
     rdfs:label "Team" ;
     rdfs:comment "A team of agents or people. BFO:IndependentContinuant." ;
-    rdfs:subClassOf bfo:0000004 .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:minCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :hasMember ],
+        [ a owl:Restriction ;
+            owl:allValuesFrom bfo:0000004 ;
+            owl:onProperty :hasMember ],
+        bfo:0000004 .
 
 :Tool a owl:Class ;
     rdfs:label "Tool" ;
@@ -255,25 +281,12 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 .
 
-:approvedBy a owl:ObjectProperty ;
-    rdfs:label "approved by" ;
-    rdfs:comment """Links an entity to the Person, Role, or Organization that
-approved/authorized it.  Decision audit trail.""" ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000004 .
-
 :authorOf a owl:ObjectProperty ;
     rdfs:label "author of" ;
     rdfs:comment "Links a creator to their creation. Inverse of createdBy." ;
     rdfs:domain bfo:0000004 ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :createdBy .
-
-:blocksTask a owl:ObjectProperty ;
-    rdfs:label "blocks task" ;
-    rdfs:comment "Links an Incident to the Task(s) it blocks." ;
-    rdfs:domain :Incident ;
-    rdfs:range :Task .
 
 :classifiedAs a owl:ObjectProperty ;
     rdfs:label "classified as" ;
@@ -296,26 +309,12 @@ Works for DataClassification, SecurityClearance, risk tier, etc.""" ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :dependsOn .
 
-:governedBy a owl:ObjectProperty ;
-    rdfs:label "governed by" ;
-    rdfs:comment """Links an entity to the Policy, Regulation, or governance body
-that controls it.  Works for System→Policy, Organization→Regulation, etc.""" ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000001 .
-
 :hadDerivation a owl:ObjectProperty ;
     rdfs:label "had derivation" ;
     rdfs:comment "Links a source to an entity derived from it. Inverse of derivedFrom." ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :derivedFrom .
-
-:hadParticipant a owl:ObjectProperty ;
-    rdfs:label "had participant" ;
-    rdfs:comment "Links an Event to an entity that participated. Inverse of participatedIn." ;
-    rdfs:domain :Event ;
-    rdfs:range bfo:0000001 ;
-    owl:inverseOf :participatedIn .
 
 :hasChild a owl:ObjectProperty ;
     rdfs:label "has child" ;
@@ -332,13 +331,6 @@ that controls it.  Works for System→Policy, Organization→Regulation, etc."""
     rdfs:range bfo:0000001 ;
     owl:inverseOf :hasAncestor .
 
-:hasMember a owl:ObjectProperty ;
-    rdfs:label "has member" ;
-    rdfs:comment "Links a group/collection to its members. Inverse of memberOf." ;
-    rdfs:domain bfo:0000004 ;
-    rdfs:range bfo:0000004 ;
-    owl:inverseOf :memberOf .
-
 :hasPart a owl:ObjectProperty,
         owl:TransitiveProperty ;
     rdfs:label "has part" ;
@@ -354,13 +346,6 @@ that controls it.  Works for System→Policy, Organization→Regulation, etc."""
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 .
 
-:influenced a owl:ObjectProperty ;
-    rdfs:label "influenced" ;
-    rdfs:comment "Active influence. Inverse of influencedBy." ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000001 ;
-    owl:inverseOf :influencedBy .
-
 :inspiredChange a owl:ObjectProperty ;
     rdfs:label "inspired change" ;
     rdfs:comment "Links a research Document to a code change it inspired." ;
@@ -373,32 +358,12 @@ that controls it.  Works for System→Policy, Organization→Regulation, etc."""
     rdfs:domain :Event ;
     rdfs:range :Place .
 
-:occurredDuring a owl:ObjectProperty ;
-    rdfs:label "occurred during" ;
-    rdfs:comment "Links an Event to the temporal Phase during which it took place." ;
-    rdfs:domain :Event ;
-    rdfs:range :Phase .
-
-:ownedBy a owl:ObjectProperty ;
-    rdfs:label "owned by" ;
-    rdfs:comment "Links an entity to its owner. Inverse of owns." ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000004 ;
-    owl:inverseOf :owns .
-
 :precedes a owl:ObjectProperty ;
     rdfs:label "precedes" ;
     rdfs:comment "Temporal ordering — this entity comes before another. Inverse of succeeds." ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :succeeds .
-
-:selfHealedVia a owl:ObjectProperty ;
-    rdfs:label "self healed via" ;
-    rdfs:comment "Links an Incident to the remediation Action that resolved it." ;
-    rdfs:domain :Incident ;
-    rdfs:range :Action ;
-    owl:inverseOf :resolvedIncident .
 
 :triggeredIncident a owl:ObjectProperty ;
     rdfs:label "triggered incident" ;
@@ -411,24 +376,273 @@ that controls it.  Works for System→Policy, Organization→Regulation, etc."""
     rdfs:comment "A claim-with-confidence held by an agent. BFO:SpecificallyDependentContinuant." ;
     rdfs:subClassOf bfo:0000020 .
 
+:Code a owl:Class ;
+    rdfs:label "Code" ;
+    rdfs:seeAlso schema:SoftwareSourceCode ;
+    rdfs:subClassOf bfo:0000004 .
+
 :Concept a owl:Class ;
     rdfs:label "Concept" ;
     rdfs:comment "An atomic knowledge unit. BFO:GenericallyDependentContinuant, aligned to skos:Concept for full SKOS taxonomy support." ;
     rdfs:subClassOf bfo:0000031,
         skos:Concept .
 
-:Document a owl:Class ;
-    rdfs:label "Document" ;
-    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
-    rdfs:seeAlso bibo:Document,
-        schema:DigitalDocument ;
-    rdfs:subClassOf bfo:0000031 .
+:Decision a owl:Class ;
+    rdfs:label "Decision" ;
+    rdfs:comment "A decision linking Goal → Action → Outcome. Subtype of Event." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :hadParticipant ;
+            owl:someValuesFrom :Agent ],
+        :Event .
+
+:Organization a owl:Class ;
+    rdfs:label "Organization" ;
+    rdfs:comment "An organizational entity. BFO:IndependentContinuant. Aligned to foaf:Organization, schema:Organization, and fibo-org:Organization." ;
+    rdfs:seeAlso schema:Organization,
+        fibo-org:Organization ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:minCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :hasMember ],
+        bfo:0000004 ;
+    owl:equivalentClass foaf:Organization .
+
+:Person a owl:Class ;
+    rdfs:label "Person" ;
+    rdfs:comment "A human individual. BFO:IndependentContinuant, aligned to foaf:Person and schema:Person." ;
+    rdfs:seeAlso schema:Person ;
+    rdfs:subClassOf bfo:0000004 ;
+    owl:disjointWith :Code,
+        :Document ;
+    owl:equivalentClass foaf:Person .
 
 :Phase a owl:Class ;
     rdfs:label "Temporal Phase" ;
     rdfs:comment "A named temporal interval. BFO:TemporalRegion, aligned to time:ProperInterval." ;
     rdfs:seeAlso time:ProperInterval ;
     rdfs:subClassOf bfo:0000008 .
+
+:Server a owl:Class ;
+    rdfs:label "Server" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :locatedIn ;
+            owl:someValuesFrom :Place ],
+        bfo:0000004 .
+
+:Skill a owl:Class ;
+    rdfs:label "Skill" ;
+    rdfs:comment "A reusable agent skill or capability." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:allValuesFrom :Skill ;
+            owl:onProperty :dependsOn ],
+        bfo:0000004 .
+
+:blocksTask a owl:ObjectProperty ;
+    rdfs:label "blocks task" ;
+    rdfs:comment "Links an Incident to the Task(s) it blocks." ;
+    rdfs:domain :Incident ;
+    rdfs:range :Task .
+
+:influenced a owl:ObjectProperty ;
+    rdfs:label "influenced" ;
+    rdfs:comment "Active influence. Inverse of influencedBy." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :influencedBy .
+
+:memberOf a owl:ObjectProperty ;
+    rdfs:label "member of" ;
+    rdfs:comment """Links an entity to a group, organization, or collection it belongs to.
+Works for Person→Organization, Agent→Team, Server→Cluster, etc.  Membership is
+a specialization of mereological part-hood.""" ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range bfo:0000004 ;
+    rdfs:subPropertyOf :partOf .
+
+:occurredDuring a owl:ObjectProperty ;
+    rdfs:label "occurred during" ;
+    rdfs:comment "Links an Event to the temporal Phase during which it took place." ;
+    rdfs:domain :Event ;
+    rdfs:range :Phase .
+
+:owns a owl:ObjectProperty ;
+    rdfs:label "owns" ;
+    rdfs:comment """Links an entity to something it owns or is responsible for.
+Works for Person→Asset, Organization→System, Team→SoftwareProject, etc.""" ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range bfo:0000001 .
+
+:participatedIn a owl:ObjectProperty ;
+    rdfs:label "participated in" ;
+    rdfs:comment """Links any entity to an Event it participated in.
+Aligned to prov:wasAssociatedWith (inverse direction).""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range :Event .
+
+:selfHealedVia a owl:ObjectProperty ;
+    rdfs:label "self healed via" ;
+    rdfs:comment "Links an Incident to the remediation Action that resolved it." ;
+    rdfs:domain :Incident ;
+    rdfs:range :Action ;
+    owl:inverseOf :resolvedIncident .
+
+:succeeds a owl:ObjectProperty ;
+    rdfs:label "succeeds" ;
+    rdfs:comment """Temporal ordering — this entity comes after another.
+Works for versions, phases, events, role transitions, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:Agent a owl:Class ;
+    rdfs:label "Agent Specialist" ;
+    rdfs:comment "An autonomous software agent. BFO:IndependentContinuant, aligned to prov:SoftwareAgent." ;
+    rdfs:subClassOf bfo:0000004 ;
+    owl:equivalentClass prov:SoftwareAgent .
+
+:Document a owl:Class ;
+    rdfs:label "Document" ;
+    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
+    rdfs:seeAlso bibo:Document,
+        schema:DigitalDocument ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :createdBy ;
+            owl:someValuesFrom bfo:0000004 ],
+        bfo:0000031 .
+
+:DomainEntity a owl:Class ;
+    rdfs:label "Domain Entity" ;
+    rdfs:comment "Base class for cross-domain associative reasoning." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Evidence a owl:Class ;
+    rdfs:label "Evidence" ;
+    rdfs:comment "A claim or finding grounded in source material." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :derivedFrom ;
+            owl:someValuesFrom bfo:0000001 ],
+        bfo:0000031 .
+
+:approvedBy a owl:ObjectProperty ;
+    rdfs:label "approved by" ;
+    rdfs:comment """Links an entity to the Person, Role, or Organization that
+approved/authorized it.  Decision audit trail.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000004 .
+
+:governedBy a owl:ObjectProperty ;
+    rdfs:label "governed by" ;
+    rdfs:comment """Links an entity to the Policy, Regulation, or governance body
+that controls it.  Works for System→Policy, Organization→Regulation, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:hadParticipant a owl:ObjectProperty ;
+    rdfs:label "had participant" ;
+    rdfs:comment "Links an Event to an entity that participated. Inverse of participatedIn." ;
+    rdfs:domain :Event ;
+    rdfs:range bfo:0000001 ;
+    owl:inverseOf :participatedIn .
+
+:hasAncestor a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "has ancestor" ;
+    rdfs:comment """Any ancestor in the lineage chain.  Transitivity enables
+the OWL reasoner to infer full ancestry from asserted hasParent edges.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:hasParent a owl:ObjectProperty ;
+    rdfs:label "has parent" ;
+    rdfs:comment """Direct parent/progenitor relationship (literal or figurative).
+Works for biological parents, software forks, organizational spin-offs,
+mentor relationships, concept derivation chains, or event hierarchies.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    rdfs:subPropertyOf :hasAncestor .
+
+:influencedBy a owl:ObjectProperty ;
+    rdfs:label "influenced by" ;
+    rdfs:comment """Generic influence relationship. Aligned to prov:wasInfluencedBy.
+Works for Person→Person (mentor), Document→Concept, Event→Decision, etc.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
+:locatedIn a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "located in" ;
+    rdfs:comment """Spatial or logical containment.  Transitivity enables
+Server→Rack→DataCenter→Region inference.  Works for physical and virtual.""" ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range :Place .
+
+:ownedBy a owl:ObjectProperty ;
+    rdfs:label "owned by" ;
+    rdfs:comment "Links an entity to its owner. Inverse of owns." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000004 ;
+    owl:inverseOf :owns .
+
+:resolvedIncident a owl:ObjectProperty ;
+    rdfs:label "resolved incident" ;
+    rdfs:comment "Links a remediation Action to the Incident it resolved." ;
+    rdfs:domain :Action ;
+    rdfs:range :Incident .
+
+bfo:0000003 a owl:Class ;
+    rdfs:label "Occurrent" ;
+    rdfs:comment "BFO:Occurrent — entities that unfold or happen over time." ;
+    rdfs:subClassOf bfo:0000001 .
+
+bfo:0000008 a owl:Class ;
+    rdfs:label "Temporal Region" ;
+    rdfs:comment "BFO:TemporalRegion — a region of time." ;
+    rdfs:subClassOf bfo:0000003 .
+
+:Action a owl:Class ;
+    rdfs:label "Action" ;
+    rdfs:comment "An agent action. BFO:Process, aligned to prov:Activity." ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:allValuesFrom :Incident ;
+            owl:onProperty :resolvedIncident ],
+        bfo:0000015 .
+
+:System a owl:Class ;
+    rdfs:label "System" ;
+    rdfs:comment "A software system or service." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:hasMember a owl:ObjectProperty ;
+    rdfs:label "has member" ;
+    rdfs:comment "Links a group/collection to its members. Inverse of memberOf." ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range bfo:0000004 ;
+    owl:inverseOf :memberOf .
+
+:partOf a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "part of" ;
+    rdfs:comment """Mereological part-whole relationship. Transitivity enables
+Module→System→Platform inference. BFO-standard mereology.  A part necessarily
+depends on its whole, so partOf is a sub-property of dependsOn.""" ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 ;
+    rdfs:subPropertyOf :dependsOn .
+
+bfo:0000002 a owl:Class ;
+    rdfs:label "Continuant" ;
+    rdfs:comment "BFO:Continuant — entities that persist through time." ;
+    rdfs:subClassOf bfo:0000001 .
+
+bfo:0000020 a owl:Class ;
+    rdfs:label "Specifically Dependent Continuant" ;
+    rdfs:comment "BFO:SpecificallyDependentContinuant — depends on a specific bearer." ;
+    rdfs:subClassOf bfo:0000002 .
+
+:Place a owl:Class ;
+    rdfs:label "Place" ;
+    rdfs:comment "A physical, virtual, or contextual location. BFO:IndependentContinuant." ;
+    rdfs:seeAlso schema:Place ;
+    rdfs:subClassOf bfo:0000004 .
 
 :createdBy a owl:ObjectProperty ;
     rdfs:label "created by" ;
@@ -452,125 +666,16 @@ translation→original, dataset→raw_source, etc.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 .
 
-:hasAncestor a owl:ObjectProperty,
-        owl:TransitiveProperty ;
-    rdfs:label "has ancestor" ;
-    rdfs:comment """Any ancestor in the lineage chain.  Transitivity enables
-the OWL reasoner to infer full ancestry from asserted hasParent edges.""" ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000001 .
-
-:hasParent a owl:ObjectProperty ;
-    rdfs:label "has parent" ;
-    rdfs:comment """Direct parent/progenitor relationship (literal or figurative).
-Works for biological parents, software forks, organizational spin-offs,
-mentor relationships, concept derivation chains, or event hierarchies.""" ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000001 .
-
-:influencedBy a owl:ObjectProperty ;
-    rdfs:label "influenced by" ;
-    rdfs:comment """Generic influence relationship. Aligned to prov:wasInfluencedBy.
-Works for Person→Person (mentor), Document→Concept, Event→Decision, etc.""" ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000001 .
-
-:locatedIn a owl:ObjectProperty,
-        owl:TransitiveProperty ;
-    rdfs:label "located in" ;
-    rdfs:comment """Spatial or logical containment.  Transitivity enables
-Server→Rack→DataCenter→Region inference.  Works for physical and virtual.""" ;
-    rdfs:domain bfo:0000004 ;
-    rdfs:range :Place .
-
-:memberOf a owl:ObjectProperty ;
-    rdfs:label "member of" ;
-    rdfs:comment """Links an entity to a group, organization, or collection it belongs to.
-Works for Person→Organization, Agent→Team, Server→Cluster, etc.""" ;
-    rdfs:domain bfo:0000004 ;
-    rdfs:range bfo:0000004 .
-
-:owns a owl:ObjectProperty ;
-    rdfs:label "owns" ;
-    rdfs:comment """Links an entity to something it owns or is responsible for.
-Works for Person→Asset, Organization→System, Team→SoftwareProject, etc.""" ;
-    rdfs:domain bfo:0000004 ;
-    rdfs:range bfo:0000001 .
-
-:partOf a owl:ObjectProperty,
-        owl:TransitiveProperty ;
-    rdfs:label "part of" ;
-    rdfs:comment """Mereological part-whole relationship. Transitivity enables
-Module→System→Platform inference. BFO-standard mereology.""" ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000001 .
-
-:participatedIn a owl:ObjectProperty ;
-    rdfs:label "participated in" ;
-    rdfs:comment """Links any entity to an Event it participated in.
-Aligned to prov:wasAssociatedWith (inverse direction).""" ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range :Event .
-
-:resolvedIncident a owl:ObjectProperty ;
-    rdfs:label "resolved incident" ;
-    rdfs:comment "Links a remediation Action to the Incident it resolved." ;
-    rdfs:domain :Action ;
-    rdfs:range :Incident .
-
-:succeeds a owl:ObjectProperty ;
-    rdfs:label "succeeds" ;
-    rdfs:comment """Temporal ordering — this entity comes after another.
-Works for versions, phases, events, role transitions, etc.""" ;
-    rdfs:domain bfo:0000001 ;
-    rdfs:range bfo:0000001 .
-
-bfo:0000008 a owl:Class ;
-    rdfs:label "Temporal Region" ;
-    rdfs:comment "BFO:TemporalRegion — a region of time." ;
-    rdfs:subClassOf bfo:0000003 .
-
-:Action a owl:Class ;
-    rdfs:label "Action" ;
-    rdfs:comment "An agent action. BFO:Process, aligned to prov:Activity." ;
-    rdfs:seeAlso prov:Activity ;
-    rdfs:subClassOf bfo:0000015 .
-
-:DomainEntity a owl:Class ;
-    rdfs:label "Domain Entity" ;
-    rdfs:comment "Base class for cross-domain associative reasoning." ;
-    rdfs:subClassOf bfo:0000004 .
-
-bfo:0000003 a owl:Class ;
-    rdfs:label "Occurrent" ;
-    rdfs:comment "BFO:Occurrent — entities that unfold or happen over time." ;
-    rdfs:subClassOf bfo:0000001 .
-
-:Place a owl:Class ;
-    rdfs:label "Place" ;
-    rdfs:comment "A physical, virtual, or contextual location. BFO:IndependentContinuant." ;
-    rdfs:seeAlso schema:Place ;
-    rdfs:subClassOf bfo:0000004 .
-
-:System a owl:Class ;
-    rdfs:label "System" ;
-    rdfs:comment "A software system or service." ;
-    rdfs:subClassOf bfo:0000004 .
-
-bfo:0000002 a owl:Class ;
-    rdfs:label "Continuant" ;
-    rdfs:comment "BFO:Continuant — entities that persist through time." ;
-    rdfs:subClassOf bfo:0000001 .
-
-bfo:0000020 a owl:Class ;
-    rdfs:label "Specifically Dependent Continuant" ;
-    rdfs:comment "BFO:SpecificallyDependentContinuant — depends on a specific bearer." ;
-    rdfs:subClassOf bfo:0000002 .
-
 :Incident a owl:Class ;
     rdfs:label "Incident" ;
     rdfs:comment "A production incident. Subtype of Event." ;
-    rdfs:subClassOf :Event .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:minCardinality "0"^^xsd:nonNegativeInteger ;
+            owl:onProperty :blocksTask ],
+        [ a owl:Restriction ;
+            owl:allValuesFrom :Action ;
+            owl:onProperty :selfHealedVia ],
+        :Event .
 
 bfo:0000015 a owl:Class ;
     rdfs:label "Process" ;
@@ -597,4 +702,10 @@ bfo:0000004 a owl:Class ;
 bfo:0000001 a owl:Class ;
     rdfs:label "Entity" ;
     rdfs:comment "BFO:Entity — root of all entities." .
+
+[] a owl:AllDisjointClasses ;
+    owl:members ( bfo:0000004 bfo:0000031 bfo:0000015 bfo:0000008 ) .
+
+[] a owl:AllDisjointClasses ;
+    owl:members ( :Person :Organization :Server :Incident :Event ) .
 

@@ -1,4 +1,8 @@
-"""CONCEPT:ORCH-1.25 — Manifest Generators.
+"""CONCEPT:ORCH-1.8 — Manifest Generators.
+
+Strangled by graph/planning/ (Plan 03 Step 4): re-exported via
+``agent_utilities.graph.planning.manifest``. This module remains the live
+implementation.
 
 Functions that generate ``ExecutionManifest`` objects from various sources,
 providing the single conversion layer between legacy/external formats
@@ -13,7 +17,7 @@ Generators:
     - ``manifest_from_department``: From OWL-materialized company department
     - ``manifest_for_enterprise``: Full enterprise manifest (all departments)
 
-See docs/pillars/1_graph_orchestration/ORCH-1.25-Parallel_Engine.md
+See docs/pillars/1_graph_orchestration/ORCH-1.8-Parallel_Engine.md
 """
 
 from __future__ import annotations
@@ -45,7 +49,7 @@ def manifest_from_planner(
 ) -> ExecutionManifest:
     """Generate manifest from the HTN planner output.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     Converts ``GraphPlan`` steps into ``AgentSpec`` entries, preserving
     dependencies and parallel batching from the planner.
@@ -89,7 +93,7 @@ def manifest_from_teamconfig(
 ) -> ExecutionManifest:
     """Generate manifest from a KG ``TeamComposition``.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     Converts the team's agent roster, execution mode, and parallel
     groups into an ``ExecutionManifest``.
@@ -144,7 +148,7 @@ def manifest_from_workflow(
 ) -> ExecutionManifest:
     """Generate manifest from a Skill workflow ``GraphPlan``.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     Converts workflow steps into agents, preserving wave structure
     from the original workflow definition.
@@ -188,7 +192,7 @@ def manifest_from_preset(
 ) -> ExecutionManifest:
     """Generate manifest from a KG-stored SwarmTemplate preset.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     Looks up a named preset in the KG and materializes it as a manifest.
     If the preset is not found, falls back to a single-agent manifest.
@@ -248,7 +252,7 @@ def manifest_from_department(
 ) -> ExecutionManifest:
     """Generate manifest from an OWL-materialized company department.
 
-    CONCEPT:ORCH-1.27 — Autonomous Department Orchestration
+    CONCEPT:ORCH-1.9 — Autonomous Department Orchestration
 
     Queries the KG for all agents in a department, their tools,
     their reporting hierarchy, and generates a manifest with proper
@@ -292,7 +296,7 @@ def manifest_from_department(
                     )
                 )
         except Exception as e:
-            logger.warning("[CONCEPT:ORCH-1.27] Department KG query failed: %s", e)
+            logger.warning("[CONCEPT:ORCH-1.9] Department KG query failed: %s", e)
 
     if not agents:
         # Fallback: single executor agent
@@ -324,7 +328,7 @@ def manifest_for_enterprise(
 ) -> ExecutionManifest:
     """Generate a full enterprise manifest — ALL agents across ALL departments.
 
-    CONCEPT:ORCH-1.27 — Autonomous Department Orchestration
+    CONCEPT:ORCH-1.9 — Autonomous Department Orchestration
 
     This is the 300-agent case: every agent, every MCP server,
     organized hierarchically by department with inter-department
@@ -352,7 +356,7 @@ def manifest_for_enterprise(
             ]
         except Exception as e:
             logger.warning(
-                "[CONCEPT:ORCH-1.27] Enterprise department query failed: %s", e
+                "[CONCEPT:ORCH-1.9] Enterprise department query failed: %s", e
             )
 
     if not departments:

@@ -42,29 +42,33 @@ class MeanVarianceOptimizer:
         min_weight: float = 0.0,
     ) -> OptimizationResult:
         """
-        Optimize portfolio weights to maximize the Sharpe ratio.
+        Optimize portfolio weights to maximize the Sharpe ratio via epistemic-graph.
         """
         n = len(expected_returns)
         if n == 0:
             return OptimizationResult(method="mean_variance")
 
-        _ = (max_weight, min_weight)
+        if hasattr(expected_returns, "tolist"):
+            expected_returns = expected_returns.tolist()
+        if hasattr(cov_matrix, "tolist"):
+            cov_matrix = cov_matrix.tolist()
 
-        # Fallback equal-weight allocation since scipy SLSQP is moved to Rust
-        weight = 1.0 / n
-        weights = [weight] * n
+        from epistemic_graph.client import SyncEpistemicGraphClient
 
-        port_return = sum(
-            w * r for w, r in zip(weights, expected_returns, strict=False)
-        )
+        with SyncEpistemicGraphClient.connect() as client:
+            resp = client.finance.optimize_portfolio(
+                expected_returns,
+                cov_matrix,
+                risk_free_rate,
+                min_weight=min_weight,
+                max_weight=max_weight,
+            )
 
-        port_var = 0.0
-        for i in range(n):
-            for j in range(n):
-                port_var += weights[i] * weights[j] * cov_matrix[i][j]
-        port_vol = math.sqrt(port_var) if port_var > 0 else 0.0
+        weights = resp.get("weights", [])
+        port_return = resp.get("expected_return", 0.0)
+        port_vol = resp.get("expected_volatility", 0.0)
+        sharpe = resp.get("sharpe_ratio", 0.0)
 
-        sharpe = (port_return - risk_free_rate) / port_vol if port_vol > 0 else 0.0
         weight_dict = {
             name: round(w, 6) for name, w in zip(asset_names, weights, strict=False)
         }
@@ -97,15 +101,16 @@ class RiskParityOptimizer:
         if n == 0:
             return OptimizationResult(method="risk_parity")
 
-        # Fallback equal-weight allocation since scipy is moved to Rust
-        weight = 1.0 / n
-        weights = [weight] * n
+        if hasattr(cov_matrix, "tolist"):
+            cov_matrix = cov_matrix.tolist()
 
-        port_var = 0.0
-        for i in range(n):
-            for j in range(n):
-                port_var += weights[i] * weights[j] * cov_matrix[i][j]
-        port_vol = math.sqrt(port_var) if port_var > 0 else 0.0
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        with SyncEpistemicGraphClient.connect() as client:
+            resp = client.finance.risk_parity(cov_matrix)
+
+        weights = resp.get("weights", [])
+        port_vol = resp.get("portfolio_volatility", 0.0)
 
         port_return = 0.0
         if expected_returns is not None:
@@ -137,7 +142,8 @@ class BlackLittermanOptimizer:
         market_caps: list[float],
         cov_matrix: list[list[float]],
         asset_names: list[str],
-        views: list[dict] | None = None,
+        views: list[float] | None = None,
+        pick_matrix: list[list[float]] | None = None,
         risk_aversion: float = 2.5,
         tau: float = 0.05,
         risk_free_rate: float = 0.02,
@@ -146,19 +152,35 @@ class BlackLittermanOptimizer:
         if n == 0:
             return OptimizationResult(method="black_litterman")
 
-        _ = (views, risk_aversion, tau, risk_free_rate)
+        if views is None:
+            views = []
+        if pick_matrix is None:
+            pick_matrix = []
 
-        # Fallback equal-weight allocation since scipy/numpy are moved to Rust
-        weight = 1.0 / n
-        weights = [weight] * n
+        if hasattr(market_caps, "tolist"):
+            market_caps = market_caps.tolist()
+        if hasattr(cov_matrix, "tolist"):
+            cov_matrix = cov_matrix.tolist()
+        if hasattr(views, "tolist"):
+            views = views.tolist()
+        if hasattr(pick_matrix, "tolist"):
+            pick_matrix = pick_matrix.tolist()
 
-        port_var = 0.0
-        for i in range(n):
-            for j in range(n):
-                port_var += weights[i] * weights[j] * cov_matrix[i][j]
-        port_vol = math.sqrt(port_var) if port_var > 0 else 0.0
+        total_cap = sum(market_caps)
+        market_weights = (
+            [mc / total_cap for mc in market_caps] if total_cap > 0 else [1.0 / n] * n
+        )
 
-        port_return = 0.0
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        with SyncEpistemicGraphClient.connect() as client:
+            resp = client.finance.black_litterman(
+                market_weights, cov_matrix, views, pick_matrix, tau, risk_aversion
+            )
+
+        weights = resp.get("weights", [])
+        port_return = resp.get("expected_return", 0.0)
+        port_vol = resp.get("expected_volatility", 0.0)
 
         weight_dict = {
             name: round(w, 6) for name, w in zip(asset_names, weights, strict=False)

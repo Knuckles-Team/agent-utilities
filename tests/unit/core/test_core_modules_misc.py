@@ -113,13 +113,13 @@ def test_protocol_isinstance_graph_backend():
             return []
 
         def create_schema(self):
-            pass
+            return None
 
         def add_embedding(self, node_id, embedding):
-            pass
+            return None
 
         def prune(self, criteria):
-            pass
+            return None
 
     assert isinstance(FakeBackend(), GraphBackend)
 
@@ -451,7 +451,7 @@ def test_discover_agents_no_registry(monkeypatch):
         raising=False,
     )
     # Patch the lazy import path
-    from agent_utilities.graph import config_helpers
+    from agent_utilities.core import config as config_helpers
 
     monkeypatch.setattr(
         config_helpers, "get_discovery_registry", lambda: _EmptyRegistry()
@@ -491,7 +491,7 @@ def test_discover_agents_filters(monkeypatch):
     class Reg:
         agents = [agent_a, agent_b, agent_c]
 
-    from agent_utilities.graph import config_helpers
+    from agent_utilities.core import config as config_helpers
 
     monkeypatch.setattr(config_helpers, "get_discovery_registry", lambda: Reg())
 
@@ -510,7 +510,7 @@ def test_discover_agents_filters(monkeypatch):
 
 def test_discover_all_specialists(monkeypatch):
     from agent_utilities.agent import discovery
-    from agent_utilities.graph import config_helpers
+    from agent_utilities.core import config as config_helpers
 
     class Reg:
         agents = [

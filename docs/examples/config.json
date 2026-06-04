@@ -14,6 +14,7 @@
     "provider": null,
     "model_id": null,
     "llm_base_url": "http://vllm.arpa/v1",
+    "vllm_base_url": "http://vllm.arpa/v1",
     "llm_api_key": null,
     "mcp_url": null,
     "mcp_config": null,
@@ -23,11 +24,17 @@
     "auth_jwt_jwks_uri": null,
     "auth_jwt_issuer": null,
     "auth_jwt_audience": null,
+    "oidc_config_url": null,
+    "oidc_client_id": null,
+    "oidc_client_secret": null,
     "allowed_origins": null,
     "allowed_hosts": null,
     "routing_strategy": "hybrid",
     "graph_persistence_type": "file",
     "graph_persistence_path": "/home/user/.local/share/agent-utilities/graph_state",
+    "pggraph_dsn": null,
+    "jena_fuseki_url": null,
+    "sparql_endpoints": ["https://query.wikidata.org/sparql"],
     "enable_llm_validation": false,
     "graph_router_timeout": 300.0,
     "graph_verifier_timeout": 300.0,
@@ -37,6 +44,8 @@
     "graph_direct_execution": true,
     "secrets_backend": "inmemory",
     "secrets_sqlite_path": null,
+    "vault_url": null,
+    "vault_mount": "secret",
     "secrets_vault_url": null,
     "secrets_vault_mount": "secret",
     "custom_skills_directory": null,
@@ -47,12 +56,27 @@
     "otel_exporter_otlp_public_key": null,
     "otel_exporter_otlp_secret_key": null,
     "otel_exporter_otlp_protocol": "http/protobuf",
+    "langfuse_public_key": null,
+    "langfuse_secret_key": null,
+    "langfuse_host": "https://cloud.langfuse.com",
     "a2a_broker": "in-memory",
     "a2a_broker_url": null,
     "a2a_storage": "in-memory",
     "a2a_storage_url": null,
     "a2a_config": null,
     "a2a_refresh_interval": 300,
+    "kafka_bootstrap_servers": null,
+    "kafka_topic": null,
+    "messaging_discord_token": null,
+    "messaging_slack_token": null,
+    "messaging_telegram_token": null,
+    "messaging_mattermost_token": null,
+    "messaging_mattermost_url": null,
+    "messaging_matrix_token": null,
+    "messaging_whatsapp_token": null,
+    "messaging_irc_server": null,
+    "messaging_twitch_token": null,
+    "messaging_line_token": null,
     "max_tokens": 16384,
     "temperature": 0.7,
     "top_p": 1.0,
@@ -228,7 +252,7 @@
         "default_mode": "paper",
         "risk_limits": {
             "max_position_pct": 0.02,
-            "max_portfolio_drawdown_pct": 0.10,
+            "max_portfolio_drawdown_pct": 0.1,
             "max_daily_loss_pct": 0.03,
             "regime_shift_halt": true,
             "require_human_approval_live": true
@@ -271,19 +295,31 @@
         "signal_fusion": {
             "default_method": "bayesian",
             "min_confidence": 0.6,
-            "signal_sources": ["momentum", "mean_reversion", "volatility", "ml_prediction"]
+            "signal_sources": [
+                "momentum",
+                "mean_reversion",
+                "volatility",
+                "ml_prediction"
+            ]
         },
         "strategy_lifecycle": {
             "auto_promote": false,
             "min_backtest_sharpe": 1.5,
             "min_paper_days": 30,
-            "export_formats": ["pinescript", "mql5", "tdx"]
+            "export_formats": [
+                "pinescript",
+                "mql5",
+                "tdx"
+            ]
         },
         "monitoring": {
             "risk_check_interval_minutes": 5,
             "portfolio_snapshot_interval_minutes": 15,
             "enable_alerts": true,
-            "alert_channels": ["kg_event", "log"]
+            "alert_channels": [
+                "kg_event",
+                "log"
+            ]
         }
     }
 }

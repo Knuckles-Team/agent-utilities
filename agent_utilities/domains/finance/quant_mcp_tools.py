@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from agent_utilities.domains.finance.debate_engine import DebateContext, DebateEngine
+from agent_utilities.domains.finance.errors import ProviderNotConfigured
 from agent_utilities.domains.finance.market_data import DataRegistry
 from agent_utilities.domains.finance.regime_detector import RegimeDetector
 from agent_utilities.domains.finance.trading_swarm import TradingSwarm
@@ -189,35 +190,34 @@ def register_quant_tools(mcp: Any, engine: Any) -> None:
                     return f"Error: Unknown action '{action}' for orchestrate domain."
 
             elif domain == "data":
-                if action == "historical":
-                    return f"[Mock] Fetched {period} of {interval} historical data for {ticker} ({asset_class})."
-                elif action == "order_book":
-                    return f"[Mock] Fetched Level 2 order book for {ticker} ({asset_class})."
-                elif action == "fundamentals":
-                    return f"[Mock] Fetched fundamental metrics for {ticker} ({asset_class})."
+                if action in ["historical", "order_book", "fundamentals"]:
+                    raise ProviderNotConfigured(
+                        f"Integration not configured: Data provider for '{action}' is not connected. Mock fallback disabled."
+                    )
                 else:
                     return f"Error: Unknown action '{action}' for data domain."
 
             elif domain == "execute":
-                prefix = "[LIVE EXECUTION]" if mode == "live" else "[PAPER TRADING]"
                 if action == "submit_order":
-                    return f"{prefix} Submitted {side.upper()} order for {quantity} {ticker} @ {order_type} {price}."
+                    raise ProviderNotConfigured(
+                        "Integration not configured: Execution broker not connected. Mock fallback disabled."
+                    )
                 elif action == "cancel_order":
-                    return f"{prefix} Cancelled working orders for {ticker}."
+                    raise ProviderNotConfigured(
+                        "Integration not configured: Execution broker not connected. Mock fallback disabled."
+                    )
                 elif action == "status":
-                    return f"{prefix} Order status for {ticker}: FILLED."
+                    raise ProviderNotConfigured(
+                        "Integration not configured: Execution broker not connected. Mock fallback disabled."
+                    )
                 else:
                     return f"Error: Unknown action '{action}' for execute domain."
 
             elif domain == "portfolio":
-                if action == "balances":
-                    return f"[Mock] Total Portfolio Value ({portfolio_id}): $100,000. Cash: $20,000."
-                elif action == "positions":
-                    return f"[Mock] Open Positions ({portfolio_id}): BTC-USD (+5%), AAPL (-1%)."
-                elif action == "risk_metrics":
-                    return f"[Mock] Risk Metrics ({portfolio_id}): VaR = 2.5%, Margin Usage = 15%."
-                elif action == "optimize":
-                    return f"[Mock] Portfolio Optimization ({portfolio_id}): Rebalancing suggested. +2% AAPL, -1% BTC."
+                if action in ["balances", "positions", "risk_metrics", "optimize"]:
+                    raise ProviderNotConfigured(
+                        f"Integration not configured: Portfolio manager for '{action}' is not connected. Mock fallback disabled."
+                    )
                 else:
                     return f"Error: Unknown action '{action}' for portfolio domain."
 

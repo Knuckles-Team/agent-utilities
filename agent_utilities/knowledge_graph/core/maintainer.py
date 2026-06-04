@@ -526,19 +526,167 @@ class GraphMaintainer:
 
                 sim = cosine_similarity(c1["embedding"], c2["embedding"])
                 if sim > similarity_threshold:
-                    # Merge c2 into c1
+                    # Merge c2 (old) into c1 (survivor), preserving every
+                    # relationship type and merging properties non-destructively.
                     logger.info(
                         f"Merging similar concepts: {c1['name']} and {c2['name']} (sim={sim:.4f})"
                     )
-                    # Simplified merge logic - in a real system we'd handle all relationship types
-                    self.engine.backend.execute(
-                        "MATCH (old:Concept {id: $old_id}) DETACH DELETE old",
-                        {"old_id": c2["id"]},
+                    self._merge_concept_pair(
+                        old_id=c2["id"], new_id=c1["id"], similarity=sim
                     )
                     processed_ids.add(c2["id"])
                     merged_count += 1
 
         return merged_count
+
+    @staticmethod
+    def _safe_rel_type(rtype: str) -> str:
+        """Sanitise a DB-sourced relationship type for safe Cypher interpolation."""
+        cleaned = "".join(ch for ch in str(rtype) if ch.isalnum() or ch == "_")
+        return cleaned or "RELATED_TO"
+
+    def _merge_concept_pair(
+        self, *, old_id: str, new_id: str, similarity: float
+    ) -> None:
+        """Re-point every edge of ``old`` onto ``new`` keeping the original
+        relationship type, merge node + edge properties, record provenance, then
+        delete the duplicate. Replaces the previous lossy implementation that
+        collapsed all edges to ``RELATED_TO`` and overwrote the survivor's id via
+        ``SET new += old``.
+        """
+        backend = self.engine.backend
+
+        # 1. Re-point OUTGOING edges, preserving each relationship type and its
+        #    properties (de-duplicated by MERGE).
+        outgoing = (
+            backend.execute(
+                """
+                MATCH (old:Concept {id: $old_id})-[r]->(target)
+                RETURN type(r) AS rtype, target.id AS tid, properties(r) AS props
+                """,
+                {"old_id": old_id},
+            )
+            or []
+        )
+        for edge in outgoing:
+            rtype = self._safe_rel_type(edge["rtype"])
+            backend.execute(
+                f"""
+                MATCH (new:Concept {{id: $new_id}})
+                MATCH (target {{id: $tid}})
+                MERGE (new)-[nr:{rtype}]->(target)
+                SET nr += $props
+                """,
+                {
+                    "new_id": new_id,
+                    "tid": edge["tid"],
+                    "props": edge.get("props") or {},
+                },
+            )
+
+        # 2. Re-point INCOMING edges, preserving type + properties.
+        incoming = (
+            backend.execute(
+                """
+                MATCH (source)-[r]->(old:Concept {id: $old_id})
+                RETURN type(r) AS rtype, source.id AS sid, properties(r) AS props
+                """,
+                {"old_id": old_id},
+            )
+            or []
+        )
+        for edge in incoming:
+            rtype = self._safe_rel_type(edge["rtype"])
+            backend.execute(
+                f"""
+                MATCH (new:Concept {{id: $new_id}})
+                MATCH (source {{id: $sid}})
+                MERGE (source)-[nr:{rtype}]->(new)
+                SET nr += $props
+                """,
+                {
+                    "new_id": new_id,
+                    "sid": edge["sid"],
+                    "props": edge.get("props") or {},
+                },
+            )
+
+        # 3. Merge NODE properties non-destructively (survivor keeps its id/name;
+        #    union aliases, take max importance/confidence, concat provenance).
+        merged_props = self._merge_node_properties(old_id=old_id, new_id=new_id)
+        if merged_props:
+            backend.execute(
+                "MATCH (new:Concept {id: $new_id}) SET new += $props",
+                {"new_id": new_id, "props": merged_props},
+            )
+
+        # 4. Record MergedFrom provenance for auditability.
+        backend.execute(
+            """
+            MATCH (new:Concept {id: $new_id})
+            MERGE (prov:MergedConcept {id: $old_id})
+            MERGE (new)-[:MERGED_FROM {similarity: $sim}]->(prov)
+            """,
+            {"new_id": new_id, "old_id": old_id, "sim": similarity},
+        )
+
+        # 5. Delete the duplicate now that everything is migrated.
+        backend.execute(
+            "MATCH (old:Concept {id: $old_id}) DETACH DELETE old",
+            {"old_id": old_id},
+        )
+
+    def _merge_node_properties(self, *, old_id: str, new_id: str) -> dict:
+        """Compute a non-destructive property union for the surviving node.
+
+        The survivor's id and name are never overwritten. ``aliases``/provenance
+        lists are unioned; numeric ``importance``/``confidence`` take the max;
+        ``updated_at`` takes the latest. Unknown keys present only on ``old`` are
+        carried over.
+        """
+        rows = (
+            self.engine.backend.execute(
+                """
+                MATCH (old:Concept {id: $old_id})
+                MATCH (new:Concept {id: $new_id})
+                RETURN properties(old) AS old_props, properties(new) AS new_props
+                """,
+                {"old_id": old_id, "new_id": new_id},
+            )
+            or []
+        )
+        if not rows:
+            return {}
+        old_props = dict(rows[0].get("old_props") or {})
+        new_props = dict(rows[0].get("new_props") or {})
+
+        protected = {"id", "name", "embedding"}
+        merged: dict = {}
+
+        def as_list(v) -> list:
+            if v is None:
+                return []
+            return list(v) if isinstance(v, list | tuple | set) else [v]
+
+        for key, old_val in old_props.items():
+            if key in protected:
+                continue
+            new_val = new_props.get(key)
+            if key in ("aliases", "provenance", "sources"):
+                merged[key] = sorted(set(as_list(new_val)) | set(as_list(old_val)))
+            elif key in ("importance", "confidence") and isinstance(
+                old_val, int | float
+            ):
+                merged[key] = max(
+                    old_val, new_val if isinstance(new_val, int | float) else old_val
+                )
+            elif key in ("updated_at", "last_seen"):
+                merged[key] = (
+                    max(str(old_val), str(new_val)) if new_val is not None else old_val
+                )
+            elif new_val is None:
+                merged[key] = old_val
+        return merged
 
     def validate_all_graph_models(self) -> int:
         """Run Pydantic validation + basic ontology checks on every node type."""

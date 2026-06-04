@@ -1,6 +1,6 @@
 """Unit tests for Predict-RLM signatures and GEPA genetic prompt optimization loop.
 
-CONCEPT:ORCH-1.30/31 — RLM GEPA Verification
+CONCEPT:ORCH-1.12/31 — RLM GEPA Verification
 """
 
 import pytest
@@ -37,9 +37,15 @@ class TestPredictRLM:
 
     def test_mount_skill(self):
         harness = PredictRLM(DummySignature)
-        dummy_fn = lambda x: x
+
+        def dummy_fn(x):
+            return x
+
         harness.mount_skill("test_skill", dummy_fn)
-        assert harness.skills["test_skill"] == dummy_fn
+        # mount_skill stores the (dedented, purity-validated) source for REPL
+        # injection, not the function object itself.
+        assert "test_skill" in harness.skills
+        assert "def dummy_fn" in harness.skills["test_skill"]
 
     @pytest.mark.asyncio
     async def test_predict_rlm_run(self):

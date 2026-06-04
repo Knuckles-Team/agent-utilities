@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ORCH-1.28 — Graph-Native, DB-Agnostic Reactive Event Ledger.
+"""CONCEPT:ORCH-1.10 — Graph-Native, DB-Agnostic Reactive Event Ledger.
 
 Integrates event-sourcing with the unified IntelligenceGraphEngine and KGMapper.
 Events are represented as standard EventNode instances, making them fully

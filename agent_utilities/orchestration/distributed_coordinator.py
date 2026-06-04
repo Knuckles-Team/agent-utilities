@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""CONCEPT:OS-5.6 — Distributed Coordinator with Semantic Sharding.
+"""CONCEPT:OS-5.5 — Distributed Coordinator with Semantic Sharding.
 
 Coordinates task allocation and priority queue sharding across distributed agent nodes,
 routing requests to specialist workers depending on dynamic role mappings.

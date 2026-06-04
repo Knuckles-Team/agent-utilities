@@ -3,7 +3,7 @@
 CONCEPT:KG-2.6/2.33/2.39 — Research Intelligence Engine
 
 Provides a single entry point for all research intelligence capabilities:
-- Automated paper discovery and ingestion pipeline (KG-2.11)
+- Automated paper discovery and ingestion pipeline (KG-2.7)
 - Citation graph traversal with session management (KG-2.33)
 - Orchestrated research-to-KG cycles (KG-2.39)
 
@@ -78,7 +78,7 @@ class ResearchIntelligenceEngine:
         except Exception as e:
             logger.debug("ResearchOrchestrator not available: %s", e)
 
-    # --- Pipeline API (KG-2.11) ---
+    # --- Pipeline API (KG-2.7) ---
 
     def score_paper(
         self,

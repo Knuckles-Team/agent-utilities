@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Plugin Bundle — Unified Skills + Hooks + MCP Config Distribution.
 
-CONCEPT:ECO-4.19 — Plugin Bundle Distribution System
+CONCEPT:ECO-4.12 — Plugin Bundle Distribution System
 
 A plugin bundles skills, hooks, and MCP configurations into a single
 installable package.  Distributed via GitHub and registered in KG.
@@ -107,7 +107,7 @@ class PluginBundle:
 class PluginBundleManager:
     """Manage plugin bundle installation and lifecycle.
 
-    CONCEPT:ECO-4.19 — Plugin Bundle Distribution System
+    CONCEPT:ECO-4.12 — Plugin Bundle Distribution System
 
     Usage::
 

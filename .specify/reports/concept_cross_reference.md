@@ -13,7 +13,7 @@
 | `ORCH-1.3` | Execution Safety | — | ● poisoning defense | — | — | — | — | ● scaling laws | — |
 | `ORCH-1.4` | Capability Wiring | — | — | — | — | — | — | — | — |
 | `ORCH-1.5` | Agent Orchestrator | ○ multi-agent | ● coordinated teams | — | — | — | — | ● ensemble failures | — |
-| `ORCH-1.6` | DSTDD Pipeline | — | — | — | — | — | — | — | — |
+| `ORCH-1.5` | DSTDD Pipeline | — | — | — | — | — | — | — | — |
 
 ## Pillar 2: Epistemic Knowledge Graph (KG)
 
@@ -27,8 +27,8 @@
 | `KG-2.5` | Topological Analysis | — | — | — | — | — | — | — | — |
 | `KG-2.6` | Domain: Finance | — | — | — | — | — | — | — | — |
 | `KG-2.7` | Research Intelligence | — | — | — | — | — | — | — | **YES — assimilation tracking** |
-| `KG-2.8` | Domain: Enterprise | — | — | — | — | — | — | — | — |
-| `KG-2.9` | External Graph Federation | — | — | — | — | — | — | — | — |
+| `KG-2.7` | Domain: Enterprise | — | — | — | — | — | — | — | — |
+| `KG-2.7` | External Graph Federation | — | — | — | — | — | — | — | — |
 
 ## Pillar 3: Agentic Harness Engineering (AHE)
 

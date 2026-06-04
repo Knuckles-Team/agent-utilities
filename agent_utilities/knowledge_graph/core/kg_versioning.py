@@ -314,7 +314,7 @@ class KGVersionEngine:
 
 
 class SpeculativeGraphBrancher:
-    """Manages speculative graph branches and merges them atomically (CONCEPT:KG-2.19).
+    """Manages speculative graph branches and merges them atomically (CONCEPT:KG-2.7).
 
     Allows creating concurrent speculative branches (representing KGTransactions)
     which execute independently and merge atomically via logical conflict validation.

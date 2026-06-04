@@ -655,7 +655,7 @@ async def sync_mcp_agents(
             )
 
             # CONCEPT:ORCH-1.2 — Invalidate hot cache after sync
-            from agent_utilities.graph.config_helpers import (
+            from agent_utilities.core.config import (
                 invalidate_registry_cache,
             )
 

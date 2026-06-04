@@ -17,10 +17,9 @@
 |--------|---------|------|-------------|
 | **IntelligenceGraphEngine** | KG-2.0 | `knowledge_graph/core/engine.py` | Core graph engine with 15-phase pipeline |
 | **TopologicalAnalysisEngine** | KG-2.5 | `knowledge_graph/core/topological_analysis_engine.py` | Analogy, spectral, blast radius |
-| **ResearchIntelligenceEngine** | KG-2.7 | `knowledge_graph/research/research_intelligence_engine.py` | Paper discovery & citation traversal |
 | **EvaluationEngine** | AHE-3.1 | `harness/evaluation_engine.py` | Decomposed reward signals + trace distillation |
-| **ParallelEngine** | ORCH-1.25 | `graph/parallel_engine.py` | Unified 1→300+ agent parallel execution engine |
-| **Gateway Aggregator** | GW-1.0 | `gateway/aggregator.py` | 50-widget parallel service dashboard data layer |
+| **ParallelEngine** | ORCH-1.8 | `graph/parallel_engine.py` | Unified 1→300+ agent parallel execution engine |
+| **Gateway Aggregator** | OS-5.9 | `gateway/aggregator.py` | 50-widget parallel service dashboard data layer |
 
 ## The 5 Core Pillars Architecture
 
@@ -28,20 +27,18 @@
 graph TD
     %% Pillar 1: Graph Orchestration Engine
     subgraph P1 ["Pillar 1: Graph Orchestration Engine"]
-        ORCH10["<b>ORCH-1.0: Intelligence Graph Core</b>"]
+        ORCH10["<b>ORCH-1.0: Core Orchestration Engine</b>"]
         ORCH11["<b>ORCH-1.1: HTN Planning Pipeline</b>"]
         ORCH12["<b>ORCH-1.2: Specialist Routing</b>"]
         ORCH13["<b>ORCH-1.3: Execution Safety</b>"]
         ORCH14["<b>ORCH-1.4: Capability Wiring</b>"]
-        ORCH15["<b>ORCH-1.5: Agent Orchestrator</b>"]
-        ORCH16["<b>ORCH-1.6: DSTDD Pipeline</b>"]
-        ORCH17["<b>ORCH-1.7: Prediction Linkage Layer</b>"]
-        ORCH18["<b>ORCH-1.8: RecursiveMAS Latent Orchestrator</b>"]
-        ORCH125["<b>ORCH-1.25: Parallel Engine</b>"]
-        ORCH126["<b>ORCH-1.26: RLM Synthesis</b>"]
-        ORCH127["<b>ORCH-1.27: Dept Orchestration</b>"]
-        ORCH128["<b>ORCH-1.28: Reactive Dispatch</b>"]
-        ORCH129["<b>ORCH-1.29: WASM Sandbox</b>"]
+        ORCH16["<b>ORCH-1.5: DSTDD Pipeline</b>"]
+        ORCH17["<b>ORCH-1.6: Prediction Linkage Layer</b>"]
+        ORCH18["<b>ORCH-1.7: RecursiveMAS Latent Orchestrator</b>"]
+        ORCH125["<b>ORCH-1.8: Parallel Execution & Synthesis Engine</b>"]
+        ORCH127["<b>ORCH-1.9: Dept Orchestration</b>"]
+        ORCH128["<b>ORCH-1.10: Reactive Dispatch</b>"]
+        ORCH129["<b>ORCH-1.11: WASM Sandbox</b>"]
     end
 
     %% Pillar 2: Epistemic Knowledge Graph
@@ -49,24 +46,18 @@ graph TD
         KG20["<b>KG-2.0: Active Knowledge Graph</b>"]
         KG21["<b>KG-2.1: Tiered Memory</b>"]
         KG22["<b>KG-2.2: Ontology & Epistemics</b>"]
-        KG23["<b>KG-2.3: Integrity & Retrieval</b>"]
+        KG23["<b>KG-2.3: Unified Retrieval & Graph Integrity</b>"]
         KG24["<b>KG-2.4: Inductive Hypergraphs</b>"]
         KG25["<b>KG-2.5: Topological Analysis</b>"]
-        KG26["<b>KG-2.6: Domain: Finance</b>"]
-        KG27["<b>KG-2.7: Research Intelligence</b>"]
-        KG28["<b>KG-2.8: Domain: Enterprise</b>"]
-        KG29["<b>KG-2.9: Quant Orchestration</b>"]
-        KG210["<b>KG-2.10: Observational Memory</b>"]
-        KG211["<b>KG-2.11: Dynamic AR-Graph</b>"]
-        KG212["<b>KG-2.12: Time-Series Graph</b>"]
-        KG213["<b>KG-2.13: External Graph Federation</b>"]
-        KG215["<b>KG-2.15: Transaction Proxy</b>"]
-        KG216["<b>KG-2.16: Rust-Native Compute</b>"]
-        KG217["<b>KG-2.17: Rust Epistemic Backend</b>"]
-        KG218["<b>KG-2.18: High-Performance Quant FFI</b>"]
-        KG219["<b>KG-2.19: Event Backbone</b>"]
-        KG220["<b>KG-2.20: Query Router</b>"]
+        KG26["<b>KG-2.6: Domain Ontologies & Vertical Subgraphs</b>"]
+        KG28["<b>KG-2.6: Memory Stability</b>"]
+        KG29["<b>KG-2.7: Quant Orchestration</b>"]
+        KG215["<b>KG-2.7: Transaction Proxy</b>"]
+        KG216["<b>KG-2.7: Rust-Native High-Performance Compute (FFI)</b>"]
+        KG219["<b>KG-2.7: Event Backbone</b>"]
+        KG220["<b>KG-2.7: Query Router</b>"]
         KG221["<b>KG-2.21: Working Set Manager</b>"]
+        KG260["<b>KG-2.7: Single Company Brain</b>"]
     end
 
     %% Pillar 3: Agentic Harness Engineering
@@ -78,6 +69,7 @@ graph TD
         AHE34["<b>AHE-3.4: Distributed Evolution</b>"]
         AHE35["<b>AHE-3.5: Heavy Thinking</b>"]
         AHE36["<b>AHE-3.6: Backtest & Curriculum</b>"]
+        AHE315["<b>AHE-3.8: Interpretability & Model Evolution</b>"]
     end
 
     %% Pillar 4: Ecosystem & Peripherals
@@ -87,19 +79,13 @@ graph TD
         ECO42["<b>ECO-4.2: Telemetry & Ecosystem</b>"]
         ECO43["<b>ECO-4.3: Market Data</b>"]
         ECO44["<b>ECO-4.4: KG MCP Server</b>"]
-        ECO410["<b>ECO-4.10: Agent Ingestor</b>"]
-        ECO411["<b>ECO-4.11: MCP Discovery</b>"]
-        ECO412["<b>ECO-4.12: Self-Documenting Skill-Graph</b>"]
+        ECO410["<b>ECO-4.6: Dynamic Capability Ingestion & Discovery</b>"]
         ECO414["<b>ECO-4.14: Infrastructure Blueprint Library</b>"]
-        ECO415["<b>ECO-4.15: Queue Backend</b>"]
-        ECO416["<b>ECO-4.16: AGENTS.md Context</b>"]
-        ECO417["<b>ECO-4.17: AGENTS.md Reflector</b>"]
-        ECO418["<b>ECO-4.18: Lint Enforcement</b>"]
-        ECO419["<b>ECO-4.19: Plugin Bundles</b>"]
-        ECO420["<b>ECO-4.20: Permission Policy</b>"]
-        ECO421["<b>ECO-4.21: Staleness Auditor</b>"]
-        ECO422["<b>ECO-4.22: Governance Pipeline</b>"]
-        ECO423["<b>ECO-4.23: Codebase Map</b>"]
+        ECO415["<b>ECO-4.9: Queue Backend</b>"]
+        ECO416["<b>ECO-4.10: Automated Documentation & AGENTS.md Governance</b>"]
+        ECO418["<b>ECO-4.11: Lint Enforcement</b>"]
+        ECO419["<b>ECO-4.12: Plugin Bundles</b>"]
+        ECO420["<b>ECO-4.13: Ecosystem Governance & Policy Engine</b>"]
     end
 
     %% Pillar 5: Agent OS Infrastructure
@@ -107,10 +93,9 @@ graph TD
         OS50["<b>OS-5.0: Agent OS Kernel</b>"]
         OS51["<b>OS-5.1: Security & Auth</b>"]
         OS52["<b>OS-5.2: Resource Scheduling</b>"]
-        OS53["<b>OS-5.3: Guardrails & Safety</b>"]
+        OS53["<b>OS-5.3: OS Guardrails & Safety Boundaries</b>"]
         OS54["<b>OS-5.4: Telemetry</b>"]
-        OS55["<b>OS-5.5: Budget Guardrails</b>"]
-        OS56["<b>OS-5.6: Massive Scale</b>"]
+        OS56["<b>OS-5.5: Massive Scale</b>"]
     end
 
     %% Cross-pillar relationships
@@ -118,40 +103,28 @@ graph TD
     ORCH11 --> ORCH12
     ORCH12 --> KG22
     ORCH14 --> ECO40
-    ORCH15 --> ORCH10
     KG21 --> KG20
     KG25 --> KG20
-    KG27 --> KG20
+    KG26 --> KG20
     KG29 --> KG20
-    KG210 --> KG20
-    KG211 --> KG20
-    KG212 --> KG20
-    KG213 --> KG20
     KG215 --> KG20
     KG216 --> KG20
-    KG217 --> KG20
-    KG218 --> KG20
     KG219 --> KG20
     KG220 --> KG20
     KG221 --> KG216
+    KG260 --> KG22
     AHE31 --> KG20
     AHE33 --> ORCH12
     AHE34 --> ECO42
     ECO44 --> KG20
     ECO410 --> ECO40
-    ECO411 --> ECO40
     ECO415 --> ECO44
     OS51 --> ORCH13
     OS53 --> OS51
     OS54 --> KG20
-    OS55 --> OS52
     OS56 --> OS50
     ECO416 --> KG20
-    ECO417 --> ECO416
     ECO420 --> OS51
-    ECO422 --> ECO420
-    ECO422 --> ECO421
-    ECO422 --> ECO417
 
     style P1 fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
     style P2 fill:#d5e8d4,stroke:#82b366,stroke-width:2px
@@ -168,47 +141,41 @@ graph TD
 
 | ID | Concept | Description |
 |---|---|---|
-| ORCH-1.0 | Intelligence Graph Core | Pydantic Graph-based DAG execution with state management |
+| ORCH-1.0 | Core Orchestration Engine | Pydantic Graph-based DAG execution with state management and multi-agent execution |
 | ORCH-1.1 | HTN Planning Pipeline | Recursive hierarchical task network decomposition |
 | ORCH-1.2 | Specialist Routing & Discovery | Ontological routing, specialist tag loading, and fallback chains |
 | ORCH-1.3 | Execution Safety & State | Checkpointing, retry, and state persistence |
 | ORCH-1.4 | Capability Wiring Engine | Dynamic capability discovery and capability auto-activation |
-| ORCH-1.5 | Agent Orchestrator 🔬 | Entry point for multi-agent execution harness and runner |
-| ORCH-1.6 | DSTDD Pipeline | Design-Spec-Test Driven Development lifecycle |
-| ORCH-1.7 | Prediction Linkage Layer 🔬 | Prediction linking across execution iterations |
-| ORCH-1.8 | RecursiveMAS Latent Orchestrator 🔬 | Continuous latent space multi-agent recursion and projection |
-| ORCH-1.25 | Parallel Engine | Unified 1→300+ agent execution engine with semaphore-governed concurrency, DAG scheduling, and tiered synthesis |
-| ORCH-1.26 | RLM-Native Hierarchical Synthesis | Flat/hierarchical/progressive/rlm output merging strategies |
-| ORCH-1.27 | Autonomous Department Orchestration | OWL-materialized company departments with `reportsTo` hierarchy |
-| ORCH-1.28 | Reactive Event Sourcing | Reactive event-driven state and graph staging dispatcher |
-| ORCH-1.29 | WASM Micro-Agent Sandbox | Isolated micro-agent WebAssembly sandbox runner with gas/memory limits and Python emulation fallback |
+| ORCH-1.5 | DSTDD Pipeline | Design-Spec-Test Driven Development lifecycle |
+| ORCH-1.6 | Prediction Linkage Layer 🔬 | Prediction linking across execution iterations |
+| ORCH-1.7 | RecursiveMAS Latent Orchestrator 🔬 | Continuous latent space multi-agent recursion and projection |
+| ORCH-1.8 | Parallel Execution & Synthesis Engine | Unified 1→300+ agent execution engine with concurrency, DAG scheduling, and output synthesis |
+| ORCH-1.9 | Autonomous Department Orchestration | OWL-materialized company departments with `reportsTo` hierarchy |
+| ORCH-1.10 | Reactive Event Sourcing | Reactive event-driven state and graph staging dispatcher |
+| ORCH-1.11 | WASM Micro-Agent Sandbox | Isolated micro-agent WebAssembly sandbox runner with gas/memory limits and Python emulation fallback |
 
-### Pillar 2: Epistemic Knowledge Graph (KG-2.0 – 2.18)
+### Pillar 2: Epistemic Knowledge Graph (KG-2.0 – 2.60)
 
 | ID | Concept | Description |
 |---|---|---|
 | KG-2.0 | Active Knowledge Graph | Core 15-phase pipeline, OGM, IntelligenceGraphEngine |
 | KG-2.1 | Tiered Memory & Context 🔬 | Episodic/semantic/procedural memory, context compaction |
 | KG-2.2 | Ontology & Epistemics | OWL ontology bridge, FIBO/BFO, semantic subsumption |
-| KG-2.3 | Graph Integrity & Retrieval 🔬 | Fingerprinting, hybrid retriever, consistency validation |
+| KG-2.3 | Unified Retrieval & Graph Integrity 🔬 | Fingerprinting, vectorized semantic indexing, hybrid retriever, consistency validation |
 | KG-2.4 | Inductive Knowledge | Knowledge synthesis and cross-pillar synergy engine |
 | KG-2.5 | Topological Analysis | Analogy engine, spectral clusters, blast radius |
-| KG-2.6 | Domain: Finance | Trading pipeline, risk ontology, optimal execution |
-| KG-2.7 | Research Intelligence | Paper discovery, citation traversal, orchestration |
-| KG-2.8 | Memory Stability | Self-reflecting memory observer and stability checks |
-| KG-2.9 | Multi-Domain Architecture | Decoupled graph frameworks and multi-domain graph orchestration |
-| KG-2.10 | Domain: Enterprise | Observational memory bridge and enterprise models |
-| KG-2.11 | Vectorized Retrieval | Semantic retrieval and vectorized indexing |
-| KG-2.12 | Time-Series Graph | Time-Series databases and time-series query caching |
-| KG-2.15 | Transaction Proxy | Centralized gateway and transactional persistence layer |
-| KG-2.16 | Rust-Native Compute Engine | Rust-native `GraphComputeEngine` with full NX-API superset, zero NetworkX dependency |
-| KG-2.17 | Rust-Compiled Epistemic Reasoning Backend 🔬 | High-performance compiled Datalog forward-chaining reasoning backend via PyO3 FFI |
-| KG-2.18 | High-Performance Quant Epistemic-Graph Engine 🔬 | Native-compiled quantitative metrics computation, portfolio optimization, regime detection, and order matching simulation engine (replacing Python `numpy`/`scipy`). |
-| KG-2.19 | Event Backbone | Protocol-based pub/sub with MemoryEventBackend (default) and RedpandaEventBackend (distributed) |
-| KG-2.20 | Query Router | Cost-based query planner routing to L1 Rust / L2 Cache / L3 Persistent / L4 Vector tiers |
+| KG-2.6 | Domain Ontologies & Vertical Subgraphs | Aggregated vertical domains including Finance, Enterprise, Company Operations, and Research |
+| KG-2.6 | Memory Stability | Self-reflecting memory observer and stability checks |
+| KG-2.7 | Multi-Domain Architecture | Decoupled graph frameworks and multi-domain graph orchestration |
+| KG-2.7 | Transaction Proxy | Centralized gateway and transactional persistence layer |
+| KG-2.7 | Rust-Native High-Performance Compute | High-performance quantitative execution, graph traversal, and epistemic reasoning via the out-of-process epistemic-graph engine (MessagePack/UDS client; no PyO3) plus Rustworkx |
+| KG-2.7 | Event Backbone | Protocol-based pub/sub with MemoryEventBackend (default) and RedpandaEventBackend (distributed) |
+| KG-2.7 | Query Router | Cost-based query planner routing to L1 Rust / L2 Cache / L3 Persistent / L4 Vector tiers |
+| KG-2.12 | Business Process Execution | Graph-driven orchestration of complex enterprise and operational business processes |
 | KG-2.21 | Working Set Manager | LRU-evicting subgraph cache for L1 Rust engine with 50K node cap |
+| KG-2.7 | Single Company Brain | Extensible operational state layer encompassing Ontology Bridges, Enterprise Architecture Repositories, and Entailment-Aware Permissions |
 
-### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.16)
+### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.15)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -219,11 +186,9 @@ graph TD
 | AHE-3.4 | Distributed Agentic Evolution | Self-model, stability, ecosystem PR generation |
 | AHE-3.5 | Heavy Thinking & Background Intelligence | Heavy thinking, background intelligence |
 | AHE-3.6 | Backtest & Curriculum | Backtest harness, horizon-aware curriculum |
-| AHE-3.7 | KG-Native Task Detection | KG-native task detection and goal tracking |
-| AHE-3.15 | Agent-Interpretable Model Evolver | Agent-Interpretable Model Evolver (CONCEPT:AHE-3.3) for Agentic-iModels workflows |
-| AHE-3.16 | LLM-Graded Interpretability Tests | LLM-Graded Interpretability Tests (CONCEPT:AHE-3.3) |
+| AHE-3.8 | Interpretability & Model Evolution | Agent-Interpretable Model Evolver workflows and LLM-Graded Interpretability Tests |
 
-### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.23)
+### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.20)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -232,21 +197,14 @@ graph TD
 | ECO-4.2 | Community Telemetry & Ecosystem Map | Ecosystem topology, 40-repo graph, telemetry |
 | ECO-4.3 | Market Data Connectors | External data source protocols for finance domain |
 | ECO-4.4 | KG MCP Server & Execution | KG MCP exposure, durable execution, sandbox |
-| ECO-4.6 | Self-Describing Function Registry | Self-describing functions, memory hook installer, and platform wiring |
-| ECO-4.10 | Agent Toolkit Ingestor | Ingest and persist external agent toolkits |
-| ECO-4.11 | MCP Live Discovery | Real-time MCP capability discovery and mapping |
-| ECO-4.12 | Self-Documenting Skill-Graph | Automated crawling and structured skill-graph documentation |
-| ECO-4.13 | Company Infrastructure Orchestration | Deploying, configuring, and verifying services and databases |
+| ECO-4.6 | Dynamic Capability Ingestion & Discovery | Ingests external agent toolkits, discovers MCP endpoints in real-time, and builds self-documenting skill-graphs |
+| ECO-4.7 | Domain Workflow Bindings | Parallel execution workflows and capability bindings for specialized domain processes |
+| ECO-4.9 | Queue Backend | Abstract QueueBackend with Memory, Nats, and Kafka implementations for multi-scale event distribution |
+| ECO-4.10 | Automated Documentation & AGENTS.md Governance | Deterministic hierarchical AGENTS.md management, self-improving reflectors, and codebase map generation |
+| ECO-4.11 | Deterministic Lint Enforcement Hook | PRE_TOOL_USE subprocess hook for ruff/mypy/eslint enforcement |
+| ECO-4.12 | Plugin Bundle Distribution System | Manifest-based skill/hook/config packaging with KG registry |
+| ECO-4.13 | Ecosystem Governance & Policy Engine | Unified engine managing permission policies, configuration staleness auditing, and governance workflows |
 | ECO-4.14 | Infrastructure Blueprint Library | Library of modular, declarative system infrastructure configurations |
-| ECO-4.15 | Queue Backend | Abstract QueueBackend with Memory, Nats, and Kafka implementations for multi-scale event distribution |
-| ECO-4.16 | Hierarchical AGENTS.md & Team Context | Root-first layered AGENTS.md resolution with team-specific KG context injection |
-| ECO-4.17 | Self-Improving AGENTS.md Reflector | SessionEnd stop hook that proposes AGENTS.md updates from session transcripts |
-| ECO-4.18 | Deterministic Lint Enforcement Hook | PRE_TOOL_USE subprocess hook for ruff/mypy/eslint enforcement |
-| ECO-4.19 | Plugin Bundle Distribution System | Manifest-based skill/hook/config packaging with KG registry |
-| ECO-4.20 | Permission Policy Engine | Version-controlled deny/allow rules for file paths and tool names |
-| ECO-4.21 | Configuration Staleness Auditor | 30-day periodic health check identifying unused rules, skills, and hooks |
-| ECO-4.22 | Governance Workflow Pipeline | Unified change proposal, risk scoring, approval routing, and KG audit trail |
-| ECO-4.23 | Codebase Map Generator | Deterministic CODEBASE.md generation for navigational context |
 
 ### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.6)
 
@@ -255,16 +213,15 @@ graph TD
 | OS-5.0 | Agent OS Kernel & XDG Paths | Kernel lifecycle, XDG path resolution |
 | OS-5.1 | Security & Auth | JWT/API auth, session concurrency, injection scanner |
 | OS-5.2 | Resource Scheduling 🔬 | Cognitive scheduler, token quotas, preemption |
-| OS-5.3 | Guardrails & Safety | Tool guard, rate limiting, content filtering |
+| OS-5.3 | OS Guardrails & Safety Boundaries | Holistic boundary definition integrating tool guards, reactive budgets/homeostasis, and ontological guardrails |
 | OS-5.4 | Telemetry & Observability | OTEL, token tracking, audit logging |
-| OS-5.5 | Budget Guardrails | Reactive token/cost tracking, preemption thresholds, and homeostatic model downgrades |
-| OS-5.6 | Massive Scale | Pluggable distributed queues, epistemic-graph Rust UDS RPC, and wasmtime sandbox integration |
+| OS-5.5 | Massive Scale | Pluggable distributed queues, epistemic-graph Rust UDS RPC, and wasmtime sandbox integration |
 
-### Gateway Service Dashboard (GW-1.0)
+### Gateway Service Dashboard (OS-5.9)
 
 | ID | Concept | Description |
 |---|---|---|
-| GW-1.0 | Gateway Service Dashboard | Unified 50-widget dashboard data layer with registry, aggregator, REST+WS API, and MCP auto-discovery. Synthesized from former `service-dashboard-core` into `agent_utilities/gateway/`. |
+| OS-5.9 | Gateway Service Dashboard | Unified 50-widget dashboard data layer with registry, aggregator, REST+WS API, and MCP auto-discovery. Synthesized from former `service-dashboard-core` into `agent_utilities/gateway/`. |
 
 ## Agent OS Architecture
 
@@ -314,8 +271,8 @@ flowchart TD
     C --> D[Phase 4: SDD Plan Generation]
 
     subgraph P1 [Phase 1: Ingestion]
-        A1[ECO-4.10: agent-packages] --> A3[ORCH-1.0: IntelligencePipeline]
-        A2[ECO-4.10: open-source-libraries] --> A3
+        A1[ECO-4.6: agent-packages] --> A3[ORCH-1.0: IntelligencePipeline]
+        A2[ECO-4.6: open-source-libraries] --> A3
         A3 --> A4[KG-2.2: PolicyIngestor: Constitution Rules]
     end
 
@@ -331,7 +288,7 @@ flowchart TD
     subgraph P4 [Phase 4: SDD]
         D1[Feature Recommendations] --> D2[Wiring Audit]
         D2 --> D3[KG-2.2: Constitution Compliance]
-        D3 --> D4[ORCH-1.6: SDD Implementation Plan]
+        D3 --> D4[ORCH-1.5: SDD Implementation Plan]
     end
 ```
 
@@ -342,7 +299,7 @@ flowchart TD
 | `PolicyIngestor` (KG-2.2) | Ingests external constitutions as PolicyNodes |
 | `IntelligencePipeline` (KG-2.0) | Bulk codebase ingestion via graph-os MCP native ingestion |
 | `graph_analyze` (KG-2.0) | Parallelized L1→L2→L3→OWL analysis per pillar |
-| `concept_map.md` | Source of truth for 64 canonical concepts to cross-reference |
+| `concept_map.md` | Source of truth for 70 canonical concepts to cross-reference |
 | `constitution.md` | Assimilation Governance rules enforced during SDD |
 
 ### KG Node Types

@@ -1,6 +1,6 @@
 """Config Manager — YAML service configuration with XDG auto-discovery.
 
-CONCEPT:GW-1.0 — Gateway Service Dashboard
+CONCEPT:OS-5.9 — Gateway Service Dashboard
 
 Loads dashboard layout from ``~/.config/agent-utilities/services.yaml``
 and auto-discovers available services from ``mcp_config.json``.

@@ -88,17 +88,52 @@ class AlphaCombinationEngine:
         self.lookback_d = lookback_d
 
     def compute_weights(self, returns_matrix: list[list[float]]) -> list[float]:
-        """
-        Computes optimal weights for N signals using serial and cross-sectional demeaning,
-        and regression for independent edge extraction.
-        """
-        N = len(returns_matrix)
-        if N == 0:
-            return []
+        """Compute optimal weights for N signals (Grinold–Kahn combination).
 
-        # Fallback to equal weighting since sklearn and numpy are removed for the Rust port
-        weight = 1.0 / N
-        return [weight] * N
+        Each row of ``returns_matrix`` is a signal's PnL/return series over T
+        periods. We (1) remove the shared cross-sectional component so common
+        market beta does not dominate, (2) estimate the de-correlated signal
+        covariance (ridge-regularised), and (3) solve w ∝ Σ⁻¹ μ where μ is each
+        signal's mean edge — the maximum-Sharpe linear combination. Weights are
+        normalised to sum to 1. No equal-weight fallback: degenerate input raises
+        rather than silently returning a meaningless uniform vector.
+        """
+        import numpy as np
+
+        n = len(returns_matrix)
+        if n == 0:
+            return []
+        if n == 1:
+            return [1.0]
+
+        r = np.asarray(returns_matrix, dtype=float)
+        if r.ndim != 2 or r.shape[1] < 2:
+            raise ValueError(
+                "compute_weights requires each signal to have >=2 observations"
+            )
+
+        mu = r.mean(axis=1)  # per-signal mean edge (N,)
+        # Remove the shared cross-sectional (common-factor) component per period.
+        r_decorr = r - r.mean(axis=0, keepdims=True)
+        cov = np.atleast_2d(np.cov(r_decorr))
+        cov = cov + np.eye(n) * 1e-6  # ridge for near-singular covariance
+
+        try:
+            raw = np.linalg.solve(cov, mu)
+        except np.linalg.LinAlgError:
+            raw = np.linalg.pinv(cov) @ mu
+
+        total = float(raw.sum())
+        if abs(total) < 1e-12:
+            # Mean-zero net edge: L1-normalise magnitudes (still information-
+            # driven, never uniform unless the inputs genuinely are).
+            l1 = float(np.abs(raw).sum())
+            if l1 < 1e-12:
+                raise ValueError(
+                    "signals carry no separable edge (zero mean and zero variance)"
+                )
+            return (raw / l1).tolist()
+        return (raw / total).tolist()
 
 
 class LaplaceEnsembleFusion:

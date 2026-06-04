@@ -110,10 +110,10 @@ print(brain.status())
 | `agent_utilities/knowledge_graph/core/kg_versioning.py` | KGVersionEngine — git-like transactional mutations |
 | `agent_utilities/knowledge_graph/core/owl_bridge.py` | OWLBridge — promote→reason→downfeed reasoning cycles |
 | `agent_utilities/knowledge_graph/core/maintainer.py` | GraphMaintainer — 13 autonomous maintenance operations |
-| `agent_utilities/knowledge_graph/memory/synthesis.py` | SynthesisEngine — homeostatic memory distillation |
+| `agent_utilities/knowledge_graph/memory/optimization_engine.py` | SynthesisEngine — homeostatic memory distillation |
 | `agent_utilities/security/permissions_kernel.py` | PermissionsKernel — RBAC tool-level access control |
 | `agent_utilities/observability/audit_logger.py` | AuditLogger — append-only compliance logging |
-| `agent_utilities/knowledge_graph/ontology.ttl` | 74KB OWL ontology with BFO/PROV-O/SKOS/FIBO alignment |
+| `agent_utilities/knowledge_graph/ontology.ttl` | OWL ontology (~26KB) with BFO/PROV-O/SKOS/FIBO alignment |
 
 ---
 
@@ -122,7 +122,7 @@ print(brain.status())
 The Company Brain infrastructure is registered under **CONCEPT:KG-2.6** in the 5-Pillar ecosystem:
 
 - **Pillar**: KG-2 (Knowledge Graph & Retrieval)
-- **Concept ID**: KG-2.51
+- **Concept ID**: KG-2.6
 - **Name**: Company Brain Infrastructure
 - **Module**: `agent_utilities.knowledge_graph.core.company_brain`
 - **Models**: `agent_utilities.models.company_brain`
@@ -134,9 +134,9 @@ The Company Brain infrastructure is registered under **CONCEPT:KG-2.6** in the 5
 |:--------|:-----|:-------------|
 | KG-2.0 | IntelligenceGraphEngine | Foundation substrate |
 | KG-2.3 | Structural Fingerprint Engine | Staleness detection |
-| KG-2.19 | Cross-Pillar Synergy Engine | Ecosystem integration |
+| KG-2.7 | Cross-Pillar Synergy Engine | Ecosystem integration |
 | OS-5.1 | PermissionsKernel | Tool-level permissions (extended by data-level) |
 | OS-5.3 | Session Concurrency | Session-level locking (extended by graph-level) |
-| OS-5.7 | AuditLogger | Append-only audit trails (extended by read audits) |
+| OS-5.6 | AuditLogger | Append-only audit trails (extended by read audits) |
 | ORCH-1.2 | Squeeze-Evolve Routing | Context routing integration |
 | AHE-3.3 | TeamConfig | Reward tracking for hybrid teams |

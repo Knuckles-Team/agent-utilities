@@ -22,13 +22,13 @@ structured observability.
 ```mermaid
 graph LR
     A[OS-5.4: Langfuse Traces] --> B[AHE-3.1: Automated Distillation]
-    B --> C["KG-2.10: Summaries & Clusters"]
+    B --> C["KG-2.6: Summaries & Clusters"]
     C --> D[ORCH-1.21: Failure Taxonomies]
-    D --> E[KG-2.7: Layered Evidence Corpus]
+    D --> E[KG-2.6: Layered Evidence Corpus]
     E --> F[ORCH-1.1: Evolve Agent Decisions]
 
     B -.-> G[OS-5.4: langfuse-agent API]
-    C -.-> H[KG-2.10: RLM Summarizer]
+    C -.-> H[KG-2.6: RLM Summarizer]
     D -.-> I[KG-2.0: KG Semantic Clustering]
     E -.-> J[KG-2.0: Versioned Files + KG Nodes]
 ```
@@ -94,7 +94,6 @@ agent_utilities/harness/
 ├── evidence_corpus.py       # EvidenceLayer, EvidenceEntry, EvidenceCorpus
 ├── component_registry.py    # HarnessComponentRegistry
 ├── trace_backend.py         # TraceBackend ABC + Langfuse/OTel/File backends
-├── trace_distiller.py       # TraceDistiller pipeline
 ├── evolve_agent.py          # EvolveAgent (lightweight + full modes)
 ├── verifier.py              # ManifestVerifier + auto-revert
 └── constraint_engine.py     # ConstraintLevel, ConstraintEngine
@@ -104,6 +103,5 @@ agent_utilities/harness/
 
 - **SDD Pipeline**: Manifests stored in `.specify/manifests/` alongside specs/plans
 - **Knowledge Graph**: `ChangeManifest`, `ComponentEditRecord`, `EvidenceRecord`, `ConstraintState` node types
-- **RLM**: `TraceDistiller` uses RLM for deep failure analysis on massive trace data
-- **Graph Steps**: `evolve_step` registered as a specialist node in the HSM
-- **Langfuse Agent**: Direct API import via `from langfuse_agent.langfuse_api import LangfuseAPI`
+- **RLM**: `TraceDistiller` (`knowledge_graph/adaptation/trace_distiller.py`) uses RLM for deep failure analysis on massive trace data
+- **Langfuse Agent**: Direct API import via `from langfuse_agent.api_client import LangfuseApi` (see `harness/trace_backend.py` `LangfuseTraceBackend`)

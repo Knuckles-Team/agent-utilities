@@ -2,7 +2,7 @@
 
 CONCEPT:OS-5.2 — Cognitive Scheduler
 CONCEPT:OS-5.4 — WASM Micro-Agent Sandbox
-CONCEPT:ORCH-1.29 — Compiled Orchestration Kernel
+CONCEPT:ORCH-1.11 — Compiled Orchestration Kernel
 
 This package provides:
 - Cognitive scheduler (OS-5.2) — Priority-aware preemptive scheduling

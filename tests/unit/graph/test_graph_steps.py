@@ -32,8 +32,8 @@ async def test_router_step_fast_path():
     mock_resp = MagicMock()
     mock_resp.output = "hi there"
 
-    # Mock Agent class
-    with patch("agent_utilities.graph.routing.Agent") as mock_agent_class:
+    # Mock Agent class (router_step's Agent lives in the impl module)
+    with patch("agent_utilities.graph._router_impl.Agent") as mock_agent_class:
         mock_agent = mock_agent_class.return_value
         mock_agent.run = AsyncMock(return_value=mock_resp)
 

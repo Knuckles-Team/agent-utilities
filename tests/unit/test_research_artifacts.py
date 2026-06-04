@@ -20,7 +20,7 @@ from agent_utilities.knowledge_graph.adaptation.research_artifacts import (
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestResearchArtifactModel:
     """Test ResearchArtifact model."""
 
@@ -47,7 +47,7 @@ class TestResearchArtifactModel:
         assert len(art.methods) == 2
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestDigestArtifactModel:
     """Test DigestArtifact model."""
 
@@ -58,7 +58,7 @@ class TestDigestArtifactModel:
         assert digest.markdown == ""
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestArtifactGeneratorNoEngine:
     """Test generator behavior without KG engine."""
 
@@ -68,7 +68,7 @@ class TestArtifactGeneratorNoEngine:
         assert art.title == "Unknown"
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestArtifactGeneratorWithEngine:
     """Test generator with mocked KG engine."""
 
@@ -185,7 +185,7 @@ class TestArtifactGeneratorWithEngine:
         assert (tmp_path / path.split("/")[-1]).exists()
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestContributionExtraction:
     """Test internal extraction methods."""
 

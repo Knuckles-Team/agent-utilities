@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.25 — Parallel Engine.
+"""CONCEPT:ORCH-1.8 — Parallel Engine.
 
 The single engine that handles every execution from a trivial 1-agent
 LLM call to a 300-agent enterprise swarm. The **same code path** runs
@@ -22,7 +22,7 @@ Execution flow:
     7. Persist results to KG
     8. Return ``ExecutionResult``
 
-See docs/pillars/1_graph_orchestration/ORCH-1.25-Parallel_Engine.md
+See docs/pillars/1_graph_orchestration/ORCH-1.8-Parallel_Engine.md
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 class _CircuitBreaker:
     """Per-agent-type circuit breaker.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     Tracks consecutive failures per agent type. When failures exceed
     ``threshold``, the agent type is disabled and skipped in subsequent
@@ -94,7 +94,7 @@ class _CircuitBreaker:
 
 
 class ParallelEngine:
-    """CONCEPT:ORCH-1.25 — Parallel Engine.
+    """CONCEPT:ORCH-1.8 — Parallel Engine.
 
     The single engine that handles every agent execution from 1 to 300+
     agents. Uses ``asyncio.Semaphore`` for concurrency backpressure and
@@ -133,7 +133,7 @@ class ParallelEngine:
     ) -> ExecutionResult:
         """Execute a manifest. This is the **only** entry point.
 
-        CONCEPT:ORCH-1.25 — Parallel Engine
+        CONCEPT:ORCH-1.8 — Parallel Engine
 
         Args:
             manifest: The execution specification.
@@ -148,7 +148,7 @@ class ParallelEngine:
         resolved = self._resolve_manifest(manifest)
 
         logger.info(
-            "[CONCEPT:ORCH-1.25] Executing manifest '%s' — %d agents, mode=%s, "
+            "[CONCEPT:ORCH-1.8] Executing manifest '%s' — %d agents, mode=%s, "
             "synthesis=%s, source=%s",
             resolved.name or resolved.manifest_id,
             resolved.agent_count,
@@ -205,7 +205,7 @@ class ParallelEngine:
 
         for wave_idx, wave_agents in enumerate(waves):
             logger.info(
-                "[CONCEPT:ORCH-1.25] Wave %d/%d — %d agents",
+                "[CONCEPT:ORCH-1.8] Wave %d/%d — %d agents",
                 wave_idx + 1,
                 len(waves),
                 len(wave_agents),
@@ -217,7 +217,7 @@ class ParallelEngine:
             wave_results.append(wave_result)
 
             logger.info(
-                "[CONCEPT:ORCH-1.25] Wave %d complete — success_rate=%.1f%%, "
+                "[CONCEPT:ORCH-1.8] Wave %d complete — success_rate=%.1f%%, "
                 "duration=%.0fms",
                 wave_idx + 1,
                 wave_result.success_rate * 100,
@@ -298,7 +298,7 @@ class ParallelEngine:
         )
 
         logger.info(
-            "[CONCEPT:ORCH-1.25] Execution complete — %d agents, %d waves, "
+            "[CONCEPT:ORCH-1.8] Execution complete — %d agents, %d waves, "
             "%.0fms total, success=%s",
             result.agent_count,
             len(wave_results),
@@ -313,7 +313,7 @@ class ParallelEngine:
     def _resolve_manifest(self, manifest: ExecutionManifest) -> ExecutionManifest:
         """Resolve ``auto`` fields based on agent count and complexity.
 
-        CONCEPT:ORCH-1.25 — Parallel Engine
+        CONCEPT:ORCH-1.8 — Parallel Engine
 
         Auto-resolution rules:
             - execution_mode: sequential (1), parallel (≤5), wave (>5)
@@ -347,7 +347,7 @@ class ParallelEngine:
     def _schedule_waves(self, manifest: ExecutionManifest) -> list[list[AgentSpec]]:
         """Build a dependency DAG and schedule agents into execution waves.
 
-        CONCEPT:ORCH-1.25 — Parallel Engine
+        CONCEPT:ORCH-1.8 — Parallel Engine
 
         Uses topological sort on the dependency graph to determine
         execution order, then groups agents by topological level
@@ -397,7 +397,7 @@ class ParallelEngine:
             generations = rx.topological_generations(dag)
         except Exception:
             logger.warning(
-                "[CONCEPT:ORCH-1.25] Dependency cycle detected — falling back "
+                "[CONCEPT:ORCH-1.8] Dependency cycle detected — falling back "
                 "to sequential execution"
             )
             return [[a] for a in expanded]
@@ -421,7 +421,7 @@ class ParallelEngine:
     def _expand_partitions(self, manifest: ExecutionManifest) -> list[AgentSpec]:
         """Expand fan-out partitions into individual agent specs.
 
-        CONCEPT:ORCH-1.25 — Parallel Engine
+        CONCEPT:ORCH-1.8 — Parallel Engine
 
         If an ``AgentSpec`` has partitions, create one copy per partition
         with ``{{partition}}`` replaced in the task template and a unique
@@ -455,7 +455,7 @@ class ParallelEngine:
     ) -> WaveResult:
         """Execute one wave of agents concurrently with semaphore backpressure.
 
-        CONCEPT:ORCH-1.25 — Parallel Engine
+        CONCEPT:ORCH-1.8 — Parallel Engine
 
         Args:
             agents: Agents in this wave.
@@ -534,7 +534,7 @@ class ParallelEngine:
     ) -> AgentExecutionResult:
         """Execute a single agent invocation with full capability wiring.
 
-        CONCEPT:ORCH-1.25 — Parallel Engine
+        CONCEPT:ORCH-1.8 — Parallel Engine
 
         Args:
             agent: The agent specification.
@@ -587,7 +587,7 @@ class ParallelEngine:
         if manifest.context:
             task = f"{task}\n\nContext:\n{manifest.context}"
 
-        # CONCEPT:OS-5.9 Context Paging
+        # CONCEPT:OS-5.8 Context Paging
         if proc and hasattr(proc, "checkpoint_id") and proc.checkpoint_id:
             logger.info(
                 "Paging context from checkpoint %s for agent %s",
@@ -678,7 +678,7 @@ class ParallelEngine:
             output = result.output
 
             logger.debug(
-                "[CONCEPT:ORCH-1.25] Agent %s (%s) completed in %.0fms — "
+                "[CONCEPT:ORCH-1.8] Agent %s (%s) completed in %.0fms — "
                 "output=%d chars",
                 agent.agent_id,
                 agent.role,
@@ -699,7 +699,7 @@ class ParallelEngine:
         except TimeoutError:
             duration_ms = (time.monotonic() - start_time) * 1000
             logger.warning(
-                "[CONCEPT:ORCH-1.25] Agent %s timed out after %.0fms",
+                "[CONCEPT:ORCH-1.8] Agent %s timed out after %.0fms",
                 agent.agent_id,
                 duration_ms,
             )
@@ -715,7 +715,7 @@ class ParallelEngine:
         except Exception as e:
             duration_ms = (time.monotonic() - start_time) * 1000
             logger.warning(
-                "[CONCEPT:ORCH-1.25] Agent %s failed: %s",
+                "[CONCEPT:ORCH-1.8] Agent %s failed: %s",
                 agent.agent_id,
                 e,
             )
@@ -1031,7 +1031,7 @@ class ParallelEngine:
     ) -> str:
         """Persist execution results to the Knowledge Graph with verbose hierarchy.
 
-        CONCEPT:ORCH-1.25 — Parallel Engine
+        CONCEPT:ORCH-1.8 — Parallel Engine
 
         Creates a ``ParallelExecution`` node, individual ``AgentExecutionResult`` nodes
         linked via ``PART_OF_EXECUTION`` edges, and dependency edges linked via
@@ -1109,7 +1109,7 @@ class ParallelEngine:
                         )
 
             logger.info(
-                "[CONCEPT:ORCH-1.25] Persisted execution hierarchy %s to KG "
+                "[CONCEPT:ORCH-1.8] Persisted execution hierarchy %s to KG "
                 "(%d agents, %d waves, %d topology edges)",
                 execution_id,
                 manifest.agent_count,

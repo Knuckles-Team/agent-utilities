@@ -6,7 +6,7 @@ This document describes four architectural concepts inspired by the RL Conductor
 
 ## CONCEPT:ORCH-1.1: Conductor Workflow Specification
 
-**Module**: `agent_utilities/models/graph.py` — `ExecutionStep.refined_subtask`
+**Module**: `agent_utilities/models/sdd.py` — `ExecutionStep.refined_subtask`
 
 ### Motivation
 
@@ -78,7 +78,7 @@ def _resolve_access_context(
 
 ## CONCEPT:AHE-3.3: Model Synergy Tracker
 
-**Module**: `agent_utilities/knowledge_graph/self_model.py`
+**Module**: `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`; the old `knowledge_graph/self_model.py` import path remains as a backward-compatible shim)
 
 ### Motivation
 
@@ -86,7 +86,7 @@ When multiple models collaborate in a session, certain combinations consistently
 
 ### Design
 
-The `model_synergies` field on `SelfModelNode` stores sorted, pipe-delimited model combination keys with EMA success rates:
+The `model_synergies` field on `MemoryRetrieverNode` (in `models/knowledge_graph.py`) stores sorted, pipe-delimited model combination keys with EMA success rates:
 
 ```python
 model_synergies = {
@@ -117,7 +117,7 @@ synergies = self_model.get_best_synergies(
 
 ## CONCEPT:ORCH-1.1: Recursive Graph Orchestration
 
-**Module**: `agent_utilities/graph/recursive_executor.py`
+**Module**: `agent_utilities/graph/hierarchical_planner.py` (`RecursiveContext`, `MAX_RECURSION_DEPTH`, `RecursionDepthExceeded`). The `recursive_orchestrator` specialist itself is registered in `agent_utilities/graph/executor.py`.
 
 ### Motivation
 

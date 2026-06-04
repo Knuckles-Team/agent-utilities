@@ -1,5 +1,5 @@
 # CONCEPT:ECO-4.05 - Pluggable Event Queue Backend
-# CONCEPT:ORCH-1.28 - Reactive Event Sourcing
+# CONCEPT:ORCH-1.10 - Reactive Event Sourcing
 
 import collections
 import inspect
@@ -11,31 +11,31 @@ class QueueBackend(Protocol):
 
     def put(self, item: dict[str, Any]) -> None:
         """Insert a task item into the queue."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     def get(self) -> tuple[Any, dict[str, Any]] | None:
         """Fetch the next available task item from the queue, returning (item_id, payload)."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     def ack(self, item_id: Any) -> None:
         """Acknowledge and remove a completed task item from the queue."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     def get_queue_size(self) -> int:
         """Return the current number of pending tasks in the queue."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     def put_staged_graph(self, job_id: str, nodes: list, edges: list) -> None:
         """Insert a serialized graph into the staging queue for writing."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     def get_staged_graph(self) -> tuple[Any, str, dict[str, Any]] | None:
         """Fetch the next staged graph payload from the queue, returning (item_id, job_id, graph_data)."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     def ack_staged_graph(self, item_id: Any) -> None:
         """Acknowledge and remove a processed staged graph from the queue."""
-        ...
+        raise RuntimeError("Protocol method called directly")
 
     @classmethod
     def create(cls, backend_type: str, **kwargs) -> "QueueBackend":

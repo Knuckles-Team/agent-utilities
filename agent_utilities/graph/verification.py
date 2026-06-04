@@ -20,8 +20,9 @@ try:
 except ImportError:
     from pydantic_graph.beta import StepContext
 
+from agent_utilities.core.config import emit_graph_event, load_specialized_prompts
+
 from ..models import GraphResponse
-from .config_helpers import emit_graph_event, load_specialized_prompts
 from .graph_models import ValidationResult
 from .hsm import StateInvariantError, assert_state_valid
 from .lifecycle import _emit_node_lifecycle
@@ -583,7 +584,7 @@ async def synthesizer_step(
             plan_meta = ctx.state.plan.metadata if ctx.state.plan else {}
             team_config_id = plan_meta.get("team_config_id")
             if team_config_id:
-                from ..knowledge_graph.core.engine_registry import RegistryMixin
+                from ..core.registry.kg_adapter import RegistryMixin
 
                 if isinstance(ctx.deps.knowledge_engine, RegistryMixin):
                     reward = 1.0 if execution_success else 0.0
@@ -598,7 +599,7 @@ async def synthesizer_step(
         except Exception as e:
             logger.debug(f"TeamConfig feedback failed: {e}")
 
-        # CONCEPT:ORCH-1.25 — Workflow Distillation Hook (async background)
+        # CONCEPT:ORCH-1.8 — Workflow Distillation Hook (async background)
         # If the execution was successful, fire the distillation hook to
         # potentially promote this workflow pattern to a reusable template.
         if execution_success:
@@ -622,7 +623,7 @@ async def synthesizer_step(
 
                 # Fire and forget — do not block the response
                 asyncio.ensure_future(_fire_distillation())
-                logger.debug("[ORCH-1.25] Distillation hook dispatched (background)")
+                logger.debug("[ORCH-1.8] Distillation hook dispatched (background)")
             except Exception as e:
                 logger.debug(f"Distillation hook dispatch failed: {e}")
 

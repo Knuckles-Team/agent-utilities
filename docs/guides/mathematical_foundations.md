@@ -39,7 +39,7 @@ completion time regardless of how many parallel workers you use.
 - **Slack**: The amount of time a task can be delayed without increasing
   the makespan.  Critical path tasks have zero slack.
 
-**Module**: `graph_theory_primitives.dag_critical_path()`
+**Module**: `formal_reasoning_core.dag_critical_path()`
 
 ### Graph Connectivity
 
@@ -51,7 +51,7 @@ completion time regardless of how many parallel workers you use.
 - **Minimum Vertex Cut**: The actual set of vertices forming the minimum cut.
   These are the "chokepoint" nodes in the Knowledge Graph.
 
-**Module**: `graph_theory_primitives.vertex_connectivity()`, `edge_connectivity()`, `minimum_vertex_cut()`
+**Module**: `formal_reasoning_core.vertex_connectivity()`, `edge_connectivity()`, `minimum_vertex_cut()`
 
 ### Euler Tour
 
@@ -64,7 +64,7 @@ vertex has even degree.
 Used for O(E) serialization of the entire Knowledge Graph — visiting every
 relationship exactly once for efficient checkpointing.
 
-**Module**: `graph_theory_primitives.euler_tour()`
+**Module**: `formal_reasoning_core.euler_tour()`
 
 ### Graph Coloring & Chromatic Scheduling
 
@@ -79,7 +79,7 @@ For agent scheduling, edges represent conflicts (two agents that cannot run
 concurrently), and colors represent execution slots.  k colors = k parallel
 execution slots.
 
-**Module**: `graph_theory_primitives.chromatic_schedule()`, `chromatic_number_upper_bound()`
+**Module**: `formal_reasoning_core.chromatic_schedule()`, `chromatic_number_upper_bound()`
 
 ### Personalized PageRank
 
@@ -93,7 +93,7 @@ for each node — its long-run importance.
 **Personalized PageRank** biases the teleport distribution toward specific
 "seed" nodes, making the importance scores context-dependent.
 
-**Module**: `graph_theory_primitives.personalized_pagerank()`
+**Module**: `GraphComputeEngine.personalized_pagerank()` (`knowledge_graph/core/graph_compute.py`)
 
 ### Adjacency Matrix Power Theorem
 
@@ -103,7 +103,7 @@ number of distinct walks of length k from vertex i to vertex j.
 This enables answering queries like "How many reasoning paths of length 3
 connect concept A to concept B?"
 
-**Module**: `graph_theory_primitives.count_paths_of_length()`
+**Module**: `formal_reasoning_core.count_paths_of_length()`
 
 ---
 
@@ -124,7 +124,7 @@ Properties:
 - Invariant to isotropic scaling
 - Range: [0, 1] where 1 = structurally identical
 
-**Module**: `EmbeddingDiagnostics.compute_cka()`
+**Module**: `MemoryOptimizationEngine.compute_cka()`
 
 ### Alignment Ratio (AR)
 
@@ -151,7 +151,7 @@ embeddings + graph-structural embeddings), **adaptive sparse fusion** applies:
 **Sparsity target**: Fraction of dimensions to mask.  Higher sparsity =
 more compression but potential information loss.
 
-**Module**: `EmbeddingDiagnostics.adaptive_sparse_fusion()`
+**Module**: `MemoryOptimizationEngine.adaptive_sparse_fusion()`
 
 ### Embedding Health Monitor
 
@@ -161,7 +161,7 @@ Continuous monitoring of embedding quality through:
 - **CKA drift**: Compares current embeddings against a baseline snapshot.
 - **Severity levels**: "none", "mild", "severe" drift.
 
-**Module**: `EmbeddingDiagnostics.embedding_health_check()`
+**Module**: `MemoryOptimizationEngine.embedding_health_check()`
 
 ---
 
@@ -253,7 +253,7 @@ Each 1D projection should approximate a Gaussian distribution (by the Central
 Limit Theorem for healthy embeddings).  A normality test (kurtosis + skewness)
 is applied to each projection.  Failed tests indicate collapse.
 
-**Module**: `LatentSpaceRegularizer.detect_collapse()`
+**Module**: `MemoryOptimizationEngine.detect_collapse()`
 
 ### Embedding Collapse
 
@@ -275,7 +275,7 @@ When consolidating an embedding:
 2. Check if the result reduces the overall participation ratio
 3. If so, apply additional dampening to preserve diversity
 
-**Module**: `LatentSpaceRegularizer.diversity_preserving_synthesis()`
+**Module**: `MemoryOptimizationEngine.synthesize_ewc()` (alias `diversity_preserving_consolidation`)
 
 ### Predictive Consistency Score
 
@@ -283,7 +283,7 @@ Measures whether the KG's embedding-based predictions match observed outcomes.
 Computed as the average cosine similarity between predicted and observed
 embedding states across a sequence of actions.
 
-**Module**: `LatentSpaceRegularizer.predictive_consistency_score()`
+**Module**: `MemoryOptimizationEngine.predictive_consistency_score()`
 
 ---
 

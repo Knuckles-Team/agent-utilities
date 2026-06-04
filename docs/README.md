@@ -6,7 +6,7 @@
 
 > [!NOTE]
 > **Experience the Platform in Action**
-> Read our comprehensive **[Technical Novel: The Narrative Journey](journey.md)** to see all 5 pillars and 64 concepts trace the high-stakes execution of a quantitative portfolio rebalancing mandate.
+> Read our comprehensive **[Technical Novel: The Narrative Journey](journey.md)** to see all 5 pillars and 70 concepts trace the high-stakes execution of a quantitative portfolio rebalancing mandate.
 
 ---
 
@@ -21,7 +21,7 @@ All documentation is organized under the **5-Pillar Architecture**. Each pillar 
 docs/
 ├── index.md                          ← You are here
 ├── journey.md                        ← The Technical Novel: Narrative Journey
-├── overview.md                       ← Concept Galaxy (33 canonical concepts, Mermaid map)
+├── overview.md                       ← Concept Galaxy (70 canonical concepts, Mermaid map)
 │
 └── pillars/
     ├── 1_graph_orchestration.md       ← Pillar 1 summary
@@ -64,7 +64,7 @@ docs/
     └── 5_agent_os_infrastructure/
         ├── permissions-kernel.md
         ├── OS-5.3-Session_Concurrency_Management.md
-        ├── GW-1.0-Gateway_Service_Dashboard.md
+        ├── OS-5.9-Gateway_Service_Dashboard.md
         └── ...
 ```
 
@@ -77,7 +77,7 @@ docs/
 | Document | Description |
 |:---------|:------------|
 | [Technical Novel: The Narrative Journey](journey.md) | Experience `agent-utilities` live via a high-stakes quantitative rebalancing story |
-| [Concept Galaxy (overview.md)](overview.md) | High-level map of all 33 canonical concepts across 5 pillars |
+| [Concept Galaxy (overview.md)](overview.md) | High-level map of all 70 canonical concepts across 5 pillars |
 
 ### The 5 Pillars
 
@@ -122,7 +122,7 @@ The Company Brain is the operational state layer that transforms the Knowledge G
 | **Enterprise Agent Governance** | P4 | [pillars/4_ecosystem_peripherals.md#enterprise-agent-governance](pillars/4_ecosystem_peripherals.md#-enterprise-agent-governance-eco-416--eco-422) |
 | **Graph DB Deployment** | P2 | [guides/graph-db-deployment.md](guides/graph-db-deployment.md) |
 | **OWL Ontology & OS Synergies** | P2/P5 | [owl_kg_synergies.md](owl_kg_synergies.md) |
-| **Gateway Service Dashboard** | GW | [pillars/5_agent_os_infrastructure/GW-1.0-Gateway_Service_Dashboard.md](pillars/5_agent_os_infrastructure/GW-1.0-Gateway_Service_Dashboard.md) |
+| **Gateway Service Dashboard** | GW | [pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md](pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) |
 
 ---
 

@@ -7,7 +7,40 @@ from agent_utilities.knowledge_graph.backends.cypher_transpiler import (
     transpile,
 )
 
-KNOWN_TABLES = {"Agent", "Tool", "Memory", "Code", "Skill", "Article"}
+KNOWN_TABLES = {"Agent", "Tool", "Memory", "Code", "Skill", "Article", "Concept"}
+
+
+class TestRelationshipTraversal:
+    """Single-hop traversal (s:L1)-[:R]->(t:L2) → JOIN over kg_edges."""
+
+    def test_count_traversal(self):
+        cypher = "MATCH (s:Memory)-[r:MENTIONS]->(t:Concept) RETURN count(r) as c"
+        tq = transpile(cypher, {}, KNOWN_TABLES)
+        assert tq.query_type == QueryType.COUNT
+        assert '"Memory" s' in tq.sql and '"Concept" t' in tq.sql
+        assert "kg_edges e ON e.source_id = s.id" in tq.sql
+        assert "e.rel_type = %s" in tq.sql and tq.params == ["MENTIONS"]
+        assert tq.return_columns == ["c"]
+
+    def test_count_distinct_target(self):
+        cypher = (
+            "MATCH (s:Memory)-[r:MENTIONS]->(t:Concept) "
+            "RETURN count(DISTINCT t) as c"
+        )
+        tq = transpile(cypher, {}, KNOWN_TABLES)
+        assert tq.query_type == QueryType.COUNT
+        assert "count(DISTINCT t.id)" in tq.sql
+
+    def test_property_projection_with_limit(self):
+        cypher = (
+            "MATCH (s:Memory)-[r:MENTIONS]->(t:Concept) "
+            "RETURN s.id as m, t.name as concept LIMIT 5"
+        )
+        tq = transpile(cypher, {}, KNOWN_TABLES)
+        assert tq.query_type == QueryType.SELECT
+        assert 's."id" AS m' in tq.sql and 't."name" AS concept' in tq.sql
+        assert "LIMIT 5" in tq.sql
+        assert tq.return_columns == ["m", "concept"]
 
 
 class TestCreateNode:
@@ -75,6 +108,34 @@ class TestMergeRelationship:
         assert tq.query_type == QueryType.UPSERT_EDGE
         assert "kg_edges" in tq.sql
         assert "ON CONFLICT" in tq.sql
+
+
+class TestMergeNode:
+    def test_merge_node_upsert(self):
+        # The graph-writer daemon + sync phase persist nodes via this pattern;
+        # it must become an INSERT ... ON CONFLICT (id) DO UPDATE upsert.
+        cypher = (
+            "MERGE (n:Code {id: $id}) "
+            "SET n.file_path = $props_file_path, n.type = $props_type"
+        )
+        params = {
+            "id": "code-1",
+            "props_file_path": "/a/b.py",
+            "props_type": "symbol",
+        }
+        tq = transpile(cypher, params, KNOWN_TABLES)
+        assert tq.query_type == QueryType.INSERT
+        assert tq.target_table == "Code"
+        assert 'INSERT INTO "Code"' in tq.sql
+        assert "ON CONFLICT (id) DO UPDATE SET" in tq.sql
+        assert '"file_path" = EXCLUDED."file_path"' in tq.sql
+        assert tq.params == ["code-1", "/a/b.py", "symbol"]
+
+    def test_merge_node_no_set_is_do_nothing(self):
+        tq = transpile("MERGE (n:Task {id: $id})", {"id": "job-1"}, KNOWN_TABLES)
+        assert tq.query_type == QueryType.INSERT
+        assert "ON CONFLICT (id) DO NOTHING" in tq.sql
+        assert tq.params == ["job-1"]
 
 
 class TestCountQuery:

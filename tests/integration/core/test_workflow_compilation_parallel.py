@@ -1,6 +1,6 @@
 """Integration tests for parallel workflows compilation and topological scheduling.
 
-CONCEPT:ORCH-1.25 — Parallel Engine
+CONCEPT:ORCH-1.8 — Parallel Engine
 """
 
 from __future__ import annotations

@@ -449,7 +449,7 @@ class TestObservabilityEventsEmitted:
 
     def test_phase_map_includes_kg_bridge(self):
         """Test that all KG_BRIDGE events are in the phase map."""
-        from agent_utilities.graph.config_helpers import _PHASE_MAP
+        from agent_utilities.core.config import _PHASE_MAP
 
         kg_events = [
             "kg_query_start",

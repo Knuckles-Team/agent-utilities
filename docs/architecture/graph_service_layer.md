@@ -1,6 +1,6 @@
 # Epistemic Graph Service Layer Architecture
 
-> CONCEPT:KG-2.19 — Tokio-first graph service
+> CONCEPT:KG-2.7 — Tokio-first graph service
 
 ## Overview
 
@@ -72,14 +72,15 @@ All connections require HMAC-SHA256 authentication:
 The service lifecycle is tied to the agent-utilities API gateway:
 - **Startup**: Gateway sends `Reconcile` to push authoritative state from the backend
 - **Shutdown**: Gateway sends `Checkpoint` to persist all graphs
-- The service process is managed via the `epistemic-graph-service` CLI
+- The service process is the `epistemic-graph-server` Rust daemon (run via
+  `cargo run -p epistemic-graph`). `GraphComputeEngine` will auto-start it on
+  first connect when `EPISTEMIC_GRAPH_AUTOSTART=1` is set; otherwise the daemon
+  must already be running.
 
 ## Migration from PyO3
 
-The `GraphComputeEngine` now connects to the Tokio service by default. To fall back to in-process PyO3:
-
-```bash
-export GRAPH_COMPUTE_FALLBACK=embedded
-```
-
-This is intended as a temporary escape hatch during migration.
+The PyO3 in-process FFI path has been **fully removed**. `GraphComputeEngine`
+talks to the `epistemic-graph-server` Tokio daemon **exclusively** over the
+out-of-process MessagePack/UDS (or TCP) client (`epistemic_graph.client`); there
+is no in-process embedded fallback. If the daemon is unreachable, set
+`EPISTEMIC_GRAPH_AUTOSTART=1` to have the engine spawn it on first connect.

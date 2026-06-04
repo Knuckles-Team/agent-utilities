@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ORCH-1.28 — Asynchronous Behavioral Event Dispatcher.
+"""CONCEPT:ORCH-1.10 — Asynchronous Behavioral Event Dispatcher.
 
 Implements the decoupled, reactive listener loop using a decorator-based
 subscription pattern. Listeners subscribe to event topics and execute

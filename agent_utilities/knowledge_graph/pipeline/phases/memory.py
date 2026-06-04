@@ -36,7 +36,7 @@ async def execute_memory(
         for res in results:
             node_data = res["n"]
             if "id" in node_data:
-                graph.add_node(node_data["id"], **node_data)
+                graph.add_node(node_data["id"], properties=node_data)
 
         # Retrieve all edges
         is_ladybug = db.__class__.__name__ == "LadybugBackend"

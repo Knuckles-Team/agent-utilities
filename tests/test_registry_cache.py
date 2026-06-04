@@ -8,7 +8,7 @@ Validates:
 
 import pytest
 
-from agent_utilities.graph.config_helpers import (
+from agent_utilities.core.config import (
     _RegistryCache,
     get_relevant_specialists,
     invalidate_registry_cache,

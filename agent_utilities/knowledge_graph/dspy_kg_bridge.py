@@ -3,7 +3,7 @@ from __future__ import annotations
 """DSPy to Knowledge Graph Bridge.
 
 CONCEPT:KG-2.2 — DSPy Integration
-CONCEPT:ORCH-1.25 — RLM-GEPA OptimizationTrajectory
+CONCEPT:ORCH-1.8 — RLM-GEPA OptimizationTrajectory
 
 Provides instant MERGE operations for EvolvedPromptNodes and DSPyTraceNodes
 to bypass filesystem bottlenecks, while asynchronously dispatching a git sync

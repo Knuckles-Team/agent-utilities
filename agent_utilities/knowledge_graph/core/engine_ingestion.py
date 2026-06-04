@@ -753,7 +753,7 @@ class IngestionMixin(_Base):
             try:
                 source_type = self._detect_toolkit_source_type(source)
                 logger.info(
-                    "[ECO-4.10] Processing source '%s' (detected: %s)",
+                    "[ECO-4.6] Processing source '%s' (detected: %s)",
                     source,
                     source_type,
                 )
@@ -770,11 +770,11 @@ class IngestionMixin(_Base):
                     summary["errors"].append(f"Unknown source type for '{source}'")
 
             except Exception as e:
-                logger.error("[ECO-4.10] Failed to ingest source '%s': %s", source, e)
+                logger.error("[ECO-4.6] Failed to ingest source '%s': %s", source, e)
                 summary["errors"].append(f"{source}: {e}")
 
         logger.info(
-            "[ECO-4.10] Toolkit ingestion complete: %d MCP servers, "
+            "[ECO-4.6] Toolkit ingestion complete: %d MCP servers, "
             "%d tools, %d skills, %d A2A agents, %d errors, %d skipped",
             summary["mcp_servers"],
             summary["tools_discovered"],
@@ -868,7 +868,7 @@ class IngestionMixin(_Base):
             # Freshness check — skip if KG cache is current
             if engine_self.check_server_freshness(server_name, entry["config_hash"]):
                 logger.info(
-                    "[ECO-4.10] Server '%s' is fresh in KG — skipping",
+                    "[ECO-4.6] Server '%s' is fresh in KG — skipping",
                     server_name,
                 )
                 summary["skipped"] += 1
@@ -1019,7 +1019,7 @@ class IngestionMixin(_Base):
 
         # Fallback to secondary standard path
         if card is None and agent_card_path != "/agent-card.json":
-            logger.info("[ECO-4.10] Primary A2A path failed, trying /agent-card.json")
+            logger.info("[ECO-4.6] Primary A2A path failed, trying /agent-card.json")
             card = await self._fetch_a2a_card(base_url, "/agent-card.json")
 
         if card is None:

@@ -48,9 +48,9 @@ def test_ingest_external_entity_stub(graph_engine):
     graph_engine.graph.add_node(internal_node, name="My Concept")
 
     external_id = "ext-999"
-    external_uri = "https://leanix.example.com/factsheet/ext-999"
-    platform = "leanix"
-    name = "LeanIX FactSheet"
+    external_uri = "https://ear.example.com/factsheet/ext-999"
+    platform = "ear"
+    name = "EAR FactSheet"
 
     stub_id = graph_engine.ingest_external_entity_stub(
         internal_node_id=internal_node,

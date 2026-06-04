@@ -126,32 +126,38 @@ erp = CompanySoftware(
 
 ## Phase 3: Workflow Registration
 
-### 3.1 Register Company Workflows
+### 3.1 Register Company Operations Agents
 
-The following workflows are available under `workflows/ops/`:
+Each company department maps to an operations coordinator agent. The
+following coordinator prompts ship under `agent_utilities/prompts/`:
 
-| Workflow | Agent | Description |
-|----------|-------|-------------|
-| `legal-compliance` | `legal_compliance_coordinator` | Legal compliance review |
-| `contract-review` | `legal_compliance_coordinator` | Contract analysis & risk |
-| `employee-onboarding` | `hr_operations_coordinator` | Full employee onboarding |
-| `payroll-processing` | `finance_operations_coordinator` | Payroll computation |
-| `performance-review` | `hr_operations_coordinator` | OKR-driven performance review |
+| Coordinator prompt | Responsibility |
+|--------------------|----------------|
+| `legal_compliance_coordinator` | Legal compliance review, contract analysis & risk |
+| `hr_operations_coordinator` | Employee onboarding, OKR-driven performance review |
+| `finance_operations_coordinator` | Payroll computation, financial reporting |
 
-### 3.2 Compile Workflows to KG
+### 3.2 Compile Skills to KG
+
+Company workflows are authored as standard `SKILL.md` skill directories and
+compiled into `GraphPlan` objects via `SkillCompiler`, then registered in the
+KG. Use `SkillCompiler.compile(skill_dir)` to build a plan and
+`SkillCompiler.register_in_kg(engine, skill_dir)` to persist it:
 
 ```python
+from pathlib import Path
+
 from agent_utilities.workflows.skill_compiler import SkillCompiler
 
-# Compile all ops workflows
-for workflow in ["legal-compliance", "contract-review",
-                 "employee-onboarding", "payroll-processing",
-                 "performance-review"]:
-    SkillCompiler.compile_skill(
-        f"workflows/ops/{workflow}",
-        engine=kg_engine,
-    )
+# Compile and register each company operations skill directory
+for skill_dir in Path("skills/ops").iterdir():
+    plan = SkillCompiler.compile(skill_dir)        # SKILL.md -> GraphPlan
+    if plan is not None:
+        SkillCompiler.register_in_kg(kg_engine, skill_dir)
 ```
+
+Alternatively, register a skill directly through MCP with
+`graph_orchestrate(action="compile_workflow", ...)`.
 
 ## Phase 4: KPI Dashboard Setup
 

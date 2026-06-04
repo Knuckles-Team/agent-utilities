@@ -15,7 +15,7 @@ This feature is meta — it tracks the provenance of all other research-derived 
 |---|---|---|---|
 | `KG-2.7` | Research Intelligence | 0.90 | KG |
 | `KG-2.0` | Active Knowledge Graph | 0.60 | KG |
-| `ORCH-1.6` | DSTDD Pipeline | 0.55 | ORCH |
+| `ORCH-1.5` | DSTDD Pipeline | 0.55 | ORCH |
 
 ### Extension Analysis
 

@@ -4,7 +4,7 @@ CONCEPT:KG-2.5/2.15/2.34/2.35 — Topological Analysis Engine
 
 Provides a single entry point for all graph-topology operations:
 - Community detection via Louvain partitioning (KG-2.5)
-- Topological analogy matching across domains (KG-2.15)
+- Topological analogy matching across domains (KG-2.7)
 - Spectral cluster navigation with auto-k selection (KG-2.34)
 - Symbol blast-radius analysis for impact scoring (KG-2.35)
 
@@ -86,7 +86,7 @@ class TopologicalAnalysisEngine:
 
         return persist_stable_communities(engine)
 
-    # --- Topological Analogy (KG-2.15) ---
+    # --- Topological Analogy (KG-2.7) ---
 
     def find_analogous_subgraphs(
         self,

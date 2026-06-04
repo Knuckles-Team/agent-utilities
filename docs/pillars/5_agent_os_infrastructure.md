@@ -78,14 +78,14 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ---
 
-## 🏠 Gateway Service Dashboard (CONCEPT:GW-1.0)
+## 🏠 Gateway Service Dashboard (CONCEPT:OS-5.9)
 
 The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is the unified data layer that all three frontends (agent-webui, agent-terminal-ui, geniusbot) use to render service health, metrics, and quick-access links for 50+ integrated services.
 
 > [!NOTE]
 > Synthesized from the former standalone `service-dashboard-core` package into
 > `agent_utilities/gateway/` to eliminate duplicate registries, duplicate XDG path
-> logic, and an orphaned package dependency. See [GW-1.0](5_agent_os_infrastructure/GW-1.0-Gateway_Service_Dashboard.md) for full documentation.
+> logic, and an orphaned package dependency. See [OS-5.9](5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) for full documentation.
 
 ### Key Components
 
@@ -259,9 +259,9 @@ Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots v
 
 ### Topological Vulnerability Scanning (OS-5.11)
 *   **Source Code**: `agent_utilities/security/topological_scanner.py`
-*   **Defense**: Scans the execution graph planner outputs for untrusted data flows or dependency deadlocks by matching structures against risk subgraphs using the Analogy Engine (KG-2.15).
+*   **Defense**: Scans the execution graph planner outputs for untrusted data flows or dependency deadlocks by matching structures against risk subgraphs using the Analogy Engine (KG-2.7).
 
-### Execution Stability Engine (Doom-Loop & Repetition Guard) (OS-5.18 & OS-5.5)
+### Execution Stability Engine (Doom-Loop & Repetition Guard) (OS-5.18 & OS-5.3)
 *   **Source Code**: `agent_utilities/security/repetition_guard.py` & `agent_utilities/security/doom_loop_detector.py`
 *   **Behavior**: Tracks repeated sequences of tool calls with identical arguments. On loop detection, denies execution and injects corrective guidance into the prompt context to steer the agent towards alternative strategies.
 
@@ -309,8 +309,8 @@ Scaling to **100,000,000 concurrent agents** requires swapping out local memory 
 ### Key Capabilities
 
 1. **Pluggable Event Fabrics**: Local, in-memory queues are abstracted using a unified `QueueBackend` interface (`CONCEPT:ECO-4.05`). The system supports zero-overhead memory backends, NATS messaging clusters (`NatsQueueBackend`), and distributed Apache Kafka partitions (`KafkaQueueBackend`) for multi-host, high-throughput event sourcing.
-2. **Compiled Rust Graph Compute**: High-performance epistemic reasoning, transitive closure calculations, and topological analogy scans are compiled in Rust using PyO3 bindings (`epistemic-graph`) and the high-performance `rustworkx` graph library (`CONCEPT:KG-2.2`), reducing analytical overhead by up to 98%.
-3. **WebAssembly sandboxed Micro-Agents**: Untrusted or user-generated micro-agents are executed inside an isolated WebAssembly sandbox using `wasmtime` (`CONCEPT:ORCH-1.29`). Sandboxes enforce strict gas limits, precise memory caps, and virtualized system calls. If WebAssembly compilation is unavailable on the host system, execution dynamically falls back to a secure Python emulation layer.
+2. **Compiled Rust Graph Compute**: High-performance epistemic reasoning, transitive closure calculations, and topological analogy scans run in the compiled Rust `epistemic-graph` engine (`CONCEPT:KG-2.2`), reached **out-of-process** over a MessagePack/UDS (or TCP) client — there is **no PyO3** in the primary path — substantially reducing analytical overhead.
+3. **WebAssembly sandboxed Micro-Agents**: Untrusted or user-generated micro-agents are executed inside an isolated WebAssembly sandbox using `wasmtime` (`CONCEPT:ORCH-1.11`). Sandboxes enforce strict gas limits, precise memory caps, and virtualized system calls. If WebAssembly compilation is unavailable on the host system, execution dynamically falls back to a secure Python emulation layer.
 
 *   **Source Code Paths**:
     *   `agent_utilities/core/wasm_runner.py`
@@ -320,27 +320,27 @@ Scaling to **100,000,000 concurrent agents** requires swapping out local memory 
 
 ---
 
-## 🔀 Distributed Replay, Sandboxing, & Epistemic Scheduling (OS-5.7)
+## 🔀 Distributed Replay, Sandboxing, & Epistemic Scheduling (OS-5.6)
 
 To satisfy strict regulatory compliance, low-level isolation, and intelligent resource allocation, the Agent OS is extended with advanced core modules connecting low-level execution with the epistemic Knowledge Graph.
 
 ### Key Synergistic Core Modules:
 
-1. **Deterministic Replay & Trace Ontology (`OS-5.7`)**:
+1. **Deterministic Replay & Trace Ontology (`OS-5.6`)**:
    Captures step-by-step agent executions (prompts, tool calls, memory state transitions) and registers them as first-class OWL sub-graphs under the **PROV-O (Provenance Ontology)**. This creates crypotographically immutable, auditable provenance logs.
    * *Source Code*: [replay_engine.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/observability/replay_engine.py)
 
-2. **Hardened WASM Sandbox Executor (`OS-5.8`)**:
+2. **Hardened WASM Sandbox Executor (`OS-5.7`)**:
    Runs untrusted external tools and sub-agent scripts inside isolated WebAssembly processes with custom Gas Limit Bounds and Memory Allocation limits (e.g. 64MB cap), executing with microsecond-level process containment.
    * *Source Code*: [sandboxed_executor.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/sandboxed_executor.py)
 
-3. **Epistemic Resource Scheduler (`OS-5.9`)**:
+3. **Epistemic Resource Scheduler (`OS-5.8`)**:
    An advanced CPU/thread scheduler that dynamically calculates the **eigenvector/out-degree centrality** of active agent nodes in the live Knowledge Graph. High-centrality orchestrator blocks are scaled with increased execution quotas, while low-centrality crawler blocks are checkpointed and paged to disk under system load.
    * *Source Code*: [cognitive_scheduler.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/core/cognitive_scheduler.py)
 
-4. **Ontological Guardrail Engine (`OS-5.10`)**:
+4. **Ontological Guardrail Engine (`OS-5.3`)**:
    Intercepts tool schemas and checks parameter payload arguments using real-time OWL subsumption reasoning. Automatically blocks access to files, network targets, or commands if they inherit from banned policy classes inside the Knowledge Graph.
    * *Source Code*: [tool_guard.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/tool_guard.py)
 
 For a complete architectural analysis, refer to the detailed guide:
-👉 [OS-5.7 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](file:///home/apps/workspace/agent-packages/agent-utilities/docs/pillars/5_agent_os_infrastructure/OS-5.7-Distributed_Replay_And_Coordination.md)
+👉 [OS-5.6 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](file:///home/apps/workspace/agent-packages/agent-utilities/docs/pillars/5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md)

@@ -1,6 +1,6 @@
 """Tests for GuardrailEngine — Input/Output Interception (CONCEPT:OS-5.1).
 
-@pytest.mark.concept("OS-5.8")
+@pytest.mark.concept("OS-5.7")
 """
 
 import pytest

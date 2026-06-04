@@ -81,7 +81,7 @@ async def run_agent(
         from agent_utilities.graph.parallel_engine import ParallelEngine
 
         logger.info(
-            "[ORCH-1.27] Executing full Enterprise Autonomous Company orchestration"
+            "[ORCH-1.9] Executing full Enterprise Autonomous Company orchestration"
         )
         manifest = manifest_for_enterprise(task, engine)
         pe = ParallelEngine(engine=engine)
@@ -100,7 +100,7 @@ async def run_agent(
             )
             return str(pe_result)
         except Exception as e:
-            logger.error("[ORCH-1.27] Enterprise execution failed: %s", e)
+            logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
             _record_execution_trace(
                 engine, run_id, "enterprise", task, status="failed", error=str(e)
             )
@@ -111,7 +111,7 @@ async def run_agent(
         import inspect
         import json
 
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry.instance()
         svc = registry.get(agent_name)

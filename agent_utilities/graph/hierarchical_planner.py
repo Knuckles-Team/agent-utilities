@@ -3,6 +3,12 @@ from __future__ import annotations
 """ORCH-1.1 Hierarchical Planner.
 
 Consolidates HTN, LATS, Conductor, and Recursive Executor logic.
+
+Strangled by graph/planning/ (Plan 03 Step 4): this module remains the live
+HTN implementation. The unified entrypoint is ``agent_utilities.graph.planning``
+(``Planner`` facade + ``planning.htn`` re-exports). Public symbols here are kept
+stable for ``_router_impl``, ``steps``, ``parallel_engine`` and
+``adaptive_agent_router``.
 """
 
 
@@ -37,13 +43,14 @@ try:
 except ImportError:
     from pydantic_graph.beta import StepContext
 
-from ..models import ExecutionStep, GraphPlan
-from ..tools.knowledge_tools import knowledge_tools
-from .config_helpers import (
+from agent_utilities.core.config import (
     emit_graph_event,
     get_discovery_registry,
     load_specialized_prompts,
 )
+
+from ..models import ExecutionStep, GraphPlan
+from ..tools.knowledge_tools import knowledge_tools
 from .lifecycle import _emit_node_lifecycle
 from .state import GraphDeps, GraphState
 

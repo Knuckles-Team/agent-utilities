@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""CONCEPT:OS-5.7 — Sandboxed Code Executor.
+"""CONCEPT:OS-5.6 — Sandboxed Code Executor.
 
 Provides secure runtime isolation with strict CPU time limits, memory bounds,
 and precise gas/resource usage reporting.

@@ -77,52 +77,6 @@ def test_hydrate_gitlab(mock_engine):
         assert relationships[0]["type"] == "depends_on"  # OWL Native
 
 
-@patch.dict(
-    os.environ,
-    {"LEANIX_URL": "https://leanix.example.com", "LEANIX_TOKEN": "test-leanix-token"},
-)
-def test_hydrate_leanix(mock_engine):
-    mock_leanix_gql_class = MagicMock()
-    mock_client = MagicMock()
-    mock_leanix_gql_class.return_value = mock_client
-
-    mock_client.execute_gql.return_value = {
-        "data": {
-            "allFactSheets": {
-                "edges": [
-                    {
-                        "node": {
-                            "id": "fs-id-99",
-                            "name": "Enterprise Core ERP",
-                            "type": "Application",
-                            "description": "Core ERP Application",
-                        }
-                    }
-                ]
-            }
-        }
-    }
-
-    modules = {
-        "leanix_agent": MagicMock(),
-        "leanix_agent.leanix_gql": MagicMock(),
-    }
-    with patch.dict("sys.modules", modules):
-        modules["leanix_agent.leanix_gql"].GraphQL = mock_leanix_gql_class
-
-        manager = HydrationManager()
-        res = manager.hydrate_source(mock_engine, "leanix")
-
-        assert res["status"] == "ok"
-        assert res["nodes_hydrated"] == 1
-
-        mock_engine.ingest_external_batch.assert_called_once()
-        args, _ = mock_engine.ingest_external_batch.call_args
-        assert args[0] == "leanix"
-        assert args[1][0]["id"] == "leanix:fs:fs-id-99"
-        assert args[1][0]["type"] == "platform_service"  # OWL Native
-        assert args[1][0]["name"] == "Enterprise Core ERP"
-
 
 @patch.dict(
     os.environ,

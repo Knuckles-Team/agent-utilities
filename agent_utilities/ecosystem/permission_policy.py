@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Permission Policy Engine — Deny/Allow Rules for Tool and File Access.
 
-CONCEPT:ECO-4.20 — Permission Policy Engine
+CONCEPT:ECO-4.13 — Permission Policy Engine
 
 Version-controlled permission rules that restrict tool and file access
 for all agents in the project. Loaded from ``.agents/permissions.json``
@@ -66,7 +66,7 @@ class PermissionRule:
 class PermissionPolicy:
     """Complete permission policy for a project.
 
-    CONCEPT:ECO-4.20 — Permission Policy Engine
+    CONCEPT:ECO-4.13 — Permission Policy Engine
     """
 
     version: int = 1
@@ -118,7 +118,7 @@ class PermissionPolicy:
 class PermissionPolicyEngine:
     """Evaluate tool calls against the permission policy.
 
-    CONCEPT:ECO-4.20 — Permission Policy Engine
+    CONCEPT:ECO-4.13 — Permission Policy Engine
 
     Usage::
 

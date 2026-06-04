@@ -48,9 +48,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field, PrivateAttr
 
 if TYPE_CHECKING:
+    from ..graph.hierarchical_planner import ConvergenceMonitor
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
-
-from ..graph.hierarchical_planner import ConvergenceMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +241,7 @@ class CognitiveScheduler:
     def _get_kg_centrality(self, agent_id: str) -> float:
         """Query the topological centrality of the agent's node in the active graph.
 
-        CONCEPT:OS-5.9 — Epistemic Resource Scheduler.
+        CONCEPT:OS-5.8 — Epistemic Resource Scheduler.
 
         Returns 0.0 (no boost) when the KG engine is unavailable or the agent
         is not present in the graph.  Only agents with actual graph connectivity
@@ -292,7 +291,7 @@ class CognitiveScheduler:
         Returns:
             The created ``AgentProcess``.
         """
-        # CONCEPT:OS-5.9 — Epistemic dynamic priority & quota scaling based on KG Centrality
+        # CONCEPT:OS-5.8 — Epistemic dynamic priority & quota scaling based on KG Centrality
         centrality = self._get_kg_centrality(agent_id)
 
         final_quota = token_quota or self.default_token_quota

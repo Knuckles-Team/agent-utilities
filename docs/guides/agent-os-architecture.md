@@ -13,7 +13,7 @@ graph TB
     subgraph KERNEL["🧠 KERNEL — agent-utilities"]
         KG[KG-2.0: Knowledge Graph]
         SEC[OS-5.1: Secret Engine]
-        REG[ECO-4.10: Agent Registry]
+        REG[ECO-4.6: Agent Registry]
         SCHED[OS-5.2: Cognitive Scheduler]
         ID[OS-5.1: Identity/Policy]
     end
@@ -94,9 +94,9 @@ External dependencies that can be deployed via Infrastructure Templates.
 | 🔍 **Internet Gateway** | `searxng-mcp` | Uses random public instance — no deployment required |
 | 📊 **Observability** | `langfuse-agent` | Deployed via compose template when observability is requested |
 
-### Tier 3: Domain Specialists (27 packages)
+### Tier 3: Domain Specialists (26 packages)
 
-Available in the default catalog for on-demand install. See [agent-registry.md](../1_graph_orchestration/agent-registry.md) for the full package table.
+Available in the default catalog for on-demand install. See [agent-registry.md](agent-registry.md) for the full package table.
 
 ---
 
@@ -110,11 +110,10 @@ Pure Python library. Owns all models, logic, graph orchestration, and KG. **Neve
 |:---|:---|:---|
 | Scheduler logic | `core/cognitive_scheduler.py` | CONCEPT:OS-5.2 |
 | Identity & policy logic | `security/permissions_kernel.py` | CONCEPT:OS-5.2 |
-| Registry logic + default catalog | `core/registry_cli.py` + `core/default_catalog.py` | CONCEPT:OS-5.2 |
+| Registry logic + default catalog | `core/registry/package_adapter.py` (`AgentRegistry`) + `core/default_catalog.py` | CONCEPT:OS-5.2 |
 | File watcher | `automation/file_watcher.py` | CONCEPT:OS-5.0 |
 | Maintenance cron | `automation/maintenance_cron.py` | CONCEPT:OS-5.2 |
-| KG models (incl. HostNode) | `models/knowledge_graph.py` | CONCEPT:KG-2.0 |
-| Infrastructure templates | `core/infrastructure_templates.py` | NEW |
+| KG models (incl. HostNode, InfrastructureTemplateNode) | `models/knowledge_graph.py` | CONCEPT:KG-2.0 |
 | Tool guard | `security/tool_guard.py` | CONCEPT:ORCH-1.0 |
 | Self-model + ACO | `knowledge_graph/self_model.py` | CONCEPT:KG-2.1 |
 
@@ -298,19 +297,19 @@ sequenceDiagram
     SM-->>Agent: Result
 ```
 
-**Deny takes precedence** over a generic wildcard allow. Only explicit non-wildcard allow patterns can override denials. See [permissions-kernel.md](../5_agent_os_infrastructure/permissions-kernel.md) for the full policy schema.
+**Deny takes precedence** over a generic wildcard allow. Only explicit non-wildcard allow patterns can override denials. See [permissions-kernel.md](permissions-kernel.md) for the full policy schema.
 
 ---
 
 ## Default Catalog
 
-The Agent Registry ships 38 packages out-of-the-box via `default_catalog.py`:
+The Agent Registry ships 37 packages out-of-the-box via `default_catalog.py`:
 
 | Category | Count | Auto-installed? |
 |:---|:---|:---|
 | OS Subsystems | 4 | ✅ Yes |
 | OS Services | 2 | ❌ Available |
-| Domain Specialists | 27 | ❌ Available |
+| Domain Specialists | 26 | ❌ Available |
 | Community MCPs | 5 | ❌ Available |
 
 OS subsystems are auto-installed on first `AgentRegistry.__init__()`. All others are placed in `available/` for on-demand install via `specialist_install`.
@@ -360,7 +359,7 @@ Each MCP repo could ship a `kg_extension/` module with domain ontology (OWL/Pyda
 
 ## Related Documentation
 
-- [Cognitive Scheduler (CONCEPT:OS-5.2)](../5_agent_os_infrastructure/cognitive-scheduler.md)
-- [Permissions Kernel (CONCEPT:OS-5.2)](../5_agent_os_infrastructure/permissions-kernel.md)
-- [Agent Registry (CONCEPT:OS-5.2)](../1_graph_orchestration/agent-registry.md)
-- [Overview & Concept Galaxy](overview.md)
+- [Cognitive Scheduler (CONCEPT:OS-5.2)](cognitive-scheduler.md)
+- [Permissions Kernel (CONCEPT:OS-5.2)](permissions-kernel.md)
+- [Agent Registry (CONCEPT:OS-5.2)](agent-registry.md)
+- [Overview & Concept Galaxy](../overview.md)

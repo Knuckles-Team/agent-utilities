@@ -185,7 +185,7 @@ class KGTeamComposer:
 
         try:
             # Try to find matching team configs via the registry mixin
-            from ..knowledge_graph.core.engine_registry import RegistryMixin
+            from ..core.registry.kg_adapter import RegistryMixin
 
             if isinstance(self.engine, RegistryMixin) and hasattr(
                 self.engine, "find_matching_team_config"

@@ -38,7 +38,8 @@ def test_a2a_client_fetch_card_sync_success():
 
     class _HttpxSync:
         def __init__(self, *a, **k):
-            pass
+            self.args = a
+            self.kwargs = k
 
         def __enter__(self):
             return self
@@ -61,7 +62,8 @@ def test_a2a_client_fetch_card_sync_failure():
 
     class _HttpxSync:
         def __init__(self, *a, **k):
-            pass
+            self.args = a
+            self.kwargs = k
 
         def __enter__(self):
             return self
@@ -86,7 +88,8 @@ def test_a2a_client_fetch_card_sync_non_200():
 
     class _HttpxSync:
         def __init__(self, *a, **k):
-            pass
+            self.args = a
+            self.kwargs = k
 
         def __enter__(self):
             return self
@@ -113,7 +116,8 @@ async def test_a2a_client_fetch_card_async_success():
 
     class _HttpxAsync:
         def __init__(self, *a, **k):
-            pass
+            self.args = a
+            self.kwargs = k
 
         async def __aenter__(self):
             return self
@@ -137,7 +141,8 @@ async def test_a2a_client_fetch_card_async_exception():
 
     class _HttpxAsync:
         def __init__(self, *a, **k):
-            pass
+            self.args = a
+            self.kwargs = k
 
         async def __aenter__(self):
             return self

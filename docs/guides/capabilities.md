@@ -10,45 +10,45 @@ The `capabilities/` module provides self-healing and resilience patterns that th
 
 ### Checkpointing (`capabilities/checkpointing.py`)
 
-Provides state persistence during multi-step graph execution. If a step fails, execution can resume from the last checkpoint rather than restarting. **(HSM Concept: State Snapshot)**
+Captures full conversation snapshots (`Checkpoint`) at tool and turn boundaries, enabling cross-process session fork, rewind, and resumability. **(HSM Concept: State Snapshot)**
+
+Checkpoints are written through a pluggable `CheckpointStore` (`InMemoryCheckpointStore`, `FileCheckpointStore`, or `GraphCheckpointStore` for KG persistence) and wired into the agent run loop by `CheckpointMiddleware` / `CheckpointToolset`.
 
 ```python
-from agent_utilities.capabilities.checkpointing import CheckpointManager
+from agent_utilities.capabilities.checkpointing import (
+    Checkpoint,
+    GraphCheckpointStore,
+)
 
-mgr = CheckpointManager(workspace_path="/tmp/agent-session")
-await mgr.save(step_id="step_3", state=current_state)
+store = GraphCheckpointStore(engine)
+cp = Checkpoint(id="cp_3", label="step_3", turn=3, messages=current_messages)
+await store.save(cp)
 
 # On failure recovery:
-restored = await mgr.load(step_id="step_3")
+restored = await store.get("cp_3")
 ```
 
 ### Context Window Warnings (`capabilities/context_warnings.py`)
 
-Monitors token usage and emits warnings when the context window is approaching its limit. Helps agents decide when to summarize or evict older messages.
+`ContextLimitWarner` monitors token usage and injects warnings when the context window is approaching its limit, helping the model decide when to wrap up or be concise.
 
-- **Token tracking**: Estimates token count per message
-- **Warning thresholds**: Configurable warning/critical levels
-- **Auto-summarization triggers**: Fires when threshold is breached
+- **Token tracking**: Estimates context usage against the model's token limit
+- **Warning thresholds**: `warn_at` (URGENT, default 70%) and `critical_at` (CRITICAL, default 90%)
+- **Graph persistence**: CRITICAL breaches are recorded in the Knowledge Graph
 
 ### Eviction (`capabilities/eviction.py`)
 
-Implements message eviction strategies for long conversations:
-
-| Strategy | Description |
-|---|---|
-| `oldest_first` | Remove oldest messages when context limit is reached |
-| `relevance_scored` | Keep messages with highest relevance to current task |
-| `summarize_and_drop` | Summarize a block of messages, then drop originals |
+Implements `ToolOutputEviction`, which intercepts massive tool outputs (above a size threshold), offloads them to the Knowledge Base, and leaves a concise preview in the message history. This keeps the working context lean during long, tool-heavy conversations.
 
 ### Hooks (`capabilities/hooks.py`)
 
-Lifecycle hooks that fire at key points in agent execution:
+Lifecycle hooks (`HooksCapability`) fire at key `HookEvent` points in agent execution. Each hook receives a `HookInput` and may return a `HookResult` to modify args/results or cancel a tool call:
 
-- `on_turn_start(turn_number)`: Beginning of each turn
-- `on_turn_end(turn_number, result)`: End of each turn
-- `on_tool_call(tool_name, args)`: Before tool execution
-- `on_tool_result(tool_name, result)`: After tool execution
-- `on_error(error, context)`: When an error occurs
+- `BEFORE_RUN`: Beginning of an agent run
+- `AFTER_RUN`: End of an agent run
+- `PRE_TOOL_USE`: Before tool execution
+- `POST_TOOL_USE`: After a successful tool execution
+- `POST_TOOL_USE_FAILURE`: After a tool execution raises
 
 ### Stuck-Loop Detection (`capabilities/stuck_loop.py`)
 
@@ -60,18 +60,17 @@ Detects when an agent is repeating the same actions without progress:
 
 ### Teams (`capabilities/teams.py`)
 
-Multi-agent coordination patterns:
+`TeamCapability` provides multi-agent coordination primitives:
 
-- **Parallel dispatch**: Send tasks to multiple agents simultaneously
-- **Sequential pipeline**: Chain agent outputs as inputs to the next
-- **Voting/consensus**: Aggregate multiple agent responses
-- **TeamConfig Promotion (CONCEPT:AHE-3.3)**: Successful coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. See [first-principles.md](../1_graph_orchestration/first-principles.md) for details on proven team reuse and reward tracking.
+- **Shared task management**: A shared todo list (`SharedTodoItem`) coordinated across team members
+- **P2P messaging**: `message_member()` routes messages to a team member over ACP, falling back to A2A
+- **TeamConfig Promotion (CONCEPT:AHE-3.3)**: Successful coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. See [first-principles.md](first-principles.md) for details on proven team reuse and reward tracking.
 
 ---
 
 ## AgentCapability Type System (CONCEPT:ORCH-1.2)
 
-> See also: [First Principles Architecture](../1_graph_orchestration/first-principles.md) for the complete CONCEPT:ORCH-1.2 deep-dive.
+> See also: [First Principles Architecture](first-principles.md) for the complete CONCEPT:ORCH-1.2 deep-dive.
 
 The AgentCapability system extends the static tool-binding model with dynamic, condition-based capability activation. Capabilities are modeled as first-class Knowledge Graph nodes (`AgentCapabilityNode`) with trigger conditions that are evaluated at execution time.
 
@@ -93,7 +92,7 @@ The AgentCapability system extends the static tool-binding model with dynamic, c
 
 ## Registry Hot Cache (CONCEPT:ORCH-1.2)
 
-> See also: [Registry Cache Deep-Dive](../1_graph_orchestration/registry-cache.md) for the complete architecture.
+> See also: [Registry Cache Deep-Dive](registry-cache.md) for the complete architecture.
 
 The Registry Hot Cache provides session-scoped O(1) specialist lookups, replacing the previous O(N) full-registry scan on every routing call. Key features:
 

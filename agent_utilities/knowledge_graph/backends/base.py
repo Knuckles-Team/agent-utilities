@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Graph Backend Base Interface.
 
-CONCEPT:KG-2.16 — Vendor-Agnostic Graph Backend Abstraction
+CONCEPT:KG-2.7 — Vendor-Agnostic Graph Backend Abstraction
 
 Provides the ``GraphBackend`` ABC that all graph storage backends must implement.
 Backends may optionally support SPARQL via ``supports_sparql`` / ``execute_sparql()``.
@@ -75,7 +75,7 @@ class GraphBackend(ABC):
         pass
 
     # ------------------------------------------------------------------
-    # Optional SPARQL Capability  (CONCEPT:KG-2.16)
+    # Optional SPARQL Capability  (CONCEPT:KG-2.7)
     # ------------------------------------------------------------------
 
     @property

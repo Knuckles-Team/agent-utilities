@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend
+from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import LadybugBackend
 
 
 @pytest.fixture
@@ -139,7 +139,7 @@ def test_ladybug_backend_get_lock(temp_db_dir):
         combined_lock = backend._get_lock()
         from filelock import FileLock
 
-        from agent_utilities.knowledge_graph.backends.ladybug_backend import (
+        from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
             CombinedLock,
         )
 

@@ -10,14 +10,14 @@ In this architecture, `agent-utilities` serves as the core OS Kernel and semanti
 
 1. **`microsoft-agent`**: Connects to Entra ID (Azure AD), extracting Employee hierarchies, Security Groups, and Department alignments. Maps these to BFO/PROV-O taxonomy nodes before batching them into the core.
 2. **`servicenow-api`**: Acts as an ITSM hook, extracting Incidents, CMDB records (Hardware/Software CIs), and infrastructure dependencies (`dependsOn`).
-3. **`workday-agent`**: Synchronizes Human Capital data, translating organizational skill profiles and roles into standard ontological structures.
+3. **`workday-agent`** *(planned — not yet implemented as a peripheral package)*: Synchronizes Human Capital data, translating organizational skill profiles and roles into standard ontological structures.
 
 ## Core `agent-utilities` Ingestion API
 
 All peripheral agents transmit data into the core via the `IntelligenceGraphEngine.ingest_external_batch()` API.
 
 ```python
-kg = RegistryGraphEngine()
+kg = IntelligenceGraphEngine()
 kg.ingest_external_batch(domain="servicenow", entities=batch_of_nodes)
 ```
 

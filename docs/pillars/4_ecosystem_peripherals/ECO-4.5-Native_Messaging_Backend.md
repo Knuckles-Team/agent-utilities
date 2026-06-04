@@ -20,7 +20,7 @@ The architecture follows three proven patterns already in agent-utilities:
 
 1. **`TraceBackend` ABC** (`harness/trace_backend.py`) — abstract methods define
    the contract, concrete methods provide defaults, factory auto-detects backends
-2. **`PluginRegistry`** (`graph/plugin_registry.py`) — dynamic discovery via
+2. **`PluginRegistry`** (`core/registry/plugin_adapter.py`) — dynamic discovery via
    `importlib.metadata.entry_points` for zero-config backend registration
 3. **`store_memory()`/`recall_memory()`** (`knowledge_graph/core/engine_memory.py`)
    — inbound messages auto-ingest into the KG as tiered episodic memory nodes

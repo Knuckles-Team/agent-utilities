@@ -2,6 +2,15 @@
 
 This document details the robust locking and process lifecycle architecture implemented to resolve persistent C++ segmentation faults and database connection/lock failures during bulk ingestion of open-source repositories into the `agent-utilities` Knowledge Graph.
 
+> **Scope note**: The locking/lifecycle hardening below is specific to the
+> **LadybugDB** backend, which is now an **opt-in contrib** driver
+> (`backends/contrib/ladybug_backend.py`, selected via `GRAPH_BACKEND=ladybug`).
+> The default working store is the Rust-native EpistemicGraph
+> (`GRAPH_BACKEND=memory`/`file`) and the production durable tier is
+> PostgreSQL + pgGraph — neither of which uses the SQLite file-lock mechanics
+> described here. This document therefore applies only when LadybugDB is
+> explicitly enabled.
+
 ---
 
 ## 1. POSIX Advisory Locking & Watcher Synchronization
@@ -14,7 +23,7 @@ Unlinking the file allows a second process to create a new inode with the exact 
 ### Robust POSIX Advisory Locking (After)
 To prevent this concurrency hazard, the lock file is **never unlinked** from disk once created. Mutual exclusion is managed naturally via the filesystem inode's file-lock metadata.
 
-The background synchronization watcher (`watcher.py`) no longer checks for file existence using `os.path.exists(lock_path)`. Instead, it attempts a **non-blocking lock acquisition** (`timeout=0`). If the lock is held by active ingestion, it gracefully skips the iteration; if acquired, it releases it immediately and runs the scan safely.
+The background synchronization watcher (`agent_utilities/sdd/watcher.py`) no longer checks for file existence using `os.path.exists(lock_path)`. Instead, it attempts a **non-blocking lock acquisition** (`timeout=0`). If the lock is held by active ingestion, it gracefully skips the iteration; if acquired, it releases it immediately and runs the scan safely.
 
 ### Process Synchronization Flow
 ```mermaid

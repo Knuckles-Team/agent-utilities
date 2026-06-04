@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""CONCEPT:OS-5.6 — Homeostatic Recovery Daemon.
+"""CONCEPT:OS-5.5 — Homeostatic Recovery Daemon.
 
 Monitors running processes, detects hung or crashed agent instances,
 and triggers automatic restore operations using context paging and checkpoints.

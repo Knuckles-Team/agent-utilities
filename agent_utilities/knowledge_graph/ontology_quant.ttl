@@ -173,7 +173,7 @@ Tracks task_id, pass/fail, root_cause, and component attribution.""" ;
 
 :ExternalGraphReference a owl:Class ;
     rdfs:label "External Graph Reference" ;
-    rdfs:comment "A reference to an external Knowledge Graph (e.g., LeanIX)." ;
+    rdfs:comment "A reference to an external Knowledge Graph (e.g., EAR)." ;
     rdfs:subClassOf bfo:0000031 .
 
 :FactorModel a owl:Class ;

@@ -70,7 +70,7 @@ routing with configurable industry-standard defaults.
 
 ### CONCEPT:AHE-3.1: Evaluation & Monitoring
 
-**Module**: `agent_utilities/observability/evaluation.py`
+**Module**: `agent_utilities/harness/continuous_evaluation_engine.py`
 
 Multi-dimensional evaluation with LLM-as-Judge rubrics, trend monitoring,
 and quality alerting. Backward-compatible with existing verifier gate

@@ -15,7 +15,7 @@ The value is not in individual storage — it's in the **OWL reasoner inferring 
 | Module | File | Domain | Workflows Served |
 |---|---|---|---|
 | Core | `ontology.ttl` | Agents, events, concepts | All |
-| Enterprise | `ontology_enterprise.ttl` | ArchiMate, ADR, governance | ServiceNow, LeanIX |
+| Enterprise | `ontology_enterprise.ttl` | ArchiMate, ADR, governance | ServiceNow, EAR |
 | Infrastructure | `ontology_infrastructure.ttl` | Containers, DNS, hardware | Portainer, AdGuard, Uptime Kuma |
 | Quant | `ontology_quant.ttl` | Finance, code, processes | Trading, workspace validation |
 | SDD | `ontology_sdd.ttl` | Spec-driven development | GitHub Issues, evolution |
@@ -55,7 +55,7 @@ graph LR
         Incident["Incident<br/>(ServiceNow)"]
         Change["ChangeRequest"]
         TRM["TRM Compliance"]
-        FactSheet["LeanIX FactSheet"]
+        FactSheet["EAR FactSheet"]
     end
 
     subgraph Productivity["📋 Productivity"]
@@ -231,4 +231,4 @@ These are relationships between workflows that seem completely unrelated but cre
 
 ## OWL Bridge Type Coverage
 
-The `owlready2_backend.py` `_NODE_TYPE_TO_OWL_CLASS` mapping now covers **127+ node types** and **93+ edge types** across all 15 ontology modules, enabling automatic LPG → OWL promotion for every workflow output — including the ecosystem bootstrap deployment lifecycle.
+The `owlready2_backend.py` `_NODE_TYPE_TO_OWL_CLASS` mapping now covers **110+ node types** and **90+ edge types** (`_EDGE_TYPE_TO_OWL_PROP`) across the ontology modules, enabling automatic LPG → OWL promotion for every workflow output — including the ecosystem bootstrap deployment lifecycle.

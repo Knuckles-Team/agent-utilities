@@ -18,17 +18,17 @@ graph TD
     External -- Legacy Protocol /ag-ui --> Backend
 
     subgraph AgentUtilities [agent-utilities]
-        Backend --> UnifiedExec["Unified Execution Layer<br/>(graph/unified.py)"]
+        Backend --> UnifiedExec["Unified Execution Layer<br/>(graph/protocol_agnostic_execution.py)"]
         UnifiedExec --> Graph[Pydantic Graph Agent]
         Graph --> KG[ORCH-1.0: Intelligence Graph Engine]
 
         subgraph MemoryArchitecture [Autonomous Memory Architecture]
             KG --> MAGMA[ORCH-1.0: MAGMA: Orthogonal Views]
             KG --> Lightning[AHE-3.3: Autonomous Self-Improvement]
-            KG --> UnifiedDB[(Unified Graph DB: Ladybug/Neo4j)]
+            KG --> UnifiedDB[(GraphBackend: epistemic-graph L1 + pggraph durable)]
 
             MAGMA --> Semantic[KG-2.3: Semantic View]
-            MAGMA --> Temporal[KG-2.12: Temporal View]
+            MAGMA --> Temporal[KG-2.6: Temporal View]
             MAGMA --> Causal[KG-2.5: Causal View]
             MAGMA --> Entity[KG-2.0: Entity View]
 
@@ -53,17 +53,17 @@ graph TD
         ACP_Adapter --> UnifiedExec
         SSE_Adapter --> UnifiedExec
 
-        subgraph UnifiedDiscovery ["Unified Discovery Layer (config_helpers.py)"]
+        subgraph UnifiedDiscovery ["Unified Discovery Layer (core/config.py)"]
             DAL["ORCH-1.2: get_discovery_registry()"]
             KG_Registry["<b>Knowledge Graph</b><br/><i>(Unified Specialist Registry)</i>"]
             KG_Registry --> DAL
-            DAL --> DSRoster["ECO-4.10: MCPAgentRegistryModel"]
+            DAL --> DSRoster["ECO-4.6: MCPAgentRegistryModel"]
         end
 
         DSRoster --> Graph
         Graph --> Specialists["ORCH-1.2: Specialist Superstates"]
         Specialists --> MCP["ECO-4.0: MCP Servers"]
-        Specialists --> Skills["ECO-4.10: Universal Skills, Skill Graphs"]
+        Specialists --> Skills["ECO-4.6: Universal Skills, Skill Graphs"]
 
         subgraph ElicitationFlow [Human-in-the-Loop Flow]
             MCP -- 1. Tool needs approval --> TG[OS-5.2: tool_guard: requires_approval]
@@ -90,7 +90,7 @@ The framework provides three canonical protocol adapters:
 2. **A2A (Agent-to-Agent)**: Peer-to-peer agent communication and coordination
 3. **AG-UI**: Legacy streaming interface for backward compatibility with native Pydantic AI clients
 
-All protocol adapters are centralized in `agent_utilities/`:
+All protocol adapters are centralized in `agent_utilities/protocols/`:
 - `acp_adapter.py`: ACP envelope formatting, session management, per-session `agent_factory`
 - `a2a.py`: A2A peer discovery, JSON-RPC client, registry management
 - `agui_emitter.py`: AG-UI wire format translator for direct graph execution events
@@ -341,16 +341,16 @@ With the recent modularization, `agent-utilities` has been restructured to clean
 | `core/` | Foundational primitives, exceptions, and decorators. | `workspace.py`, `exceptions.py`, `decorators.py` |
 | `agent/` | Bootstrapping and configuring agent ecosystems from `workspace.yml` and CLI. | `factory.py`, `registry_builder.py` |
 | `protocols/` | Interface adapters connecting outer HTTP/RPC boundaries to inner graphs. | `acp_adapter.py`, `a2a.py`, `agui_emitter.py` |
-| `graph/` | The core Pydantic-Graph routing and orchestration machinery. | `runner.py`, `unified.py`, `steps.py`, `executor.py` |
-| `mcp/` | Specific wrappers for `fastmcp` to normalize tool discovery and error handling. | `utilities.py`, `agent_manager.py` |
-| `security/` | Centralized identity verification, JWT validation, and API authentication. | `auth.py`, `cors.py` |
+| `graph/` | The core Pydantic-Graph routing and orchestration machinery. | `protocol_agnostic_execution.py`, `steps.py`, `executor.py`, `routing/`, `planning/` |
+| `mcp/` | Specific wrappers for `fastmcp` to normalize tool discovery and error handling. | `server_factory.py`, `context_helpers.py`, `agent_manager.py` |
+| `security/` | Centralized identity verification, JWT validation, and API authentication. | `auth.py`, `browser_auth.py` |
 | `prompts/` | Version-controlled JSON schema blueprints that replace unstructured text prompts. | `*.json` |
-| `knowledge_graph/`| The unified semantic and structural memory backbone linking NetworkX and Cypher. | `engine.py`, `maintainer.py`, `hybrid_retriever.py` |
-| `harness/` | Agentic Harness Engineering (AHE) tools for execution observability and prompt evaluation. | `verifier.py`, `trace_distiller.py`, `evolve_agent.py` |
+| `knowledge_graph/`| The unified semantic and structural memory backbone over the layered `GraphBackend` interface. | `facade.py`, `core/engine.py`, `core/maintainer.py`, `retrieval/hybrid_retriever.py` |
+| `harness/` | Agentic Harness Engineering (AHE) tools for execution observability and prompt evaluation. | `verifier.py`, `trace_backend.py`, `evolve_agent.py` |
 | `rlm/` | Recursive Language Model handlers for autonomous sub-shells and self-prompting loops. | `repl.py` |
 | `sdd/` | Spec-Driven Development pipelines decomposing `.specify` files into actionable graphs. | `orchestrator.py` |
 | `server/` | FastAPI applications hosting all HTTP, ACP, and SSE routes. | `app.py`, `routers/` |
-| `gateway/` | Homepage-style service dashboard data layer (CONCEPT:GW-1.0). 50 widget types, aggregator, REST+WS API. Synthesized from former `service-dashboard-core`. | `models.py`, `registry.py`, `config.py`, `aggregator.py`, `api.py`, `ws.py`, `widgets/` |
+| `gateway/` | Homepage-style service dashboard data layer (CONCEPT:OS-5.9). 50 widget types, aggregator, REST+WS API. Synthesized from former `service-dashboard-core`. | `models.py`, `registry.py`, `config.py`, `aggregator.py`, `api.py`, `ws.py`, `widgets/` |
 
 ## Hierarchical State Machine (HSM) Architecture
 
@@ -439,21 +439,21 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 | `/mcp/config` | GET | Interoperability | Return the current MCP server configuration |
 | `/mcp/tools` | GET | Interoperability | List all tools from connected MCP servers |
 | `/mcp/reload` | POST | Interoperability | Hot-reload MCP servers and rebuild graph |
-| `/api/dashboard/layout` | GET/PUT | Dashboard (GW-1.0) | Get or save dashboard service layout |
-| `/api/dashboard/data` | GET | Dashboard (GW-1.0) | Fetch all widget data from 50 services |
-| `/api/dashboard/data/{id}` | GET | Dashboard (GW-1.0) | Fetch single service widget data |
-| `/api/dashboard/full` | GET | Dashboard (GW-1.0) | Layout + data in single request (initial load) |
-| `/api/dashboard/widgets` | GET | Dashboard (GW-1.0) | List available widget types |
-| `/api/dashboard/health` | GET | Dashboard (GW-1.0) | Health check across all services |
-| `/api/dashboard/discover` | GET | Dashboard (GW-1.0) | Auto-discover services from mcp_config |
-| `/ws/dashboard` | WS | Dashboard (GW-1.0) | Real-time streaming updates |
+| `/api/dashboard/layout` | GET/PUT | Dashboard (OS-5.9) | Get or save dashboard service layout |
+| `/api/dashboard/data` | GET | Dashboard (OS-5.9) | Fetch all widget data from 50 services |
+| `/api/dashboard/data/{id}` | GET | Dashboard (OS-5.9) | Fetch single service widget data |
+| `/api/dashboard/full` | GET | Dashboard (OS-5.9) | Layout + data in single request (initial load) |
+| `/api/dashboard/widgets` | GET | Dashboard (OS-5.9) | List available widget types |
+| `/api/dashboard/health` | GET | Dashboard (OS-5.9) | Health check across all services |
+| `/api/dashboard/discover` | GET | Dashboard (OS-5.9) | Auto-discover services from mcp_config |
+| `/ws/dashboard` | WS | Dashboard (OS-5.9) | Real-time streaming updates |
 
 ## The Complete Execution Journey
 
 ### Phase 1: Ingress & Protocol Handling
 1. **Entry**: A user query (text + optional images) arrives via any supported protocol: AG-UI (`/ag-ui`), ACP (`/acp`), SSE (`/stream`), or REST (`/api/chat`).
 2. **Direct Dispatch Check**: If a `graph_bundle` is present and `GRAPH_DIRECT_EXECUTION=true`, AG-UI routes directly to `execute_graph_iter()` — bypassing the outer LLM agent.
-3. **Unified Execution**: All protocols funnel through the same graph engine via `graph/unified.py`. The `execute_graph_iter()` entry point uses `graph.iter()` for step-by-step control.
+3. **Unified Execution**: All protocols funnel through the same graph engine via `graph/protocol_agnostic_execution.py`. The `execute_graph_iter()` entry point uses `graph.iter()` for step-by-step control.
 4. **State Initialization**: A fresh `GraphState` is initialized with the synthesized `query_parts`.
 
 ### Phase 2: Safety & Policy Enforcement

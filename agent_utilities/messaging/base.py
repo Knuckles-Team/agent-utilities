@@ -237,7 +237,9 @@ class MessagingBackend(ABC):
         Raises:
             NotImplementedError: If the platform doesn't support reactions.
         """
-        raise NotImplementedError(f"{self.id} backend does not support reactions.")
+        raise NotImplementedError(  # ABSTRACT-OK: optional backend capability
+            f"{self.id} backend does not support reactions."
+        )
 
     async def send_typing(self, channel_id: str) -> None:
         """Send a typing indicator to a channel.
@@ -299,7 +301,7 @@ class MessagingBackend(ABC):
         Raises:
             NotImplementedError: If the platform doesn't support threads.
         """
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: optional backend capability
             f"{self.id} backend does not support thread creation."
         )
 
@@ -325,7 +327,7 @@ class MessagingBackend(ABC):
         """
         if self.id == "__never__":
             yield None  # type: ignore[misc]
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: optional backend capability
             f"{self.id} backend does not support inbound listening. "
             "Override listen() to enable bidirectional messaging."
         )

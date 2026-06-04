@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """CONCEPT:ORCH-1.2"""
 
-"""Coverage push for agent_utilities.graph.config_helpers.
+"""Coverage push for agent_utilities.core.config.
 
 Targets the pure-function helpers and mocked-engine paths.
 """
@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_utilities.graph import config_helpers as ch
+from agent_utilities.core import config as ch
 
 
 @pytest.fixture(autouse=True)

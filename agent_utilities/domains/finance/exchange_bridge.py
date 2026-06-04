@@ -5,6 +5,7 @@ Inspired by freqtrade's exchange layer. Supports equities (Alpaca) and crypto (B
 """
 
 import logging
+from abc import abstractmethod
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -24,9 +25,11 @@ class ExchangeBackend:
     """Base protocol for exchange implementations."""
 
     @property
+    @abstractmethod
     def name(self) -> str:
-        raise NotImplementedError
+        raise NotImplementedError  # ABSTRACT-OK
 
+    @abstractmethod
     def submit_order(
         self,
         symbol: str,
@@ -35,7 +38,7 @@ class ExchangeBackend:
         order_type: str = "market",
         limit_price: float | None = None,
     ) -> ExecutionResult:
-        raise NotImplementedError
+        raise NotImplementedError  # ABSTRACT-OK
 
 
 class PaperTradingExchange(ExchangeBackend):

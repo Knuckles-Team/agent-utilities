@@ -3,6 +3,7 @@ import json
 import pytest
 import asyncio
 from unittest.mock import MagicMock
+from typing import Any
 from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
 from agent_utilities.security.zero_day_immunity import ZeroDayImmunity
 from agent_utilities.knowledge_graph.core.ontological_team_sharing import OntologicalTeamExporter
@@ -12,12 +13,18 @@ from agent_utilities.messaging.models import MessagingConfig
 from agent_utilities.domains.finance.exchange_bridge import BinanceExchange, ExchangeBridge
 
 class DummyEngine(QueryMixin):
-    def _serialize_node(self, *args, **kwargs): pass
-    def _upsert_node(self, *args, **kwargs): pass
-    def _get_set_clause(self, *args, **kwargs): pass
-    def _get_allowed_columns(self, *args, **kwargs): pass
-    def link_nodes(self, *args, **kwargs): pass
-    def add_node(self, *args, **kwargs): pass
+    def _serialize_node(self, *args, **kwargs): return None
+    def _upsert_node(self, *args, **kwargs): return None
+    def _get_set_clause(self, *args, **kwargs): return None
+    def _get_allowed_columns(self, *args, **kwargs): return None
+    def link_nodes(self, *args, **kwargs): return None
+    def add_node(self, *args, **kwargs): return None
+
+    def __init__(self):
+        self.backend: Any = None
+        self.graph: Any = None
+        self.hybrid_retriever: Any = None
+        self.inference_engine: Any = None
 
 # 1. Test MAGMA Place View
 def test_magma_place_view():
@@ -26,12 +33,12 @@ def test_magma_place_view():
     backend.execute.return_value = [
         {"e": {"id": "entity_1", "type": "Entity"}, "p": {"id": "place_1", "type": "Place"}}
     ]
-    
+
     query_engine = DummyEngine()
     query_engine.backend = backend
 
 
-    
+
     # Test retrieve_place_view with place_ids
     res = query_engine.retrieve_place_view(query="test", place_ids=["place_1"])
     assert len(res) == 1
@@ -64,15 +71,15 @@ def test_magma_place_view():
 def test_zero_day_immunity():
     analogy = MagicMock()
     analogy.find_isomorphism.return_value = False
-    
+
     zdi = ZeroDayImmunity(analogy_engine=analogy, enabled=True)
-    
+
     # Test scan on natural language prompt
     prompt = "This is a standard query without code."
     payload = {"param1": "val1"}
     result = zdi.scan_request(prompt, payload)
     assert result is True
-    
+
     # Test manual parse subgraph extraction
     sub = zdi._parse_to_subgraph(prompt, payload)
     assert "payload:param1" in sub["nodes"]
@@ -134,19 +141,19 @@ async def test_otel_trace_ingestion(tmp_path):
         "usageDetails": {"input": 40, "output": 20},
         "score": 0.88
     }
-    
+
     export_dir = str(tmp_path)
     file_path = os.path.join(export_dir, "round_test_trace.json")
     with open(file_path, "w") as f:
         json.dump(trace_data, f)
-        
+
     backend = OTelTraceBackend(export_dir=export_dir)
-    
+
     # Test get_traces
     traces = await backend.get_traces("round_test")
     assert len(traces) == 1
     assert traces[0]["id"] == "trace_123"
-    
+
     # Test get_trace_summary
     summary = await backend.get_trace_summary("trace_123")
     assert summary["id"] == "trace_123"
@@ -156,7 +163,7 @@ async def test_otel_trace_ingestion(tmp_path):
     assert summary["input_tokens"] == 40
     assert summary["output_tokens"] == 20
     assert summary["score"] == 0.88
-    
+
     # Test get_trace_scores
     scores = await backend.get_trace_scores(["trace_123"])
     assert scores["trace_123"] == 0.88
@@ -167,7 +174,7 @@ async def test_otel_trace_ingestion(tmp_path):
 async def test_imessage_inbound_polling():
     config = MagicMock()
     backend = IMessageBackend(config=config)
-    
+
     # Since we are on Linux/non-Darwin runtime, it should gracefully fall back to idle loop.
     # We can use asyncio.wait_for to ensure it doesn't block forever and behaves safely.
     gen = backend.listen()
@@ -186,17 +193,17 @@ async def test_imessage_inbound_polling():
 # 6. Test Binance Exchange Execution Mock
 def test_binance_exchange_mock():
     exchange = BinanceExchange()
-    
+
     # Submit a market buy order
     res = exchange.submit_order(symbol="BTC/USDT", side="buy", qty=0.5, order_type="market")
-    
+
     assert "binance-mock" in res.order_id
     assert res.status == "filled"
     assert res.filled_qty == 0.5
     assert res.average_price > 0.0
     assert res.fees > 0.0
     assert res.exchange == "binance"
-    
+
     # Route via ExchangeBridge in paper mode
     bridge = ExchangeBridge(paper_mode=False)
     res2 = bridge.execute(symbol="BTC/USDT", side="sell", qty=0.2)
