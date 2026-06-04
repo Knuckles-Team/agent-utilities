@@ -40,9 +40,12 @@ jobs:
       - name: Install gate dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[all] || pip install numpy pyyaml pydantic pydantic-settings pytest
-        # The gates need numpy (retrieval), pyyaml (concepts) and the
-        # agent_utilities package itself (retrieval + prod-profile import it).
+          # Install the package core + gate deps. Avoid .[all]: it pulls
+          # universal-skills (a circular agent-utilities[agent] -> universal-skills
+          # dependency) which may not be on PyPI yet and is unnecessary here. The
+          # gates only need the package itself + numpy/pyyaml/pytest.
+          pip install -e .
+          pip install numpy pyyaml pytest
 
       # ---- BLOCKING gates (pass today; a regression reds the build) ----------
 
