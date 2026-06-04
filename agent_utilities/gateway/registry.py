@@ -1,6 +1,6 @@
 """Widget Registry — auto-discovers and manages service widgets.
 
-CONCEPT:GW-1.0 — Gateway Service Dashboard
+CONCEPT:OS-5.9 — Gateway Service Dashboard
 
 Mirrors Homepage's ``widgets.js`` / ``components.js`` registry pattern
 but uses Python's import mechanism for discovery. Now lives inside

@@ -34,7 +34,7 @@ Advanced quantitative logic for automated trading systems, now offloaded to the 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/domains/finance/signal_fusion.py``, ``agent_utilities/domains/finance/portfolio_optimizer.py``, ``agent_utilities/domains/finance/microstructure.py``, ``agent_utilities/domains/finance/cross_market_arb.py``
 - **Pillar**: KG
-- **Architecture Note**: The Python layer acts as a lightweight orchestrator and thin proxy. All heavy numerical lifting (MVO, Risk Parity, Black-Litterman, HMM regime detection) is delegated to the `epistemic-graph-server` via Unix Domain Socket (UDS) RPC. Python dependencies like `numpy` and `scipy` have been strictly purged from the `agent-utilities` ecosystem to maintain a minimal surface area.
+- **Architecture Note**: The Python layer acts as a lightweight orchestrator and thin proxy. Heavy numerical lifting (MVO, Risk Parity, Black-Litterman, HMM regime detection) can be delegated to the `epistemic-graph-server` via Unix Domain Socket (UDS) RPC when the native engine is available; the Python finance domain modules (`agent_utilities/domains/finance/`) still use `numpy`/`scipy` directly for local computation and as a fallback.
 
 # Risk Scoring Ontology (CONCEPT:KG-2.6)
 
@@ -50,10 +50,10 @@ Domain-agnostic risk assessment with `RiskAssessmentNode`, `RiskFactorNode`, `Ri
 # [Vectorized Context-Window Filtering](pillars/2_epistemic_knowledge_graph/KG-2.50-Vectorized_Context-Window_Filtering.md) (CONCEPT:KG-2.6)
 
 ## Overview
-Semantically prunes non-relevant subgraph context before swapping models on token overflow.
+Semantically prunes non-relevant subgraph context before swapping models on token overflow. Implemented as ``prune_context_by_semantic_distance()``.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/context_filter.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/memory/agent_context.py``
 - **Pillar**: KG
 
 ## Documentation Coverage

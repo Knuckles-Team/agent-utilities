@@ -1,6 +1,6 @@
 # CONCEPT:KG-2.2 - High-Performance Graph Compute Engine
-# CONCEPT:ORCH-1.29 - Compiled Orchestration Kernel
-# CONCEPT:KG-2.19 - Tokio Service Layer (Tokio-first)
+# CONCEPT:ORCH-1.11 - Compiled Orchestration Kernel
+# CONCEPT:KG-2.7 - Tokio Service Layer (Tokio-first)
 
 import json
 import logging
@@ -23,43 +23,79 @@ class GraphComputeEngine:
     def __init__(self, graph_name: str = "__bus__", **kwargs: Any) -> None:
         from epistemic_graph.client import SyncEpistemicGraphClient
 
+        from agent_utilities.core.config import AgentConfig
+
+        # Retained so downstream consumers (e.g. the delta-ingestion manifest)
+        # can key state by tenant graph. (CONCEPT:KG-2.8)
+        self.graph_name = graph_name
         self.graph: dict[str, Any] = {}
         self._client: SyncEpistemicGraphClient
-        self._mode: str = "embedded"
+        self._mode: str = "service"
+
+        config = AgentConfig()
+        endpoints = config.graph_service_endpoints
+        if not endpoints:
+            if config.graph_service_tcp_addr:
+                endpoints = [f"tcp://{config.graph_service_tcp_addr}"]
+            elif config.graph_service_socket:
+                endpoints = [f"unix://{config.graph_service_socket}"]
+            else:
+                endpoints = ["unix:///tmp/epistemic-graph.sock"]  # nosec B108
+
+        # Note: Since GraphComputeEngine is synchronous and often used as a long-lived wrapper,
+        # we still use the standard SyncEpistemicGraphClient but point it to the configured
+        # endpoint. For true async connection pooling, async callers should use ShardRouter directly.
+        endpoint = endpoints[0]
+        connect_kwargs = {
+            "auth_secret": config.graph_service_auth_secret,
+            "graph_name": graph_name,
+        }
+        if endpoint.startswith("tcp://"):
+            connect_kwargs["tcp_addr"] = endpoint[6:]
+        elif endpoint.startswith("unix://"):
+            connect_kwargs["socket_path"] = endpoint[7:]
+        else:
+            connect_kwargs["socket_path"] = endpoint
 
         try:
-            self._client = SyncEpistemicGraphClient.connect(graph_name=graph_name)
-        except Exception:
-            logger.info(
-                "epistemic-graph Tokio service not running. Attempting to auto-start daemon..."
-            )
-            import subprocess
-            import sys
-            import time
-            from pathlib import Path
+            self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
+        except Exception as initial_e:
+            if os.environ.get("EPISTEMIC_GRAPH_AUTOSTART") == "1":
+                logger.info(
+                    "epistemic-graph Tokio service not running. Attempting to auto-start daemon..."
+                )
+                import subprocess
+                import sys
+                import time
+                from pathlib import Path
 
-            try:
-                server_path = str(
-                    Path(sys.executable).parent / "epistemic-graph-server"
-                )
-                subprocess.Popen(
-                    [server_path],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                time.sleep(1.0)
-                self._client = SyncEpistemicGraphClient.connect(graph_name=graph_name)
-            except Exception as retry_e:
+                try:
+                    server_path = str(
+                        Path(sys.executable).parent / "epistemic-graph-server"
+                    )
+                    subprocess.Popen(
+                        [server_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                    time.sleep(1.0)
+                    self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
+                except Exception as retry_e:
+                    raise ConnectionError(
+                        f"Cannot connect to epistemic-graph Tokio service after auto-start: {retry_e}. "
+                        "Ensure the epistemic-graph-server daemon is running."
+                    ) from retry_e
+            else:
                 raise ConnectionError(
-                    f"Cannot connect to epistemic-graph Tokio service after auto-start: {retry_e}. "
-                    "Ensure the epistemic-graph-server daemon is running."
-                ) from retry_e
+                    f"Cannot connect to epistemic-graph Tokio service: {initial_e}. "
+                    "Ensure the epistemic-graph-server daemon is running, or set EPISTEMIC_GRAPH_AUTOSTART=1."
+                ) from initial_e
 
-        self._mode = "service"
         logger.info(
-            "Connected to epistemic-graph Tokio service (graph: %s).",
+            "Connected to epistemic-graph Tokio service (graph: %s, endpoint: %s).",
             graph_name,
+            endpoint,
         )
 
         try:
@@ -307,6 +343,14 @@ class GraphComputeEngine:
         """Parse repository AST natively using the Rust backend."""
         self._client.graph.parse_repository(root_path)
 
+    def parse_file(self, file_path: str, source: bytes) -> dict[str, Any]:
+        """Parse one source file's AST natively via the Rust engine.
+
+        Returns the ``ParseFile`` result (symbols + native test-quality metrics
+        for Python). The compute layer — not Python — does the AST work.
+        """
+        return self._client.graph.parse_file(file_path, source)
+
     def vf2_subgraph_match(self, pattern: "GraphComputeEngine") -> list[dict[str, str]]:
         """Find all subgraph isomorphism matches from pattern to target graph."""
         return self._client.graph.vf2_subgraph_match(pattern._client)
@@ -487,6 +531,29 @@ class GraphComputeEngine:
     def _get_all_nodes(self) -> list[str]:
         return [nid for nid, _ in self._client.nodes.list()]
 
+    def _get_all_nodes_with_properties(self) -> list[tuple[str, dict[str, Any]]]:
+        """Return every ``(node_id, properties)`` pair in a SINGLE round-trip.
+
+        ``nodes.list()`` already returns the full properties alongside each id, so
+        a full-graph scan must consume them here rather than issuing one
+        ``_get_node_properties`` round-trip per node (an N+1 that cost ~45s on a
+        40K-node graph and held the GIL, starving foreground ingestion).
+        (CONCEPT:KG-2.8 ingestion throughput)
+        """
+        out: list[tuple[str, dict[str, Any]]] = []
+        for nid, props in self._client.nodes.list():
+            if isinstance(props, dict):
+                out.append((nid, props))
+            elif isinstance(props, str):
+                try:
+                    parsed = json.loads(props)
+                    out.append((nid, parsed if isinstance(parsed, dict) else {}))
+                except Exception:
+                    out.append((nid, {}))
+            else:
+                out.append((nid, {}))
+        return out
+
     def _get_node_properties(self, node_id: str) -> dict[str, Any]:
         props = self._client.nodes.properties(node_id)
         if isinstance(props, dict):
@@ -560,14 +627,14 @@ class GraphComputeEngine:
     def strongly_connected_components(self) -> list[list[str]]:
         """Return strongly connected components via Tarjan's algorithm.
 
-        CONCEPT:KG-2.16 — Tarjan's SCC via Tokio service (GIL-free).
+        CONCEPT:KG-2.7 — Tarjan's SCC via Tokio service (GIL-free).
         """
         return self._client.graph.strongly_connected_components()
 
     def minimum_spanning_tree(self) -> list[tuple[str, str, float]]:
         """Return the minimum spanning tree as (source, target, weight) edges.
 
-        CONCEPT:KG-2.16 — Kruskal's MST via Tokio service (GIL-free).
+        CONCEPT:KG-2.7 — Kruskal's MST via Tokio service (GIL-free).
         """
         return self._client.graph.minimum_spanning_tree()
 

@@ -20,9 +20,6 @@ except ImportError:
 from .executor import _execute_specialized_step
 from .state import GraphDeps, GraphState
 
-# --- Merged from adaptive_agent_router.py ---
-
-#!/usr/bin/python
 """Learned Agent Routing Policy (CONCEPT:ORCH-1.2 Enhancement).
 
 Derived from: Uno-Orchestra — Parsimonious Agent Routing via Selective Delegation
@@ -744,9 +741,6 @@ class TopologicalRoutingPolicy(RoutingPolicy):
         return 0.0
 
 
-# --- Merged from adaptive_agent_router.py ---
-
-#!/usr/bin/python
 """Graph Specialist Steps — Data-Driven Factory.
 
 CONCEPT:ORCH-1.0 Dynamic agent spawning via a registry-driven factory.

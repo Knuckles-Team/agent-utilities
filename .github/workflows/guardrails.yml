@@ -1,0 +1,82 @@
+name: Guardrails
+
+# Plan 10: wire the guardrail gates into CI. Each gate defends a specific
+# failure vector and has a meta-test (tests/gates/) proving it trips on a broken
+# fixture. BLOCKING gates currently pass on main and red the build on regression.
+# ADVISORY gates (continue-on-error) defend a vector whose pre-existing debt has
+# not yet cleared; they warn but never red the build until that debt is paid.
+
+on:
+  pull_request:
+    paths:
+      - 'agent_utilities/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'docs/**'
+      - '.github/workflows/guardrails.yml'
+  push:
+    branches:
+      - 'main'
+
+jobs:
+  guardrails:
+    name: Guardrail gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install gate dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e agent-utilities[all] || pip install numpy pyyaml pydantic pydantic-settings pytest
+        # The gates need numpy (retrieval), pyyaml (concepts/parity) and the
+        # agent_utilities package itself (retrieval + prod-profile import it).
+
+      # ---- BLOCKING gates (pass today; a regression reds the build) ----------
+
+      - name: No-stub gate
+        run: python3 agent-utilities/scripts/check_no_stub.py
+
+      - name: Concept-freshness gate
+        working-directory: agent-utilities
+        run: python3 scripts/check_concepts.py
+
+      - name: No-PyO3 gate
+        run: bash epistemic-graph/scripts/check_no_pyo3.sh
+
+      - name: Parity gate
+        run: python3 scripts/check_parity.py
+
+      - name: Retrieval-quality gate
+        run: python3 agent-utilities/scripts/check_retrieval_quality.py
+
+      - name: Prod-profile guard
+        working-directory: agent-utilities
+        run: python3 -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"
+
+      - name: Gate meta-tests (prove every gate can fail)
+        working-directory: agent-utilities
+        run: python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""
+
+      # ---- ADVISORY gates (continue-on-error: warn, never red the build) -----
+
+      # BLOCKING: Plan-03 cleared all botched-merge dividers, so the anti-sprawl
+      # gate now runs blocking (versioned clones, conflict artifacts, oversized
+      # tracked binaries, merge dividers).
+      - name: Anti-sprawl gate
+        run: python3 agent-utilities/scripts/check_sprawl.py
+
+      # ADVISORY: the coupling gate enforces that geniusbot imports
+      # agent_utilities only via the allowlisted adapter seam. The decoupling
+      # work is being landed concurrently; the gate currently passes, but it is
+      # kept advisory so in-flight decoupling churn cannot red the build. Flip
+      # continue-on-error to false once the adapter seam has stabilized.
+      - name: Coupling gate (advisory)
+        continue-on-error: true
+        run: python3 agent-utilities/scripts/check_coupling.py

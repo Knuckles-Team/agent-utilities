@@ -1,0 +1,58 @@
+site_name: "agent-utilities"
+repo_name: "Knuckles-Team/agent-utilities"
+repo_url: "https://github.com/Knuckles-Team/agent-utilities"
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+plugins:
+  - search
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+nav:
+  - Home: index.md
+  - The Narrative Journey: journey.md
+  - Technical Documentation:
+      - Graph Orchestration Engine: pillars/1_graph_orchestration.md
+      - Epistemic Knowledge Graph: pillars/2_epistemic_knowledge_graph.md
+      - Agentic Harness Engineering: pillars/3_agentic_harness_engineering.md
+      - Ecosystem & Peripherals: pillars/4_ecosystem_peripherals.md
+      - Agent OS Infrastructure: pillars/5_agent_os_infrastructure.md
+      - GeniusBot Cockpit: pillars/6_geniusbot_cockpit.md
+  - Concept Registry:
+      - Canonical Concept Map: concept_map.md
+      - Concept Overview: overview.md

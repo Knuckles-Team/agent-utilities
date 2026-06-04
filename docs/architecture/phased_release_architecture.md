@@ -56,4 +56,4 @@ graph TD
 
 ## Release Timers
 
-During the `phased_push` workflow, each phase is pushed to the remote repository followed by a cooldown period (`wait_minutes: 12`). This delay allows packages to finish building, publishing, and being registered on PyPI before downstream phases begin processing.
+During the `phased_push` workflow, each phase is pushed to the remote repository followed by a configurable per-phase cooldown period (the `wait_minutes` key on each phase in the push config; e.g. `wait_minutes: 12`). This delay allows packages to finish building, publishing, and being registered on PyPI before downstream phases begin processing. When a phase pushes 0 commits, the wait is skipped automatically.

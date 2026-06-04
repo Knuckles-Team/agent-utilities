@@ -1,6 +1,6 @@
-"""Dynamic Agent Relationship Graph (KG-2.11).
+"""Dynamic Agent Relationship Graph (KG-2.7).
 
-CONCEPT: KG-2.11 Dynamic Agent Relationship Graph (AR-Graph)
+CONCEPT: KG-2.7 Dynamic Agent Relationship Graph (AR-Graph)
 
 Tracks AgentNode and InteractionEdge topologies, storing them directly into
 LadybugDB to monitor inter-agent influence in trading debates.

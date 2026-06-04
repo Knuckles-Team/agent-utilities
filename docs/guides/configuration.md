@@ -12,8 +12,8 @@ Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated
 ### Graph Database
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `ladybug` | Backend to use (`ladybug`, `falkordb`, `neo4j`, `postgresql`) |
-| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for LadybugDB (DuckDB) |
+| `GRAPH_BACKEND` | `memory` (prod uses `postgresql`) | Backend to use. Primary tiers: `memory`, `file`, `epistemic_graph`, `postgresql`. Contrib (opt-in, under `backends/contrib/`): `ladybug`, `falkordb`, `neo4j` |
+| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for the `file`/`ladybug` (DuckDB) backends |
 | `GRAPH_DB_HOST` | `localhost` | Host for Neo4j/FalkorDB |
 | `GRAPH_DB_PORT` | `7687` | Port for Neo4j/FalkorDB |
 | `GRAPH_DB_URI` | *None* | Direct connection URI (overrides Host/Port; e.g. for PostgreSQL bolt/URI) |
@@ -106,12 +106,12 @@ The preferred method for running `agent-utilities` servers is via the standardiz
 
 | Script | Command | Description |
 |---|---|---|
-| **KG Server** | `uv run agent-utilities-kg` | Launches the Knowledge Graph MCP server |
-| **Main Server** | `uv run agent-utilities-server` | Launches the unified protocol server (ACP/A2A/AG-UI) |
+| **KG Server** | `uv run graph-os` | Launches the Knowledge Graph (graph-os) MCP server |
+| **Main Server** | `python -m agent_utilities` | Launches the unified protocol server (ACP/A2A/AG-UI) |
 
 ## CLI Flags
 
-When running `agent-utilities` commands (or `python -m agent_utilities.server`), the following standard flags are available:
+When running `agent-utilities` commands (or `python -m agent_utilities`), the following standard flags are available:
 
 | Flag | Equivalent Env Var | Description |
 |---|---|---|

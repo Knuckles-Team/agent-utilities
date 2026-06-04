@@ -15,7 +15,7 @@ Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevan
 Bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment. Optional — gracefully returns empty when no KG is available.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/source_resolver.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/core/source_resolver.py``
 - **Pillar**: KG
 
 ## Documentation Coverage
@@ -34,7 +34,7 @@ Isolated research context with citation graph traversal (Semantic Scholar API), 
 # Research Orchestration Integration (CONCEPT:KG-2.6)
 
 ## Overview
-Connects ResearchSubagent (KG-2.33) to ResearchPipelineRunner (KG-2.11) and UnifiedRAGKGRetriever (KG-2.38) for automated daily research cycles. 7-phase pipeline: discovery → subagent session → citation traversal → pipeline ingestion → similarity linking → cluster refresh → KG persistence. MCP-compatible for `run_research_cycle` tool registration.
+Connects ResearchSubagent (KG-2.33) to ResearchPipelineRunner (KG-2.3) and UnifiedRAGKGRetriever (KG-2.38) for automated daily research cycles. 7-phase pipeline: discovery → subagent session → citation traversal → pipeline ingestion → similarity linking → cluster refresh → KG persistence. MCP-compatible for `run_research_cycle` tool registration.
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/knowledge_graph/orchestration/research_orchestrator.py``

@@ -10,7 +10,7 @@ Every MCP server in the ecosystem supports three authentication patterns:
 
 | Pattern | When to Use | Example Agents |
 |---------|-------------|----------------|
-| **Full Delegation** | Downstream API supports OIDC token exchange (RFC 8693) | GitLab, GitHub, ServiceNow, Atlassian*, LeanIX*, Ansible Tower* |
+| **Full Delegation** | Downstream API supports OIDC token exchange (RFC 8693) | GitLab, GitHub, ServiceNow, Atlassian*, EARs*, Ansible Tower* |
 | **Hybrid** | Agent has its own auth flow (e.g. MSAL) alongside OIDC | Microsoft Agent |
 | **Identity Passthrough** | Downstream API uses API keys only; SSO secures MCP layer | Langfuse |
 
@@ -68,7 +68,7 @@ graph TB
         GH["OS-5.1: github-agent/auth.py"]
         SN["OS-5.1: servicenow-api/auth.py"]
         AT["OS-5.1: atlassian-agent/auth.py"]
-        LX["KG-2.13: leanix-agent/auth.py"]
+        LX["KG-2.6: leanix-agent/auth.py"]
         AN["OS-5.1: ansible-tower-mcp/auth.py"]
     end
 
@@ -512,8 +512,8 @@ vault auth enable -path=oidc oidc
 vault write auth/oidc/config \
   oidc_discovery_url="https://your-idp.example.com" \
   oidc_client_id="vault-client-id" \
-  oidc_client_secret="vault-client-secret" \ # sanitizer:ignore
-  default_role="agent-reader"
+  default_role="agent-reader" \
+  oidc_client_secret="vault-client-secret" # sanitizer:ignore # sanitizer:ignore
 
 # 3. Create a role that maps OIDC claims to Vault policies
 vault write auth/oidc/role/agent-reader \

@@ -9,9 +9,9 @@ Modules:
     - ``bridge`` — Routing between internal and external ecosystem components
     - ``hook_installer`` — Cross-agent hook distribution
     - ``agents_md_reflector`` — Stop hook for AGENTS.md self-improvement (ECO-4.17)
-    - ``lint_enforcement_hook`` — Deterministic lint enforcement (ECO-4.18)
-    - ``plugin_bundle`` — Unified plugin bundle system (ECO-4.19)
-    - ``permission_policy`` — Permission deny/allow engine (ECO-4.20)
+    - ``lint_enforcement_hook`` — Deterministic lint enforcement (ECO-4.11)
+    - ``plugin_bundle`` — Unified plugin bundle system (ECO-4.12)
+    - ``permission_policy`` — Permission deny/allow engine (ECO-4.13)
     - ``config_staleness_auditor`` — Periodic config staleness audit (ECO-4.21)
     - ``governance_workflow`` — Unified governance pipeline (ECO-4.22)
     - ``agent_manager_dashboard`` — Governance dashboard CLI

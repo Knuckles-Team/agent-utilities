@@ -24,19 +24,19 @@ except ImportError:
     from pydantic_graph.beta import StepContext
 
 
+from agent_utilities.core.config import (
+    DEFAULT_GRAPH_TIMEOUT,
+    emit_graph_event,
+    get_discovery_registry,
+    load_node_agents_registry,
+    load_specialized_prompts,
+)
 from agent_utilities.tools.tool_filtering import filter_tools_by_tag
 
 from ..models import (
     ExecutionStep,
     MCPAgent,
     MCPServerHealth,
-)
-from .config_helpers import (
-    DEFAULT_GRAPH_TIMEOUT,
-    emit_graph_event,
-    get_discovery_registry,
-    load_node_agents_registry,
-    load_specialized_prompts,
 )
 from .hsm import check_specialist_preconditions, on_enter_specialist, on_exit_specialist
 from .protocol_agnostic_execution import execute_graph
@@ -358,9 +358,10 @@ async def _get_domain_tools(
         A tuple containing (list of developer tools, list of specialized skill toolsets).
 
     """
+    from agent_utilities.core.config import get_discovery_registry
+
     from ..tools.developer_tools import developer_tools
     from ..tools.sdd_tools import sdd_tools
-    from .config_helpers import get_discovery_registry
 
     tools: list[Any] = list(developer_tools) + list(sdd_tools)
     toolsets: list[Any] = []
@@ -1693,3 +1694,61 @@ async def _execute_domain_logic(
             else:
                 os.environ[env_var] = value
     return None
+
+
+# implements core.execution.ExecutionEngine
+class GraphExecutorEngine:
+    """Additive engine wrapper conforming to the unified ExecutionEngine contract.
+
+    Plan 03 Step 5 — ``graph.executor`` is historically a *module* of
+    step-execution functions rather than an engine object. This thin wrapper
+    binds a pydantic ``graph`` + ``config`` and exposes the shared
+    ``run(manifest) -> ExecutionResult`` contract by delegating to the
+    existing module entrypoint :func:`execute_graph`. It is **purely
+    additive**: no existing public function or class in this module is
+    renamed, removed, or behaviourally changed.
+    """
+
+    def __init__(self, graph: Any, config: dict[str, Any] | None = None):
+        self.graph = graph
+        self.config = config or {}
+
+    async def run(self, manifest: Any) -> Any:
+        """Unified ExecutionEngine contract entrypoint.
+
+        Normalises ``manifest`` to a query string and runs the graph via
+        :func:`execute_graph`, wrapping the result into a canonical
+        ``ExecutionResult``.
+        """
+        from agent_utilities.core.execution.models import ExecutionResult
+
+        if isinstance(manifest, str):
+            query = manifest
+            manifest_id = ""
+        else:
+            query = getattr(manifest, "query", "") or ""
+            manifest_id = getattr(manifest, "manifest_id", "") or ""
+
+        result = await execute_graph(self.graph, self.config, query)
+
+        synthesis_output = ""
+        success = True
+        if isinstance(result, dict):
+            synthesis_output = str(
+                result.get("output")
+                or result.get("response")
+                or result.get("result")
+                or ""
+            )
+            if "success" in result:
+                success = bool(result["success"])
+            elif "error" in result and result["error"]:
+                success = False
+        else:
+            synthesis_output = str(result)
+
+        return ExecutionResult(
+            manifest_id=manifest_id,
+            synthesis_output=synthesis_output,
+            success=success,
+        )

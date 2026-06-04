@@ -11,7 +11,7 @@ shared node types, and structural patterns in the Knowledge Graph.
 
 The engine leverages existing infrastructure:
 
-- **Analogy Engine** (KG-2.15): Finds structurally similar subgraphs
+- **Analogy Engine** (KG-2.7): Finds structurally similar subgraphs
   across different pillars.
 - **SKOS Taxonomy** (``broader``/``narrower``): Identifies cross-pillar
   concept hierarchies.
@@ -30,7 +30,7 @@ Architecture::
     └──────────┬───────────────────────────────┘
                │ uses
     ┌──────────▼───────────────────────────────┐
-    │ Analogy Engine (KG-2.15)                 │
+    │ Analogy Engine (KG-2.7)                 │
     │ SKOS Taxonomy Properties                 │
     │ OWL Transitive Closures                  │
     └──────────────────────────────────────────┘
@@ -44,8 +44,8 @@ Pillar Mapping
 - **OS-5.x**: Agent OS & Infrastructure
 
 See Also:
-    - :mod:`agent_utilities.knowledge_graph.analogy_engine` (KG-2.15)
-    - :mod:`agent_utilities.knowledge_graph.semantic_subsumption` (KG-2.16)
+    - :mod:`agent_utilities.knowledge_graph.analogy_engine` (KG-2.7)
+    - :mod:`agent_utilities.knowledge_graph.semantic_subsumption` (KG-2.7)
 """
 
 
@@ -178,17 +178,16 @@ class SynergyEngine:
         # Prompt Scanner bridges OS → KG (risk propagation)
         "OS-5.4": ["KG-2"],
         # Context Compaction bridges KG → OS (token management)
-        "KG-2.10": ["OS-5"],
+        # Research Pipeline bridges KG → ECO (ScholarX integration)
+        "KG-2.7": ["OS-5", "ECO-4"],
         # Ecosystem Topology bridges ECO → KG
         "ECO-4.7": ["KG-2"],
         # Confidence Router bridges ORCH → KG (SelfModel signals)
         "ORCH-1.2": ["KG-2"],
         # Swarm Presets bridge ORCH → ECO (multi-agent workflows)
         "ORCH-1.4": ["ECO-4"],
-        # Research Pipeline bridges KG → ECO (ScholarX integration)
-        "KG-2.11": ["ECO-4"],
         # Guardrail Engine bridges OS → AHE (policy enforcement feedback)
-        "OS-5.8": ["AHE-3"],
+        "OS-5.7": ["AHE-3"],
     }
 
     def __init__(
@@ -370,7 +369,7 @@ class SynergyEngine:
                 suggestions.append(
                     SynergyInsight(
                         source_concept=concept_id,
-                        target_concept="OS-5.9",
+                        target_concept="OS-5.8",
                         suggested_relationship="observed_by",
                         confidence=0.7,
                         rationale="OS infrastructure should emit telemetry events",

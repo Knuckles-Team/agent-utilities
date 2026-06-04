@@ -242,7 +242,7 @@ class MockEngine:
         return node.model_dump()
 
     def _upsert_node(self, label, node_id, data):
-        pass
+        self.last_upsert = (label, node_id, data)
 
 
 class TestPolicyIngestor:

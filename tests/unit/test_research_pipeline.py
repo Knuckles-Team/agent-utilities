@@ -24,7 +24,7 @@ from agent_utilities.automation.research_pipeline import (
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestPipelineConfig:
     """Test PipelineConfig defaults and validation."""
 
@@ -60,7 +60,7 @@ class TestPipelineConfig:
         assert cfg.lookback_hours == 48
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestRelevanceScoring:
     """Test paper relevance scoring."""
 
@@ -118,7 +118,7 @@ class TestRelevanceScoring:
         assert "communication" in RELEVANCE_TAXONOMY
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestPaperIngestion:
     """Test paper ingestion methods."""
 
@@ -169,7 +169,7 @@ class TestPaperIngestion:
         assert not self.runner._is_paper_known("2406.99999")
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestPipelineExecution:
     """Test full pipeline execution."""
 
@@ -246,7 +246,7 @@ class TestPipelineExecution:
         assert report.papers_already_known == 1
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestDigestGeneration:
     """Test digest markdown generation."""
 
@@ -293,7 +293,7 @@ class TestDigestGeneration:
         assert isinstance(report.records, list)
 
 
-@pytest.mark.concept("KG-2.11")
+@pytest.mark.concept("KG-2.7")
 class TestWatchlists:
     """Test KG watchlist loading."""
 

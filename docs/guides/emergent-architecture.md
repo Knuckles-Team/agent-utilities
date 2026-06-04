@@ -13,12 +13,12 @@ The Emergent Architecture builds on top of the existing infrastructure:
 - **14-Phase Unified Intelligence Graph** — knowledge pipeline (CONCEPT:ORCH-1.0)
 - **HSM Orchestration** — hierarchical state machine (graph/hsm.py)
 - **AHE (Agentic Harness Engineering)** — component evolution (CONCEPT:AHE-3.0)
-- **OWL Reasoning Sidecar** — deterministic inference (knowledge_graph/owl_bridge.py)
+- **OWL Reasoning Sidecar** — deterministic inference (knowledge_graph/core/owl_bridge.py)
 
 ```mermaid
 graph TD
     subgraph "Foundation (CONCEPT:KG-2.0)"
-        OGM["KG Object-Graph Mapper<br/>knowledge_graph/ogm.py"]
+        OGM["KG Object-Graph Mapper<br/>knowledge_graph/core/ogm.py"]
     end
 
     subgraph "Evolution (CONCEPT:ORCH-1.0)"
@@ -26,11 +26,11 @@ graph TD
     end
 
     subgraph "Metacognition (CONCEPT:KG-2.1)"
-        SM["Self-Model<br/>knowledge_graph/self_model.py"]
+        SM["Self-Model (MemoryRetriever)<br/>knowledge_graph/retrieval/memory_retriever.py"]
     end
 
     subgraph "Orchestration (CONCEPT:KG-2.0)"
-        SW["Swarm Orchestrator<br/>graph/swarm.py"]
+        SW["KG Team Composer<br/>graph/team_composer.py"]
     end
 
     subgraph "Quality (CONCEPT:ORCH-1.2)"
@@ -48,7 +48,7 @@ graph TD
 
 ## CONCEPT:KG-2.0 — KG Object-Graph Mapper (OGM)
 
-**Module:** `agent_utilities/knowledge_graph/ogm.py`
+**Module:** `agent_utilities/knowledge_graph/core/ogm.py`
 
 The OGM provides declarative, bidirectional mapping between Pydantic `RegistryNode` subclasses and Knowledge Graph nodes. It replaces manual `_upsert_node()` / `_serialize_node()` patterns throughout the engine.
 
@@ -63,7 +63,7 @@ The OGM provides declarative, bidirectional mapping between Pydantic `RegistryNo
 ### Usage
 
 ```python
-from agent_utilities.knowledge_graph.ogm import KGMapper
+from agent_utilities.knowledge_graph.core.ogm import KGMapper
 from agent_utilities.models.knowledge_graph import SelfModelNode
 
 mapper = KGMapper(engine)
@@ -84,53 +84,43 @@ mapper.watch("SelfModel", lambda event, node: print(f"{event}: {node.id}"))
 
 ---
 
-## CONCEPT:ORCH-1.0 — Swarm Orchestration
+## CONCEPT:ORCH-1.0 — Dynamic Team Composition
 
-**Modules:** `agent_utilities/graph/swarm.py`, `agent_utilities/graph/swarm_models.py`
+**Module:** `agent_utilities/graph/team_composer.py` (`KGTeamComposer`)
 
-Replaces static specialist dispatch with dynamic swarm formation. For each task:
+> **Note:** The earlier `SwarmOrchestrator` (`graph/swarm.py` / `graph/swarm_models.py`)
+> with its `decompose_and_spawn()` / `compute_affinity()` API and `SWARM_MODE` /
+> `SWARM_MAX_DEPTH` / `SWARM_MAX_AGENTS` env vars has been removed. Dynamic coalition
+> formation is now driven by `KGTeamComposer`, which delegates topology synthesis to
+> `AgentOrchestrationEngine.synthesize_team()`. The `SwarmCoalitionNode` model is
+> retained for KG persistence of coalition records.
 
-1. **Decompose**: LLM breaks task into a `TaskTree`
-2. **Score affinity**: Tri-signal scoring (semantic + structural + historical)
-3. **Spawn**: Create sub-agent graphs for each subtask cluster
-4. **Execute**: Fan-out parallel for independent, sequential for dependent
-5. **Recurse**: Nested sub-swarms up to `max_depth`
+Replaces static specialist dispatch with dynamic team formation. For each task,
+`compose_team()`:
 
-### Configuration
-
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `SWARM_MODE` | `false` | Enable swarm orchestration in dispatcher |
-| `SWARM_MAX_DEPTH` | `3` | Maximum recursion depth for sub-swarms |
-| `SWARM_MAX_AGENTS` | `10` | Maximum agents per swarm |
+1. **Reuse**: Try a proven `TeamConfigNode` template first (CONCEPT:AHE-3.3)
+2. **Synthesize**: If no proven team, dynamically build a specialist subgraph using KG primitives
+3. **Return**: A fully specified `TeamComposition`
 
 ### Models
 
-- **`TaskTree`**: Recursive subtask decomposition with dependency tracking
-- **`SwarmHierarchy`**: Coordinator/specialist/aggregator roles
-- **`SwarmResult`**: Execution result with parallelism metrics
+- **`TeamComposition`**: Resolved specialist coalition for a task
+- **`TeamConfigNode`**: Promoted, reusable proven-team template
 - **`SwarmCoalitionNode`**: KG-persisted coalition record
-
-### Affinity Scoring
-
-The `compute_affinity()` method uses three signals:
-
-1. **Semantic similarity**: Embedding cosine similarity between specialist description and subtask
-2. **Structural overlap**: Shared tool capabilities
-3. **Historical success**: Mean reward from past `OutcomeEvaluationNode` records
 
 ### Usage
 
 ```python
-from agent_utilities.graph.swarm import SwarmOrchestrator
+from agent_utilities.graph.team_composer import KGTeamComposer
 
-swarm = SwarmOrchestrator(engine, max_depth=3, max_agents=10)
-result = await swarm.decompose_and_spawn(
+composer = KGTeamComposer(engine)
+composition = composer.compose_team(
     "Analyze GitLab project and create Jira tickets for issues",
-    deps=graph_deps,
+    domain="general",
+    complexity=3,
 )
-print(f"Agents spawned: {result.agents_spawned}")
-print(f"Parallelism: {result.parallelism_achieved:.0%}")
+# After execution, promote a successful coalition for future reuse
+composer.promote_to_team_config(composition, success=True, quality_score=0.9)
 ```
 
 ---
@@ -198,7 +188,7 @@ pool.prune_losers(base_prompt.id, keep=3)
 
 ## CONCEPT:KG-2.1 — Persistent Self-Model
 
-**Module:** `agent_utilities/knowledge_graph/self_model.py`
+**Module:** `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`; the `SelfModel` name and the `knowledge_graph/self_model.py` import path are retained as back-compat aliases)
 
 A versioned metacognitive self-model that aggregates session outcomes into a persistent KG representation of the agent's capabilities, strengths, and known failure modes.
 
@@ -358,20 +348,20 @@ All modules have comprehensive test suites:
 
 ```bash
 # Individual modules
-python -m pytest tests/test_kg_ogm.py -v             # CONCEPT:KG-2.0
-python -m pytest tests/test_variant_pool.py -v        # CONCEPT:ORCH-1.0
-python -m pytest tests/test_self_model.py -v           # CONCEPT:KG-2.1
+python -m pytest tests/test_kg_ogm.py -v               # CONCEPT:KG-2.0
+python -m pytest tests/test_variant_pool.py -v         # CONCEPT:ORCH-1.0
+python -m pytest tests/test_memory_retriever.py -v     # CONCEPT:KG-2.1 (Self-Model)
 python -m pytest tests/test_workspace_attention.py -v  # CONCEPT:ORCH-1.2
 
 # First Principles Architecture tests
-python -m pytest tests/unit/graph/test_config_helpers.py -v          # CONCEPT:ORCH-1.2
-python -m pytest tests/unit/knowledge_graph/test_team_config.py -v   # CONCEPT:AHE-3.3
-python -m pytest tests/unit/knowledge_graph/test_capability_nodes.py -v # CONCEPT:ORCH-1.2
+python -m pytest tests/unit/core/test_config_helpers.py -v       # CONCEPT:ORCH-1.2
+python -m pytest tests/test_team_config.py -v                    # CONCEPT:AHE-3.3
+python -m pytest tests/unit/core/test_capabilities.py -v         # CONCEPT:ORCH-1.2
 
 # All emergent + first-principles tests
 python -m pytest tests/test_kg_ogm.py tests/test_variant_pool.py \
-    tests/test_self_model.py tests/test_workspace_attention.py \
-    tests/unit/graph/test_config_helpers.py \
-    tests/unit/knowledge_graph/test_team_config.py \
-    tests/unit/knowledge_graph/test_capability_nodes.py -v
+    tests/test_memory_retriever.py tests/test_workspace_attention.py \
+    tests/unit/core/test_config_helpers.py \
+    tests/test_team_config.py \
+    tests/unit/core/test_capabilities.py -v
 ```

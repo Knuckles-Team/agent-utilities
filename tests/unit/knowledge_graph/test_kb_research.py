@@ -77,15 +77,24 @@ async def test_pruning_with_permanent_flag():
 async def test_concept_merging():
     """Test merging of similar concepts based on embeddings."""
     mock_backend = MagicMock()
-    # Return empty list for the initial pending tasks check, then two similar concepts
-    mock_backend.execute.side_effect = [
-        [],  # For the initial pending tasks check in __init__
-        [
-            {"id": "c1", "name": "Global Warming", "embedding": [0.1, 0.2, 0.3]},
-            {"id": "c2", "name": "Climate Change", "embedding": [0.11, 0.21, 0.31]},
-        ],
-        None,  # For the delete query
-    ]
+
+    # Query-aware mock: the consolidated merge re-points typed edges, merges
+    # node properties, records provenance, then deletes — so a fixed-length
+    # side_effect list no longer suffices. Return data by query shape instead.
+    def _execute(query, params=None):
+        q = " ".join(query.split())
+        if "c.embedding IS NOT NULL" in q:
+            return [
+                {"id": "c1", "name": "Global Warming", "embedding": [0.1, 0.2, 0.3]},
+                {"id": "c2", "name": "Climate Change", "embedding": [0.11, 0.21, 0.31]},
+            ]
+        if "RETURN properties(old) AS old_props" in q:
+            return [{"old_props": {"id": "c2", "name": "Climate Change"},
+                     "new_props": {"id": "c1", "name": "Global Warming"}}]
+        # Edge-enumeration queries, provenance, delete, init checks -> no rows.
+        return []
+
+    mock_backend.execute.side_effect = _execute
 
     GraphComputeEngine(backend_type="rust")
     engine = IntelligenceGraphEngine(backend=mock_backend)

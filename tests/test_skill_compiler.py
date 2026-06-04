@@ -1,6 +1,6 @@
 """Tests for SkillCompiler & Distillation Hook.
 
-CONCEPT:ORCH-1.25 — Skill-to-Workflow Compilation
+CONCEPT:ORCH-1.8 — Skill-to-Workflow Compilation
 
 Tests cover:
 - SkillCompiler SKILL.md parsing

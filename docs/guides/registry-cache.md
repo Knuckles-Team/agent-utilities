@@ -23,41 +23,42 @@ This created two compounding problems:
 
 ```python
 class _RegistryCache:
-    """Session-scoped singleton holding the computed specialist registry."""
-    _instance: ClassVar[_RegistryCache | None] = None
-    _registry: MCPAgentRegistryModel | None
-    _specialist_cache: dict[str, list]  # query-keyed filtered specialists
-    _timestamp: float
+    """Session-scoped cache holding the computed specialist registry."""
+    _registry: MCPAgentRegistryModel | None = None
+    _prompts: dict[str, str] = {}
+    _tool_agent_map: dict[str, list[str]] = {}
 
     @classmethod
-    def get(cls) -> _RegistryCache:
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+    def get_registry(cls) -> MCPAgentRegistryModel:
+        if cls._registry is None:
+            cls._registry = _fetch_registry_from_kg()
+        return cls._registry
 
-    def invalidate(self) -> None:
-        self._registry = None
-        self._specialist_cache.clear()
-        self._timestamp = 0.0
+    @classmethod
+    def invalidate(cls) -> None:
+        cls._registry = None
+        cls._prompts.clear()
+        cls._tool_agent_map.clear()
 ```
+
+> The cache uses class-level state (no TTL); invalidation is purely
+> event-driven. It lives in `core/config.py`.
 
 ### Public API
 
 | Function | Signature | Purpose |
 |----------|-----------|---------|
 | `get_discovery_registry()` | `(engine?) → MCPAgentRegistryModel` | Returns the full cached registry; hydrates on first call |
-| `get_relevant_specialists()` | `(query, engine, top_k=7) → list[Specialist]` | Returns only the top-K specialists relevant to the query |
+| `get_relevant_specialists()` | `(query, engine, top_n=7) → list[MCPAgent]` | Returns only the top-N specialists relevant to the query |
 | `invalidate_registry_cache()` | `() → None` | Clears all cached data; next call re-hydrates from KG |
 
 ### Filtering Algorithm
 
-`get_relevant_specialists()` uses a lightweight scoring algorithm to select the most relevant specialists:
-
-1. **Keyword overlap**: Jaccard similarity between query tokens and specialist description tokens
-2. **Domain match**: Exact match on `routed_domain` if the router has already classified the query
-3. **Historical affinity**: Self-Model proficiency scores for the specialist's domain
-
-The top-K results (default 7) are cached per query hash for the duration of the session.
+`get_relevant_specialists()` runs the KG hybrid search (`engine.search_hybrid`)
+over the query, fetching `top_n × 3` candidates, and keeps the agents whose
+names (or `agent`/`prompt` node matches) appear in the results, capped at
+`top_n`. If the engine is unavailable or returns nothing, it falls back to the
+full registry list capped at `top_n` (default 7).
 
 ## Cache Invalidation Strategy
 
@@ -66,15 +67,15 @@ The cache uses an **event-driven invalidation** model — it is never TTL-based.
 ```mermaid
 graph TD
     subgraph Triggers ["Invalidation Event Sources"]
-        MCP["ECO-4.11: POST /mcp/reload\n(New tools discovered)"]
-        Pipeline["ECO-4.10: Pipeline Completion\n(Code graph changed)"]
+        MCP["ECO-4.6: POST /mcp/reload\n(New tools discovered)"]
+        Pipeline["ECO-4.6: Pipeline Completion\n(Code graph changed)"]
         SelfModel["AHE-3.3: SelfModel.update_after_session()\n(New proficiency data)"]
         TeamConfig["AHE-3.3: promote_coalition_to_template()\n(New team template)"]
     end
 
     subgraph Cache ["_RegistryCache"]
         Inv["AHE-3.1: invalidate_registry_cache()"]
-        Clear["ORCH-1.2: _registry = None\n_specialist_cache = {}"]
+        Clear["ORCH-1.2: _registry = None\n_prompts = {} / _tool_agent_map = {}"]
     end
 
     MCP --> Inv
@@ -114,17 +115,17 @@ The cache integrates at these specific locations in the codebase:
 
 | File | Function | Role |
 |------|----------|------|
-| `graph/config_helpers.py` | `get_discovery_registry()` | Cache hydration + retrieval |
-| `graph/config_helpers.py` | `get_relevant_specialists()` | Filtered subset retrieval |
-| `graph/config_helpers.py` | `invalidate_registry_cache()` | Event-driven invalidation |
-| `graph/routing.py` | `_build_specialist_prompt()` | Consumer: uses filtered specialists in LLM prompt |
+| `core/config.py` | `get_discovery_registry()` | Cache hydration + retrieval |
+| `core/config.py` | `get_relevant_specialists()` | Filtered subset retrieval |
+| `core/config.py` | `invalidate_registry_cache()` | Event-driven invalidation |
+| `graph/_router_impl.py` | router specialist injection | Consumer: uses filtered specialists in LLM prompt |
 | `mcp/agent_manager.py` | `sync_mcp_agents()` | Trigger: invalidates after MCP sync |
-| `knowledge_graph/pipeline/runner.py` | `run_pipeline()` | Trigger: invalidates after pipeline |
-| `knowledge_graph/self_model.py` | `update_after_session()` | Trigger: invalidates after self-model update |
-| `knowledge_graph/engine_registry.py` | `promote_coalition_to_template()` | Trigger: invalidates after TeamConfig promotion |
+| `knowledge_graph/pipeline/runner.py` | `PipelineRunner.run()` | Trigger: invalidates after pipeline |
+| `knowledge_graph/retrieval/memory_retriever.py` | `update_after_session()` | Trigger: invalidates after self-model update |
+| `core/registry/kg_adapter.py` | `promote_coalition_to_template()` | Trigger: invalidates after TeamConfig promotion |
 
 ## Related Documentation
 
-- [First Principles Architecture](../1_graph_orchestration/first-principles.md) — Complete CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0 overview
-- [Architecture](../1_graph_orchestration/architecture.md) — Full system architecture
-- [Emergent Architecture](../2_epistemic_knowledge_graph/emergent-architecture.md) — Self-Model and Workspace Attention
+- [First Principles Architecture](first-principles.md) — Complete CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0 overview
+- [Architecture](architecture.md) — Full system architecture
+- [Emergent Architecture](emergent-architecture.md) — Self-Model and Workspace Attention

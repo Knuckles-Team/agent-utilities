@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Company Brain Infrastructure (CONCEPT:KG-2.6).
+"""Company Intelligence Graph (CONCEPT:KG-2.7).
 
 Unified operational state layer that transforms the Knowledge Graph from a
 single-agent brain into a multi-writer, multi-reader, multi-tenant
@@ -566,17 +566,17 @@ class BaseStreamAdapter(ABC):
     @abstractmethod
     async def connect(self) -> None:
         """Establish connection to stream source."""
-        pass
+        return None
 
     @abstractmethod
     async def disconnect(self) -> None:
         """Close connection to stream source."""
-        pass
+        return None
 
     @abstractmethod
     async def consume_batch(self, batch_size: int) -> StreamBatch:
         """Poll and retrieve a batch of events from the stream."""
-        pass
+        raise NotImplementedError
 
 
 class KafkaStreamAdapter(BaseStreamAdapter):
@@ -1057,7 +1057,7 @@ class CompanyBrain:
         from agent_utilities.knowledge_graph.core.shacl_validator import SHACLValidator
 
         class DummyOWLBackend:
-            pass
+            pass_dummy = True
 
         owl_bridge = OWLBridge(
             graph=wrapper,

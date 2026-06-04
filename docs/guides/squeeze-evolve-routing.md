@@ -186,7 +186,7 @@ graph LR
     AU033["CONCEPT:OS-5.2<br/>Homeostatic Downgrade"] -->|budget tier| AU039
     AU030["CONCEPT:OS-5.2<br/>Cognitive Scheduler"] -->|hosts| CM["Convergence<br/>Monitor"]
     CM --> AU040
-    AU039 -->|adaptive model| REG[ECO-4.10: Model Registry]
+    AU039 -->|adaptive model| REG[ECO-4.6: Model Registry]
 
     style AU039 fill:#e6f2ff,stroke:#0066cc,stroke-width:2px
     style AU040 fill:#e6f2ff,stroke:#0066cc,stroke-width:2px

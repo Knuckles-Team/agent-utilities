@@ -3,6 +3,10 @@ from __future__ import annotations
 
 """CONCEPT:AHE-3.4 — Horizon-Aware Task Curriculum.
 
+Strangled by graph/planning/ (Plan 03 Step 4): re-exported via
+``agent_utilities.graph.planning.curriculum``. This module remains the live
+implementation.
+
 Implements progressive horizon scheduling derived from the "Long-Horizon
 Training" research (Kim et al., ICML 2026).  The core insight is that
 RL-trained LLM agents suffer training instability as horizon length

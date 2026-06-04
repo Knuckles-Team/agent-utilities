@@ -1,12 +1,12 @@
 # Capability-Based Architecture Guide
 
-> **CONCEPT:KG-2.7 — Capability Abstraction Layer**
+> **CONCEPT:KG-2.6 — Capability Abstraction Layer**
 
 ## Overview
 
 The Knowledge Graph uses a **Capability/Tool Separation** pattern to model
 infrastructure and enterprise services.  Instead of encoding specific platform
-names (e.g., "ServiceNow", "LeanIX", "WireGuard") into the ontology as
+names (e.g., "ServiceNow", "EAR", "WireGuard") into the ontology as
 first-class classes, we define **abstract capability classes** as ontological
 anchors and let concrete tools declare which capabilities they provide.
 
@@ -144,7 +144,7 @@ To add a new hydration source (e.g., a new monitoring tool):
 4. **No changes needed** in `hydrate_source()`, `hydrate_all()`, or the
    MCP server `graph_hydrate` tool — they resolve dynamically.
 
-## Universal Relationship Properties (CONCEPT:KG-2.8)
+## Universal Relationship Properties (CONCEPT:KG-2.6)
 
 Beyond capabilities, the core ontology provides **31 universal relationship
 properties** that apply across all domains.  These use BFO root classes as
@@ -259,19 +259,19 @@ SELECT ?fork WHERE { :OriginalRepo :hasDescendant ?fork . ?fork a :SoftwareProje
 
 | Old Class (Removed) | Replacement | Notes |
 |---------------------|-------------|-------|
-| `ARISProcess` | `ProcessModel` | Generic process model from any BPM tool |
-| `LeanIXFactSheet` | `EAFactSheet` | Generic fact sheet from any EA tool |
+| `ProcessModel` | `ProcessModel` | Generic process model from any BPM tool |
+| `EAFactSheet` | `EAFactSheet` | Generic fact sheet from any EA tool |
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `ontology.ttl` | Added 31 universal relationship properties (CONCEPT:KG-2.8), `owl:imports` for capability ontology |
+| `ontology.ttl` | Added 31 universal relationship properties (CONCEPT:KG-2.6), `owl:imports` for capability ontology |
 | `ontology_capability.ttl` | **[NEW]** Capability classes, VPN taxonomy, domain/standard classes |
 | `ontology_enterprise.ttl` | Replaced `ARISProcess` → `ProcessModel`, `LeanIXFactSheet` → `EAFactSheet` |
 | `ontology_infrastructure.ttl` | Generalized vendor-specific comments |
 | `ontology_company_infra.ttl` | Generalized `dnsRewrite` comment |
 | `hydration.py` | Added `CAPABILITY_REGISTRY`, refactored `hydrate_source()` |
 | `engine_ingestion.py` | Generalized job names and comments |
-| `owl_bridge.py` | Added capability + universal relationship types to promotable sets (147 edge types, 132 node types) |
+| `owl_bridge.py` | Added capability + universal relationship types to promotable sets (178 edge types, 159 node types) |
 | `kg_server.py` | Generalized `graph_hydrate` tool description |

@@ -6,7 +6,10 @@ Navigable Small World) vector indexes for sub-second semantic search across
 
 ## Overview
 
-The KG stores embedding vectors (768-dim, `FLOAT[768]`) on 13 node tables.
+The KG stores embedding vectors (768-dim, `FLOAT[768]`) on 15 node tables.
+The exact set is derived dynamically from `schema_definition.py` at runtime (every
+node whose `embedding` column is a `FLOAT` array), so it stays in sync as the schema
+evolves rather than being hardcoded.
 Without HNSW indexes, vector search degrades to **O(N) brute-force** cosine
 similarity — scanning all nodes with embeddings. With HNSW indexes, search
 is **O(log N)** via LadybugDB's native vector extension.
@@ -66,17 +69,19 @@ After the last worker completes and the task queue is empty:
 3. Runs in a **background thread** (`KG-IndexBuilder`) — non-blocking
 4. Resets all flags so the next ingestion batch re-triggers the cycle
 
-## Embedding Tables (13 total)
+## Embedding Tables (15 total)
 
 These are the node tables with embedding columns, derived from `schema_definition.py`:
 
 | Table | Primary Content | Typical Node Count |
 |-------|----------------|-------------------|
-| `Code` | Source code symbols | ~78K |
+| `Code` | Source code (Code/Test/Feature nodes) | ~78K |
+| `Symbol` | Code symbols | varies |
 | `Article` | Research papers, documents | ~2.6K |
 | `Message` | Conversation messages | ~4.6K |
 | `Concept` | Extracted concepts | ~79 |
 | `Agent` | Registered agents | varies |
+| `AgentTemplate` | Agent templates | varies |
 | `Tool` | MCP tools | varies |
 | `Skill` | Universal skills | varies |
 | `DiffEntry` | Git diff entries | varies |
@@ -103,7 +108,7 @@ The label-scoped fallback queries high-value tables first with conservative limi
 ### Build Indexes (via MCP)
 
 ```
-kg_inspect(view="build_indexes")
+graph_ingest(action="rebuild_indexes")
 ```
 
 Starts HNSW index building in a **background thread** — returns immediately.
@@ -130,10 +135,10 @@ just not optimal).
 
 | File | Component |
 |------|-----------|
-| `knowledge_graph/backends/ladybug_backend.py` | `build_vector_indices()`, `drop_vector_indices()` |
+| `knowledge_graph/backends/contrib/ladybug_backend.py` | `build_vector_indices()`, `drop_vector_indices()` (Ladybug/Kuzu is a demoted `contrib` backend; the durable tier is `postgresql_backend.py` + `epistemic_graph_backend.py`) |
 | `knowledge_graph/retrieval/hybrid_retriever.py` | `_vector_search_native()`, label-scoped fallback |
 | `knowledge_graph/core/engine_tasks.py` | `submit_task()` (pre-drop), `_maybe_build_vector_indexes()` (post-build) |
-| `mcp/kg_server.py` | `kg_inspect(view="build_indexes")` |
+| `mcp/kg_server.py` | `graph_ingest(action="rebuild_indexes")` |
 
 ## Key Design Decisions
 

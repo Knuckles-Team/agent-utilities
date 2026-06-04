@@ -22,9 +22,6 @@ from agent_utilities.models.knowledge_graph import (
     SpectralClusterNode,
 )
 
-# --- Merged from semantic_retrieval_engine.py ---
-
-#!/usr/bin/python
 """Hybrid Search Scorer.
 
 CONCEPT:KG-2.3 — Hybrid Search Index
@@ -181,30 +178,6 @@ class HybridSearchScorer:
             reverse=True,
         )
         return results[: self.config.top_k]
-
-
-# --- Merged from semantic_retrieval_engine.py ---
-
-#!/usr/bin/python
-"""RAG-KG Unified Retriever.
-
-CONCEPT:KG-2.3 — RAG-KG Unification
-
-Collapses the separate RAG vector index into KG-native retrieval by
-leveraging three acceleration primitives:
-
-1. **Similarity-edge shortcuts** (KG-2.36): Pre-computed ``SIMILAR_TO``
-   edges provide O(1) retrieval paths for known-similar nodes, bypassing
-   runtime cosine computation.
-2. **Spectral cluster scoping** (KG-2.34): Queries are first classified
-   into a spectral cluster, reducing the search space by 10-100x before
-   fine-grained similarity matching.
-3. **Hybrid scoring** (KG-2.37): Weighted semantic+keyword scoring with
-   CamelCase splitting and phrase boost.
-
-Integrates with the existing ``HybridRetriever`` as a drop-in enhancement
-via ``retrieve_unified()``.
-"""
 
 
 if TYPE_CHECKING:
@@ -615,41 +588,6 @@ class KGNativeRetrievalRetriever:
     def reset_stats(self) -> None:
         """Reset retrieval statistics."""
         self._stats = {"shortcut_hits": 0, "cluster_scoped": 0, "full_scan": 0}
-
-
-# --- Merged from semantic_retrieval_engine.py ---
-
-#!/usr/bin/python
-"""Graph Distillation Migration.
-
-CONCEPT:KG-2.6 — Graph Distillation Migration
-
-Migrates standard RAG retrieval pathways to use SimilarityEdgeNode
-shortcuts for improved latency. Instead of performing O(N) cosine
-similarity computation against all nodes at query time, this module:
-
-1. Pre-computes similarity edges during ingestion (via AutoSimilarityLinker).
-2. At retrieval time, walks the pre-computed edge graph for O(degree)
-   shortcut retrieval.
-3. Falls back to full-scan retrieval only when shortcut coverage is
-   insufficient.
-
-Architecture::
-
-    ┌──────────────────────────────────────────────┐
-    │           GraphDistillationMigrator           │
-    ├──────────────────────────────────────────────┤
-    │ distill_batch()      → Pre-compute edges     │
-    │ distilled_retrieve() → Shortcut retrieval    │
-    │ coverage_report()    → Index health check    │
-    │ migrate_existing()   → Batch migration       │
-    └──────────────────────────────────────────────┘
-
-Integrates with:
-- KG-2.36 (AutoSimilarityLinker): Edge creation
-- KG-2.38 (KGNativeRetrievalRetriever): As the primary retrieval backend
-- KG-2.34 (SpectralClusterNavigator): Cluster-scoped distillation
-"""
 
 
 logger = logging.getLogger(__name__)

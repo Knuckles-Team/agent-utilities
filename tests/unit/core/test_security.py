@@ -17,16 +17,16 @@ def test_is_safe_tool():
 
 def test_is_sensitive_tool_strict():
     # Force strict mode for this test
-    import agent_utilities.security.tool_guard as tg
+    import agent_utilities.core.config as config
 
-    original_mode = tg.TOOL_GUARD_MODE
-    tg.TOOL_GUARD_MODE = "strict"
+    original_mode = config.TOOL_GUARD_MODE  # type: ignore[attr-defined]
+    config.TOOL_GUARD_MODE = "strict"  # type: ignore[attr-defined]
     try:
         assert is_sensitive_tool("read_file") is False
         assert is_sensitive_tool("delete_file") is True
         assert is_sensitive_tool("any_unknown_tool") is True
     finally:
-        tg.TOOL_GUARD_MODE = original_mode
+        config.TOOL_GUARD_MODE = original_mode  # type: ignore[attr-defined]
 
 
 def test_path_traversal_protection(tmp_path):

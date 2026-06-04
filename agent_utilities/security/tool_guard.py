@@ -32,13 +32,13 @@ if TYPE_CHECKING:
 
 from pydantic_ai import Agent
 
-from agent_utilities.core.config import SENSITIVE_TOOL_PATTERNS, TOOL_GUARD_MODE
-
 logger = logging.getLogger(__name__)
 
 
 def is_sensitive_tool(name: str) -> bool:
     """Check if a tool name matches any sensitive pattern."""
+    from agent_utilities.core.config import SENSITIVE_TOOL_PATTERNS, TOOL_GUARD_MODE
+
     if TOOL_GUARD_MODE == "strict":
         # In strict mode, everything is sensitive unless it's explicitly safe
         return not is_safe_tool(name)
@@ -85,7 +85,7 @@ def build_sensitive_tool_names() -> set[str]:
 
     # Source 1: Knowledge Graph
     with contextlib.suppress(Exception):
-        from agent_utilities.graph.config_helpers import get_discovery_registry
+        from agent_utilities.core.config import get_discovery_registry
 
         registry = get_discovery_registry()
         for tool in registry.tools:
@@ -200,6 +200,8 @@ def flag_mcp_tool_definitions(
         ``ApprovalRequiredToolset``.
 
     """
+    from agent_utilities.core.config import TOOL_GUARD_MODE
+
     if TOOL_GUARD_MODE == "off":
         return toolsets
 
@@ -267,6 +269,8 @@ def apply_tool_guard_approvals(agent: Agent) -> None:
         agent: The Pydantic AI Agent instance to modify.
 
     """
+    from agent_utilities.core.config import TOOL_GUARD_MODE
+
     if TOOL_GUARD_MODE == "off":
         logger.debug("Tool guard disabled (TOOL_GUARD_MODE=off)")
         return

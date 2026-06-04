@@ -154,7 +154,7 @@ async def run_adversarial_pass(
                 state.signal_board[signal_type].append(f"[adversarial] {finding[:200]}")
 
             # Emit event for UI transparency
-            from ..graph.config_helpers import emit_graph_event
+            from agent_utilities.core.config import emit_graph_event
 
             emit_graph_event(
                 deps.event_queue,

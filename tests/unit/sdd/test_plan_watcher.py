@@ -309,29 +309,17 @@ def test_start_sdd_watcher():
         mock_thread.assert_not_called()
         assert getattr(engine, "_watcher_thread_running", False) is False
 
-    # 2. Test when enable_sdd_watcher is True
+    # 2. start_sdd_watcher() is now a NO-OP even when enabled: the SDD/skills/
+    #    scholarx file-watch runs as the 'file_watch' job inside the consolidated
+    #    maintenance scheduler, NOT a dedicated KGPlanWatcherThread — so it must
+    #    never spawn its own thread (prevents a duplicate watcher). (KG-2.8)
     engine = TestEngine()
     with (
-        patch("os.environ.get", return_value=None),
-        patch("sys.argv", ["app.py"]),
         patch("agent_utilities.core.config.config.enable_sdd_watcher", True),
-        patch(
-            "agent_utilities.sdd.watcher.get_workspace_path",
-            return_value="/fake/workspace",
-        ),
         patch("threading.Thread") as mock_thread,
     ):
-        mock_thread_inst = MagicMock()
-        mock_thread.return_value = mock_thread_inst
-
         engine.start_sdd_watcher()
-
-        assert mock_thread.call_count == 1
-        kwargs = mock_thread.call_args[1]
-        assert kwargs["daemon"] is True
-        assert kwargs["name"] == "KGPlanWatcherThread"
-        mock_thread_inst.start.assert_called_once()
-        assert engine._watcher_thread_running is True
+        mock_thread.assert_not_called()
 
 
 def test_watcher_paused_flag():

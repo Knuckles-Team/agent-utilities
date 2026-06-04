@@ -66,6 +66,11 @@ class RLMConfig(BaseModel):
         description="Whether to run the REPL in a sandboxed container. If false, uses restricted local exec().",
     )
 
+    use_wasm: bool = Field(
+        default_factory=lambda: to_boolean(os.getenv("RLM_USE_WASM", "False")),
+        description="Whether to run the REPL in a high-performance WASM sandbox (WasmAgentRunner). Overrides use_container.",
+    )
+
     max_context_threshold: int = Field(
         default=50_000,
         description="Character threshold for tool outputs to auto-trigger RLM routing.",

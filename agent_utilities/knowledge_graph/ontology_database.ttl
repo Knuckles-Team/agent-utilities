@@ -1,7 +1,62 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
 @prefix : <http://knuckles.team/kg#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:dataType a owl:DatatypeProperty ;
+    rdfs:label "data type" ;
+    rdfs:comment "The relational SQL data type of the column (e.g., VARCHAR, INTEGER, TIMESTAMP)." ;
+    rdfs:domain :DatabaseColumn ;
+    rdfs:range xsd:string .
+
+:hasColumn a owl:ObjectProperty ;
+    rdfs:label "has column" ;
+    rdfs:comment "Links a database table to its constituent columns." ;
+    rdfs:domain :DatabaseTable ;
+    rdfs:range :DatabaseColumn .
+
+:hasTable a owl:ObjectProperty ;
+    rdfs:label "has table" ;
+    rdfs:comment "Links a database schema to its constituent tables." ;
+    rdfs:domain :DatabaseSchema ;
+    rdfs:range :DatabaseTable .
+
+:isForeignKey a owl:DatatypeProperty ;
+    rdfs:label "is foreign key" ;
+    rdfs:comment "Boolean flag indicating if this column is part of a foreign key." ;
+    rdfs:domain :DatabaseColumn ;
+    rdfs:range xsd:boolean .
+
+:isNullable a owl:DatatypeProperty ;
+    rdfs:label "is nullable" ;
+    rdfs:comment "Boolean flag indicating if the column accepts NULL values." ;
+    rdfs:domain :DatabaseColumn ;
+    rdfs:range xsd:boolean .
+
+:isPrimaryKey a owl:DatatypeProperty ;
+    rdfs:label "is primary key" ;
+    rdfs:comment "Boolean flag indicating if this column is part of the primary key." ;
+    rdfs:domain :DatabaseColumn ;
+    rdfs:range xsd:boolean .
+
+:referencesColumn a owl:ObjectProperty ;
+    rdfs:label "references column" ;
+    rdfs:comment "Links a column to another column via foreign key relationship." ;
+    rdfs:domain :DatabaseColumn ;
+    rdfs:range :DatabaseColumn .
+
+:referencesTable a owl:ObjectProperty ;
+    rdfs:label "references table" ;
+    rdfs:comment "Links a table to another table via foreign key relationship." ;
+    rdfs:domain :DatabaseTable ;
+    rdfs:range :DatabaseTable .
 
 <http://knuckles.team/kg/database> a owl:Ontology ;
     rdfs:label "Relational Database Schema Ontology" ;
@@ -26,50 +81,3 @@ planners to dynamically reason about data layouts.""" ;
     rdfs:comment "An individual column within a database table." ;
     rdfs:subClassOf :ApplicationLayer .
 
-:hasTable a owl:ObjectProperty ;
-    rdfs:label "has table" ;
-    rdfs:comment "Links a database schema to its constituent tables." ;
-    rdfs:domain :DatabaseSchema ;
-    rdfs:range :DatabaseTable .
-
-:hasColumn a owl:ObjectProperty ;
-    rdfs:label "has column" ;
-    rdfs:comment "Links a database table to its constituent columns." ;
-    rdfs:domain :DatabaseTable ;
-    rdfs:range :DatabaseColumn .
-
-:referencesTable a owl:ObjectProperty ;
-    rdfs:label "references table" ;
-    rdfs:comment "Links a table to another table via foreign key relationship." ;
-    rdfs:domain :DatabaseTable ;
-    rdfs:range :DatabaseTable .
-
-:referencesColumn a owl:ObjectProperty ;
-    rdfs:label "references column" ;
-    rdfs:comment "Links a column to another column via foreign key relationship." ;
-    rdfs:domain :DatabaseColumn ;
-    rdfs:range :DatabaseColumn .
-
-:dataType a owl:DatatypeProperty ;
-    rdfs:label "data type" ;
-    rdfs:comment "The relational SQL data type of the column (e.g., VARCHAR, INTEGER, TIMESTAMP)." ;
-    rdfs:domain :DatabaseColumn ;
-    rdfs:range xsd:string .
-
-:isNullable a owl:DatatypeProperty ;
-    rdfs:label "is nullable" ;
-    rdfs:comment "Boolean flag indicating if the column accepts NULL values." ;
-    rdfs:domain :DatabaseColumn ;
-    rdfs:range xsd:boolean .
-
-:isPrimaryKey a owl:DatatypeProperty ;
-    rdfs:label "is primary key" ;
-    rdfs:comment "Boolean flag indicating if this column is part of the primary key." ;
-    rdfs:domain :DatabaseColumn ;
-    rdfs:range xsd:boolean .
-
-:isForeignKey a owl:DatatypeProperty ;
-    rdfs:label "is foreign key" ;
-    rdfs:comment "Boolean flag indicating if this column is part of a foreign key." ;
-    rdfs:domain :DatabaseColumn ;
-    rdfs:range xsd:boolean .

@@ -1,6 +1,6 @@
 """CONCEPT:ORCH-1.0"""
 
-from agent_utilities.graph.config_helpers import load_specialized_prompts
+from agent_utilities.core.config import load_specialized_prompts
 
 
 def test_load_specialized_prompts_structured():

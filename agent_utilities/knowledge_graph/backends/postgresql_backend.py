@@ -121,12 +121,16 @@ class PostgreSQLBackend(GraphBackend):
     @property
     def pggraph_available(self) -> bool:
         if self._pggraph_available is None:
-            self._pggraph_available = self._check_extension("pggraph")
+            # The graph extension on the pggraph image is Apache AGE (not an
+            # extension literally named "pggraph"); fall back to the legacy name.
+            self._pggraph_available = self._check_extension(
+                "age"
+            ) or self._check_extension("pggraph")
             if self._pggraph_available:
-                logger.info("pgGraph extension detected")
+                logger.info("graph extension (AGE) detected")
             else:
                 logger.info(
-                    "pgGraph extension not available — graph traversal disabled"
+                    "graph extension (AGE) not available — graph traversal disabled"
                 )
         return self._pggraph_available
 
@@ -808,8 +812,15 @@ class PostgreSQLBackend(GraphBackend):
                         "WHERE column_name = 'embedding' AND table_schema = %s",
                         (self._pggraph_schema,),
                     )
+                    # When this instance hasn't loaded the schema (read/mirror
+                    # backend), ``_known_tables`` is empty — don't filter it out,
+                    # use the live column catalog (mirrors the transpiler's
+                    # ``not known_tables`` behavior). Otherwise semantic_search
+                    # silently finds 0 tables. (CONCEPT:KG-2.7)
                     tables = [
-                        r[0] for r in cur.fetchall() if r[0] in self._known_tables
+                        r[0]
+                        for r in cur.fetchall()
+                        if not self._known_tables or r[0] in self._known_tables
                     ]
         except Exception:
             pass  # nosec B110

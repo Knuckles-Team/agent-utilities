@@ -151,11 +151,14 @@ async def execute_sync(
             else ""
         )
         query = f"MERGE (n:{label} {{id: $id}}){set_clause}"
-        try:
-            db.execute_batch(query, batch)
-            nodes_synced += len(batch)
-        except Exception as e:
-            logger.error(f"Failed to sync batch for label {label}: {e}")
+        batch_size = getattr(ctx.config, "ingest_batch_size", 500)
+        for i in range(0, len(batch), batch_size):
+            chunk = batch[i : i + batch_size]
+            try:
+                db.execute_batch(query, chunk)
+                nodes_synced += len(chunk)
+            except Exception as e:
+                logger.error(f"Failed to sync chunk for label {label}: {e}")
 
     # Sync Edges
     edges_by_type: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
@@ -184,11 +187,14 @@ async def execute_sync(
 
     for (etype, u_label_str, v_label_str), batch in edges_by_type.items():
         query = f"MATCH (a{u_label_str} {{id: $uid}}), (b{v_label_str} {{id: $vid}}) MERGE (a)-[r:{etype}]->(b)"
-        try:
-            db.execute_batch(query, batch)
-            edges_synced += len(batch)
-        except Exception as e:
-            logger.error(f"Failed to sync edges for type {etype}: {e}")
+        batch_size = getattr(ctx.config, "ingest_batch_size", 500)
+        for i in range(0, len(batch), batch_size):
+            chunk = batch[i : i + batch_size]
+            try:
+                db.execute_batch(query, chunk)
+                edges_synced += len(chunk)
+            except Exception as e:
+                logger.error(f"Failed to sync edges for type {etype}: {e}")
 
     # Sweep stale codebase nodes
     if "ingestion_timestamp" in ctx.metadata:
@@ -207,5 +213,8 @@ async def execute_sync(
 
 
 sync_phase = PipelinePhase(
-    name="sync", deps=["centrality", "embedding", "registry"], execute_fn=execute_sync
+    name="sync",
+    # shacl_gate runs the SHACL ingestion gate (quarantine) before commit.
+    deps=["centrality", "embedding", "registry", "shacl_gate"],
+    execute_fn=execute_sync,
 )

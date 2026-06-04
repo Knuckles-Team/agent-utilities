@@ -1,6 +1,6 @@
 """Integration tests for the Parallel Engine and Skill-to-Workflow compiler.
 
-This suite validates the full end-to-end integration of the Unified Parallel Engine (ORCH-1.25),
+This suite validates the full end-to-end integration of the Unified Parallel Engine (ORCH-1.8),
 verifying:
 1. Skill compiler parsing DAG dependencies correctly.
 2. Parallel waves batching, scheduling, and topological ordering.

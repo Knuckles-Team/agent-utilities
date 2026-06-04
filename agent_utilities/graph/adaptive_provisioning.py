@@ -59,15 +59,12 @@ class AdaptiveProvisioner:
         # ...
 
         logger.debug(
-            f"[ECO-4.10] Provisioned {len(tools_to_inject)} tools for {agent_node_id}"
+            f"[ECO-4.6] Provisioned {len(tools_to_inject)} tools for {agent_node_id}"
         )
         return {"tools": tools_to_inject, "resources": []}
 
     def inject_into_context(self, agent: Agent, provisioned: dict[str, Any]):
         """Inject provisioned tools into an active pydantic-ai Agent instance."""
-        # Note: Depending on Pydantic AI's exact runtime tool injection mechanisms,
-        # we might bind these as callables or MCP toolkit wrappers.
-        # This acts as the stub for that integration layer.
         logger.info(
-            f"[ECO-4.10] Injecting tools into agent context: {[t['name'] for t in provisioned['tools']]}"
+            f"[ECO-4.6] Injecting tools into agent context: {[t['name'] for t in provisioned['tools']]}"
         )

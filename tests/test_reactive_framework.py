@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:ORCH-1.28 & OS-5.5 — Reactive Event-Sourcing & Budget Guardrail Test Suite."""
+"""CONCEPT:ORCH-1.10 & OS-5.5 — Reactive Event-Sourcing & Budget Guardrail Test Suite."""
 
 import asyncio
 import time

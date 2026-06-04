@@ -1,6 +1,6 @@
-"""Time-Series Weighted Graph Structure (KG-2.12).
+"""Time-Series Weighted Graph Structure (KG-2.7).
 
-CONCEPT: KG-2.12 Time-Series Weighted Graph Structure
+CONCEPT: KG-2.7 Time-Series Weighted Graph Structure
 
 Adds temporal capabilities to graph execution. Edges use a decay rate
 based on market time, prioritizing recent stochastic shifts for HFT logic.

@@ -1,0 +1,85 @@
+"""Plan 03 Step 3: unified routing package — Router composition + R1 fast-path.
+
+Validates the strangler (historical imports still resolve) and the new
+RoutingStrategy/Router framework with the extracted fast-path strategy.
+"""
+
+from __future__ import annotations
+
+import types
+
+import pytest
+
+from agent_utilities.graph.routing import (
+    FastPathStrategy,
+    Router,
+    RoutingConfig,
+    RoutingStrategy,
+    is_trivial_query,
+    router_step,
+)
+
+
+def _ctx(query: str):
+    return types.SimpleNamespace(state=types.SimpleNamespace(query=query))
+
+
+def test_strangler_reexports_monolith():
+    # The package re-exports the implementation's step function unchanged.
+    import agent_utilities.graph._router_impl as impl
+
+    assert router_step is impl.router_step
+
+
+def test_is_trivial_query_rules():
+    assert is_trivial_query("hello") is True
+    assert is_trivial_query("hi there") is True
+    assert is_trivial_query("thanks a lot") is True
+    # Long or non-conversational queries are not trivial.
+    assert is_trivial_query("hello, please optimize my portfolio under constraints") is False
+    assert is_trivial_query("compute the efficient frontier") is False
+    assert is_trivial_query("") is False
+
+
+def test_fast_path_strategy_is_protocol_member():
+    assert isinstance(FastPathStrategy(), RoutingStrategy)
+
+
+@pytest.mark.asyncio
+async def test_fast_path_strategy_decides():
+    s = FastPathStrategy()
+    assert await s.decide(_ctx("hello")) == "fast_path"
+    assert await s.decide(_ctx("design a distributed scheduler")) is None
+
+
+@pytest.mark.asyncio
+async def test_router_runs_pipeline_in_order():
+    calls: list[str] = []
+
+    class Recording:
+        def __init__(self, name, decision):
+            self.name = name
+            self._decision = decision
+
+        async def decide(self, ctx):
+            calls.append(self.name)
+            return self._decision
+
+    # 'a' defers (None), 'b' decides -> 'c' must never run.
+    router = Router(
+        strategies=[Recording("a", None), Recording("b", "B"), Recording("c", "C")],
+        config=RoutingConfig(pipeline=["a", "b", "c"]),
+    )
+    decision = await router.route(_ctx("x"))
+    assert decision == "B"
+    assert calls == ["a", "b"]  # short-circuits after first decision
+
+
+@pytest.mark.asyncio
+async def test_router_returns_none_when_all_defer():
+    router = Router(
+        strategies=[FastPathStrategy()],
+        config=RoutingConfig(pipeline=["fast_path"]),
+    )
+    # Non-trivial query -> fast_path defers -> no decision (caller falls back).
+    assert await router.route(_ctx("build an OWL reasoner")) is None

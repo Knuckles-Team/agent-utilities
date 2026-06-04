@@ -5,6 +5,13 @@ unified `GraphBackend` abstract interface. All backends provide the same core
 capabilities: Cypher query execution, vector search, node/edge CRUD, and
 optional SPARQL support.
 
+The **default** backend is the zero-dependency Rust-native `EpistemicGraph`
+(`GRAPH_BACKEND=memory`/`file`/`epistemic_graph`); the **production** durable
+backend is PostgreSQL + pgGraph (`GRAPH_BACKEND=postgresql`), optionally fronted
+by the `tiered` write-through store (L1 EpistemicGraph + L3 Postgres). The
+LadybugDB, Neo4j, and FalkorDB backends are **opt-in contrib** drivers (under
+`backends/contrib/`) imported only when explicitly requested.
+
 ## Architecture Overview
 
 ```mermaid
@@ -15,26 +22,34 @@ graph TB
         D["KG-2.0: link_nodes()"] --> B
         E["KG-2.3: search_hybrid()"] --> F["KG-2.3: backend.semantic_search()"]
         G["KG-2.0: load_subgraph()"] --> H["Rust GraphComputeEngine\n(Tier 2 Compute)"]
-        QR["KG-2.20: QueryRouter"] --> B
+        QR["KG-2.7: QueryRouter"] --> B
         QR --> H
         QR --> F
     end
 
     B --> I{"KG-2.0: Backend Type?"}
 
-    subgraph "KG-2.0: LadybugDB (Default)"
+    subgraph "KG-2.7: EpistemicGraph (Default — memory/file)"
+        I -->|memory / file / epistemic_graph| EG["Rust-native EpistemicGraph\n(zero-dep working store)"]
+    end
+
+    subgraph "KG-2.7: Tiered (L1 EpistemicGraph + L3 Postgres)"
+        I -->|tiered| TI["TieredGraphBackend\nwrite-through L1→L3"]
+    end
+
+    subgraph "KG-2.0: LadybugDB (opt-in contrib)"
         I -->|ladybug| J["Native Cypher\nSQLite + HNSW"]
     end
 
-    subgraph "KG-2.0: Neo4j"
+    subgraph "KG-2.0: Neo4j (opt-in contrib)"
         I -->|neo4j| K["KG-2.0: Native Cypher\nBolt Protocol"]
     end
 
-    subgraph "FalkorDB"
+    subgraph "FalkorDB (opt-in contrib)"
         I -->|falkordb| L["KG-2.0: Cypher via\nRedis Protocol"]
     end
 
-    subgraph "PostgreSQL + pgGraph"
+    subgraph "PostgreSQL + pgGraph (Production durable)"
         I -->|postgresql| M["KG-2.0: Cypher → SQL\nTranspiler"]
         M --> N["PostgreSQL Tables"]
         M --> O["KG-2.0: pgGraph Extension\n(CSR Traversal)"]
@@ -56,7 +71,7 @@ graph TB
 
 | Capability | LadybugDB | Neo4j | FalkorDB | PostgreSQL + pgGraph | Jena Fuseki / EpistemicGraph Compute | Fuseki | Memory |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Status** | Production | Production | Production | **Production** | Production | Production | Testing |
+| **Status** | contrib (opt-in) | contrib (opt-in) | contrib (opt-in) | **Production (durable)** | Production | Production | **Default (Rust-native)** |
 | Cypher Support | Native | Native | Native | Transpiled | Transpiled | Transpiled | Basic |
 | SPARQL Support | — | — | — | — | ✅ Native | ✅ Native | — |
 | Vector Search (HNSW) | ✅ | ✅ | ✅ | ✅ pgvector | ✅ Brute-force | ✅ Brute-force | ✅ Brute-force |
@@ -98,8 +113,9 @@ graph LR
 
 ### Cypher Transpilation
 
-The engine speaks Cypher; PostgreSQL speaks SQL. The `CypherTranspiler` handles
-the translation for all patterns the engine generates:
+The engine speaks Cypher; PostgreSQL speaks SQL. The `transpile()` function in
+`backends/cypher_transpiler.py` handles the translation for all patterns the
+engine generates:
 
 | Engine Cypher | PostgreSQL SQL |
 |---|---|
@@ -128,8 +144,9 @@ search requires pgvector.
 
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `ladybug` | Backend type: `memory`, `ladybug`, `neo4j`, `falkordb`, `postgresql`, `jena_fuseki`, `fuseki` |
-| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for LadybugDB |
+| `GRAPH_BACKEND` | `memory` | Backend type: `memory`/`file`/`epistemic_graph` (default, Rust-native), `postgresql` (production durable), `tiered`, `jena_fuseki`, `fuseki`; opt-in contrib: `ladybug`, `neo4j`, `falkordb` |
+| `GRAPH_BACKEND_L1` | `epistemic_graph` | L1 working store type when `GRAPH_BACKEND=tiered` |
+| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for EpistemicGraph (`file` mode) / LadybugDB |
 | `GRAPH_DB_URI` | — | Connection URI for Neo4j or PostgreSQL |
 | `GRAPH_DB_HOST` | `localhost` | Host for FalkorDB |
 | `GRAPH_DB_PORT` | `6379`/`7687` | Port for FalkorDB/Neo4j |
@@ -139,9 +156,9 @@ search requires pgvector.
 | `GRAPH_POOL_MIN` | `2` | PostgreSQL pool minimum connections |
 | `GRAPH_POOL_MAX` | `10` | PostgreSQL pool maximum connections |
 | `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pgGraph table registration |
-| `OXIGRAPH_PERSISTENCE_PATH` | — | On-disk storage path for Jena Fuseki / EpistemicGraph Compute |
-| `GRAPH_FUSEKI_URL` | `http://localhost:3030` | Apache Fuseki server URL |
+| `GRAPH_FUSEKI_URL` | `http://localhost:3030` | Jena/Apache Fuseki server URL |
 | `GRAPH_FUSEKI_DATASET` | `agent_kg` | Fuseki dataset name |
+| `GRAPH_FUSEKI_USER` / `GRAPH_FUSEKI_PASSWORD` | — | Optional Fuseki credentials |
 
 ### Quick Start: PostgreSQL
 

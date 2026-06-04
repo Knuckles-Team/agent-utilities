@@ -290,13 +290,10 @@ class DocumentUpdatePipeline:
         Returns:
             List[List[float]]: List of embeddings
         """
-        # Placeholder for embedding generation
-        # This should integrate with LM Studio or the existing embedding utilities
-        logger.warning("Using dummy embeddings - integrate with LM Studio")
+        from agent_utilities.core.embedding_utilities import create_embedding_model
 
-        # Return dummy embeddings (768-dimensional)
-        dummy_embedding = [0.0] * 768
-        return [dummy_embedding.copy() for _ in chunks]
+        embed_model = create_embedding_model()
+        return [embed_model.get_text_embedding(chunk) for chunk in chunks]
 
     async def _rollback(
         self, rollback_actions: list[Callable], ontological_identifier: str

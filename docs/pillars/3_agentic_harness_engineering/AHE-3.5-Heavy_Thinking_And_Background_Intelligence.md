@@ -1,10 +1,10 @@
 # Heavy Thinking Orchestration (CONCEPT:AHE-3.4)
 
 ## Overview
-Two-stage parallel-then-deliberate reasoning pipeline with tiered complexity gating, trajectory pruning/shuffling, iterative refinement, and KG-native trajectory persistence (CONCEPT:AHE-3.4).
+Two-stage parallel-then-deliberate reasoning pipeline with tiered complexity gating, trajectory pruning/shuffling, iterative refinement, and KG-native trajectory persistence (CONCEPT:AHE-3.4). The former `HeavyThinkingOrchestrator` is now consolidated into the unified `ParallelEngine` (same code path for a 1-agent call up to a 300-agent swarm).
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/manifest_generators.py``
+- **Source Code**: ``agent_utilities/graph/parallel_engine.py``
 - **Pillar**: AHE
 
 ## Documentation Coverage
@@ -26,7 +26,7 @@ Experience distillation via cross-rollout critique (CONCEPT:AHE-3.4), decomposed
 Evaluates topological complexity to route dense API toolchains to complex models.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/routing.py``
+- **Source Code**: ``agent_utilities/graph/_router_impl.py``
 - **Pillar**: AHE
 
 ## Documentation Coverage
@@ -37,7 +37,7 @@ Evaluates topological complexity to route dense API toolchains to complex models
 Maps user queries to `MathematicalFoundationNode` or quantitative financial concepts to trigger reasoning models.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/routing.py``
+- **Source Code**: ``agent_utilities/graph/_router_impl.py``
 - **Pillar**: AHE
 
 ## Documentation Coverage

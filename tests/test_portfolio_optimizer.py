@@ -106,9 +106,10 @@ class TestBlackLittermanOptimizer:
     def test_with_views(self, three_asset_portfolio):
         _, cov, names = three_asset_portfolio
         market_caps = [1000.0, 500.0, 200.0]
-        views = [{"asset_idx": 0, "return": 0.15, "confidence": 0.8}]
+        views = [0.15]
+        pick_matrix = [[1.0, 0.0, 0.0]]
         opt = BlackLittermanOptimizer()
-        result = opt.optimize(market_caps, cov, names, views=views)
+        result = opt.optimize(market_caps, cov, names, views=views, pick_matrix=pick_matrix)
         assert result.method == "black_litterman"
         # View on first asset should increase its weight
         assert result.weights[names[0]] > 0

@@ -19,7 +19,7 @@ async def execute_registry(
     ctx: PipelineContext, deps: dict[str, PhaseResult]
 ) -> dict[str, Any]:
     """Phase 4: Load agents and tools from the graph backend into memory."""
-    from ....graph.config_helpers import get_discovery_registry
+    from ....core.config import get_discovery_registry
 
     # Load from the Knowledge Graph backend
     registry = get_discovery_registry()

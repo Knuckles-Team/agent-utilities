@@ -47,12 +47,12 @@ def sample_registry() -> dict:
             "pillar": "KG-2",
             "module": "knowledge_graph/self_model.py",
         },
-        "KG-2.10": {
+        "KG-2.7": {
             "name": "Context Compaction",
             "pillar": "KG-2",
             "module": "knowledge_graph/elastic_context_manager.py",
         },
-        "KG-2.11": {
+        "KG-2.7": {
             "name": "Research Pipeline",
             "pillar": "KG-2",
             "module": "automation/research_pipeline.py",
@@ -82,12 +82,12 @@ def sample_registry() -> dict:
             "pillar": "OS-5",
             "module": "security/threat_defense_engine.py",
         },
-        "OS-5.8": {
+        "OS-5.7": {
             "name": "Guardrail Engine",
             "pillar": "OS-5",
             "module": "security/threat_defense_engine.py",
         },
-        "OS-5.9": {
+        "OS-5.8": {
             "name": "Telemetry & Observability",
             "pillar": "OS-5",
             "module": "observability/custom_observability.py",
@@ -106,7 +106,7 @@ def engine(sample_registry: dict) -> SynergyEngine:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("KG-2.19")
+@pytest.mark.concept("KG-2.7")
 class TestConceptBridges:
     """Tests for concept bridge discovery."""
 
@@ -149,7 +149,7 @@ class TestConceptBridges:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("KG-2.19")
+@pytest.mark.concept("KG-2.7")
 class TestPillarCoupling:
     """Tests for pillar coupling computation."""
 
@@ -182,7 +182,7 @@ class TestPillarCoupling:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("KG-2.19")
+@pytest.mark.concept("KG-2.7")
 class TestMissingEdges:
     """Tests for missing relationship suggestions."""
 
@@ -210,7 +210,7 @@ class TestMissingEdges:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("KG-2.19")
+@pytest.mark.concept("KG-2.7")
 class TestSynergyReport:
     """Tests for markdown report generation."""
 
@@ -239,7 +239,7 @@ class TestSynergyReport:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.concept("KG-2.19")
+@pytest.mark.concept("KG-2.7")
 class TestPillarNames:
     """Tests for pillar name constants."""
 

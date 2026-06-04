@@ -23,19 +23,19 @@ class GraphEventHandler:
 
     async def handle_event(self, event: dict[str, Any]):
         """Callback to handle a graph event part."""
-        pass
+        return None
 
 
 class SSEEventHandler(GraphEventHandler):
     """Event handler specialized for SSE streaming."""
 
-    pass
+    __slots__ = ()
 
 
 class ACPEventHandler(GraphEventHandler):
     """Event handler specialized for the Agent Communication Protocol."""
 
-    pass
+    __slots__ = ()
 
 
 async def execute_graph(

@@ -1,12 +1,14 @@
 """Predict-RLM: Structured, type-safe RLM executions using Pydantic signatures.
 
-CONCEPT:ORCH-1.30 — Structured Predict-RLM Runtime
+CONCEPT:ORCH-1.12 — Structured Predict-RLM Runtime
 
 This module implements a native Pydantic signature system to replicate
 the structured input/output contract of DSPy Signatures without adding
 external dependencies.
 """
 
+import ast
+import inspect
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -14,6 +16,17 @@ from pydantic import BaseModel, Field
 from ..graph.state import GraphDeps
 from .config import RLMConfig
 from .repl import RLMEnvironment
+
+
+def _validate_purity(source: str) -> None:
+    """Validate that the tool function source code is pure.
+
+    Rejects any code that uses global or nonlocal statements.
+    """
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Global | ast.Nonlocal):
+            raise ValueError("Tool function is not pure: uses global/nonlocal.")
 
 
 def InputField(default: Any = ..., *, description: str = "", **kwargs) -> Any:
@@ -74,7 +87,14 @@ class PredictRLM:
 
     def mount_skill(self, name: str, skill_fn: Any):
         """Register a custom function or API client helper to be injected into the REPL."""
-        self.skills[name] = skill_fn
+        import textwrap
+
+        # Dedent so functions defined in an indented scope (inside a method or
+        # class body) parse cleanly — inspect.getsource preserves leading
+        # indentation, which would otherwise raise IndentationError in ast.parse.
+        source = textwrap.dedent(inspect.getsource(skill_fn))
+        _validate_purity(source)
+        self.skills[name] = source
 
     def _generate_instruction_prompt(self, inputs: dict[str, Any]) -> str:
         """Construct the prompt guiding the RLM REPL to solve the task and assign outputs."""
@@ -117,11 +137,11 @@ class PredictRLM:
             depth=0,
             config=self.config,
             graph_deps=self.graph_deps,
+            signature=self.signature,
+            inputs_keys=self.inputs,
+            outputs_keys=self.outputs,
+            tool_sources=self.skills,
         )
-
-        # Dynamic skill injection into the REPL global namespace
-        for name, fn in self.skills.items():
-            env.globals_dict[name] = fn
 
         prompt = self._generate_instruction_prompt(inputs)
         await env.run_full_rlm(prompt)

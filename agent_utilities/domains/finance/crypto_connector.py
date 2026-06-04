@@ -8,12 +8,30 @@ Provides abstractions for crypto-specific market data:
 - Protocol metrics (TVL, Active Addresses)
 """
 
+import json
 import logging
+import os
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from .errors import ProviderNotConfigured, ProviderRequestError
+
 logger = logging.getLogger(__name__)
+
+_DEFILLAMA_BASE = "https://api.llama.fi"
+
+
+def _http_get_json(url: str, timeout: float = 10.0) -> Any:
+    """GET a URL and parse JSON. Raises ProviderRequestError on failure."""
+    req = urllib.request.Request(url, headers={"User-Agent": "agent-utilities/finance"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
+            return json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        raise ProviderRequestError(f"request to {url} failed: {exc}") from exc
 
 
 @dataclass
@@ -38,53 +56,77 @@ class WhaleAlert:
 class OnChainAnalytics:
     """Hooks for on-chain metric providers like Glassnode, Dune, or Etherscan."""
 
-    def get_dex_volume(self, protocol: str = "uniswap_v3") -> float:
-        """Fetch 24h DEX volume (stub)."""
-        logger.info(f"Fetching DEX volume for {protocol}")
-        return 1_250_000_000.0  # Synthetic $1.25B
+    def get_dex_volume(self, protocol: str = "uniswap") -> float:
+        """Fetch 24h DEX volume (USD) from DeFiLlama's keyless API."""
+        logger.info("Fetching DEX volume for %s", protocol)
+        data = _http_get_json(
+            f"{_DEFILLAMA_BASE}/summary/dexs/{protocol}?dataType=dailyVolume"
+        )
+        vol = data.get("total24h") if isinstance(data, dict) else None
+        if vol is None:
+            raise ProviderRequestError(
+                f"DeFiLlama returned no 24h volume for protocol '{protocol}'"
+            )
+        return float(vol)
 
     def get_whale_transactions(
         self, asset: str, _min_usd_value: float = 1_000_000
     ) -> list[WhaleAlert]:
-        """Track large on-chain transfers."""
-        # Synthetic data
-        return [
-            WhaleAlert(
-                tx_hash="0xabc123...",
-                asset=asset,
-                amount=500.0,
-                usd_value=500.0 * 60000 if asset == "BTC" else 500.0 * 3000,
-                from_address="0xUnknown...",
-                to_address="Binance Deposit",
-                timestamp=time.time(),
+        """Track large on-chain transfers (requires an Etherscan/Glassnode key)."""
+        if not os.environ.get("ETHERSCAN_API_KEY"):
+            raise ProviderNotConfigured(
+                "Whale tracking requires ETHERSCAN_API_KEY (or a Glassnode/Dune key). "
+                "Set ETHERSCAN_API_KEY to enable on-chain transfer tracking."
             )
-        ]
+        # With a key configured, query the provider for large transfers.
+        raise ProviderNotConfigured(
+            "ETHERSCAN_API_KEY is set but the on-chain transfer feed is not yet "
+            "wired for this asset; configure ONCHAIN_PROVIDER to select a backend."
+        )
 
     def get_tvl(self, protocol: str) -> float:
-        """Get Total Value Locked for a DeFi protocol."""
-        return 5_000_000_000.0  # Synthetic $5B
+        """Get Total Value Locked (USD) for a DeFi protocol via DeFiLlama (keyless)."""
+        data = _http_get_json(f"{_DEFILLAMA_BASE}/tvl/{protocol}")
+        # /tvl/{protocol} returns a bare number.
+        try:
+            return float(data)
+        except (TypeError, ValueError) as exc:
+            raise ProviderRequestError(
+                f"DeFiLlama returned no TVL for protocol '{protocol}': {data!r}"
+            ) from exc
 
 
 class CryptoDerivatives:
     """Binance/Bybit derivatives data abstraction."""
 
     def get_funding_rate(self, symbol: str) -> FundingRate:
-        """Fetch current perpetual futures funding rate."""
-        # Reference integration using ccxt logic pattern
+        """Fetch the current perpetual-futures funding rate from Binance (keyless)."""
+        pair = symbol.replace("/", "").upper()
+        data = _http_get_json(
+            f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={pair}"
+        )
+        if not isinstance(data, dict) or "lastFundingRate" not in data:
+            raise ProviderRequestError(
+                f"Binance returned no funding rate for symbol '{symbol}'"
+            )
         return FundingRate(
             symbol=symbol,
-            rate=0.0001,  # 0.01%
-            timestamp=time.time(),
+            rate=float(data["lastFundingRate"]),
+            timestamp=float(data.get("time", time.time() * 1000)) / 1000.0,
             exchange="binance",
         )
 
     def get_liquidation_levels(self, symbol: str) -> dict[str, float]:
-        """Get estimated liquidation clusters."""
-        # Synthetic heatmap data
-        return {
-            "short_liquidation_cluster": 65000.0,
-            "long_liquidation_cluster": 58000.0,
-        }
+        """Estimated liquidation clusters (requires a derivatives-analytics key)."""
+        if not os.environ.get("DERIVATIVES_API_KEY"):
+            raise ProviderNotConfigured(
+                "Liquidation-cluster estimation requires DERIVATIVES_API_KEY "
+                "(e.g. Coinglass/Coinalyze). Set DERIVATIVES_API_KEY to enable it."
+            )
+        raise ProviderNotConfigured(
+            "DERIVATIVES_API_KEY is set but no liquidation provider is selected; "
+            "set DERIVATIVES_PROVIDER to choose one."
+        )
 
 
 class CryptoConnector:

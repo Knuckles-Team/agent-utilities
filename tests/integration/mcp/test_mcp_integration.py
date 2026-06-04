@@ -2,7 +2,7 @@
 
 import pytest
 
-from agent_utilities.knowledge_graph.backends.ladybug_backend import LadybugBackend
+from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import LadybugBackend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 

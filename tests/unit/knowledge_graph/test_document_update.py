@@ -4,7 +4,7 @@ CONCEPT:KG-2.0
 Tests for Document Update Pipeline.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -147,14 +147,20 @@ class TestDocumentUpdatePipeline:
         assert chunks[2] == "Chunk 3"
 
     @pytest.mark.asyncio
-    async def test_generate_embeddings(self):
-        """Test embedding generation (currently uses dummy embeddings)."""
-        knowledge_graph = MagicMock()
+    @patch("agent_utilities.core.embedding_utilities.create_embedding_model")
+    async def test_generate_embeddings(self, mock_create):
+        """Embeddings come from the configured model (no dummy zero-vectors)."""
+        fake_model = MagicMock()
+        fake_model.get_text_embedding.side_effect = lambda text: [0.1] * 768
+        mock_create.return_value = fake_model
 
+        knowledge_graph = MagicMock()
         pipeline = DocumentUpdatePipeline(knowledge_graph=knowledge_graph)
 
         chunks = ["Chunk 1", "Chunk 2", "Chunk 3"]
         embeddings = await pipeline._generate_embeddings(chunks)
 
         assert len(embeddings) == 3
-        assert len(embeddings[0]) == 768  # Dummy embedding dimension
+        assert len(embeddings[0]) == 768
+        assert any(v != 0.0 for v in embeddings[0])  # real, non-zero vectors
+        assert fake_model.get_text_embedding.call_count == 3

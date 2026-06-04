@@ -8,7 +8,6 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 
 from ...models.knowledge_graph import PipelineConfig, RegistryGraphMetadata
 from ..backends.base import GraphBackend
-from .phases import PHASES
 from .runner import PipelineRunner
 from .types import PipelineContext
 
@@ -18,9 +17,18 @@ logger = logging.getLogger(__name__)
 class IntelligencePipeline:
     """Orchestrator for the Intelligence Pipeline."""
 
-    def __init__(self, config: PipelineConfig, backend: GraphBackend | None = None):
+    def __init__(
+        self,
+        config: PipelineConfig,
+        backend: GraphBackend | None = None,
+        graph_name: str = "__bus__",
+    ):
         self.config = config
-        self.graph = GraphComputeEngine()
+        # An isolated tenant graph keeps a bulk-ingest subprocess's scratch
+        # symbol graph off the shared "__bus__" tenant — avoids saturating the
+        # single daemon when many repos ingest concurrently. (CONCEPT:KG-2.7)
+        self.graph = GraphComputeEngine(graph_name=graph_name)
+        self.graph_name = graph_name
         self.metadata = RegistryGraphMetadata()
         self.backend = backend
 
@@ -37,7 +45,15 @@ class IntelligencePipeline:
         )
         ctx.metadata["ingestion_timestamp"] = run_start_timestamp
 
-        runner = PipelineRunner(PHASES)
+        import os as _os
+
+        from .phases import select_phases
+
+        _profile = _os.environ.get("KG_INGEST_PROFILE")
+        _phases = select_phases(_profile)
+        if _profile:
+            logger.info("Pipeline profile=%s (%d phases)", _profile, len(_phases))
+        runner = PipelineRunner(_phases)
 
         # Temporarily pause background watcher to avoid database locks/deadlocks during active ingestion
         try:

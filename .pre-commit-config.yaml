@@ -9,6 +9,7 @@ repos:
   - id: check-ast
     exclude: ^(tests/|test/|scripts/|script/)
   - id: check-yaml
+    args: ["--unsafe"]
   - id: check-toml
   - id: check-json
   - id: fix-byte-order-marker
@@ -71,8 +72,14 @@ repos:
   - id: check-stubs
     name: Check for Active Stubs and TODOs
     entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_stubs.py
-    language: python
+    language: system
     types: [python]
+  - id: check-concept-gaps
+    name: Check Concept ID Gap contiguousness
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_concept_gaps.py
+    language: system
+    files: concept_map\.md$
+    pass_filenames: true
   - id: turtle-format
     name: Format Turtle with rdflib
     entry: python -m scripts.format_ttl
@@ -129,3 +136,65 @@ repos:
     language: python
     pass_filenames: false
     always_run: true
+# Plan 10 guardrail gates. Each defends a specific failure vector and has a
+# meta-test in tests/gates/ proving it trips on a broken fixture. BLOCKING gates
+# pass today; ADVISORY gates carry a comment explaining the deferred dependency.
+- repo: local
+  hooks:
+  # BLOCKING ---------------------------------------------------------------
+  - id: guardrail-no-stub
+    name: Guardrail — no production stubs
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_no_stub.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-concept-freshness
+    name: Guardrail — concept registry freshness
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_concepts.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-no-pyo3
+    name: Guardrail — PyO3 fully excised
+    entry: bash /home/apps/workspace/agent-packages/epistemic-graph/scripts/check_no_pyo3.sh
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-parity
+    name: Guardrail — cross-UI parity matrix
+    entry: python3 /home/apps/workspace/agent-packages/scripts/check_parity.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-retrieval-quality
+    name: Guardrail — retrieval quality (Recall@k / MRR floor)
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_retrieval_quality.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-prod-profile
+    name: Guardrail — production profile guard
+    entry: bash -c 'cd /home/apps/workspace/agent-packages/agent-utilities && python3 -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"'
+    language: system
+    pass_filenames: false
+    always_run: true
+  # BLOCKING: the anti-sprawl gate (versioned clones, conflict artifacts,
+  # botched-merge dividers, oversized tracked binaries). Plan-03 cleared all
+  # botched-merge dividers, so this now runs BLOCKING.
+  - id: guardrail-sprawl
+    name: Guardrail — anti-sprawl
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_sprawl.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  # ADVISORY: the coupling gate enforces that geniusbot imports agent_utilities
+  # only via the allowlisted adapter seam. Kept non-blocking while the
+  # concurrent decoupling work stabilizes so in-flight churn can't block
+  # commits. Remove the `|| true` once the adapter seam has settled.
+  - id: guardrail-coupling-advisory
+    name: Guardrail — geniusbot coupling (ADVISORY, decoupling in flight)
+    entry: bash -c 'python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_coupling.py || true'
+    language: system
+    pass_filenames: false
+    always_run: true
+    verbose: true

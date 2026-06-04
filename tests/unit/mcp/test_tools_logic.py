@@ -7,7 +7,10 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.mcp_utilities import create_mcp_parser, load_mcp_config
+from agent_utilities.mcp_utilities import (
+    create_mcp_parser,
+    load_mcp_servers_from_config,
+)
 from agent_utilities.models import MCPToolInfo
 
 
@@ -39,7 +42,7 @@ def test_load_mcp_config_expansion(tmp_path):
         with patch(
             "pydantic_ai.mcp.load_mcp_servers", side_effect=mock_load_side_effect
         ) as mock_load:
-            servers = load_mcp_config(config_path)
+            servers = load_mcp_servers_from_config(config_path)
 
             assert len(servers) == 1
             assert mock_load.called

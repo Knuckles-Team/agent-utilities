@@ -20,8 +20,8 @@ This document defines how the Knowledge Graph scores, ranks, and retrieves resul
 
 ### How it Works
 
-1. **HNSW Index Phase**: The LadybugDB HNSW index performs approximate nearest-neighbor search, retrieving `top_k × 3` candidates internally to ensure quality
-2. **Quality Gate**: Results below `relevance_threshold` (default 0.2) are filtered
+1. **HNSW Index Phase**: The HNSW index (the `CapabilityIndex` / Postgres pgvector primary tier; LadybugDB is a demoted `backends/contrib/` option) performs approximate nearest-neighbor search, retrieving `top_k × 3` candidates internally to ensure quality
+2. **Quality Gate**: Results below `relevance_threshold` (default 0.6, or the active schema pack's `min_relevance_threshold`) are filtered
 3. **Enrichment**: Innovation signals, metadata, and decay scoring are applied
 4. **Truncation**: Final results are truncated to `top_k`
 
@@ -40,7 +40,7 @@ This document defines how the Knowledge Graph scores, ranks, and retrieves resul
 
 All vector-based retrieval uses **cosine similarity** between query embeddings and stored node embeddings.
 
-**Embedding Model**: `text-embedding-3-small` (768 dimensions)
+**Embedding Model**: `text-embedding-nomic-embed-text-v2-moe` (768 dimensions, default; configurable via the `embedding_models` registry / `EmbeddingFactory`)
 
 **Formula**:
 ```
@@ -55,7 +55,7 @@ similarity(A, B) = (A · B) / (||A|| × ||B||)
 | **0.45–0.60** | High | Related concepts with significant overlap |
 | **0.35–0.45** | Moderate | Loosely related; shared domain but different focus |
 | **0.20–0.35** | Low | Tangential connection; may be noise |
-| **< 0.20** | Noise | Below quality gate — filtered out by default |
+| **< 0.20** | Noise | Tangential at best; below most quality gates (default gate is 0.6) |
 
 ### HNSW Index Parameters
 
@@ -133,7 +133,7 @@ Three methods to analyze a specific ingested research paper against the KG:
 
 ```python
 # Find all chunks of a specific paper
-kg_query(
+graph_query(
     cypher="MATCH (a:Article) WHERE a.target_path CONTAINS '2504.01990' RETURN a.id, a.name, a.target_path LIMIT 20"
 )
 ```
@@ -142,7 +142,7 @@ kg_query(
 
 ```python
 # Cross-reference a paper's topic against the full KG
-kg_search(
+graph_search(
     mode="discover",
     query="memory-augmented LLM systems synthesis",
     top_k=20
@@ -153,7 +153,7 @@ kg_search(
 
 ```python
 # Check a paper against a specific concept
-kg_search(
+graph_search(
     mode="analogy",
     query="KG-2.1 tiered memory context compaction"
 )
@@ -165,12 +165,12 @@ To score ALL papers against a specific topic:
 
 ```python
 # Get all unique paper paths
-kg_query(
+graph_query(
     cypher="MATCH (a:Article) RETURN DISTINCT a.target_path AS path, count(a) AS chunks ORDER BY chunks DESC"
 )
 
 # Then for each, run discover mode
-kg_search(mode="discover", query="<your concept or feature topic>", top_k=50)
+graph_search(mode="discover", query="<your concept or feature topic>", top_k=50)
 # Filter results by target_path to isolate each paper's score
 ```
 
@@ -186,10 +186,10 @@ kg_search(mode="discover", query="<your concept or feature topic>", top_k=50)
 Ingest → Discover → Analyze → Assimilate → Implement
   │          │          │          │           │
   │          │          │          │           └── COMPLETED SDD → auto ASSIMILATED_INTO
-  │          │          │          └── kg_write(action='assimilate')
-  │          │          └── kg_analyze / comparative-analysis skill
-  │          └── kg_search(mode='discover')
-  └── kg_ingest(target_path=paper.pdf)
+  │          │          │          └── graph_write(action='add_edge', type='ASSIMILATED_INTO')
+  │          │          └── graph_analyze / comparative-analysis skill
+  │          └── graph_search(mode='discover')
+  └── graph_ingest(target_path=paper.pdf)
 ```
 
 ### Edge Types
@@ -204,7 +204,7 @@ Ingest → Discover → Analyze → Assimilate → Implement
 
 ```python
 # Future comparative analyses skip papers already implemented
-kg_search(
+graph_search(
     mode="discover",
     query="memory synthesis",
     # Pass exclude_assimilated flag (available in discover_innovations engine method)

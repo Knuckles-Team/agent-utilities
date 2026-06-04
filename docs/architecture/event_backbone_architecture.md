@@ -1,6 +1,6 @@
 # Event Backbone Architecture
 
-> CONCEPT:KG-2.19 — Vendor-Agnostic Event Backbone
+> CONCEPT:KG-2.7 — Vendor-Agnostic Event Backbone
 
 ## Overview
 
@@ -17,12 +17,12 @@ graph TD
         IGE["IntelligenceGraphEngine"]
         TM["TaskManager"]
         AHE["AHE Harness"]
-        SYNC["RedpandaGraphSyncDaemon"]
+        SYNC["KafkaGraphSyncDaemon"]
     end
 
     subgraph EventBackend["Event Backbone (Protocol)"]
-        MEB["MemoryEventBackend<br/>(default, in-process)"]
-        KEB["RedpandaEventBackend<br/>(distributed, persistent)"]
+        MEB["MemoryEventBackend<br/>(in-process, zero-dep)"]
+        KEB["RedpandaEventBackend<br/>(distributed, persistent, confluent-kafka)"]
     end
 
     subgraph Topics
@@ -104,15 +104,16 @@ backend = create_event_backend("redpanda", bootstrap_servers="redpanda:9092")
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EVENT_BACKEND` | `memory` | Backend type (`memory`, `redpanda`) |
-| `REDPANDA_BOOTSTRAP_SERVERS` | `localhost:9092` | Redpanda broker addresses |
+| `EVENT_BACKEND` | `redpanda` | Backend type (`memory`, `redpanda`) — falls back to `memory` unless `KAFKA_ENABLED=true` |
+| `KAFKA_ENABLED` | `false` | Gate that enables the distributed backend; otherwise `MemoryEventBackend` is used |
+| `REDPANDA_BROKERS` | `localhost:9092` | Broker addresses (Kafka/Redpanda) |
 | `REDPANDA_CONSUMER_GROUP` | `agent-utilities` | Default consumer group |
 | `REDPANDA_SECURITY_PROTOCOL` | `PLAINTEXT` | Security protocol |
 
 ## Graph Sync Daemon
 
-The `RedpandaGraphSyncDaemon` ensures L1 (Rust GraphComputeEngine) stays
-synchronized with L3 (persistent backend):
+The `KafkaGraphSyncDaemon` (in `core/kafka_graph_sync.py`) ensures L1 (Rust
+GraphComputeEngine) stays synchronized with L3 (persistent backend):
 
 ```mermaid
 sequenceDiagram
@@ -142,12 +143,12 @@ sequenceDiagram
 ## Docker Deployment
 
 ```bash
-# Start Redpanda (KRaft mode, no Zookeeper)
-docker compose -f docker/redpanda-kraft.compose.yml up -d
+# Start Kafka (KRaft mode, no Zookeeper) — also runs Redpanda-compatible brokers
+docker compose -f docker/kafka-kraft.compose.yml up -d
 
 # Verify topics
-docker exec agent-utilities-redpanda \
-    /opt/redpanda/bin/redpanda-topics.sh --list --bootstrap-server localhost:9092
+docker exec agent-utilities-kafka \
+    /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
 ```
 
 ## Dependencies
@@ -155,5 +156,5 @@ docker exec agent-utilities-redpanda \
 ```toml
 # pyproject.toml
 [project.optional-dependencies]
-event-redpanda = ["confluent-redpanda>=2.0"]
+event-kafka = ["confluent-kafka>=2.0"]
 ```

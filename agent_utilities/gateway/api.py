@@ -1,6 +1,6 @@
 """FastAPI router for the service dashboard.
 
-CONCEPT:GW-1.0 — Gateway Service Dashboard
+CONCEPT:OS-5.9 — Gateway Service Dashboard
 
 Mountable by agent-webui (and any other FastAPI backend)::
 
@@ -123,6 +123,28 @@ async def discover_services() -> DashboardLayout:
     """Auto-discover services from mcp_config.json and return a layout."""
     config_mgr = ConfigManager()
     return config_mgr._auto_discover()
+
+
+@dashboard_router.get("/daemon/status")
+async def daemon_status() -> dict[str, Any]:
+    """Status of the single consolidated KG background daemon (CONCEPT:KG-2.8).
+
+    The gateway is the daemon host; this surfaces the one daemon's role, live
+    threads, registered maintenance jobs, and queue depth.
+    """
+    from agent_utilities.gateway.daemon import daemon_status as _status
+
+    return _status()
+
+
+@dashboard_router.post("/daemon/start")
+async def daemon_start() -> dict[str, Any]:
+    """Ensure the single consolidated KG daemon is running in this gateway."""
+    from agent_utilities.gateway.daemon import daemon_status as _status
+    from agent_utilities.gateway.daemon import start_host_daemon
+
+    start_host_daemon()
+    return _status()
 
 
 @dashboard_router.post("/hydrate/{source}")

@@ -214,7 +214,7 @@ class NewConceptProposal(BaseModel):
     """
 
     proposed_id: str = Field(
-        description="Proposed CONCEPT:ID (e.g., 'KG-2.54', 'ECO-4.14')"
+        description="Proposed CONCEPT:ID (e.g., 'KG-2.54', 'ECO-4.8')"
     )
     target_pillar: str = Field(
         description="Which pillar this new concept augments (ORCH/KG/AHE/ECO/OS)"

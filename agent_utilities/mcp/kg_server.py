@@ -45,6 +45,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time as _time
 import uuid
 from datetime import UTC, datetime
@@ -1401,8 +1402,17 @@ _SESSION_ID = os.environ.get("SESSION_ID", uuid.uuid4().hex)
 _WORKSPACE_PATH = os.environ.get("WORKSPACE_PATH", os.getcwd())
 
 
+_ENGINE_LOCK = threading.Lock()
+
+
 def _get_engine():
-    """Lazily initialize and return the IntelligenceGraphEngine singleton."""
+    """Lazily initialize and return the IntelligenceGraphEngine singleton.
+
+    Thread-safe (double-checked lock): the server now builds the engine in a
+    background bootstrap thread so ``mcp.run()`` can start serving immediately
+    (under Claude Code's 30s connect deadline); a concurrent first tool call
+    must therefore not race a second engine into existence. (CONCEPT:KG-2.8)
+    """
     from agent_utilities.core.paths import ensure_dirs, kg_db_path
     from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -1411,14 +1421,18 @@ def _get_engine():
     if engine is not None:
         return engine
 
-    # First-run: ensure XDG dirs exist and create backend
-    ensure_dirs()
-    db_path = str(kg_db_path())
-    logger.info("KG MCP Server using database: %s", db_path)
-    backend_type = os.environ.get("GRAPH_BACKEND")
-    backend = create_backend(backend_type=backend_type, db_path=db_path)
-    engine = IntelligenceGraphEngine(backend=backend)
-    return engine
+    with _ENGINE_LOCK:
+        engine = IntelligenceGraphEngine.get_active()
+        if engine is not None:
+            return engine
+        # First-run: ensure XDG dirs exist and create backend
+        ensure_dirs()
+        db_path = str(kg_db_path())
+        logger.info("KG MCP Server using database: %s", db_path)
+        backend_type = os.environ.get("GRAPH_BACKEND")
+        backend = create_backend(backend_type=backend_type, db_path=db_path)
+        engine = IntelligenceGraphEngine(backend=backend)
+        return engine
 
 
 def _provenance_props(agent_id: str | None = None) -> dict[str, Any]:
@@ -1559,27 +1573,30 @@ def _build_server():
     is_readonly = False
 
     if not any(arg in sys.argv for arg in ["--help", "-h"]):
-        engine = _get_engine()
+        # Build the engine + start daemons/workers + ingest capabilities in a
+        # BACKGROUND thread so mcp.run() can start serving (and the multiplexer
+        # can list tools) immediately — engine init is ~30s and was blocking the
+        # MCP handshake past Claude Code's 30s connect deadline. Tools are
+        # registered below regardless; the first tool call's _get_engine() (now
+        # lock-safe) returns the same singleton the bootstrap builds. (CONCEPT:KG-2.8)
+        def _bootstrap_engine() -> None:
+            try:
+                engine = _get_engine()
+                if hasattr(engine, "start_sdd_watcher"):
+                    engine.start_sdd_watcher()
+                if (
+                    engine
+                    and engine.backend
+                    and not getattr(engine.backend, "read_only", False)
+                ):
+                    engine.start_task_workers()
+                _ingest_capabilities(engine)
+            except Exception:
+                logger.exception("KG engine background bootstrap failed")
 
-        import threading
-
-        # Run the expensive metadata ingestion in the background so it doesn't block the MCP server connection to the IDE
         threading.Thread(
-            target=_ingest_capabilities,
-            args=(engine,),
-            daemon=True,
-            name="KGCapabilityIngestThread",
+            target=_bootstrap_engine, daemon=True, name="KGEngineBootstrap"
         ).start()
-
-        # Start the background plan/task watcher thread natively via the engine
-        if hasattr(engine, "start_sdd_watcher"):
-            engine.start_sdd_watcher()
-
-        # Check if backend is in read-only mode (contention workaround)
-        is_readonly = getattr(engine.backend, "read_only", False)
-
-        if engine and engine.backend and not is_readonly:
-            engine.start_task_workers()
 
     def _check_readonly():
         if is_readonly:
@@ -1672,7 +1689,7 @@ def _build_server():
         query: str = Field(description="Natural language search query or concept ID."),
         mode: str = Field(
             default="hybrid",
-            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.15', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.",
+            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.7', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.",
         ),
         top_k: int = Field(default=10, description="Maximum results to return."),
     ) -> str:
@@ -1889,6 +1906,10 @@ def _build_server():
         ),
         base_path: str = Field(default="", description="Base path for the corpus."),
         description: str = Field(default="", description="Description of the corpus."),
+        content_type: str = Field(
+            default="",
+            description="Optional explicit ContentType (codebase, document, config, prompt, skill, mcp_server, kb, conversation, policy). When set, routes synchronously through the unified IngestionEngine for that category. Use 'chats' as target_path with content_type=conversation to auto-discover chat logs.",
+        ),
     ) -> str:
         """Smart ingestion tool to populate the Knowledge Graph with codebases, documents, and memory observations. Monitors async ingestion jobs."""
         engine = _get_engine()
@@ -1898,19 +1919,58 @@ def _build_server():
         try:
             if action == "ingest":
                 import json
-                from pathlib import Path
+
+                from ..knowledge_graph.ingestion.engine import (
+                    ContentType,
+                    IngestionEngine,
+                    IngestionManifest,
+                )
+
+                # Explicit content_type → thin wrapper over the unified engine:
+                # build a manifest per path and run it through IngestionEngine
+                # directly (covers config/prompt/skill/mcp_server/conversation/
+                # kb that the async codebase/document worker doesn't route).
+                # ``isinstance(str)`` guard: when graph_ingest is invoked
+                # directly (bypassing FastMCP's Field-default resolution, e.g. in
+                # tests), an unset ``content_type`` arrives as a ``FieldInfo``,
+                # not a str — treat that as "not provided".
+                if content_type and isinstance(content_type, str):
+                    try:
+                        ct = ContentType(content_type.strip().lower())
+                    except ValueError:
+                        ct = ContentType.classify(target_path.strip())
+                    ing = IngestionEngine(kg_engine=engine)
+                    raw = target_path.strip()
+                    paths = (
+                        json.loads(raw)
+                        if raw.startswith("[")
+                        else [p.strip() for p in raw.split(",") if p.strip()]
+                        if "," in raw
+                        else [raw]
+                    )
+                    out = []
+                    for pth in paths:
+                        r = await ing.ingest(
+                            IngestionManifest(
+                                content_type=ct,
+                                source_uri=pth,
+                                max_depth=max_depth,
+                                metadata={"agent_id": agent_id},
+                            )
+                        )
+                        out.append(
+                            f"{pth}: {r.status} (+{r.nodes_created}n/+{r.edges_created}e"
+                            f"{', ' + str(r.details.get('cards_pending')) + ' cards pending' if r.details.get('cards_pending') else ''}"
+                            f"{'; ' + r.error if r.error else ''})"
+                        )
+                    return f"[{ct.value}] " + " | ".join(out)
 
                 def get_task_type(p: str) -> str:
-                    p_path = Path(p.strip())
-                    if p_path.is_file() and p_path.suffix.lower() in [
-                        ".pdf",
-                        ".docx",
-                        ".doc",
-                        ".txt",
-                        ".md",
-                    ]:
-                        return "document"
-                    return "codebase"
+                    # Shared classifier (ContentType.classify) — single source of
+                    # truth for path→type. submit_task's worker routes
+                    # "codebase"/"document"; other types fold into "codebase".
+                    ct = ContentType.classify(p.strip())
+                    return "document" if ct == ContentType.DOCUMENT else "codebase"
 
                 if target_path.startswith("[") or "," in target_path:
                     try:
@@ -1961,6 +2021,8 @@ def _build_server():
                 return f"Corpus {corpus_name} added/updated."
 
             elif action == "jobs":
+                import json as _json
+
                 from agent_utilities.knowledge_graph.core.engine_tasks import (
                     _decode_metadata,
                 )
@@ -1968,18 +2030,38 @@ def _build_server():
                 jobs = engine.query_cypher(
                     "MATCH (t:Task) RETURN t.id as id, t.status as status, t.metadata as meta LIMIT 20"
                 )
-                if not jobs:
-                    return "No active or recent ingestion jobs."
                 lines = []
-                for j in jobs:
+                for j in jobs or []:
                     meta = _decode_metadata(j.get("meta"))
                     target = meta.get("target", "unknown")
-                    lines.append(f"{j['id']}: {j['status']} ({target})")
-                return "\n".join(lines)
+                    dur = meta.get("duration_ms")
+                    dur_s = f" {dur / 1000:.1f}s" if dur else ""
+                    lines.append(f"{j['id']}: {j['status']} ({target}){dur_s}")
+                # Per-category metrics breakdown (time/nodes/edges/failures) —
+                # the harness-style view, pollable over MCP (CONCEPT:KG-2.8).
+                breakdown = {}
+                if hasattr(engine, "aggregate_ingest_metrics"):
+                    try:
+                        _b = engine.aggregate_ingest_metrics()
+                        breakdown = _b if isinstance(_b, dict) else {}
+                    except Exception:  # noqa: BLE001
+                        breakdown = {}
+                head = (
+                    "\n".join(lines) if lines else "No active or recent ingestion jobs."
+                )
+                return (
+                    head
+                    + "\n\n=== per-category metrics ===\n"
+                    + _json.dumps(breakdown, indent=2)
+                    if breakdown
+                    else head
+                )
 
             elif action in ("job_status", "status"):
                 if not job_id:
                     return "Error: job_id required"
+                import json as _json
+
                 from agent_utilities.knowledge_graph.core.engine_tasks import (
                     _decode_metadata,
                 )
@@ -1992,16 +2074,30 @@ def _build_server():
                     return f"Job {job_id} not found."
                 status = jobs[0]["status"]
                 meta = _decode_metadata(jobs[0].get("meta"))
-                error_info = ""
-                if status == "failed" and meta.get("error"):
-                    error_info = f"\nError: {meta['error']}"
-                return f"Job {job_id} status: {status}{error_info}"
+                metrics = {
+                    k: meta[k]
+                    for k in (
+                        "type",
+                        "content_type",
+                        "duration_ms",
+                        "nodes_added",
+                        "nodes_created",
+                        "edges_added",
+                        "edges_created",
+                        "cards_pending",
+                        "error",
+                    )
+                    if k in meta
+                }
+                return f"Job {job_id} status: {status}\n" + _json.dumps(
+                    metrics, indent=2
+                )
 
             elif action == "rebuild_indexes":
                 engine.build_indexes()
                 return "Indexes rebuilt successfully."
 
-            # ── KG-2.10: Observational Memory Bridge Actions ──
+            # ── KG-2.7: Observational Memory Bridge Actions ──
             elif action == "observe":
                 try:
                     from pathlib import Path as _Path
@@ -2123,7 +2219,7 @@ def _build_server():
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -2175,7 +2271,24 @@ def _build_server():
                 )
             elif action == "inspect":
                 return engine.inspect(target)
-            # ── KG-2.10: Startup Context Generation ──
+            # ── KG-2.8: Per-category enrichment coverage gauge ──
+            elif action == "enrichment_coverage":
+                import json as _json
+
+                from agent_utilities.knowledge_graph.enrichment.query import (
+                    enrichment_coverage,
+                )
+
+                backend = getattr(engine, "backend", None)
+                if backend is None:
+                    return "Error: no graph backend available."
+                gname = getattr(
+                    getattr(engine, "graph_compute", None), "graph_name", None
+                )
+                return _json.dumps(
+                    enrichment_coverage(backend, graph_name=gname), indent=2
+                )
+            # ── KG-2.7: Startup Context Generation ──
             elif action == "context":
                 try:
                     from agent_utilities.knowledge_graph.memory import (
@@ -2259,42 +2372,75 @@ def _build_server():
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
         try:
-            if action in ("dispatch", "status", "request_approval", "grant_approval"):
-                try:
-                    from agent_utilities.orchestration.manager import Orchestrator
+            import json
+            import uuid
 
-                    orch = Orchestrator(engine)
+            from agent_utilities.orchestration.manager import Orchestrator
 
-                    if action == "dispatch":
-                        deps = json.loads(dependencies) if dependencies else []
-                        job_id = await orch.dispatch_task(task, deps)
-                        return f"Task dispatched. Job ID: {job_id}"
-                    elif action == "status":
-                        if not job_id:
-                            return "Error: job_id required"
-                        return str(orch.get_task_status(job_id))
-                    elif action == "request_approval":
-                        return f"Approval requested for job {job_id}"
-                    elif action == "grant_approval":
-                        return orch.grant_approval(job_id, approval_status)
-                    return f"Error: Action '{action}' not implemented."
-                except ImportError:
-                    return "Error: orchestration module not available"
+            orch = Orchestrator(engine)
+
+            if action == "dispatch":
+                deps = json.loads(dependencies) if dependencies else []
+                job_id = await orch.dispatch_task(task, deps)
+                return f"Task dispatched. Job ID: {job_id}"
+            elif action == "status":
+                if not job_id:
+                    return "Error: job_id required"
+                return str(orch.get_task_status(job_id))
+            elif action == "request_approval":
+                return f"Approval requested for job {job_id}"
+            elif action == "grant_approval":
+                return orch.grant_approval(job_id, approval_status)
             elif action == "execute_agent":
                 try:
-                    from agent_utilities.orchestration.agent_runner import (
-                        run_agent,
-                    )
-
-                    result = await run_agent(
+                    result = await orch.execute_agent(
                         agent_name=agent_name,
                         task=task,
                         max_steps=max_steps,
-                        engine=engine,
                     )
                     return result
-                except ImportError as exc:
-                    return f"Error: agent_runner module not available: {exc}"
+                except Exception as exc:
+                    return f"Error: agent execution failed: {exc}"
+            elif action == "compile_workflow":
+                try:
+                    name = agent_name or f"compiled_{uuid.uuid4().hex[:6]}"
+                    workflow_id = await orch.compile_workflow(name=name, task=task)
+                    return json.dumps(
+                        {
+                            "status": "compiled",
+                            "workflow_id": workflow_id,
+                            "name": name,
+                        }
+                    )
+                except Exception as exc:
+                    return f"Error compiling workflow: {exc}"
+            elif action == "list_workflows":
+                try:
+                    from agent_utilities.knowledge_graph.workflow_store import (
+                        WorkflowStore,
+                    )
+
+                    store = WorkflowStore(engine)
+                    workflows = store.list_workflows(limit=50)
+                    if not workflows:
+                        return json.dumps({"error": "No workflows found in database."})
+                    return json.dumps(
+                        {"source": "kg", "workflows": workflows}, default=str
+                    )
+                except Exception as exc:
+                    return f"Error listing workflows: {exc}"
+            elif action == "execute_workflow":
+                try:
+                    name = agent_name or task
+                    input_task = task if (agent_name and task != agent_name) else None
+                    wf_result = await orch.execute_workflow(
+                        workflow_id=name,
+                        task=input_task or "",
+                        max_steps=max_steps,
+                    )
+                    return wf_result
+                except Exception as exc:
+                    return f"Error executing workflow: {exc}"
             elif action == "consensus":
                 return f"Consensus reached for {task}."
             elif action == "start_debate":
@@ -2347,64 +2493,6 @@ def _build_server():
                     return f"Manually triggered cron job: {target_id}"
                 except ImportError:
                     return "Error: maintenance_cron module not available"
-            # ── CONCEPT:ORCH-1.24: Workflow Lifecycle Actions ──
-            elif action == "compile_workflow":
-                try:
-                    from agent_utilities.knowledge_graph.workflow_compiler import (
-                        WorkflowCompiler,
-                    )
-
-                    compiler = WorkflowCompiler(engine)
-                    name = agent_name or f"compiled_{uuid.uuid4().hex[:6]}"
-                    workflow_id = await compiler.compile_and_store(
-                        name=name,
-                        description=task,
-                    )
-                    return json.dumps(
-                        {
-                            "status": "compiled",
-                            "workflow_id": workflow_id,
-                            "name": name,
-                        }
-                    )
-                except Exception as exc:
-                    return f"Error compiling workflow: {exc}"
-
-            elif action == "list_workflows":
-                try:
-                    from agent_utilities.knowledge_graph.workflow_store import (
-                        WorkflowStore,
-                    )
-
-                    store = WorkflowStore(engine)
-                    workflows = store.list_workflows(limit=50)
-                    if not workflows:
-                        return json.dumps({"error": "No workflows found in database."})
-                    return json.dumps(
-                        {"source": "kg", "workflows": workflows}, default=str
-                    )
-                except Exception as exc:
-                    return f"Error listing workflows: {exc}"
-
-            elif action == "execute_workflow":
-                try:
-                    from agent_utilities.orchestration import AgentOrchestrationEngine
-
-                    runner = AgentOrchestrationEngine()
-                    name = agent_name or task
-                    input_task = task if (agent_name and task != agent_name) else None
-                    wf_result = await runner.execute_workflow(
-                        workflow_id=name,
-                        task=input_task,
-                        completion_state=completion_state,
-                        max_fan_out=max_fan_out,
-                    )
-                    return json.dumps(wf_result, default=str)
-                except ValueError as exc:
-                    return f"Workflow not found: {exc}"
-                except Exception as exc:
-                    return f"Error executing workflow: {exc}"
-
             elif action == "dispatch_workflow":
                 try:
                     import asyncio
@@ -2460,6 +2548,23 @@ def _build_server():
                     )
                 except Exception as exc:
                     return f"Error exporting workflow: {exc}"
+
+            elif action == "golden_loop":
+                # Propose-only self-evolution cycle (CONCEPT:KG-2.7): intake
+                # unresolved topics → acquire → ADDRESSES-resolve → optional
+                # distil/synthesize as DRAFTS/proposals. Never auto-merges.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.research.golden_loop import (
+                    GoldenLoopController,
+                )
+
+                engine = _get_engine()
+                _mt = max_fan_out if isinstance(max_fan_out, int) else 5
+                rep = GoldenLoopController(engine).run_one_cycle(
+                    max_topics=_mt if _mt > 0 else 5,
+                )
+                return _json.dumps(rep, indent=2, default=str)
 
             else:
                 return f"Error: Unknown orchestration action '{action}'"
@@ -2530,7 +2635,7 @@ def _build_server():
                     except Exception as e:
                         return json.dumps({"error": f"Invalid config_value JSON: {e}"})
                 return json.dumps({"error": "MCP config not found in workspace."})
-            # ── KG-2.10 / ECO-4.6: Memory Hook Management ──
+            # ── KG-2.7 / ECO-4.6: Memory Hook Management ──
             if action == "install_hooks":
                 try:
                     from agent_utilities.ecosystem.hook_installer import HookInstaller

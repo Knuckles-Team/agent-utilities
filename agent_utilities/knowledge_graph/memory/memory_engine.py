@@ -436,7 +436,7 @@ class MemoryMaterializer:
             }
         )
         logger.info(
-            "[KG-2.10] Materialized %d memory files to %s", len(paths), self.base_dir
+            "[KG-2.7] Materialized %d memory files to %s", len(paths), self.base_dir
         )
         return paths
 
@@ -1049,7 +1049,7 @@ class StartupContextBuilder:
         lines = [
             "# agent-utilities Startup Context",
             "",
-            "<!-- Budgeted startup payload from KG-2.10 Memory Bridge. -->",
+            "<!-- Budgeted startup payload from KG-2.7 Memory Bridge. -->",
             "",
             "## Startup Routing",
             "",
@@ -1088,7 +1088,7 @@ class StartupContextBuilder:
     def _load_team_context(self, team: str) -> list[StartupChunk]:
         """Load team-specific context from KG TeamConfigNode nodes.
 
-        CONCEPT:ECO-4.16 — Team-Specific Startup Context
+        CONCEPT:ECO-4.10 — Team-Specific Startup Context
 
         Queries the KG for ``TeamConfigNode`` or ``team_config`` nodes
         matching the team name and converts their conventions/preferences

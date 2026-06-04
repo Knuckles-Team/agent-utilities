@@ -1380,7 +1380,7 @@ def _persist_reflections(engine: IntelligenceGraphEngine, text: str) -> int:
             )
         count += 1
 
-    logger.info("[KG-2.10] Persisted %d reflection entries", count)
+    logger.info("[KG-2.7] Persisted %d reflection entries", count)
     return count
 
 

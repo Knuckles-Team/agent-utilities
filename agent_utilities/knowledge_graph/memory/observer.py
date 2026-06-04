@@ -223,7 +223,7 @@ def _persist_observations(
             )
             count += 1
 
-    logger.info("[KG-2.10] Persisted %d observations from %s", count, source)
+    logger.info("[KG-2.7] Persisted %d observations from %s", count, source)
     return count
 
 

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 67
+total_concepts: 70
 total_pillars: 12
 pillars:
 - AHE-3
@@ -19,13 +19,13 @@ pillars:
 - UTIL-1
 concepts:
 - id: AHE-3.x
-  name: Telemetry-Driven Routing Optimization
+  name: Telemetry-Driven Optimization
   pillar: AHE-3
   status: live
   code_paths:
-  - agent_utilities/graph/routing.py
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/models/schema_definition.py
-  doc: Telemetry-Driven Routing Optimization
+  doc: Telemetry-Driven Optimization
 - id: AHE-3.0
   name: Agentic Harness Engineering / Evolution
   pillar: AHE-3
@@ -103,7 +103,8 @@ concepts:
   code_paths:
   - agent_utilities/capabilities/teams.py
   - agent_utilities/core/registry/kg_adapter.py
-  - agent_utilities/graph/routing.py
+  - agent_utilities/graph/_router_impl.py
+  - agent_utilities/graph/routing/strategies/team_reuse.py
   - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/graph/verification.py
   - agent_utilities/harness/continuous_evaluation_engine.py
@@ -122,10 +123,10 @@ concepts:
   code_paths:
   - agent_utilities/core/agentspec_catalog.py
   - agent_utilities/graph/__init__.py
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/hierarchical_planner.py
   - agent_utilities/graph/horizon_curriculum.py
   - agent_utilities/graph/reward_decomposition.py
-  - agent_utilities/graph/routing.py
   - agent_utilities/graph/team_evolution.py
   - agent_utilities/graph/verification.py
   - agent_utilities/graph/workspace_attention.py
@@ -367,6 +368,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/contrib/falkordb_backend.py
   - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/backends/contrib/neo4j_backend.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/core/codemaps.py
   - agent_utilities/knowledge_graph/core/context_builder.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
@@ -398,7 +400,7 @@ concepts:
   - agent_utilities/tools/knowledge_tools.py
   doc: Provides git-like transactional mutation for KG evolution
 - id: KG-2.1
-  name: Inject Self-Model proficiency into discovery context
+  name: Self-Model proficiency + R5 ACO pheromone affinities
   pillar: KG-2
   status: live
   code_paths:
@@ -406,8 +408,11 @@ concepts:
   - agent_utilities/capabilities/eviction.py
   - agent_utilities/core/chat_persistence.py
   - agent_utilities/core/paths.py
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/executor.py
-  - agent_utilities/graph/routing.py
+  - agent_utilities/graph/routing/enrichers/capability_designation.py
+  - agent_utilities/graph/routing/enrichers/self_model.py
+  - agent_utilities/graph/routing/strategies/fast_path.py
   - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/graph/verification.py
   - agent_utilities/graph/workspace_attention.py
@@ -431,7 +436,7 @@ concepts:
   - agent_utilities/models/company.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/prompting/builder.py
-  doc: Inject Self-Model proficiency into discovery context
+  doc: Self-Model proficiency + R5 ACO pheromone affinities
 - id: KG-2.2
   name: Entity-Claim Extraction for MAGMA Epistemic View
   pillar: KG-2
@@ -478,6 +483,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/fingerprint.py
   - agent_utilities/knowledge_graph/memory/optimization_engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/knowledge_graph/pipeline/phases/embedding.py
   - agent_utilities/knowledge_graph/pipeline/phases/validate.py
   - agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py
   - agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py
@@ -584,7 +590,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/sparql_http.py
   - agent_utilities/knowledge_graph/kb/knowledge_classifier.py
   - agent_utilities/knowledge_graph/kb/x_workflows.py
-  - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/memory/optimization_engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_enterprise.py
   - agent_utilities/knowledge_graph/orchestration/engine_finance.py
@@ -614,30 +619,90 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/__init__.py
+  - agent_utilities/core/background_throttle.py
   - agent_utilities/core/config.py
+  - agent_utilities/graph/routing/strategies/query_tier.py
   - agent_utilities/knowledge_graph/backends/base.py
   - agent_utilities/knowledge_graph/backends/sparql/base.py
   - agent_utilities/knowledge_graph/backends/sparql/jena_fuseki_backend.py
+  - agent_utilities/knowledge_graph/backends/tiered_backend.py
   - agent_utilities/knowledge_graph/core/company_brain.py
   - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/event_backend.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/hydration.py
   - agent_utilities/knowledge_graph/core/kafka_graph_sync.py
   - agent_utilities/knowledge_graph/core/kg_versioning.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
-  - agent_utilities/knowledge_graph/core/query_router.py
+  - agent_utilities/knowledge_graph/enrichment/execute.py
   - agent_utilities/knowledge_graph/ingestion/__init__.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
+  - agent_utilities/knowledge_graph/pipeline/__init__.py
+  - agent_utilities/knowledge_graph/pipeline/phases/__init__.py
   doc: Bidirectional sync to ensure both the persistent
 - id: KG-2.8
-  name: KG-2.8
+  name: Cards are cached by
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/__init__.py
+  - agent_utilities/knowledge_graph/enrichment/__main__.py
+  - agent_utilities/knowledge_graph/enrichment/cards.py
+  - agent_utilities/knowledge_graph/enrichment/classify.py
+  - agent_utilities/knowledge_graph/enrichment/distill.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/__init__.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/document.py
+  - agent_utilities/knowledge_graph/enrichment/features.py
+  - agent_utilities/knowledge_graph/enrichment/models.py
+  - agent_utilities/knowledge_graph/enrichment/patterns.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/knowledge_graph/enrichment/query.py
+  - agent_utilities/knowledge_graph/enrichment/semantic.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/ingestion/manifest.py
+  - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
   - agent_utilities/models/knowledge_graph.py
-  doc: KG-2.8
+  doc: Cards are cached by
+- id: KG-2.9
+  name: Universal DataConnector
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/erpnext.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/grafana.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/infra.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/leanix.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/servicenow.py
+  - agent_utilities/knowledge_graph/enrichment/models.py
+  - agent_utilities/knowledge_graph/enrichment/registry.py
+  - agent_utilities/protocols/universal_connector.py
+  doc: Universal DataConnector
+- id: KG-2.10
+  name: S4c
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/execute.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/a2a.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/config_models.py
+  - agent_utilities/knowledge_graph/enrichment/pydantic_graph.py
+  - agent_utilities/knowledge_graph/enrichment/synthesize.py
+  doc: S4c
+- id: KG-2.16
+  name: KG-2.16
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  doc: KG-2.16
 - id: KG-2.21
   name: Working Set Eviction & Memory Management
   pillar: KG-2
@@ -667,13 +732,13 @@ concepts:
   code_paths:
   - agent_utilities/__main__.py
   - agent_utilities/capabilities/adversarial_verifier.py
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/adaptive_agent_router.py
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/hierarchical_planner.py
   - agent_utilities/graph/hsm.py
   - agent_utilities/graph/lifecycle.py
   - agent_utilities/graph/models.py
-  - agent_utilities/graph/routing.py
   - agent_utilities/graph/state.py
   - agent_utilities/harness/variant_pool.py
   - agent_utilities/models/knowledge_graph.py
@@ -689,10 +754,11 @@ concepts:
   code_paths:
   - agent_utilities/core/checkpoint/manager.py
   - agent_utilities/core/registry/kg_adapter.py
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/hierarchical_planner.py
   - agent_utilities/graph/horizon_curriculum.py
-  - agent_utilities/graph/routing.py
+  - agent_utilities/graph/routing/strategies/llm_planner.py
   - agent_utilities/graph/state.py
   - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/graph/team_composer.py
@@ -724,10 +790,11 @@ concepts:
   - agent_utilities/core/registry/kg_adapter.py
   - agent_utilities/core/registry/package_adapter.py
   - agent_utilities/core/resource_optimizer.py
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/adaptive_agent_router.py
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/hierarchical_planner.py
-  - agent_utilities/graph/routing.py
+  - agent_utilities/graph/routing/strategies/learned.py
   - agent_utilities/graph/state.py
   - agent_utilities/graph/topology_engine.py
   - agent_utilities/graph/workspace_attention.py
@@ -748,10 +815,10 @@ concepts:
   code_paths:
   - agent_utilities/base_utilities.py
   - agent_utilities/capabilities/checkpointing.py
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/coordination.py
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/hierarchical_planner.py
-  - agent_utilities/graph/routing.py
   - agent_utilities/graph/state.py
   - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
@@ -780,13 +847,14 @@ concepts:
   - agent_utilities/core/registry/kg_adapter.py
   - agent_utilities/core/registry/service_adapter.py
   - agent_utilities/graph/__init__.py
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/adapters/external_plugin_adapter.py
   - agent_utilities/graph/adaptive_agent_router.py
   - agent_utilities/graph/horizon_curriculum.py
   - agent_utilities/graph/kg_graph_factory.py
   - agent_utilities/graph/persistent_agents.py
   - agent_utilities/graph/protocol_agnostic_execution.py
-  - agent_utilities/graph/routing.py
+  - agent_utilities/graph/routing/strategies/policy.py
   - agent_utilities/graph/state.py
   - agent_utilities/graph_orchestration.py
   - agent_utilities/knowledge_graph/core/engine.py
@@ -800,6 +868,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/core/execution/protocol.py
   - agent_utilities/graph/__init__.py
   - agent_utilities/graph/gather.py
   - agent_utilities/graph/manifest_generators.py
@@ -847,12 +916,13 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   doc: Compiled Orchestration Kernel
 - id: ORCH-1.12
-  name: Structured Predict-RLM Runtime
+  name: RLM planning + fallback parser. The
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/rlm/predict_rlm.py
-  doc: Structured Predict-RLM Runtime
+  doc: RLM planning + fallback parser. The
 - id: ORCH-1.13
   name: GEPA Reflective Prompt Optimizer
   pillar: ORCH-1
@@ -938,7 +1008,7 @@ concepts:
   - agent_utilities/core/paths.py
   - agent_utilities/core/registry/package_adapter.py
   - agent_utilities/core/workspace.py
-  - agent_utilities/graph/routing.py
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/state.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py

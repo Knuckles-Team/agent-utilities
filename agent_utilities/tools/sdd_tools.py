@@ -119,16 +119,20 @@ async def get_sdd_parallel_batches(
 ) -> list[list[str]]:
     """Identify batches of tasks that can be executed in parallel.
 
+    Delegates to :meth:`SDDManager.get_parallel_opportunities`, which performs
+    real dependency-aware topological batching: each returned wave only contains
+    tasks whose dependencies were satisfied in an earlier wave (or already
+    completed), and no two tasks in a wave touch the same files. Dependent tasks
+    therefore always appear in a strictly later batch than their dependencies.
+
     Returns lists of task IDs grouped by parallel execution waves.
     """
     manager = SDDManager(ctx.deps.workspace_path)
     tasks = manager.load(Tasks, feature_id)
-    if not tasks:
+    if not tasks or not tasks.tasks:
         return []
-    # Simplified batching: tasks with [P] marker go into first batch
-    parallel = [t.id for t in tasks.tasks if t.parallel]
-    sequential = [t.id for t in tasks.tasks if not t.parallel]
-    return [parallel, sequential] if parallel else [sequential]
+
+    return manager.get_parallel_opportunities(tasks)
 
 
 @trace(name="run_tdd_cycle", trace_type="TOOL")

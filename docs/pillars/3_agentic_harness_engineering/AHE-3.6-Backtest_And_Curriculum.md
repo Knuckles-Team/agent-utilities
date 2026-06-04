@@ -4,7 +4,7 @@
 Strategy evaluation harness with SQLite storage, walk-forward validation windows, benchmark comparison, and KG integration via `BacktestRunNode`/`BacktestMetricNode`.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/harness/backtest_harness.py``
+- **Source Code**: ``agent_utilities/harness/continuous_evaluation_engine.py``
 - **Pillar**: AHE
 
 ## Documentation Coverage
@@ -26,7 +26,7 @@ Progressive horizon scheduling with macro-action composition, subgoal checkpoint
 Tracks knowledge drift via cosine distance/coefficient of variation and applies Elastic Weight Consolidation (EWC++) to prevent catastrophic forgetting (CONCEPT:AHE-3.4).
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/knowledge_graph/ewc.py``
+- **Source Code**: ``agent_utilities/knowledge_graph/memory/optimization_engine.py``
 - **Pillar**: AHE
 
 ## Documentation Coverage
@@ -37,7 +37,7 @@ Tracks knowledge drift via cosine distance/coefficient of variation and applies 
 Shell-based success checks, on-failure hooks, and configurable timeouts for structured retry logic. Retry outcomes feed into TeamConfig reward signaling (AHE-3.3) for routing improvement. Adapted from Goose's retry.rs.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/retry_manager.py``
+- **Source Code**: ``agent_utilities/security/execution_stability_engine.py``
 - **Pillar**: AHE
 
 ## Documentation Coverage

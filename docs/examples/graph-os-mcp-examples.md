@@ -1,6 +1,6 @@
 # Graph-OS MCP Server Examples
 
-The `graph-os` MCP server is the unified entrypoint for interacting with the Intelligence Graph Engine. It exposes 7 core tools that allow LLMs and automated pipelines to manipulate knowledge, orchestrate agents, and manage the workspace.
+The `graph-os` MCP server is the unified entrypoint for interacting with the Intelligence Graph Engine. It exposes 10 core tools that allow LLMs and automated pipelines to manipulate knowledge, orchestrate agents, and manage the workspace: the 7 documented below plus `graph_sessions` (durable session management), `graph_goals` (autonomous background loops), and `graph_hydrate` (instant KG hydration from external connectors).
 
 Below are exhaustive examples of every possible tool configuration you can execute.
 

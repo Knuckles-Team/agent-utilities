@@ -47,7 +47,7 @@ async def health_check(request: Request):
     # Add graph info if available
     if graph_bundle:
         with suppress(Exception):
-            from ...graph.config_helpers import get_discovery_registry
+            from ...core.config import get_discovery_registry
 
             registry = get_discovery_registry()
             skill_agents = [a for a in registry.agents if a.agent_type == "prompt"]

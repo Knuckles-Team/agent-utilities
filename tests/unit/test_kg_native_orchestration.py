@@ -122,31 +122,31 @@ class TestStateCheckpointer:
         return MockState()
 
     def test_checkpoint_without_engine(self):
-        from agent_utilities.graph.state_checkpoint import StateCheckpointer
+        from agent_utilities.core.checkpoint.manager import KGBackend
 
-        cp = StateCheckpointer(engine=None)
+        cp = KGBackend(engine=None)
         state = self._make_mock_state()
         ckpt_id = cp.checkpoint(state, session_id="test-sess")
         assert "test-sess" in ckpt_id
 
     def test_checkpoint_with_nx_engine(self):
-        from agent_utilities.graph.state_checkpoint import StateCheckpointer
+        from agent_utilities.core.checkpoint.manager import KGBackend
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         GraphComputeEngine(backend_type="rust")
         engine = IntelligenceGraphEngine(db_path=":memory:")
-        cp = StateCheckpointer(engine=engine)
+        cp = KGBackend(engine=engine)
         state = self._make_mock_state()
         ckpt_id = cp.checkpoint(state, session_id="nx-sess")
         assert ckpt_id in engine.graph.nodes
 
     def test_restore_from_nx(self):
-        from agent_utilities.graph.state_checkpoint import StateCheckpointer
+        from agent_utilities.core.checkpoint.manager import KGBackend
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         GraphComputeEngine(backend_type="rust")
         engine = IntelligenceGraphEngine(db_path=":memory:")
-        cp = StateCheckpointer(engine=engine)
+        cp = KGBackend(engine=engine)
         state = self._make_mock_state()
         cp.checkpoint(state, session_id="restore-test")
         restored = cp.restore("restore-test")
@@ -155,15 +155,15 @@ class TestStateCheckpointer:
         assert restored["session_id"] == "restore-test"
 
     def test_mark_completed(self):
-        from agent_utilities.graph.state_checkpoint import StateCheckpointer
+        from agent_utilities.core.checkpoint.manager import KGBackend
 
-        cp = StateCheckpointer(engine=None)
+        cp = KGBackend(engine=None)
         cp.mark_completed("test-session", success=True)  # Should not raise
 
     def test_list_sessions_empty(self):
-        from agent_utilities.graph.state_checkpoint import StateCheckpointer
+        from agent_utilities.core.checkpoint.manager import KGBackend
 
-        cp = StateCheckpointer(engine=None)
+        cp = KGBackend(engine=None)
         sessions = cp.list_sessions()
         assert sessions == []
 
@@ -442,6 +442,12 @@ class TestShareableTeamConfigs:
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
         g = GraphComputeEngine(backend_type="rust")
+        # Isolate on this engine's own connection: wipe team_config nodes leaked
+        # by other tests into the shared __bus__ graph before asserting counts.
+        try:
+            g._client.graph.clear()
+        except Exception:
+            pass
         g.add_node(
             "tc:a",
             type="team_config",
@@ -575,7 +581,7 @@ class TestEndToEndOrchestration:
 
     def test_compose_checkpoint_restore(self):
         """State persistence: compose → checkpoint → restore round-trip."""
-        from agent_utilities.graph.state_checkpoint import StateCheckpointer
+        from agent_utilities.core.checkpoint.manager import KGBackend
         from agent_utilities.graph.team_composer import KGTeamComposer
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -594,7 +600,7 @@ class TestEndToEndOrchestration:
             active_topology = None
             usage = None
 
-        cp = StateCheckpointer(engine=engine)
+        cp = KGBackend(engine=engine)
         cp.checkpoint(MockState(), session_id="e2e-sess")
 
         restored = cp.restore("e2e-sess")

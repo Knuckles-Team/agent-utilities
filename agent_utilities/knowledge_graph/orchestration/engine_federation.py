@@ -4,7 +4,7 @@ from __future__ import annotations
 """Federation Mixin for the Unified Intelligence Graph Engine.
 
 This module provides support for registering external ontologies (e.g. via SPARQL
-endpoints) and ingesting metadata stubs from external knowledge graphs (like LeanIX)
+endpoints) and ingesting metadata stubs from external knowledge graphs (like EARs)
 that lack semantic web capabilities.
 """
 
@@ -74,7 +74,7 @@ class FederationMixin:
         platform: str,
         name: str | None = None,
     ) -> str:
-        """Ingest a high-level metadata stub from an external KG (e.g. LeanIX).
+        """Ingest a high-level metadata stub from an external KG (e.g. EAR).
 
         Creates an `ExternalEntity` node and links it to the specified `internal_node_id`
         via `mapped_to_external` to create a bridge between the internal structural graph
@@ -96,7 +96,7 @@ class FederationMixin:
             },
         )
 
-        # Link internal node to this external stub
+        # Link internal node to this external reference
         self.link_nodes(  # type: ignore[attr-defined]
             source_id=internal_node_id, target_id=stub_id, rel_type="mapped_to_external"
         )

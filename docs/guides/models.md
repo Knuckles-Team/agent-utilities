@@ -65,21 +65,39 @@ Define your models directly in the unified `config.json` file located in the XDG
 
 ## Autonomous Routing
 
-In your code, you don't need to specify model strings. The graph orchestrator resolves the best fit dynamically:
+In your code, you don't need to specify model strings. Two complementary
+selection surfaces exist:
+
+**1. `config` registry helpers** — pick a model by `intelligence_level`
+(`light` / `normal` / `super`):
 
 ```python
 from agent_utilities.core.config import config
 
-# Retrieves a fast, JSON-capable model
-model = config.get_chat_model(intelligence_level="light", require_json=True)
+# Primary (intelligence_level='normal', fallback to first)
+model = config.default_chat_model
 
-# Retrieves a heavy model with vision support
-model = config.get_chat_model(intelligence_level="super", require_vision=True)
+# Lightweight (intelligence_level='light')
+model = config.lite_chat_model
+
+# Super/heavy (intelligence_level='super')
+model = config.super_chat_model
 ```
 
-### Selection Algorithm
+**2. `ModelRegistry.pick_for_task()`** — the graph orchestrator resolves the
+best fit dynamically by routing tier (`light` / `medium` / `heavy` /
+`reasoning`) plus capability tags:
 
-1. **Feature Filtering**: Only models that meet required features (`supports_json`, `vision`, `tools_enabled`) are considered.
-2. **Tier Matching**: An exact match on `intelligence_level` is preferred.
-3. **Graceful Fallback**: If an exact tier isn't available, heavier tiers fall back to reasoning, while lighter tiers fall back through normal/super.
-4. **Safety Net**: Defaults to the first matching configuration if multiple are found.
+```python
+from agent_utilities.models.model_registry import ModelRegistry
+
+registry = ModelRegistry(...)
+model = registry.pick_for_task(complexity="heavy", required_tags=["vision"])
+```
+
+### Selection Algorithm (`pick_for_task`)
+
+1. **Tag Filtering**: Only models carrying every `required_tag` are considered (AND semantics).
+2. **Tier Matching**: An exact match on the requested tier is preferred.
+3. **Graceful Fallback**: If an exact tier isn't available, a tier-specific fallback order applies — heavier tiers fall back to reasoning, lighter tiers fall back through medium/heavy.
+4. **Safety Net**: If tag filtering eliminates every candidate, it re-tries without tags; as a last resort it returns the registry default.

@@ -25,7 +25,7 @@ The ecosystem leverages a **Unified Intelligence Graph** (UIG) that bridges long
     - **SOP Execution**: Process flows and step sequences retrieved from the KG to guide agent behavior.
 
 ### Maintenance & Scalability
-The `GraphMaintainer` (`knowledge_graph/maintainer.py`) autonomously manages the graph's health:
+The `GraphMaintainer` (`knowledge_graph/core/maintainer.py`) autonomously manages the graph's health:
 1. **Validation**: Pydantic-based schema validation for all entity types.
 2. **Pruning**: Automated detached deletion of low-importance, non-permanent nodes.
 3. **Consolidation**: Distilling old chat episodes into high-level summaries.
@@ -58,7 +58,7 @@ graph TD
 
         subgraph S4 [Stage 4: Epistemic Consolidation]
             direction LR
-            Sync --> OWL --> Ext[KG-2.13: Ext Graphs] --> KB
+            Sync --> OWL --> Ext[KG-2.6: Ext Graphs] --> KB
         end
 
         subgraph S5 ["Stage 5: Governance & Evolution"]
@@ -76,14 +76,18 @@ graph TD
     subgraph Persistence_Layer ["Persistent Graph Storage"]
         direction TB
         BackendNode("KG-2.0: GraphBackend Abstraction")
-        LDB[("KG-2.0: LadybugDB")]
-        FDB[("KG-2.0: FalkorDB")]
-        N4J[("Neo4j")]
+        EG[("KG-2.0: epistemic_graph (default)")]
+        PG[("KG-2.0: PostgreSQL / pgGraph (durable)")]
+        LDB[("contrib: LadybugDB")]
+        FDB[("contrib: FalkorDB")]
+        N4J[("contrib: Neo4j")]
 
-        BackendNode -- default --> LDB
-        BackendNode -.-> FDB
-        BackendNode -.-> N4J
-        LDB -- "Cypher & Vectors" --> LDB
+        BackendNode -- default --> EG
+        BackendNode -- "prod durable" --> PG
+        BackendNode -.->|opt-in| LDB
+        BackendNode -.->|opt-in| FDB
+        BackendNode -.->|opt-in| N4J
+        PG -- "Cypher & Vectors" --> PG
     end
 
     subgraph Query_Layer ["MCP / CLI / Tool Interface"]
@@ -121,19 +125,20 @@ graph TB
     subgraph HotPath ["Agent Runtime - Hot Path"]
         A[ORCH-1.0: IntelligenceGraphEngine] --> B[NetworkX MultiDiGraph]
         A --> C[KG-2.0: GraphBackend ABC]
-        C --> D[KG-2.0: LadybugDB]
-        C --> E[Neo4j]
-        C --> F[KG-2.0: FalkorDB]
-        C --> G[KG-2.3: VectorMCPBackend]
+        C --> D[KG-2.0: epistemic_graph default]
+        C --> P[KG-2.0: PostgreSQL / pgGraph durable]
+        C -.->|opt-in contrib| E[Neo4j]
+        C -.->|opt-in contrib| F[FalkorDB]
+        C -.->|opt-in contrib| L[LadybugDB]
     end
 
     subgraph WarmPath ["OWL Reasoning - Warm Path"]
         H[KG-2.2: OWLBackend ABC] --> I[KG-2.2: Owlready2Backend]
-        H --> J[KG-2.13: StardogBackend]
-        H --> K[KG-2.13: JenaBackend stub]
+        H --> J[KG-2.6: StardogBackend]
+        H --> K[KG-2.6: JenaBackend stub]
         I --> L["KG-2.2: ontology.ttl"]
         I --> M[KG-2.2: HermiT Reasoner]
-        J --> N[KG-2.13: pystardog SPARQL]
+        J --> N[KG-2.6: pystardog SPARQL]
     end
 
     subgraph HybridBridge ["Hybrid Bridge"]
@@ -164,13 +169,13 @@ graph TB
 3. **LLM-Driven Consolidation**: The `GraphMaintainer` automatically evaluates low-level conversational episodes, rolling them up into highly dense semantic summaries to maintain long-term memory scalability.
 4. **Episodic Ingestion**: Agents can dynamically extract knowledge triples (`Entity -> Relation -> Entity`) from task episodes to autonomously extend the graph geometry (`kg_evolution_tools`).
 5. **P2P Graph Sharing**: Agents can selectively export context subgraphs or "agent cards" to share capabilities and learned knowledge across the A2A network (`kg_share_tools`).
-6. **Background Concept Research Daemon**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via `kg_analyze(action="background_research")`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow.
+6. **Background Concept Research Daemon**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via the `graph_analyze` MCP tool with `action="background_research"`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow.
 
 ## Intelligence Pipeline (5 Stages / 17 Phases)
 
 | Phase | Name | Purpose |
 |-------|------|---------|
-| 1 | **Memory** | Hydrates existing state (Nodes/Edges) from **LadybugDB** to maintain continuity. |
+| 1 | **Memory** | Hydrates existing state (Nodes/Edges) from the persistent **GraphBackend** (epistemic_graph / PostgreSQL) to maintain continuity. |
 | 2 | **Scan** | Walks the filesystem, respects `.gitignore`, and identifies all source code files. |
 | 3 | **Registry** | Ingests `prompts/*.json` and MCP server definitions into the **Knowledge Graph** as specialist nodes. |
 | 4 | **Parse** | AST parsing (**tree-sitter**) to extract symbols (Classes, Functions, Imports) from code. |
@@ -180,7 +185,7 @@ graph TB
 | 8 | **Communities** | Clusters nodes into tightly-coupled modules using **Louvain** topological clustering. |
 | 9 | **Centrality** | Runs **PageRank** analysis to identify critical path "God Objects" and core utilities. |
 | 10 | **Embedding** | Generates semantic vector embeddings via LM Studio (`text-embedding-nomic-embed-text-v2-moe`) for hybrid search. |
-| 11 | **Sync** | Projects the NetworkX graph into the persistent **LadybugDB** Cypher store. |
+| 11 | **Sync** | Projects the NetworkX graph into the persistent **GraphBackend** Cypher store (epistemic_graph / PostgreSQL). |
 | 12 | **OWL Reasoning** | Promotes stable nodes to OWL, runs HermiT/Stardog inference, downfeeds inferred facts. |
 | 13 | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
 | 14 | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
@@ -218,10 +223,14 @@ All graph storage is routed through the `GraphBackend` ABC (`backends/base.py`),
 **Supported Graph Backends:**
 | Backend | Status | Connection | Use Case |
 |---|---|---|---|
-| **LadybugDB** | Full (default) | File path (`knowledge_graph.db`) | Embedded, zero-config, schema-enforced Cypher |
-| **FalkorDB** | Full | `host:port` (Redis protocol) | High-performance, distributed graph workloads |
-| **Neo4j** | Full | `bolt://host:port` or `neo4j://` | Enterprise, ACID-compliant property graphs |
-| **PostgreSQL / pgGraph** | Full | `postgresql://host:port` | Relational + graph unified storage via pgvector & transpiler |
+| **epistemic_graph** (`memory`/`file`) | Full (default) | In-process Rust client / `.json` snapshot | Zero-dependency working store (L1); bare default is `memory` |
+| **PostgreSQL / pgGraph** | Full (durable tier) | `postgresql://host:port` | Relational + graph unified storage via pgvector & transpiler; production durable backend |
+| **tiered** | Full | L1 epistemic_graph + L2 PostgreSQL | Write-through two-tier (working store in front of durable store) |
+| **LadybugDB** | Opt-in contrib | File path (`knowledge_graph.db`) | Embedded, zero-config, schema-enforced Cypher (`backends/contrib/`) |
+| **FalkorDB** | Opt-in contrib | `host:port` (Redis protocol) | High-performance, distributed graph workloads (`backends/contrib/`) |
+| **Neo4j** | Opt-in contrib | `bolt://host:port` or `neo4j://` | Enterprise, ACID-compliant property graphs (`backends/contrib/`) |
+
+> The `epistemic_graph` engine is reached **only** through the out-of-process MessagePack/UDS client — there is no PyO3. Set `GRAPH_BACKEND=postgresql` (or `tiered`) for production durability; `ladybug`/`falkordb`/`neo4j` are imported only when explicitly requested.
 
 For step-by-step setup, Docker files, and multi-agent production guides, see the [Deploying Graph Databases Guide](graph-db-deployment.md).
 
@@ -235,23 +244,24 @@ For step-by-step setup, Docker files, and multi-agent production guides, see the
 ```python
 from agent_utilities.knowledge_graph.backends import create_backend
 
-# Default: LadybugDB at knowledge_graph.db
+# Bare default: in-process epistemic_graph ("memory")
 backend = create_backend()
 
-# Explicit backend selection
+# Production durable tier
+backend = create_backend(backend_type="postgresql", uri="postgresql://agent:agent@localhost:5433/agent_kg")
+backend = create_backend(backend_type="tiered")  # epistemic_graph L1 + PostgreSQL L2
+
+# Opt-in contrib backends (imported only when explicitly requested)
 backend = create_backend(backend_type="neo4j", uri="bolt://prod-neo4j:7687")
 backend = create_backend(backend_type="falkordb", host="redis-host", port=6380)
-backend = create_backend(backend_type="postgresql", uri="postgresql://agent:agent@localhost:5433/agent_kg")
-
-# With db_path for LadybugDB
-backend = create_backend(db_path="/data/agent.db")
+backend = create_backend(backend_type="ladybug", db_path="/data/agent.db")
 ```
 
 **Environment Variables:**
 | Variable | Description | Default |
 |---|---|---|
-| `GRAPH_BACKEND` | Backend type: `ladybug`, `falkordb`, `neo4j`, `postgresql` | `ladybug` |
-| `GRAPH_DB_PATH` | File path for LadybugDB | `knowledge_graph.db` |
+| `GRAPH_BACKEND` | Backend type: `memory`, `file`, `epistemic_graph`, `postgresql`, `tiered` (primary), plus opt-in contrib `ladybug`, `falkordb`, `neo4j` | `memory` (set `postgresql` for prod) |
+| `GRAPH_DB_PATH` | File path for LadybugDB (contrib) | `knowledge_graph.db` |
 | `GRAPH_DB_HOST` | Host for FalkorDB/Neo4j | `localhost` |
 | `GRAPH_DB_PORT` | Port for FalkorDB (6379) or Neo4j (7687) | varies |
 | `GRAPH_DB_URI` | Full URI for Neo4j or PostgreSQL | `bolt://localhost:7687` |
@@ -284,7 +294,7 @@ Validated Articles / Facts / Concepts (type-safe)
     | KBIngestionEngine
 Graph Nodes: KnowledgeBase -> Article -> KBConcept / KBFact / KBIndex
     | Phase 13 / Backend Sync
-Persistent Storage (LadybugDB / Neo4j / FalkorDB)
+Persistent Storage (epistemic_graph / PostgreSQL; opt-in contrib: LadybugDB / Neo4j / FalkorDB)
     | KB Tools (list, search, get, health, archive, export)
 Agent Q&A and Knowledge Queries
 ```
@@ -311,7 +321,7 @@ Agent Q&A and Knowledge Queries
 
 ## Memory Maintenance & Pruning
 
-The `GraphMaintainer` class (`knowledge_graph/maintainer.py`) runs several background maintenance operations using the unified `GraphBackend.prune()` interface:
+The `GraphMaintainer` class (`knowledge_graph/core/maintainer.py`) runs several background maintenance operations using the unified `GraphBackend.prune()` interface:
 1. **Embedding Enrichment**: Vectorizes unembedded content via LM Studio.
 2. **Cron Log Pruning**: Deletes successful logs older than 30 days.
 3. **Chat Summarization**: Compresses old threads into `ChatSummary` nodes.
@@ -334,10 +344,10 @@ The Document Pipeline provides a tightly-wired system for managing documents nat
 graph TD
     subgraph Document_Pipeline ["Document Pipeline Architecture"]
         direction TB
-        Ingest[KG-2.7: Document Ingestion Pipeline]
-        Update[KG-2.7: Document Update Pipeline]
-        Delete[KG-2.7: Document Deletion Pipeline]
-        Cleanup[KG-2.7: Document Cleanup Manager]
+        Ingest[KG-2.6: Document Ingestion Pipeline]
+        Update[KG-2.6: Document Update Pipeline]
+        Delete[KG-2.6: Document Deletion Pipeline]
+        Cleanup[KG-2.6: Document Cleanup Manager]
 
         Ingest --> KGNode[("KG-2.0: Knowledge Graph")]
         Ingest --> IDReg[("OS-5.1: Unified ID Registry")]
@@ -715,9 +725,9 @@ The KG Eval Capture harness records real queries and their retrieval results to 
 ### Usage
 
 ```python
-from agent_utilities.knowledge_graph.eval_capture import KGEvalCapture
+from agent_utilities.knowledge_graph.memory.optimization_engine import EvaluationCapture
 
-capture = KGEvalCapture(enabled=True)
+capture = EvaluationCapture(enabled=True)
 capture.capture("who founded Acme?", "hybrid", ["acme-01", "bob-02"], [0.94, 0.87])
 
 # After making KG changes, replay:
@@ -753,7 +763,7 @@ The skeleton is hashed independently of the file content, enabling the COSMETIC/
 ### Usage
 
 ```python
-from agent_utilities.knowledge_graph.fingerprint import (
+from agent_utilities.knowledge_graph.core.fingerprint import (
     FingerprintManager,
     compute_fingerprint,
     classify_change,
@@ -795,10 +805,10 @@ The validator includes comprehensive alias maps for both node types (30+ aliases
 
 ### Pipeline Integration
 
-The validator runs as the **16th pipeline phase** (`validate`), executing in Stage 5. Results are stored via `KGEvalCapture` (CONCEPT:KG-2.2) for trend analysis.
+The validator runs as the **16th pipeline phase** (`validate`), executing in Stage 5. Results are stored via `EvaluationCapture` (CONCEPT:KG-2.2) for trend analysis.
 
 ```python
-from agent_utilities.knowledge_graph.graph_validator import GraphValidator
+from agent_utilities.knowledge_graph.security.graph_validator import GraphValidator
 
 validator = GraphValidator(engine)
 report = validator.validate()
@@ -859,9 +869,9 @@ view = engine.retrieve_epistemic_view("graph validation")
 
 Injects multi-hop structural logic and OWL relationships directly into node vector embeddings to enable "topology-aware" semantic search.
 
-### ContextualRepresentationBuilder
+### Contextual Description Builder
 
-The `ContextualRepresentationBuilder` dynamically assembles a rich text description for any node before embedding. It extracts:
+The `build_contextual_description()` helper (`knowledge_graph/core/context_builder.py`) dynamically assembles a rich text description for any node before embedding. It extracts:
 1. **Node Profile**: The node's raw content, `name`, `type`, and `description`.
 2. **Topological Hierarchy**: A 2-level traversal capturing up to 5 immediate parent/grandparent relations, and up to 5 child/grandchild relations.
 3. **OWL Inferences**: Any relationships specifically marked with `inferred=True` (typically originating from HermiT or Stardog downfeed).
@@ -874,7 +884,7 @@ To prevent the vector space from drifting out of sync with the topological space
 1. When the `OWLBridge` promotes nodes and runs reasoning, it downfeeds new facts back to the LPG.
 2. The bridge tracks every LPG node that received a new edge.
 3. It immediately triggers `re_embed_node()` on those specific nodes.
-4. The `ContextualRepresentationBuilder` rebuilds the description (now including the new OWL inferences) and generates a fresh embedding.
+4. `build_contextual_description()` rebuilds the description (now including the new OWL inferences) and generates a fresh embedding.
 
 ---
 
@@ -895,4 +905,4 @@ This interaction logic is fully integrated with the 17-Phase Ingestion Pipeline 
 
 1. **Topology & OWL Convergence**: As the OWL reasoning bridge infers new implicit facts (e.g., `subClassOf`), these new edges create additional positional intersections.
 2. **Native Vectorization**: The `EncPI` engine natively computes the dense vector embeddings for these positional interactions.
-3. **Retrieval Application**: During test-time, the `HybridRetriever` uses `cosine_similarity` across the vectorized `EncPI` embeddings stored in `LadybugDB`. This allows the retriever to infer that a completely novel relation topologically behaves like a known relation, enabling true zero-shot reasoning over dynamic autonomous data.
+3. **Retrieval Application**: During test-time, the `HybridRetriever` uses `cosine_similarity` across the vectorized `EncPI` embeddings stored in the persistent `GraphBackend` (epistemic_graph / PostgreSQL). This allows the retriever to infer that a completely novel relation topologically behaves like a known relation, enabling true zero-shot reasoning over dynamic autonomous data.

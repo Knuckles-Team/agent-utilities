@@ -1,6 +1,6 @@
-"""Prediction Linkage Layer (ORCH-1.7).
+"""Prediction Linkage Layer (ORCH-1.6).
 
-CONCEPT: ORCH-1.7 Prediction Linkage Layer
+CONCEPT: ORCH-1.6 Prediction Linkage Layer
 
 This microservice fuses confidence score matrices from multiple executing subagents,
 translating isolated agent predictions into an ensemble modeling pipeline.

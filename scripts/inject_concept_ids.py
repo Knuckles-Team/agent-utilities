@@ -120,7 +120,7 @@ def get_injection_rules():
             "wiringengine",
             "topologyengine",
         ],
-        "ORCH-1.6": [
+        "ORCH-1.5": [
             "dstdd",
             "sdd implementation plan",
             "acceptance.md",
@@ -278,9 +278,9 @@ def get_injection_rules():
             "cleanup manager",
             "layered evidence corpus",
         ],
-        "KG-2.8": ["enterprise domain"],
-        "KG-2.9": ["quant orchestration"],
-        "KG-2.10": [
+        "KG-2.7": ["enterprise domain"],
+        "KG-2.7": ["quant orchestration"],
+        "KG-2.7": [
             "observational memory",
             "memento",
             "l1 summary",
@@ -293,13 +293,13 @@ def get_injection_rules():
             "message 5",
             "summaries & clusters",
         ],
-        "KG-2.12": [
+        "KG-2.7": [
             "temporal weighted decay",
             "temporal decay",
             "tsgraph",
             "temporal view",
         ],
-        "KG-2.13": [
+        "KG-2.7": [
             "external graph federation",
             "external graph",
             "external ontology",
@@ -399,7 +399,7 @@ def get_injection_rules():
         ],
         "ECO-4.2": ["community telemetry", "ecosystem map"],
         "ECO-4.3": ["market data connectors"],
-        "ECO-4.10": [
+        "ECO-4.6": [
             "agent toolkit ingestor",
             "type detector",
             "agent registry",

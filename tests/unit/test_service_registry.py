@@ -6,14 +6,14 @@ class TestServiceRegistry:
     """Validate the central service registry wires all modules."""
 
     def test_initialize(self):
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry()
         count = registry.initialize()
         assert count >= 50  # At least 50 services should be registered
 
     def test_discover_by_domain(self):
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry()
         registry.initialize()
@@ -21,7 +21,7 @@ class TestServiceRegistry:
         assert len(finance) > 10  # All finance + general services
 
     def test_discover_by_layer(self):
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry()
         registry.initialize()
@@ -29,7 +29,7 @@ class TestServiceRegistry:
         assert len(security) >= 6
 
     def test_get_capability(self):
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry()
         registry.initialize()
@@ -38,7 +38,7 @@ class TestServiceRegistry:
         assert svc.module_path == "agent_utilities.graph.team_composer"
 
     def test_list_capabilities(self):
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry()
         registry.initialize()
@@ -48,7 +48,7 @@ class TestServiceRegistry:
         assert "alpha_factors" in caps
 
     def test_layer_summary(self):
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry()
         registry.initialize()
@@ -58,7 +58,7 @@ class TestServiceRegistry:
         assert "domain" in summary
 
     def test_validate_loadable(self):
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         registry = ServiceRegistry()
         registry.initialize()
@@ -69,14 +69,14 @@ class TestServiceRegistry:
             print(f"Failed to load: {failed}")
 
     def test_singleton_pattern(self):
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
         r1 = ServiceRegistry.instance()
         r2 = ServiceRegistry.instance()
         assert r1 is r2
 
     def test_register_with_kg(self):
-        from agent_utilities.graph.service_registry import ServiceRegistry
+        from agent_utilities.core.registry.service_adapter import ServiceRegistry
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
         from agent_utilities.knowledge_graph.core.graph_compute import (
             GraphComputeEngine,

@@ -276,7 +276,7 @@ class IModelEvolver:
                     "str_hash": hashlib.sha256(
                         candidate.str_output.encode()
                     ).hexdigest()[:16],
-                    "concept": "AHE-3.15",
+                    "concept": "AHE-3.8",
                     "paper": "arXiv:2605.03808",
                 },
             )

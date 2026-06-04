@@ -6,7 +6,7 @@ from __future__ import annotations
 CONCEPT:KG-2.6 — Research Orchestration Integration
 
 Connects the ResearchSubagent (KG-2.33) to the ResearchPipelineRunner
-(KG-2.11) and the unified RAG-KG retriever (KG-2.38) for automated,
+(KG-2.7) and the unified RAG-KG retriever (KG-2.38) for automated,
 scheduled research loops.
 
 Architecture::
@@ -19,7 +19,7 @@ Architecture::
     │ 1. Discover papers via ResearchPipelineRunner│
     │ 2. Create ResearchSubagent session           │
     │ 3. Traverse citation graphs (KG-2.33)        │
-    │ 4. Score & ingest via pipeline (KG-2.11)     │
+    │ 4. Score & ingest via pipeline (KG-2.7)     │
     │ 5. Build similarity edges (KG-2.36)          │
     │ 6. Refresh cluster index (KG-2.34)           │
     │ 7. Persist session + provenance to KG        │

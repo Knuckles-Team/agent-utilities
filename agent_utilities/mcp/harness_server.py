@@ -56,7 +56,7 @@ def _build_server():
         extension_strategy: str = "augment",
         extension_point: str = "",
     ) -> str:
-        """Create a design document for a new feature (ORCH-1.7).
+        """Create a design document for a new feature (ORCH-1.6).
 
         The first step in the DSTDD pipeline. Creates a design document
         with KG analysis and persists it to `.specify/design/`.
@@ -118,7 +118,7 @@ def _build_server():
 
     @mcp.tool()
     def dstdd_validate_design(feature_id: str) -> str:
-        """Validate a design document against Extend-Before-Invent rules (ORCH-1.7).
+        """Validate a design document against Extend-Before-Invent rules (ORCH-1.6).
 
         Checks governance compliance:
         - High-similarity concepts MUST extend, not create new.
@@ -150,7 +150,7 @@ def _build_server():
 
     @mcp.tool()
     def dstdd_design_to_spec(feature_id: str) -> str:
-        """Generate a spec from a validated design document (ORCH-1.7).
+        """Generate a spec from a validated design document (ORCH-1.6).
 
         Converts a passing design into a specification with user stories
         and acceptance criteria. The design must pass validation first.

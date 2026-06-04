@@ -36,6 +36,7 @@ from agent_utilities.core.config import (
     DEFAULT_ROUTING_STRATEGY,
     DEFAULT_SSL_VERIFY,
     DEFAULT_VALIDATION_MODE,
+    get_discovery_registry,
 )
 from agent_utilities.core.workspace import get_agent_workspace, resolve_mcp_config_path
 from agent_utilities.mcp.agent_manager import should_sync, sync_mcp_agents
@@ -45,33 +46,32 @@ from ..base_utilities import (
     is_loopback_url,
 )
 from ..models import GraphResponse
-from .config_helpers import (
-    get_discovery_registry,
-)
 from .executor import (
     agent_package_step,
 )
+from .hierarchical_planner import (
+    architect_step,
+    memory_selection_step,
+    planner_step,
+    researcher_step,
+)
+from .lifecycle import approval_gate_step, onboarding_step, usage_guard_step
 from .nodes import (
     LoadAndExecuteProcessFlow,
 )
-from .state import GraphDeps, GraphState
-from .steps import (
-    approval_gate_step,
-    architect_step,
+from .routing import (
     dispatcher_step,
     dynamic_mcp_routing_step,
-    error_recovery_step,
     expert_executor_step,
-    join_step,
     mcp_server_step,
-    memory_selection_step,
-    onboarding_step,
     parallel_batch_processor,
-    planner_step,
-    researcher_step,
     router_step,
+)
+from .state import GraphDeps, GraphState
+from .verification import (
+    error_recovery_step,
+    join_step,
     synthesizer_step,
-    usage_guard_step,
     verifier_step,
     wide_search_joiner_step,
 )

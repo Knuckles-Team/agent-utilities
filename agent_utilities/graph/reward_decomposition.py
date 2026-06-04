@@ -3,6 +3,10 @@ from __future__ import annotations
 
 """CONCEPT:AHE-3.1 — Decomposed Reward Signals.
 
+Strangled by graph/planning/ (Plan 03 Step 4): re-exported via
+``agent_utilities.graph.planning.reward``. This module remains the live
+implementation.
+
 Separates trajectory-level reward (goal achievement) from step-level
 reward (local constraint satisfaction) to prevent penalising correct
 intermediate steps in failed trajectories.  Derived from the Long-Horizon

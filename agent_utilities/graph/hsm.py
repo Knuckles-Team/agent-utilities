@@ -20,8 +20,9 @@ from typing import Any
 
 from pydantic_ai import Agent
 
+from agent_utilities.core.config import emit_graph_event
+
 from ..models import MCPServerHealth
-from .config_helpers import emit_graph_event
 
 logger = logging.getLogger(__name__)
 

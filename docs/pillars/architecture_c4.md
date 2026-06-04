@@ -60,7 +60,7 @@ C4Container
         Container(ahe, "AHE: Agentic Harness", "Python", "Self-model, TeamConfig, evolution, evaluation")
         Container(eco, "ECO: Ecosystem Peripherals", "Python + FastMCP", "MCP server factory, A2A, skill management")
         Container(os_k, "OS: Agent OS Kernel", "Python + FastAPI", "Auth, guardrails, lifecycle, telemetry")
-        ContainerDb(kgdb, "Knowledge Graph DB", "LadybugDB/SQLite", "~/.local/share/agent-utilities/kg/")
+        ContainerDb(kgdb, "Knowledge Graph DB", "epistemic-graph (L0/L1) + PostgreSQL (durable); SQLite/file fallback", "~/.local/share/agent-utilities/kg/")
     }
 
     Rel(user, os_k, "Authenticated request")
@@ -87,15 +87,15 @@ C4Component
         Component(dispatcher, "Graph Dispatcher", "Python", "Parallel batch execution")
         Component(wiring, "Capability Wiring Engine", "Python", "Dynamic capability discovery")
         Component(orchestrator, "Agent Orchestrator", "Python", "Unified harness for multi-agent execution")
-        Component(coord, "🔬 Coordination Layer", "Python", "ORCH-1.5: Pluggable coordination protocols. Research: 2605.03310v1")
+        Component(coord, "🔬 Coordination Layer", "Python", "ORCH-1.0: Pluggable coordination protocols. Research: 2605.03310v1")
         Component(kgfactory, "KG Graph Factory", "Python", "ORCH-1.20: Materializes pydantic-graph topologies from KG AgentTemplates")
         Component(agentrunner, "Agent Runner", "Python", "ORCH-1.21: KG-to-LLM execution bridge — resolves agents, binds tools, tracks provenance")
         Component(workflowstore, "Workflow Store", "Python", "ORCH-1.22: Persists GraphPlan workflows as KG subgraphs with versioning")
         Component(workflowcompiler, "Workflow Compiler", "Python", "ORCH-1.23: NL → GraphPlan DAG compiler with KG agent matching")
         Component(workflowcatalog, "Workflow Catalog", "Python + YAML", "ORCH-1.24: Externally-consumable workflow definitions with KG persistence")
         Component(workflowrunner, "Workflow Runner", "Python", "ORCH-1.24: Executes stored workflows via wave-based parallel dispatch")
-        Component(pll, "🔬 Prediction Linkage Layer", "Python", "ORCH-1.7: Fuses confidence matrices for ensemble modeling")
-        Component(mas, "🔬 RecursiveMAS Latent Orchestrator", "Python", "ORCH-1.8: Continuous latent loop or simulated semantic collaboration")
+        Component(pll, "🔬 Prediction Linkage Layer", "Python", "ORCH-1.6: Fuses confidence matrices for ensemble modeling")
+        Component(mas, "🔬 RecursiveMAS Latent Orchestrator", "Python", "ORCH-1.7: Continuous latent loop or simulated semantic collaboration")
     }
 
     Rel(router, planner, "Routes task to planning")
@@ -126,26 +126,30 @@ C4Component
     title KG — Knowledge Graph Components
 
     Container_Boundary(kg, "Knowledge Graph") {
-        Component(engine, "IntelligenceGraphEngine", "Python", "Core engine with 10 mixins")
-        Component(backend, "Graph Backends", "Python", "LadybugDB, FalkorDB, Neo4j, PostgreSQL")
+        Component(engine, "IntelligenceGraphEngine", "Python", "Core engine composed of 8 focused mixins (Query, Memory, Ingestion, MCPDiscovery, Registry, TaskManager, Federation, AHE)")
+        Component(backend, "Graph Backends", "Python", "Primary: epistemic-graph + PostgreSQL (TieredGraphBackend); contrib: Ladybug, FalkorDB, Neo4j")
         Component(pipeline, "Graph-OS Ingestion", "Python", "Ingest, enrich, index, materialize, evolve via MCP")
         Component(retrieval, "Hybrid Retriever", "Python", "Semantic 72% + keyword 28% search")
         Component(dci, "🔬 DCI Retriever", "Python", "KG-2.3: Multi-hop graph traversal retrieval. Research: 2605.05242v1")
-        Component(ontology, "OWL Bridge + SPARQL", "Python + epistemic-graph", "Formal ontology, SPARQL endpoint, Rust FFI Datalog reasoning")
-        Component(epistemic_compute, "🔬 EpistemicGraph Compute Engine", "Rust (Unix Sockets)", "KG-2.17: Compiled sub-millisecond topological processing and Datalog reasoning")
-        Component(quant_compute, "🔬 Quant Compute Engine", "Rust (Unix Sockets)", "KG-2.18: C-speed rolling variance, moving averages, and order matching simulation")
-        Component(sdd_ont, "SDD Ontology", "OWL/Turtle", "KG-2.7: Spec, Feature, Requirement, TestCase classes")
-        Component(shacl, "SHACL Validator", "Python + pyshacl", "KG-2.7: Enterprise governance shape validation")
-        Component(publisher, "Ontology Publisher", "Python", "KG-2.7: Push to Stardog/Fuseki")
-        Component(loader, "Ontology Loader", "Python", "KG-2.7: owl:imports resolver with caching")
+        Component(ontology, "OWL Bridge + SPARQL", "Python + epistemic-graph", "Formal ontology, SPARQL endpoint, Rust Datalog reasoning via out-of-process epistemic-graph client (no PyO3)")
+        Component(epistemic_compute, "🔬 EpistemicGraph Compute Engine", "Rust (Unix Sockets)", "KG-2.7: Compiled sub-millisecond topological processing and Datalog reasoning")
+        Component(quant_compute, "🔬 Quant Compute Engine", "Rust (Unix Sockets)", "KG-2.7: C-speed rolling variance, moving averages, and order matching simulation")
+        Component(sdd_ont, "SDD Ontology", "OWL/Turtle", "KG-2.6: Spec, Feature, Requirement, TestCase classes")
+        Component(shacl, "SHACL Validator", "Python + pyshacl", "KG-2.6: Enterprise governance shape validation")
+        Component(publisher, "Ontology Publisher", "Python", "KG-2.6: Push to Stardog/Fuseki")
+        Component(loader, "Ontology Loader", "Python", "KG-2.6: owl:imports resolver with caching")
         Component(memory, "Memory Tiers", "Python", "Temporally-Aware Epistemic Memory (Episodic, Semantic, Procedural)")
         Component(evolving_memory, "🔬 Evolving Memory API", "Python", "KG-2.4: Ebbinghaus fact decay & GraphRAG traversal")
         Component(ctxbudget, "🔬 Context Budget Optimizer", "Python", "KG-2.1: Root Theorem compaction. Research: 2604.20874v1")
-        Component(argraph, "🔬 AR-Graph", "Python", "KG-2.11: Dynamic Agent Relationship Graph")
-        Component(tsgraph, "🔬 Time-Series Graph", "Python", "KG-2.12: Temporal weighted decay graphs")
-        Component(stream_ingest, "Stream Hydration / R2RML", "Python", "Dynamic dynamic-free parallel streaming from external APIs (ServiceNow, GitLab)")
+        Component(argraph, "🔬 AR-Graph", "Python", "KG-2.3: Dynamic Agent Relationship Graph")
+        Component(tsgraph, "🔬 Time-Series Graph", "Python", "KG-2.6: Temporal weighted decay graphs")
+        Component(stream_ingest, "Stream Hydration / R2RML", "Python", "Dynamic dynamic-free parallel streaming from external APIs (ServiceNow, GitLab, Jira, Slack) and Event Substrates (Kafka)")
+        Component(db_schema, "Database Schema Hydrator", "Python", "KG-2.7: Extracts SQL schema relations and auto-aligns with infrastructure ontology")
+        Component(process_mod, "Process Modeling Engine", "Python", "KG-2.7: Maps individual workflow steps directly to process_step nodes via :precedes edges")
         Component(cache_fabric, "Shared Ephemeral Cache Fabric", "Valkey / Redis / Filesystem", "Memory sharing between agents with TTL-based decay")
         Component(dspy_bridge, "DSPy KG Bridge", "Python", "KG-2.2: Instantly persists evolved prompts and optimization traces")
+        Component(align_bridge, "Ontology Alignment Bridge", "Python", "KG-2.7: Unifies disparate silos (Enterprise Architecture Repositories [EARs], ServiceNow) via cosine_similarity & owl:sameAs")
+        Component(entail_scope, "Entailment-Aware Permission Scoper", "Python", "KG-2.7: Intersects security classifications for Rust Datalog inferred edges")
     }
 
     Rel(engine, backend, "Tier 1: Cypher persistence")
@@ -165,6 +169,8 @@ C4Component
     Rel(engine, tsgraph, "Applies temporal decay to HNSW edges")
     Rel(engine, stream_ingest, "Hydrates graph from high-throughput API streams")
     Rel(stream_ingest, ontology, "Enforces schema correctness during ingestion via dynamic OWL classification")
+    Rel(stream_ingest, align_bridge, "Resolves topological alignments for disparate systems")
+    Rel(ontology, entail_scope, "Delegates security classification filtering for inferred graphs")
     Rel(engine, cache_fabric, "Stores and invalidates ephemeral agent contexts with dynamic TTL tracking")
     Rel(dspy_bridge, engine, "Fast-path Cypher MERGE")
 ```
@@ -182,11 +188,11 @@ C4Component
         Component(team, "TeamConfig Composer", "Python", "Coalition formation & promotion")
         Component(sdd, "DSTDD Manager", "Python", "Design-Spec-Test pipeline")
         Component(dasm, "🔬 Distributed Agent State Manager", "Python", "AHE-3.7: Optimistic locking with optional Redis support")
-        Component(distill, "Workflow Distillation Hook", "Python", "ORCH-1.25: Auto-promotes successful patterns to Workflow Skills")
+        Component(distill, "Workflow Distillation Hook", "Python", "ORCH-1.8: Auto-promotes successful patterns to Workflow Skills")
         Component(dspy, "DSPy Compiler", "Python", "AHE-3.1: Mathematical prompt optimization")
-        Component(physdistill, "🔬 Physical Knowledge Distiller", "Python", "AHE-4.0: Distills evolved prompts/tools to physical git-tracked files")
-        Component(dynoptimizer, "🔬 Dynamic Optimizer Selector", "Python", "AHE-4.1: Dynamically selects optimal optimizer (MIPROv2, FewShot, etc.) based on cluster scale")
-        Component(gitops_bound, "🔬 GitOps Evolution Boundary", "Python", "AHE-4.2: Enforces git boundaries and registers evolutionary changes in KG")
+        Component(physdistill, "🔬 Physical Knowledge Distiller", "Python", "AHE-3.9: Distills evolved prompts/tools to physical git-tracked files")
+        Component(dynoptimizer, "🔬 Dynamic Optimizer Selector", "Python", "AHE-3.10: Dynamically selects optimal optimizer (MIPROv2, FewShot, etc.) based on cluster scale")
+        Component(gitops_bound, "🔬 GitOps Evolution Boundary", "Python", "AHE-3.11: Enforces git boundaries and registers evolutionary changes in KG")
     }
 
     Rel(eval, selfmodel, "Updates self-assessment scores")
@@ -218,10 +224,10 @@ C4Component
         Component(quantapi, "🔬 Quant Agent API (SAAPI)", "Python", "ECO-4.7: Base QuantAgentTemplate")
         Component(dataflows, "🔬 Market Dataflows", "Python", "ECO-4.8: Temporal ticker stream connector")
         Component(quant_mcp, "Unified Quant MCP Tool", "Python", "ECO-4.9: Single 'quant' tool routing to orchestrate, data, execute, portfolio")
-        Component(toolkit_ingest, "Agent Toolkit Ingestor", "Python", "ECO-4.10: Unified MCP/Skill/A2A ingestion with auto-detection")
-        Component(mcp_discover, "MCP Live Discovery", "Python", "ECO-4.11: Live list_tools() + KG cache + freshness verification")
-        Component(quant_micro, "🔬 Microstructure Engine", "Python", "ECO-4.12: High-Frequency OBI & Micro-Price")
-        Component(quant_arb, "🔬 Stat Arb Engine", "Python", "ECO-4.13: Cross-Market Cointegration & OU Modeling")
+        Component(toolkit_ingest, "Agent Toolkit Ingestor", "Python", "ECO-4.6: Unified MCP/Skill/A2A ingestion with auto-detection")
+        Component(mcp_discover, "MCP Live Discovery", "Python", "ECO-4.6: Live list_tools() + KG cache + freshness verification")
+        Component(quant_micro, "🔬 Microstructure Engine", "Python", "ECO-4.6: High-Frequency OBI & Micro-Price")
+        Component(quant_arb, "🔬 Stat Arb Engine", "Python", "ECO-4.7: Cross-Market Cointegration & OU Modeling")
     }
 
     Rel(mcp_factory, kg_mcp, "Creates KG MCP instance")
@@ -254,7 +260,7 @@ C4Component
         Component(budget, "🔬 Inference Budget Controller", "Python", "OS-5.2: Cost-aware tier fallback. Research: 2605.05701v1")
         Component(telemetry, "Telemetry Pipeline", "Python", "OTEL, token tracking, audit logging")
         Component(paths, "XDG Paths Module", "Python + platformdirs", "Centralized path resolution")
-        Component(gateway, "Gateway Service Dashboard", "Python + FastAPI", "GW-1.0: 50-widget registry, aggregator, REST+WS API, MCP auto-discovery")
+        Component(gateway, "Gateway Service Dashboard", "Python + FastAPI", "OS-5.9: 50-widget registry, aggregator, REST+WS API, MCP auto-discovery")
     }
 
     Rel(auth, threat, "Validates before routing")
@@ -340,7 +346,7 @@ flowchart LR
 
         subgraph RESEARCH ["🔬 Research Integration Flow"]
             direction LR
-            SCHOLAR["ECO-4.0: ScholarX Paper Search"] -->|"download"| KG_INGEST2["KG-2.7: Ingest Paper"]
+            SCHOLAR["ECO-4.0: ScholarX Paper Search"] -->|"download"| KG_INGEST2["KG-2.6: Ingest Paper"]
             KG_INGEST2 -->|"discover mode"| KG_DISCOVER["ORCH-1.2: KG: Innovation Discovery"]
             KG_DISCOVER -->|"cross-ref"| CONCEPT_MAP["KG-2.2: KG: Concept Map"]
             CONCEPT_MAP -->|"assimilate"| KG_ASSIMILATE["KG-2.0: KG: ASSIMILATED_INTO edges"]
@@ -348,11 +354,11 @@ flowchart LR
 
         subgraph ENTERPRISE ["Enterprise Federation Flow"]
             direction LR
-            KG_MATERIALIZE["KG-2.2: OWL Materialize"] -->|"rdflib"| SPARQL_EP["KG-2.13: SPARQL HTTP Endpoint"]
+            KG_MATERIALIZE["KG-2.2: OWL Materialize"] -->|"rdflib"| SPARQL_EP["KG-2.6: SPARQL HTTP Endpoint"]
             SPARQL_EP -->|"query"| EXT_CONSUMER["ECO-4.0: External Consumer"]
             KG_MATERIALIZE -->|"validate"| SHACL_V["KG-2.2: SHACL Validator"]
             KG_MATERIALIZE -->|"export"| ONT_PUB["KG-2.2: Ontology Publisher"]
-            ONT_PUB -->|"push"| STARDOG["KG-2.13: Stardog / Fuseki"]
+            ONT_PUB -->|"push"| STARDOG["KG-2.6: Stardog / Fuseki"]
             STARDOG -->|"owl:imports"| ONT_LOAD["KG-2.2: Ontology Loader"]
             ONT_LOAD -->|"merge"| KG_MATERIALIZE
         end
@@ -367,19 +373,19 @@ flowchart LR
             GRAPH_BUILD -->|"KGGraphResult"| DISPATCH_OUT["ORCH-1.0: Dispatcher"]
         end
 
-        subgraph TOOLKIT ["Agent Toolkit Ingestion Flow (ECO-4.10 / ECO-4.11)"]
+        subgraph TOOLKIT ["Agent Toolkit Ingestion Flow (ECO-4.6 / ECO-4.6)"]
             direction LR
-            TK_SRC["ECO-4.1: Sources: mcp_config.json / skill dirs / A2A URLs"] -->|"auto-detect"| TK_DETECT["ECO-4.10: Type Detector"]
-            TK_DETECT -->|"JSON + mcpServers"| TK_MCP["ECO-4.10: MCP Config Parser"]
-            TK_DETECT -->|"directory + SKILL.md"| TK_SKILL["ECO-4.10: Skill Parser"]
+            TK_SRC["ECO-4.1: Sources: mcp_config.json / skill dirs / A2A URLs"] -->|"auto-detect"| TK_DETECT["ECO-4.6: Type Detector"]
+            TK_DETECT -->|"JSON + mcpServers"| TK_MCP["ECO-4.6: MCP Config Parser"]
+            TK_DETECT -->|"directory + SKILL.md"| TK_SKILL["ECO-4.6: Skill Parser"]
             TK_DETECT -->|"http:// URL"| TK_A2A["ECO-4.1: A2A Card Fetcher"]
-            TK_MCP -->|"live connect"| TK_LIVE["ECO-4.11: Live list_tools()"]
-            TK_LIVE -->|"tool metadata"| TK_KG["ECO-4.10: KG: Server + CallableResource nodes"]
-            TK_MCP -->|"fallback"| TK_FLAGS["ECO-4.10: Tool Flag Parser"]
+            TK_MCP -->|"live connect"| TK_LIVE["ECO-4.6: Live list_tools()"]
+            TK_LIVE -->|"tool metadata"| TK_KG["ECO-4.6: KG: Server + CallableResource nodes"]
+            TK_MCP -->|"fallback"| TK_FLAGS["ECO-4.6: Tool Flag Parser"]
             TK_FLAGS --> TK_KG
             TK_SKILL --> TK_KG
             TK_A2A -->|"/.well-known/agent.json"| TK_KG
-            TK_KG -->|"config hash"| TK_FRESH["ECO-4.10: Freshness Check"]
+            TK_KG -->|"config hash"| TK_FRESH["ECO-4.6: Freshness Check"]
         end
 
         subgraph AGENT_EXEC ["Agent Execution Flow (ORCH-1.21)"]
@@ -406,26 +412,26 @@ flowchart LR
             WF_RUNNER -->|"session traces"| WF_LANGFUSE["OS-5.1: Langfuse"]
         end
 
-        subgraph DISTILL ["Workflow Distillation Flow (ORCH-1.25)"]
+        subgraph DISTILL ["Workflow Distillation Flow (ORCH-1.8)"]
             direction LR
-            WD_SYNTH["ORCH-1.0: Synthesizer"] -->|"success"| WD_HOOK["ORCH-1.25: Distillation Hook"]
+            WD_SYNTH["ORCH-1.0: Synthesizer"] -->|"success"| WD_HOOK["ORCH-1.8: Distillation Hook"]
             WD_HOOK -->|"threshold met"| WD_STORE["ORCH-1.22: WorkflowStore"]
             WD_HOOK -->|"promote"| WD_TEAM["AHE-3.3: TeamConfig Composer"]
             WD_STORE -->|"versioned"| WD_KG["KG-2.0: KG Persistence"]
             WD_TEAM -->|"proven team"| WD_KG
-            WD_KG -->|"bundle export"| WD_BUNDLE["ORCH-1.25: Bundle Exporter"]
-            WD_BUNDLE -->|"YAML / JSON"| WD_PRESET["ORCH-1.25: Domain Presets"]
+            WD_KG -->|"bundle export"| WD_BUNDLE["ORCH-1.8: Bundle Exporter"]
+            WD_BUNDLE -->|"YAML / JSON"| WD_PRESET["ORCH-1.8: Domain Presets"]
             WD_PRESET -->|"seed_into_kg()"| WD_KG
         end
 
-        subgraph GATEWAY ["Gateway Service Dashboard Flow (GW-1.0)"]
+        subgraph GATEWAY ["Gateway Service Dashboard Flow (OS-5.9)"]
             direction LR
-            GW_MCP["GW-1.0: mcp_config.json"] -->|"auto-discover"| GW_CONFIG["GW-1.0: ConfigManager"]
-            GW_CONFIG -->|"ServiceConfig[]"| GW_REG["GW-1.0: Widget Registry"]
-            GW_REG -->|"lazy-import"| GW_WIDGET["GW-1.0: 50 Widget Modules"]
-            GW_WIDGET -->|"fetch_data()"| GW_AGG["GW-1.0: Aggregator"]
-            GW_AGG -->|"WidgetData{}"| GW_API["GW-1.0: REST /api/dashboard"]
-            GW_AGG -->|"stream"| GW_WS["GW-1.0: WebSocket /ws/dashboard"]
+            GW_MCP["OS-5.9: mcp_config.json"] -->|"auto-discover"| GW_CONFIG["OS-5.9: ConfigManager"]
+            GW_CONFIG -->|"ServiceConfig[]"| GW_REG["OS-5.9: Widget Registry"]
+            GW_REG -->|"lazy-import"| GW_WIDGET["OS-5.9: 50 Widget Modules"]
+            GW_WIDGET -->|"fetch_data()"| GW_AGG["OS-5.9: Aggregator"]
+            GW_AGG -->|"WidgetData{}"| GW_API["OS-5.9: REST /api/dashboard"]
+            GW_AGG -->|"stream"| GW_WS["OS-5.9: WebSocket /ws/dashboard"]
             GW_API -->|"JSON"| GW_WEBUI["agent-webui"]
             GW_WS -->|"real-time"| GW_WEBUI
             GW_AGG -->|"direct Python"| GW_TUI["agent-terminal-ui"]
@@ -440,7 +446,7 @@ flowchart LR
 graph TD
     subgraph "Pillar Interconnection Matrix"
             P1["<b>ORCH-1.0: Orchestration</b><br/>Orchestrates multi-agent workflows"]
-            P2["<b>KG-2.0: Knowledge Graph</b><br/>LadybugDB/ParadeDB semantic engine"]
+            P2["<b>KG-2.0: Knowledge Graph</b><br/>epistemic-graph + PostgreSQL semantic engine"]
             P3["<b>AHE-3.0: Agentic Harness</b><br/>Continuous evaluation and evolution"]
             P4["<b>ECO-4.0: Ecosystem</b><br/>MCP server connections and APIs"]
             P5["<b>OS-5.0: Agent OS</b><br/>Runtime environment and security"]

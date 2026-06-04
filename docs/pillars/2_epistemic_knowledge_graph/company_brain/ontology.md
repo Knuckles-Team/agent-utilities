@@ -6,7 +6,7 @@
 
 ## What the Ontology Does
 
-The 74KB OWL ontology (`ontology.ttl`) defines the **company-specific perspective** that transforms raw data into organizational knowledge. It is not a static schema — the `OWLBridge` runs active reasoning cycles that discover new facts through logical inference.
+The OWL ontology (`knowledge_graph/ontology.ttl`, ~26KB) defines the **company-specific perspective** that transforms raw data into organizational knowledge. It is not a static schema — the `OWLBridge` runs active reasoning cycles that discover new facts through logical inference.
 
 ### Standards Alignment
 
@@ -69,14 +69,13 @@ The same underlying data can be viewed through different ontological perspective
 
 | Class | Description | BFO Alignment |
 |:------|:------------|:-------------|
-| `:Agent` | Any actor (human or AI) | `bfo:Object` |
-| `:Process` | A temporal sequence of actions | `bfo:Process` |
-| `:Episode` | A bounded work session | `bfo:TemporalRegion` |
+| `:Agent` | Any actor (human or AI) | `bfo:IndependentContinuant` (`bfo:0000004`) |
+| `:Episode` | A discrete interaction unit / bounded work session | `bfo:Process` (`bfo:0000015`) |
 | `:Concept` | An abstract knowledge unit | `bfo:GenericallyDependentContinuant` |
 | `:Decision` | A recorded decision with rationale | `bfo:Process` |
 | `:Policy` | An organizational rule or constraint | `bfo:GenericallyDependentContinuant` |
-| `:Skill` | A reusable agent capability | `bfo:Disposition` |
-| `:Evidence` | Supporting data for a claim | `bfo:InformationContentEntity` |
+| `:Skill` | A reusable agent capability | `bfo:IndependentContinuant` (`bfo:0000004`) |
+| `:Evidence` | A claim or finding grounded in source material | `bfo:GenericallyDependentContinuant` (`bfo:0000031`) |
 
 ---
 

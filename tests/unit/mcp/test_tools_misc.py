@@ -56,7 +56,7 @@ def test_is_sensitive_tool_strict_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """In strict mode, everything non-safe is sensitive."""
     import agent_utilities.security.tool_guard as tg
 
-    monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "strict")
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "strict")
     assert tg.is_sensitive_tool("write_file") is True
     assert tg.is_sensitive_tool("read_file") is False
 
@@ -65,9 +65,9 @@ def test_is_sensitive_tool_normal_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Normal mode uses pattern matching."""
     import agent_utilities.security.tool_guard as tg
 
-    monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "on")
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "on")
     # Set up custom patterns
-    monkeypatch.setattr(tg, "SENSITIVE_TOOL_PATTERNS", [r"^dangerous.*"])
+    monkeypatch.setattr("agent_utilities.core.config.SENSITIVE_TOOL_PATTERNS", [r"^dangerous.*"])
     assert tg.is_sensitive_tool("dangerous_op") is True
     assert tg.is_sensitive_tool("safe_op") is False
 
@@ -94,7 +94,7 @@ def test_build_sensitive_tool_names(monkeypatch: pytest.MonkeyPatch) -> None:
         ]
     )
     with patch(
-        "agent_utilities.graph.config_helpers.get_discovery_registry",
+        "agent_utilities.core.config.get_discovery_registry",
         return_value=registry,
     ):
         result = tg.build_sensitive_tool_names()
@@ -109,7 +109,7 @@ def test_build_sensitive_tool_names_handles_exception(
     import agent_utilities.security.tool_guard as tg
 
     with patch(
-        "agent_utilities.graph.config_helpers.get_discovery_registry",
+        "agent_utilities.core.config.get_discovery_registry",
         side_effect=RuntimeError("db down"),
     ):
         result = tg.build_sensitive_tool_names()
@@ -120,7 +120,7 @@ def test_flag_mcp_tool_definitions_guard_off(monkeypatch: pytest.MonkeyPatch) ->
     """TOOL_GUARD_MODE=off returns toolsets unchanged."""
     import agent_utilities.security.tool_guard as tg
 
-    monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "off")
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "off")
     toolsets = [MagicMock()]
     result = tg.flag_mcp_tool_definitions(toolsets)
     assert result is toolsets
@@ -132,7 +132,7 @@ def test_flag_mcp_tool_definitions_wraps_mcp(
     """MCP-like toolsets are wrapped in ApprovalRequiredToolset."""
     import agent_utilities.security.tool_guard as tg
 
-    monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "on")
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "on")
     mcp_ts = MagicMock(spec=["list_tools"])
     mcp_ts.list_tools = MagicMock()
     other_ts = MagicMock(spec=[])
@@ -149,7 +149,7 @@ def test_flag_mcp_tool_definitions_with_sensitive_names(
     """Sensitive names are used in the wrapper."""
     import agent_utilities.security.tool_guard as tg
 
-    monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "on")
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "on")
     mcp_ts = MagicMock(spec=["list_tools"])
     result = tg.flag_mcp_tool_definitions([mcp_ts], sensitive_names={"dangerous_tool"})
     assert len(result) == 1
@@ -161,7 +161,7 @@ def test_apply_tool_guard_approvals_guard_off(
     """TOOL_GUARD_MODE=off returns immediately."""
     import agent_utilities.security.tool_guard as tg
 
-    monkeypatch.setattr(tg, "TOOL_GUARD_MODE", "off")
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "off")
     agent = MagicMock()
     tg.apply_tool_guard_approvals(agent)
     # Agent toolsets not accessed

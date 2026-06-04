@@ -11,7 +11,7 @@
 ```mermaid
 graph TD
     subgraph "ORCH-1.2: Layer 1: Vector Discovery - All items - Zero LLM calls"
-        A["Re-ingest with v2 schema<br/>Types + Content + Embeddings"] --> B["Run concept cross-reference<br/>34 concepts × all nodes"]
+        A["Re-ingest with v2 schema<br/>Types + Content + Embeddings"] --> B["Run concept cross-reference<br/>all concepts × all nodes"]
         B --> C["Score & rank matches<br/>by cosine similarity"]
     end
 
@@ -69,10 +69,10 @@ All L2+L3 tasks overlap, bounded by 4 concurrent LLM slots.
 
 ### Layer 1: Vector Discovery (0 LLM calls)
 - Pure cosine similarity between concept embeddings and ingested content
-- Cross-references 34 canonical concepts against all nodes
+- Cross-references the canonical concepts (see `docs/concepts.yaml`) against all nodes
 - Produces ranked match lists with similarity scores
 - **Cost:** Zero LLM calls — embedding-only
-- **Script:** `concept_cross_reference.py`
+- **Script:** `concept_cross_reference.py` (shipped in the `comparative-analysis` skill under `universal-skills`)
 
 ### Layer 2: LLM Synthesis (1 call per pillar, max 5)
 - Triggered when all concepts for a pillar complete in Layer 1
@@ -87,7 +87,7 @@ All L2+L3 tasks overlap, bounded by 4 concurrent LLM slots.
 - Creates typed edges: `IMPLEMENTS`, `EXTENDS`, `CONTRADICTS`, `PROPOSES_ALTERNATIVE`, `CITES`
 - Citation chain tracking and implementation-ready specifications
 - **Cost:** ~3-10 LLM calls (depends on number of high-weight papers)
-- **Script:** `llm_synthesis.py`
+- **Script:** `llm_synthesis.py` (shipped in the `comparative-analysis` skill under `universal-skills`)
 
 ## LLM Call Budget
 
@@ -116,5 +116,5 @@ All edges created by Layers 2 and 3 include Graphiti-inspired temporal metadata:
 
 ## Related Concepts
 
-- [concept_map.md](./concept_map.md) — 34 canonical concepts used as cross-reference seeds
-- [overview.md](./overview.md) — Architecture overview of agent-utilities
+- [concepts.yaml](../concepts.yaml) — canonical concept registry (single source of truth) used as cross-reference seeds
+- [overview.md](../overview.md) — Architecture overview of agent-utilities

@@ -194,7 +194,7 @@ class WorkflowRunner:
     ):
         """Execute a GraphPlan by delegating to ParallelEngine.
 
-        CONCEPT:ORCH-1.25 — Workflow → ParallelEngine Bridge
+        CONCEPT:ORCH-1.8 — Workflow → ParallelEngine Bridge
 
         Converts the ``GraphPlan`` to an ``ExecutionManifest`` and invokes
         ``ParallelEngine.execute()``, ensuring a single execution path for

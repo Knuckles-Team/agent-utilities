@@ -75,13 +75,13 @@ Search the live X index via xAI's Responses API.
 @tool
 async def x_search(
     ctx: RunContext[AgentDeps],
-    query: str,                           # Natural language search query
-    allowed_x_handles: list[str] = None,  # Filter to specific accounts
-    blocked_x_handles: list[str] = None,  # Exclude accounts
-    from_date: str = "",                  # YYYY-MM-DD start
-    to_date: str = "",                    # YYYY-MM-DD end
-    model: str = "grok-4.3",             # xAI model (1M context)
+    query: str,                            # Natural language search query
+    allowed_x_handles: list[str] = None,   # Filter to specific accounts
+    excluded_x_handles: list[str] = None,  # Exclude accounts (mutually exclusive with allowed)
+    from_date: str = None,                 # YYYY-MM-DD start
+    to_date: str = None,                   # YYYY-MM-DD end
 ) -> str:  # JSON response
+# The xAI model (default "grok-4.3") is resolved from AgentConfig, not a parameter.
 ```
 
 **API Call:**
@@ -180,7 +180,7 @@ aligned to `schema:SocialMediaPosting`.
 
 ### X Ingestion Bridge
 
-Connects X tool output → Classifier → KG, accessible directly or via ``IngestionEngine`` (CONCEPT:KG-3.0):
+Connects X tool output → Classifier → KG, accessible directly or via ``IngestionEngine`` (CONCEPT:KG-2.7):
 
 ```python
 from agent_utilities.knowledge_graph.ingestion import IngestionEngine, IngestionManifest, ContentType

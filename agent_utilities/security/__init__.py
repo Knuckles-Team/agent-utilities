@@ -9,7 +9,7 @@ Modules:
     - ``threat_defense_engine``: Pattern-based prompt injection detection (CONCEPT:OS-5.1)
     - ``execution_stability_engine``: Tool call loop detection (CONCEPT:OS-5.1)
     - ``permissions_kernel``: Role-based tool authorization (CONCEPT:OS-5.1)
-    - ``sandboxed_executor``: Process-isolated code execution sandbox (CONCEPT:OS-5.7)
+    - ``sandboxed_executor``: Process-isolated code execution sandbox (CONCEPT:OS-5.6)
 """
 
 from agent_utilities.security.browser_auth import (
@@ -84,7 +84,7 @@ __all__ = [
     "flag_mcp_tool_definitions",
     "is_safe_tool",
     "is_sensitive_tool",
-    # sandboxed_executor (CONCEPT:OS-5.7)
+    # sandboxed_executor (CONCEPT:OS-5.6)
     "SandboxedExecutor",
     "SandboxLimits",
     "SandboxResult",

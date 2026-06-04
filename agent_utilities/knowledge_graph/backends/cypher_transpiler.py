@@ -34,6 +34,9 @@ _LIMIT_CLAUSE = re.compile(r"LIMIT\s+(\$?\w+)", re.IGNORECASE)
 _ORDER_BY_CLAUSE = re.compile(
     r"ORDER\s+BY\s+(.+?)(?:LIMIT|$)", re.IGNORECASE | re.DOTALL
 )
+_MERGE_NODE = re.compile(
+    r"MERGE\s+\((\w+):(\w+)\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)", re.IGNORECASE
+)
 _MERGE_REL = re.compile(
     r"MERGE\s+\((\w+)\)-\[(\w+):(\w+)(?:\s*\{([^}]+)\})?\]->\((\w+)\)", re.IGNORECASE
 )
@@ -134,6 +137,45 @@ def transpile(
             sql=sql, params=values, query_type=QueryType.INSERT, target_table=label
         )
 
+    # --- Pattern 1b: MERGE (n:Label {id: $id}) [SET n.k = $props_k ...] → upsert ---
+    m_merge_node = _MERGE_NODE.search(cypher_stripped)
+    if m_merge_node and cypher_stripped.upper().startswith("MERGE"):
+        alias, label, id_param = (
+            m_merge_node.group(1),
+            m_merge_node.group(2),
+            m_merge_node.group(3),
+        )
+        m_set = _SET_CLAUSE.search(cypher_stripped)
+        set_pairs = (
+            re.findall(rf"{alias}\.`?(\w+)`?\s*=\s*\$(\w+)", m_set.group(1))
+            if m_set
+            else []
+        )
+        cols = ["id"] + [p[0] for p in set_pairs if p[0] != "id"]
+        merge_values = [clean_params.get(id_param)] + [
+            clean_params.get(p[1]) for p in set_pairs if p[0] != "id"
+        ]
+        col_list = ", ".join(f'"{c}"' for c in cols)
+        placeholder_sql = ", ".join("%s" for _ in cols)
+        update_cols = [c for c in cols if c != "id"]
+        if update_cols:
+            updates = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in update_cols)
+            sql = (
+                f'INSERT INTO "{label}" ({col_list}) VALUES ({placeholder_sql}) '
+                f"ON CONFLICT (id) DO UPDATE SET {updates}"
+            )
+        else:
+            sql = (
+                f'INSERT INTO "{label}" ({col_list}) VALUES ({placeholder_sql}) '
+                f"ON CONFLICT (id) DO NOTHING"
+            )
+        return TranspiledQuery(
+            sql=sql,
+            params=merge_values,
+            query_type=QueryType.INSERT,
+            target_table=label,
+        )
+
     # --- Pattern 2: MATCH (n:Label) WHERE n.id = $id SET ... RETURN ---
     m_id = _MATCH_BY_ID.search(cypher_stripped)
     m_set = _SET_CLAUSE.search(cypher_stripped)
@@ -195,10 +237,32 @@ def transpile(
         t_alias = m_rel.group(5)
         m_rel.group(6)
 
+        s_label = m_rel.group(2)
+        t_label = m_rel.group(6)
         sid_param = _find_id_param(cypher_stripped, s_alias, clean_params)
         tid_param = _find_id_param(cypher_stripped, t_alias, clean_params)
         sid = clean_params.get(sid_param, clean_params.get("sid"))
         tid = clean_params.get(tid_param, clean_params.get("tid"))
+
+        # Case B: general single-hop TRAVERSAL — endpoint ids unknown but both
+        # labels present. Join the per-label node tables through ``kg_edges``.
+        # (Case A below handles the "edge between two known ids" lookup.)
+        # CONCEPT:KG-2.7 — vendor-agnostic traversal on the durable store.
+        labels_ok = bool(s_label and t_label) and (
+            not known_tables or (s_label in known_tables and t_label in known_tables)
+        )
+        if sid is None and tid is None and labels_ok:
+            tq = _build_traversal(
+                cypher_stripped,
+                s_alias,
+                s_label,
+                r_type,
+                t_alias,
+                t_label,
+                clean_params,
+            )
+            if tq is not None:
+                return tq
 
         m_ret = _RETURN_CLAUSE.search(cypher_stripped)
         select_cols = []
@@ -402,6 +466,100 @@ def transpile(
     # Fallback: unknown pattern
     logger.warning("Cypher transpiler: unrecognized pattern: %.200s", cypher_stripped)
     return TranspiledQuery(sql="SELECT 1 WHERE false", query_type=QueryType.UNKNOWN)
+
+
+def _build_traversal(
+    cypher: str,
+    s_alias: str,
+    s_label: str,
+    r_type: str | None,
+    t_alias: str,
+    t_label: str,
+    params: dict[str, Any],
+) -> TranspiledQuery | None:
+    """Single-hop traversal ``(s:L1)-[:R]->(t:L2)`` → JOIN over ``kg_edges``.
+
+    Joins the per-label node tables (``"L1"`` / ``"L2"``) through the relational
+    edge table. Supports ``RETURN count(...)`` (incl. ``DISTINCT``), ``alias.col``
+    projections, and ``LIMIT``. Returns ``None`` for unsupported RETURN shapes so
+    the caller can fall through. (CONCEPT:KG-2.7)
+    """
+    m_ret = _RETURN_CLAUSE.search(cypher)
+    ret_raw = m_ret.group(1).strip() if m_ret else ""
+    ret_raw = re.split(r"\bORDER\s+BY\b|\bLIMIT\b", ret_raw, flags=re.IGNORECASE)[
+        0
+    ].strip()
+
+    join = (
+        f'FROM "{s_label}" {s_alias} '
+        f"JOIN {EDGE_TABLE} e ON e.source_id = {s_alias}.id"
+    )
+    params_list: list[Any] = []
+    if r_type:
+        join += " AND e.rel_type = %s"
+        params_list.append(r_type)
+    join += f' JOIN "{t_label}" {t_alias} ON {t_alias}.id = e.target_id'
+
+    limit_sql = ""
+    m_lim = _LIMIT_CLAUSE.search(cypher)
+    if m_lim:
+        lim = m_lim.group(1)
+        if lim.startswith("$"):
+            lv = params.get(lim[1:])
+            if isinstance(lv, int):
+                limit_sql = f" LIMIT {int(lv)}"
+        elif lim.isdigit():
+            limit_sql = f" LIMIT {int(lim)}"
+
+    # RETURN count(...)
+    if re.search(r"\bcount\s*\(", ret_raw, re.IGNORECASE):
+        mc = re.search(
+            r"count\s*\(\s*(distinct\s+)?(\*|\w+)\s*\)\s*(?:as\s+(\w+))?",
+            ret_raw,
+            re.IGNORECASE,
+        )
+        alias = mc.group(3) if (mc and mc.group(3)) else "count"
+        distinct = bool(mc and mc.group(1))
+        tgt = mc.group(2) if mc else "*"
+        if distinct and tgt == s_alias:
+            expr = f"count(DISTINCT {s_alias}.id)"
+        elif distinct and tgt == t_alias:
+            expr = f"count(DISTINCT {t_alias}.id)"
+        else:
+            expr = "count(*)"
+        return TranspiledQuery(
+            sql=f"SELECT {expr} AS {alias} {join}",
+            params=params_list,
+            query_type=QueryType.COUNT,
+            return_columns=[alias],
+        )
+
+    # RETURN alias.col [AS name], ...
+    select_cols: list[str] = []
+    return_cols: list[str] = []
+    for item in [i.strip() for i in ret_raw.split(",") if i.strip()]:
+        mp = re.match(
+            rf"(?:{re.escape(s_alias)}|{re.escape(t_alias)})\.(\w+)\s*(?:as\s+(\w+))?$",
+            item,
+            re.IGNORECASE,
+        )
+        if mp:
+            a = item.split(".")[0].strip()
+            col = mp.group(1)
+            al = mp.group(2) or col
+            select_cols.append(f'{a}."{col}" AS {al}')
+            return_cols.append(al)
+        elif item in (s_alias, t_alias):
+            select_cols.append(f"{item}.id AS {item}_id")
+            return_cols.append(f"{item}_id")
+    if not select_cols:
+        return None
+    return TranspiledQuery(
+        sql=f'SELECT {", ".join(select_cols)} {join}{limit_sql}',
+        params=params_list,
+        query_type=QueryType.SELECT,
+        return_columns=return_cols,
+    )
 
 
 def _build_where(

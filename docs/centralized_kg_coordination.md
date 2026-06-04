@@ -58,15 +58,15 @@ graph TD
         Agent3["A2A Consortium Node"]
     end
 
-    subgraph "agent-utilities Centralized Gateway (Port 8100) [KG-2.15]"
+    subgraph "agent-utilities Centralized Gateway (Port 8100) [KG-2.7]"
         Middleware["CentralizedCypherMiddleware<br/>(Attribution & Safety Guardrails)"]
         Server["Starlette / FastMCP App"]
     end
 
-    subgraph "Epistemic Storage Tiers"
-        Ladybug["Ladybug Engine (SQLite / Kùzu WAL)"]
-        Postgres["PostgreSQL DB (Production)"]
-        Neo4j["Neo4j Cluster (Production)"]
+    subgraph "Epistemic Storage Tiers (GraphBackend)"
+        Epistemic["epistemic-graph L1 (Rust, MessagePack/UDS client)"]
+        Postgres["pggraph / PostgreSQL durable tier (Production)"]
+        Contrib["contrib backends (Ladybug/Kùzu, Neo4j, FalkorDB)"]
     end
 
     Agent1 -->|HTTP POST /cypher<br/>X-Agent-ID: emerald_exchange<br/>X-Session-ID: sess_946ec773| Middleware
@@ -74,9 +74,9 @@ graph TD
     Agent3 -->|HTTP POST /cypher<br/>X-Agent-ID: a2a_consensus<br/>X-Session-ID: sess_856ce1c4| Middleware
 
     Middleware --> Server
-    Server -->|Direct thread-safe write| Ladybug
-    Server -.->|Connection Pool| Postgres
-    Server -.->|Connection Pool| Neo4j
+    Server -->|Direct thread-safe write| Epistemic
+    Server -->|Durable upsert| Postgres
+    Server -.->|Optional| Contrib
 ```
 
 ---
@@ -144,7 +144,7 @@ We introduced an in-memory modification time cache (`_SEEN_MTIMES: dict[str, flo
 To harden the system for 1000+ concurrent agent processes, the following seven optimizations were applied across the backend, gateway, coordinator, and watcher:
 
 ### G1: TTL-Cached Gateway Health State
-**File:** `ladybug_backend.py` — `_is_gateway_healthy()`
+**File:** `backends/contrib/ladybug_backend.py` — `_is_gateway_healthy()`
 
 Previously, every `execute()` call triggered a TCP socket connect + HTTP GET to verify gateway health. At 1000 agents × 100 queries/sec, this generated ~100K health checks/sec.
 
@@ -152,7 +152,7 @@ Previously, every `execute()` call triggered a TCP socket connect + HTTP GET to 
 - **Overhead reduction:** 99.999% fewer health checks per second.
 
 ### G2: Persistent httpx Connection Pool
-**File:** `ladybug_backend.py` — `_get_http_client()`
+**File:** `backends/contrib/ladybug_backend.py` — `_get_http_client()`
 
 Previously, each `execute()` created a new `httpx.Client()` context manager, forcing a new TCP 3-way handshake per query.
 
@@ -160,7 +160,7 @@ Previously, each `execute()` created a new `httpx.Client()` context manager, for
 - **Performance gain:** 10–50× faster query routing at scale.
 
 ### G3: Extracted `_route_to_gateway()` Helper
-**File:** `ladybug_backend.py` — `LadybugBackend._route_to_gateway()`
+**File:** `backends/contrib/ladybug_backend.py` — `LadybugBackend._route_to_gateway()`
 
 The 47-line routing block (environment detection → coordinator import → httpx routing) was duplicated verbatim in both `execute()` and `execute_batch()`.
 

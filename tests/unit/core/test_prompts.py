@@ -6,7 +6,7 @@ CONCEPT:ORCH-1.0 — Structured Prompting
 import json
 from pathlib import Path
 
-from agent_utilities.graph.config_helpers import load_specialized_prompts
+from agent_utilities.core.config import load_specialized_prompts
 from agent_utilities.prompting.structured import StructuredPrompt
 
 PROMPTS_DIR = Path(__file__).resolve().parents[3] / "agent_utilities" / "prompts"

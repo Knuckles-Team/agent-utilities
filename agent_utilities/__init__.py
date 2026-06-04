@@ -374,7 +374,7 @@ def __getattr__(name):
         from .core.agentspec_catalog import AgentSpecGenerator
 
         return AgentSpecGenerator
-    # Reactive Framework (CONCEPT:ORCH-1.28)
+    # Reactive Framework (CONCEPT:ORCH-1.10)
     elif name in [
         "EventLedger",
         "BehaviorDispatcher",
@@ -401,7 +401,7 @@ def __getattr__(name):
         from .core.cognitive_scheduler import CognitiveScheduler
 
         return CognitiveScheduler
-    # Distributed Coordination (CONCEPT:OS-5.6)
+    # Distributed Coordination (CONCEPT:OS-5.5)
     elif name == "DistributedCoordinator":
         from .orchestration.distributed_coordinator import DistributedCoordinator
 
@@ -410,12 +410,12 @@ def __getattr__(name):
         from .orchestration.recovery_daemon import RecoveryDaemon
 
         return RecoveryDaemon
-    # Semantic Compactor (CONCEPT:KG-2.20)
+    # Semantic Compactor (CONCEPT:KG-2.7)
     elif name == "SemanticCompactor":
         from .knowledge_graph.memory.memory_compaction import SemanticCompactor
 
         return SemanticCompactor
-    # Replay Engine (CONCEPT:OS-5.7)
+    # Replay Engine (CONCEPT:OS-5.6)
     elif name in ["DistributedReplayEngine", "ReplayManifest", "InteractionRecord"]:
         from .observability.replay_engine import (
             DistributedReplayEngine,
@@ -429,7 +429,7 @@ def __getattr__(name):
         from .observability import TelemetryEngine
 
         return TelemetryEngine
-    # Sandboxed Executor (CONCEPT:OS-5.7)
+    # Sandboxed Executor (CONCEPT:OS-5.6)
     elif name in ["SandboxedExecutor", "SandboxLimits", "SandboxResult"]:
         from .security.sandboxed_executor import (
             SandboxedExecutor,
@@ -452,7 +452,7 @@ if os.environ.get("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
 # Disabled by default to avoid import overhead during testing
 # Can be enabled by setting ENABLE_GRAPH_INTEGRATION=true and calling initialize_graph_integration() explicitly
 
-__version__ = "0.38.0"
+__version__ = "0.39.0"
 
 __all__ = [
     # Agent creation (graph-based)
@@ -578,7 +578,7 @@ __all__ = [
     "JupyterKernelAdapter",
     "SandboxExecutor",
     "AgentSpecGenerator",
-    # Reactive Framework (CONCEPT:ORCH-1.28)
+    # Reactive Framework (CONCEPT:ORCH-1.10)
     "EventLedger",
     "BehaviorDispatcher",
     "reactive_behavior",
@@ -588,18 +588,18 @@ __all__ = [
     "WasmAgentRunner",
     # Cognitive Scheduler (CONCEPT:OS-5.2)
     "CognitiveScheduler",
-    # Distributed Coordination (CONCEPT:OS-5.6)
+    # Distributed Coordination (CONCEPT:OS-5.5)
     "DistributedCoordinator",
     "RecoveryDaemon",
-    # Semantic Compactor (CONCEPT:KG-2.20)
+    # Semantic Compactor (CONCEPT:KG-2.7)
     "SemanticCompactor",
-    # Replay Engine (CONCEPT:OS-5.7)
+    # Replay Engine (CONCEPT:OS-5.6)
     "DistributedReplayEngine",
     "ReplayManifest",
     "InteractionRecord",
     # Telemetry Engine (CONCEPT:OS-5.1)
     "TelemetryEngine",
-    # Sandboxed Executor (CONCEPT:OS-5.7)
+    # Sandboxed Executor (CONCEPT:OS-5.6)
     "SandboxedExecutor",
     "SandboxLimits",
     "SandboxResult",

@@ -55,17 +55,135 @@ class EpistemicGraphBackend(GraphBackend):
     def execute(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Execute a query against the in-memory graph.
+        """Execute a Cypher query against the in-memory graph.
 
-        For the memory backend, queries are simple key lookups
-        or graph operations rather than Cypher.
-        Supports basic patterns:
-          - MATCH (n {id: $id}) → node lookup
-          - MATCH (n:Label) → label filter
+        This backend has no Cypher engine, so it interprets the *operational
+        subset* the orchestration engine relies on directly over the
+        ``GraphComputeEngine`` node store. Supported for single-node
+        ``MATCH`` patterns (no relationships):
+
+          - label filter ``(v:Label ...)`` (matched against ``node_type``,
+            ``label``, or ``labels``)
+          - inline ``{prop: $param | 'literal'}`` and ``WHERE`` equality,
+            ``IN [...]``, ``CONTAINS``, ``IS [NOT] NULL`` filters
+          - ``SET v.prop = $param | 'literal'`` property mutation (upsert
+            merge — critical for Task status transitions)
+          - ``DETACH DELETE v``
+          - ``RETURN`` projection: bare ``v`` (full node), ``v.prop AS alias``,
+            and ``count(v) AS alias``; honours ``LIMIT``
+
+        Anything outside this subset (relationship traversal, MERGE/CREATE,
+        unrecognised shapes) falls back to the legacy id/label/all behaviour.
         """
         params = params or {}
+        q = (query or "").strip()
+        qu = q.upper()
 
-        # Simple node lookup by ID
+        # Node upsert: ``MERGE (n:Label {id: $id}) SET n.k = $props_k, ...`` is the
+        # persistence path used by the graph-writer daemon and sync phase. Without
+        # this, ingested nodes never land in the in-memory store. (CONCEPT:KG-2.0)
+        if qu.startswith("MERGE") and "->" not in q and "<-" not in q:
+            handled, result = self._exec_merge_node(q, params)
+            if handled:
+                return result
+
+        # Relationship upsert: ``MATCH (a),(b) WHERE a.id=$x AND b.id=$y
+        # MERGE (a)-[:REL]->(b)``. Resolve both endpoints by id (O(1)) and add
+        # the edge directly — otherwise this falls to the full-scan legacy reader
+        # AND never creates the L1 edge. (CONCEPT:KG-2.8 ingestion throughput)
+        if "->" in q and "MERGE" in qu and qu.startswith("MATCH"):
+            handled, result = self._exec_rel_merge(q, params)
+            if handled:
+                return result
+
+        # Single-node MATCH patterns are interpreted directly; relationship
+        # traversals and other write-DDL fall through to the legacy reader.
+        if (
+            qu.startswith("MATCH")
+            and "->" not in q
+            and "<-" not in q
+            and "MERGE" not in qu
+            and "CREATE" not in qu
+        ):
+            handled, result = self._exec_node_match(q, params)
+            if handled:
+                return result
+
+        return self._legacy_execute(params)
+
+    def _exec_rel_merge(
+        self, q: str, params: dict[str, Any]
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        """Interpret ``MATCH (a),(b) ... MERGE (a)-[:REL]->(b)`` as an O(1) edge add."""
+        import re
+
+        mm = re.search(
+            r"MERGE\s*\(\s*(\w+)\s*\)\s*-\s*\[\s*:?\s*(\w+)?[^\]]*\]\s*->\s*\(\s*(\w+)\s*\)",
+            q,
+            re.I,
+        )
+        if not mm:
+            return False, []
+        src_var, rel, tgt_var = mm.group(1), (mm.group(2) or "RELATED"), mm.group(3)
+
+        # Resolve each var's id from WHERE (``v.id = $param``) or inline
+        # (``(v:Label {id: $param})``).
+        idmap: dict[str, Any] = {}
+        for mv in re.finditer(r"(\w+)\.id\s*=\s*\$(\w+)", q, re.I):
+            idmap[mv.group(1)] = params.get(mv.group(2))
+        for mv in re.finditer(
+            r"\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*\$(\w+)\s*\}", q, re.I
+        ):
+            idmap[mv.group(1)] = params.get(mv.group(2))
+
+        src_id, tgt_id = idmap.get(src_var), idmap.get(tgt_var)
+        if not src_id or not tgt_id:
+            return False, []  # unrecognised shape → defer to legacy
+        try:
+            self._graph.add_edge(src_id, tgt_id, {"rel_type": rel})
+        except Exception:  # noqa: BLE001
+            pass
+        return True, []
+
+    def _exec_merge_node(
+        self, q: str, params: dict[str, Any]
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        """Interpret ``MERGE (n:Label {id: $id}) [SET ...]`` as an upsert."""
+        import re
+
+        m = re.search(
+            r"MERGE\s*\(\s*(\w+)\s*:(\w+)\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)", q, re.I
+        )
+        if not m:
+            return False, []
+        var, label, id_param = m.group(1), m.group(2), m.group(3)
+        nid = params.get(id_param)
+        if nid is None:
+            return True, []
+
+        existing = (
+            self._graph._get_node_properties(nid) if self._graph.has_node(nid) else {}
+        )
+        merged = dict(existing or {})
+        merged["node_type"] = label
+
+        ms = re.search(r"\bSET\b(.+?)$", q, re.I | re.S)
+        if ms:
+            for frag in self._split_top_level(ms.group(1)):
+                if "=" not in frag:
+                    continue
+                lhs, rhs = frag.split("=", 1)
+                prop = lhs.strip()
+                prop = prop[len(var) + 1 :] if prop.startswith(var + ".") else prop
+                merged[prop] = self._coerce_literal(rhs, params)
+
+        self._graph.add_node(nid, merged)
+        return True, []
+
+    # --- Operational Cypher subset interpreter ---------------------------
+
+    def _legacy_execute(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Original best-effort reader: id lookup / label-param / return-all."""
         if "id" in params:
             node_id = params["id"]
             if self._graph.has_node(node_id):
@@ -74,7 +192,6 @@ class EpistemicGraphBackend(GraphBackend):
                 return [data]
             return []
 
-        # Label filter
         if "label" in params:
             label = params["label"]
             results = []
@@ -86,7 +203,6 @@ class EpistemicGraphBackend(GraphBackend):
                     results.append(entry)
             return results
 
-        # Return all nodes
         results = []
         for nid in self._graph._get_all_nodes():
             data = self._graph._get_node_properties(nid)
@@ -94,6 +210,310 @@ class EpistemicGraphBackend(GraphBackend):
             entry["id"] = nid
             results.append(entry)
         return results
+
+    @staticmethod
+    def _label_match(data: dict[str, Any], label: str) -> bool:
+        # ``type`` is the system's canonical label key (the Rust node store
+        # normalises node_type→type on read-back; see graph_compute
+        # ``props.get("type", props.get("node_type", ...))``). Check all
+        # conventions so a label filter matches regardless of writer path.
+        if (
+            data.get("type") == label
+            or data.get("node_type") == label
+            or data.get("label") == label
+        ):
+            return True
+        labels = data.get("labels")
+        return isinstance(labels, list | tuple) and label in labels
+
+    @staticmethod
+    def _coerce_literal(raw: str, params: dict[str, Any]) -> Any:
+        """Resolve a Cypher value token to a Python value."""
+        raw = raw.strip()
+        if raw.startswith("$"):
+            return params.get(raw[1:])
+        if (raw.startswith("'") and raw.endswith("'")) or (
+            raw.startswith('"') and raw.endswith('"')
+        ):
+            return raw[1:-1]
+        if raw.lower() in ("true", "false"):
+            return raw.lower() == "true"
+        if raw.lower() in ("null", "current_timestamp()"):
+            import datetime
+
+            if raw.lower() == "null":
+                return None
+            return datetime.datetime.now(datetime.UTC).isoformat()
+        try:
+            return int(raw)
+        except ValueError:
+            try:
+                return float(raw)
+            except ValueError:
+                return raw
+
+    def _node_value(self, nid: str, data: dict[str, Any], prop: str) -> Any:
+        return nid if prop == "id" else data.get(prop)
+
+    def _exec_node_match(
+        self, q: str, params: dict[str, Any]
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        """Interpret a single-node MATCH. Returns (handled, rows)."""
+        import re
+
+        m = re.search(r"MATCH\s*\(\s*(\w+)\s*(?::(\w+))?\s*(\{[^}]*\})?\s*\)", q, re.I)
+        if not m:
+            return False, []
+        var, label, inline = m.group(1), m.group(2), m.group(3)
+        qu = q.upper()
+
+        conds: list[tuple[str, str, Any]] = []
+        if inline:
+            for pair in inline.strip("{}").split(","):
+                if ":" not in pair:
+                    continue
+                k, v = pair.split(":", 1)
+                conds.append((k.strip(), "=", self._coerce_literal(v, params)))
+
+        mw = re.search(
+            r"\bWHERE\b(.+?)(?:\bSET\b|\bRETURN\b|\bDETACH\b|\bDELETE\b|$)",
+            q,
+            re.I | re.S,
+        )
+        if mw:
+            parsed = self._parse_where(mw.group(1), var, params)
+            if parsed is None:
+                return False, []  # unsupported WHERE → defer to legacy
+            conds.extend(parsed)
+
+        # Gather matching nodes. Fast path: an ``id = <value>`` equality resolves
+        # a single node directly (O(1)) instead of scanning the whole graph
+        # (O(N)). Ingestion issues many id-keyed MATCH/SET upserts, so without
+        # this every write is O(N) → ingestion is O(N²) and degrades as the
+        # graph grows. (CONCEPT:KG-2.8 ingestion throughput)
+        matched: list[tuple[str, dict[str, Any]]] = []
+        id_val = next(
+            (v for (p, op, v) in conds if p == "id" and op == "=" and v is not None),
+            None,
+        )
+
+        # Fast path: a bare aggregate count (``MATCH (n) RETURN count(n)``) with
+        # no label/WHERE/SET/DELETE needs only the node *count* — never per-node
+        # properties. The general scan below issues one ``_get_node_properties``
+        # UDS round-trip per node, so an unfiltered count is O(N) round-trips and
+        # gets slower as the graph grows (a full ``count(*)`` was taking minutes
+        # on an accumulated graph). Resolve it from the id list directly.
+        # (CONCEPT:KG-2.8 ingestion throughput)
+        cnt_m = re.search(r"\bRETURN\b\s+count\s*\(\s*\*?\s*\w*\s*\)", q, re.I)
+        if (
+            id_val is None
+            and not conds
+            and not label
+            and cnt_m
+            and "SET" not in qu
+            and "DELETE" not in qu
+        ):
+            cnt = len(self._graph._get_all_nodes())
+            alias_m = re.search(r"count\s*\([^)]*\)\s+as\s+(\w+)", q, re.I)
+            alias = alias_m.group(1) if alias_m else "count"
+            return True, [{alias: cnt}]
+
+        if id_val is not None:
+            if self._graph.has_node(id_val):
+                data = self._graph._get_node_properties(id_val) or {}
+                if (not label or self._label_match(data, label)) and self._eval_conds(
+                    id_val, data, conds
+                ):
+                    matched.append((id_val, data))
+        else:
+            # Full-graph scan: fetch all nodes WITH their properties in a single
+            # round-trip. Issuing one ``_get_node_properties`` call per node is an
+            # N+1 that cost ~45s on a 40K-node graph (and held the GIL, starving
+            # foreground ingestion). (CONCEPT:KG-2.8 ingestion throughput)
+            for nid, data in self._graph._get_all_nodes_with_properties():
+                data = data or {}
+                if label and not self._label_match(data, label):
+                    continue
+                if not self._eval_conds(nid, data, conds):
+                    continue
+                matched.append((nid, data))
+
+        if "DETACH DELETE" in qu or re.search(rf"\bDELETE\s+{var}\b", q, re.I):
+            for nid, _ in matched:
+                self._graph.remove_node(nid)
+                self._embeddings.pop(nid, None)
+            return True, []
+
+        ms = re.search(r"\bSET\b(.+?)(?:\bRETURN\b|$)", q, re.I | re.S)
+        if ms:
+            assigns: dict[str, Any] = {}
+            for frag in self._split_top_level(ms.group(1)):
+                if "=" not in frag:
+                    continue
+                lhs, rhs = frag.split("=", 1)
+                prop = lhs.strip()
+                prop = prop[len(var) + 1 :] if prop.startswith(var + ".") else prop
+                assigns[prop] = self._coerce_literal(rhs, params)
+            for nid, data in matched:
+                merged = dict(data)
+                merged.update(assigns)
+                self._graph.add_node(nid, merged)
+                data.update(assigns)
+
+        return True, self._project(q, var, matched, params)
+
+    def _parse_where(
+        self, text: str, var: str, params: dict[str, Any]
+    ) -> list[tuple[str, str, Any]] | None:
+        """Parse a conjunctive WHERE clause. None ⇒ unsupported shape."""
+        import re
+
+        conds: list[tuple[str, str, Any]] = []
+        for clause in re.split(r"\bAND\b", text, flags=re.I):
+            clause = clause.strip()
+            if not clause:
+                continue
+            m_in = re.match(rf"{var}\.(\w+)\s+IN\s+\[(.*?)\]", clause, re.I | re.S)
+            m_null = re.match(rf"{var}\.(\w+)\s+IS\s+(NOT\s+)?NULL", clause, re.I)
+            m_has = re.match(rf"{var}\.(\w+)\s+CONTAINS\s+(.+)", clause, re.I)
+            m_eq = re.match(rf"{var}\.(\w+)\s*=\s*(.+)", clause, re.I)
+            if m_in:
+                vals = [
+                    self._coerce_literal(t, params)
+                    for t in m_in.group(2).split(",")
+                    if t.strip()
+                ]
+                conds.append((m_in.group(1), "IN", vals))
+            elif m_null:
+                conds.append(
+                    (m_null.group(1), "NOTNULL" if m_null.group(2) else "ISNULL", None)
+                )
+            elif m_has:
+                conds.append(
+                    (
+                        m_has.group(1),
+                        "CONTAINS",
+                        self._coerce_literal(m_has.group(2), params),
+                    )
+                )
+            elif m_eq:
+                conds.append(
+                    (m_eq.group(1), "=", self._coerce_literal(m_eq.group(2), params))
+                )
+            else:
+                return None
+        return conds
+
+    def _eval_conds(
+        self, nid: str, data: dict[str, Any], conds: list[tuple[str, str, Any]]
+    ) -> bool:
+        for prop, op, val in conds:
+            actual = self._node_value(nid, data, prop)
+            if op == "=":
+                if actual != val:
+                    return False
+            elif op == "IN":
+                if actual not in val:
+                    return False
+            elif op == "CONTAINS":
+                if actual is None or val is None or str(val) not in str(actual):
+                    return False
+            elif op == "ISNULL":
+                if actual is not None:
+                    return False
+            elif op == "NOTNULL":
+                if actual is None:
+                    return False
+        return True
+
+    @staticmethod
+    def _split_top_level(text: str) -> list[str]:
+        """Split on commas not nested inside brackets/quotes."""
+        out, buf, depth, quote = [], [], 0, None
+        for ch in text:
+            if quote:
+                buf.append(ch)
+                if ch == quote:
+                    quote = None
+            elif ch in "'\"":
+                quote = ch
+                buf.append(ch)
+            elif ch in "[{(":
+                depth += 1
+                buf.append(ch)
+            elif ch in "]})":
+                depth -= 1
+                buf.append(ch)
+            elif ch == "," and depth == 0:
+                out.append("".join(buf))
+                buf = []
+            else:
+                buf.append(ch)
+        if buf:
+            out.append("".join(buf))
+        return [s for s in out if s.strip()]
+
+    def _project(
+        self,
+        q: str,
+        var: str,
+        matched: list[tuple[str, dict[str, Any]]],
+        params: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        import re
+
+        m_ret = re.search(r"\bRETURN\b(.+?)$", q, re.I | re.S)
+        if not m_ret:
+            return []
+        ret = m_ret.group(1)
+
+        limit = None
+        m_lim = re.search(r"\bLIMIT\s+(\$?\w+)", ret, re.I)
+        if m_lim:
+            tok = m_lim.group(1)
+            limit = params.get(tok[1:]) if tok.startswith("$") else int(tok)
+            ret = ret[: m_lim.start()]
+        ret = re.sub(r"\bORDER\s+BY\b.*$", "", ret, flags=re.I | re.S)
+
+        items = self._split_top_level(ret)
+
+        # Aggregate: count(var)
+        for it in items:
+            mc = re.match(r"\s*count\(\s*\*?\s*\w*\s*\)\s*(?:as\s+(\w+))?", it, re.I)
+            if mc:
+                alias = mc.group(1) or "count"
+                return [{alias: len(matched)}]
+
+        rows: list[dict[str, Any]] = []
+        for nid, data in matched:
+            row: dict[str, Any] = {}
+            for it in items:
+                it = it.strip()
+                m_alias = re.match(rf"{var}\.(\w+)\s+as\s+(\w+)", it, re.I) or re.match(
+                    rf"{var}\.(\w+)", it, re.I
+                )
+                if m_alias and "." in it:
+                    prop = m_alias.group(1)
+                    alias = (
+                        m_alias.group(2)
+                        if m_alias.lastindex and m_alias.lastindex >= 2
+                        else prop
+                    )
+                    row[alias] = self._node_value(nid, data, prop)
+                elif it == var or re.match(rf"{var}\s+as\s+\w+", it, re.I):
+                    # Bare ``RETURN v`` → a single column named ``v`` holding the
+                    # full node dict (Cypher semantics; callers read ``res["v"]``).
+                    full = dict(data)
+                    full["id"] = nid
+                    alias_m = re.match(rf"{var}\s+as\s+(\w+)", it, re.I)
+                    row[alias_m.group(1) if alias_m else var] = full
+                else:
+                    row[it] = None
+            rows.append(row)
+
+        if limit is not None:
+            rows = rows[:limit]
+        return rows
 
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]

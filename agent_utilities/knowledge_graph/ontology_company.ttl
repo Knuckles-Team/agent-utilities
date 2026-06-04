@@ -662,9 +662,9 @@ cross-domain reasoning about company operations.""" ;
     :usesTool :ToolLangfuseAgent .
 
 :AgentLeanixSpecialist a :AgentRole ;
-    rdfs:label "LeanIX Enterprise Architecture Specialist" ;
-    :id "leanix_specialist" ;
-    :role "LeanIX Enterprise Architecture Specialist" ;
+    rdfs:label "EAR Enterprise Architecture Specialist" ;
+    :agent "ear_specialist" ;
+    :role "EAR Enterprise Architecture Specialist" ;
     :usesTool :ToolLeanixAgent .
 
 :AgentLegalComplianceCoordinator a :AgentRole ;

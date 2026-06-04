@@ -1,6 +1,6 @@
 # Apache Kafka (KRaft mode) — Docker Compose
 #
-# CONCEPT:KG-2.19 — Event Backbone Infrastructure
+# CONCEPT:KG-2.7 — Event Backbone Infrastructure
 #
 # KRaft-mode Kafka (no Zookeeper dependency). Pre-configured with
 # agent-utilities standard topics and sensible retention policies.

@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -17,9 +18,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from agent_utilities.models.knowledge_graph import DoomLoopIncidentNode
 
-# --- Merged from execution_stability_engine.py ---
 
-#!/usr/bin/python
 """Tool Repetition Guard (CONCEPT:OS-5.1).
 
 Detects and prevents infinite tool call loops by tracking consecutive
@@ -362,28 +361,6 @@ class RepetitionPolicy:
         return PolicyResult(allowed=True, policy_name=self.name)
 
 
-# --- Merged from execution_stability_engine.py ---
-
-#!/usr/bin/python
-"""Enhanced Doom-Loop Detector.
-
-CONCEPT:OS-5.0 — Enhanced Doom-Loop Detector
-
-Extends the existing Tool Repetition Guard (CONCEPT:OS-5.1) with
-pattern-aware doom-loop detection adapted from ml-intern's doom_loop.py.
-
-Key enhancements over OS-5.5:
-
-* **Result-aware signatures** — includes tool result hashes to distinguish
-  legitimate polling (same args, different results) from true loops.
-* **Sequence pattern detection** — detects repeating multi-tool sequences
-  like [A,B,A,B] in addition to simple consecutive repeats.
-* **Corrective prompt generation** — produces context-aware prompts to
-  break detected loops.
-* **KG integration** — creates ``DoomLoopIncidentNode`` for persistence.
-"""
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -413,9 +390,9 @@ def _normalize_args(args: dict[str, Any] | str | None) -> str:
     if isinstance(args, dict):
         return json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
     try:
-        return json.dumps(json.loads(str(args)), sort_keys=True, separators=(",", ":"))
+        return json.dumps(json.loads(args), sort_keys=True, separators=(",", ":"))
     except (json.JSONDecodeError, TypeError, ValueError):
-        return str(args)
+        return args
 
 
 def _hash_string(s: str) -> str:
@@ -622,31 +599,6 @@ class DoomLoopDetector:
         return len(self._signatures)
 
 
-# --- Merged from execution_stability_engine.py ---
-
-#!/usr/bin/python
-"""Structured Retry Manager (CONCEPT:ORCH-1.3).
-
-Provides structured retry logic with configurable success checks,
-on-failure hooks, and timeout management.  Adapted from Goose's
-``retry.rs`` with Python-native subprocess execution and integration
-into the graph executor's verification pipeline.
-
-Key features:
-
-* **Shell-based success checks** — configurable commands that must exit
-  with code 0 for the run to be considered successful (e.g.,
-  ``pytest tests/``, ``mypy src/``).
-* **On-failure hooks** — optional cleanup commands that run before
-  each retry (e.g., ``git checkout .``).
-* **Configurable timeouts** — per-check and per-hook timeout durations
-  with environment variable overrides.
-* **TeamConfig reward integration** — retry outcomes feed into
-  ``TeamConfigNode.record_team_outcome()`` (CONCEPT:AHE-3.3) for
-  routing improvement.
-"""
-
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -655,9 +607,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RETRY_TIMEOUT_SECONDS: int = 300
 DEFAULT_ON_FAILURE_TIMEOUT_SECONDS: int = 120
+DEFAULT_IDLE_TIMEOUT_SECONDS: int = 60
 
 ENV_RETRY_TIMEOUT = "AGENT_RETRY_TIMEOUT_SECONDS"
 ENV_ON_FAILURE_TIMEOUT = "AGENT_ON_FAILURE_TIMEOUT_SECONDS"
+ENV_IDLE_TIMEOUT = "AGENT_IDLE_TIMEOUT_SECONDS"
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +649,7 @@ class RetryConfig(BaseModel):
     on_failure: str | None = None
     timeout_seconds: int | None = None
     on_failure_timeout_seconds: int | None = None
+    idle_timeout_seconds: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -755,22 +710,25 @@ class RetryOutcome(BaseModel):
 async def execute_shell_command(
     command: str,
     timeout_seconds: int = DEFAULT_RETRY_TIMEOUT_SECONDS,
+    idle_timeout_seconds: int = DEFAULT_IDLE_TIMEOUT_SECONDS,
 ) -> ShellCheckResult:
-    """Execute a shell command with timeout.
+    """Execute a shell command with timeout and idle timeout (process stall detection).
 
     Uses ``asyncio.create_subprocess_shell`` for non-blocking execution
-    with a hard timeout.
+    with a hard timeout and an idle timeout that aborts if no output is produced.
 
     Args:
         command: Shell command to execute.
         timeout_seconds: Maximum execution time in seconds.
+        idle_timeout_seconds: Maximum time without stdout/stderr activity in seconds.
 
     Returns:
         ShellCheckResult with exit code, stdout, stderr.
     """
     logger.debug(
-        "Executing shell command with timeout %ds: %s",
+        "Executing shell command with timeout %ds (idle: %ds): %s",
         timeout_seconds,
+        idle_timeout_seconds,
         command,
     )
 
@@ -780,31 +738,93 @@ async def execute_shell_command(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env={**os.environ, "AGENT": "agent-utilities"},
+            limit=1024 * 1024 * 10,  # 10MB limit to prevent buffer deadlock
         )
 
-        try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout_seconds
+        stdout_chunks: list[bytes] = []
+        stderr_chunks: list[bytes] = []
+        activity_event = asyncio.Event()
+
+        async def read_stream(
+            stream: asyncio.StreamReader | None, chunks_list: list[bytes]
+        ):
+            if stream is None:
+                return
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                chunks_list.append(line)
+                activity_event.set()
+
+        stdout_task = asyncio.create_task(read_stream(proc.stdout, stdout_chunks))
+        stderr_task = asyncio.create_task(read_stream(proc.stderr, stderr_chunks))
+
+        start_time = time.monotonic()
+        timed_out = False
+        stall_reason = ""
+
+        while not stdout_task.done() or not stderr_task.done():
+            elapsed = time.monotonic() - start_time
+            remaining = timeout_seconds - elapsed
+            if remaining <= 0:
+                timed_out = True
+                stall_reason = f"Command timed out after {timeout_seconds}s"
+                break
+
+            wait_time = min(remaining, idle_timeout_seconds)
+            activity_event.clear()
+
+            waiter = asyncio.create_task(activity_event.wait())
+            pending_tasks = [stdout_task, stderr_task, waiter]
+
+            done, pending = await asyncio.wait(
+                pending_tasks, return_when=asyncio.FIRST_COMPLETED, timeout=wait_time
             )
-        except TimeoutError:
+
+            if not waiter.done():
+                waiter.cancel()
+
+            if not done:
+                # No activity within wait_time
+                if wait_time == remaining:
+                    timed_out = True
+                    stall_reason = f"Command timed out after {timeout_seconds}s"
+                else:
+                    timed_out = True
+                    stall_reason = (
+                        f"Process stalled: no output for {idle_timeout_seconds}s"
+                    )
+                break
+
+        if timed_out:
             proc.kill()
             await proc.wait()
+
+            # Gather partial output
+            stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")[-5000:]
+            stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-5000:]
+
+            # Append stall reason to stderr to make it obvious
+            stderr += f"\n\n[SYSTEM ABORT] {stall_reason}\n"
+
             logger.warning(
-                "Shell command timed out after %ds: %s",
-                timeout_seconds,
-                command,
+                "Shell command aborted: %s (Command: %s)", stall_reason, command
             )
             return ShellCheckResult(
                 command=command,
                 success=False,
                 exit_code=-1,
                 timed_out=True,
-                stderr=f"Command timed out after {timeout_seconds}s",
+                stdout=stdout,
+                stderr=stderr,
             )
 
+        # Normal completion
+        await proc.wait()
         exit_code = proc.returncode or 0
-        stdout = stdout_bytes.decode("utf-8", errors="replace")[:5000]
-        stderr = stderr_bytes.decode("utf-8", errors="replace")[:5000]
+        stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")[-5000:]
+        stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")[-5000:]
 
         logger.debug(
             "Shell command completed: exit_code=%d, stdout=%d chars, stderr=%d chars",
@@ -895,6 +915,15 @@ class RetryManager:
         except (ValueError, TypeError):
             return DEFAULT_ON_FAILURE_TIMEOUT_SECONDS
 
+    def _get_idle_timeout(self, config: RetryConfig) -> int:
+        """Resolve idle timeout: config → env → default."""
+        if config.idle_timeout_seconds is not None:
+            return config.idle_timeout_seconds
+        try:
+            return int(os.environ.get(ENV_IDLE_TIMEOUT, ""))
+        except (ValueError, TypeError):
+            return DEFAULT_IDLE_TIMEOUT_SECONDS
+
     async def execute_success_checks(
         self, config: RetryConfig
     ) -> tuple[bool, list[ShellCheckResult]]:
@@ -910,11 +939,12 @@ class RetryManager:
             return True, []
 
         timeout = self._get_check_timeout(config)
+        idle_timeout = self._get_idle_timeout(config)
         results: list[ShellCheckResult] = []
         all_passed = True
 
         for check in config.checks:
-            result = await execute_shell_command(check.command, timeout)
+            result = await execute_shell_command(check.command, timeout, idle_timeout)
             results.append(result)
             if not result.success:
                 logger.warning(
@@ -941,12 +971,13 @@ class RetryManager:
             return None
 
         timeout = self._get_on_failure_timeout(config)
+        idle_timeout = self._get_idle_timeout(config)
         logger.info(
             "Executing on_failure hook with timeout %ds: %s",
             timeout,
             config.on_failure,
         )
-        result = await execute_shell_command(config.on_failure, timeout)
+        result = await execute_shell_command(config.on_failure, timeout, idle_timeout)
 
         if not result.success:
             logger.warning(

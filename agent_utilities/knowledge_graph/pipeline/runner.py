@@ -59,6 +59,7 @@ class PipelineRunner:
                 "embedding",
             ],
             "Stage 4: Epistemic Consolidation": [
+                "shacl_gate",
                 "sync",
                 "owl_reasoning",
                 "external_graphs",
@@ -84,7 +85,7 @@ class PipelineRunner:
                 logger.info(f"=== Entering {stage} ===")
                 current_stage = stage
 
-            logger.info(f"Executing phase: {phase.name}")
+            print(f"!!! EXECUTING PHASE: {phase.name}", flush=True)
             start_time = time.time()
 
             # Filter deps for this phase
@@ -114,7 +115,7 @@ class PipelineRunner:
                 raise e
 
         # CONCEPT:ORCH-1.2 — Invalidate hot cache after pipeline completion
-        from agent_utilities.graph.config_helpers import invalidate_registry_cache
+        from agent_utilities.core.config import invalidate_registry_cache
 
         invalidate_registry_cache()
 

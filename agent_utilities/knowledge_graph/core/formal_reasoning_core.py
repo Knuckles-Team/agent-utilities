@@ -14,9 +14,6 @@ import numpy as np
 
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
 
-# --- Merged from formal_reasoning_core.py ---
-
-#!/usr/bin/env python3
 """Formal Graph Theory Primitives.
 
 CONCEPT:KG-2.6 — Formal Graph Theory Primitives
@@ -364,7 +361,7 @@ def generate_math_foundation_seed() -> list[dict[str, Any]]:
             "definition": "Two graphs G1, G2 are isomorphic iff ∃ bijection f: V(G1)→V(G2) preserving adjacency.",
             "chapter": "MCS §12.4",
             "domain": "graph_theory",
-            "relevance": "Foundation for KG-2.15 Analogy Engine (VF2 isomorphism).",
+            "relevance": "Foundation for KG-2.7 Analogy Engine (VF2 isomorphism).",
         },
         {
             "id": "mcs_dag_scheduling",
@@ -543,23 +540,6 @@ def generate_math_foundation_seed() -> list[dict[str, Any]]:
             "relevance": "Predictive modeling of agent state transitions and failure forecasting.",
         },
     ]
-
-
-# --- Merged from formal_reasoning_core.py ---
-
-#!/usr/bin/env python3
-"""Structural Causal Reasoning Engine.
-
-CONCEPT:KG-2.6 — Structural Causal Reasoning Engine
-
-Explicit causal chain modeling derived from MedCausalX (arXiv:2603.23085v1).
-Provides Structural Causal Models (SCMs), causal verification protocols,
-counterfactual generation, spuriousness detection, and trajectory-level
-causal alignment scoring.
-
-Operates natively on the Knowledge Graph's ``rx.PyDiGraph`` via
-``CausalFactorNode`` and ``CAUSED_BY`` / ``CAUSAL_MECHANISM`` edges.
-"""
 
 
 logger = logging.getLogger(__name__)
@@ -1229,27 +1209,6 @@ def trajectory_causal_alignment_score(
     return (valid_transitions + valid_orderings) / (2 * total) if total > 0 else 1.0
 
 
-# --- Merged from formal_reasoning_core.py ---
-
-#!/usr/bin/env python3
-"""Probabilistic Knowledge Graph Reasoning.
-
-CONCEPT:KG-2.6 — Probabilistic Knowledge Graph Reasoning
-
-Probabilistic reasoning over the Knowledge Graph derived from
-*Mathematics for Computer Science* (MCS) Chapters 17–21.
-
-Transforms the KG from a deterministic lookup system to a belief network
-capable of reasoning under uncertainty.
-
-- **Bayesian Belief Propagation** (MCS §18.4): Prior→posterior updates.
-- **Conditional Independence** (MCS §18.7): d-separation for efficient inference.
-- **Random Walk Exploration** (MCS Ch 21): Stochastic KG discovery.
-- **Law of Total Probability Aggregation** (MCS §18.5): Multi-source combination.
-- **Birthday Paradox Collision Detector** (MCS §17.4): Probabilistic dedup.
-"""
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -1731,20 +1690,6 @@ def conditional_independence_test(
     }
 
 
-# --- Merged from formal_reasoning_core.py ---
-
-#!/usr/bin/env python3
-"""Formal Relations and Equivalence Classes.
-
-CONCEPT:KG-2.6 — Formal Relations Engine
-
-Implements mathematical relation properties (Reflexive, Symmetric, Transitive)
-and Equivalence Classes from *Mathematics for Computer Science* (MCS Ch 4).
-Provides zero-shot entity resolution by formally defining equivalence sets
-across the Knowledge Graph.
-"""
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -1980,20 +1925,6 @@ def resolve_entities(equivalences: list[tuple[str, str]]) -> dict[str, str]:
     return resolution_map
 
 
-# --- Merged from formal_reasoning_core.py ---
-
-#!/usr/bin/env python3
-"""Formal State Machines and Invariants.
-
-CONCEPT:KG-2.6 — State Machine Invariant Engine
-
-Implements Deterministic Finite Automata (DFA) abstractions and provable
-state invariants from *Mathematics for Computer Science* (MCS Ch 6).
-Provides mathematical guarantees of agent safety by formally validating
-transitions against structural invariants, preventing infinite loops.
-"""
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -2107,20 +2038,6 @@ class FormalStateMachine:
         logger.info(f"Transitioned: {self.current_state} --[{action}]--> {target}")
         self.current_state = target
         return self.current_state
-
-
-# --- Merged from formal_reasoning_core.py ---
-
-#!/usr/bin/env python3
-"""Markov Chain Transitions and Vectorized Topologies.
-
-CONCEPT:KG-2.6 — Markov Transition Forecasting
-
-Implements Markov Chain transition matrices over agent interaction traces
-(Vectorized Topologies) from *Mathematics for Computer Science* (MCS Ch 21).
-Calculates the stationary distribution (Eigenvector) to predict where an
-agent is statistically most likely to fail or reach a sink node.
-"""
 
 
 logger = logging.getLogger(__name__)

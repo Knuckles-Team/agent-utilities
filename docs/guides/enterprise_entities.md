@@ -10,6 +10,18 @@ While the Knowledge Graph already models agents, tools, skills, and domain-speci
 
 All entities align to the **BFO upper ontology (ISO 21838-2)** and map to established industry standards.
 
+> **Implementation status (verify against code):** Section 1 (Human Capital & Workforce)
+> is implemented in `agent_utilities/knowledge_graph/ontology_hr.ttl` (the `:Employee`,
+> `:Department`, `:PositionRole`, `:Competency`, `:Credential`, `:PerformanceReview`,
+> `:CompensationBand`, `:OKR`, `:HiringPipeline` classes and the `reportsTo`,
+> `hasCompetency`, `holdsCredential`, `assignedToDepartment`, `cascadesTo` properties all
+> exist). Sections 2–4 (Supply Chain, most of Governance, Communication & Decision) are a
+> **planned design spec** — most of those OWL classes (e.g. `:Vendor`, `:Asset`,
+> `:Location`, `:ServiceLevelAgreement`, `:ProcurementOrder`, `:ComplianceRule`,
+> `:AuditFinding`, `:RiskRegisterEntry`, `:ControlObjective`, `:ComplianceCertificate`,
+> `:Meeting`, `:DecisionRecord`, `:Escalation`, `:ApprovalChain`) are **not yet present**
+> in the shipped ontology TTL files. `:Contract` exists in `ontology_legal.ttl`.
+
 ---
 
 ## 1. Human Capital & Workforce Ontology
@@ -158,6 +170,5 @@ All enterprise entities integrate with the existing Company Brain infrastructure
 
 ## See Also
 
-- [Company Brain Index](company_brain/00_index.md) — Multi-tenancy, concurrency, provenance
-- [Ontology & Epistemics](KG-2.2-Ontology_&_Epistemics.md) — OWL class definitions
-- [Risk Scoring Ontology](KG-2.7-Risk_Scoring_Ontology.md) — Domain-agnostic risk framework
+- [Company Brain Index](../pillars/2_epistemic_knowledge_graph/company_brain/00_index.md) — Multi-tenancy, concurrency, provenance
+- [Ontology & Epistemics](../pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md) — OWL class definitions

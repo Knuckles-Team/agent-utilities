@@ -44,7 +44,7 @@ graph LR
         Exec --> Verify["AHE-3.1: Verifier"]
         Verify --> SMUpdate["AHE-3.3: Self-Model\nUpdate"]
         Verify --> TCReward["ORCH-1.2: TeamConfig\nReward"]
-        SMUpdate --> CacheInv["ECO-4.10: Cache\nInvalidation"]
+        SMUpdate --> CacheInv["ECO-4.6: Cache\nInvalidation"]
         TCReward --> CacheInv
     end
 ```
@@ -53,7 +53,7 @@ graph LR
 
 ## CONCEPT:ORCH-1.2 — Registry Hot Cache
 
-**Module:** `agent_utilities/graph/config_helpers.py`
+**Module:** `agent_utilities/core/config.py`
 
 ### Problem
 
@@ -67,7 +67,7 @@ Every call to the router required a full registry scan — iterating over all re
 A session-scoped `_RegistryCache` singleton that caches the full specialist registry and provides filtered, query-relevant subsets:
 
 ```python
-from agent_utilities.graph.config_helpers import (
+from agent_utilities.core.config import (
     get_discovery_registry,        # Full cached registry
     get_relevant_specialists,      # Filtered top-K for a query
     invalidate_registry_cache,     # Event-driven invalidation
@@ -93,7 +93,7 @@ stateDiagram-v2
 
     note right of Warm
         Invalidation triggers:
-        - /mcp/reload endpoint
+        - MCP agent sync
         - Pipeline completion
         - SelfModel update
         - TeamConfig promotion
@@ -106,16 +106,16 @@ The cache is invalidated by 4 event sources, ensuring it stays in sync:
 
 | Trigger | Location | Why |
 |---------|----------|-----|
-| MCP Reload | `server/app.py` → `POST /mcp/reload` | New tools may create new specialists |
-| Pipeline Completion | `pipeline/runner.py` → `run_pipeline()` | Code graph changes may affect routing |
-| Self-Model Update | `knowledge_graph/self_model.py` → `update_after_session()` | New proficiency data should influence specialist ranking |
-| TeamConfig Promotion | `knowledge_graph/engine_registry.py` → `promote_coalition_to_template()` | New team templates change routing priorities |
+| MCP Sync | `mcp/agent_manager.py` → `sync_mcp_agents()` | New tools may create new specialists |
+| Pipeline Completion | `knowledge_graph/pipeline/runner.py` → `PipelineRunner.run()` | Code graph changes may affect routing |
+| Self-Model Update | `knowledge_graph/self_model.py` | New proficiency data should influence specialist ranking |
+| TeamConfig Promotion | `core/registry/kg_adapter.py` → `promote_coalition_to_template()` | New team templates change routing priorities |
 
 ---
 
 ## CONCEPT:AHE-3.3 — TeamConfig Promotion & Proven Team Reuse
 
-**Module:** `agent_utilities/knowledge_graph/engine_registry.py`
+**Module:** `agent_utilities/core/registry/kg_adapter.py`
 
 ### Problem
 
@@ -312,18 +312,19 @@ if graph_bundle:
 
 ```bash
 # Registry cache tests
-python -m pytest tests/unit/graph/test_config_helpers.py -v
+python -m pytest tests/unit/core/test_config_helpers.py -v
 
 # TeamConfig promotion and reward tracking
-python -m pytest tests/unit/knowledge_graph/test_team_config.py -v
+python -m pytest tests/test_team_config.py -v
 
 # AgentCapability node and auto-activation
-python -m pytest tests/unit/knowledge_graph/test_capability_nodes.py -v
+python -m pytest tests/unit/core/test_capabilities.py \
+    tests/unit/graph/test_capability_designation.py -v
 
 # All first-principles tests
-python -m pytest tests/unit/graph/test_config_helpers.py \
-    tests/unit/knowledge_graph/test_team_config.py \
-    tests/unit/knowledge_graph/test_capability_nodes.py -v
+python -m pytest tests/unit/core/test_config_helpers.py \
+    tests/test_team_config.py \
+    tests/unit/core/test_capabilities.py -v
 ```
 
 ---

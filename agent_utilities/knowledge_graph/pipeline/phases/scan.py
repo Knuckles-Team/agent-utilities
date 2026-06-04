@@ -110,6 +110,8 @@ async def execute_scan(ctx: PipelineContext, deps: dict[str, PhaseResult]) -> li
                 # Skip hidden directories except .specify
                 if d.startswith(".") and d != ".specify":
                     continue
+                if d in {"node_modules", "__pycache__", "venv"}:
+                    continue
 
                 pruned_dirs.append(d)
 

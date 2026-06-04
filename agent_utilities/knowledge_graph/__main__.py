@@ -70,8 +70,15 @@ async def main():
 
     if args.stage_to_queue:
         config.persist_to_ladybug = False
-
-    pipeline = IntelligencePipeline(config)
+        # Isolate this bulk-ingest subprocess's scratch symbol graph in its own
+        # tenant so concurrent repo ingests don't saturate the shared "__bus__"
+        # tenant (which the main process uses for the task queue + graph-writer).
+        # Only the final staged payload is merged into "__bus__" downstream.
+        pipeline = IntelligencePipeline(
+            config, graph_name=f"stage_{args.stage_to_queue}"
+        )
+    else:
+        pipeline = IntelligencePipeline(config)
 
     if args.bootstrap_workspace:
         from agent_utilities.core.workspace_config import clone_missing_projects
@@ -171,6 +178,18 @@ async def main():
 
             queue.put_staged_graph(args.stage_to_queue, nodes, edges)
             print(f"Graph staged to queue for job {args.stage_to_queue}")
+
+            # Drop the ephemeral scratch tenant — its payload now lives in the
+            # staging queue and will be merged into "__bus__" by the graph-writer.
+            try:
+                graph_name = getattr(pipeline, "graph_name", None)
+                client = getattr(pipeline.graph, "_client", None)
+                if graph_name and graph_name != "__bus__" and client is not None:
+                    client.tenants.delete(graph_name)
+            except Exception as e:
+                logging.getLogger(__name__).debug(
+                    f"Scratch tenant cleanup skipped: {e}"
+                )
 
     elif args.status:
         await pipeline.run()

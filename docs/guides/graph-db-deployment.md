@@ -4,7 +4,7 @@
 
 This guide provides a comprehensive, production-ready reference for deploying, configuring, and maintaining scale-out persistent graph backends for the `agent-utilities` Knowledge Graph engine.
 
-While **LadybugDB** is the zero-config embedded default, transitioning to a distributed or enterprise-grade backend is simple and seamless. We fully support **FalkorDB**, **Neo4j**, and **PostgreSQL (pgGraph)** with 100% feature parity (including Cypher CRUD, HNSW vector embeddings, and relationship indexing).
+The **Rust-native EpistemicGraph** (`GRAPH_BACKEND=memory`/`file`) is the zero-config, zero-dependency embedded default, and **PostgreSQL + pgvector (pgGraph)** is the primary durable/production tier. The demoted **contrib** backends — **LadybugDB**, **FalkorDB**, and **Neo4j** — remain fully supported as opt-in imports (`backends/contrib/`) with Cypher CRUD, HNSW vector embeddings, and relationship indexing. Select any of them via `create_backend()` or the `GRAPH_BACKEND` environment variable.
 
 ---
 
@@ -12,7 +12,10 @@ While **LadybugDB** is the zero-config embedded default, transitioning to a dist
 
 Select the right database backend based on your scale, infrastructure constraints, and architectural patterns:
 
-| Metric / Feature | 🐞 LadybugDB | 🦅 FalkorDB | 🟢 Neo4j | 🐘 PostgreSQL + pgGraph |
+> [!NOTE]
+> The zero-config embedded default is the **Rust-native EpistemicGraph** (`GRAPH_BACKEND=memory`/`file`), not listed below. **PostgreSQL + pgGraph** is the primary durable/production tier. LadybugDB, FalkorDB, and Neo4j are demoted **contrib** backends (`backends/contrib/`) — fully supported but opt-in (require their driver packages).
+
+| Metric / Feature | 🐞 LadybugDB (contrib) | 🦅 FalkorDB (contrib) | 🟢 Neo4j (contrib) | 🐘 PostgreSQL + pgGraph |
 |---|---|---|---|---|
 | **Primary Use Case** | Embedded / Local Dev | Low Latency / High Throughput | Enterprise Property Graph | Relational + Graph Unity |
 | **ACID Compliance** | Single-writer WAL | In-Memory (Optional AOF) | Full ACID (Clustered) | Full ACID (Standard Relational) |

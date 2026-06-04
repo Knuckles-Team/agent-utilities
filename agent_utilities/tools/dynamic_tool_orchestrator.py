@@ -32,7 +32,7 @@ class DynamicToolOrchestrator:
         """Dynamically find the most relevant tools for a given task.
 
         Leverages ECO-4.6 (Self-Describing Function Registry) and
-        KG-2.15 (Topological Analogy Engine).
+        KG-2.7 (Topological Analogy Engine).
         """
         if not self.engine.backend:
             return []

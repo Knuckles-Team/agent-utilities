@@ -336,8 +336,8 @@ def create_agent(
         except Exception as e:
             logger.debug(f"Auto-coordinating KG failed in create_agent: {e}")
 
-    agent_toolsets = []
-    initialized_mcp_toolsets = []
+    agent_toolsets: list[Any] = []
+    initialized_mcp_toolsets: list[Any] = []
 
     if mcp_url:
         if DEFAULT_VALIDATION_MODE:

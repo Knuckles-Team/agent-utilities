@@ -141,7 +141,7 @@ The main agent loop:
 
 ## AHE Integration (CONCEPT:AHE-3.0)
 
-RLM is deeply integrated with the [Agentic Harness Engineering](../3_agentic_harness_engineering/AHE_ARCHITECTURE.md) evolution loop:
+RLM is deeply integrated with the [Agentic Harness Engineering](AHE_ARCHITECTURE.md) evolution loop:
 
 ### TraceDistiller × RLM
 
@@ -206,17 +206,19 @@ FINAL_VAR("failure_memories", json.dumps(failures))
 4. **Turn limits**: Maximum 5 turns per RLM invocation
 5. **Trajectory storage**: All executions are logged for audit
 
-### `RLMHook` (`rlm/hook.py`)
+### `rlm_large_output_hook` (`rlm/hook.py`)
 
-Lifecycle hooks for observability:
+A pre-call lifecycle hook (`async def rlm_large_output_hook(input: HookInput)`)
+that auto-routes oversized tool/specialist outputs into an RLM pass before they
+reach the root LLM context.
 
-- `on_code_generated(code)`: Called when LLM generates code
-- `on_code_executed(code, stdout, vars)`: Called after execution
-- `on_recursion(depth, prompt)`: Called when spawning sub-RLM
+### `RecursiveReasonerSpecialist` (`rlm/specialist.py`)
 
-### `RLMSpecialist` (`rlm/specialist.py`)
-
-Integration with the graph executor as a specialist node. The RLM specialist can be routed to by the graph router for tasks requiring iterative code execution.
+Integration with the graph executor as a specialist node (wrapping an
+`RLMEnvironment` via `run_with_context()`). The recursive reasoner can be routed
+to by the graph router for tasks requiring iterative code execution. A
+module-level `recursive_reasoner_tool(...)` coroutine exposes the same capability
+as a callable tool.
 
 ## Example: Multi-Step Data Analysis
 

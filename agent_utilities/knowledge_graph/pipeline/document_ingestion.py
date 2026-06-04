@@ -199,10 +199,10 @@ class DocumentIngestionPipeline:
                 emb = embed_model.get_text_embedding(chunk)
                 embeddings.append(emb)
             return embeddings
-        except Exception as e:
-            logger.warning("Embedding model unavailable, using zero vectors: %s", e)
-            dim = 768
-            return [[0.0] * dim for _ in chunks]
+        except Exception as exc:
+            raise RuntimeError(
+                "Integration not configured: Embedding model is unavailable. Silent fallback to zero-vectors is disabled for zero-stub compliance."
+            ) from exc
 
     async def _create_graph_nodes(
         self,

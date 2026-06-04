@@ -1,6 +1,6 @@
 """Ingestion Engine — Single entrypoint for all data ingestion into the Knowledge Graph.
 
-CONCEPT:KG-3.0 — Ingestion Engine
+CONCEPT:KG-2.7 — Ingestion Engine
 
 Type-safe ingestion pipeline with content-typed adaptors. Each ``ContentType``
 maps 1:1 to an ``@adaptor``-decorated method on ``IngestionEngine``.
@@ -13,7 +13,8 @@ Supported content types:
   ==================  ===========================================================
   ContentType         Description
   ==================  ===========================================================
-  CODEBASE            Rust tree-sitter AST parse → Symbol nodes in KG
+  CODEBASE            Rust tree-sitter parse → Code/Test/Feature nodes (+ cards
+                      backfilled by the background enrichment daemon)
   DOCUMENT            KB extraction pipeline (chunking, LLM, embedding, graph)
   CONVERSATION        Episode nodes (chat messages, agent turns)
   SOCIAL              Social media posts (X/Twitter) → classifier → KG
@@ -31,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import time
 from collections.abc import Callable
 from enum import StrEnum
@@ -49,7 +51,7 @@ def _now() -> str:
 class ContentType(StrEnum):
     """Content types supported by the Ingestion Engine.
 
-    CONCEPT:KG-3.0
+    CONCEPT:KG-2.7
 
     Each value maps 1:1 to a registered ``@adaptor`` method on ``IngestionEngine``.
     """
@@ -65,12 +67,57 @@ class ContentType(StrEnum):
     POLICY = "policy"
     EVENT_STREAM = "event"
     PROMPT = "prompt"
+    CONFIG = "config"
+
+    @classmethod
+    def classify(cls, source: str) -> ContentType:
+        """Best-effort content-type inference from a source path/URL.
+
+        Shared by the MCP ``graph_ingest`` wrapper and any caller so the
+        path/URL → ContentType mapping lives in one place. (CONCEPT:KG-2.7)
+        """
+        s = (source or "").strip()
+        low = s.lower()
+        # Chat-log auto-discovery sentinel + Claude/IDE conversation dirs.
+        if low in ("chats", "conversations") or "/.claude/projects" in low:
+            return cls.CONVERSATION
+        if low.startswith(("http://", "https://")):
+            return cls.DOCUMENT
+        p = Path(s)
+        name = p.name.lower()
+        if name.endswith("mcp_config.json"):
+            return cls.MCP_SERVER
+        # Agent-utilities config.json (model registry + tunings). Checked AFTER
+        # mcp_config.json (which also ends with config.json).
+        if name == "config.json":
+            return cls.CONFIG
+        if name == "skill.md" or (p.is_dir() and (p / "SKILL.md").exists()):
+            return cls.SKILL
+        doc_exts = {
+            ".md",
+            ".txt",
+            ".pdf",
+            ".docx",
+            ".doc",
+            ".pptx",
+            ".csv",
+            ".epub",
+            ".html",
+            ".htm",
+            ".rst",
+            ".rtf",
+            ".ipynb",
+        }
+        if p.suffix.lower() in doc_exts:
+            return cls.DOCUMENT
+        # Directories and Python files default to a codebase parse.
+        return cls.CODEBASE
 
 
 class IngestionManifest(BaseModel):
     """Describes a single ingestion job.
 
-    CONCEPT:KG-3.0
+    CONCEPT:KG-2.7
 
     Attributes:
         content_type: What kind of content is being ingested.
@@ -90,7 +137,7 @@ class IngestionManifest(BaseModel):
 class IngestionResult(BaseModel):
     """Standardized result from an ingestion run.
 
-    CONCEPT:KG-3.0
+    CONCEPT:KG-2.7
 
     Attributes:
         manifest: The manifest that was ingested.
@@ -126,13 +173,112 @@ def adaptor(content_type: ContentType) -> Callable:
     return decorator
 
 
+# ── Content-hash registry (durable delta-skip, CONCEPT:KG-2.8) ─────────────
+
+_HASHERS: dict[ContentType, Callable] = {}
+
+# Content types that participate in the durable manifest skip via the default
+# source hasher — file/dir content where the hash genuinely reflects whether a
+# re-ingest is needed. Deliberately EXCLUDED:
+#   - CONVERSATION / SOCIAL / EVENT_STREAM: stream/episodic; each submission is new.
+#   - SPARQL: source is an endpoint URL whose hash never changes even as the
+#     remote data does → would skip every pull after the first.
+#   - MCP_SERVER / SKILL: have their own freshness/refresh semantics (a refresh
+#     re-discovers live capabilities even when the config is unchanged).
+#   - POLICY: source is the whole workspace dir; hashing it is wrong + expensive.
+_DEFAULT_TRACKED: set[ContentType] = {
+    ContentType.CODEBASE,
+    ContentType.DOCUMENT,
+    ContentType.KNOWLEDGE_BASE,
+    ContentType.PROMPT,
+    ContentType.CONFIG,
+}
+
+# Vendored / build dirs excluded from directory content digests (mirrors
+# ``enrichment.pipeline._SKIP_DIRS``).
+_SKIP_DIRS = {
+    ".venv",
+    "venv",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    "site-packages",
+    "build",
+    "dist",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    "target",
+    "site",
+}
+
+
+def content_hasher(content_type: ContentType) -> Callable:
+    """Register a custom content-identity hasher for a ``ContentType``.
+
+    Registering also marks the type as manifest-tracked. Use this only when the
+    default source hasher (file bytes / directory mtime+size / inline string)
+    isn't the right identity for that content type.
+    """
+
+    def decorator(func: Callable) -> Callable:
+        _HASHERS[content_type] = func
+        return func
+
+    return decorator
+
+
+def _default_source_hash(source: str) -> str | None:
+    """Content-identity hash for a path/URL/inline source.
+
+    Returns ``None`` when the source can't be hashed (treated as untracked, so
+    ingestion proceeds without a skip decision).
+    """
+    if source.startswith(("http://", "https://")):
+        return hashlib.sha256(source.encode()).hexdigest()
+    p = Path(source)
+    if p.exists():
+        if p.is_file():
+            try:
+                return hashlib.sha256(p.read_bytes()).hexdigest()
+            except OSError:
+                return None
+        # Directory: cheap digest over (relpath, mtime_ns, size) of non-vendored
+        # files — detects any add/remove/modify without reading file contents.
+        # Uses ``os.walk`` with in-place pruning of ``_SKIP_DIRS`` so we never
+        # *descend* into vendored/build trees (``.git``/``node_modules``/``.venv``
+        # /``target`` …). ``rglob("*")`` would walk every file under those first
+        # and only filter afterwards — pathological (minutes of CPU) on repos
+        # with large vendored deps. (CONCEPT:KG-2.7)
+        h = hashlib.sha256()
+        entries: list[tuple[str, int, int]] = []
+        for root, dirnames, filenames in os.walk(p):
+            # Prune skip-dirs in place so os.walk does not recurse into them.
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            for name in filenames:
+                fp = os.path.join(root, name)
+                try:
+                    st = os.stat(fp)
+                except OSError:
+                    continue
+                rel = os.path.relpath(fp, p)
+                entries.append((rel, st.st_mtime_ns, st.st_size))
+        for rel, mtime_ns, size in sorted(entries):
+            h.update(rel.encode())
+            h.update(str(mtime_ns).encode())
+            h.update(str(size).encode())
+        return h.hexdigest()
+    # Inline content (JSON / text payload passed as the source string).
+    return hashlib.sha256(source.encode()).hexdigest()
+
+
 # ── IngestionEngine ───────────────────────────────────────────────────────
 
 
 class IngestionEngine:
     """Single ingestion engine for the Knowledge Graph.
 
-    CONCEPT:KG-3.0 — Ingestion Engine
+    CONCEPT:KG-2.7 — Ingestion Engine
 
     All content enters the KG through this engine. Each ``ContentType``
     is handled by an ``@adaptor``-decorated method that contains the
@@ -178,10 +324,39 @@ class IngestionEngine:
         self.backend = backend or getattr(kg_engine, "backend", None)
         self._history: list[IngestionResult] = []
 
+        # Durable delta-skip manifest (graph-native when the backend is durable,
+        # SQLite fallback otherwise), keyed by the tenant graph. (CONCEPT:KG-2.8)
+        from .manifest import DeltaManifest
+
+        self.manifest = DeltaManifest(backend=self.backend)
+        gc = getattr(kg_engine, "graph_compute", None)
+        self.graph_name = getattr(gc, "graph_name", "__bus__")
+
     @property
     def history(self) -> list[IngestionResult]:
         """Return the ingestion history for this engine instance."""
         return list(self._history)
+
+    def _content_identity(self, manifest: IngestionManifest) -> tuple[str, str] | None:
+        """Return ``(canonical_uri, content_hash)`` for a tracked manifest.
+
+        ``None`` means the content type is not manifest-tracked (or the source
+        can't be hashed), so ingestion runs without a delta-skip decision.
+        """
+        ct = manifest.content_type
+        if ct not in _HASHERS and ct not in _DEFAULT_TRACKED:
+            return None
+        custom = _HASHERS.get(ct)
+        h = (
+            custom(self, manifest)
+            if custom
+            else _default_source_hash(manifest.source_uri)
+        )
+        if not h:
+            return None
+        p = Path(manifest.source_uri)
+        canonical = str(p.resolve()) if p.exists() else manifest.source_uri
+        return canonical, h
 
     async def ingest(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest a single manifest using the appropriate adaptor.
@@ -193,7 +368,7 @@ class IngestionEngine:
             ``IngestionResult`` with status, counts, and timing.
         """
         logger.info(
-            "[KG-3.0] Ingesting %s from %s",
+            "[KG-2.7] Ingesting %s from %s",
             manifest.content_type.value,
             manifest.source_uri[:80],
         )
@@ -208,14 +383,50 @@ class IngestionEngine:
             self._history.append(result)
             return result
 
+        # Durable delta-skip: if this source's content is unchanged since the
+        # last successful ingest, skip before dispatching the adaptor.
+        identity: tuple[str, str] | None = None
+        try:
+            identity = self._content_identity(manifest)
+        except Exception:  # noqa: BLE001 — never let hashing break ingestion
+            logger.debug(
+                "content identity failed for %s", manifest.source_uri, exc_info=True
+            )
+        if (
+            identity
+            and not manifest.force
+            and self.manifest.seen(
+                self.graph_name, manifest.content_type.value, identity[0], identity[1]
+            )
+        ):
+            result = IngestionResult(
+                manifest=manifest,
+                status="skipped",
+                duration_ms=(time.monotonic() - start) * 1000,
+                details={"reason": "unchanged", "source": identity[0]},
+            )
+            self._history.append(result)
+            return result
+
         try:
             handler = _ADAPTORS[manifest.content_type]
             result = await handler(self, manifest)
             result.duration_ms = (time.monotonic() - start) * 1000
+            # Record the content hash only on a clean success so failures retry.
+            if identity and result.status == "success":
+                try:
+                    self.manifest.record(
+                        self.graph_name,
+                        manifest.content_type.value,
+                        identity[0],
+                        identity[1],
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("manifest record failed", exc_info=True)
             self._history.append(result)
             return result
         except Exception as e:
-            logger.exception("[KG-3.0] Ingestion failed for %s", manifest.source_uri)
+            logger.exception("[KG-2.7] Ingestion failed for %s", manifest.source_uri)
             result = IngestionResult(
                 manifest=manifest,
                 status="failed",
@@ -257,17 +468,115 @@ class IngestionEngine:
                 processed.append(res)
         return processed
 
+    def _extract_and_link_concepts(
+        self, source_id: str, text: str, source_type: str, title: str = ""
+    ) -> int:
+        """Extract Concept nodes + MENTIONS edges from text and persist them.
+
+        Generic across categories (prompts, chats, docs) so they converge on
+        shared Concept nodes (CONCEPT:KG-2.8). Best-effort + lazy LLM; the
+        ``_concept_llm_fn`` is cached. Returns the number of concepts written.
+        """
+        import json as _json
+
+        try:
+            from ..enrichment.extractors.text import extract_text_concepts
+
+            llm = getattr(self, "_concept_llm_fn", None)
+            if llm is None:
+                from ..enrichment.cards import make_lite_llm_fn
+
+                llm = make_lite_llm_fn()
+                self._concept_llm_fn = llm
+            concepts, edges = extract_text_concepts(
+                text, source_id, llm, source_type=source_type, title=title
+            )
+        except Exception:  # noqa: BLE001
+            return 0
+
+        add_node = getattr(self.backend, "add_node", None)
+        if not callable(add_node):
+            return 0
+        for c in concepts:
+            try:
+                add_node(
+                    c.id,
+                    type="Concept",
+                    name=c.name,
+                    kind=c.kind,
+                    summary=c.summary,
+                    source_ids=_json.dumps(c.source_ids),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        add_edge = getattr(self.backend, "add_edge", None)
+        if callable(add_edge):
+            for e in edges:
+                try:
+                    add_edge(e.source, e.target, rel_type=e.rel_type)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        # Cross-link concepts → Code/Feature via vector similarity so the graph
+        # interweaves (RELATES_TO / REALIZES). Best-effort: needs an embedding
+        # model + a vector-searchable backend; degrades silently otherwise.
+        # Gated by KG_CONCEPT_CODE_LINK (default on). (CONCEPT:KG-2.8)
+        self._link_concepts_to_code(concepts)
+        return len(concepts)
+
+    def _link_concepts_to_code(self, concepts: list[Any]) -> int:
+        """Write RELATES_TO/REALIZES edges from concepts to similar Code/Feature.
+
+        Returns the number of edges written (0 if disabled/unavailable).
+        """
+        import os
+
+        if not concepts or os.getenv("KG_CONCEPT_CODE_LINK", "1") == "0":
+            return 0
+        add_edge = getattr(self.backend, "add_edge", None)
+        search = getattr(self.backend, "semantic_search", None)
+        if not callable(add_edge) or not callable(search):
+            return 0
+        try:
+            from ..enrichment.semantic import link_concepts_to_code, make_embed_fn
+
+            embed_fn = getattr(self, "_concept_embed_fn", None)
+            if embed_fn is None:
+                embed_fn = make_embed_fn()
+                self._concept_embed_fn = embed_fn
+
+            def search_fn(vec: list[float], top_k: int) -> list[dict[str, Any]]:
+                return search(vec, top_k) or []
+
+            edges = link_concepts_to_code(concepts, embed_fn, search_fn)
+        except Exception:  # noqa: BLE001 — enrichment must never break ingest
+            return 0
+        written = 0
+        for e in edges:
+            try:
+                add_edge(e.source, e.target, rel_type=e.rel_type)
+                written += 1
+            except Exception:  # noqa: BLE001
+                pass
+        return written
+
     # ── Adaptors ───────────────────────────────────────────────────────
 
     @adaptor(ContentType.CODEBASE)
     async def _ingest_codebase(self, manifest: IngestionManifest) -> IngestionResult:
-        """Ingest a codebase using the Rust tree-sitter AST backend.
+        """Ingest a codebase — **structural phase** (CONCEPT:KG-2.8).
 
-        CONCEPT:KG-3.0
+        Runs the in-process ``EnrichmentPipeline`` over the Rust tree-sitter
+        parser to produce ``Code``/``Test``/``Feature`` nodes, ``COVERS``/
+        ``CALLS``/``PART_OF_FEATURE`` edges, design-pattern tags, and test
+        classification — all immediately queryable. No LLM here: capability-card
+        summaries are filled in later by the background enrichment daemon
+        (``needs_card`` = ``Code`` nodes whose ``summary`` is empty).
 
-        Walks the directory via ``GraphComputeEngine.parse_repository()``,
-        parses files into Symbol nodes (functions, classes, imports), records
-        all mutations in the reactive ledger, then flushes to the backend.
+        Two-level delta: the engine-level dir digest (category ``codebase``)
+        skips the whole repo when nothing changed; per-file ``content_hash``
+        (category ``codebase_file``) skips unchanged files within a changed repo.
+        Writes upsert by stable id, so re-ingest never duplicates.
         """
         source_path = manifest.source_uri
         if not Path(source_path).exists():
@@ -276,35 +585,128 @@ class IngestionEngine:
                 status="failed",
                 error=f"Path does not exist: {source_path}",
             )
-
-        try:
-            graph_compute = getattr(self.kg, "graph_compute", None)
-            if graph_compute is None:
-                return IngestionResult(
-                    manifest=manifest,
-                    status="failed",
-                    error="GraphComputeEngine not available on KG engine",
-                )
-
-            graph_compute.parse_repository(source_path)
-            flushed = 0
-            if self.backend and hasattr(graph_compute, "flush_ledger_to_backend"):
-                flushed = graph_compute.flush_ledger_to_backend(self.backend)
-
+        graph_compute = getattr(self.kg, "graph_compute", None)
+        if graph_compute is None:
             return IngestionResult(
                 manifest=manifest,
-                status="success",
-                nodes_created=flushed,
-                details={"source_path": source_path, "flushed": flushed},
+                status="failed",
+                error="GraphComputeEngine not available on KG engine",
             )
-        except Exception as e:
+        import asyncio
+
+        try:
+            return await asyncio.to_thread(
+                self._run_codebase_structural, manifest, graph_compute, source_path
+            )
+        except Exception as e:  # noqa: BLE001
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
+
+    def _run_codebase_structural(
+        self, manifest: IngestionManifest, graph_compute: Any, source_path: str
+    ) -> IngestionResult:
+        """Blocking structural enrichment (runs in a worker thread)."""
+        from ..enrichment.features import make_community_fn
+        from ..enrichment.pipeline import EnrichmentPipeline, make_parse_fn
+
+        # Enrichment writers need add_node/add_edge; wrap graph_compute if the
+        # injected backend doesn't expose them (non-epistemic backends).
+        backend = self.backend
+        if not (hasattr(backend, "add_node") and hasattr(backend, "add_edge")):
+            from ..backends.epistemic_graph_backend import EpistemicGraphBackend
+
+            backend = EpistemicGraphBackend()
+            backend._graph = graph_compute
+
+        # Features (call-graph communities) are cheap + non-LLM, but use a
+        # transient tenant for community detection so the main graph isn't
+        # polluted. Best-effort: degrade to no-features on any failure.
+        community_fn = None
+        comm = None
+        comm_name = f"{self.graph_name}__enrich_comm"
+        if manifest.metadata.get("features", True):
+            try:
+                from ..core.graph_compute import GraphComputeEngine
+
+                comm = GraphComputeEngine(graph_name=comm_name)
+                community_fn = make_community_fn(comm)
+            except Exception:  # noqa: BLE001
+                community_fn = None
+
+        # Seed per-file delta from the durable manifest (one bulk load).
+        file_cat = "codebase_file"
+        try:
+            hash_seen = self.manifest.load_for_graph(self.graph_name, file_cat)
+        except Exception:  # noqa: BLE001
+            hash_seen = {}
+
+        pipe = EnrichmentPipeline(
+            backend,
+            make_parse_fn(graph_compute),
+            community_fn=community_fn,
+            hash_seen=hash_seen,
+        )
+        try:
+            summary = pipe.enrich(source_path)
+        finally:
+            if comm is not None:
+                try:
+                    comm._client.tenants.delete(comm_name)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        # Persist per-file content hashes back to the durable manifest so the
+        # per-file skip survives restarts.
+        try:
+            for fp, fh in hash_seen.items():
+                self.manifest.record(self.graph_name, file_cat, fp, fh)
+        except Exception:  # noqa: BLE001
+            logger.debug("codebase per-file manifest persist failed", exc_info=True)
+
+        # Auto-detect specs: the repo's own ``.specify/**/*.md`` → Spec nodes
+        # (bounded to source_path/.specify so we don't walk the whole tree).
+        specs = 0
+        spec_root = Path(source_path) / ".specify"
+        if spec_root.is_dir() and backend is not None:
+            import hashlib as _hashlib
+
+            for sp in sorted(spec_root.rglob("*.md")):
+                try:
+                    text = sp.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+                sid = "spec:" + _hashlib.sha256(str(sp).encode()).hexdigest()[:12]
+                try:
+                    backend.add_node(
+                        sid,
+                        type="Spec",
+                        name=sp.name,
+                        file_path=str(sp),
+                        ast_hash=_hashlib.sha256(text.encode()).hexdigest(),
+                        summary=text[:500],
+                    )
+                    specs += 1
+                except Exception:  # noqa: BLE001
+                    logger.debug("spec write failed for %s", sp, exc_info=True)
+
+        nodes = summary.code + summary.tests + summary.features + specs
+        cards_pending = max(0, summary.code - summary.cards_generated)
+        details = summary.model_dump()
+        details["cards_pending"] = cards_pending
+        details["specs"] = specs
+        details["source_path"] = source_path
+        return IngestionResult(
+            manifest=manifest,
+            status="success",
+            nodes_created=nodes,
+            edges_created=summary.covers_edges + summary.calls_edges,
+            details=details,
+        )
 
     @adaptor(ContentType.DOCUMENT)
     async def _ingest_document(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest a document through the KB extraction pipeline.
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         Routes to ``KBIngestionEngine.ingest_directory()`` or
         ``ingest_url()`` depending on whether ``source_uri`` is a path or URL.
@@ -314,6 +716,13 @@ class IngestionEngine:
         kb_name = manifest.metadata.get("kb_name")
         topic = manifest.metadata.get("topic")
         force = manifest.force
+
+        # Light per-file path: a single document FILE → Document + Concept nodes
+        # via extract_document (1 LLM call, no heavy KB chunking). Subset-friendly,
+        # reuses the unified concept extractor, and is far faster than KB chunking
+        # for papers/markdown/text. Directories + URLs still use the KB pipeline.
+        if not source.startswith(("http://", "https://")) and Path(source).is_file():
+            return self._ingest_document_file(manifest, Path(source))
 
         try:
             from ..kb.ingestion import KBIngestionEngine
@@ -361,18 +770,131 @@ class IngestionEngine:
         except Exception as e:
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
 
+    def _ingest_document_file(
+        self, manifest: IngestionManifest, path_obj: Path
+    ) -> IngestionResult:
+        """Light single-file document ingest → Document + Concept + MENTIONS.
+
+        One LLM call (concept extraction on the excerpt), no KB chunking — fast
+        + subset-friendly. Set ``extract_concepts=False`` to store the Document
+        node only. (CONCEPT:KG-2.8)
+        """
+        import json as _json
+
+        from ..enrichment.extractors.document import (
+            extract_document,
+            read_document_text,
+        )
+
+        text = read_document_text(str(path_obj))
+        if not text.strip():
+            return IngestionResult(
+                manifest=manifest,
+                status="skipped",
+                details={"reason": "empty/unreadable"},
+            )
+
+        want_concepts = manifest.metadata.get("extract_concepts", True)
+        if want_concepts:
+            llm = getattr(self, "_concept_llm_fn", None)
+            if llm is None:
+                from ..enrichment.cards import make_lite_llm_fn
+
+                llm = make_lite_llm_fn()
+                self._concept_llm_fn = llm
+        else:
+            llm = lambda _p: ""  # noqa: E731 — Document node only, no concepts
+
+        doc, concepts, edges = extract_document(str(path_obj), text, llm)
+        add_node = getattr(self.backend, "add_node", None)
+        if not callable(add_node):
+            return IngestionResult(
+                manifest=manifest, status="failed", error="backend.add_node unavailable"
+            )
+        add_node(
+            doc.id,
+            type="Document",
+            name=doc.title,
+            doc_type=doc.doc_type,
+            file_path=doc.file_path,
+            ast_hash=doc.content_hash,
+            metadata=_json.dumps(doc.metadata)[:4000],
+        )
+        for c in concepts:
+            add_node(
+                c.id,
+                type="Concept",
+                name=c.name,
+                kind=c.kind,
+                summary=c.summary,
+                source_ids=_json.dumps(c.source_ids),
+            )
+        add_edge = getattr(self.backend, "add_edge", None)
+        if callable(add_edge):
+            for e in edges:
+                try:
+                    add_edge(e.source, e.target, rel_type=e.rel_type)
+                except Exception:  # noqa: BLE001
+                    pass
+        return IngestionResult(
+            manifest=manifest,
+            status="success",
+            nodes_created=1 + len(concepts),
+            edges_created=len(edges),
+            details={
+                "doc_id": doc.id,
+                "doc_type": doc.doc_type,
+                "concepts": len(concepts),
+            },
+        )
+
     @adaptor(ContentType.CONVERSATION)
     async def _ingest_conversation(
         self, manifest: IngestionManifest
     ) -> IngestionResult:
         """Ingest a conversation episode into the graph.
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         Creates an episode node representing a chat turn or conversation
         fragment. The ``source_uri`` is treated as the conversation content.
         """
         try:
+            # First-class multi-IDE chat-log ingestion: a "chats"/"conversations"
+            # sentinel, a Claude/IDE log dir, or metadata.chats=True triggers
+            # auto-discovery + bulk ingest of Thread/Message nodes (CONCEPT:KG-2.1).
+            _low = manifest.source_uri.strip().lower()
+            if (
+                _low in ("chats", "conversations")
+                or "/.claude/projects" in _low
+                or manifest.metadata.get("chats")
+            ):
+                import asyncio as _asyncio
+
+                from ..core.conversation_ingestion import ingest_conversations_to_kg
+
+                ides = manifest.metadata.get("ides")  # None → all supported IDEs
+                res = await _asyncio.to_thread(
+                    ingest_conversations_to_kg,
+                    ides=ides,
+                    limit=manifest.metadata.get("limit"),
+                    extract_concepts=manifest.metadata.get("extract_concepts", True),
+                )
+                if isinstance(res, dict) and res.get("error"):
+                    return IngestionResult(
+                        manifest=manifest, status="failed", error=str(res["error"])
+                    )
+                # Writer returns total_ingested (threads) + total_messages.
+                created = 0
+                if isinstance(res, dict):
+                    created = int(res.get("total_ingested", 0) or 0)
+                return IngestionResult(
+                    manifest=manifest,
+                    status="success",
+                    nodes_created=created,
+                    details=res if isinstance(res, dict) else {"result": str(res)},
+                )
+
             source = manifest.metadata.get("source", "chat")
             timestamp = manifest.metadata.get("timestamp")
 
@@ -415,7 +937,7 @@ class IngestionEngine:
     async def _ingest_social(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest social media content (X/Twitter posts) into the graph.
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         Routes through ``XIngestionBridge.ingest_browse_result()`` which
         handles classification, tier scoring, and evolution candidate creation.
@@ -449,7 +971,7 @@ class IngestionEngine:
     async def _ingest_kb(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest a knowledge base (skill-graph directory or document directory).
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         Auto-detects skill-graphs (directories containing ``SKILL.md``) and
         routes appropriately to ``KBIngestionEngine``.
@@ -498,7 +1020,7 @@ class IngestionEngine:
     async def _ingest_sparql(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest entities from a SPARQL endpoint.
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         Pulls entities from an external SPARQL endpoint and maps them to
         native ``RegistryNode`` schema using configurable ontology mappings.
@@ -535,7 +1057,7 @@ class IngestionEngine:
     async def _ingest_skill(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest an agent skill directory into the graph.
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         Parses YAML frontmatter from ``SKILL.md`` and creates a skill node
         in the KG. ``source_uri`` should be the directory containing ``SKILL.md``.
@@ -575,7 +1097,7 @@ class IngestionEngine:
     async def _ingest_mcp_server(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest an MCP server configuration or A2A agent card.
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         ``source_uri`` should be a path to an ``mcp_config.json``, a URL
         for an A2A agent card, or a directory containing ``mcp_config.json``.
@@ -622,27 +1144,71 @@ class IngestionEngine:
                         error=f"Config file not found: {config_path}",
                     )
 
-                config_data = json_mod.loads(config_path.read_text(encoding="utf-8"))
-                servers = config_data.get("mcpServers", {})
-                ingested = 0
+                import asyncio as _asyncio
 
-                for name, srv in servers.items():
+                config_data = json_mod.loads(config_path.read_text(encoding="utf-8"))
+                discover = manifest.metadata.get("discover", True)
+                # Skip self (the KG server) — recursive + heavy to start.
+                self_names = {"graph-os", "graph_os", "mcp-multiplexer"}
+
+                parse = getattr(self.kg, "parse_mcp_config", None)
+                if callable(parse):
+                    entries = parse(config_data)
+                else:
+                    entries = [
+                        {
+                            "name": n,
+                            "command": s.get("command", ""),
+                            "args": s.get("args", []),
+                            "env": s.get("env", {}),
+                        }
+                        for n, s in config_data.get("mcpServers", {}).items()
+                        if not s.get("disabled")
+                    ]
+
+                discover_fn = getattr(self.kg, "discover_mcp_tools", None)
+                sem = _asyncio.Semaphore(
+                    int(manifest.metadata.get("discovery_concurrency", 6))
+                )
+                timeout = float(manifest.metadata.get("discovery_timeout", 15.0))
+
+                async def _disc(entry):
+                    if (
+                        not discover
+                        or entry["name"] in self_names
+                        or not callable(discover_fn)
+                    ):
+                        return entry, []
+                    async with sem:
+                        try:
+                            return entry, await discover_fn(entry, timeout=timeout)
+                        except Exception:  # noqa: BLE001
+                            return entry, []
+
+                results = await _asyncio.gather(*[_disc(e) for e in entries])
+                ingested = 0
+                tools_total = 0
+                for entry, tools in results:
                     if hasattr(self.kg, "ingest_mcp_server"):
                         self.kg.ingest_mcp_server(
-                            name=name,
-                            url=f"stdio://{srv.get('command', '')}",
-                            tools=[],
-                            resources={"env": srv.get("env", {})},
+                            name=entry["name"],
+                            url=f"stdio://{entry.get('command', '')}",
+                            tools=tools,
+                            resources={"env": entry.get("env", {})},
                         )
                         ingested += 1
+                        tools_total += len(tools)
 
                 return IngestionResult(
                     manifest=manifest,
                     status="success",
-                    nodes_created=ingested,
+                    nodes_created=ingested + tools_total,
+                    edges_created=tools_total * 2,  # PROVIDES + HAS_METADATA per tool
                     details={
                         "type": "mcp_config",
                         "servers_ingested": ingested,
+                        "tools_discovered": tools_total,
+                        "discovery": discover,
                     },
                 )
 
@@ -654,7 +1220,7 @@ class IngestionEngine:
     async def _ingest_policy(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest policy / constitution / engineering rules into the graph.
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         ``source_uri`` should be the workspace path. ``metadata`` may contain:
 
@@ -713,7 +1279,7 @@ class IngestionEngine:
     ) -> IngestionResult:
         """Ingest events from an event stream (webhook, Kafka, CDC).
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         Parses the ``source_uri`` as a JSON event payload and processes it
         through the event stream pipeline with automatic provenance tracking.
@@ -760,7 +1326,7 @@ class IngestionEngine:
     async def _ingest_prompt(self, manifest: IngestionManifest) -> IngestionResult:
         """Ingest a prompt template into the graph as a prompt node.
 
-        CONCEPT:KG-3.0
+        CONCEPT:KG-2.7
 
         ``source_uri`` should be the path to a prompt markdown file.
         """
@@ -789,14 +1355,95 @@ class IngestionEngine:
                     timestamp=_now(),
                 )
 
+            # Concept extraction so prompts interweave with code/docs/chats
+            # (CONCEPT:KG-2.8). Optional + lazy LLM; pass extract_concepts=False
+            # for fast structural-only bulk runs.
+            concepts = 0
+            if manifest.metadata.get("extract_concepts", True):
+                concepts = self._extract_and_link_concepts(
+                    prompt_id, content, "prompt", prompt_path.stem
+                )
+
             return IngestionResult(
                 manifest=manifest,
                 status="success",
-                nodes_created=1,
-                details={"prompt_id": prompt_id},
+                nodes_created=1 + concepts,
+                details={"prompt_id": prompt_id, "concepts": concepts},
             )
         except Exception as e:
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
+
+    @adaptor(ContentType.CONFIG)
+    async def _ingest_config(self, manifest: IngestionManifest) -> IngestionResult:
+        """Ingest the agent-utilities ``config.json`` model registry + tunings.
+
+        CONCEPT:KG-2.7 — first-class config/LLM-model ingestion (supersedes the
+        standalone ``scripts/ingest_config.py``). Creates ``LanguageModel`` /
+        ``EmbeddingModel`` / ``SystemConfig`` nodes so models are queryable and
+        OWL can link ``agent``→``USES_MODEL``→model. Secrets (base_url/api_key)
+        are dropped before persistence.
+        """
+        import json as _json
+
+        try:
+            data = _json.loads(Path(manifest.source_uri).read_text(encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001
+            return IngestionResult(
+                manifest=manifest, status="failed", error=f"config read: {e}"
+            )
+
+        add_node = getattr(self.kg, "add_node", None)
+        if not callable(add_node):
+            return IngestionResult(
+                manifest=manifest,
+                status="failed",
+                error="engine.add_node unavailable",
+            )
+
+        drop = {"base_url", "api_key", "id"}
+        models = 0
+        for m in data.get("chat_models", []) or []:
+            mid = m.get("id")
+            if not mid:
+                continue
+            add_node(
+                node_id=mid,
+                node_type="LanguageModel",
+                properties={k: v for k, v in m.items() if k not in drop},
+            )
+            models += 1
+        for m in data.get("embedding_models", []) or []:
+            mid = m.get("id")
+            if not mid:
+                continue
+            add_node(
+                node_id=mid,
+                node_type="EmbeddingModel",
+                properties={k: v for k, v in m.items() if k not in drop},
+            )
+            models += 1
+        sys_keys = (
+            "routing_strategy",
+            "graph_router_timeout",
+            "kg_llm_concurrency",
+            "enable_otel",
+            "a2a_broker",
+            "a2a_storage",
+            "max_concurrent_agents",
+            "graph_persistence_type",
+            "routing_strategy",
+        )
+        add_node(
+            node_id="agent_system_config",
+            node_type="SystemConfig",
+            properties={k: data.get(k) for k in sys_keys if k in data},
+        )
+        return IngestionResult(
+            manifest=manifest,
+            status="success",
+            nodes_created=models + 1,
+            details={"source": manifest.source_uri, "models": models},
+        )
 
     # ── Helpers ────────────────────────────────────────────────────────
 

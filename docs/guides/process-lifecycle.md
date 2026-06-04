@@ -4,7 +4,7 @@
 
 ## Overview
 
-When `agent-utilities` starts a server via `create_agent_server()` or `create_graph_agent_server()`, it may spawn several child processes:
+When `agent-utilities` starts a server via `create_agent_server()` (the entrypoint used by `python -m agent_utilities`), it may spawn several child processes:
 
 - **MCP Servers**: stdio-based subprocesses for each configured MCP server
 - **Terminal UI**: The `agent-terminal-ui` process launched via `subprocess.Popen`
@@ -107,6 +107,6 @@ DEBUG - Cleaned up child process 12346
 
 ## Related Documentation
 
-- [Configuration](../5_agent_os_infrastructure/configuration.md) — Server startup flags and environment variables
-- [Architecture](../1_graph_orchestration/architecture.md) — Server endpoint architecture
-- [First Principles Architecture](../1_graph_orchestration/first-principles.md) — Full CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0 overview
+- [Configuration](configuration.md) — Server startup flags and environment variables
+- [Architecture](architecture.md) — Server endpoint architecture
+- [First Principles Architecture](first-principles.md) — Full CONCEPT:ORCH-1.2 through CONCEPT:ECO-4.0 overview

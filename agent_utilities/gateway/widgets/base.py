@@ -1,6 +1,6 @@
 """Base widget abstract class — all service widgets inherit from this.
 
-CONCEPT:GW-1.0 — Gateway Service Dashboard
+CONCEPT:OS-5.9 — Gateway Service Dashboard
 
 Mirrors Homepage's widget.js pattern: each widget defines its fields,
 environment variable prefix, and a ``fetch_data()`` method that returns

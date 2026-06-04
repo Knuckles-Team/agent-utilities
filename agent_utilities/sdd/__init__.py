@@ -206,7 +206,7 @@ class SDDManager:
     def sync_to_memory(self, engine: Any, **kwargs):
         """Sync SDD artifacts to Knowledge Graph memory."""
         # record_sdd_outcome is already called on save()
-        pass
+        return None
 
     def record_sdd_outcome(self, model: T, feature_id: str | None = None):
         """Record the creation or update of an SDD artifact in the Knowledge Graph."""
@@ -240,45 +240,82 @@ class SDDManager:
             )
 
     def get_parallel_opportunities(self, task_list: Tasks) -> list[list[str]]:
-        """Identify groups of tasks that can be safely run in parallel.
+        """Identify ordered waves of tasks that can be safely run in parallel.
 
-        Calculates parallel groups based on:
-        1. Explicit dependency graph (tasks without dependencies or with completed deps).
-        2. File collision detection (tasks affecting same files cannot be parallel).
+        Performs a true dependency-aware topological batching of the pending
+        tasks. Tasks are grouped into successive *waves* (batches) such that:
+
+        1. Every task in a wave has all of its dependencies already satisfied --
+           either already ``COMPLETED`` or scheduled in a strictly earlier wave.
+           Dependent tasks therefore always land in a later batch than the
+           tasks they depend on (never the same or an earlier one).
+        2. No two tasks in the same wave touch the same ``file_paths`` (file
+           collision detection), so tasks within a wave are safe to execute
+           concurrently.
+
+        Unlike a single linear pass, this scheduler resolves chains across
+        multiple waves: if ``C`` depends on a still-pending ``A``, ``A`` is
+        scheduled first and ``C`` is held back until a subsequent wave rather
+        than being dropped. Dependencies on unknown/completed task ids are
+        treated as already satisfied so the schedule always drains.
+
+        Returns a list of waves, each a list of task ids.
         """
-        completed = set()
-        all_tasks = {}
+        all_tasks: dict[str, Any] = {}
+        completed: set[str] = set()
         for task in task_list.tasks:
             all_tasks[task.id] = task
             if task.status == TaskStatus.COMPLETED:
                 completed.add(task.id)
 
-        pending = [t for t in all_tasks.values() if t.status != TaskStatus.COMPLETED]
+        # Preserve declaration order for deterministic, stable batches.
+        pending = [t for t in task_list.tasks if t.status != TaskStatus.COMPLETED]
+        pending_ids = {t.id for t in pending}
 
-        groups = []
-        current_batch = []
-        occupied_files = set()
+        # A dependency is "satisfied" once it has been scheduled in an earlier
+        # wave or was already completed. Dependencies that are not part of the
+        # pending set (unknown ids or already-completed tasks) count as met.
+        scheduled: set[str] = set(completed)
 
-        for task in pending:
-            # Check if all dependencies are met
-            deps_met = all(d in completed for d in task.depends_on)
+        groups: list[list[str]] = []
+        remaining = list(pending)
 
-            if deps_met:
-                # Check for file collisions with the current batch
+        while remaining:
+            current_batch: list[str] = []
+            occupied_files: set[str] = set()
+            deferred: list[Any] = []
+
+            for task in remaining:
+                deps_met = all(
+                    dep not in pending_ids or dep in scheduled
+                    for dep in task.depends_on
+                )
+                if not deps_met:
+                    # Dependency still unscheduled -> hold for a later wave.
+                    deferred.append(task)
+                    continue
+
+                # File collision -> cannot share this wave with an earlier task.
                 has_collision = any(f in occupied_files for f in task.file_paths)
+                if has_collision:
+                    deferred.append(task)
+                    continue
 
-                if not has_collision:
-                    current_batch.append(task.id)
-                    occupied_files.update(task.file_paths)
-                else:
-                    # If collision, this task must wait for next batch
-                    if current_batch:
-                        groups.append(current_batch)
-                        current_batch = [task.id]
-                        occupied_files = set(task.file_paths)
+                current_batch.append(task.id)
+                occupied_files.update(task.file_paths)
 
-        if current_batch:
+            if not current_batch:
+                # No task became schedulable this pass: a dependency cycle (or
+                # mutual file contention with nothing else movable). Break the
+                # deadlock by forcing the first remaining task into its own wave
+                # so the scheduler always terminates.
+                stuck = remaining[0]
+                current_batch.append(stuck.id)
+                deferred = [t for t in remaining if t.id != stuck.id]
+
             groups.append(current_batch)
+            scheduled.update(current_batch)
+            remaining = deferred
 
         return groups
 

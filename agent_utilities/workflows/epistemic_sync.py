@@ -24,7 +24,7 @@ class EpistemicSyncWorkflow:
         self.ingestor = FederatedSparqlIngestor(
             endpoints=self.config.sparql_endpoints, engine=self.engine
         )
-        from agent_utilities.knowledge_graph.backends.ladybug_backend import (
+        from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
             LadybugBackend,
         )
 

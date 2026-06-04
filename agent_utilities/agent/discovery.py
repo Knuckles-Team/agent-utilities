@@ -20,7 +20,7 @@ def discover_agents(
     Returns:
         A dictionary mapping domain tags to agent metadata.
     """
-    from agent_utilities.graph.config_helpers import get_discovery_registry
+    from agent_utilities.core.config import get_discovery_registry
 
     agent_descriptions: dict[str, dict[str, Any]] = {}
 
@@ -62,7 +62,7 @@ def discover_all_specialists() -> list[DiscoveredSpecialist]:
     Returns:
         A list of DiscoveredSpecialist objects.
     """
-    from agent_utilities.graph.config_helpers import get_discovery_registry
+    from agent_utilities.core.config import get_discovery_registry
 
     adaptive_agent_router: list[DiscoveredSpecialist] = []
     registry = get_discovery_registry()

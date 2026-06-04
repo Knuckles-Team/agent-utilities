@@ -38,13 +38,13 @@ DEFAULT_GRAPH_VERIFIER_TIMEOUT = 120000
 DEFAULT_PROVIDER = DEFAULT_LLM_PROVIDER
 DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 
-from agent_utilities.core.model_factory import create_model
-
-from ..graph.config_helpers import (
+from agent_utilities.core.config import (
     DEFAULT_GRAPH_TIMEOUT,
     emit_graph_event,
     load_node_agents_registry,
 )
+from agent_utilities.core.model_factory import create_model
+
 from ..graph.mermaid import get_graph_mermaid
 from ..graph.state import REQUESTED_MODEL_ID_CTX, GraphDeps, GraphState
 from ..models import GraphResponse
@@ -88,6 +88,7 @@ class _CircuitBreaker:
 import anyio
 
 
+# implements core.execution.ExecutionEngine
 class AgentOrchestrationEngine:
     """The singular orchestration engine for the agent ecosystem.
 
@@ -412,7 +413,7 @@ class AgentOrchestrationEngine:
 
             # --- CONCEPT:ORCH-1.20 Service Registry Initialization ---
             try:
-                from .service_registry import ServiceRegistry
+                from ..core.registry.service_adapter import ServiceRegistry
 
                 svc_registry = ServiceRegistry.instance()
                 svc_count = svc_registry.initialize()
@@ -717,7 +718,7 @@ class AgentOrchestrationEngine:
             except Exception as e:
                 await eq.put({"type": "error", "error": str(e)})
             finally:
-                from ..graph.config_helpers import emit_graph_event
+                from agent_utilities.core.config import emit_graph_event
 
                 emit_graph_event(eq, "graph_complete", run_id=run_id, status="success")
                 await eq.put({"type": "complete"})
@@ -1322,9 +1323,22 @@ class AgentOrchestrationEngine:
     ) -> ExecutionResult:
         """Execute a manifest. Delegates to ParallelEngine.
 
-        CONCEPT:ORCH-1.25 — Parallel Engine
+        CONCEPT:ORCH-1.8 — Parallel Engine
         """
         from agent_utilities.graph.parallel_engine import ParallelEngine
 
         pe = ParallelEngine(engine=self.engine)
         return await pe.execute(manifest, graph_deps)
+
+    async def run(
+        self,
+        manifest: ExecutionManifest,
+        graph_deps: GraphDeps | None = None,
+    ) -> ExecutionResult:
+        """Unified ExecutionEngine contract entrypoint.
+
+        Plan 03 Step 5 — conforms to ``core.execution.ExecutionEngine``.
+        Additive adapter delegating to :meth:`execute` (the canonical
+        Parallel Engine entrypoint, CONCEPT:ORCH-1.8). Behaviour unchanged.
+        """
+        return await self.execute(manifest, graph_deps)

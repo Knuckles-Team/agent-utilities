@@ -119,7 +119,7 @@ class AgentDepartment(RegistryNode):
     """An AI-staffed department with team config and automation level.
 
     Maps to OWL class :AgentDepartment in ontology_company.ttl.
-    CONCEPT:ORCH-1.27 — Autonomous Department Orchestration.
+    CONCEPT:ORCH-1.9 — Autonomous Department Orchestration.
     Links to TeamConfigNode for agent team composition and
     to CompanySoftware for the department's tooling stack.
     """

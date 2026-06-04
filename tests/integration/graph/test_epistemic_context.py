@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities.graph.config_helpers import (
+from agent_utilities.core.config import (
     emit_graph_event,
     load_mcp_config,
     load_node_agents_registry,
@@ -38,7 +38,7 @@ async def test_fetch_epistemic_context_mocked():
 def test_emit_graph_event():
     """Test emit_graph_event logic."""
     eq: asyncio.Queue = asyncio.Queue()
-    with patch("agent_utilities.graph.config_helpers._log_graph_trace") as mock_log:
+    with patch("agent_utilities.core.config._log_graph_trace") as mock_log:
         emit_graph_event(eq, "test_event", foo="bar")
         assert eq.qsize() == 1
         event = eq.get_nowait()
@@ -59,7 +59,7 @@ def test_emit_node_lifecycle():
 @pytest.mark.asyncio
 async def test_load_config_fallbacks():
     """Test configuration loading fallbacks on missing files."""
-    with patch("agent_utilities.graph.config_helpers.get_workspace_path") as mock_path:
+    with patch("agent_utilities.core.config.get_workspace_path") as mock_path:
         mock_path.return_value.exists.return_value = False
         config = load_mcp_config()
         assert isinstance(config, MCPConfigModel)

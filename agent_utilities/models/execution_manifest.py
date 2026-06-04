@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.25 — Parallel Engine Execution Manifest.
+"""CONCEPT:ORCH-1.8 — Parallel Engine Execution Manifest.
 
 The ``ExecutionManifest`` is the single universal input to the
 ``ParallelEngine``. Every execution — from a trivial 1-agent LLM call
@@ -12,7 +12,7 @@ Models:
     - ``WaveResult``: Results from one execution wave.
     - ``ExecutionResult``: Complete execution outcome.
 
-See docs/pillars/1_graph_orchestration/ORCH-1.25-Parallel_Engine.md
+See docs/pillars/1_graph_orchestration/ORCH-1.8-Parallel_Engine.md
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 class AgentSpec(BaseModel):
     """Specification for a single agent in the execution manifest.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     Each ``AgentSpec`` describes one logical agent invocation. Fan-out
     is expressed via ``partitions``: if set, the agent is invoked once
@@ -96,7 +96,7 @@ class SynthesisSpec(BaseModel):
 class ExecutionManifest(BaseModel):
     """Universal execution specification for the Parallel Engine.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     This is the **only** input to the engine. Everything — from a single
     agent query to a 300-agent enterprise swarm — is expressed as a
@@ -155,7 +155,7 @@ class ExecutionManifest(BaseModel):
     ) -> ExecutionManifest:
         """Convert a ``GraphPlan`` into an ``ExecutionManifest``.
 
-        CONCEPT:ORCH-1.25 — GraphPlan → Manifest Bridge
+        CONCEPT:ORCH-1.8 — GraphPlan → Manifest Bridge
 
         Enables ``WorkflowRunner`` and ``SkillCompiler`` outputs to flow
         directly into ``ParallelEngine`` without re-planning.
@@ -195,7 +195,7 @@ class ExecutionManifest(BaseModel):
 class AgentExecutionResult(BaseModel):
     """Result from a single agent execution within the Parallel Engine.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     Attributes:
         agent_id: Which agent produced this result.
@@ -225,7 +225,7 @@ class AgentExecutionResult(BaseModel):
 class WaveResult(BaseModel):
     """Results from one execution wave.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     A wave is a group of agents that execute concurrently within
     a single scheduling epoch. Multiple waves execute sequentially,
@@ -253,7 +253,7 @@ class WaveResult(BaseModel):
 class ExecutionResult(BaseModel):
     """Complete execution outcome from the Parallel Engine.
 
-    CONCEPT:ORCH-1.25 — Parallel Engine
+    CONCEPT:ORCH-1.8 — Parallel Engine
 
     Attributes:
         manifest_id: ID of the executed manifest.

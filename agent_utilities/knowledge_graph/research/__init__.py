@@ -1,1 +1,1 @@
-"""Research Intelligence Engine — KG-2.11/2.33/2.39."""
+"""Research Intelligence Engine — KG-2.7/2.33/2.39."""

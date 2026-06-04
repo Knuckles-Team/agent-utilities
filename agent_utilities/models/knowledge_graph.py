@@ -230,7 +230,7 @@ class RegistryNodeType(StrEnum):
     SESSION_CHECKPOINT = "session_checkpoint"
     PERSISTENT_AGENT = "persistent_agent"
     TOPOLOGY_TRANSITION = "topology_transition"
-    # GEPA Reflective Optimizer (CONCEPT:ORCH-1.31)
+    # GEPA Reflective Optimizer (CONCEPT:ORCH-1.13)
     OPTIMIZATION_TRAJECTORY = "optimization_trajectory"
     EVALUATOR_FEEDBACK = "evaluator_feedback"
     # Phase 2-5: Operationalized missing ontology nodes
@@ -854,7 +854,7 @@ class TrajectoryNode(RegistryNode):
 class OptimizationTrajectoryNode(RegistryNode):
     """Tracks the lineage of a prompt in GEPA (parent prompt, mutation rationale, performance metrics).
 
-    CONCEPT:ORCH-1.31 — GEPA Reflective Optimizer
+    CONCEPT:ORCH-1.13 — GEPA Reflective Optimizer
     """
 
     type: RegistryNodeType = RegistryNodeType.OPTIMIZATION_TRAJECTORY
@@ -870,7 +870,7 @@ class OptimizationTrajectoryNode(RegistryNode):
 class EvaluatorFeedbackNode(RegistryNode):
     """Links execution traces to scalar and textual feedback for GEPA.
 
-    CONCEPT:ORCH-1.31 — GEPA Reflective Optimizer
+    CONCEPT:ORCH-1.13 — GEPA Reflective Optimizer
     """
 
     type: RegistryNodeType = RegistryNodeType.EVALUATOR_FEEDBACK
@@ -1007,16 +1007,16 @@ class ResolutionContext(BaseModel):
     symbol_map: dict[str, str] = Field(default_factory=dict)  # Name to ID
 
 
-from agent_utilities.core.config import (
-    DEFAULT_ENABLE_KG_EMBEDDINGS,
-)
-
-
 class PipelineConfig(BaseModel):
     """Configuration for the Intelligence Pipeline."""
 
     workspace_path: str
-    enable_embeddings: bool = DEFAULT_ENABLE_KG_EMBEDDINGS
+    enable_embeddings: bool = Field(
+        default_factory=lambda: (
+            __import__("os").getenv("ENABLE_KG_EMBEDDINGS", "true").lower()
+            in ("true", "1", "yes")
+        )
+    )
     persist_to_ladybug: bool = True
     ladybug_path: str | None = None
     embedding_provider: str | None = "llama-index"
@@ -1038,6 +1038,13 @@ class PipelineConfig(BaseModel):
     )
     multimodal: bool = False
     incremental: bool = True
+    kafka_enabled: bool = Field(
+        default_factory=lambda: (
+            __import__("os").getenv("KAFKA_ENABLED", "false").lower()
+            in ("true", "1", "yes")
+        )
+    )
+    ingest_batch_size: int = 500
     # Knowledge Base settings
     enable_knowledge_base: bool = Field(
         default_factory=lambda: (
@@ -1077,6 +1084,15 @@ class PipelineConfig(BaseModel):
     )
     external_sparql_endpoints: list[str] = Field(default_factory=list)
     external_lpg_endpoints: dict[str, str] = Field(default_factory=dict)
+    # SHACL ingestion gate settings (CONCEPT:KG-2.8)
+    enable_shacl_gate: bool = Field(
+        default_factory=lambda: (
+            __import__("os").getenv("ENABLE_KG_SHACL_GATE", "true").lower()
+            in ("true", "1", "yes")
+        )
+    )
+    shacl_shapes_path: str | None = None  # None = bundled governance.shapes.ttl
+    shacl_quarantine_marker: str = "Invalid"  # rdf:type marker for violating nodes
 
 
 class ExternalGraphReferenceNode(RegistryNode):

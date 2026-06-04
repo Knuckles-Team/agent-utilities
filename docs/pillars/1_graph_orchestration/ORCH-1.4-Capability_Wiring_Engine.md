@@ -4,7 +4,7 @@
 YAML-driven declarative multi-agent workflow engine with DAG topological sort, cycle detection, parallel dispatch identification, and variable substitution.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/swarm_preset.py``
+- **Source Code**: ``agent_utilities/graph/manifest_generators.py`` (preset materialization) + ``agent_utilities/knowledge_graph/orchestration/engine_query.py`` (swarm preset queries)
 - **Pillar**: ORCH
 
 ## Documentation Coverage
@@ -26,7 +26,7 @@ Planners emit coarse-grained abstraction steps and delegate fine-grained executi
 Jointly optimizes decomposition depth, worker choice, and inference budget from execution traces. Three policies: RuleBasedPolicy (keyword pattern matching), TraceLearnedPolicy (softmax scoring from historical traces with EMA quality tracking), CostAwareRouter (Pareto-optimal cost/accuracy filtering). Derived from Uno-Orchestra (arXiv:2605.05007v1).
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/routing_policy.py``
+- **Source Code**: ``agent_utilities/graph/adaptive_agent_router.py``
 - **Pillar**: ORCH
 
 ## Documentation Coverage
@@ -37,7 +37,7 @@ Jointly optimizes decomposition depth, worker choice, and inference budget from 
 Uses the KG to find fallback models dynamically rather than relying on static lists during rate limits.
 
 ## Implementation Details
-- **Source Code**: ``agent_utilities/graph/routing_policy.py``
+- **Source Code**: ``agent_utilities/graph/routing/strategies/fallback.py``
 - **Pillar**: ORCH
 
 ## Documentation Coverage

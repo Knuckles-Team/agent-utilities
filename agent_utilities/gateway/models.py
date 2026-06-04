@@ -1,6 +1,6 @@
 """Pydantic models for the service dashboard.
 
-CONCEPT:GW-1.0 — Gateway Service Dashboard
+CONCEPT:OS-5.9 — Gateway Service Dashboard
 
 These models define the data contract between the backend aggregator
 and all three frontends. Mirrors Homepage's widget/block/container pattern

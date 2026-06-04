@@ -29,7 +29,7 @@ flexibility.
 ## Quick Start
 
 ```python
-from agent_utilities.secrets_client import create_secrets_client
+from agent_utilities import create_secrets_client
 
 # Zero-config (in-memory, encrypted)
 client = create_secrets_client()
@@ -128,7 +128,7 @@ GITLAB_TOKEN=glpat-xxx
 ### New: SecretsClient (Recommended for Sensitive Values)
 
 ```python
-from agent_utilities.secrets_client import create_secrets_client
+from agent_utilities import create_secrets_client
 
 client = create_secrets_client()
 
@@ -182,8 +182,8 @@ The ecosystem already supports OAuth2 token delegation for MCP servers:
 2. MCP servers like `gitlab-api` read the token via `threading.local().user_token`
 3. The token is exchanged via RFC 8693 (Token Exchange) for a scoped service token
 
-See [middlewares.py](../agent_utilities/middlewares.py) and
-[mcp_utilities.py](../agent_utilities/mcp_utilities.py) for the full auth stack
+See [middlewares.py](../../agent_utilities/mcp/middlewares.py) and
+[mcp_utilities.py](../../agent_utilities/mcp_utilities.py) for the full auth stack
 (`--auth-type jwt|oidc-proxy|oauth-proxy|remote-oauth`).
 
 ## Endpoint Authentication (auth.py)
@@ -344,8 +344,8 @@ from agent_utilities.secrets_client import create_secrets_client
 secrets = create_secrets_client()
 manager = XaiAuthManager(secrets_client=secrets)
 
-# Perform authentication (launches local server or CLI fallback)
-tokens = manager.authenticate()
+# Perform authentication (launches loopback server or CLI paste fallback)
+tokens = manager.login()
 print("Access Token:", tokens.get("access_token"))
 ```
 
@@ -354,8 +354,9 @@ print("Access Token:", tokens.get("access_token"))
 The `XaiAuthManager` automatically handles token expiration and token refresh using OAuth 2.0 refresh token rotation:
 
 ```python
-# Get a valid, fresh token (auto-refreshes if expired)
-valid_token = manager.get_valid_token()
+# Get a valid, fresh token (auto-refreshes if expired; pass auto_login=True
+# to trigger the interactive flow when no cached tokens exist)
+valid_token = manager.resolve_credentials(auto_login=True)
 ```
 
 ### Loopback & Headless Authentication Support
@@ -371,16 +372,22 @@ valid_token = manager.get_valid_token()
    * **Authorize**: Click the xAI auth link in your browser and log in.
    * **Seamless Redirect**: When the browser redirects to `http://127.0.0.1:56121/callback`, the traffic will be forwarded back to your remote workspace. The OIDC loopback server will instantly capture the authorization code, exchange it, and save the token securely—completing the setup automatically with zero manual copy-pasting!
 
-### Environment Configuration
+### Configuration
 
-The following environment variables can be set:
+The OAuth client ID, issuer, scope, and loopback redirect URI are built-in
+constants in `agent_utilities/security/xai_auth.py` (`XAI_OAUTH_CLIENT_ID`,
+`XAI_OAUTH_REDIRECT_PORT = 56121`, `XAI_OAUTH_REDIRECT_URI`); the public PKCE
+client requires no client secret, so there are no `XAI_CLIENT_ID` /
+`XAI_REDIRECT_URI` environment variables to set for the auth flow.
+
+For the X search tools (separate from the auth flow), the following
+environment variables are honored:
 
 | Environment Variable | Default | Description |
 |----------------------|---------|-------------|
-| `XAI_CLIENT_ID` | `None` | Your xAI OAuth Client ID |
-| `XAI_CLIENT_SECRET` | `None` | Your xAI OAuth Client Secret (if applicable) |
-| `XAI_REDIRECT_URI` | `http://127.0.0.1:56121/callback` | The redirect URI registered in xAI portal |
+| `XAI_BASE_URL` | xAI API base URL | Override the xAI API endpoint used by the search tool |
+| `XAI_SEARCH_MODEL` | built-in default | Model used for X search/browse |
 
 For more details on X search tools, see the [Tools Guide](tools.md).
 
-> **Full Documentation:** See [docs/secrets-auth.md](docs/pillars/5_agent_os_infrastructure/secrets-auth.md) for HashiCorp Vault & OpenBao setup, encryption details, and API references.
+> **Full Documentation:** HashiCorp Vault & OpenBao setup, encryption details, and API references are covered in the sections above (see [HashiCorp Vault & OpenBao](#hashicorp-vault--openbao-enterprise--open-source) and [Local Secret Storage](#local-secret-storage-vault-openbao--sqlite)).

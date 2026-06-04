@@ -154,15 +154,33 @@ class QueryMixin(_Base):
                 try:
                     res = self.backend.execute(query_str, params)
                     for row in res:
-                        node = row.get("n", {})
-                        if isinstance(node, dict):
-                            req_class = node.get("requiresClassification", 0)
-                            if (
-                                isinstance(req_class, int)
-                                and req_class > clearance_level
-                            ):
-                                continue
-                            results.append(node)
+                        if not isinstance(row, dict):
+                            continue
+                        # Handle both the Cypher `RETURN n` wrapping ({"n": {...}})
+                        # and flat-dict backends (e.g. EpistemicGraphBackend).
+                        node = row.get("n", row)
+                        if not isinstance(node, dict) or not node:
+                            continue
+                        # Filter client-side: some backends (in-memory
+                        # EpistemicGraph) do not evaluate the WHERE clause and
+                        # return every node, so re-apply the keyword match here.
+                        name = str(node.get("name", "")).lower()
+                        desc = str(node.get("description", "")).lower()
+                        nid = str(node.get("id", "")).lower()
+                        if not any(
+                            k in nid or k in name or k in desc for k in keywords
+                        ):
+                            continue
+                        # Soft-delete enforcement (backend-agnostic): in-memory /
+                        # service backends may not evaluate the WHERE clause, so
+                        # re-apply the ARCHIVED exclusion here too (matches the
+                        # GCE fallback path and the Cypher intent).
+                        if str(node.get("status", "")).upper() == "ARCHIVED":
+                            continue
+                        req_class = node.get("requiresClassification", 0)
+                        if isinstance(req_class, int) and req_class > clearance_level:
+                            continue
+                        results.append(node)
                 except Exception as e:
                     logger.debug(f"Backend keyword search failed: {e}")
 
@@ -357,23 +375,38 @@ class QueryMixin(_Base):
         return [{"id": n, **self.graph._get_node_properties(n)} for n in ancestors]
 
     def find_path(self, source: str, target: str) -> list[str]:
-        """Find the shortest logical path between two nodes via BFS."""
+        """Find the shortest logical path between two nodes.
+
+        CONCEPT:KG-2.16 (Plan 08 Synergy 4): offload the traversal to the Rust
+        L0 compute tier in a single round-trip via ``GraphComputeEngine`` rather
+        than a Python BFS that issues one L0 call per edge. Falls back to a
+        local BFS only if the compiled shortest-path is unavailable.
+        """
         if not self.graph.has_node(source) or not self.graph.has_node(target):
             return []
-        # BFS shortest path
+
+        # Primary: single-call Rust L0 shortest path.
+        try:
+            path = self.graph.get_shortest_path(source, target)
+            if path is not None:
+                return list(path)
+        except Exception as e:
+            logger.debug("L0 shortest_path unavailable, falling back to BFS: %s", e)
+
+        # Fallback: backend-agnostic BFS over the in-memory graph.
         from collections import deque
 
         visited: set[str] = {source}
         queue: deque[list[str]] = deque([[source]])
         while queue:
-            path = queue.popleft()
-            current = path[-1]
+            path_so_far = queue.popleft()
+            current = path_so_far[-1]
             if current == target:
-                return path
+                return path_so_far
             for neighbor in self.graph.get_successors(current):
                 if neighbor not in visited:
                     visited.add(neighbor)
-                    queue.append(path + [neighbor])
+                    queue.append(path_so_far + [neighbor])
         return []
 
     def get_shortest_path(self, source: str, target: str) -> list[str]:

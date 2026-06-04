@@ -1,6 +1,6 @@
 """WebSocket manager for real-time dashboard updates.
 
-CONCEPT:GW-1.0 — Gateway Service Dashboard
+CONCEPT:OS-5.9 — Gateway Service Dashboard
 
 Mountable alongside the REST router for widgets that support live streaming
 (containers, uptime monitors, download progress).

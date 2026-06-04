@@ -31,6 +31,14 @@ CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
         "category": "source_control",
         "method": "_hydrate_source_control",
     },
+    "essential_ea": {
+        "category": "enterprise_architecture",
+        "method": "_hydrate_enterprise_architecture",
+    },
+    "aris": {
+        "category": "enterprise_architecture",
+        "method": "_hydrate_enterprise_architecture",
+    },
     "leanix": {
         "category": "enterprise_architecture",
         "method": "_hydrate_enterprise_architecture",
@@ -40,6 +48,8 @@ CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
         "method": "_hydrate_enterprise_architecture",
     },
     "twenty": {"category": "crm", "method": "_hydrate_twenty"},
+    "glpi": {"category": "itsm", "method": "_hydrate_servicenow"},
+    "openmaint": {"category": "itsm", "method": "_hydrate_servicenow"},
     "servicenow": {"category": "itsm", "method": "_hydrate_servicenow"},
     "jira": {"category": "issue_tracking", "method": "_hydrate_issue_tracking"},
     "plane": {"category": "issue_tracking", "method": "_hydrate_issue_tracking"},
@@ -111,6 +121,14 @@ class HydrationManager:
                 "configured": bool(os.environ.get("LEANIX_TOKEN")),
                 "url": os.environ.get("LEANIX_URL", ""),
             },
+            "essential_ea": {
+                "configured": bool(os.environ.get("ESSENTIAL_EA_TOKEN")),
+                "url": os.environ.get("ESSENTIAL_EA_URL", ""),
+            },
+            "aris": {
+                "configured": bool(os.environ.get("BPM_TOKEN")),
+                "url": os.environ.get("BPM_URL", ""),
+            },
             "twenty": {
                 "configured": bool(
                     os.environ.get("TWENTY_TOKEN") or os.environ.get("TWENTY_API_TOKEN")
@@ -123,6 +141,14 @@ class HydrationManager:
                     and os.environ.get("SERVICENOW_PASSWORD")
                 ),
                 "url": os.environ.get("SERVICENOW_URL", ""),
+            },
+            "glpi": {
+                "configured": bool(os.environ.get("GLPI_TOKEN")),
+                "url": os.environ.get("GLPI_URL", ""),
+            },
+            "openmaint": {
+                "configured": bool(os.environ.get("OPENMAINT_TOKEN")),
+                "url": os.environ.get("OPENMAINT_URL", ""),
             },
             "jira": {
                 "configured": bool(
@@ -392,9 +418,9 @@ class HydrationManager:
         }
 
     def _hydrate_enterprise_architecture(self, engine: Any) -> dict[str, Any]:
-        """Hydrate Enterprise Architecture facts. Supports Backstage catalog-info.yaml, ArchiMate XML, and LeanIX."""
-        if os.environ.get("LEANIX_TOKEN"):
-            return self._hydrate_leanix(engine)
+        """Hydrate Enterprise Architecture facts. Supports Backstage catalog-info.yaml, ArchiMate XML, and EARs (e.g., Essential Project)."""
+        if os.environ.get("EAR_TOKEN"):
+            return self._hydrate_ear(engine)
 
         entities = []
         relationships = []
@@ -403,7 +429,7 @@ class HydrationManager:
         yaml_content = None
         if os.path.exists(catalog_path):
             try:
-                import yaml
+                import yaml  # type: ignore
 
                 with open(catalog_path) as f:
                     yaml_content = yaml.safe_load(f)
@@ -489,23 +515,85 @@ class HydrationManager:
         }
 
     def _hydrate_process_modeling(self, engine: Any) -> dict[str, Any]:
-        """Hydrate business processes. Supports BPMN 2.0 XML, ArchiMate XML, and ARIS."""
-        entities = []
-        relationships = []
+        """Hydrate business processes. Supports BPMN 2.0 XML, ArchiMate XML, and BPM tools (e.g., Archi)."""
+        entities: list[dict[str, Any]] = []
+        relationships: list[dict[str, Any]] = []
 
-        if os.environ.get("ARIS_URL") and os.environ.get("ARIS_TOKEN"):
-            entities.append(
-                {
-                    "id": "aris:process:order_fulfillment",
-                    "type": "process_model",
-                    "name": "ARIS Order Fulfillment Process",
-                    "domain": "aris",
-                }
-            )
+        bpm_url = os.environ.get("BPM_URL")
+        bpm_token = os.environ.get("BPM_TOKEN")
+        bpm_provider = os.environ.get("BPM_PROVIDER", "opensource")
+
+        if bpm_url and bpm_token:
+            from abc import ABC, abstractmethod
+
+            import requests
+
+            class BaseBPMHydrator(ABC):
+                def __init__(self, url: str, token: str):
+                    self.url = url.rstrip("/")
+                    self.token = token
+
+                @abstractmethod
+                def fetch_processes(self) -> list[dict[str, Any]]:
+                    """Fetch and format process entities from the BPM provider."""
+                    raise NotImplementedError
+
+            class OpenSourceBPMHydrator(BaseBPMHydrator):
+                def fetch_processes(self) -> list[dict[str, Any]]:
+                    result = []
+                    headers = {
+                        "Authorization": f"Bearer {self.token}",
+                        "Accept": "application/json",
+                    }
+                    resp = requests.get(
+                        f"{self.url}/repository/process-definitions",
+                        headers=headers,
+                        timeout=5.0,
+                    )
+                    if resp.status_code == 200:
+                        for proc in resp.json():
+                            proc_id = str(proc.get("id", ""))
+                            if proc_id:
+                                result.append(
+                                    {
+                                        "id": f"process:bpm:{proc_id}",
+                                        "type": "process_model",
+                                        "name": str(
+                                            proc.get("name") or proc.get("key", "")
+                                        ),
+                                        "domain": "bpm",
+                                    }
+                                )
+                    else:
+                        logger.warning(
+                            f"BPM hydration API returned {resp.status_code}: {resp.text}"
+                        )
+                    return result
+
+            class ArisBPMHydrator(BaseBPMHydrator):
+                def fetch_processes(self) -> list[dict[str, Any]]:
+                    raise RuntimeError(
+                        "ARIS BPM integration requires enterprise API credentials and specific endpoints."
+                    )
+
+            def get_bpm_hydrator(
+                provider: str, url: str, token: str
+            ) -> BaseBPMHydrator:
+                if provider.lower() == "aris":
+                    return ArisBPMHydrator(url, token)
+                return OpenSourceBPMHydrator(url, token)
+
+            try:
+                hydrator = get_bpm_hydrator(bpm_provider, bpm_url, bpm_token)
+                bpm_entities = hydrator.fetch_processes()
+                entities.extend(bpm_entities)
+            except Exception as e:
+                logger.error(f"Failed to execute BPM hydration for {bpm_provider}: {e}")
+
             return {
                 "status": "ok",
                 "nodes_hydrated": len(entities),
-                "relations_hydrated": 0,
+                "relations_hydrated": len(relationships),
             }
 
         bpmn_path = os.environ.get("BPMN_FILE", "process.bpmn")
@@ -532,7 +620,7 @@ class HydrationManager:
             </bpmn:definitions>
             """
 
-        import xml.etree.ElementTree as ET
+        import defusedxml.ElementTree as ET
 
         try:
             root = ET.fromstring(xml_content)
@@ -750,9 +838,9 @@ class HydrationManager:
                             "type": "db_column",
                             "name": col_name,
                             "dataType": col_type,
-                            "isNullable": is_nullable,
-                            "isPrimaryKey": is_pk,
-                            "isForeignKey": False,
+                            "isNullable": "true" if is_nullable else "false",
+                            "isPrimaryKey": "true" if is_pk else "false",
+                            "isForeignKey": "false",
                             "domain": "relational_database",
                         }
                     )
@@ -774,8 +862,8 @@ class HydrationManager:
 
                     col_id = f"db:column:{table_name}:{from_col}"
                     for ent in entities:
-                        if ent["id"] == col_id:
-                            ent["isForeignKey"] = True
+                        if ent.get("id") == col_id:
+                            ent["isForeignKey"] = "true"
                             break
 
                     relationships.append(
@@ -1314,22 +1402,22 @@ class HydrationManager:
             "relations_hydrated": len(relationships),
         }
 
-    def _hydrate_leanix(self, engine: Any) -> dict[str, Any]:
-        """Hydrate from LeanIX Pathfinder (Tier 3)."""
+    def _hydrate_ear(self, engine: Any) -> dict[str, Any]:
+        """Hydrate from an Enterprise Architecture Repository (e.g., Essential Project)."""
         try:
-            from leanix_agent.leanix_gql import GraphQL as LeanIXGraphQL
+            from ear_agent.ear_gql import GraphQL as EARGraphQL
         except ImportError:
-            return {"status": "skipped", "reason": "leanix-agent package not installed"}
+            return {"status": "skipped", "reason": "ear-agent package not installed"}
 
-        url = os.environ.get("LEANIX_URL")
-        token = os.environ.get("LEANIX_TOKEN")
+        url = os.environ.get("EAR_URL")
+        token = os.environ.get("EAR_TOKEN")
         if not url or not token:
             return {
                 "status": "skipped",
-                "reason": "Missing LEANIX_URL and/or LEANIX_TOKEN",
+                "reason": "Missing EAR_URL and/or EAR_TOKEN",
             }
 
-        client = LeanIXGraphQL(base_url=url, token=token)
+        client = EARGraphQL(base_url=url, token=token)
         query = """
         query {
           allFactSheets(first: 100) {
@@ -1358,7 +1446,7 @@ class HydrationManager:
         if not isinstance(res, dict):
             return {
                 "status": "error",
-                "error": f"Invalid LeanIX GQL response: {type(res)}",
+                "error": f"Invalid EAR GQL response: {type(res)}",
             }
 
         data = res.get("data", {}) if "data" in res else res
@@ -1377,7 +1465,7 @@ class HydrationManager:
             # OWL Mapping: EAFactSheet -> platform_service
             entities.append(
                 {
-                    "id": f"leanix:fs:{fs_id}",
+                    "id": f"ear:fs:{fs_id}",
                     "type": "platform_service",
                     "name": node.get("name", ""),
                     "factsheet_type": node.get("type", ""),

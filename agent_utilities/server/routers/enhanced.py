@@ -35,7 +35,7 @@ async def list_sdd_specs():
         "status": "ok",
         "specs": [
             {
-                "id": "ORCH-1.25",
+                "id": "ORCH-1.8",
                 "title": "Parallel Execution Engine",
                 "status": "Approved",
             },

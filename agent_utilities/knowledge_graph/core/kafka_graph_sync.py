@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Kafka Graph Sync Daemon.
 
-CONCEPT:KG-2.19 — Event-Driven Graph Synchronization
+CONCEPT:KG-2.7 — Event-Driven Graph Synchronization
 
 Consumes ``kg.mutations`` events from the EventBackend and applies them
 to the Rust ``GraphComputeEngine`` (L1 cache). Ensures the in-process

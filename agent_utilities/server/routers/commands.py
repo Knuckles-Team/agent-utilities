@@ -118,7 +118,7 @@ async def execute_slash_command(payload: dict, request: Request):
             if not rest:
                 response_md = "Usage: `/graph search <query>`"
             else:
-                response_md = f"### Graph Search Results for `{rest}`:\n\n- **[ORCH-1.25]** (Concept): Unified Parallel Engine Scheduler\n"
+                response_md = f"### Graph Search Results for `{rest}`:\n\n- **[ORCH-1.8]** (Concept): Unified Parallel Engine Scheduler\n"
         elif sub == "impact":
             if not rest:
                 response_md = "Usage: `/graph impact <symbol>`"
@@ -148,7 +148,7 @@ async def execute_slash_command(payload: dict, request: Request):
             else:
                 response_md = (
                     f"### KB Search Results for `{rest}`:\n\n"
-                    f"1. **[ORCH-1.25] Unified Parallel Engine.md** (Relevance: 95%)\n"
+                    f"1. **[ORCH-1.8] Unified Parallel Engine.md** (Relevance: 95%)\n"
                     f"   > The parallel scheduler orchestrates agent workflows natively across multiple background worker pools...\n"
                 )
         elif sub == "ingest":
@@ -166,7 +166,7 @@ async def execute_slash_command(payload: dict, request: Request):
         if sub == "specs":
             response_md = (
                 "### Active Spec-Driven Specifications:\n\n"
-                "- **[ORCH-1.25]**: Parallel Execution Engine & Lock Protocols (Status: `Approved`)\n"
+                "- **[ORCH-1.8]**: Parallel Execution Engine & Lock Protocols (Status: `Approved`)\n"
                 "- **[KG-2.0]**: Epistemic Graph Database Schema (Status: `Draft`)\n"
                 "- **[TUI-2.0]**: Keyboard Event Bindings and Screen Layers (Status: `In Review`)\n"
             )

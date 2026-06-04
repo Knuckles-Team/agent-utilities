@@ -28,9 +28,9 @@ graph TD
         ORCH12("ORCH-1.2: Specialist Routing & Discovery")
         ORCH13("ORCH-1.3: Execution Safety & State")
         ORCH14("ORCH-1.4: Capability Wiring Engine")
-        ORCH15("ORCH-1.5: Agent Orchestrator 🔬")
-        ORCH16("ORCH-1.6: DSTDD Pipeline")
-        ORCH17("ORCH-1.7: Prediction Linkage Layer 🔬")
+        ORCH15("ORCH-1.0: Agent Orchestrator 🔬")
+        ORCH16("ORCH-1.5: DSTDD Pipeline")
+        ORCH17("ORCH-1.6: Prediction Linkage Layer 🔬")
 
         ORCH10 --> ORCH11
         ORCH11 --> ORCH15
@@ -49,11 +49,11 @@ graph TD
         KG24("KG-2.4: Inductive Knowledge")
         KG25("KG-2.5: Topological Analysis")
         KG26("KG-2.6: Domain: Finance")
-        KG27("KG-2.7: Research Intelligence")
-        KG28("KG-2.8: Memory Stability")
-        KG29("KG-2.9: Multi-Domain Architecture")
-        KG210("KG-2.10: Domain: Enterprise")
-        KG211("KG-2.11: Vectorized Retrieval")
+        KG27("KG-2.6: Research Intelligence")
+        KG28("KG-2.6: Memory Stability")
+        KG29("KG-2.7: Multi-Domain Architecture")
+        KG210("KG-2.6: Domain: Enterprise")
+        KG211("KG-2.3: Vectorized Retrieval")
 
         KG20 --> KG22
         KG23 --> KG20
@@ -90,8 +90,8 @@ graph TD
         ECO42("ECO-4.2: Community Telemetry & Ecosystem Map")
         ECO43("ECO-4.3: Market Data Connectors")
         ECO44("ECO-4.4: KG MCP Server & Execution")
-        ECO410("ECO-4.10: Agent Toolkit Ingestor")
-        ECO411("ECO-4.11: MCP Live Discovery")
+        ECO410("ECO-4.6: Agent Toolkit Ingestor")
+        ECO411("ECO-4.6: MCP Live Discovery")
 
         ECO40 --> ECO411
         ECO410 --> ECO40
@@ -145,17 +145,24 @@ graph TD
 
 ## 3. Consolidation Key (v2.0)
 
-To achieve maximum system stability and clean 1:1:1 traceability, the legacy conceptual layout was pruned and synthesized down to **40 distinct concepts**:
+> **Note:** The canonical, machine-checked concept registry now lives in
+> [`docs/concepts.yaml`](../concepts.yaml) (single source of truth, regenerated via
+> `scripts/build_concepts_yaml.py` and enforced by `scripts/check_concepts.py`).
+> The current registry tracks **70 concepts across 12 pillars**; the historical
+> merge log below records how the earlier sprawling layout was first pruned and
+> may use concept IDs that have since been renumbered in `concepts.yaml`.
+
+To achieve maximum system stability and clean 1:1:1 traceability, the legacy conceptual layout was pruned and synthesized down to a compact concept set:
 * **Legacy ORCH Consolidation**:
-  * `ORCH-1.5` -> Merged into `ORCH-1.3` (Execution Safety & State).
-  * `ORCH-1.6` -> Merged into `ORCH-1.5` (Agent Orchestrator).
+  * `ORCH-1.0` -> Merged into `ORCH-1.3` (Execution Safety & State).
+  * `ORCH-1.5` -> Merged into `ORCH-1.0` (Agent Orchestrator).
   * `ORCH-1.14` & `ORCH-1.17` -> Merged into `ORCH-1.2` (Specialist Routing & Discovery).
   * `ORCH-1.15` & `ORCH-1.16` -> Merged into `ORCH-1.1` (HTN Planning Pipeline).
   * `ORCH-1.18`, `ORCH-1.19`, `ORCH-1.20` -> Merged into `ORCH-1.4` (Capability Wiring Engine).
 * **Legacy KG Consolidation**:
-  * `KG-2.9` (External Graph Federation) -> Eliminated due to collision with multi-domain structure.
-  * `KG-2.11` (Dynamic AR-Graph) -> Merged into `KG-2.2` (Ontology & Epistemics).
-  * `KG-2.12` (Time-Series Weighted Graph) -> Merged into `KG-2.6` (Domain: Finance).
+  * `KG-2.7` (External Graph Federation) -> Eliminated due to collision with multi-domain structure.
+  * `KG-2.3` (Dynamic AR-Graph) -> Merged into `KG-2.2` (Ontology & Epistemics).
+  * `KG-2.6` (Time-Series Weighted Graph) -> Merged into `KG-2.6` (Domain: Finance).
 * **Legacy AHE Consolidation**:
   * `AHE-3.4` (Distributed Agentic Evolution) -> Merged into `AHE-3.2` (Agentic Evolution Engine).
   * `AHE-3.7` (Distributed Agent State Manager) -> Displaced by `ORCH-1.3` (Execution Safety & State).

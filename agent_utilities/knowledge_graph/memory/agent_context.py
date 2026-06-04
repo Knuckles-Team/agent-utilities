@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# --- FROM elastic_context_manager.py ---
 import hashlib
 import logging
 import math
@@ -13,9 +12,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-# --- Merged from elastic_context_manager.py ---
-
-#!/usr/bin/python
 """Token-Aware Context Compaction (CONCEPT:KG-2.1).
 
 Intelligent context window management that replaces naive truncation
@@ -1259,19 +1255,6 @@ class AgentContextManager:
 # For backward compatibility with Goose and older test files
 ElasticContextManager = AgentContextManager
 
-# --- Merged from elastic_context_manager.py ---
-
-#!/usr/bin/python
-"""Multi-Timescale Memory Dynamics (CONCEPT:KG-2.1 Enhancement).
-
-Derived from: Continual Knowledge Updating (arXiv:2605.05097v1, Score 11.2)
-
-Three memory tiers with exponential decay, consolidation, and pruning:
-- WORKING: 5min half-life, promotes at 3+ accesses
-- EPISODIC: 4hr half-life, promotes at 5+ accesses
-- SEMANTIC: 30-day half-life, permanent
-"""
-
 
 logger = logging.getLogger(__name__)
 
@@ -1431,15 +1414,6 @@ class TimescaleMemoryStore:
         }.get(current)
 
 
-# --- Merged from elastic_context_manager.py ---
-
-"""Vectorized Context-Window Filtering (CONCEPT:KG-2.6).
-
-This module implements token-aware context compaction by semantically pruning
-non-relevant subgraph context before swapping models on token overflow.
-"""
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -1496,15 +1470,6 @@ def prune_context_by_semantic_distance(
     return pruned_nodes
 
 
-# --- FROM preemptive_caching.py ---
-"""Preemptive Caching Engine.
-
-Combines Markov Transition Forecasting (KG-2.49) with Vectorized
-Context Filtering (KG-2.50) to predict and preload KG context.
-
-Configurable and disabled by default.
-"""
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1550,14 +1515,6 @@ class PreemptiveCacheEngine:
             )
 
 
-# --- FROM memory_compaction.py ---
-#!/usr/bin/python
-"""Semantic Compaction (CONCEPT:KG-2.20).
-
-Compacts low-level trace/episodic memory nodes into consolidated,
-high-level declarative knowledge representations to prevent graph explosion.
-"""
-
 import logging
 from typing import TYPE_CHECKING
 
@@ -1568,7 +1525,7 @@ logger = logging.getLogger(__name__)
 
 
 class SemanticCompactor:
-    """Semantic Compactor for Knowledge Graph trace nodes (CONCEPT:KG-2.20)."""
+    """Semantic Compactor for Knowledge Graph trace nodes (CONCEPT:KG-2.7)."""
 
     def __init__(self, engine: Any, compute_engine: Any = None) -> None:
         self.engine = engine
@@ -1700,18 +1657,6 @@ class SemanticCompactor:
             return 0
 
 
-# --- FROM memento_compressor.py ---
-#!/usr/bin/python
-
-"""Generalized Memento Context Compressor.
-
-CONCEPT:KG-2.1 -- Observational Memory Bridge (Extension)
-
-Provides generalized LLM-based state compression for long-running
-agents. Takes a block of conversation history and generates a dense
-memento preserving formulas, intermediate values, and strategic decisions.
-"""
-
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -1820,7 +1765,7 @@ def _persist_memento(
 
     try:
         engine.add_node(memento_id, "Memento", properties=props)
-        logger.info("[KG-2.10] Persisted Memento context block (%s)", memento_id)
+        logger.info("[KG-2.7] Persisted Memento context block (%s)", memento_id)
     except Exception as e:
         logger.debug("Failed to persist Memento: %s", e)
 

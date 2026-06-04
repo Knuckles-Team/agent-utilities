@@ -321,7 +321,7 @@ class MemoryRetriever:
             )
 
         # CONCEPT:ORCH-1.2 — Invalidate hot cache so routing reflects new self-knowledge
-        from ...graph.config_helpers import invalidate_registry_cache
+        from ...core.config import invalidate_registry_cache
 
         invalidate_registry_cache()
 

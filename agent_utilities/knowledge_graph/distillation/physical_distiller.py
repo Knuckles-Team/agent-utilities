@@ -3,12 +3,12 @@ from __future__ import annotations
 
 """Physical Knowledge Distillation Engine.
 
-CONCEPT:AHE-4.0 — Physical Knowledge Distillation Engine.
+CONCEPT:AHE-3.9 — Physical Knowledge Distillation Engine.
 
 Translates KG-native self-evolutionary adaptations of skills, MCP tools (descriptions,
 docstrings, and input schemas), and optimized system prompts back into concrete physical
 filesystem changes (Python modules, YAML/JSON configurations, and Markdown files) and
-commits them to Git (CONCEPT:AHE-4.2).
+commits them to Git (CONCEPT:AHE-3.11).
 """
 
 import ast
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class PhysicalDistillationEngine:
-    """CONCEPT:AHE-4.0 — Manages translation of KG changes to the physical filesystem."""
+    """CONCEPT:AHE-3.9 — Manages translation of KG changes to the physical filesystem."""
 
     def __init__(self, workspace_root: str = "/home/apps/workspace") -> None:
         self.workspace_root = workspace_root
@@ -36,7 +36,7 @@ class PhysicalDistillationEngine:
         tags: list[str] | None = None,
         requires: list[str] | None = None,
     ) -> bool:
-        """CONCEPT:AHE-4.0 — Distills updated skill properties back to its physical SKILL.md.
+        """CONCEPT:AHE-3.9 — Distills updated skill properties back to its physical SKILL.md.
 
         Args:
             skill_id: Unique skill identifier.
@@ -140,7 +140,7 @@ class PhysicalDistillationEngine:
         file_path: str,
         function_name: str,
     ) -> bool:
-        """CONCEPT:AHE-4.0 — Distills updated tool description back into Python function docstring.
+        """CONCEPT:AHE-3.9 — Distills updated tool description back into Python function docstring.
 
         Uses AST parsing to precisely locate the function and replace/inject the docstring
         without altering any surrounding code or comments.
@@ -237,7 +237,7 @@ class PhysicalDistillationEngine:
             return False
 
     def distill_system_prompt(self, file_path: str, new_content: str) -> bool:
-        """CONCEPT:AHE-4.0 — Overwrites the concrete prompt file with optimized text.
+        """CONCEPT:AHE-3.9 — Overwrites the concrete prompt file with optimized text.
 
         Args:
             file_path: Workspace-relative or absolute path to target prompt file.
@@ -264,9 +264,9 @@ class PhysicalDistillationEngine:
             return False
 
     def commit_distilled_changes(
-        self, file_paths: list[str], concept_id: str = "AHE-4.2"
+        self, file_paths: list[str], concept_id: str = "AHE-3.11"
     ) -> bool:
-        """CONCEPT:AHE-4.2 — GitOps Git Commit Automation.
+        """CONCEPT:AHE-3.11 — GitOps Git Commit Automation.
 
         Stages, commits, and logs distilled adaptations using native git subprocess calls.
 

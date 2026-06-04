@@ -1,6 +1,6 @@
 """GEPA (Genetic-Pareto) Prompt Optimization Loop for Recursive LMs.
 
-CONCEPT:ORCH-1.31 — GEPA Reflective Prompt Optimizer
+CONCEPT:ORCH-1.13 — GEPA Reflective Prompt Optimizer
 """
 
 import logging

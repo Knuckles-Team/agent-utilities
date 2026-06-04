@@ -65,7 +65,7 @@ agent = create_agent(
 )
 ```
 
-## Tool Guard (`tool_guard.py`)
+## Tool Guard (`security/tool_guard.py`)
 
 Safety layer that validates tool calls before execution:
 - **Allowlist/blocklist**: Restrict which tools are available
@@ -79,19 +79,17 @@ Dynamic tool selection based on context:
 - Uses semantic similarity to match tools to the current task
 - Supports explicit tool pinning via configuration
 
-## Tool Registry (`tool_registry.py`)
+## Tool Registry (`tools/tool_registry.py`)
 
-Central registry for all available tools:
+Central entry point that wires all available tool modules onto a PydanticAI
+agent at creation time:
 
 ```python
-from agent_utilities.tool_registry import ToolRegistry
+from agent_utilities.tools.tool_registry import register_agent_tools
 
-registry = ToolRegistry()
-registry.register("my_tool", my_function, description="Does something")
-
-# List all tools
-for tool in registry.list_tools():
-    print(f"{tool.name}: {tool.description}")
+# Registers the relevant tool modules (developer, git, workspace, knowledge,
+# memory, a2a, etc.) onto the agent, guarded against duplicate registration.
+register_agent_tools(agent, graph_bundle=my_graph_bundle)
 ```
 
 ## X & xAI Integration
@@ -100,8 +98,8 @@ The `x_search_tool` provides native capabilities to search X posts and browse in
 
 ### Functions
 
-- **`x_search(query: str, max_results: int = 10)`**: Searches X posts for a query and returns matching posts, authors, and text.
-- **`browse_x_post(url_or_id: str)`**: Fetches the text, author, and engagement metrics for a specific X post by its URL or numeric ID.
+- **`x_search(query: str, allowed_x_handles=None, excluded_x_handles=None, from_date="", to_date="")`**: Searches X posts for a query and returns matching posts, authors, and text. Exactly one of `allowed_x_handles`/`excluded_x_handles` may be set.
+- **`browse_x_post(url: str, auto_ingest: bool = False)`**: Fetches the text, author, and engagement metrics for a specific X post by its URL; optionally classifies and ingests it into the KG.
 
 ### Example Code
 

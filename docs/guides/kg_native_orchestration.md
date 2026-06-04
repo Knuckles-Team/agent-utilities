@@ -19,9 +19,9 @@ flowchart TD
     TC -->|"1. Search proven teams"| KG[(KG-2.0: Knowledge Graph)]
     TC -->|"2. Select topology"| KG
     TC -->|"3. Populate specialists"| KG
-    TC --> THEAM[AHE-3.3: TeamComposition]
-    THEAM --> THE[ORCH-1.4: TopologyEngine]
-    THE -->|"Materialize"| PLAN[ORCH-1.21: Execution Plan]
+    TC --> TEAM[AHE-3.3: TeamComposition]
+    TEAM --> TENG[ORCH-1.4: TopologyEngine]
+    TENG -->|"Materialize"| PLAN[ORCH-1.21: Execution Plan]
     PLAN --> SEQ[ORCH-1.21: Sequential Steps]
     PLAN --> PAR[ORCH-1.21: Parallel Groups]
     PLAN --> MIX[ORCH-1.21: Mixed DAG]
@@ -72,14 +72,18 @@ Each materialized specialist gets:
 - **Model**: Per-specialist model selection
 - **Memory Channels**: Shared KG channels for P2P communication
 
-### 3. Execution State Checkpointing (`graph/state_checkpoint.py`)
+### 3. Execution State Checkpointing (`core/checkpoint/manager.py`)
 
-**CONCEPT:ORCH-1.1** — Bridges ephemeral `GraphState` with persistent KG.
+**CONCEPT:ORCH-1.1** — Bridges ephemeral `GraphState` with persistent KG. The
+former `graph/state_checkpoint.StateCheckpointer` was consolidated into the
+`core/checkpoint/` package (`KGBackend` + `CheckpointManager`).
 
 ```python
-checkpointer = StateCheckpointer(engine)
-checkpoint_id = checkpointer.checkpoint(state, session_id="sess:abc")
-restored = checkpointer.restore("sess:abc")
+from agent_utilities.core.checkpoint.manager import KGBackend
+
+backend = KGBackend(engine)
+checkpoint_id = backend.checkpoint(state, session_id="sess:abc")
+restored = backend.restore("sess:abc")
 ```
 
 **Capabilities:**
@@ -88,7 +92,7 @@ restored = checkpointer.restore("sess:abc")
 - Cross-session learning
 - Multi-agent coordination (other agents can query active state)
 
-### 4. Topological Routing Policy (`graph/routing_policy.py`)
+### 4. Topological Routing Policy (`graph/routing/strategies/policy.py`)
 
 **CONCEPT:ORCH-1.4** — Routes using KG-derived topological signals instead of keyword TF-IDF.
 
@@ -142,21 +146,21 @@ new_id = engine.import_team_config(bundle)
 ## KG Node/Edge Types
 
 **New Node Types:**
-- `TOPOLOGY_THEMPLATHE` — Execution topology templates
+- `TOPOLOGY_TEMPLATE` — Execution topology templates
 - `SESSION_CHECKPOINT` — Execution state checkpoints
-- `PERSISTHENT_AGENT` — Background agent registrations
+- `PERSISTENT_AGENT` — Background agent registrations
 - `TOPOLOGY_TRANSITION` — Transition records
 
 **New Edge Types:**
 - `TRANSITIONS_TO` — Topology transitions between roles
-- `CHECKPOINTHED_STATHE` — Links sessions to checkpoints
+- `CHECKPOINTED_STATE` — Links sessions to checkpoints
 - `SUBSCRIBED_TO` — Agent event subscriptions
-- `MATHERIALIZED_FROM` — Links executions to templates
-- `COMPOSED_THEAM` — Links compositions to team configs
+- `MATERIALIZED_FROM` — Links executions to templates
+- `COMPOSED_TEAM` — Links compositions to team configs
 
 ## Integration with Existing Systems
 
-- **SubagentPatternRouter** (ORCH-1.6): Now uses KG backend for O(1) historical lookups instead of O(N) NX scans; persists decisions via tiered architecture
+- **SubagentPatternRouter** (ORCH-1.5): Now uses KG backend for O(1) historical lookups instead of O(N) NX scans; persists decisions via tiered architecture
 - **CognitiveScheduler** (OS-5.2): Unified scheduler for both ephemeral and persistent agents
 - **EventStreamIngester** (Company Brain): Routes events to persistent agent subscribers
 - **TeamConfigNode** (AHE-3.3): Extended with export/import for cross-deployment sharing

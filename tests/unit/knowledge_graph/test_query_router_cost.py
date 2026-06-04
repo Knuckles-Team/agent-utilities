@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from agent_utilities.knowledge_graph.core.query_router import (
+from agent_utilities.graph.routing.strategies.query_tier import (
     QueryRouter,
     QueryTier,
     QueryType,

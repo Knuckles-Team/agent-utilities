@@ -8,23 +8,24 @@
 @prefix : <http://knuckles.team/kg#> .
 @prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-:AuthenticationCapability a owl:Class ;
-    rdfs:label "Authentication Capability" ;
-    rdfs:comment "SSO, identity federation, OIDC/SAML, and user/role management." ;
-    rdfs:subClassOf :ServiceCapability .
+:AuthenticatedTool a owl:Class ;
+    rdfs:label "Authenticated Tool" ;
+    rdfs:comment "Any tool that provides at least one AuthenticationCapability. Defined class — membership is inferred." ;
+    owl:equivalentClass [ a owl:Restriction ;
+            owl:onProperty :providesCapability ;
+            owl:someValuesFrom :AuthenticationCapability ] .
 
-:CICDCapability a owl:Class ;
-    rdfs:label "CI/CD Capability" ;
-    rdfs:comment "Continuous integration and deployment pipeline orchestration." ;
-    rdfs:subClassOf :ServiceCapability .
-
-:CRMCapability a owl:Class ;
-    rdfs:label "CRM Capability" ;
-    rdfs:comment "Customer Relationship Management: contacts, opportunities, and pipeline tracking." ;
-    rdfs:subClassOf :ServiceCapability .
+:BootstrapCapability a owl:Class ;
+    rdfs:label "Bootstrap Capability" ;
+    rdfs:comment "A capability that must be available before any other to bootstrap the platform." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :providedBy ;
+            owl:someValuesFrom :Tool ],
+        :ServiceCapability .
 
 :CollaborationCapability a owl:Class ;
     rdfs:label "Collaboration Capability" ;
@@ -40,14 +41,17 @@
     rdfs:label "Corporate VPN" ;
     rdfs:comment "Enterprise-wide VPN for general employee access to internal services." .
 
+:CriticalCapability a owl:Class ;
+    rdfs:label "Critical Capability" ;
+    rdfs:comment "A capability whose loss takes the platform down; must be backed by HA." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:minCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :providedBy ],
+        :ServiceCapability .
+
 :CustomerVPN a :VPNPurpose ;
     rdfs:label "Customer VPN" ;
     rdfs:comment "Multi-tenant VPN for customer-facing or partner service access." .
-
-:DNSCapability a owl:Class ;
-    rdfs:label "DNS Capability" ;
-    rdfs:comment "DNS resolution, authoritative name serving, and rewrite management." ;
-    rdfs:subClassOf :ServiceCapability .
 
 :DocumentManagementCapability a owl:Class ;
     rdfs:label "Document Management Capability" ;
@@ -67,7 +71,17 @@
 :FinancialExchangeCapability a owl:Class ;
     rdfs:label "Financial Exchange Capability" ;
     rdfs:comment "Trading, order execution, market data, and portfolio management." ;
-    rdfs:subClassOf :ServiceCapability .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :requiresTransport ;
+            owl:someValuesFrom :EncryptedTransport ],
+        :ServiceCapability .
+
+:HighAvailabilityService a owl:Class ;
+    rdfs:label "High Availability Service" ;
+    rdfs:comment "A service backed by at least two replicas for fault tolerance." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:minCardinality "2"^^xsd:nonNegativeInteger ;
+            owl:onProperty :hasReplica ] .
 
 :ITSMCapability a owl:Class ;
     rdfs:label "ITSM Capability" ;
@@ -79,14 +93,16 @@
     rdfs:comment "Email campaign management, newsletters, and subscriber list handling." ;
     rdfs:subClassOf :ServiceCapability .
 
-:MonitoringCapability a owl:Class ;
-    rdfs:label "Monitoring Capability" ;
-    rdfs:comment "Observability, metrics collection, distributed tracing, and log aggregation." ;
-    rdfs:subClassOf :ServiceCapability .
-
 :PartnerVPN a :VPNPurpose ;
     rdfs:label "Partner VPN" ;
     rdfs:comment "VPN connections for trusted third-party partner integrations." .
+
+:RedundantCapability a owl:Class ;
+    rdfs:label "Redundant Capability" ;
+    rdfs:comment "A capability provided by two or more tools (no single point of failure). Membership is inferred." ;
+    owl:equivalentClass [ a owl:Restriction ;
+            owl:minCardinality "2"^^xsd:nonNegativeInteger ;
+            owl:onProperty :providedBy ] .
 
 :RemoteAccessVPN a :VPNPurpose ;
     rdfs:label "Remote Access VPN" ;
@@ -100,12 +116,25 @@
 :ReverseProxyCapability a owl:Class ;
     rdfs:label "Reverse Proxy Capability" ;
     rdfs:comment "Traffic routing, TLS termination, load balancing, and HTTP/S proxying." ;
-    rdfs:subClassOf :ServiceCapability .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :requiresTransport ;
+            owl:someValuesFrom :TransportCapability ],
+        :ServiceCapability .
 
 :SecretManagementCapability a owl:Class ;
     rdfs:label "Secret Management Capability" ;
     rdfs:comment "Secrets vaulting, encryption-as-a-service, PKI, and credential rotation." ;
-    rdfs:subClassOf :ServiceCapability .
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:allValuesFrom :EncryptedTransport ;
+            owl:onProperty :requiresTransport ],
+        :ServiceCapability .
+
+:SecureTask a owl:Class ;
+    rdfs:label "Secure Task" ;
+    rdfs:comment "A task all of whose required transports are EncryptedTransport. Defined class — membership is inferred." ;
+    owl:equivalentClass [ a owl:Restriction ;
+            owl:allValuesFrom :EncryptedTransport ;
+            owl:onProperty :requiresTransport ] .
 
 :SecurityVPN a :VPNPurpose ;
     rdfs:label "Security VPN" ;
@@ -130,16 +159,12 @@
     rdfs:comment "Service health checks, uptime tracking, and availability alerting." ;
     rdfs:subClassOf :ServiceCapability .
 
-:VPNCapability a owl:Class ;
-    rdfs:label "VPN Capability" ;
-    rdfs:comment "Secure encrypted tunnel provisioning for private network connectivity." ;
-    rdfs:subClassOf :ServiceCapability .
-
-:appliesToDomain a owl:ObjectProperty ;
-    rdfs:label "applies to domain" ;
-    rdfs:comment "Links a DevelopmentStandard to the DevelopmentDomain(s) it governs." ;
-    rdfs:domain :DevelopmentStandard ;
-    rdfs:range :DevelopmentDomain .
+:canServe a owl:ObjectProperty ;
+    rdfs:label "can serve" ;
+    rdfs:comment """Inferred property: a tool can serve a service when the service hasRequirement
+some capability that the tool provides. Materialized via the property chain
+( :hasRequirement :requiredBy )."""@en ;
+    owl:propertyChainAxiom ( :hasRequirement :requiredBy ) .
 
 :capabilityCategory a owl:DatatypeProperty ;
     rdfs:label "capability category" ;
@@ -153,26 +178,12 @@ hydration pipeline's CAPABILITY_REGISTRY to classify connectors.""" ;
     rdfs:comment "Links a VPN instance to its VPNPurpose classification." ;
     rdfs:range :VPNPurpose .
 
-:mustFollow a owl:ObjectProperty ;
-    rdfs:label "must follow" ;
-    rdfs:comment """Inferred property: links a Team to the DevelopmentStandard(s)
-it must comply with, derived from `worksOnDomain` → `appliesToDomain` chains.""" ;
-    rdfs:domain :Team ;
-    rdfs:range :DevelopmentStandard .
-
-:providesCapability a owl:ObjectProperty ;
-    rdfs:label "provides capability" ;
-    rdfs:comment """Links a concrete tool or platform service instance to the abstract
-ServiceCapability it fulfills.  Multiple tools can provide the same
-capability, enabling swappability.""" ;
-    rdfs:range :ServiceCapability .
-
-:requiresCapability a owl:ObjectProperty ;
-    rdfs:label "requires capability" ;
-    rdfs:comment """Declares that a service, business function, or deployment requires
-a specific ServiceCapability.  The OWL reasoner can infer which concrete
-tools satisfy this requirement via `providesCapability` assertions.""" ;
-    rdfs:range :ServiceCapability .
+:mustFollowChain a owl:ObjectProperty ;
+    rdfs:label "must follow (chain helper)" ;
+    rdfs:comment """Property chain ( :worksOnDomain :appliedByDomainOf ) materializing mustFollow:
+Team worksOnDomain D and Standard appliesToDomain D  =>  Team mustFollow Standard."""@en ;
+    rdfs:subPropertyOf :mustFollow ;
+    owl:propertyChainAxiom ( :worksOnDomain :appliedByDomainOf ) .
 
 :requiresVPNForPurpose a owl:ObjectProperty ;
     rdfs:label "requires VPN for purpose" ;
@@ -187,12 +198,6 @@ The reasoner resolves this to a concrete VPN providing that purpose.""" ;
 for each other.  Symmetric — if A is swappable with B, then B is
 swappable with A.  Can be inferred by the reasoner from shared
 `providesCapability` targets.""" .
-
-:worksOnDomain a owl:ObjectProperty ;
-    rdfs:label "works on domain" ;
-    rdfs:comment "Links a Team to the DevelopmentDomain(s) it operates within." ;
-    rdfs:domain :Team ;
-    rdfs:range :DevelopmentDomain .
 
 <http://knuckles.team/kg/capability> a owl:Ontology ;
     rdfs:label "Service Capability Abstraction Ontology" ;
@@ -210,6 +215,108 @@ Also defines:
 CONCEPT:KG-2.7 — Capability Abstraction Layer""" ;
     owl:imports <http://knuckles.team/kg> .
 
+:CICDCapability a owl:Class ;
+    rdfs:label "CI/CD Capability" ;
+    rdfs:comment "Continuous integration and deployment pipeline orchestration." ;
+    rdfs:subClassOf :ServiceCapability .
+
+:CRMCapability a owl:Class ;
+    rdfs:label "CRM Capability" ;
+    rdfs:comment "Customer Relationship Management: contacts, opportunities, and pipeline tracking." ;
+    rdfs:subClassOf :ServiceCapability .
+
+:DNSCapability a owl:Class ;
+    rdfs:label "DNS Capability" ;
+    rdfs:comment "DNS resolution, authoritative name serving, and rewrite management." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:minCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :providedBy ],
+        :ServiceCapability .
+
+:MonitoringCapability a owl:Class ;
+    rdfs:label "Monitoring Capability" ;
+    rdfs:comment "Observability, metrics collection, distributed tracing, and log aggregation." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:minCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :providedBy ],
+        :ServiceCapability .
+
+:PlaintextTransport a owl:Class ;
+    rdfs:label "Plaintext Transport" ;
+    rdfs:comment "An unencrypted transport capability (e.g. plain HTTP, raw TCP)." ;
+    rdfs:subClassOf :TransportCapability .
+
+:VPNCapability a owl:Class ;
+    rdfs:label "VPN Capability" ;
+    rdfs:comment "Secure encrypted tunnel provisioning for private network connectivity." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:allValuesFrom :EncryptedTransport ;
+            owl:onProperty :requiresTransport ],
+        :ServiceCapability .
+
+:appliedByDomainOf a owl:ObjectProperty ;
+    rdfs:label "applied by (domain inverse)" ;
+    rdfs:comment "Inverse of appliesToDomain: links a DevelopmentDomain to the DevelopmentStandard(s) governing it." ;
+    rdfs:domain :DevelopmentDomain ;
+    rdfs:range :DevelopmentStandard ;
+    owl:inverseOf :appliesToDomain .
+
+:appliesToDomain a owl:ObjectProperty ;
+    rdfs:label "applies to domain" ;
+    rdfs:comment "Links a DevelopmentStandard to the DevelopmentDomain(s) it governs." ;
+    rdfs:domain :DevelopmentStandard ;
+    rdfs:range :DevelopmentDomain .
+
+:hasReplica a owl:ObjectProperty ;
+    rdfs:label "has replica" ;
+    rdfs:comment "Links a service to a redundant replica instance backing it." .
+
+:hasRequirement a owl:ObjectProperty ;
+    rdfs:label "has requirement" ;
+    rdfs:comment "Links a deployable service to a ServiceCapability it requires (chain antecedent for canServe)." ;
+    rdfs:range :ServiceCapability .
+
+:mustFollow a owl:ObjectProperty ;
+    rdfs:label "must follow" ;
+    rdfs:comment """Inferred property: links a Team to the DevelopmentStandard(s)
+it must comply with, derived from `worksOnDomain` → `appliesToDomain` chains.""" ;
+    rdfs:domain :Team ;
+    rdfs:range :DevelopmentStandard .
+
+:requiredBy a owl:ObjectProperty ;
+    rdfs:label "required by" ;
+    rdfs:comment "Inverse of requiresCapability: links a ServiceCapability to the service/function that requires it." ;
+    rdfs:domain :ServiceCapability ;
+    owl:inverseOf :requiresCapability .
+
+:requiresCapability a owl:ObjectProperty ;
+    rdfs:label "requires capability" ;
+    rdfs:comment """Declares that a service, business function, or deployment requires
+a specific ServiceCapability.  The OWL reasoner can infer which concrete
+tools satisfy this requirement via `providesCapability` assertions.""" ;
+    rdfs:range :ServiceCapability .
+
+:worksOnDomain a owl:ObjectProperty ;
+    rdfs:label "works on domain" ;
+    rdfs:comment "Links a Team to the DevelopmentDomain(s) it operates within." ;
+    rdfs:domain :Team ;
+    rdfs:range :DevelopmentDomain .
+
+:AuthenticationCapability a owl:Class ;
+    rdfs:label "Authentication Capability" ;
+    rdfs:comment "SSO, identity federation, OIDC/SAML, and user/role management." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:allValuesFrom :EncryptedTransport ;
+            owl:onProperty :requiresTransport ],
+        :ServiceCapability .
+
+:providesCapability a owl:ObjectProperty ;
+    rdfs:label "provides capability" ;
+    rdfs:comment """Links a concrete tool or platform service instance to the abstract
+ServiceCapability it fulfills.  Multiple tools can provide the same
+capability, enabling swappability.""" ;
+    rdfs:range :ServiceCapability .
+
 :DevelopmentDomain a owl:Class ;
     rdfs:label "Development Domain" ;
     rdfs:comment """A named area of software development practice (e.g., cloud-native,
@@ -226,6 +333,27 @@ Teams working on those domains can be inferred to `mustFollow` these
 standards through OWL reasoning.""" ;
     rdfs:subClassOf bfo:0000031 .
 
+:TransportCapability a owl:Class ;
+    rdfs:label "Transport Capability" ;
+    rdfs:comment "A network/transport mechanism over which a service communicates." ;
+    rdfs:subClassOf :ServiceCapability .
+
+:providedBy a owl:ObjectProperty ;
+    rdfs:label "provided by" ;
+    rdfs:comment "Inverse of providesCapability: links a ServiceCapability back to the concrete tool that fulfills it." ;
+    rdfs:domain :ServiceCapability ;
+    owl:inverseOf :providesCapability .
+
+:EncryptedTransport a owl:Class ;
+    rdfs:label "Encrypted Transport" ;
+    rdfs:comment "A transport capability that guarantees end-to-end encryption (e.g. TLS, mTLS, WireGuard)." ;
+    rdfs:subClassOf :TransportCapability .
+
+:requiresTransport a owl:ObjectProperty ;
+    rdfs:label "requires transport" ;
+    rdfs:comment "Links a task or service to the TransportCapability it communicates over." ;
+    rdfs:range :TransportCapability .
+
 :VPNPurpose a owl:Class ;
     rdfs:label "VPN Purpose" ;
     rdfs:comment """Classification of the business purpose for a VPN connection.
@@ -240,4 +368,10 @@ capabilities.  Concrete tools or platforms declare `providesCapability` to one
 or more subclasses.  Business requirements reference capability classes via
 `requiresCapability`, enabling tool-agnostic dependency reasoning.""" ;
     rdfs:subClassOf bfo:0000031 .
+
+[] a owl:AllDisjointClasses ;
+    owl:members ( :EncryptedTransport :PlaintextTransport ) .
+
+[] a owl:AllDisjointClasses ;
+    owl:members ( :AuthenticationCapability :CICDCapability :CRMCapability :DNSCapability :MonitoringCapability :VPNCapability ) .
 
