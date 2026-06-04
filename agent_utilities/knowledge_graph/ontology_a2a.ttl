@@ -1,0 +1,48 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:delegatesTo a owl:ObjectProperty ;
+    rdfs:label "delegates to" ;
+    rdfs:comment "Links an A2AAgentCard to another A2AAgentCard it may delegate work to." ;
+    rdfs:domain :A2AAgentCard ;
+    rdfs:range :A2AAgentCard .
+
+:exposesSkill a owl:ObjectProperty ;
+    rdfs:label "exposes skill" ;
+    rdfs:comment "Links an A2AAgentCard to a Skill it advertises." ;
+    rdfs:domain :A2AAgentCard ;
+    rdfs:range :Skill .
+
+<http://knuckles.team/kg/a2a> a owl:Ontology ;
+    rdfs:label "A2A Agent-Card Ontology" ;
+    rdfs:comment """Extensions describing externally-defined Agent-to-Agent (A2A)
+    agents and the skills they expose, so the Knowledge Graph can discover and
+    reason over external agents.
+
+    CONCEPT:KG-2.10 — A2A Agent-Card Assimilation""" ;
+    owl:imports <http://knuckles.team/kg> .
+
+:Skill a owl:Class ;
+    rdfs:label "Skill" ;
+    rdfs:comment """A discrete capability an A2A agent exposes (an AgentCard
+    skill: id/name, description, tags). Invocable as part of agent delegation.
+    BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:A2AAgentCard a owl:Class ;
+    rdfs:label "A2A Agent Card" ;
+    rdfs:comment """An externally-defined Agent-to-Agent (A2A) agent, described by
+    a standard A2A AgentCard (name, description, endpoint URL, version, provider,
+    capabilities, and exposed skills).
+    BFO:GenericallyDependentContinuant — a published interface descriptor.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
