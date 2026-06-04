@@ -1,0 +1,59 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Alert a owl:Class ;
+    rdfs:label "Alert" ;
+    rdfs:comment "A Grafana alert rule that fires on a threshold/condition." .
+
+:dashboardTitle a owl:DatatypeProperty ;
+    rdfs:label "dashboard title" ;
+    rdfs:comment "Human-readable title of a Dashboard or Panel." ;
+    rdfs:range xsd:string .
+
+:dataSourceType a owl:DatatypeProperty ;
+    rdfs:label "data source type" ;
+    rdfs:comment "The backend type of a DataSource (e.g. prometheus, loki)." ;
+    rdfs:domain :DataSource ;
+    rdfs:range xsd:string .
+
+:monitors a owl:ObjectProperty ;
+    rdfs:label "monitors" ;
+    rdfs:comment "Links a Panel or Alert to the service or datasource it observes." ;
+    rdfs:domain :Panel .
+
+:partOf a owl:ObjectProperty ;
+    rdfs:label "part of" ;
+    rdfs:comment "Links a Panel to the Dashboard it belongs to." ;
+    rdfs:domain :Panel ;
+    rdfs:range :Dashboard .
+
+<http://knuckles.team/kg/grafana> a owl:Ontology ;
+    rdfs:label "Grafana Observability Ontology" ;
+    rdfs:comment """Observability extensions: Grafana dashboards, panels, alert
+    rules, and datasources, plus the relations that link them and the services
+    they monitor.
+
+    CONCEPT:KG-2.9 — Self-registering source extractors (observability slice)""" ;
+    owl:imports <http://knuckles.team/kg> .
+
+:Dashboard a owl:Class ;
+    rdfs:label "Dashboard" ;
+    rdfs:comment "A Grafana dashboard: a named collection of visualization panels." .
+
+:DataSource a owl:Class ;
+    rdfs:label "Data Source" ;
+    rdfs:comment "A Grafana datasource (Prometheus, Loki, etc.) backing panels and alerts." .
+
+:Panel a owl:Class ;
+    rdfs:label "Panel" ;
+    rdfs:comment "A single visualization panel belonging to a Dashboard." .
+

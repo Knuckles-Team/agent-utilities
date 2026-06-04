@@ -1,0 +1,80 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:assertCount a owl:DatatypeProperty ;
+    rdfs:domain :Test ;
+    rdfs:range xsd:integer .
+
+:calls a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "calls" ;
+    rdfs:comment "Source symbol invokes target symbol; transitive call reachability." ;
+    rdfs:domain :Code ;
+    rdfs:range :Code .
+
+:covers a owl:ObjectProperty ;
+    rdfs:label "covers" ;
+    rdfs:comment "A Test exercises a Code symbol (test → code-under-test)." ;
+    rdfs:domain :Test ;
+    rdfs:range :Code .
+
+:dependsOn a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "depends on" ;
+    rdfs:comment "Transitive dependency between symbols / modules." ;
+    rdfs:domain :Code ;
+    rdfs:range :Code .
+
+:implementsPattern a owl:ObjectProperty ;
+    rdfs:label "implements pattern" ;
+    rdfs:comment "A Code symbol exhibits a design Pattern." ;
+    rdfs:domain :Code ;
+    rdfs:range :Pattern .
+
+:mockCount a owl:DatatypeProperty ;
+    rdfs:domain :Test ;
+    rdfs:range xsd:integer .
+
+:needsWork a owl:DatatypeProperty ;
+    rdfs:label "needs work" ;
+    rdfs:comment "True when the test trips a quality rule (mock-heavy, assertion-free, dormant)." ;
+    rdfs:domain :Test ;
+    rdfs:range xsd:boolean .
+
+:partOfFeature a owl:ObjectProperty ;
+    rdfs:label "part of feature" ;
+    rdfs:comment "A Code symbol belongs to a Feature cluster." ;
+    rdfs:domain :Code ;
+    rdfs:range :Feature .
+
+:summary a owl:DatatypeProperty ;
+    rdfs:comment "LLM capability-card summary: what it does and how." ;
+    rdfs:domain :Code ;
+    rdfs:range xsd:string .
+
+:Feature a owl:Class ;
+    rdfs:label "Feature" ;
+    rdfs:comment "A cohesive cluster of code symbols implementing a capability." .
+
+:Pattern a owl:Class ;
+    rdfs:label "Design Pattern" ;
+    rdfs:comment "A design-pattern / implementation-style tag." .
+
+:Test a owl:Class ;
+    rdfs:label "Test" ;
+    rdfs:comment "A test function with quality-signal metrics." ;
+    rdfs:subClassOf :Code .
+
+:Code a owl:Class ;
+    rdfs:label "Code" ;
+    rdfs:comment "An application code symbol: function, class, or method." .
+

@@ -1,0 +1,60 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Item a owl:Class ;
+    rdfs:label "Item" ;
+    rdfs:comment "A sellable/stockable product or service (Frappe Item doctype)." .
+
+:employeeName a owl:DatatypeProperty ;
+    rdfs:label "employee name" ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
+:grandTotal a owl:DatatypeProperty ;
+    rdfs:label "grand total" ;
+    rdfs:domain :SalesOrder ;
+    rdfs:range xsd:float .
+
+:memberOf a owl:ObjectProperty ;
+    rdfs:label "member of" ;
+    rdfs:comment "Links an employee to the organizational unit they belong to." ;
+    rdfs:domain :Employee ;
+    rdfs:range :OrgUnit .
+
+:placedBy a owl:ObjectProperty ;
+    rdfs:label "placed by" ;
+    rdfs:comment "Links a sales order to the customer that placed it." ;
+    rdfs:domain :SalesOrder ;
+    rdfs:range :Customer .
+
+<http://knuckles.team/kg/erpnext> a owl:Ontology ;
+    rdfs:label "ERPNext/Frappe Source Ontology" ;
+    rdfs:comment """HR/sales entities sourced from an ERPNext (Frappe) instance:
+employees, customers, sales orders, items, and organizational units.""" ;
+    owl:imports <http://knuckles.team/kg> .
+
+:Customer a owl:Class ;
+    rdfs:label "Customer" ;
+    rdfs:comment "A party that places sales orders (Frappe Customer doctype)." .
+
+:OrgUnit a owl:Class ;
+    rdfs:label "Organizational Unit" ;
+    rdfs:comment "A department or organizational unit an employee belongs to." .
+
+:Employee a owl:Class ;
+    rdfs:label "Employee" ;
+    rdfs:comment "A person employed by the organization (Frappe Employee doctype)." .
+
+:SalesOrder a owl:Class ;
+    rdfs:label "Sales Order" ;
+    rdfs:comment "A confirmed customer order (Frappe Sales Order doctype)." .
+

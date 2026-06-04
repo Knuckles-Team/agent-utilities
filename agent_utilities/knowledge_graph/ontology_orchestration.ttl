@@ -1,0 +1,108 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:canKG a owl:DatatypeProperty ;
+    rdfs:domain :Model ;
+    rdfs:range xsd:boolean .
+
+:canRoute a owl:DatatypeProperty ;
+    rdfs:domain :Model ;
+    rdfs:range xsd:boolean .
+
+:contextWindow a owl:DatatypeProperty ;
+    rdfs:domain :Model ;
+    rdfs:range xsd:integer .
+
+:delegatesTo a owl:ObjectProperty ;
+    rdfs:comment "Agent delegates to an external A2A agent." ;
+    rdfs:domain :Agent .
+
+:evolvedFrom a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:comment "Prompt lineage from evolution." ;
+    rdfs:domain :Prompt ;
+    rdfs:range :Prompt .
+
+:goalText a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+:hasPrompt a owl:ObjectProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range :Prompt .
+
+:hasSkill a owl:ObjectProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range :Skill .
+
+:intelligenceLevel a owl:DatatypeProperty ;
+    rdfs:domain :Model ;
+    rdfs:range xsd:string .
+
+:memberOfTeam a owl:ObjectProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range :Team .
+
+:orchestrates a owl:ObjectProperty ;
+    rdfs:comment "Workflow → the agents/skills it orchestrates." ;
+    rdfs:domain :Workflow .
+
+:reportsTo a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:comment "Team reporting hierarchy (transitive)." ;
+    rdfs:domain :Agent ;
+    rdfs:range :Agent .
+
+:solves a owl:ObjectProperty ;
+    rdfs:comment "An Agent or Team that addresses a Goal." ;
+    rdfs:range :Goal .
+
+:systemPrompt a owl:DatatypeProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range xsd:string .
+
+:usesModel a owl:ObjectProperty ;
+    rdfs:comment "The model an agent runs on, chosen by capability/complexity." ;
+    rdfs:domain :Agent ;
+    rdfs:range :Model .
+
+:usesTool a owl:ObjectProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range :Tool .
+
+:Goal a owl:Class ;
+    rdfs:label "Goal" .
+
+:Skill a owl:Class ;
+    rdfs:label "Skill" .
+
+:Team a owl:Class ;
+    rdfs:label "Team" ;
+    rdfs:comment "A hierarchical group of specialized agents for a goal." .
+
+:Tool a owl:Class ;
+    rdfs:label "Tool" .
+
+:Workflow a owl:Class ;
+    rdfs:label "Workflow" ;
+    rdfs:comment "An orchestration flow (skill-workflow) over agents/skills." .
+
+:Prompt a owl:Class ;
+    rdfs:label "Prompt" .
+
+:Model a owl:Class ;
+    rdfs:label "Model" ;
+    rdfs:comment "An LLM/embedding model the deployment serves, with capabilities (from config.json) used to choose the right model per task." .
+
+:Agent a owl:Class ;
+    rdfs:label "Agent" ;
+    rdfs:comment "A synthesized or registered agent (prompt + tools + skills)." .
+
