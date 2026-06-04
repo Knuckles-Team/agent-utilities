@@ -131,6 +131,17 @@ def start_epistemic_graph_server():
         # Check if epistemic-graph is built, if not build it
         rust_dir = os.path.join(os.path.dirname(__file__), "../../epistemic-graph")
         rust_dir = os.path.abspath(rust_dir)
+        if not os.path.isdir(rust_dir):
+            # Polyrepo / CI: the epistemic-graph source is not checked out as a
+            # sibling here, so we can't build/run the local engine. Skip starting
+            # it — config-only tests don't need a live engine; tests that do will
+            # skip when GRAPH_SERVICE_SOCKET is unset.
+            print(
+                "epistemic-graph source not present "
+                f"({rust_dir}); skipping engine startup."
+            )
+            yield None
+            return
         socket_path = os.path.join(
             os.path.dirname(__file__), ".test_epistemic_graph.sock"
         )
