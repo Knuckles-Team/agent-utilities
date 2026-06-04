@@ -10,7 +10,7 @@ New code should import from the submodules directly:
 CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 """
 
-__version__ = "0.39.0"
+__version__ = "0.40.0"
 
 
 def __getattr__(name: str):
