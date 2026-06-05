@@ -49,4 +49,5 @@ async def test_route_context_with_engine():
     router = WorkflowContextRouter(engine=FakeEngine())
     result = await router.route_context("find workflow")
     assert result.allowed_namespaces == ["ephemeral-a", "ephemeral-b"]
-    assert "workflow contexts" in result.summary
+    # impl summary is "Task-scoped: N context node(s)" — match the stable substring
+    assert "context node" in result.summary

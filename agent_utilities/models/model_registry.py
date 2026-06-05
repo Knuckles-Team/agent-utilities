@@ -39,8 +39,13 @@ _TIER_ORDER: list[ModelTier] = ["light", "medium", "heavy", "reasoning"]
 # CONCEPT:ORCH-1.27 (+ORCH-1.12 RLM extension): planner/generator/learner/judge plus the RLM-GEPA
 # roles — a cheap proxy executor + sub-LM optimized against a strong proposer (the AppWorld trick).
 ModelRole = Literal[
-    "planner", "generator", "learner", "judge",
-    "rlm-executor", "rlm-proposer", "rlm-sublm",
+    "planner",
+    "generator",
+    "learner",
+    "judge",
+    "rlm-executor",
+    "rlm-proposer",
+    "rlm-sublm",
 ]
 
 

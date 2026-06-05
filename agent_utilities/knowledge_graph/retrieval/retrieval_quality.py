@@ -487,12 +487,18 @@ class RetrievalQualityGate:
 # reflects whether retrieved memory was actually used, plus a generation lineage record linking an
 # answer back to the memory ids it was grounded on.
 
-TRUST_PRIOR = 0.5   # Bayesian prior — a fact starts neutral.
-TRUST_WEIGHT = 2.0  # Prior strength (pseudo-counts); higher = slower to move from the prior.
+TRUST_PRIOR = 0.5  # Bayesian prior — a fact starts neutral.
+TRUST_WEIGHT = (
+    2.0  # Prior strength (pseudo-counts); higher = slower to move from the prior.
+)
 
 
 def bayesian_trust(
-    helpful: int, total: int, *, prior: float = TRUST_PRIOR, weight: float = TRUST_WEIGHT
+    helpful: int,
+    total: int,
+    *,
+    prior: float = TRUST_PRIOR,
+    weight: float = TRUST_WEIGHT,
 ) -> float:
     """Smoothed trust score in [0, 1] = (helpful + prior·weight) / (total + weight).
 
@@ -517,7 +523,11 @@ class LineageRecord(BaseModel):
 
 
 def build_lineage(
-    query: str, retrieved_ids: list[str], *, used_ids: list[str] | None = None, model: str = ""
+    query: str,
+    retrieved_ids: list[str],
+    *,
+    used_ids: list[str] | None = None,
+    model: str = "",
 ) -> LineageRecord:
     """Build a generation lineage record with a stable context hash over the retrieved ids."""
     import hashlib
@@ -558,7 +568,9 @@ class UsageTelemetry:
                 self._used[nid] = self._used.get(nid, 0) + 1
 
     def trust(self, node_id: str) -> float:
-        return bayesian_trust(self._used.get(node_id, 0), self._recalled.get(node_id, 0))
+        return bayesian_trust(
+            self._used.get(node_id, 0), self._recalled.get(node_id, 0)
+        )
 
     def usage_rate(self) -> float:
         """Fraction of distinct recalled nodes that were actually used."""

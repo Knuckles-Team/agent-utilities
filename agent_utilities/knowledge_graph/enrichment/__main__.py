@@ -83,7 +83,9 @@ def main() -> int:
         make_parse_fn(gc),
         community_fn=community_fn,
         llm_fn=llm_fn,
-        writeback_fn=resolve_writeback_fn(backend),  # CONCEPT:KG-2.8 (gated by KG_EA_WRITEBACK)
+        writeback_fn=resolve_writeback_fn(
+            backend
+        ),  # CONCEPT:KG-2.8 (gated by KG_EA_WRITEBACK)
     )
     summary = pipe.enrich(args.path)
 
