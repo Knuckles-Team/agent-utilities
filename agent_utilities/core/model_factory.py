@@ -24,65 +24,47 @@ if TYPE_CHECKING:
     pass
 
 
-try:
-    from pydantic_ai.models.openai import OpenAIChatModel
-except ImportError:
-    try:
-        from pydantic_ai.providers.openai import (
-            OpenAIChatModel,  # type: ignore[attr-defined, no-redef]
-        )
-    except ImportError:
-        OpenAIChatModel: Any = None  # type: ignore[no-redef]
+def _load_model_class(*candidates: tuple[str, str]) -> Any:
+    """Resolve a pydantic-ai model class across versions (its import path moved between releases).
 
-try:
-    from pydantic_ai.models.google import GoogleModel
-except ImportError:
-    try:
-        from pydantic_ai.models.gemini import (
-            GeminiModel as GoogleModel,  # type: ignore[no-redef]
-        )
-    except ImportError:
-        GoogleModel: Any = None  # type: ignore[no-redef]
+    Tries each ``(module, attribute)`` candidate in order via importlib and returns the first that
+    resolves, else ``None``. Using importlib (rather than ``from ... import``) keeps the version
+    fallbacks free of static ``attr-defined``/``no-redef`` noise while remaining behaviour-identical.
+    """
+    import importlib
 
-try:
-    from pydantic_ai.models.anthropic import AnthropicModel
-except ImportError:
-    try:
-        from pydantic_ai.providers.anthropic import (
-            AnthropicModel,  # type: ignore[attr-defined, no-redef]
-        )
-    except ImportError:
-        AnthropicModel: Any = None  # type: ignore[no-redef]
+    for module_path, attr in candidates:
+        try:
+            return getattr(importlib.import_module(module_path), attr)
+        except (ImportError, AttributeError):
+            continue
+    return None
 
-try:
-    from pydantic_ai.models.groq import GroqModel
-except ImportError:
-    try:
-        from pydantic_ai.providers.groq import (
-            GroqModel,  # type: ignore[attr-defined, no-redef]
-        )
-    except ImportError:
-        GroqModel: Any = None  # type: ignore[no-redef]
 
-try:
-    from pydantic_ai.models.mistral import MistralModel
-except ImportError:
-    try:
-        from pydantic_ai.providers.mistral import (
-            MistralModel,  # type: ignore[attr-defined, no-redef]
-        )
-    except ImportError:
-        MistralModel: Any = None  # type: ignore[no-redef]
-
-try:
-    from pydantic_ai.models.huggingface import HuggingFaceModel
-except ImportError:
-    try:
-        from pydantic_ai.providers.huggingface import (
-            HuggingFaceModel,  # type: ignore[attr-defined, no-redef]
-        )
-    except ImportError:
-        HuggingFaceModel: Any = None  # type: ignore[no-redef]
+OpenAIChatModel = _load_model_class(
+    ("pydantic_ai.models.openai", "OpenAIChatModel"),
+    ("pydantic_ai.providers.openai", "OpenAIChatModel"),
+)
+GoogleModel = _load_model_class(
+    ("pydantic_ai.models.google", "GoogleModel"),
+    ("pydantic_ai.models.gemini", "GeminiModel"),
+)
+AnthropicModel = _load_model_class(
+    ("pydantic_ai.models.anthropic", "AnthropicModel"),
+    ("pydantic_ai.providers.anthropic", "AnthropicModel"),
+)
+GroqModel = _load_model_class(
+    ("pydantic_ai.models.groq", "GroqModel"),
+    ("pydantic_ai.providers.groq", "GroqModel"),
+)
+MistralModel = _load_model_class(
+    ("pydantic_ai.models.mistral", "MistralModel"),
+    ("pydantic_ai.providers.mistral", "MistralModel"),
+)
+HuggingFaceModel = _load_model_class(
+    ("pydantic_ai.models.huggingface", "HuggingFaceModel"),
+    ("pydantic_ai.providers.huggingface", "HuggingFaceModel"),
+)
 
 
 try:

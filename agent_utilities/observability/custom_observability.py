@@ -67,6 +67,7 @@ from agent_utilities.core.config import (
     HAS_LOGFIRE,
 )
 
+logfire: Any
 try:
     import logfire
 except ImportError:

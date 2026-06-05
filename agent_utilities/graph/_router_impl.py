@@ -59,7 +59,7 @@ __all__ = [
 
 
 async def router_step(
-    ctx: StepContext[GraphState, GraphDeps, None],
+    ctx: StepContext,
 ) -> GraphPlan | str | End[GraphResponse]:
     """Analyze the user query and select the optimal execution strategy.
 
@@ -723,7 +723,7 @@ async def router_step(
 
 
 async def dispatcher_step(
-    ctx: StepContext[GraphState, GraphDeps, str | list[ExecutionStep] | None],
+    ctx: StepContext,
 ) -> str | None:
     """Orchestrate the execution flow of a GraphPlan session.
 
@@ -1020,7 +1020,7 @@ async def dispatcher_step(
 
 
 async def parallel_batch_processor(
-    ctx: StepContext[GraphState, GraphDeps, Any],
+    ctx: StepContext,
 ) -> list[ExecutionStep]:
     """Retrieve and unpack a pending parallel execution batch from state.
 
@@ -1048,7 +1048,7 @@ async def parallel_batch_processor(
 
 
 async def expert_executor_step(
-    ctx: StepContext[GraphState, GraphDeps, ExecutionStep],
+    ctx: StepContext,
 ) -> str:
     """Execute a single specialist task with built-in retry and fallback logic.
 
@@ -1282,7 +1282,7 @@ async def expert_executor_step(
 
 
 async def dynamic_mcp_routing_step(
-    ctx: StepContext[GraphState, GraphDeps, None],
+    ctx: StepContext,
 ) -> list[str]:
     """Calculate the list of target resources for dynamic tool discovery.
 
@@ -1315,7 +1315,7 @@ async def dynamic_mcp_routing_step(
 
 
 async def mcp_server_step(
-    ctx: StepContext[GraphState, GraphDeps, str],
+    ctx: StepContext,
 ) -> str | End[Any]:
     """Execute a query against a specific, dynamically discovered MCP server.
 

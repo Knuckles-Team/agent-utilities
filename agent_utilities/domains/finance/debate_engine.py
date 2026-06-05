@@ -105,7 +105,7 @@ class DebateEngine:
                 f"Technical: {context.technical_report}"
             )
             result = agent.run_sync(prompt)
-            return result.data
+            return result.output
         except Exception as e:
             logger.warning(f"Bull argument LLM generation failed, using fallback: {e}")
             return DebateArgument(
@@ -152,7 +152,7 @@ class DebateEngine:
                 f"Technical: {context.technical_report}"
             )
             result = agent.run_sync(prompt)
-            return result.data
+            return result.output
         except Exception as e:
             logger.warning(f"Bear argument LLM generation failed, using fallback: {e}")
             return DebateArgument(
@@ -187,7 +187,7 @@ class DebateEngine:
                 f"Debate Rounds:\n{rounds}\n"
             )
             result = agent.run_sync(prompt)
-            return result.data
+            return result.output
         except Exception as e:
             logger.warning(
                 f"Risk evaluation LLM call failed, using heuristic fallback: {e}"

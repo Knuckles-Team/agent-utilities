@@ -346,7 +346,7 @@ class KnowledgeDeduplicator:
             # Parse the LLM response
             import re
 
-            json_match = re.search(r"\{.*\}", result.data, re.DOTALL)
+            json_match = re.search(r"\{.*\}", result.output, re.DOTALL)
             if json_match:
                 merged = json.loads(json_match.group())
                 merged["id"] = f"ideablock:{uuid.uuid4().hex[:8]}"

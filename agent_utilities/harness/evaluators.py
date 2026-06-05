@@ -140,8 +140,8 @@ async def evaluate_llm_as_judge(
         )
 
         result = await agent.run(prompt)
-        llm_score = result.data.score
-        llm_rationale = result.data.rationale
+        llm_score = result.output.score
+        llm_rationale = result.output.rationale
     except Exception as e:
         logger.warning(f"LLM-as-a-judge evaluation failed, using fallback: {e}")
 

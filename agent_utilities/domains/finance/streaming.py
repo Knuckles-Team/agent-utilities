@@ -210,7 +210,7 @@ class WebSocketStreamAdapter:
         self.bus = bus
         self.url = url
         self._connected = False
-        self._connection = None
+        self._connection: Any = None
 
     async def connect(self) -> bool:
         """Connect to a WebSocket server and begin streaming."""

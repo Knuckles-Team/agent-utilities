@@ -9,6 +9,7 @@ is validated by Pydantic before entering the knowledge graph.
 """
 
 import logging
+from typing import Any
 import os
 
 from agent_utilities.core.config import config
@@ -78,9 +79,9 @@ class KBExtractor:
         self._api_key = (
             api_key or (_default_chat.api_key if _default_chat else "") or ""
         )
-        self._article_agent = None
-        self._health_agent = None
-        self._index_agent = None
+        self._article_agent: Any = None
+        self._health_agent: Any = None
+        self._index_agent: Any = None
 
     def _get_model(self):
         """Lazily build the Pydantic AI model instance."""

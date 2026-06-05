@@ -203,7 +203,7 @@ class AgentsMdReflector:
             result = agent.run_sync(
                 f"## Current AGENTS.md\n```\n{current_md[:4000]}\n```\n\n## Session\n{transcript}"
             )
-            return str(result.data)
+            return str(result.output)
         except Exception as e:
             logger.warning("[ECO-4.2] LLM call failed: %s", e)
             return "[]"

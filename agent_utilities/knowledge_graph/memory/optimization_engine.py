@@ -1254,7 +1254,7 @@ def run_reflector(
         nest_asyncio.apply()
 
         result = agent.run_sync(user_content)
-        result_text = str(result.data)
+        result_text = str(result.output)
     except Exception as e:
         logger.warning("Reflector LLM call failed: %s", e)
         return None

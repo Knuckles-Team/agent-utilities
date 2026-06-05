@@ -16,7 +16,7 @@ Extracted from the monolithic steps.py for maintainability.
 
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from pydantic_ai import Agent
 from pydantic_graph import End
@@ -59,7 +59,7 @@ def _emit_node_lifecycle(eq, node_name: str, event: str, **kwargs):
 
 
 async def usage_guard_step(
-    ctx: StepContext[GraphState, GraphDeps, Any],
+    ctx: StepContext,
 ) -> str | None:
     """Evaluate session safety and usage policies.
 
@@ -75,11 +75,11 @@ async def usage_guard_step(
 
     """
     logger.info(
-        f"[LAYER:GRAPH:USAGE_GUARD] Handling query: '{ctx.state.query[:50]}...'"
+        f"[LAYER:GRAPH:USAGE_GUARD] Handling query: '{cast(GraphState, ctx.state).query[:50]}...'"
     )
-    _emit_node_lifecycle(ctx.deps.event_queue, "usage_guard", "node_start")
+    _emit_node_lifecycle(cast(GraphDeps, ctx.deps).event_queue, "usage_guard", "node_start")
     # Token / cost budget check
-    usage = ctx.state.session_usage
+    usage = cast(GraphState, ctx.state).session_usage
     cost_limit = 5.0
     token_limit = 500000
 
@@ -88,23 +88,23 @@ async def usage_guard_step(
             f"UsageGuard: Safety limits reached! Cost: ${usage.estimated_cost_usd:.2f}, Tokens: {usage.total_tokens}"
         )
         emit_graph_event(
-            ctx.deps.event_queue,
+            cast(GraphDeps, ctx.deps).event_queue,
             event_type="safety_warning",
             message=f"Session usage has exceeded safety limits. Current cost: ${usage.estimated_cost_usd:.2f}",
             usage=usage.model_dump(),
         )
 
     # Policy enforcement (Optional, based on tool_guard_mode)
-    if ctx.deps.tool_guard_mode == "off":
+    if cast(GraphDeps, ctx.deps).tool_guard_mode == "off":
         logger.info("UsageGuard: Tool guard mode is OFF. Bypassing policy check.")
         _emit_node_lifecycle(
-            ctx.deps.event_queue, "usage_guard", "node_complete", next_node="router"
+            cast(GraphDeps, ctx.deps).event_queue, "usage_guard", "node_complete", next_node="router"
         )
         return "router"
 
     safety_policy = load_specialized_prompts("safety_policy")
     checker = Agent(
-        model=ctx.deps.router_model,
+        model=cast(GraphDeps, ctx.deps).router_model,
         system_prompt=(
             "You are a security guard. Evaluate the user query against the "
             "following safety policy and output 'PASS' if the query is safe, "
@@ -116,7 +116,7 @@ async def usage_guard_step(
     try:
         logger.info("UsageGuard: Starting policy check...")
         res = await checker.run(
-            f"Check for policy violations in query: {ctx.state.query}"
+            f"Check for policy violations in query: {cast(GraphState, ctx.state).query}"
         )
         result_text = res.output.upper()
         logger.info(f"UsageGuard: Policy check completed. Result: {result_text}")
@@ -124,7 +124,7 @@ async def usage_guard_step(
         if "PASS" in result_text:
             return "router"
 
-        ctx.state.error = f"Policy violation: {res.output}"
+        cast(GraphState, ctx.state).error = f"Policy violation: {res.output}"
         return "error_recovery"
     except Exception as e:
         logger.error(f"UsageGuard failed: {e}")
@@ -132,7 +132,7 @@ async def usage_guard_step(
 
 
 async def onboarding_step(
-    ctx: StepContext[GraphState, GraphDeps, None],
+    ctx: StepContext,
 ) -> str | End[GraphResponse]:
     """Initialize a new agent workspace and bootstrap core project files.
 
@@ -167,7 +167,7 @@ async def onboarding_step(
 
 
 async def approval_gate_step(
-    ctx: StepContext[GraphState, GraphDeps, Any],
+    ctx: StepContext,
 ) -> Any:
     """Implement a human-in-the-loop checkpoint for high-risk actions.
 
@@ -183,7 +183,7 @@ async def approval_gate_step(
         'router' if redirection feedback is provided.
 
     """
-    if ctx.state.mode != "plan" and not ctx.state.human_approval_required:
+    if cast(GraphState, ctx.state).mode != "plan" and not cast(GraphState, ctx.state).human_approval_required:
         return ctx.inputs
 
     safety_guard_prompt = load_specialized_prompts("safety_guard")
@@ -191,12 +191,12 @@ async def approval_gate_step(
         f"Approval Gate: Pausing for user review. "
         f"Safety guard policy loaded ({len(safety_guard_prompt)} chars)."
     )
-    ctx.state.human_approval_required = True
+    cast(GraphState, ctx.state).human_approval_required = True
 
-    if ctx.state.user_redirect_feedback:
+    if cast(GraphState, ctx.state).user_redirect_feedback:
         logger.info(
             "Approval Gate: Captured redirection feedback. Returning to router."
         )
-        ctx.state.human_approval_required = False
+        cast(GraphState, ctx.state).human_approval_required = False
         return "router"
     return ctx.inputs
