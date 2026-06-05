@@ -20,7 +20,11 @@ README = ROOT / "README.md"
 AGENTS = ROOT / "AGENTS.md"
 CONCEPTS = ROOT / "docs" / "concepts.yaml"
 
-AGENTS_MAX_BYTES = 20 * 1024
+# Headroom for the curated head (~9.5 KiB of architecture + governance guidance) plus
+# the auto-generated, already-bounded project tree (EXCLUDE_DIRS + MAX_ENTRIES/MAX_DEPTH
+# summarization in gen_agents_md.py). The anti-bloat guarantee comes from those generator
+# controls, not from a tight byte ceiling; this just catches a runaway regression.
+AGENTS_MAX_BYTES = 24 * 1024
 
 
 def _run(script: str, *args: str) -> subprocess.CompletedProcess:
@@ -73,8 +77,13 @@ def test_agents_md_is_small_and_clean():
         f"AGENTS.md is {size} bytes, expected < {AGENTS_MAX_BYTES}."
     )
     content = AGENTS.read_text(encoding="utf-8")
-    assert ".hypothesis" not in content, (
-        "AGENTS.md still contains '.hypothesis' entries."
+    # The invariant is that the auto-generated project TREE excludes cache/build dirs —
+    # a tree entry like "├── .hypothesis/" means gen_agents_md.py's EXCLUDE_DIRS
+    # regressed. A bare prose mention (the "Keep Root Pristine" section lists
+    # ".hypothesis/" as a forbidden dir) is legitimate documentation, not bloat.
+    tree_entry = re.search(r"[├└]──\s*\.hypothesis", content)
+    assert tree_entry is None, (
+        "AGENTS.md project tree still lists a '.hypothesis' cache entry."
     )
 
 

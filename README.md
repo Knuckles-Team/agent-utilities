@@ -86,7 +86,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **80 canonical concepts** across **12 pillars**.
+Synthesized from concept markers in the codebase into **86 canonical concepts** across **12 pillars**.
 
 > This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
@@ -96,9 +96,9 @@ Synthesized from concept markers in the codebase into **80 canonical concepts** 
 | **CTX-1** Context Management | CTX-1.0 | 1 | Nested Subfolder Instructions |
 | **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.23 | 13 | Register PlannerGraphSkill when graph_bundle is available, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
 | **KG-1** Knowledge Graph Core | KG-1.0 | 1 | Centralized KG Coordination Protocol |
-| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.23 | 22 | Provides git-like transactional mutation for KG evolution, Self-Model proficiency + R5 ACO pheromone affinities, Entity-Claim Extraction for MAGMA Epistemic View, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Generates actionable LLM artifacts from KG-ingested research, / KG-2.10 — research assimilation + orchestration synthesis |
+| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.23 | 23 | Provides git-like transactional mutation for KG evolution, Self-Model proficiency + R5 ACO pheromone affinities, Entity-Claim Extraction for MAGMA Epistemic View, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Generates actionable LLM artifacts from KG-ingested research, / KG-2.10 — research assimilation + orchestration synthesis |
 | **LGC-1** Logic & Governance Core | LGC-1.0 | 1 | Logic & Governance Core |
-| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.27 | 19 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Execution Budget. Defines caps for this session, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
+| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.32 | 24 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Execution Budget. Defines caps for this session, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
 | **ORCH-2** Orchestration Extensions | ORCH-2.0 | 1 | Orchestration Engine |
 | **ORCH-5** Orchestration Runtime | ORCH-5.0 | 1 | / TUI-20 |
 | **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.10 | 10 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
