@@ -158,9 +158,10 @@ class TestPromptVersioning:
         assert v2["content"] == "v2"
         assert v2["parent_id"] == v1["id"]
 
-        # Check edge exists
+        # Check edge exists. The graph engine canonicalizes the relationship
+        # under ``rel_type`` (the uppercased relationship-type slot).
         has_supersedes = any(
-            edata.get("type") == RegistryEdgeType.SUPERSEDES
+            edata.get("rel_type") == RegistryEdgeType.SUPERSEDES.name
             for _, _, edata in engine.graph.out_edges(v2["id"], data=True)
         )
         assert has_supersedes

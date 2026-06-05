@@ -494,7 +494,10 @@ class RegistryMixin(_Base):
                             "parent_id": row.get("latest.parent_id", ""),
                         }
                     )
-            return versions
+            if versions:
+                return versions
+            # Backends without variable-length path support yield nothing here;
+            # fall through to walking the SUPERSEDES edges resident in the graph.
 
         # In-memory traversal
         current = prompt_id
@@ -643,7 +646,10 @@ class RegistryMixin(_Base):
                 {"id": resource_id},
             )
             if rows:
-                current = rows[0].get("n.enabled", True)
+                # A missing/None enabled flag means "enabled" by default.
+                current = rows[0].get("n.enabled")
+                if current is None:
+                    current = True
                 new_state = not current
                 self.backend.execute(
                     "MATCH (n {id: $id}) SET n.enabled = $enabled",
