@@ -90,6 +90,75 @@ class _CircuitBreaker:
             self._failures.clear()
 
 
+# ── Swarm helpers — CONCEPT:ORCH-1.32 KG-Governed Agent Swarm
+
+
+def enforce_structured_output(output: str, schema: str | None) -> tuple[bool, str]:
+    """SWARM-4: validate a sub-agent output against an expected JSON shape (pure, testable).
+
+    Kimi guardrail #3 — "prose from intermediate agents creates downstream parsing failures."
+    Returns ``(ok, detail)``. When ``schema`` is falsy this is a no-op pass. We validate that the
+    output parses as JSON (tolerating a ```json fenced block); structural key-presence is a
+    best-effort check when the schema names top-level keys.
+    """
+    if not schema:
+        return True, "no schema"
+    text = output.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text[4:] if text[:4].lower() == "json" else text
+        text = text.strip()
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError) as e:
+        return False, f"not valid JSON: {e}"
+    # best-effort: if the schema names required keys (JSON object or comma list), check presence
+    required: list[str] = []
+    try:
+        sj = json.loads(schema)
+        if isinstance(sj, dict):
+            required = list(sj.get("required") or sj.keys())
+    except (json.JSONDecodeError, ValueError):
+        required = [
+            k.strip()
+            for k in schema.replace("{", "").replace("}", "").split(",")
+            if k.strip()
+        ]
+    if isinstance(parsed, dict) and required:
+        missing = [k for k in required if k not in parsed]
+        if missing:
+            return False, f"missing keys: {missing}"
+    return True, "ok"
+
+
+def resolve_model_role(role: str) -> str:
+    """SWARM-6: resolve an ``AgentSpec.model_role`` to a concrete ``provider:model`` id, or "".
+
+    Heterogeneous swarm (Claw Groups) — different models per agent role (e.g. reasoning vs bulk vs
+    local). Routes through the existing model-role registry; returns "" when unresolvable so the
+    caller falls back to the manifest/default model.
+    """
+    if not role:
+        return ""
+    try:
+        from ..rlm.roles import rlm_role_model
+
+        resolved = rlm_role_model(role, fallback="")
+        if resolved:
+            return str(resolved)
+    except Exception:  # noqa: BLE001 - role routing is best-effort
+        pass
+    try:
+        from ..models.model_registry import get_model_registry
+
+        reg = get_model_registry()
+        spec = reg.resolve_role(role) if hasattr(reg, "resolve_role") else None
+        model_id = getattr(spec, "model_id", "") if spec else ""
+        return str(model_id or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 # ── Parallel Engine ─────────────────────────────────────────────────
 
 
@@ -123,6 +192,8 @@ class ParallelEngine:
             fallback_router=None,
             enabled=getattr(config, "enable_auto_healing", False),
         )
+        # CONCEPT:ORCH-1.32 — schedule metadata (critical-path, parallelism) captured per run
+        self._schedule_meta: dict[str, Any] = {}
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -224,6 +295,17 @@ class ParallelEngine:
                 wave_result.duration_ms,
             )
 
+        # 4b. SWARM-2: verify leaves against success_criteria + bounded re-dispatch (the
+        # planner→execute→verify loop). Gated by metadata["verify"]; only agents declaring
+        # success_criteria are checked. Runs before synthesis so the deliverable is assembled from
+        # verified outputs.
+        verification: dict[str, Any] = {}
+        if resolved.metadata.get("verify"):
+            verification = await self._verify_and_redispatch(
+                resolved, wave_results, graph_deps
+            )
+            logger.info("[CONCEPT:ORCH-1.32] Verification pass: %s", verification)
+
         # 5. Synthesize outputs (RLM-native)
         all_results = [r for w in wave_results for r in w.results]
         synthesis_output = await self._synthesize(
@@ -284,6 +366,28 @@ class ParallelEngine:
         # 6. Persist to KG
         execution_id = self._persist_execution(resolved, wave_results, synthesis_output)
 
+        # SWARM-3 + SWARM-7: critical-path + per-wave telemetry
+        critical_path = int(
+            self._schedule_meta.get("critical_path_length", len(wave_results))
+        )
+        parallelism = float(self._schedule_meta.get("parallelism_ratio", 1.0))
+        telemetry = {
+            "waves": [
+                {
+                    "index": w.wave_index,
+                    "agents": len(w.results),
+                    "duration_ms": round(w.duration_ms, 1),
+                    "success_rate": round(w.success_rate, 3),
+                }
+                for w in wave_results
+            ],
+            "critical_path_length": critical_path,
+            "parallelism_ratio": parallelism,
+            "total_agents": resolved.agent_count,
+            "wave_count": len(wave_results),
+            "max_concurrency": int(concurrency),
+        }
+
         result = ExecutionResult(
             manifest_id=resolved.manifest_id,
             execution_id=execution_id,
@@ -295,6 +399,11 @@ class ParallelEngine:
             total_duration_ms=total_duration,
             synthesis_strategy=resolved.synthesis.strategy,
             success=all(r.success for r in all_results) if all_results else True,
+            critical_path_length=critical_path,
+            parallelism_ratio=parallelism,
+            wave_count=len(wave_results),
+            verification=verification,
+            telemetry=telemetry,
         )
 
         logger.info(
@@ -360,13 +469,19 @@ class ParallelEngine:
             List of waves, each containing agents that can run concurrently.
         """
         if manifest.execution_mode == "sequential":
-            # Each agent is its own wave
-            return [[a] for a in self._expand_partitions(manifest)]
+            # Each agent is its own wave — critical path == agent count
+            seq = [[a] for a in self._expand_partitions(manifest)]
+            self._schedule_meta = {
+                "critical_path_length": len(seq),
+                "parallelism_ratio": 1.0,
+            }
+            return seq
 
         expanded = self._expand_partitions(manifest)
 
         if not manifest.has_dependencies:
-            # No DAG — batch by configured batch size
+            # No DAG — all agents are independent; critical path == 1 (one logical level).
+            # Wave count may be >1 only because of batch_size, not dependency depth.
             b_size = manifest.batch_size
             if b_size is None:
                 b_size = getattr(config, "parallel_batch_size", 25) or 25
@@ -374,6 +489,10 @@ class ParallelEngine:
             waves = []
             for i in range(0, len(expanded), batch_size):
                 waves.append(expanded[i : i + batch_size])
+            self._schedule_meta = {
+                "critical_path_length": 1,
+                "parallelism_ratio": float(len(expanded)),
+            }
             return waves
 
         # Build DAG from depends_on edges using graph primitives
@@ -394,13 +513,25 @@ class ParallelEngine:
 
         # Group by topological generation (parallel levels)
         try:
-            generations = rx.topological_generations(dag)
+            generations = list(rx.topological_generations(dag))
         except Exception:
             logger.warning(
                 "[CONCEPT:ORCH-1.8] Dependency cycle detected — falling back "
                 "to sequential execution"
             )
+            self._schedule_meta = {
+                "critical_path_length": len(expanded),
+                "parallelism_ratio": 1.0,
+            }
             return [[a] for a in expanded]
+
+        # SWARM-3: the critical path is the number of dependency generations (the longest chain),
+        # NOT the wave count (which batch-splitting can inflate). Wall-clock floor ≈ critical path.
+        n_gen = len(generations)
+        self._schedule_meta = {
+            "critical_path_length": max(1, n_gen),
+            "parallelism_ratio": round(len(expanded) / max(1, n_gen), 2),
+        }
 
         topological_waves: list[list[AgentSpec]] = []
         b_size = manifest.batch_size
@@ -470,6 +601,11 @@ class ParallelEngine:
         """
         start_time = time.monotonic()
 
+        # SWARM-5: retries-with-exponential-backoff (per-agent override, else manifest default).
+        # Distinct from the circuit breaker (which disables a chronically-failing agent across
+        # waves) — this recovers a single agent from a transient failure within its wave.
+        meta_retries = int(manifest.metadata.get("max_retries", 0) or 0)
+
         async def _run_one(agent: AgentSpec) -> AgentExecutionResult:
             if self._circuit_breaker.is_open(agent.agent_id):
                 return AgentExecutionResult(
@@ -479,22 +615,37 @@ class ParallelEngine:
                     error=f"Circuit breaker open for {agent.agent_id}",
                 )
 
-            proc = await scheduler.submit(
-                agent_id=agent.agent_id,
-                task=agent.task_template or manifest.query,
-            )
-
-            await scheduler.wait_for_running(proc.id)
-
-            try:
-                res = await self._execute_agent(
-                    agent, manifest, graph_deps, wave_results, proc
+            retries = agent.max_retries or meta_retries
+            attempt = 0
+            last: AgentExecutionResult | None = None
+            while attempt <= retries:
+                proc = await scheduler.submit(
+                    agent_id=agent.agent_id,
+                    task=agent.task_template or manifest.query,
                 )
-                await scheduler.complete(proc.id)
-                return res
-            except Exception as e:
-                await scheduler.fail(proc.id, str(e))
-                raise e
+                await scheduler.wait_for_running(proc.id)
+                try:
+                    res = await self._execute_agent(
+                        agent, manifest, graph_deps, wave_results, proc
+                    )
+                    await scheduler.complete(proc.id)
+                except Exception as e:
+                    await scheduler.fail(proc.id, str(e))
+                    res = AgentExecutionResult(
+                        agent_id=agent.agent_id,
+                        role=agent.role,
+                        success=False,
+                        error=str(e),
+                    )
+                last = res
+                if res.success or attempt >= retries:
+                    if attempt > 0:
+                        res.metadata["retries"] = attempt
+                    return res
+                attempt += 1
+                # exponential backoff: 0.5s, 1s, 2s, ... (bounded)
+                await asyncio.sleep(min(0.5 * (2 ** (attempt - 1)), 8.0))
+            return last  # unreachable, satisfies type checker
 
         tasks = [_run_one(a) for a in agents]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -608,8 +759,12 @@ class ParallelEngine:
                     e,
                 )
 
-        # Determine model
+        # Determine model — SWARM-6: per-agent model_role (heterogeneous swarm / Claw Groups)
+        # resolves before the manifest/default fallback so e.g. a "reasoning" agent can run on a
+        # frontier model while bulk agents run on a cheaper tier.
         model_id = agent.model_id
+        if not model_id and agent.model_role:
+            model_id = resolve_model_role(agent.model_role)
         if not model_id and graph_deps:
             model_id = str(graph_deps.agent_model)
         if not model_id:
@@ -619,6 +774,13 @@ class ParallelEngine:
             f"You are a {agent.role or agent.agent_id} specialist agent. "
             f"Provide your best analysis and response."
         )
+        # SWARM-4: structured-output contract — instruct the sub-agent to return only valid JSON
+        # matching the schema (prose from intermediates breaks downstream synthesis).
+        if agent.output_schema:
+            system_prompt += (
+                "\n\nSTRUCTURED OUTPUT CONTRACT: Return ONLY valid JSON matching this shape "
+                f"(no prose, no markdown fences):\n{agent.output_schema}"
+            )
 
         try:
             from ..agent.factory import create_agent
@@ -686,14 +848,21 @@ class ParallelEngine:
                 len(output),
             )
 
+            # SWARM-4: enforce the structured-output contract. A schema violation is a soft failure
+            # (success=False) so retry/verify handles it rather than feeding prose into synthesis.
+            schema_ok, schema_detail = enforce_structured_output(
+                output, agent.output_schema
+            )
             return AgentExecutionResult(
                 agent_id=agent.agent_id,
                 role=agent.role,
                 partition=agent.partitions[0] if agent.partitions else "",
                 output=output,
-                success=True,
+                success=schema_ok,
+                error="" if schema_ok else f"schema violation: {schema_detail}",
                 duration_ms=duration_ms,
                 model_id=model_id,
+                metadata={"schema_valid": schema_ok} if agent.output_schema else {},
             )
 
         except TimeoutError:
@@ -736,6 +905,102 @@ class ParallelEngine:
                 duration_ms=duration_ms,
                 model_id=model_id,
             )
+
+    # ── Verification (SWARM-2: planner → execute → verify loop) ──────
+
+    async def _judge_against_criteria(
+        self,
+        output: str,
+        criteria: str,
+        query: str,
+        graph_deps: GraphDeps | None,
+    ) -> tuple[bool, str]:
+        """Judge one leaf output against its ``success_criteria`` (CONCEPT:ORCH-1.32 SWARM-2).
+
+        Returns ``(passed, feedback)``. When no model is available, degrades to *pass* so
+        verification never blocks execution in model-less environments. Factored out so tests can
+        monkeypatch it without a live LLM.
+        """
+        model_id = "openai:gpt-4o-mini"
+        if graph_deps and getattr(graph_deps, "agent_model", None):
+            model_id = str(graph_deps.agent_model)
+        try:
+            judge = Agent(
+                model=model_id,
+                system_prompt=(
+                    "You verify whether an agent output satisfies its success criteria. "
+                    "Reply on two lines:\nVERDICT: PASS or FAIL\nFEEDBACK: <specific gap if FAIL>"
+                ),
+            )
+            res = await asyncio.wait_for(
+                judge.run(
+                    f"Task: {query}\n\nSuccess criteria: {criteria}\n\nOutput:\n{output}"
+                ),
+                timeout=60.0,
+            )
+            text = str(res.output)
+        except Exception as e:  # pragma: no cover - exercised via monkeypatch
+            logger.debug("verify judge unavailable, passing: %s", e)
+            return True, ""
+        passed = "FAIL" not in text.upper().split("FEEDBACK")[0]
+        feedback = ""
+        if "FEEDBACK:" in text:
+            feedback = text.split("FEEDBACK:", 1)[1].strip()
+        return passed, feedback
+
+    async def _verify_and_redispatch(
+        self,
+        resolved: ExecutionManifest,
+        wave_results: list[WaveResult],
+        graph_deps: GraphDeps | None,
+    ) -> dict[str, Any]:
+        """Verify leaves with ``success_criteria`` and re-dispatch failures once (bounded).
+
+        CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm.
+        SWARM-2: the planner→execute→verify loop the articles say most "throw-more-agents" setups
+        skip. Gated
+        by ``metadata["verify"]``; only agents that declare ``success_criteria`` are checked. Returns
+        a verification summary attached to the result.
+        """
+        spec_by_id = {a.agent_id: a for a in self._expand_partitions(resolved)}
+        checked = passed = redispatched = 0
+        for wave in wave_results:
+            for res in wave.results:
+                spec = spec_by_id.get(res.agent_id)
+                if not spec or not spec.success_criteria or not res.success:
+                    continue
+                checked += 1
+                ok, feedback = await self._judge_against_criteria(
+                    res.output, spec.success_criteria, resolved.query, graph_deps
+                )
+                if ok:
+                    passed += 1
+                    continue
+                # one bounded re-dispatch with the judge's feedback appended
+                redispatched += 1
+                retry_spec = spec.model_copy(deep=True)
+                retry_spec.task_template = (
+                    f"{spec.task_template or resolved.query}\n\n"
+                    f"## PRIOR ATTEMPT FAILED VERIFICATION\nFix exactly this and satisfy the "
+                    f"success criteria ({spec.success_criteria}):\n{feedback}"
+                )
+                new_res = await self._execute_agent(
+                    retry_spec, resolved, graph_deps, wave_results
+                )
+                # replace the leaf in place
+                for i, r in enumerate(wave.results):
+                    if r.agent_id == res.agent_id:
+                        new_res.metadata["reverified"] = True
+                        wave.results[i] = new_res
+                        if new_res.success:
+                            passed += 1
+                        break
+        return {
+            "checked": checked,
+            "passed": passed,
+            "failed": checked - passed,
+            "redispatched": redispatched,
+        }
 
     # ── Output Synthesis ────────────────────────────────────────────
 

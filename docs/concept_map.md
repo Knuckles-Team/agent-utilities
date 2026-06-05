@@ -45,6 +45,7 @@ Every concept has 1:1:1 traceability across:
 | `ORCH-1.29` | RLM Resilience + Telemetry 🔬 | 2 | 1 | [ORCH-1.29](pillars/1_graph_orchestration/ORCH-1.29-RLM_Resilience_And_Telemetry.md) |
 | `ORCH-1.30` | Generalizing GEPA 🔬 | 1 | 1 | [ORCH-1.30](pillars/1_graph_orchestration/ORCH-1.30-Generalizing_GEPA.md) |
 | `ORCH-1.31` | Graph-Native Optimization State 🔬 | 1 | 1 | [ORCH-1.31](pillars/1_graph_orchestration/ORCH-1.31-Graph_Native_Optimization_State.md) |
+| `ORCH-1.32` | KG-Governed Agent Swarm 🔬 | 3 | 1 | [ORCH-1.32](pillars/1_graph_orchestration/ORCH-1.32-KG_Governed_Agent_Swarm.md) |
 
 Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planning/` (unified `Planner` facade), `graph/routing/` (`Router`/`RoutingStrategy` strategy package over `graph/_router_impl.py`), `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, `graph/parallel_engine.py`, `graph/manifest_generators.py`, `models/execution_manifest.py`, `graph/reactive/ledger.py`, `graph/reactive/dispatcher.py`, `core/wasm_runner.py`, `rlm/predict_rlm.py`, `rlm/gepa.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
 
