@@ -153,8 +153,8 @@ async def test_maintenance_model_validation(caplog):
 
 @pytest.mark.asyncio
 async def test_process_executor_node_logic():
-    """Test the LoadAndExecuteProcessFlow node execution."""
-    from agent_utilities.graph.nodes import LoadAndExecuteProcessFlow
+    """Test the load_and_execute_process_flow builder step execution."""
+    from agent_utilities.graph.nodes import load_and_execute_process_flow
     from agent_utilities.graph.state import GraphDeps, GraphState
 
     with patch("agent_utilities.graph.nodes.get_graph_client") as mock_get_client:
@@ -189,7 +189,6 @@ async def test_process_executor_node_logic():
             ],
         ]
 
-        node = LoadAndExecuteProcessFlow(flow_id="flow:bug")
         state = GraphState(query="Fix bug")
         state.current_flow_id = "flow:bug"
         deps = GraphDeps(
@@ -200,7 +199,7 @@ async def test_process_executor_node_logic():
         ctx.state = state
         ctx.deps = deps
 
-        result = await node.run(ctx)
+        result = await load_and_execute_process_flow(ctx)
         assert result == "dispatcher"
         assert state.current_process_flow is not None
         assert state.current_process_flow.name == "SOP 1"
