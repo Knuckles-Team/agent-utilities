@@ -57,7 +57,7 @@ from .hierarchical_planner import (
 )
 from .lifecycle import approval_gate_step, onboarding_step, usage_guard_step
 from .nodes import (
-    LoadAndExecuteProcessFlow,
+    load_and_execute_process_flow,
 )
 from .routing import (
     dispatcher_step,
@@ -471,7 +471,9 @@ def create_agent(
     _planner = g.step(planner_step, node_id="planner")
     _onboarding = g.step(onboarding_step, node_id="onboarding")
     _error = g.step(error_recovery_step, node_id="error_recovery")
-    _process_executor = g.step(LoadAndExecuteProcessFlow, node_id="process_executor")
+    _process_executor = g.step(
+        load_and_execute_process_flow, node_id="process_executor"
+    )
 
     # Dynamic Dispatcher Nodes
     _dispatcher = g.step(dispatcher_step, node_id="dispatcher")
