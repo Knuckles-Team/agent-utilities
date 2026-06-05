@@ -184,7 +184,7 @@ class KBExtractor:
 
         try:
             result = await agent.run(prompt)
-            return result.data
+            return result.output
         except Exception as e:
             logger.error(f"Extraction failed for topic '{topic}': {e}")
             return self._fallback_article(chunks, topic)
@@ -222,7 +222,7 @@ class KBExtractor:
 
         try:
             result = await agent.run(prompt)
-            report = result.data
+            report = result.output
             # Ensure KB identity is set
             report.kb_id = kb_id
             report.kb_name = kb_name
@@ -255,7 +255,7 @@ class KBExtractor:
 
         try:
             result = await agent.run(prompt)
-            return result.data
+            return result.output
         except Exception as e:
             logger.error(f"Index generation failed for KB '{kb_id}': {e}")
             return None
