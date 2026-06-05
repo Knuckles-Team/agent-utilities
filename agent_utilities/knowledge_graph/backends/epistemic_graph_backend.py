@@ -96,6 +96,21 @@ class EpistemicGraphBackend(GraphBackend):
             if handled:
                 return result
 
+        # Single-hop relationship traversal read:
+        # ``MATCH (a {id:$x})-[:REL]->(b:Label) RETURN b.prop...``. Without this,
+        # such reads fall to the legacy full-scan and return every node, not the
+        # edge targets (e.g. workflow-step load returned the anchor node too).
+        if (
+            qu.startswith("MATCH")
+            and "->" in q
+            and "MERGE" not in qu
+            and "CREATE" not in qu
+            and "DELETE" not in qu
+        ):
+            handled, result = self._exec_rel_match(q, params)
+            if handled:
+                return result
+
         # Single-node MATCH patterns are interpreted directly; relationship
         # traversals and other write-DDL fall through to the legacy reader.
         if (
@@ -110,6 +125,71 @@ class EpistemicGraphBackend(GraphBackend):
                 return result
 
         return self._legacy_execute(params)
+
+    def _exec_rel_match(
+        self, q: str, params: dict[str, Any]
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        """Interpret a single-hop ``MATCH (a {id:$x})-[:REL]->(b:Label) RETURN b...``.
+
+        Resolves the anchor ``a`` by id, walks ``REL`` successors, filters the
+        targets ``b`` by label, and projects on ``b``. Returns ``(False, [])``
+        for any shape outside this subset so the caller can fall back.
+        """
+        import re
+
+        m = re.search(
+            r"MATCH\s*\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)"
+            r"\s*-\s*\[\s*\w*\s*:?\s*(\w+)?[^\]]*\]\s*->\s*"
+            r"\(\s*(\w+)\s*(?::(\w+))?\s*\)",
+            q,
+            re.I,
+        )
+        if not m:
+            return False, []
+        _src_var, id_param, rel, tgt_var, tgt_label = m.groups()
+
+        # Only the simple "anchor by id, project the target" shape is supported.
+        if re.search(r"\bSET\b|\bDETACH\b", q, re.I):
+            return False, []
+
+        anchor_id = params.get(id_param)
+        if anchor_id is None or not self._graph.has_node(anchor_id):
+            return True, []
+
+        rel_upper = rel.upper() if rel else None
+        matched: list[tuple[str, dict[str, Any]]] = []
+        for tgt in self._graph.get_successors(anchor_id):
+            edge_props = self._graph._get_edge_properties(anchor_id, tgt) or {}
+            if rel_upper:
+                edge_rel = str(
+                    edge_props.get("rel_type") or edge_props.get("type") or ""
+                ).upper()
+                if edge_rel != rel_upper:
+                    continue
+            data = self._graph._get_node_properties(tgt) or {}
+            if tgt_label and not self._label_match(data, tgt_label):
+                continue
+            matched.append((tgt, data))
+
+        # Honour ``ORDER BY <tgt>.<prop> [DESC]`` over the projected targets,
+        # since successor order is not guaranteed to be meaningful.
+        ob = re.search(
+            rf"\bORDER\s+BY\s+{tgt_var}\.(\w+)\s*(DESC|ASC)?",
+            q,
+            re.I,
+        )
+        if ob:
+            order_prop = ob.group(1)
+            reverse = bool(ob.group(2)) and ob.group(2).upper() == "DESC"
+
+            def _sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, Any]:
+                val = item[1].get(order_prop)
+                # None sorts last; keep numeric/string ordering stable otherwise.
+                return (1, "") if val is None else (0, val)
+
+            matched.sort(key=_sort_key, reverse=reverse)
+
+        return True, self._project(q, tgt_var, matched, params)
 
     def _exec_rel_merge(
         self, q: str, params: dict[str, Any]
