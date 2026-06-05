@@ -60,6 +60,12 @@ class AgentSpec(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     timeout: float | None = None
     memory_channels: list[str] = Field(default_factory=lambda: ["episodic"])
+    # CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm
+    # (per-agent swarm fields below; all default to current behaviour):
+    success_criteria: str = ""  # SWARM-2: what "done correctly" means (verify gate)
+    output_schema: str | None = None  # SWARM-4: JSON schema/shape the agent must return
+    model_role: str = ""  # SWARM-6: ModelRole to route to when model_id is unset
+    max_retries: int = 0  # SWARM-5: retries-with-backoff on failure (0 = off)
 
 
 # ── Synthesis Specification ─────────────────────────────────────────
@@ -278,6 +284,19 @@ class ExecutionResult(BaseModel):
     total_duration_ms: float = 0.0
     synthesis_strategy: str = ""
     success: bool = True
+    # CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm
+    # (swarm telemetry & verification fields; additive)
+    critical_path_length: int = (
+        0  # SWARM-3: longest dependency chain (true wall-clock floor)
+    )
+    parallelism_ratio: float = (
+        1.0  # SWARM-3: agents / critical_path (higher = more parallel)
+    )
+    wave_count: int = 0  # SWARM-7
+    verification: dict[str, Any] = Field(default_factory=dict)  # SWARM-2 verify summary
+    telemetry: dict[str, Any] = Field(
+        default_factory=dict
+    )  # SWARM-7 per-wave cost/latency
     timestamp: str = Field(
         default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     )

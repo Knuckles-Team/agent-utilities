@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KG-Governed Agent Swarm (CONCEPT:ORCH-1.32, extends ORCH-1.8/1.1/1.27)** — Assimilated from Kimi
+  K2.6 Agent Swarm (Moonshot AI) + PARL/Mooncake. Adds governance/quality deltas on top of the
+  existing `ParallelEngine` (which already did dependency-ordered parallel waves + synthesis):
+  **SWARM-1** one-shot `graph_orchestrate(action="swarm")` (goal→decompose→parallel-waves→verify→
+  synthesize, governance ON by default); **SWARM-2** planner→execute→**verify** loop (per-leaf
+  `success_criteria` judged + bounded re-dispatch); **SWARM-3** critical-path metric (longest
+  dependency chain — the PARL insight) + parallelism ratio; **SWARM-4** per-agent `output_schema`
+  enforcement (prose → soft failure); **SWARM-5** retry-with-backoff (distinct from the circuit
+  breaker); **SWARM-6** heterogeneous-model swarm via `AgentSpec.model_role`; **SWARM-7** per-wave
+  telemetry on `ExecutionResult`. Does NOT adopt PARL training or Mooncake serving (documented).
+  Analysis: `.specify/reports/kimi-swarm-comparative-analysis.md`.
 - **Mementified Context Management (CONCEPT:KG-2.20, extends KG-2.1)** — Assimilated from *Memento:
   Teaching LLMs to Manage Their Own Context* (Kontonis et al., MSR AI Frontiers 2026). Brings the
   paper's block-compress-evict pattern to the orchestration layer (the paper's flagged "agents"

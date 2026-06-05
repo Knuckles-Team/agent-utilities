@@ -7,6 +7,10 @@ papers referenced: Kimi K2 (MuonClip, arXiv 2507.20534), **PARL** (Parallel-Agen
 2602.02276), Mooncake (KVCache-disaggregated serving, arXiv 2407.00079).
 **Target:** `agent-utilities` (primary), enhancing the `graph_orchestrate` (kg_orchestrate) MCP tool.
 **Date:** 2026-06-05.
+**Status: IMPLEMENTED** as **CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm** (SWARM-1…7). See
+`docs/pillars/1_graph_orchestration/ORCH-1.32-KG_Governed_Agent_Swarm.md` and
+`tests/unit/graph/test_orch_1_32_kg_governed_swarm.py`. SWARM-8 (native multi-format rendering)
+deferred to an ECO-4 peripheral.
 
 ---
 

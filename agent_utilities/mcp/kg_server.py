@@ -2464,7 +2464,7 @@ def _build_server():
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, list_workflows, execute_workflow, export_workflow).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, list_workflows, execute_workflow, export_workflow). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -2523,6 +2523,59 @@ def _build_server():
                 dataset = rows if isinstance(rows, list) else []
                 result = await optimize_rlm_skill(task, dataset)
                 return json.dumps(result, default=str)
+            elif action == "swarm":
+                # CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm
+                # One-shot swarm action: a one-line goal is
+                # decomposed into a dependency-ordered task graph, executed in parallel waves by the
+                # ParallelEngine, each leaf verified against its subtask (planner→execute→verify),
+                # then synthesized into a single deliverable. The KG/OWL grounding + verification is
+                # what distinguishes this from a black-box trained swarm.
+                from agent_utilities.core.config import (
+                    DEFAULT_KG_MODEL_ID,
+                    DEFAULT_LLM_PROVIDER,
+                )
+                from agent_utilities.core.model_factory import create_model
+                from agent_utilities.graph.parallel_engine import ParallelEngine
+                from agent_utilities.graph.planning import Planner
+                from agent_utilities.models.execution_manifest import ExecutionManifest
+
+                try:
+                    _model = create_model(
+                        provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
+                    )
+                except Exception:
+                    _model = None
+                plan = await Planner(model=_model).decompose(task)
+                manifest = ExecutionManifest.from_graph_plan(
+                    plan, name="swarm", query=task
+                )
+                # default governance ON: verify each leaf + retry transient failures.
+                manifest.metadata["verify"] = True
+                manifest.metadata["max_retries"] = 2
+                if max_fan_out:
+                    manifest.max_concurrency = int(max_fan_out)
+                # give the verify loop something to check: each leaf must address its own subtask.
+                for _a in manifest.agents:
+                    if not _a.success_criteria:
+                        _a.success_criteria = (
+                            f"Output must substantively address: "
+                            f"{(_a.task_template or task)[:240]}"
+                        )
+                pe_result = await ParallelEngine(engine=engine).execute(manifest)
+                return json.dumps(
+                    {
+                        "deliverable": pe_result.synthesis_output,
+                        "agent_count": pe_result.agent_count,
+                        "wave_count": pe_result.wave_count,
+                        "critical_path_length": pe_result.critical_path_length,
+                        "parallelism_ratio": pe_result.parallelism_ratio,
+                        "verification": pe_result.verification,
+                        "telemetry": pe_result.telemetry,
+                        "execution_id": pe_result.execution_id,
+                        "success": pe_result.success,
+                    },
+                    default=str,
+                )
             elif action == "status":
                 if not job_id:
                     return "Error: job_id required"

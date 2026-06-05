@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 85
+total_concepts: 86
 total_pillars: 12
 pillars:
 - AHE-3
@@ -1148,6 +1148,15 @@ concepts:
   code_paths:
   - agent_utilities/rlm/gepa.py
   doc: Graph-Native Optimization State ──────────────────────────
+- id: ORCH-1.32
+  name: KG-Governed Agent Swarm
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/parallel_engine.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/models/execution_manifest.py
+  doc: KG-Governed Agent Swarm
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
