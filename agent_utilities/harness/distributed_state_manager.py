@@ -18,7 +18,7 @@ class OptimisticStateLocker:
     ):
         self.use_redis = use_redis
         self._local_state: dict[str, dict[str, Any]] = {}
-        self._redis_client = None
+        self._redis_client: Any = None
 
         if self.use_redis:
             try:

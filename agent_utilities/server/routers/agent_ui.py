@@ -204,8 +204,8 @@ async def ag_ui_endpoint(request: Request) -> Response:
                         await combined_queue.put(
                             (
                                 "chunk",
-                                chunk
-                                if isinstance(chunk, bytes)
+                                bytes(chunk)
+                                if isinstance(chunk, memoryview)
                                 else chunk.encode("utf-8"),
                             )
                         )
@@ -215,8 +215,8 @@ async def ag_ui_endpoint(request: Request) -> Response:
                         await combined_queue.put(
                             (
                                 "chunk",
-                                chunk
-                                if isinstance(chunk, bytes)
+                                bytes(chunk)
+                                if isinstance(chunk, memoryview)
                                 else chunk.encode("utf-8"),
                             )
                         )

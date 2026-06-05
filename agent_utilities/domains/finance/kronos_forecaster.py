@@ -173,8 +173,15 @@ class KLineTokenizer:
         self, open_p: float, high: float, low: float, close: float, volume: float
     ) -> KLineToken:
         """Tokenize a single OHLCV bar into a KLineToken."""
-        if self._body_percentiles is None:
+        if (
+            self._body_percentiles is None
+            or self._wick_percentiles is None
+            or self._vol_percentiles is None
+        ):
             raise RuntimeError("Tokenizer not fitted. Call fit() first.")
+        body_pct = self._body_percentiles
+        wick_pct = self._wick_percentiles
+        vol_pct = self._vol_percentiles
 
         body = (close - open_p) / open_p if open_p > 0 else 0
         abs_body = abs(body)
@@ -185,10 +192,10 @@ class KLineTokenizer:
 
         token = KLineToken(
             body_direction=direction,
-            body_size_bucket=self._bucketize(abs_body, self._body_percentiles),
-            upper_wick_bucket=self._bucketize(upper_wick, self._wick_percentiles),
-            lower_wick_bucket=self._bucketize(lower_wick, self._wick_percentiles),
-            volume_bucket=self._bucketize(volume, self._vol_percentiles),
+            body_size_bucket=self._bucketize(abs_body, body_pct),
+            upper_wick_bucket=self._bucketize(upper_wick, wick_pct),
+            lower_wick_bucket=self._bucketize(lower_wick, wick_pct),
+            volume_bucket=self._bucketize(volume, vol_pct),
             candle_type=self._classify_candle(open_p, high, low, close),
         )
         token.token_id = token.to_int()

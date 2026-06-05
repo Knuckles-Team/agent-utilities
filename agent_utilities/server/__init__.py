@@ -240,8 +240,8 @@ def _run_agent_server(
         def run_server():
             uvicorn.run(
                 reloadable,
-                host=host,
-                port=port,
+                host=host or "0.0.0.0",
+                port=port or 8000,
                 timeout_keep_alive=1800,
                 timeout_graceful_shutdown=60,
                 log_level="error",  # Suppress server logs in CLI mode
