@@ -38,7 +38,7 @@ async def test_kb_extractor_agent_success(mock_chunk):
     mock_agent = AsyncMock()
 
     mock_result = MagicMock()
-    mock_result.data = ExtractedArticle(
+    mock_result.output = ExtractedArticle(
         title="Success",
         summary="A successful extraction",
         content="Full content",
