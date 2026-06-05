@@ -574,6 +574,47 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
     return middlewares
 
 
+_STDIO_PROTECTED = False
+
+
+def protect_stdio_jsonrpc() -> None:
+    """Redirect ``print``/warnings to stderr for a process serving MCP over stdio.
+
+    On the stdio transport the JSON-RPC framing IS stdout, so any stray ``print``
+    corrupts the protocol. Call this immediately before ``mcp.run(transport="stdio")``
+    — NOT at server-build time — because it permanently monkeypatches the
+    process-global ``builtins.print``; doing it for a process that does not actually
+    own stdout (tests, embedded/sse/http hosts) silently breaks stdout capture
+    everywhere downstream. Idempotent.
+    """
+    global _STDIO_PROTECTED
+    if _STDIO_PROTECTED:
+        return
+    _STDIO_PROTECTED = True
+
+    import builtins
+    import warnings
+
+    original_print = builtins.print
+
+    def stderr_print(*print_args, **kwargs):
+        if (
+            "file" not in kwargs
+            or kwargs["file"] is None
+            or kwargs["file"] == sys.stdout
+        ):
+            kwargs["file"] = sys.stderr
+        original_print(*print_args, **kwargs)
+
+    builtins.print = stderr_print
+
+    def stderr_showwarning(message, category, filename, lineno, file=None, line=None):
+        sys.stderr.write(f"[{category.__name__}] {message} ({filename}:{lineno})\n")
+        sys.stderr.flush()
+
+    warnings.showwarning = stderr_showwarning
+
+
 def create_mcp_server(
     name: str = "MCP Server",
     version: str = "0.1.0",
@@ -602,40 +643,22 @@ def create_mcp_server(
             - middlewares: A list of configured middleware instances.
 
     """
-    import builtins
     import logging
     import sys
-    import warnings
 
     from fastmcp import FastMCP
 
     # Force all logging to stderr to prevent JSON-RPC corruption over stdio
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, force=True)
 
-    # Wrap builtins.print to force stderr redirection by default to prevent stdout pollution
-    original_print = builtins.print
-
-    def stderr_print(*args, **kwargs):
-        if (
-            "file" not in kwargs
-            or kwargs["file"] is None
-            or kwargs["file"] == sys.stdout
-        ):
-            kwargs["file"] = sys.stderr
-        original_print(*args, **kwargs)
-
-    builtins.print = stderr_print
-
-    # Wrap warnings to write strictly to sys.stderr
-    def stderr_showwarning(message, category, filename, lineno, file=None, line=None):
-        log_msg = f"[{category.__name__}] {message} ({filename}:{lineno})\n"
-        sys.stderr.write(log_msg)
-        sys.stderr.flush()
-
-    warnings.showwarning = stderr_showwarning
-
     parser = create_mcp_parser()
     args, _ = parser.parse_known_args(command_args)
+
+    # NOTE: the stdout/print → stderr protection is applied by ``protect_stdio_jsonrpc()``
+    # at the actual stdio *serve* sites (mcp.run(transport="stdio")), NOT here at build
+    # time. Building a server does not dedicate the process to stdio, and applying the
+    # permanent ``builtins.print`` override here broke stdout capture for every in-process
+    # caller (tests, embedded/sse/http hosts) created afterwards.
 
     if hasattr(args, "help") and args.help:
         parser.print_help()

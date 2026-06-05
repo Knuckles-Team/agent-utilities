@@ -3470,13 +3470,17 @@ def mcp_server() -> None:
         port,
     )
 
+    from agent_utilities.mcp.server_factory import protect_stdio_jsonrpc
+
     if transport == "stdio":
+        protect_stdio_jsonrpc()
         mcp.run(transport="stdio")
     elif transport == "streamable-http":
         mcp.run(transport="streamable-http", host=host, port=port)
     elif transport == "sse":
         mcp.run(transport="sse", host=host, port=port)
     else:
+        protect_stdio_jsonrpc()
         mcp.run(transport="stdio")
 
 
