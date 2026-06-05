@@ -184,7 +184,18 @@ class KBExtractor:
 
         try:
             result = await agent.run(prompt)
-            return result.output
+            article = result.output
+            # Guard against degenerate model output (offline/test models emit
+            # placeholder strings like "a"): a synthesized article with no real
+            # content is worse than the raw-source fallback, which preserves the
+            # original document text so the KB stays searchable.
+            if not article or len((article.content or "").strip()) < 20:
+                logger.debug(
+                    "Extracted article for '%s' is degenerate; using raw-source fallback",
+                    topic,
+                )
+                return self._fallback_article(chunks, topic)
+            return article
         except Exception as e:
             logger.error(f"Extraction failed for topic '{topic}': {e}")
             return self._fallback_article(chunks, topic)
