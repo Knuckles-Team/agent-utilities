@@ -32,9 +32,13 @@ Opt-in (contrib) access::
     from agent_utilities.knowledge_graph.backends import Neo4jBackend
 
 Environment Variables:
-    GRAPH_BACKEND: Backend type. Bare default: "memory" (prod uses "postgresql").
-        Supported: "memory", "file", "epistemic_graph", "postgresql"
-        (primary), plus opt-in contrib: "ladybug", "falkordb", "neo4j".
+    GRAPH_BACKEND: Backend type. Bare default: "tiered" — L1 epistemic_graph +
+        L2 LadybugDB (embedded, no external server). Supported: "tiered",
+        "memory", "file", "epistemic_graph", "postgresql" (primary), plus
+        opt-in contrib: "ladybug", "falkordb", "neo4j".
+    GRAPH_BACKEND_L1: L1 working store for "tiered". Default: "epistemic_graph".
+    GRAPH_BACKEND_L2: L2 durable store for "tiered". Default: "ladybug"
+        (or "postgresql" when a DB URI is configured).
     GRAPH_DB_PATH: File path for LadybugDB. Default: "knowledge_graph.db".
     GRAPH_DB_HOST: Host for FalkorDB/Neo4j. Default: "localhost".
     GRAPH_DB_PORT: Port for FalkorDB (6379) or Neo4j (7687).
@@ -126,16 +130,19 @@ def create_backend(
     """Factory function to create the appropriate graph backend.
 
     Resolves configuration from explicit arguments first, then falls back to
-    environment variables, then to sensible defaults. PostgreSQL + pgvector is
-    the primary/default durable backend; ``file``/``memory`` use the
-    zero-dependency Rust-native EpistemicGraph. Contrib backends
-    (ladybug/falkordb/neo4j) are imported only when explicitly requested.
+    environment variables, then to sensible defaults. The bare default is the
+    self-contained ``tiered`` backend (L1 epistemic_graph + L2 LadybugDB) — no
+    external server required. PostgreSQL + pgvector is the durable production
+    tier and is selected automatically for ``tiered`` whenever a DB URI is
+    configured. Contrib backends (ladybug/falkordb/neo4j) are imported only
+    when explicitly requested.
 
     Args:
-        backend_type: One of "memory", "file", "epistemic_graph",
-            "postgresql" (primary), or the opt-in contrib values
-            "ladybug", "falkordb", "neo4j". Falls back to ``GRAPH_BACKEND``
-            env var, then "memory" (zero-dep; set GRAPH_BACKEND=postgresql for prod).
+        backend_type: One of "tiered" (default), "memory", "file",
+            "epistemic_graph", "postgresql" (primary), or the opt-in contrib
+            values "ladybug", "falkordb", "neo4j". Falls back to
+            ``GRAPH_BACKEND`` env var, then "tiered" (zero-infra: epistemic_graph
+            + LadybugDB; configure GRAPH_DB_URI for a PostgreSQL L2 in prod).
         db_path: File path for LadybugDB. Falls back to ``GRAPH_DB_PATH``.
         host: Host for FalkorDB/Neo4j. Falls back to ``GRAPH_DB_HOST``.
         port: Port for FalkorDB/Neo4j. Falls back to ``GRAPH_DB_PORT``.
@@ -150,12 +157,16 @@ def create_backend(
     """
     global _ACTIVE_BACKEND
 
-    # Bare fallback is the zero-dependency in-memory tier so tests/dev never
-    # attempt a network connection. PostgreSQL is the PRODUCTION durable tier,
-    # selected explicitly via config (`graph_persistence_type`) or
-    # `GRAPH_BACKEND=postgresql` and enforced by the prod-profile guard.
+    # Bare fallback is the self-contained "tiered" backend: L1 epistemic_graph
+    # (always included) + L2 LadybugDB (embedded, no server). This runs as a
+    # single binary with NO external system dependencies. PostgreSQL stays the
+    # PRODUCTION durable tier and is selected automatically whenever a DB URI is
+    # configured (GRAPH_DB_URI/PGGRAPH_DSN) or explicitly via
+    # GRAPH_BACKEND_L2=postgresql; the prod-profile guard enforces it for prod.
+    # The unit suite pins GRAPH_BACKEND=memory (see tests/conftest.py) to stay
+    # purely ephemeral.
     backend_type = (
-        (backend_type or os.environ.get("GRAPH_BACKEND") or "memory").lower().strip()
+        (backend_type or os.environ.get("GRAPH_BACKEND") or "tiered").lower().strip()
     )
 
     from .base import GraphBackend
@@ -274,10 +285,15 @@ def create_backend(
 
     elif backend_type == "tiered":
         # Two-tier write-through: L1 working store (epistemic-graph) in front of
-        # an L3 durable PostgreSQL/pggraph tier. Sub-backends are built directly
-        # (not via recursive create_backend) so they don't claim _ACTIVE_BACKEND.
+        # an L2 durable tier. Sub-backends are built directly (not via recursive
+        # create_backend) so they don't claim _ACTIVE_BACKEND.
+        #
+        # L2 (durable) selection — keep it zero-infra by default:
+        #   * explicit GRAPH_BACKEND_L2 wins;
+        #   * else if a Postgres DSN is configured (uri / GRAPH_DB_URI /
+        #     PGGRAPH_DSN) → "postgresql" (preserves existing prod configs);
+        #   * else → "ladybug" (embedded, no external server).
         from .epistemic_graph_backend import EpistemicGraphBackend
-        from .postgresql_backend import PostgreSQLBackend
         from .tiered_backend import TieredGraphBackend
 
         l1_type = (
@@ -290,24 +306,64 @@ def create_backend(
             )
         l1 = EpistemicGraphBackend()
 
-        resolved_uri = (
-            uri
-            or os.environ.get("GRAPH_DB_URI")
-            or os.environ.get("PGGRAPH_DSN")
-            or "postgresql://localhost:5432/agent_utilities"
+        has_pg_dsn = bool(
+            uri or os.environ.get("GRAPH_DB_URI") or os.environ.get("PGGRAPH_DSN")
         )
-        resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
-        pool_min = int(os.environ.get("GRAPH_POOL_MIN", "2"))
-        pool_max = int(os.environ.get("GRAPH_POOL_MAX", "10"))
-        pggraph_schema = os.environ.get("GRAPH_PGGRAPH_SCHEMA", "public")
-        l3 = PostgreSQLBackend(
-            dsn=resolved_uri,
-            graph_name=resolved_name,
-            pool_min=pool_min,
-            pool_max=pool_max,
-            pggraph_schema=pggraph_schema,
+        l2_type = os.environ.get("GRAPH_BACKEND_L2", "").lower().strip() or (
+            "postgresql" if has_pg_dsn else "ladybug"
         )
-        backend = TieredGraphBackend(l1=l1, l3=l3)
+
+        l3: GraphBackend | None = None
+        if l2_type in ("postgres", "postgresql", "pggraph"):
+            from .postgresql_backend import PostgreSQLBackend
+
+            resolved_uri = (
+                uri
+                or os.environ.get("GRAPH_DB_URI")
+                or os.environ.get("PGGRAPH_DSN")
+                or "postgresql://localhost:5432/agent_utilities"
+            )
+            resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
+            pool_min = int(os.environ.get("GRAPH_POOL_MIN", "2"))
+            pool_max = int(os.environ.get("GRAPH_POOL_MAX", "10"))
+            pggraph_schema = os.environ.get("GRAPH_PGGRAPH_SCHEMA", "public")
+            l3 = PostgreSQLBackend(
+                dsn=resolved_uri,
+                graph_name=resolved_name,
+                pool_min=pool_min,
+                pool_max=pool_max,
+                pggraph_schema=pggraph_schema,
+            )
+        elif l2_type == "ladybug":
+            from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
+
+            if not LADYBUG_AVAILABLE:
+                logger.warning(
+                    "tiered L2=ladybug requested but the 'ladybug' package is not "
+                    "installed; running L1-only (no durable persistence)."
+                )
+            else:
+                if db_path:
+                    resolved_path = db_path
+                elif os.environ.get("GRAPH_DB_PATH"):
+                    resolved_path = os.environ["GRAPH_DB_PATH"]
+                else:
+                    from agent_utilities.core.paths import kg_db_path
+
+                    resolved = kg_db_path()
+                    resolved.parent.mkdir(parents=True, exist_ok=True)
+                    resolved_path = str(resolved)
+                l3 = LadybugBackend(resolved_path)
+        else:
+            logger.warning(
+                "tiered L2 '%s' unsupported; running L1-only (no durable "
+                "persistence). Supported: ladybug, postgresql.",
+                l2_type,
+            )
+
+        # When no durable L2 could be built, degrade to the L1 working store
+        # alone rather than crashing the whole engine.
+        backend = TieredGraphBackend(l1=l1, l3=l3) if l3 is not None else l1
 
     elif backend_type == "stardog":
         # Stardog is primarily an OWLBackend; wrap it for GraphBackend compatibility

@@ -22,6 +22,32 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
+# Lazy, cached epistemic-graph client for Rust-backed VaR/CVaR. Probed once;
+# falls back to the local numpy path when the engine is unreachable so that
+# offline/unit-test environments behave exactly as before.
+_ENGINE_PROBED = False
+_ENGINE_CLIENT: Any = None
+
+
+def _risk_engine() -> Any:
+    global _ENGINE_PROBED, _ENGINE_CLIENT
+    if _ENGINE_PROBED:
+        return _ENGINE_CLIENT
+    _ENGINE_PROBED = True
+    try:
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        _ENGINE_CLIENT = SyncEpistemicGraphClient.connect()
+        logger.info("epistemic-graph engine connected for VaR/CVaR")
+    except Exception as exc:  # noqa: BLE001 — degrade to numpy
+        logger.debug("epistemic-graph engine unavailable for VaR, using numpy: %s", exc)
+        _ENGINE_CLIENT = None
+    return _ENGINE_CLIENT
+
+
+def _to_list(returns: Any) -> list[float]:
+    return returns.tolist() if hasattr(returns, "tolist") else [float(r) for r in returns]
+
 
 @dataclass
 class RiskLimits:
@@ -135,9 +161,30 @@ class VaRCalculator:
         confidence_95: float = 0.05,
         confidence_99: float = 0.01,
     ) -> VaRResult:
-        """Compute VaR using historical simulation."""
+        """Compute VaR using historical simulation.
+
+        Routes to the Rust epistemic-graph engine when reachable (one batched
+        `risk_metrics` round-trip yields var_95/var_99/cvar_95); otherwise uses
+        the local numpy path below.
+        """
         if len(returns) < 10:
             return VaRResult(method="historical", n_observations=len(returns))
+
+        # Engine path only for the default 95/99 confidences it reports natively.
+        if abs(confidence_95 - 0.05) < 1e-9 and abs(confidence_99 - 0.01) < 1e-9:
+            client = _risk_engine()
+            if client is not None:
+                try:
+                    m = client.finance.risk_metrics(_to_list(returns), 0.0)
+                    return VaRResult(
+                        var_95=float(m["var_95"]),
+                        var_99=float(m["var_99"]),
+                        cvar_95=float(m["cvar_95"]),
+                        method="historical",
+                        n_observations=len(returns),
+                    )
+                except Exception as exc:  # noqa: BLE001 — degrade to numpy
+                    logger.debug("engine VaR failed, using numpy: %s", exc)
 
         sorted_returns = np.sort(returns)
         var_95 = -np.percentile(sorted_returns, confidence_95 * 100)

@@ -12,8 +12,10 @@ Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated
 ### Graph Database
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `memory` (prod uses `postgresql`) | Backend to use. Primary tiers: `memory`, `file`, `epistemic_graph`, `postgresql`. Contrib (opt-in, under `backends/contrib/`): `ladybug`, `falkordb`, `neo4j` |
-| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for the `file`/`ladybug` (DuckDB) backends |
+| `GRAPH_BACKEND` | `tiered` (epistemic_graph L1 + LadybugDB L2; zero-infra) | Backend to use. Primary tiers: `tiered`, `memory`, `file`, `epistemic_graph`, `postgresql`. Contrib (opt-in, under `backends/contrib/`): `ladybug`, `falkordb`, `neo4j`. For a Postgres durable L2 set `GRAPH_DB_URI` (or `GRAPH_BACKEND_L2=postgresql`) |
+| `GRAPH_BACKEND_L1` | `epistemic_graph` | L1 working store for the `tiered` backend |
+| `GRAPH_BACKEND_L2` | `ladybug` (or `postgresql` when a DSN is set) | L2 durable store for the `tiered` backend |
+| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for the `file`/`ladybug` backends |
 | `GRAPH_DB_HOST` | `localhost` | Host for Neo4j/FalkorDB |
 | `GRAPH_DB_PORT` | `7687` | Port for Neo4j/FalkorDB |
 | `GRAPH_DB_URI` | *None* | Direct connection URI (overrides Host/Port; e.g. for PostgreSQL bolt/URI) |

@@ -18,6 +18,13 @@ def _make_config(**overrides):
     # (pydantic-settings sources can shadow init kwargs; direct mutation is the
     # reliable way to pin the exact attribute values the guard inspects.)
     cfg = AgentConfig()
+    # Hermetic baseline: the guard inspects these connection fields, and
+    # pydantic-settings would otherwise source them from a leaked os.environ (test
+    # order pollution — e.g. a DSN set by an earlier test). Reset to None unless a
+    # test overrides them, so each scenario is pinned regardless of run order.
+    for field in ("graph_db_uri", "pggraph_dsn", "graph_backend_l2"):
+        if field not in overrides:
+            setattr(cfg, field, None)
     for key, value in overrides.items():
         setattr(cfg, key, value)
     return cfg
@@ -26,6 +33,7 @@ def _make_config(**overrides):
 def _toy_config(**overrides):
     base = dict(
         graph_persistence_type="file",
+        graph_backend="memory",
         a2a_broker="in-memory",
         a2a_storage="in-memory",
     )
@@ -36,6 +44,7 @@ def _toy_config(**overrides):
 def _prod_config(**overrides):
     base = dict(
         graph_persistence_type="postgresql",
+        graph_backend="postgresql",
         a2a_broker="kafka",
         a2a_storage="postgresql",
         kafka_bootstrap_servers="redpanda-0:9092,redpanda-1:9092",
@@ -64,11 +73,12 @@ def test_prod_profile_with_file_persistence_fails():
     cfg = _toy_config()
     with pytest.raises(ProductionProfileError) as exc:
         assert_production_safe(cfg, profile="prod")
-    # The error must list every offending setting (persistence, broker, storage,
-    # and the unset reactive ledger — Plan 08 Synergy 2).
-    assert len(exc.value.offending) == 4
+    # The error must list every offending setting (persistence, single-host graph
+    # backend, broker, storage, and the unset reactive ledger — Plan 08 Synergy 2).
+    assert len(exc.value.offending) == 5
     joined = "\n".join(exc.value.offending)
     assert "graph_persistence_type" in joined
+    assert "graph_backend" in joined
     assert "a2a_broker" in joined
     assert "kafka_bootstrap_servers" in joined
     assert "a2a_storage" in joined
@@ -120,5 +130,25 @@ def test_config_method_delegates(monkeypatch):
 
 def test_collect_violations_is_profile_independent():
     # collect_* always evaluates rules regardless of APP_PROFILE.
-    assert len(collect_production_violations(_toy_config())) == 4
+    assert len(collect_production_violations(_toy_config())) == 5
     assert collect_production_violations(_prod_config()) == []
+
+
+def test_tiered_with_ladybug_l2_fails_under_prod():
+    # The zero-infra default (tiered + embedded LadybugDB L2) is single-host and
+    # must be rejected in production unless a durable L2 is configured.
+    cfg = _prod_config(graph_backend="tiered", graph_backend_l2=None, graph_db_uri=None)
+    with pytest.raises(ProductionProfileError) as exc:
+        assert_production_safe(cfg, profile="prod")
+    assert any("graph_backend=tiered" in o for o in exc.value.offending)
+
+
+def test_tiered_with_postgres_dsn_passes_under_prod():
+    # A DSN auto-promotes the tiered L2 to PostgreSQL -> production-safe.
+    cfg = _prod_config(
+        graph_backend="tiered",
+        graph_backend_l2=None,
+        graph_db_uri="postgresql://agent:agent@pg:5432/kg",
+    )
+    assert_production_safe(cfg, profile="prod")
+    assert collect_production_violations(cfg) == []

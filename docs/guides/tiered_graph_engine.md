@@ -79,36 +79,47 @@ impact = nx.ancestors(subgraph, target_id)
 
 | Environment | Backend | NetworkX Role | Use Case |
 |-------------|---------|---------------|----------|
-| **Production (default)** | PostgreSQL (`postgresql`) + `epistemic_graph` L1 | Compute scratchpad only | Enterprise deployment, durable + Rust-accelerated compute |
-| **Production (tiered)** | `tiered` (epistemic_graph L1 + PostgreSQL durable) | Compute scratchpad only | Large-scale, high-concurrency multi-agent swarms |
-| **Development** | `memory` / `file`, or opt-in contrib (Ladybug/FalkorDB) | Compute scratchpad | Local dev |
-| **Testing/CI** | MemoryBackend (`memory`, bare default) | Both storage & compute | Unit tests, small graphs |
-| **Edge/Embedded** | `file` backend (JSON persistence) | Both + persistence | IoT, offline agents |
+| **Out-of-box default** | `tiered` (epistemic_graph L1 + **LadybugDB** L2) | Compute scratchpad only | Single self-contained binary, **no external system dependencies** |
+| **Production (durable)** | `tiered` with `GRAPH_DB_URI` set → PostgreSQL L2 (pgvector + pgGraph) | Compute scratchpad only | Enterprise, high-concurrency multi-agent swarms |
+| **Development** | `tiered`+ladybug (default), or `memory` / `file` | Compute scratchpad | Local dev |
+| **Testing/CI** | MemoryBackend (`GRAPH_BACKEND=memory`) | Both storage & compute | Unit tests, small graphs |
+| **Edge/Embedded** | `tiered`+ladybug or `file` (JSON persistence) | Both + persistence | IoT, offline agents |
 
-> **Note:** `ladybug`, `neo4j`, and `falkordb` are demoted to opt-in contrib
-> backends (`backends/contrib/`) and are imported only when explicitly requested.
-> The primary durable backend is PostgreSQL; the L1 compute tier defaults to
-> `epistemic_graph` (`GRAPH_BACKEND_L1`).
+> **Note:** The out-of-box default is the zero-infra `tiered` backend: L1
+> `epistemic_graph` (always included) + L2 **LadybugDB** (embedded, no server).
+> Its L2 auto-switches to PostgreSQL whenever a DSN (`GRAPH_DB_URI` /
+> `PGGRAPH_DSN`) is configured, or explicitly via `GRAPH_BACKEND_L2=postgresql`.
+> `neo4j` and `falkordb` remain opt-in contrib backends (`backends/contrib/`),
+> imported only when requested. The L1 compute tier defaults to
+> `epistemic_graph` (`GRAPH_BACKEND_L1`). The production-profile guard rejects a
+> ladybug L2 when `APP_PROFILE=production` and no durable DSN is set.
 
 ### Configuration
 
 For a detailed walkthrough, compose files, and connection examples, see the [Deploying Graph Databases Guide](graph-db-deployment.md).
 
 ```bash
-# 1. Bare default — zero-dep in-memory (testing/CI; no persistence)
+# 1. Out-of-box default — zero-infra tiered (epistemic_graph L1 + LadybugDB L2).
+#    Nothing to set; this is what you get when GRAPH_BACKEND is unset.
+export GRAPH_BACKEND=tiered            # implicit default
+export GRAPH_BACKEND_L1=epistemic_graph
+export GRAPH_BACKEND_L2=ladybug        # embedded, no external server
+
+# 2. Production durable — tiered with a PostgreSQL L2 (pgvector + pgGraph).
+#    Setting a DSN auto-switches L2 to postgres; no other change needed.
+export GRAPH_BACKEND=tiered
+export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
+
+# 3. Pure ephemeral in-memory (testing/CI; no persistence)
 export GRAPH_BACKEND=memory
 
-# 2. Production durable default — PostgreSQL (pgvector + pgGraph)
+# 4. Single durable backend without the L1 compute tier — PostgreSQL only
 export GRAPH_BACKEND=postgresql
 export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
 
-# 3. Tiered (epistemic_graph L1 compute + PostgreSQL durable)
-export GRAPH_BACKEND=tiered
-export GRAPH_BACKEND_L1=epistemic_graph
-
 # Opt-in contrib backends (imported only when requested):
 
-# export GRAPH_BACKEND=ladybug   # self-contained SQLite
+# export GRAPH_BACKEND=ladybug   # standalone embedded LadybugDB (no L1 tier)
 
 # Neo4j cluster
 # export GRAPH_BACKEND=neo4j
