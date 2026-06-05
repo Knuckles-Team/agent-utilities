@@ -41,7 +41,7 @@ async def test_kb_extractor_agent_success(mock_chunk):
     mock_result.output = ExtractedArticle(
         title="Success",
         summary="A successful extraction",
-        content="Full content",
+        content="Full article content synthesized from the source material.",
         concepts=["success"],
         facts=[],
         backlinks=[],
