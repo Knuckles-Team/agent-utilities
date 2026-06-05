@@ -940,12 +940,16 @@ class RegistryMixin(_Base):
         """
         alpha = 0.3
 
+        new_rate = alpha * reward + (1 - alpha) * 0.5
         if self.graph.has_node(team_config_id):
             data = self.graph._get_node_properties(team_config_id)
             old_rate = data.get("success_rate", 0.5)
             new_rate = alpha * reward + (1 - alpha) * old_rate
             data["success_rate"] = new_rate
             data["usage_count"] = data.get("usage_count", 0) + 1
+            # _get_node_properties returns a detached snapshot; persist the
+            # mutated values back to the graph store so reads see the update.
+            self.graph.add_node(team_config_id, data)
 
         if self.backend:
             self.backend.execute(
@@ -954,15 +958,7 @@ class RegistryMixin(_Base):
                 "    tc.usage_count = COALESCE(tc.usage_count, 0) + 1",
                 {
                     "id": team_config_id,
-                    "rate": alpha * reward
-                    + (1 - alpha)
-                    * (
-                        (
-                            self.graph._get_node_properties(team_config_id)
-                            if self.graph.has_node(team_config_id)
-                            else {}
-                        ).get("success_rate", 0.5)
-                    ),
+                    "rate": new_rate,
                 },
             )
 
