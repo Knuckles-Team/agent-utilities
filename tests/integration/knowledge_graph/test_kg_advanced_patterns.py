@@ -88,7 +88,7 @@ def test_hybrid_retriever_fallback(mock_create_model, memory_engine):
 @patch("pydantic_ai.Agent.run_sync")
 def test_consolidate_memory_llm(mock_run_sync, mock_create_model, memory_engine):
     """Test memory synthesis using the LLM judge."""
-    mock_run_sync.return_value.data = "This is a synthesized summary."
+    mock_run_sync.return_value.output = "This is a synthesized summary."
 
     # Mock backend to simulate matching episodes
     mock_backend = MagicMock()
