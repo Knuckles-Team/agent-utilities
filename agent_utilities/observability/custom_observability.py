@@ -67,6 +67,12 @@ from agent_utilities.core.config import (
     HAS_LOGFIRE,
 )
 
+__all__ = [
+    "setup_otel",
+    "verify_otel_pipeline",
+    "get_otel_status_summary",
+]
+
 logfire: Any
 try:
     import logfire
