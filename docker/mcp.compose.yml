@@ -1,4 +1,10 @@
 ---
+# graph-os runs as a THIN FastMCP wrapper: it serves ONLY the MCP tool surface
+# (here over streamable-http on :8004). The Knowledge Graph REST API
+# (/api/graph/*, /api/sessions, /api/goals, /api/tools) is served centrally by
+# the agent-utilities API gateway (agent_utilities.server.app), not by this
+# container. For a pure stdio integration (e.g. the multiplexer), set
+# TRANSPORT=stdio and drop the port mapping/healthcheck.
 services:
   kg-server-mcp:
     build:
@@ -6,6 +12,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: kg-server-mcp
     hostname: kg-server-mcp
+    # Equivalent to the `graph-os` console script; __main__ runs mcp_server().
     command: [ "python", "-m", "agent_utilities.mcp.kg_server" ]
     extra_hosts:
       - "host.docker.internal:host-gateway"

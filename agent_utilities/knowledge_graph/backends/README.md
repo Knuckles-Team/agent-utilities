@@ -39,7 +39,12 @@ All backends implement the `GraphBackend` abstract base class defined in `base.p
 
 Backends are selected via environment variables:
 
-- `GRAPH_BACKEND`: `ladybug` (default), `neo4j`, `falkordb`, `postgresql`, or `memory`.
+- `GRAPH_BACKEND`: `tiered` (default — L1 `epistemic_graph` + L2 `ladybug`, a
+  single self-contained binary with no external server), or one of `memory`,
+  `file`, `epistemic_graph`, `postgresql`, `ladybug`, `neo4j`, `falkordb`.
+- `GRAPH_BACKEND_L1` / `GRAPH_BACKEND_L2`: tiered tier selection. L2 defaults to
+  `ladybug`, and auto-switches to `postgresql` when a DSN (`GRAPH_DB_URI` /
+  `PGGRAPH_DSN`) is configured. Set `GRAPH_BACKEND_L2=postgresql` to force it.
 - `GRAPH_DB_PATH`: Local path for LadybugDB (default: `knowledge_graph.db`).
 - `GRAPH_DB_URI`: Connection URI for Neo4j or PostgreSQL.
 - `GRAPH_DB_HOST`: Host for FalkorDB.

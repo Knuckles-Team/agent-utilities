@@ -8,6 +8,12 @@ os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "false")
 os.environ.setdefault("ENABLE_GRAPH_INTEGRATION", "false")
 os.environ.setdefault("AGENT_UTILITIES_TESTING", "true")
 os.environ.setdefault("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "False")
+# The out-of-box default backend is "tiered" (epistemic_graph + LadybugDB).
+# Pin the unit suite to the pure-ephemeral in-memory backend so tests never
+# touch disk / take a file lock. Integration tests that exercise
+# tiered/ladybug/postgres override this via their own env or by passing an
+# explicit ``backend_type=`` to ``create_backend()``.
+os.environ.setdefault("GRAPH_BACKEND", "memory")
 import shutil
 import tempfile
 

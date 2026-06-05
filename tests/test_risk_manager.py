@@ -161,3 +161,29 @@ class TestRiskManagerFacade:
         positions = {"SPY": {"value": 80_000, "asset_class": "equity"}}
         result = rm.run_stress_test("covid_march_2020", positions, 100_000)
         assert result.pnl_impact < 0
+
+
+class TestVaRCalculatorEngineLivePath:
+    """Live-path test (CONCEPT:KG-2.20): VaRCalculator.historical routes to the
+    Rust epistemic-graph engine when reachable. Auto-skips when the engine is
+    not running so offline/unit environments are unaffected."""
+
+    def test_historical_uses_engine_when_available(self):
+        import agent_utilities.domains.finance.risk_manager as rm
+
+        # Reset the cached probe so engine availability is re-evaluated here.
+        rm._ENGINE_PROBED = False
+        rm._ENGINE_CLIENT = None
+        client = rm._risk_engine()
+        if client is None:
+            pytest.skip("epistemic-graph engine not reachable")
+
+        returns = np.random.default_rng(0).normal(0, 0.01, 500)
+        direct = client.finance.risk_metrics(returns.tolist(), 0.0)
+        result = VaRCalculator().historical(returns)
+
+        # The VaRCalculator result must equal the engine's own computation,
+        # proving the live call path actually invoked the engine.
+        assert abs(result.var_95 - float(direct["var_95"])) < 1e-9
+        assert abs(result.var_99 - float(direct["var_99"])) < 1e-9
+        assert abs(result.cvar_95 - float(direct["cvar_95"])) < 1e-9
