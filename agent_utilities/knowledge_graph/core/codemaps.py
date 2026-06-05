@@ -67,7 +67,7 @@ class CodemapGenerator:
         # In a real implementation, we might want to use a specific system prompt
         hierarchy_agent = Agent(
             model=model,
-            result_type=list[HierarchicalSection],
+            output_type=list[HierarchicalSection],
             system_prompt=(
                 "You are a senior architect creating a concise, hierarchical codemap of a codebase. "
                 "Given a user task and a list of relevant files and functions (subgraph), "

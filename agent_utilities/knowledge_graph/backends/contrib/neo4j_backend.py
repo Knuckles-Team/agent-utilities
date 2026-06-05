@@ -14,7 +14,9 @@ from ..base import GraphBackend
 logger = logging.getLogger(__name__)
 
 try:
-    from neo4j import GraphDatabase
+    from neo4j import GraphDatabase as _GraphDatabase
+
+    GraphDatabase: Any = _GraphDatabase
 except ImportError:
     GraphDatabase = None
 

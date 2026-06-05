@@ -306,7 +306,7 @@ class ResearchAutopilot:
                 report=f"Error: {e}",
             )
 
-    def run(self, data: dict[str, np.ndarray] | None = None) -> ResearchReport:
+    def run(self, data: dict[str, Any] | None = None) -> ResearchReport:
         """
         Run all pending hypotheses and produce a research report.
 

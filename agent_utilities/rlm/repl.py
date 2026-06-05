@@ -7,6 +7,8 @@ import tempfile
 import traceback
 from typing import Any
 
+from pydantic_ai.messages import ModelRequest, UserPromptPart
+
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from ..graph.client import get_graph_client
@@ -716,7 +718,7 @@ class RLMEnvironment:
                             f"Execution STDOUT:\n{stdout[:2000]}\n\n"
                             f"CRITICAL: {validation_err}"
                         )
-                        history.append({"role": "user", "content": stdout_feedback})
+                        history.append(ModelRequest(parts=[UserPromptPart(content=stdout_feedback)]))
                         continue
 
                     run_trace.final_status = "success"  # CONCEPT:ORCH-1.29
@@ -731,10 +733,7 @@ class RLMEnvironment:
                         f"Continue analyzing or output FINAL_VAR."
                     )
                 history.append(
-                    {
-                        "role": "user",
-                        "content": stdout_feedback,
-                    }
+                    ModelRequest(parts=[UserPromptPart(content=stdout_feedback)])
                 )
             else:
                 if "__FINAL__" in self.vars:
@@ -745,7 +744,9 @@ class RLMEnvironment:
                     if validation_err:
                         del self.vars["__FINAL__"]
                         history.append(
-                            {"role": "user", "content": f"CRITICAL: {validation_err}"}
+                            ModelRequest(
+                                parts=[UserPromptPart(content=f"CRITICAL: {validation_err}")]
+                            )
                         )
                         continue
 
