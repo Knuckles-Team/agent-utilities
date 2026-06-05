@@ -872,6 +872,70 @@ class AutoSimilarityLinker:
 
         return edges
 
+    def _build_edge(self, src: str, dst: str, sim: float) -> SimilarityEdgeNode:
+        now = time.time()
+        return SimilarityEdgeNode(
+            id=f"sim_{uuid.uuid4().hex[:8]}",
+            name=f"Similarity: {src} ↔ {dst}",
+            description=f"Auto-created similarity edge (cosine={sim:.3f}) between {src} and {dst}",
+            source_node_id=src,
+            target_node_id=dst,
+            cosine_similarity=sim,
+            decay_lambda=self.config.decay_lambda,
+            current_weight=sim,
+            creation_epoch=now,
+            last_accessed_epoch=now,
+            access_count=0,
+        )
+
+    def link_all_batch(
+        self,
+        engine: Any = None,
+        nodes: list[RegistryNode] | None = None,
+    ) -> list[SimilarityEdgeNode]:
+        """Build ALL similarity edges across the graph in one batch (CONCEPT:KG-2.3).
+
+        Unlike :meth:`link_new_node` (incremental, one node vs N candidates — correctly kept in
+        in-process numpy), the all-pairs O(n²) construction is **collapsed onto the epistemic-graph
+        compute layer**: a single ``compute_similarity_edges`` request over the out-of-process
+        MessagePack/UDS transport runs the O(n²) natively in the tokio Rust engine, over embeddings
+        already resident in the graph store — one round-trip, zero per-vector marshaling. This also
+        *wires* that native op, which was previously never invoked.
+
+        Falls back to an in-process numpy O(n²) pass over ``nodes`` when the Rust core isn't running
+        (e.g. tests, or ``GRAPH_COMPUTE_FALLBACK=embedded``), so behaviour is identical either way.
+        """
+        threshold = self.config.similarity_threshold
+        compute = getattr(engine, "graph_compute", None) if engine is not None else None
+        if compute is not None and hasattr(compute, "compute_similarity_edges"):
+            try:
+                triples = compute.compute_similarity_edges(threshold)
+                edges = [
+                    self._build_edge(str(s), str(d), float(sim))
+                    for (s, d, sim) in (triples or [])
+                    if s != d and float(sim) >= threshold
+                ]
+                logger.info(
+                    "[KG-2.3] Built %d similarity edges via native compute_similarity_edges "
+                    "(epistemic-graph, 1 round-trip)",
+                    len(edges),
+                )
+                return edges
+            except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
+                logger.debug(
+                    "Native compute_similarity_edges unavailable (%s); numpy fallback", e
+                )
+
+        # numpy fallback (Rust core not running)
+        items = [n for n in (nodes or []) if getattr(n, "embedding", None)]
+        edges = []
+        for i, a in enumerate(items):
+            for b in items[i + 1 :]:
+                sim = _cosine_similarity(a.embedding, b.embedding)
+                if sim >= threshold:
+                    edges.append(self._build_edge(a.id, b.id, sim))
+        return edges
+
     def decay_weight(self, edge: SimilarityEdgeNode) -> float:
         """Compute the current decayed weight of an edge.
 
