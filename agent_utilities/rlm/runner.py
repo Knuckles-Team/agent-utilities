@@ -31,7 +31,10 @@ def _dynamic_signature(task: str, output_field: str = "result") -> type[BaseMode
     """Build an ad-hoc Predict-RLM signature: one free-form input → one output field."""
     model = create_model(  # type: ignore[call-overload]  # pydantic dynamic-model field tuples
         "AdHocRLMSignature",
-        input_text=(str, InputField(default="", description="The input to reason over.")),
+        input_text=(
+            str,
+            InputField(default="", description="The input to reason over."),
+        ),
         **{output_field: (str, OutputField(description=task))},
     )
     model.__doc__ = task

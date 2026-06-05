@@ -28,11 +28,13 @@ logger = logging.getLogger(__name__)
 # govern *archival*, not ranking. Importance ≥ 0.3 decays slowly (90d), else fast (30d).
 HALF_LIFE_IMPORTANT_DAYS = 90.0
 HALF_LIFE_DEFAULT_DAYS = 30.0
-ARCHIVE_DECAY_FLOOR = 0.1   # decay below this → archival candidate
-CONFIDENCE_EXEMPT = 0.7     # importance/confidence ≥ this → exempt (alert instead of archive)
+ARCHIVE_DECAY_FLOOR = 0.1  # decay below this → archival candidate
+CONFIDENCE_EXEMPT = (
+    0.7  # importance/confidence ≥ this → exempt (alert instead of archive)
+)
 EXEMPT_SOURCE_TYPES = frozenset({"human", "procedural"})
-MERGE_COSINE = 0.92         # near-duplicate threshold
-LENGTH_RATIO_FLOOR = 0.5    # skip cosine if size ratio < this (cheap pre-filter)
+MERGE_COSINE = 0.92  # near-duplicate threshold
+LENGTH_RATIO_FLOOR = 0.5  # skip cosine if size ratio < this (cheap pre-filter)
 
 
 def half_life_days(importance: float) -> float:
@@ -66,7 +68,9 @@ def classify_node(node: dict[str, Any], now: datetime) -> str:
     if d >= ARCHIVE_DECAY_FLOOR:
         return "keep"
     # Stale: archive unless high-confidence (then alert for human review — never silently drop).
-    confidence = float(node.get("confidence", node.get("importance_score", importance)) or 0.0)
+    confidence = float(
+        node.get("confidence", node.get("importance_score", importance)) or 0.0
+    )
     return "alert" if confidence >= CONFIDENCE_EXEMPT else "archive"
 
 
@@ -134,10 +138,20 @@ def merge_plan(
                 if t not in tags:
                     tags.append(t)
         importance = max(
-            (float(m.get("importance_score", m.get("importance", 0.0)) or 0.0) for m in members),
+            (
+                float(m.get("importance_score", m.get("importance", 0.0)) or 0.0)
+                for m in members
+            ),
             default=0.0,
         )
-        plans.append({"survivor": survivor, "tags": tags, "importance": importance, "retired": dups})
+        plans.append(
+            {
+                "survivor": survivor,
+                "tags": tags,
+                "importance": importance,
+                "retired": dups,
+            }
+        )
     return plans
 
 
@@ -147,7 +161,9 @@ class MemoryHygiene:
     def __init__(self, engine: Any) -> None:
         self.engine = engine
 
-    def run(self, *, now: datetime | None = None, dry_run: bool = False) -> dict[str, Any]:
+    def run(
+        self, *, now: datetime | None = None, dry_run: bool = False
+    ) -> dict[str, Any]:
         """Scan memory nodes, archive stale AI content (set ``valid_to``), and report.
 
         Archival is a soft close of the bi-temporal interval (KG-2.11) — the node is never
@@ -196,7 +212,11 @@ class MemoryHygiene:
                 try:
                     backend.execute(
                         "MATCH (s) WHERE s.id = $sid SET s.tags = $tags, s.importance_score = $imp",
-                        {"sid": p["survivor"], "tags": p["tags"], "imp": p["importance"]},
+                        {
+                            "sid": p["survivor"],
+                            "tags": p["tags"],
+                            "imp": p["importance"],
+                        },
                     )
                     for dup in p["retired"]:
                         backend.execute(
