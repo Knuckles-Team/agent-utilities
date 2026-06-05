@@ -1,5 +1,10 @@
+import pytest
 from eunomia_mcp import create_eunomia_middleware
 from eunomia_sdk import EunomiaClient
+
+# Every test here talks to a real remote Eunomia server (http://eunomia.arpa) — a live
+# external service, absent in CI/sandbox — so exclude from the default `-m "not live"` run.
+pytestmark = pytest.mark.live
 
 
 def test_eunomia_client_connection():
