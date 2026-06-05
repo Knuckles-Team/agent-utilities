@@ -81,7 +81,8 @@ async def test_codemap_generator_create(mock_kg):
                 )
             ]
             result = MagicMock()
-            result.data = mock_hierarchy
+            # pydantic-ai AgentRunResult exposes .output (was .data in older versions)
+            result.output = mock_hierarchy
             mock_agent.run.return_value = result
 
             generator = CodemapGenerator(mock_kg)
