@@ -236,8 +236,8 @@ async def run_with_approvals(
         # Build DeferredToolResults from user decisions
         decisions = resolution.get("decisions", {})
         approvals: dict[str, bool | ToolApproved | ToolDenied] = {}
-        for tc in tool_call_infos:
-            cid = tc["tool_call_id"]
+        for tci in tool_call_infos:
+            cid = tci["tool_call_id"]
             decision = decisions.get(cid, "deny")
             if decision in ("accept", "approve", True):
                 approvals[cid] = ToolApproved()
