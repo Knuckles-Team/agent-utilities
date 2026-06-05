@@ -462,13 +462,17 @@ async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
         host = getattr(args, "host", "0.0.0.0")
         port = int(getattr(args, "port", 8000))
 
+        from agent_utilities.mcp.server_factory import protect_stdio_jsonrpc
+
         if transport == "stdio":
+            protect_stdio_jsonrpc()
             await mcp.run_async(transport="stdio")
         elif transport == "streamable-http":
             await mcp.run_async(transport="streamable-http", host=host, port=port)
         elif transport == "sse":
             await mcp.run_async(transport="sse", host=host, port=port)
         else:
+            protect_stdio_jsonrpc()
             await mcp.run_async(transport="stdio")
     finally:
         logger.info("Shutting down multiplexer and child servers...")

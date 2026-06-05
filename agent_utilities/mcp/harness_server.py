@@ -369,6 +369,9 @@ def main():
     )
 
     if args.transport == "stdio":
+        from agent_utilities.mcp.server_factory import protect_stdio_jsonrpc
+
+        protect_stdio_jsonrpc()
         mcp.run(transport="stdio")
     else:
         mcp.run(
