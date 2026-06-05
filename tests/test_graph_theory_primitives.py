@@ -218,8 +218,10 @@ class TestChromaticScheduling:
         ]
         g = build_graph(nodes, edges)
         coloring = chromatic_schedule(g)
+        # chromatic_schedule returns dict[str, int] — keys are stringified node IDs,
+        # so index with str(node-data), not the raw int.
         for _, (u, v, _) in g._edges.items():
-            assert coloring[g[u]] != coloring[g[v]]
+            assert coloring[str(g[u])] != coloring[str(g[v])]
 
 
 class TestPathCounting:
