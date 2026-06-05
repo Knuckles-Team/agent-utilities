@@ -161,6 +161,8 @@ async def ag_ui_endpoint(request: Request) -> Response:
             if override_model is not None
             else nullcontext()
         )
+        if _agent_instance is None:
+            raise RuntimeError("Agent instance not initialized on app state")
         try:
             with override_ctx:
                 adapter = AGUIAdapter(agent=_agent_instance, run_input=run_input)
