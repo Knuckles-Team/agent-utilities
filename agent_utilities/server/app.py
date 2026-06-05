@@ -394,7 +394,7 @@ def build_agent_app(
 
         app = FastAPI(
             title=f"{_agent_emoji} {_name} - Agent Server",
-            description=_agent_description,
+            description=_agent_description or "",
             version=__version__,
             debug=debug or False,
             lifespan=lifespan,

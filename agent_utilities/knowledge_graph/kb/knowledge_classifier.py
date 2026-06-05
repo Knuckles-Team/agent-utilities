@@ -162,7 +162,7 @@ class UniversalKnowledgeClassifier:
         self._api_key = (
             api_key or (_default_chat.api_key if _default_chat else "") or ""
         )
-        self._agent = None
+        self._agent: Any = None
 
     def _get_agent(self):
         """Lazily create the Pydantic AI classification agent."""

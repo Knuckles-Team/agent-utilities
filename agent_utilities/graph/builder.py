@@ -556,7 +556,7 @@ def create_agent(
 
         def make_agent_step(t):
             async def agent_specific_step(
-                ctx: StepContext[GraphState, GraphDeps, Any],
+                ctx: StepContext,
             ) -> str | End[Any]:
                 return await agent_package_step(ctx, node_id=t)
 

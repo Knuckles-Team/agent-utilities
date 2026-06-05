@@ -144,7 +144,7 @@ __all__ = [
     "CodebaseMapGenerator",
 ]
 
-_cached_modules = {}
+_cached_modules: dict[str, Any] = {}
 
 
 def __getattr__(name: str) -> Any:

@@ -733,7 +733,7 @@ def create_mcp_server(
                             if hasattr(q_params, "getlist"):
                                 vals = q_params.getlist(key)
                             else:
-                                vals = [q_params.get(key)] if q_params.get(key) else []
+                                vals = [q_params.get(key) or ""] if q_params.get(key) else []
                             for val in vals:
                                 if val:
                                     q_tools.extend(
@@ -750,7 +750,7 @@ def create_mcp_server(
                             if hasattr(q_params, "getlist"):
                                 vals = q_params.getlist(key)
                             else:
-                                vals = [q_params.get(key)] if q_params.get(key) else []
+                                vals = [q_params.get(key) or ""] if q_params.get(key) else []
                             for val in vals:
                                 if val:
                                     q_disabled.extend(
@@ -765,7 +765,7 @@ def create_mcp_server(
                             vals = q_params.getlist("tags")
                         else:
                             vals = (
-                                [q_params.get("tags")] if q_params.get("tags") else []
+                                [q_params.get("tags") or ""] if q_params.get("tags") else []
                             )
                         for val in vals:
                             if val:
@@ -781,7 +781,7 @@ def create_mcp_server(
                             vals = q_params.getlist("disabled_tags")
                         else:
                             vals = (
-                                [q_params.get("disabled_tags")]
+                                [q_params.get("disabled_tags") or ""]
                                 if q_params.get("disabled_tags")
                                 else []
                             )
@@ -812,7 +812,7 @@ def create_mcp_server(
                                     vals = headers.getlist(key)
                                 else:
                                     vals = (
-                                        [headers.get(key)] if headers.get(key) else []
+                                        [headers.get(key) or ""] if headers.get(key) else []
                                     )
                                 for val in vals:
                                     if val:
@@ -836,7 +836,7 @@ def create_mcp_server(
                                     vals = headers.getlist(key)
                                 else:
                                     vals = (
-                                        [headers.get(key)] if headers.get(key) else []
+                                        [headers.get(key) or ""] if headers.get(key) else []
                                     )
                                 for val in vals:
                                     if val:
@@ -856,7 +856,7 @@ def create_mcp_server(
                                 vals = headers.getlist("x-mcp-enabled-tags")
                             else:
                                 vals = (
-                                    [headers.get("x-mcp-enabled-tags")]
+                                    [headers.get("x-mcp-enabled-tags") or ""]
                                     if headers.get("x-mcp-enabled-tags")
                                     else []
                                 )
@@ -874,7 +874,7 @@ def create_mcp_server(
                                 vals = headers.getlist("x-mcp-disabled-tags")
                             else:
                                 vals = (
-                                    [headers.get("x-mcp-disabled-tags")]
+                                    [headers.get("x-mcp-disabled-tags") or ""]
                                     if headers.get("x-mcp-disabled-tags")
                                     else []
                                 )

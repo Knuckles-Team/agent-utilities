@@ -97,7 +97,7 @@ def observe_transcript(
 
         user_content = f"## New transcript to process\n\n{transcript_text}"
         result = agent.run_sync(user_content)
-        observations_text = str(result.data)
+        observations_text = str(result.output)
     except Exception as e:
         logger.warning("Observer LLM call failed: %s", e)
         return None

@@ -66,7 +66,7 @@ __all__ = [
 
 
 async def researcher_step(
-    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | str],
+    ctx: StepContext,
 ) -> str:
     """Execute deep discovery across the workspace, codebase, and web.
 
@@ -124,7 +124,7 @@ async def researcher_step(
 
 
 async def planner_step(
-    ctx: StepContext[GraphState, GraphDeps, None],
+    ctx: StepContext,
 ) -> GraphPlan | str:
     """Re-plan execution after a verification failure.
 
@@ -420,7 +420,7 @@ async def fetch_epistemic_context() -> str:
 
 
 async def architect_step(
-    ctx: StepContext[GraphState, GraphDeps, None],
+    ctx: StepContext,
 ) -> str:
     """Analyze system requirements and propose high-level design decisions.
 
@@ -456,7 +456,7 @@ async def architect_step(
 
 
 async def memory_selection_step(
-    ctx: StepContext[GraphState, GraphDeps, None],
+    ctx: StepContext,
 ) -> str | End[Any]:
     """Filter and select long-term project memories relevant to the session.
 

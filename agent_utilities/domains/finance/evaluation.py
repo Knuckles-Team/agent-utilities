@@ -64,7 +64,7 @@ def walk_forward_validation(
     Strictly prevents lookahead bias.
     """
     all_predictions = []
-    all_actuals = []
+    all_actuals: list[float] = []
 
     for start in range(0, len(features) - train_size - test_size, step):
         train_end = start + train_size

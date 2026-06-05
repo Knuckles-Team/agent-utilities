@@ -695,7 +695,7 @@ class IntelligenceGraphEngine(
             )
 
             result = agent.run_sync(prompt)
-            llm_summary = str(result.data)
+            llm_summary = str(result.output)
             logger.info(f"L2 synthesis complete: {len(llm_summary)} chars generated")
         except Exception as e:
             logger.warning(f"L2 LLM synthesis failed (non-fatal): {e}")

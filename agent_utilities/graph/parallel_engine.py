@@ -144,18 +144,8 @@ def resolve_model_role(role: str) -> str:
         from ..rlm.roles import rlm_role_model
 
         resolved = rlm_role_model(role, fallback="")
-        if resolved:
-            return str(resolved)
-    except Exception:  # noqa: BLE001 - role routing is best-effort
-        pass
-    try:
-        from ..models.model_registry import get_model_registry
-
-        reg = get_model_registry()
-        spec = reg.resolve_role(role) if hasattr(reg, "resolve_role") else None
-        model_id = getattr(spec, "model_id", "") if spec else ""
-        return str(model_id or "")
-    except Exception:  # noqa: BLE001
+        return str(resolved or "")
+    except Exception:  # noqa: BLE001 - role routing is best-effort; caller falls back on ""
         return ""
 
 
@@ -645,7 +635,10 @@ class ParallelEngine:
                 attempt += 1
                 # exponential backoff: 0.5s, 1s, 2s, ... (bounded)
                 await asyncio.sleep(min(0.5 * (2 ** (attempt - 1)), 8.0))
-            return last  # unreachable, satisfies type checker
+            return last or AgentExecutionResult(
+                agent_id=agent.agent_id, role=agent.role, success=False,
+                error="no attempt produced a result",
+            )
 
         tasks = [_run_one(a) for a in agents]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)

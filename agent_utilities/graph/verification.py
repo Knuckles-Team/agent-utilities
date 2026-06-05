@@ -42,7 +42,7 @@ __all__ = [
 
 
 async def join_step(
-    ctx: StepContext[GraphState, GraphDeps, Any],
+    ctx: StepContext,
 ) -> str | None:
     """Synchronize parallel execution paths using a thread-safe barrier count.
 
@@ -110,7 +110,7 @@ async def join_step(
 
 
 async def wide_search_joiner_step(
-    ctx: StepContext[GraphState, GraphDeps, None],
+    ctx: StepContext,
 ) -> str:
     """CONCEPT:ORCH-1.1 — Slow-Path LLM Repair for WideSearch extraction.
 
@@ -166,7 +166,7 @@ async def wide_search_joiner_step(
 
 
 async def verifier_step(
-    ctx: StepContext[GraphState, GraphDeps, None],
+    ctx: StepContext,
 ) -> str:
     """Validate execution results and route to synthesis or re-dispatch.
 
@@ -440,7 +440,7 @@ async def verifier_step(
 
 
 async def synthesizer_step(
-    ctx: StepContext[GraphState, GraphDeps, None],
+    ctx: StepContext,
 ) -> End[GraphResponse]:
     """Compose the final authoritative response from execution results.
 
@@ -640,7 +640,7 @@ async def synthesizer_step(
 
 
 async def error_recovery_step(
-    ctx: StepContext[GraphState, GraphDeps, Exception | str | Any],
+    ctx: StepContext,
 ) -> str | End[dict]:
     """Attempt graceful recovery before terminating the graph.
 
@@ -716,7 +716,7 @@ async def error_recovery_step(
 
 
 async def _distill_experience_from_retry(
-    ctx: StepContext[GraphState, GraphDeps, Any], results_summary: str
+    ctx: StepContext, results_summary: str
 ) -> None:
     """CONCEPT:AHE-3.4: Contrastive self-correction distillation.
 

@@ -132,7 +132,7 @@ class GraphMaintainer:
                         ),
                     )
                     result = agent.run_sync(combined_text)
-                    summary_text = str(result.data)
+                    summary_text = str(result.output)
                 except Exception as e:
                     logger.warning(
                         f"Conversation summarization failed, using fallback: {e}"
@@ -268,7 +268,7 @@ class GraphMaintainer:
                 [ep["description"] for ep in episodes if ep.get("description")]
             )
             result = agent.run_sync(combined_text)
-            summary_text = str(result.data)
+            summary_text = str(result.output)
         except Exception as e:
             logger.warning(f"LLM summarization failed, using fallback: {e}")
             summary_text = f"Synthesized summary of {len(episodes)} episodes."
@@ -368,7 +368,7 @@ class GraphMaintainer:
             )
 
             result = agent.run_sync(prompt)
-            data = result.data
+            data = result.output
 
             logger.info(f"Self-improvement critique generated: {data.critique}")
 
@@ -470,7 +470,7 @@ class GraphMaintainer:
             prompt = f"Existing Skills:\n{skills}\n\n" f"Existing Agents:\n{agents}"
 
             result = agent.run_sync(prompt)
-            data = result.data
+            data = result.output
 
             logger.info(f"Dream synthesized concept: {data.synthesis_idea}")
 

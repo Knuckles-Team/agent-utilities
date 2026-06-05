@@ -480,7 +480,7 @@ def get_step_descriptions() -> str:
 
 
 async def _execute_dynamic_mcp_agent(
-    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any], agent_info: MCPAgent
+    ctx: StepContext, agent_info: MCPAgent
 ) -> str:
     """Execute a dynamically generated specialist agent from an MCP server registry.
 
@@ -1089,7 +1089,7 @@ async def _execute_dynamic_mcp_agent(
 
 
 async def _attempt_specialist_fallback(
-    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
+    ctx: StepContext,
     failed_agent: MCPAgent,
 ) -> str | None:
     """Implement a resilience strategy by falling back to sibling adaptive_agent_router.
@@ -1152,7 +1152,7 @@ async def _attempt_specialist_fallback(
 
 
 async def _execute_agent_package_logic(
-    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
+    ctx: StepContext,
     node_id: str,
     meta: dict,
 ) -> str | End[Any]:
@@ -1231,7 +1231,7 @@ async def _execute_agent_package_logic(
 
 
 async def agent_package_step(
-    ctx: StepContext[GraphState, GraphDeps, ExecutionStep | Any],
+    ctx: StepContext,
     node_id: str,
 ) -> str | End[Any]:
     """Graph node step wrapper for agent package execution.
@@ -1259,7 +1259,7 @@ async def agent_package_step(
 
 
 async def _execute_specialized_step(
-    ctx: StepContext[GraphState, GraphDeps, None], prompt_name: str
+    ctx: StepContext, prompt_name: str
 ) -> str | End[Any]:
     """Execute a specialized expert role using structured prompts and tool injection.
 
@@ -1505,7 +1505,7 @@ async def _execute_specialized_step(
 
 
 async def _execute_domain_logic(
-    ctx: StepContext[GraphState, GraphDeps, str], domain: str
+    ctx: StepContext, domain: str
 ):
     """Core logic to execute a domain-specific agent or sub-graph.
 

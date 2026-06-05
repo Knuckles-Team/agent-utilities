@@ -55,7 +55,7 @@ async def extract_and_ingest_triples(
             system_prompt="Extract key knowledge triples in the format: Entity1|Relation|Entity2. Return one triple per line.",
         )
         result = await agent.run(episode_description)
-        triples_raw = result.data.split("\n")
+        triples_raw = result.output.split("\n")
 
         triples_added = 0
 

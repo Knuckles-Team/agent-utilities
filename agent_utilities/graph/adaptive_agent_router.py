@@ -850,7 +850,7 @@ def make_specialist_step(persona: SpecialistPersona):
     """
 
     async def _specialist_step(
-        ctx: StepContext[GraphState, GraphDeps, None],
+        ctx: StepContext,
     ) -> str | End[Any]:
         return await _execute_specialized_step(ctx, persona.node_id)
 

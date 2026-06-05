@@ -81,7 +81,7 @@ class KGGraphResult:
         team_composition: The original TeamComposition from the composer.
     """
 
-    graph: Graph[GraphState, GraphDeps, Any, GraphResponse]
+    graph: Graph
     entry_node_id: str
     specialist_configs: dict[str, dict[str, Any]]
     kg_provenance: list[dict[str, Any]] = field(default_factory=list)
@@ -618,7 +618,7 @@ def build_pydantic_graph_from_kg(
 
     @g.step(node_id="KGMaterializedStep")
     async def kg_materialized_step(
-        ctx: StepContext[GraphState, GraphDeps, Any],
+        ctx: StepContext,
     ) -> End[GraphResponse]:
         return End(
             GraphResponse(
