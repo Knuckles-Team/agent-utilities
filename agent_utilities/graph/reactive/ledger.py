@@ -15,7 +15,6 @@ Ontological Synergy:
 """
 
 import logging
-import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +24,30 @@ if TYPE_CHECKING:
     from ...models.knowledge_graph import EventNode
 
 logger = logging.getLogger(__name__)
+
+# Monotonic, microsecond-resolution UTC timestamps. The previous second-grained
+# format (``%Y-%m-%dT%H:%M:%SZ``) produced identical timestamps for events
+# appended within the same second, making chronological reconstruction
+# (``get_run_events``/``fork_run``) order-unstable. ISO-8601 with microseconds
+# still sorts lexicographically; a monotonic guard breaks sub-microsecond ties.
+_last_ts: list[str] = [""]
+
+
+def _next_event_timestamp() -> str:
+    import datetime
+
+    ts = (
+        datetime.datetime.now(datetime.timezone.utc)
+        .strftime("%Y-%m-%dT%H:%M:%S.%f")
+        + "Z"
+    )
+    if ts <= _last_ts[0]:
+        # Strictly increase past the previous stamp to preserve append order.
+        prev = _last_ts[0]
+        head, frac = prev[:-1].rsplit(".", 1)
+        ts = f"{head}.{int(frac) + 1:06d}Z"
+    _last_ts[0] = ts
+    return ts
 
 
 class EventLedger:
@@ -92,7 +115,7 @@ class EventLedger:
             The created and persisted EventNode.
         """
         event_id = f"evt:{uuid.uuid4().hex[:8]}"
-        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        ts = _next_event_timestamp()
         props = payload or {}
         from ...models.knowledge_graph import EventNode
 
