@@ -217,14 +217,19 @@ class EpistemicGraphBackend(GraphBackend):
         # normalises node_type→type on read-back; see graph_compute
         # ``props.get("type", props.get("node_type", ...))``). Check all
         # conventions so a label filter matches regardless of writer path.
-        if (
-            data.get("type") == label
-            or data.get("node_type") == label
-            or data.get("label") == label
+        # Compare case-insensitively: schema labels are PascalCase (``Prompt``)
+        # while the node-type enum values are lowercase (``prompt``).
+        target = label.lower()
+        if target in (
+            str(data.get("type", "")).lower(),
+            str(data.get("node_type", "")).lower(),
+            str(data.get("label", "")).lower(),
         ):
             return True
         labels = data.get("labels")
-        return isinstance(labels, list | tuple) and label in labels
+        return isinstance(labels, list | tuple) and any(
+            str(lbl).lower() == target for lbl in labels
+        )
 
     @staticmethod
     def _coerce_literal(raw: str, params: dict[str, Any]) -> Any:
@@ -494,12 +499,18 @@ class EpistemicGraphBackend(GraphBackend):
                 )
                 if m_alias and "." in it:
                     prop = m_alias.group(1)
-                    alias = (
-                        m_alias.group(2)
-                        if m_alias.lastindex and m_alias.lastindex >= 2
-                        else prop
+                    value = self._node_value(nid, data, prop)
+                    has_explicit_alias = (
+                        m_alias.lastindex and m_alias.lastindex >= 2
                     )
-                    row[alias] = self._node_value(nid, data, prop)
+                    if has_explicit_alias:
+                        row[m_alias.group(2)] = value
+                    else:
+                        # No explicit ``AS`` alias: expose both the standard
+                        # Cypher column name (``var.prop``) and the bare prop
+                        # name so callers using either convention resolve it.
+                        row[f"{var}.{prop}"] = value
+                        row.setdefault(prop, value)
                 elif it == var or re.match(rf"{var}\s+as\s+\w+", it, re.I):
                     # Bare ``RETURN v`` → a single column named ``v`` holding the
                     # full node dict (Cypher semantics; callers read ``res["v"]``).
