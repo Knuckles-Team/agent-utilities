@@ -243,7 +243,9 @@ class AgentConfig(BaseSettings):
     graph_timeout: str | None = Field(default="1200000", alias="GRAPH_TIMEOUT")
     max_recursion_depth: str | None = Field(default="2", alias="MAX_RECURSION_DEPTH")
     routing_percentile: str | None = Field(default="50.0", alias="ROUTING_PERCENTILE")
-    kg_embedding_dim: str | None = Field(default="1024", alias="KG_EMBEDDING_DIM")
+    # Must match the embedding model's output dimension (768). The schema vector
+    # column size is derived from this, so a mismatch breaks node inserts.
+    kg_embedding_dim: str | None = Field(default="768", alias="KG_EMBEDDING_DIM")
 
     # --- Model registry helpers (derive from chat_models / embedding_models) ---
 

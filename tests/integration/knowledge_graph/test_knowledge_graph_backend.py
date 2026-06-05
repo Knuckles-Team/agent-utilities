@@ -106,12 +106,17 @@ class TestLadybugBackend:
 class TestBackendFactory:
     """Test the create_backend() factory function."""
 
-    @pytest.mark.skipif(not LADYBUG_AVAILABLE, reason="LadybugDB not available")
-    def test_default_creates_ladybug(self, tmp_path):
-        """Default backend type should be LadybugDB."""
+    def test_default_creates_epistemic_graph(self, tmp_path):
+        """Default backend is the Rust-native EpistemicGraphBackend.
+
+        Ladybug/FalkorDB/Neo4j were demoted to opt-in ``contrib`` backends;
+        the primary/default durable tier is epistemic_graph (see AGENTS.md).
+        """
+        from agent_utilities.knowledge_graph.backends import EpistemicGraphBackend
+
         db_file = tmp_path / "test_factory.db"
         backend = create_backend(db_path=str(db_file))
-        assert isinstance(backend, LadybugBackend)
+        assert isinstance(backend, EpistemicGraphBackend)
 
     @pytest.mark.skipif(not FALKORDB_AVAILABLE, reason="FalkorDB driver not available")
     @patch("agent_utilities.knowledge_graph.backends.contrib.falkordb_backend.FalkorDB")
