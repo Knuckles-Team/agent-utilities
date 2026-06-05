@@ -268,11 +268,27 @@ class QueryMixin(_Base):
                     results.append(result)
 
         logger.debug(f"Search hybrid for '{query}' found {len(results)} nodes.")
-        # Sort by relevance (heuristic: name match first)
-        results.sort(
-            key=lambda x: any(k in str(x.get("name", "")).lower() for k in keywords),
-            reverse=True,
-        )
+
+        # Sort by graded relevance, not a coarse boolean. A bare "any keyword in
+        # name" predicate cannot distinguish "Agent A" from "Agent B" (both
+        # contain "agent"), so the result order would fall back to the backend's
+        # arbitrary iteration order. Rank by: (1) whole-query substring match in
+        # name, then in id; (2) count of distinct keywords matched in name; then
+        # in id/description — so the closest-matching node wins deterministically.
+        def _relevance(x: dict[str, Any]) -> tuple:
+            name = str(x.get("name", "")).lower()
+            desc = str(x.get("description", "")).lower()
+            nid = str(x.get("id", "")).lower()
+            name_kw = sum(1 for k in keywords if k in name)
+            id_desc_kw = sum(1 for k in keywords if k in nid or k in desc)
+            return (
+                query_lower in name,
+                query_lower in nid,
+                name_kw,
+                id_desc_kw,
+            )
+
+        results.sort(key=_relevance, reverse=True)
 
         return results[:top_k]
 
