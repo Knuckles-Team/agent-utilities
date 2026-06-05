@@ -65,7 +65,7 @@ class ZeroDayImmunity:
             try:
                 from epistemic_graph.parser import RustASTParser
 
-                parser = RustASTParser()
+                parser: Any = RustASTParser()
                 # Run the local python AST parsing directly as it is fast and synchronous
                 parsed = parser.python_ast_parse("prompt.py", prompt)
                 for node in parsed.get("nodes", []):

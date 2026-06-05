@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 async def recursive_reasoner_tool(
-    ctx: RunContext[Any], prompt: str, context_data: str = ""
+    ctx: Any, prompt: str, context_data: str = ""
 ) -> str:
     """
     A recursive reasoning specialist that can handle massive context and unbounded logical depth.

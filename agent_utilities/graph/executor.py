@@ -13,7 +13,7 @@ automated fallback strategies for resilience in production workflows.
 import asyncio
 import logging
 import os
-from typing import Any
+from typing import cast, Any
 
 from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_graph import End
@@ -404,7 +404,9 @@ async def _get_domain_tools(
 
             filtered_dirs = [d for d in skill_dirs if skill_matches_tags(d, skill_tags)]
             if filtered_dirs:
-                skills_toolset = SkillsToolset(directories=filtered_dirs)
+                skills_toolset = SkillsToolset(
+                    directories=cast("list[Any]", filtered_dirs)
+                )
                 toolsets.append(skills_toolset)
                 logger.info(
                     f"Loaded {len(filtered_dirs)} skill directories for '{node_id}'"
@@ -788,10 +790,9 @@ async def _execute_dynamic_mcp_agent(
             model=ctx.deps.agent_model,
             system_prompt=agent_sys_prompt,
             deps_type=GraphDeps,
-            toolset=guarded_toolsets,
-            output_type=str | DeferredToolRequests,
+            toolsets=guarded_toolsets,
+            output_type=[str, DeferredToolRequests],
             end_strategy="early",
-            output_retries=2,
         )
 
         # Tool-count telemetry: surfaces blind or overloaded adaptive_agent_router
@@ -1374,7 +1375,7 @@ async def _execute_specialized_step(
         ),
         tools=custom_tools,
         toolsets=collected_mcp_toolsets + skill_toolsets,
-        output_type=str | DeferredToolRequests,
+        output_type=[str, DeferredToolRequests],
     )
 
     # Tool-count telemetry for specialized steps

@@ -20,7 +20,7 @@ valid (logical OR), allowing gradual migration from API keys to JWT.
 
 import logging
 import time
-from typing import Any
+from typing import cast, Any
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
@@ -115,7 +115,7 @@ def _decode_jwt(
 
     try:
         # Import the keyset
-        key_set = KeySet.import_key_set(jwks)
+        key_set = KeySet.import_key_set(cast(Any, jwks))
 
         # Decode with signature verification
         token_obj = jwt.decode(token, key_set)  # type: ignore
