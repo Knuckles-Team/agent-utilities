@@ -506,38 +506,70 @@ class GraphMaintainer:
         if not self.engine.backend:
             return 0
 
-        # This is a complex operation; simplified here for LadybugDB compatibility
-        # We fetch all concepts with embeddings and find pairs locally
         query = "MATCH (c:Concept) WHERE c.embedding IS NOT NULL RETURN c.id as id, c.name as name, c.embedding as embedding"
         concepts = self.engine.backend.execute(query) or []
+        by_id = {c["id"]: c for c in concepts}
+
+        # All-pairs similarity is collapsed onto the epistemic-graph compute layer: one
+        # ``compute_similarity_edges`` request over the MessagePack/UDS transport runs the O(n²)
+        # natively in the tokio engine over graph-resident embeddings (one round-trip). Falls back to
+        # an in-process numpy O(n²) pass when the Rust core isn't running.
+        pairs = self._similar_concept_pairs(concepts, similarity_threshold)
+
+        merged_count = 0
+        processed_ids: set[str] = set()
+        for src, dst, sim in pairs:
+            if src in processed_ids or dst in processed_ids:
+                continue
+            if src not in by_id or dst not in by_id:
+                continue
+            logger.info(
+                f"Merging similar concepts: {by_id[src]['name']} and {by_id[dst]['name']} (sim={sim:.4f})"
+            )
+            self._merge_concept_pair(old_id=dst, new_id=src, similarity=sim)
+            processed_ids.add(dst)
+            merged_count += 1
+
+        return merged_count
+
+    def _similar_concept_pairs(
+        self, concepts: list, threshold: float
+    ) -> list[tuple[str, str, float]]:
+        """Return ``(src, dst, sim)`` concept pairs above ``threshold``.
+
+        Prefers the native ``compute_similarity_edges`` (epistemic-graph, one round-trip over
+        graph-resident embeddings); falls back to an in-process numpy O(n²) pass when the Rust
+        compute core is unavailable. Pairs are filtered to the supplied Concept id set.
+        """
+        cids = {c["id"] for c in concepts}
+        compute = getattr(self.engine, "graph_compute", None)
+        if compute is not None and hasattr(compute, "compute_similarity_edges"):
+            try:
+                triples = compute.compute_similarity_edges(threshold) or []
+                pairs = [
+                    (str(s), str(d), float(sim))
+                    for (s, d, sim) in triples
+                    if str(s) in cids and str(d) in cids and float(sim) > threshold
+                ]
+                logger.info(
+                    "[KG-2.3] %d concept similarity pairs via native compute_similarity_edges",
+                    len(pairs),
+                )
+                return pairs
+            except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
+                logger.debug(
+                    "Native compute_similarity_edges unavailable (%s); numpy fallback", e
+                )
 
         from .engine import cosine_similarity
 
-        merged_count = 0
-        processed_ids = set()
-
+        out: list[tuple[str, str, float]] = []
         for i, c1 in enumerate(concepts):
-            if c1["id"] in processed_ids:
-                continue
-            for j in range(i + 1, len(concepts)):
-                c2 = concepts[j]
-                if c2["id"] in processed_ids:
-                    continue
-
+            for c2 in concepts[i + 1 :]:
                 sim = cosine_similarity(c1["embedding"], c2["embedding"])
-                if sim > similarity_threshold:
-                    # Merge c2 (old) into c1 (survivor), preserving every
-                    # relationship type and merging properties non-destructively.
-                    logger.info(
-                        f"Merging similar concepts: {c1['name']} and {c2['name']} (sim={sim:.4f})"
-                    )
-                    self._merge_concept_pair(
-                        old_id=c2["id"], new_id=c1["id"], similarity=sim
-                    )
-                    processed_ids.add(c2["id"])
-                    merged_count += 1
-
-        return merged_count
+                if sim > threshold:
+                    out.append((c1["id"], c2["id"], sim))
+        return out
 
     @staticmethod
     def _safe_rel_type(rtype: str) -> str:
