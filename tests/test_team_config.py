@@ -210,8 +210,11 @@ class TestLinkPromptToAgent:
 
         assert engine.graph.has_edge("agent:test", "prompt:test")
         edge_data = engine.graph.get_edge_data("agent:test", "prompt:test")
+        # The graph engine canonicalizes a relationship under ``rel_type`` (the
+        # uppercased relationship-type slot), so assert against that contract.
         assert any(
-            e.get("type") == RegistryEdgeType.USES_PROMPT for e in edge_data.values()
+            e.get("rel_type") == RegistryEdgeType.USES_PROMPT.name
+            for e in edge_data.values()
         )
 
 
