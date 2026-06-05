@@ -356,7 +356,7 @@ class MemoryOptimizationEngine:
         min_p = 1.0
         for _ in range(self._n_projections):
             direction = rng.standard_normal(d)
-            direction = direction / (np.linalg.norm(direction) or 1.0)
+            direction = float(direction / (np.linalg.norm(direction) or 1.0))
             projection = centered @ direction
             p_value = self._simplified_normality_p(projection)
             min_p = float(min(min_p, p_value))

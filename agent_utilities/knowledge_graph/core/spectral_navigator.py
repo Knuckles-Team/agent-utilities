@@ -268,7 +268,9 @@ class SpectralClusterNavigator:
             # Assign
             new_labels = []
             for i in range(n):
-                dists = [np.linalg.norm(data[i] - centroids[j]) for j in range(k)]
+                dists = np.array(
+                    [np.linalg.norm(data[i] - centroids[j]) for j in range(k)]
+                )
                 new_labels.append(int(np.argmin(dists)))
 
             if new_labels == labels:
