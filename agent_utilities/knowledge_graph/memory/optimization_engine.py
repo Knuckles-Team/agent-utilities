@@ -909,6 +909,19 @@ class AutoSimilarityLinker:
         (e.g. tests, or ``GRAPH_COMPUTE_FALLBACK=embedded``), so behaviour is identical either way.
         """
         threshold = self.config.similarity_threshold
+
+        def _numpy_edges() -> list[SimilarityEdgeNode]:
+            # numpy fallback over the in-hand nodes (Rust core not running, or L0 doesn't
+            # hold these nodes so the native result came back empty).
+            items = [n for n in (nodes or []) if getattr(n, "embedding", None)]
+            out: list[SimilarityEdgeNode] = []
+            for i, a in enumerate(items):
+                for b in items[i + 1 :]:
+                    sim = _cosine_similarity(a.embedding, b.embedding)
+                    if sim >= threshold:
+                        out.append(self._build_edge(a.id, b.id, sim))
+            return out
+
         compute = getattr(engine, "graph_compute", None) if engine is not None else None
         if compute is not None and hasattr(compute, "compute_similarity_edges"):
             try:
@@ -918,26 +931,20 @@ class AutoSimilarityLinker:
                     for (s, d, sim) in (triples or [])
                     if s != d and float(sim) >= threshold
                 ]
-                logger.info(
-                    "[KG-2.3] Built %d similarity edges via native compute_similarity_edges "
-                    "(epistemic-graph, 1 round-trip)",
-                    len(edges),
-                )
-                return edges
+                if edges:
+                    logger.info(
+                        "[KG-2.3] Built %d similarity edges via native compute_similarity_edges "
+                        "(epistemic-graph, 1 round-trip)",
+                        len(edges),
+                    )
+                    return edges
+                # Empty native result: L0 likely lacks these nodes — disambiguate with numpy.
             except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
                 logger.debug(
                     "Native compute_similarity_edges unavailable (%s); numpy fallback", e
                 )
 
-        # numpy fallback (Rust core not running)
-        items = [n for n in (nodes or []) if getattr(n, "embedding", None)]
-        edges = []
-        for i, a in enumerate(items):
-            for b in items[i + 1 :]:
-                sim = _cosine_similarity(a.embedding, b.embedding)
-                if sim >= threshold:
-                    edges.append(self._build_edge(a.id, b.id, sim))
-        return edges
+        return _numpy_edges()
 
     def decay_weight(self, edge: SimilarityEdgeNode) -> float:
         """Compute the current decayed weight of an edge.
