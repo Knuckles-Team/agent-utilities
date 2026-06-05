@@ -538,10 +538,26 @@ class GraphMaintainer:
         """Return ``(src, dst, sim)`` concept pairs above ``threshold``.
 
         Prefers the native ``compute_similarity_edges`` (epistemic-graph, one round-trip over
-        graph-resident embeddings); falls back to an in-process numpy O(n²) pass when the Rust
-        compute core is unavailable. Pairs are filtered to the supplied Concept id set.
+        the L0-resident embeddings); falls back to an in-process numpy O(n²) pass over the
+        already-fetched concept embeddings when the native result is empty or the Rust compute
+        core is unavailable. The native op reads the Rust engine's resident graph, which may not
+        hold these L1-fetched concepts (TieredGraphBackend sync gap), so an empty native result
+        is disambiguated by the in-hand numpy pass rather than trusted as "no similar pairs".
+        Pairs are filtered to the supplied Concept id set.
         """
         cids = {c["id"] for c in concepts}
+
+        def _numpy_pairs() -> list[tuple[str, str, float]]:
+            from .engine import cosine_similarity
+
+            out: list[tuple[str, str, float]] = []
+            for i, c1 in enumerate(concepts):
+                for c2 in concepts[i + 1 :]:
+                    sim = cosine_similarity(c1["embedding"], c2["embedding"])
+                    if sim > threshold:
+                        out.append((c1["id"], c2["id"], sim))
+            return out
+
         compute = getattr(self.engine, "graph_compute", None)
         if compute is not None and hasattr(compute, "compute_similarity_edges"):
             try:
@@ -551,25 +567,20 @@ class GraphMaintainer:
                     for (s, d, sim) in triples
                     if str(s) in cids and str(d) in cids and float(sim) > threshold
                 ]
-                logger.info(
-                    "[KG-2.3] %d concept similarity pairs via native compute_similarity_edges",
-                    len(pairs),
-                )
-                return pairs
+                if pairs:
+                    logger.info(
+                        "[KG-2.3] %d concept similarity pairs via native compute_similarity_edges",
+                        len(pairs),
+                    )
+                    return pairs
+                # Empty native result: the L0 engine likely doesn't hold these concepts —
+                # fall through to numpy over the in-hand embeddings.
             except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
                 logger.debug(
                     "Native compute_similarity_edges unavailable (%s); numpy fallback", e
                 )
 
-        from .engine import cosine_similarity
-
-        out: list[tuple[str, str, float]] = []
-        for i, c1 in enumerate(concepts):
-            for c2 in concepts[i + 1 :]:
-                sim = cosine_similarity(c1["embedding"], c2["embedding"])
-                if sim > threshold:
-                    out.append((c1["id"], c2["id"], sim))
-        return out
+        return _numpy_pairs()
 
     @staticmethod
     def _safe_rel_type(rtype: str) -> str:
